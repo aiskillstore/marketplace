@@ -80,6 +80,8 @@ test('evaluate runs on a disposable VM with a user-separated job-local inference
   assert.match(evaluate, /--evaluator-uid "\$PACKEVAL_UID"/);
   assert.match(evaluate, /--evaluator-gid "\$PACKEVAL_GID"/);
   assert.match(evaluate, /--evaluator-cwd \/home\/packeval/);
+  assert.match(evaluate, /--evaluator-runtime-root \/opt\/pack-evaluator\/generations/);
+  assert.match(evaluate, /! test -w \/opt\/pack-evaluator\/generations/);
   assert.match(evaluate, /sudo -u packproxy env -i/);
   assert.match(evaluate, /sudo -u packeval env -i/);
   assert.match(evaluate, /! sudo -n true/);
@@ -101,7 +103,8 @@ test('evaluate runs on a disposable VM with a user-separated job-local inference
   assert.match(evaluate, /PACK_EVALUATOR_MAX_CONCURRENT=4/);
   assert.match(evaluate, /PACK_EVALUATOR_MAX_OUTPUT_TOKENS=65536/);
   assert.match(evaluate, /Pack evaluator proxy did not become healthy within 30 seconds/);
-  assert.match(evaluate, /proxy-failure\.log/);
+  assert.match(evaluate, /proxy-diagnostics\.json/);
+  assert.doesNotMatch(evaluate, /sed -E .*Bearer|proxy\.log|proxy-failure\.log/);
   assert.match(evaluate, /evaluator-failure\.txt/);
   assert.match(evaluate, /pkill -TERM -u packeval/);
   assert.match(evaluate, /pkill -KILL -u packeval/);
@@ -111,9 +114,9 @@ test('evaluate runs on a disposable VM with a user-separated job-local inference
   assert.match(evaluate, /RESULT_FILES=.*find \/opt\/pack-evaluator\/results -type f/);
   assert.match(evaluate, /find \/opt\/pack-evaluator\/results ! -type f ! -type d/);
   assert.match(evaluate, /cp -a \/opt\/pack-evaluator\/results\/\./);
-  assert.match(evaluate, /find "\$GITHUB_WORKSPACE\/pack-results" -type d -exec chmod 0700/);
-  assert.match(evaluate, /find "\$GITHUB_WORKSPACE\/pack-results" -type f -exec chmod 0600/);
-  assert.match(evaluate, /find "\$GITHUB_WORKSPACE\/pack-results" ! -type f ! -type d/);
+  assert.match(evaluate, /find "\$GITHUB_WORKSPACE\/pack-harvest" -type d -exec chmod 0700/);
+  assert.match(evaluate, /find "\$GITHUB_WORKSPACE\/pack-harvest" -type f -exec chmod 0600/);
+  assert.match(evaluate, /find "\$GITHUB_WORKSPACE\/pack-harvest" ! -type f ! -type d/);
   const preflightIndex = evaluate.indexOf('if ! sudo -u packeval env -i');
   const relaxedErrorIndex = evaluate.indexOf('set +e', preflightIndex);
   const evaluatorIndex = evaluate.indexOf('sudo env -i', relaxedErrorIndex);
@@ -122,10 +125,46 @@ test('evaluate runs on a disposable VM with a user-separated job-local inference
   assert.ok(evaluatorIndex > relaxedErrorIndex);
   assert.match(evaluate, /pack-production\.mjs verify/);
   assert.match(evaluate, /trusted evaluation closure verification failed/);
-  assert.match(evaluate, /timeout --signal=TERM 4h/);
+  assert.match(evaluate, /timeout --signal=TERM --kill-after=30s 4h/);
   assert.match(evaluate, /prlimit --nproc=256:256 --as=6442450944:6442450944/);
   assert.match(EVALUATOR_PROXY, /evaluator proxy request budget exhausted/);
   assert.match(EVALUATOR_PROXY, /evaluator proxy token has expired/);
+});
+
+test('evaluate emits bounded progress and checkpoints cancellation-safe evidence', () => {
+  const evaluate = section('  evaluate:', '  persist:');
+  assert.match(evaluate, /checkpoint_loop\(\)/);
+  assert.match(evaluate, /checkpoint_loop\(\) \{\n\s+trap - EXIT INT TERM/);
+  assert.match(evaluate, /flock -x 9/);
+  assert.match(evaluate, /\.tmp\.\$\{BASHPID\}/);
+  assert.match(evaluate, /mv -f "\$temporary"/);
+  assert.match(evaluate, /sleep 30/);
+  assert.match(evaluate, /evaluate-progress\.ndjson/);
+  assert.match(evaluate, /evaluate-checkpoint\.json/);
+  assert.match(evaluate, /evaluate-summary\.json/);
+  assert.match(evaluate, /evaluator-interrupted\.txt/);
+  assert.doesNotMatch(evaluate, /proxy-interrupted\.log/);
+  assert.match(evaluate, /EVALUATOR_FINISHED=false/);
+  assert.match(evaluate, /EVALUATOR_PID=\$!/);
+  assert.match(evaluate, /wait "\$EVALUATOR_PID"/);
+  assert.match(evaluate, /trap 'terminate_step 143' TERM/);
+  assert.match(evaluate, /trap 'terminate_step 130' INT/);
+  assert.match(evaluate, /trap 'terminate_step 129' HUP/);
+  assert.match(evaluate, /--evaluation-budget-ms 13800000/);
+  assert.match(evaluate, /--scenario-timeout-ms 7200000/);
+  assert.match(evaluate, /--minimum-fallback-ms 2700000/);
+  assert.match(evaluate, /name: Upload trusted evaluation evidence\n\s+if: success\(\)/);
+  assert.match(evaluate, /name: Upload bounded evaluation diagnostics\n\s+if: always\(\)/);
+  assert.match(evaluate, /name: pack-production-diagnostics/);
+  assert.match(evaluate, /if-no-files-found: warn/);
+  assert.match(evaluate, /path: pack-trusted\//);
+  assert.match(evaluate, /path: pack-diagnostics\//);
+  assert.doesNotMatch(evaluate, /path: pack-harvest\//);
+  assert.doesNotMatch(evaluate, /pack-diagnostics\/.*stdout\.(?:partial|json)/);
+  const checkpointIndex = evaluate.indexOf('checkpoint_loop &');
+  const evaluatorIndex = evaluate.indexOf('"$NODE_BIN" /opt/pack-evaluator/lib/pack-production.mjs evaluate', checkpointIndex);
+  const finishIndex = evaluate.indexOf('EVALUATOR_FINISHED=true', evaluatorIndex);
+  assert.ok(checkpointIndex >= 0 && evaluatorIndex > checkpointIndex && finishIndex > evaluatorIndex);
 });
 
 test('planning is bounded to three artifact scenarios and CLI release is immutable', () => {
@@ -144,7 +183,7 @@ test('planning is bounded to three artifact scenarios and CLI release is immutab
   assert.match(evaluate, /if: needs\.plan\.outputs\.has_scenarios == 'true'/);
   assert.match(persist, /if: needs\.plan\.outputs\.has_scenarios == 'true'/);
   assert.match(finalize, /if: needs\.plan\.outputs\.has_scenarios == 'true'/);
-  assert.match(WORKFLOW, /PACK_PRODUCTION_CLI_VERSION: '2\.9\.0'/);
+  assert.match(WORKFLOW, /PACK_PRODUCTION_CLI_VERSION: '2\.10\.0'/);
   assert.equal((WORKFLOW.match(/require-checksum: 'true'/g) ?? []).length, 1);
   assert.match(plan, /actions\/create-github-app-token@v3/);
   assert.match(plan, /repositories: marketplace,skillstore/);
@@ -161,7 +200,7 @@ test('trusted phases use the Automation API and retain full evidence for 90 days
   assert.match(finalize, /pack-production\.mjs finalize/);
   assert.match(finalize, /final-result\.json/);
   assert.match(finalize, /pack-production\.mjs finalize/);
-  assert.equal((WORKFLOW.match(/retention-days: 90/g) ?? []).length, 5);
+  assert.equal((WORKFLOW.match(/retention-days: 90/g) ?? []).length, 6);
   assert.match(finalize, /PACK_PRODUCTION_AUTO_PUBLISH_ENABLED == 'true'/);
   assert.match(WORKFLOW, /auto_publish:[\s\S]*?default: false/);
 });

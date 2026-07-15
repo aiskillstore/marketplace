@@ -1,13 +1,15 @@
 #!/usr/bin/env node
 
 import { createHash, randomUUID } from 'node:crypto';
-import { spawnSync } from 'node:child_process';
-import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
+import { spawn, spawnSync } from 'node:child_process';
+import { createWriteStream } from 'node:fs';
+import { chmod, chown, copyFile, mkdir, readFile, readdir, rename, writeFile } from 'node:fs/promises';
 import { basename, resolve } from 'node:path';
+import { finished } from 'node:stream/promises';
 import { fileURLToPath } from 'node:url';
 
 const CLI_SCHEMA = 'pack-generation-evaluation/v2';
-const API_SCHEMA = 'skillstore.pack-evaluation/v2';
+const API_SCHEMA = 'skillstore.pack-evaluation/v3';
 const STATUS_SCHEMA = 'skillstore.pack-production-status/v1';
 const READBACK_SCHEMA = 'skillstore.pack-production-readback/v1';
 const SLO_SCHEMA = 'marketplace.pack-production-slo/v1';
@@ -18,6 +20,7 @@ const KNOWN_CLI_EXIT = new Map([
   ['evaluation_inconclusive', 20],
   ['infrastructure_failed', 30],
 ]);
+const EVALUATOR_OUTPUT_LIMIT_BYTES = 16 * 1024 * 1024;
 
 function fail(message) {
   throw new Error(message);
@@ -78,6 +81,341 @@ async function sha256File(file) {
   return sha256(await readFile(file));
 }
 
+export function normalizeEvaluatorProgressLine(line) {
+  if (typeof line !== 'string' || Buffer.byteLength(line, 'utf8') > 512) return null;
+  let match = line.match(
+    /^\[1\/5\] scenario ([a-z0-9][a-z0-9-]{0,79})@([0-9A-Za-z._-]{1,32}): [A-Za-z0-9][A-Za-z0-9 .,&()'\/-]{0,159}$/,
+  );
+  if (match) return `[1/5] scenario ${match[1]}@${match[2]}`;
+  match = line.match(/^\[2\/5\] evaluating ([1-9][0-9]*) capability slots independently$/);
+  if (match) return `[2/5] evaluating ${match[1]} capability slots independently`;
+  if (line === '[3/5] composing a slot-complete pack') return line;
+  match = line.match(/^\[4\/5\] verifying the whole pack ([1-9][0-9]*) times with deterministic artifact gates$/);
+  if (match) return `[4/5] verifying the whole pack ${match[1]} times`;
+  match = line.match(/^\[5\/5\] running ([1-9][0-9]*)-run no-skill baseline$/);
+  if (match) return `[5/5] running ${match[1]}-run no-skill baseline`;
+  match = line.match(/^\s{0,12}slot ([a-z0-9][a-z0-9-]{0,79}): finding candidates for [A-Za-z0-9 .,+_\/-]{1,200}$/);
+  if (match) return `slot ${match[1]}: finding candidates`;
+  match = line.match(
+    /^\s{0,12}slot ([a-z0-9][a-z0-9-]{0,79}): verifying ([a-z0-9][a-z0-9-]{0,79})$/,
+  );
+  if (match) return `slot ${match[1]}: verifying ${match[2]}`;
+  match = line.match(/^run ([1-9][0-9]*)\/([1-9][0-9]*): (executing task\.\.\.|judging output\.\.\.)$/);
+  if (match) return `run ${match[1]}/${match[2]}: ${match[3]}`;
+  match = line.match(
+    /^run ([1-9][0-9]*)\/([1-9][0-9]*): score=(10|[0-9])\/10 task_completed=(true|false) used_skill=(true|false)(?: artifacts=(PASS|FAIL))?(?: \[ENV-BLOCKED\])?$/,
+  );
+  if (!match) return null;
+  return `run ${match[1]}/${match[2]}: score=${match[3]}/10 task_completed=${match[4]} used_skill=${match[5]}`
+    + (match[6] ? ` artifacts=${match[6]}` : '');
+}
+
+export function isSafeEvaluatorProgressLine(line) {
+  return normalizeEvaluatorProgressLine(line) !== null;
+}
+
+export function allocateScenarioBudgetMs({
+  remainingBudgetMs,
+  remainingScenarios,
+  maxScenarioMs,
+  minimumFallbackMs,
+}) {
+  if (!Number.isSafeInteger(remainingBudgetMs) || remainingBudgetMs < 1) return 0;
+  if (!Number.isSafeInteger(remainingScenarios) || remainingScenarios < 1) {
+    fail('remainingScenarios must be a positive integer');
+  }
+  const maximum = Math.max(1, Math.floor(maxScenarioMs));
+  const fallback = Math.max(1, Math.floor(minimumFallbackMs));
+  if (remainingScenarios === 1) return Math.min(maximum, remainingBudgetMs);
+  const reservedForFallbacks = fallback * (remainingScenarios - 1);
+  const fairShare = Math.max(1, Math.floor(remainingBudgetMs / remainingScenarios));
+  const available = remainingBudgetMs - reservedForFallbacks;
+  return Math.min(maximum, Math.max(1, available > 0 ? available : fairShare));
+}
+
+function terminateEvaluatorProcesses(uid) {
+  const userId = String(uid);
+  spawnSync('/usr/bin/pkill', ['-TERM', '-u', userId], { stdio: 'ignore' });
+  spawnSync('/bin/sleep', ['0.1'], { stdio: 'ignore' });
+  spawnSync('/usr/bin/pkill', ['-KILL', '-u', userId], { stdio: 'ignore' });
+  const remaining = spawnSync('/usr/bin/pgrep', ['-u', userId], { stdio: 'ignore' });
+  if (remaining.status === 0) fail(`Evaluator uid ${userId} still has live processes`);
+}
+
+async function prepareScenarioRuntime(runtimeRoot, generationId, uid, gid, baseEnv) {
+  const scenarioRoot = resolve(runtimeRoot, generationId);
+  const home = resolve(scenarioRoot, 'home');
+  const tmp = resolve(scenarioRoot, 'tmp');
+  const codexHome = resolve(scenarioRoot, 'codex-home');
+  const codexLog = resolve(codexHome, 'log');
+  const codexSessions = resolve(codexHome, 'sessions');
+  const sourceCodexHome = baseEnv.CODEX_HOME;
+  if (!sourceCodexHome) fail('CODEX_HOME is required for evaluator identity separation');
+
+  await mkdir(runtimeRoot, { recursive: true, mode: 0o711 });
+  await chmod(runtimeRoot, 0o711);
+  await mkdir(scenarioRoot, { recursive: true, mode: 0o711 });
+  await chmod(scenarioRoot, 0o711);
+  await Promise.all([
+    mkdir(home, { recursive: true, mode: 0o700 }),
+    mkdir(tmp, { recursive: true, mode: 0o700 }),
+    mkdir(codexHome, { recursive: true, mode: 0o555 }),
+    mkdir(codexLog, { recursive: true, mode: 0o700 }),
+    mkdir(codexSessions, { recursive: true, mode: 0o700 }),
+  ]);
+  await Promise.all([
+    chown(home, uid, gid),
+    chown(tmp, uid, gid),
+    chown(codexLog, uid, gid),
+    chown(codexSessions, uid, gid),
+  ]);
+  await Promise.all([
+    chmod(home, 0o700),
+    chmod(tmp, 0o700),
+    chmod(codexHome, 0o555),
+    chmod(codexLog, 0o700),
+    chmod(codexSessions, 0o700),
+  ]);
+  const configFile = resolve(codexHome, 'config.toml');
+  await copyFile(resolve(sourceCodexHome, 'config.toml'), configFile);
+  await chmod(configFile, 0o444);
+
+  return {
+    cwd: home,
+    env: {
+      ...baseEnv,
+      HOME: home,
+      TMPDIR: tmp,
+      CODEX_HOME: codexHome,
+    },
+  };
+}
+
+export async function runEvaluatorProcess(command, commandArgs, options) {
+  const startedAt = Date.now();
+  const stdoutStream = createWriteStream(options.stdoutFile, { flags: 'w', mode: 0o600 });
+  const stderrStream = createWriteStream(options.stderrFile, { flags: 'w', mode: 0o600 });
+  const progressStream = createWriteStream(options.progressFile, { flags: 'a', mode: 0o600 });
+  const onProgress = options.onProgress ?? ((message) => process.stderr.write(`${message}\n`));
+  const heartbeatMs = positiveInteger(options.heartbeatMs, 'heartbeat-ms', 60_000);
+  const timeoutMs = positiveInteger(options.timeoutMs, 'scenario-timeout-ms', 150 * 60_000);
+  const killGraceMs = positiveInteger(options.killGraceMs, 'kill-grace-ms', 10_000);
+  const label = options.label ?? 'unknown';
+  let stdoutBytes = 0;
+  let stderrBytes = 0;
+  let outputExceeded = false;
+  let timedOut = false;
+  let interruptedSignal = null;
+  let stderrRemainder = '';
+  let killTimer = null;
+  const stderrDigest = createHash('sha256');
+  let checkpointWrites = Promise.resolve();
+  let checkpointError = null;
+  let progressSequence = options.progressSequenceStart ?? 0;
+
+  const writeProgressEvent = (event) => {
+    const entry = {
+      schemaVersion: 'marketplace.pack-production-progress/v1',
+      seq: ++progressSequence,
+      at: new Date().toISOString(),
+      ...event,
+    };
+    progressStream.write(`${JSON.stringify(entry)}\n`);
+    if (options.checkpointFile) {
+      const temporary = `${options.checkpointFile}.tmp`;
+      checkpointWrites = checkpointWrites
+        .then(() => writeFile(temporary, `${JSON.stringify(entry, null, 2)}\n`, { mode: 0o600 }))
+        .then(() => rename(temporary, options.checkpointFile))
+        .catch((error) => {
+          checkpointError ??= error;
+        });
+    }
+  };
+
+  writeProgressEvent({
+    event: 'scenario.started',
+    scenarioId: label,
+    generationId: options.generationId ?? null,
+    scenarioIndex: options.scenarioIndex ?? null,
+    scenarioCount: options.scenarioCount ?? null,
+    timeoutMs,
+  });
+  onProgress(`[pack-evaluator] scenario=${label} started timeout=${Math.ceil(timeoutMs / 60_000)}m`);
+
+  const child = spawn(command, commandArgs, {
+    cwd: options.cwd,
+    env: options.env,
+    ...(options.uid == null ? {} : { uid: options.uid }),
+    ...(options.gid == null ? {} : { gid: options.gid }),
+    detached: process.platform !== 'win32',
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+
+  const signalProcessGroup = (signal) => {
+    if (process.platform !== 'win32' && child.pid) {
+      try {
+        process.kill(-child.pid, signal);
+        return;
+      } catch {
+        // The group may already be gone; fall through to the direct child.
+      }
+    }
+    child.kill(signal);
+  };
+
+  const requestTermination = (reason, signal = 'SIGTERM') => {
+    writeProgressEvent({
+      event: reason,
+      scenarioId: label,
+      elapsedMs: Date.now() - startedAt,
+      signal,
+    });
+    signalProcessGroup(signal);
+    if (killTimer == null) {
+      killTimer = setTimeout(() => signalProcessGroup('SIGKILL'), killGraceMs);
+    }
+  };
+
+  const stopForOutputLimit = (kind) => {
+    if (outputExceeded) return;
+    outputExceeded = true;
+    onProgress(`[pack-evaluator] scenario=${label} stopped: ${kind} exceeded 16 MiB`);
+    requestTermination('scenario.output_limit_exceeded');
+    child.stdout.destroy();
+    child.stderr.destroy();
+  };
+
+  const writeBoundedStdout = (chunk) => {
+    if (outputExceeded) return;
+    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    const previous = stdoutBytes;
+    const remaining = Math.max(0, EVALUATOR_OUTPUT_LIMIT_BYTES - stdoutBytes);
+    if (remaining > 0) stdoutStream.write(buffer.subarray(0, remaining));
+    stdoutBytes += buffer.length;
+    if (previous + buffer.length > EVALUATOR_OUTPUT_LIMIT_BYTES) stopForOutputLimit('stdout');
+  };
+
+  const recordSafeProgress = (line) => {
+    const message = normalizeEvaluatorProgressLine(line);
+    if (!message) return;
+    stderrStream.write(`${message}\n`);
+    writeProgressEvent({
+      event: 'scenario.progress',
+      scenarioId: label,
+      elapsedMs: Date.now() - startedAt,
+      message,
+    });
+    onProgress(`[pack-evaluator] scenario=${label} ${message}`);
+  };
+
+  child.stdout.on('data', writeBoundedStdout);
+  child.stderr.on('data', (chunk) => {
+    if (outputExceeded) return;
+    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    const previous = stderrBytes;
+    stderrBytes += buffer.length;
+    const remaining = Math.max(0, EVALUATOR_OUTPUT_LIMIT_BYTES - previous);
+    if (remaining > 0) stderrDigest.update(buffer.subarray(0, remaining));
+    if (previous + buffer.length > EVALUATOR_OUTPUT_LIMIT_BYTES) {
+      stopForOutputLimit('stderr');
+      return;
+    }
+    const text = `${stderrRemainder}${chunk.toString('utf8')}`;
+    const lines = text.split(/\r?\n/);
+    stderrRemainder = lines.pop() ?? '';
+    if (stderrRemainder.length > 4096) stderrRemainder = '';
+    for (const line of lines) recordSafeProgress(line);
+  });
+
+  const heartbeatTimer = setInterval(() => {
+    const elapsedMs = Date.now() - startedAt;
+    writeProgressEvent({
+      event: 'scenario.heartbeat',
+      scenarioId: label,
+      elapsedMs,
+    });
+    onProgress(`[pack-evaluator] scenario=${label} heartbeat elapsed=${Math.floor(elapsedMs / 1000)}s`);
+  }, heartbeatMs);
+  const scenarioTimer = setTimeout(() => {
+    timedOut = true;
+    onProgress(`[pack-evaluator] scenario=${label} reached its ${Math.ceil(timeoutMs / 60_000)}m hard limit`);
+    requestTermination('scenario.timeout');
+  }, timeoutMs);
+  const onSignal = (signal) => {
+    interruptedSignal ??= signal;
+    requestTermination('scenario.signal_received', signal);
+  };
+  const onSigint = () => onSignal('SIGINT');
+  const onSigterm = () => onSignal('SIGTERM');
+  const onSighup = () => onSignal('SIGHUP');
+  process.once('SIGINT', onSigint);
+  process.once('SIGTERM', onSigterm);
+  process.once('SIGHUP', onSighup);
+
+  let result;
+  let processError = null;
+  try {
+    result = await new Promise((resolveChild, rejectChild) => {
+      child.once('error', rejectChild);
+      child.once('close', (status, signal) => resolveChild({ status, signal }));
+    });
+  } catch (error) {
+    processError = error;
+    writeProgressEvent({
+      event: 'scenario.spawn_failed',
+      scenarioId: label,
+      elapsedMs: Date.now() - startedAt,
+      errorCode: error?.code ?? null,
+    });
+  } finally {
+    signalProcessGroup('SIGTERM');
+    await new Promise((resolveWait) => setTimeout(resolveWait, 50));
+    signalProcessGroup('SIGKILL');
+    clearInterval(heartbeatTimer);
+    clearTimeout(scenarioTimer);
+    if (killTimer != null) clearTimeout(killTimer);
+    process.removeListener('SIGINT', onSigint);
+    process.removeListener('SIGTERM', onSigterm);
+    process.removeListener('SIGHUP', onSighup);
+    if (stderrRemainder) recordSafeProgress(stderrRemainder);
+    writeProgressEvent({
+      event: 'scenario.process_exited',
+      scenarioId: label,
+      elapsedMs: Date.now() - startedAt,
+      status: result?.status ?? null,
+      signal: result?.signal ?? null,
+      timedOut,
+      outputExceeded,
+      stdoutBytes,
+      stderrBytes,
+      stderrSha256: stderrDigest.digest('hex'),
+      interruptedSignal,
+    });
+    stdoutStream.end();
+    stderrStream.end();
+    progressStream.end();
+    await Promise.all([
+      finished(stdoutStream),
+      finished(stderrStream),
+      finished(progressStream),
+    ]);
+    await checkpointWrites;
+  }
+
+  if (processError) throw processError;
+  if (checkpointError) throw new Error(`Unable to write evaluator checkpoint: ${checkpointError.message}`);
+  return {
+    ...result,
+    timedOut,
+    outputExceeded,
+    interruptedSignal,
+    stdoutBytes,
+    stderrBytes,
+    durationMs: Date.now() - startedAt,
+    progressSequence,
+  };
+}
+
 async function readJson(file) {
   return JSON.parse(await readFile(file, 'utf8'));
 }
@@ -108,7 +446,9 @@ function artifactReferences(raw) {
 function apiVerdicts(raw) {
   return (raw.packVerification?.verdicts ?? []).map((verdict) => ({
     usedSkill: Boolean(verdict.used_skill),
+    usedSkills: Array.isArray(verdict.used_skills) ? [...new Set(verdict.used_skills.map(String))] : [],
     taskCompleted: Boolean(verdict.task_completed),
+    artifactVerified: verdict.artifact_requirements_met === true,
     envBlocked: Boolean(verdict.env_blocked),
     score: Number(verdict.score),
     reason: String(verdict.reason || 'No grader reason supplied'),
@@ -116,11 +456,62 @@ function apiVerdicts(raw) {
   }));
 }
 
+function requiredCapabilitySlots(raw) {
+  if (!Array.isArray(raw.scenario?.capabilitySlots)) {
+    fail('candidate_ready scenario lacks capability slot evidence');
+  }
+  const required = raw.scenario.capabilitySlots
+    .filter((slot) => slot?.required === true)
+    .map((slot) => String(slot.id ?? ''));
+  if (
+    required.length < 1
+    || new Set(required).size !== required.length
+    || required.some((slot) => !/^[a-z0-9][a-z0-9-]{0,79}$/.test(slot))
+  ) {
+    fail('candidate_ready scenario has invalid required capability slots');
+  }
+  return required;
+}
+
+function apiSlotAssignments(raw, manifestSkills, requiredSlots) {
+  const source = raw.manifest?.slot_assignments;
+  if (!source || typeof source !== 'object' || Array.isArray(source)) {
+    fail('candidate_ready manifest lacks slot assignment evidence');
+  }
+  const manifestSkillSet = new Set(manifestSkills);
+  const assignments = {};
+  for (const [slotId, values] of Object.entries(source)) {
+    if (!/^[a-z0-9][a-z0-9-]{0,79}$/.test(slotId) || !Array.isArray(values)) {
+      fail(`candidate_ready manifest has invalid assignment for slot ${slotId}`);
+    }
+    const skills = [...new Set(values.map(String))];
+    if (skills.length !== values.length || skills.some((skill) => !manifestSkillSet.has(skill))) {
+      fail(`candidate_ready slot ${slotId} has duplicate or non-manifest Skills`);
+    }
+    assignments[slotId] = skills;
+  }
+  for (const slotId of requiredSlots) {
+    if (!Array.isArray(assignments[slotId]) || assignments[slotId].length < 1) {
+      fail(`candidate_ready required slot ${slotId} is not assigned`);
+    }
+  }
+  if (Object.keys(assignments).length !== requiredSlots.length) {
+    fail('candidate_ready manifest contains non-required capability slot assignments');
+  }
+  const assignedSkills = new Set(Object.values(assignments).flat());
+  if (manifestSkills.some((skill) => !assignedSkills.has(skill))) {
+    fail('candidate_ready manifest contains a Skill with no slot assignment');
+  }
+  return assignments;
+}
+
 export function buildApiEvaluation(raw, context) {
   if (raw.schemaVersion !== CLI_SCHEMA) fail(`Unsupported CLI report schema: ${raw.schemaVersion}`);
   if (!KNOWN_CLI_EXIT.has(raw.outcome)) fail(`Unsupported CLI outcome: ${raw.outcome}`);
   if (raw.generationId !== context.generationId) fail('CLI report generationId changed during evaluation');
   if (raw.scenario?.id !== context.scenarioId) fail('CLI report scenario differs from the queue plan');
+
+  const requiredSlots = requiredCapabilitySlots(raw);
 
   let candidate = null;
   if (raw.outcome === 'candidate_ready') {
@@ -133,6 +524,60 @@ export function buildApiEvaluation(raw, context) {
     const references = artifactReferences(raw);
     const artifactKind = raw.scenario.requiredArtifacts?.length > 0 ? 'file' : 'text';
     const produced = artifactKind === 'file' ? references.length > 0 : summary.taskCompletedRate === 1;
+    const manifestSkills = Array.isArray(raw.manifest.skills) ? raw.manifest.skills.map(String) : [];
+    const manifestSkillSet = new Set(manifestSkills);
+    if (manifestSkills.length < 2 || manifestSkillSet.size !== manifestSkills.length) {
+      fail('candidate_ready report must contain at least two distinct manifest Skills');
+    }
+    const slotAssignments = apiSlotAssignments(raw, manifestSkills, requiredSlots);
+    if (verdicts.length !== 3) fail('candidate_ready report must contain exactly three final-run verdicts');
+    verdicts.forEach((verdict, index) => {
+      if (verdict.usedSkill !== (verdict.usedSkills.length > 0)) {
+        fail(`candidate_ready run ${index + 1} has inconsistent used_skill and used_skills evidence`);
+      }
+      if (verdict.usedSkills.length < 2) {
+        fail(`candidate_ready run ${index + 1} used fewer than two distinct Skills`);
+      }
+      if (verdict.usedSkills.some((skill) => !manifestSkillSet.has(skill))) {
+        fail(`candidate_ready run ${index + 1} claims Skill use outside the manifest`);
+      }
+      if (!verdict.taskCompleted || !verdict.artifactVerified || verdict.envBlocked || verdict.score < 7) {
+        fail(`candidate_ready run ${index + 1} did not pass the task, artifact, environment, and score gates`);
+      }
+    });
+    const verdictUsedSkills = [...new Set(verdicts.flatMap((verdict) => verdict.usedSkills))].sort();
+    const summaryUsedSkills = Array.isArray(summary.usedSkills)
+      ? [...new Set(summary.usedSkills.map(String))].sort()
+      : [];
+    if (canonicalJson(verdictUsedSkills) !== canonicalJson(summaryUsedSkills)) {
+      fail('candidate_ready summary usedSkills differs from final-run verdicts');
+    }
+    if (manifestSkills.some((skill) => !summaryUsedSkills.includes(skill))) {
+      fail('candidate_ready manifest contains a Skill with no final-run use evidence');
+    }
+    const minimumDistinctSkillsUsed = Number(summary.minimumDistinctSkillsUsed);
+    const distinctSkillUseRate = Number(summary.distinctSkillUseRate);
+    const minimumScore = Number(summary.minimumScore);
+    const minimumRunScore = Number(summary.minimumRunScore);
+    if (
+      minimumDistinctSkillsUsed < 2
+      || distinctSkillUseRate !== 1
+      || minimumScore < 7
+      || minimumRunScore < 7
+    ) {
+      fail('candidate_ready summary does not satisfy the multi-Skill and per-run score gates');
+    }
+    if (raw.composition?.fallbackUsed) fail('candidate_ready report used composition fallback');
+    const baselineScores = Array.isArray(baseline.scores) ? baseline.scores.map(Number) : [];
+    const baselineRuns = Number(baseline.runs);
+    const baselineErrors = (raw.baselineVerification?.errors ?? []).map(String);
+    if (
+      baselineRuns !== 3
+      || baselineScores.length !== baselineRuns
+      || baselineScores.some((score) => !Number.isFinite(score) || score < 0 || score > 10)
+    ) {
+      fail('candidate_ready baseline lacks exactly three valid run scores');
+    }
     candidate = {
       manifest: {
         name: raw.manifest.name,
@@ -140,7 +585,8 @@ export function buildApiEvaluation(raw, context) {
         description: raw.manifest.description,
         scenarioTags: raw.manifest.scenario_tags,
         riskFlags: raw.manifest.risk_flags,
-        skills: raw.manifest.skills,
+        skills: manifestSkills,
+        slotAssignments,
         rationale: raw.manifest.rationale,
       },
       fitness: {
@@ -148,8 +594,14 @@ export function buildApiEvaluation(raw, context) {
         passed: Boolean(summary.passed && summary.usedSkillEver),
         runs: verdicts.length,
         usedSkillRate: summary.usedSkillRate,
+        usedSkills: summaryUsedSkills,
+        minimumDistinctSkillsUsed,
+        distinctSkillUseRate,
+        minimumScore,
+        minimumRunScore,
         taskCompletionRate: summary.taskCompletedRate,
         envBlockedRate: summary.envBlockedRate,
+        compositionFallbackUsed: Boolean(raw.composition?.fallbackUsed),
         artifact: {
           kind: artifactKind,
           produced,
@@ -157,11 +609,16 @@ export function buildApiEvaluation(raw, context) {
           references,
         },
         baseline: {
+          runs: baselineRuns,
+          scores: baselineScores,
           score: baseline.medianScore,
           improvement: summary.medianScore - baseline.medianScore,
+          errors: baselineErrors,
         },
         verdicts,
         errors: [
+          ...(raw.errors ?? []).map((error) => `evaluation: ${error}`),
+          ...(raw.composition?.errors ?? []).map((error) => `composition: ${error}`),
           ...(raw.packVerification?.errors ?? []).map((error) => `pack: ${error}`),
           ...(raw.baselineVerification?.errors ?? []).map((error) => `baseline: ${error}`),
         ],
@@ -186,6 +643,7 @@ export function buildApiEvaluation(raw, context) {
       slug: raw.scenario.slug,
       name: raw.scenario.name,
       tags: raw.scenario.tags,
+      requiredCapabilitySlots: requiredSlots,
     },
     evaluator: {
       cliVersion: context.cliVersion,
@@ -237,7 +695,26 @@ async function evaluate(args) {
   const expectedVersion = required(args, 'expected-cli-version');
   if (version !== expectedVersion) fail(`CLI version mismatch: expected ${expectedVersion}, got ${version}`);
   const checksum = await sha256File(cli);
+  const evaluationBudgetMs = positiveInteger(
+    args['evaluation-budget-ms'],
+    'evaluation-budget-ms',
+    230 * 60_000,
+  );
+  const maxScenarioMs = positiveInteger(
+    args['scenario-timeout-ms'],
+    'scenario-timeout-ms',
+    120 * 60_000,
+  );
+  const minimumFallbackMs = positiveInteger(
+    args['minimum-fallback-ms'],
+    'minimum-fallback-ms',
+    45 * 60_000,
+  );
+  const progressFile = resolve(resultsDir, 'evaluate-progress.ndjson');
+  const checkpointFile = resolve(resultsDir, 'evaluate-checkpoint.json');
+  await writeFile(progressFile, '', { mode: 0o600 });
   const reports = [];
+  const attempts = [];
   const hasEvaluatorIdentity = args['evaluator-uid'] != null || args['evaluator-gid'] != null;
   if (hasEvaluatorIdentity && (args['evaluator-uid'] == null || args['evaluator-gid'] == null)) {
     fail('--evaluator-uid and --evaluator-gid must be supplied together');
@@ -251,13 +728,51 @@ async function evaluate(args) {
   const evaluatorCwd = hasEvaluatorIdentity
     ? resolve(required(args, 'evaluator-cwd'))
     : process.cwd();
+  const evaluatorRuntimeRoot = hasEvaluatorIdentity
+    ? resolve(required(args, 'evaluator-runtime-root'))
+    : null;
   if (hasEvaluatorIdentity && typeof process.getuid === 'function' && process.getuid() !== 0) {
     fail('Evaluator identity separation requires a root orchestrator');
   }
+  const evaluationDeadline = Date.now() + evaluationBudgetMs;
+  let interruptedSignal = null;
+  let progressSequence = 0;
 
-  for (const scenario of plan.scenarios) {
+  const buildSummary = () => ({
+    schemaVersion: 'marketplace.pack-production-evaluate/v1',
+    cliVersion: version,
+    cliSha256: checksum,
+    evaluationBudgetMs,
+    attempts,
+    reports,
+    selectedGenerationId: reports.find((report) => report.outcome === 'candidate_ready')?.generationId ?? null,
+  });
+
+  const checkpointSummary = async () => {
+    await writeJson(resolve(resultsDir, 'evaluate-summary.json'), buildSummary());
+  };
+
+  for (const [scenarioIndex, scenario] of plan.scenarios.entries()) {
     if (!/^[a-z0-9][a-z0-9-]{0,79}$/.test(scenario.id || '')) fail(`Unsafe scenario id: ${scenario.id}`);
-    const ordinal = String(reports.length + 1).padStart(2, '0');
+    const remainingBudgetMs = evaluationDeadline - Date.now();
+    const scenarioBudgetMs = allocateScenarioBudgetMs({
+      remainingBudgetMs,
+      remainingScenarios: plan.scenarios.length - scenarioIndex,
+      maxScenarioMs,
+      minimumFallbackMs,
+    });
+    if (scenarioBudgetMs < 1) {
+      attempts.push({
+        planIndex: scenarioIndex,
+        scenarioId: scenario.id,
+        generationId: null,
+        status: 'budget_exhausted',
+        durationMs: 0,
+      });
+      await checkpointSummary();
+      break;
+    }
+    const ordinal = String(scenarioIndex + 1).padStart(2, '0');
     const generationId = randomUUID();
     const context = workflowContext(args, generationId, scenario.id, cli, version, checksum);
     const commandArgs = [
@@ -276,51 +791,126 @@ async function evaluate(args) {
       '--auto-publish-threshold', args['auto-publish-threshold'] ?? '8',
       '--json',
     ];
-    const result = spawnSync(cli, commandArgs, {
-      cwd: evaluatorCwd,
-      encoding: 'utf8',
-      maxBuffer: 16 * 1024 * 1024,
-      ...(hasEvaluatorIdentity ? { uid: evaluatorUid, gid: evaluatorGid } : {}),
-      env: {
-        ...process.env,
-        SKILLSTORE_AGENT_ENV_MODE: 'strict',
-      },
-    });
-    if (result.error) fail(`Evaluator process failed for ${scenario.id}: ${result.error.message}`);
-    await writeFile(resolve(resultsDir, `${ordinal}-${scenario.id}.stdout.json`), result.stdout || '');
-    await writeFile(resolve(resultsDir, `${ordinal}-${scenario.id}.run.log`), result.stderr || '');
+    const partialStdoutFile = resolve(resultsDir, `${ordinal}-${scenario.id}.stdout.partial`);
+    const stdoutFile = resolve(resultsDir, `${ordinal}-${scenario.id}.stdout.json`);
+    const runLogFile = resolve(resultsDir, `${ordinal}-${scenario.id}.run.log`);
+    const baseEnv = {
+      ...process.env,
+      SKILLSTORE_AGENT_ENV_MODE: 'strict',
+    };
+    let runtime = { cwd: evaluatorCwd, env: baseEnv };
+    let result;
+    try {
+      if (hasEvaluatorIdentity) {
+        terminateEvaluatorProcesses(evaluatorUid);
+        runtime = await prepareScenarioRuntime(
+          evaluatorRuntimeRoot,
+          generationId,
+          evaluatorUid,
+          evaluatorGid,
+          baseEnv,
+        );
+      }
+      result = await runEvaluatorProcess(cli, commandArgs, {
+        cwd: runtime.cwd,
+        stdoutFile: partialStdoutFile,
+        stderrFile: runLogFile,
+        progressFile,
+        checkpointFile,
+        label: scenario.id,
+        generationId,
+        scenarioIndex: scenarioIndex + 1,
+        scenarioCount: plan.scenarios.length,
+        progressSequenceStart: progressSequence,
+        timeoutMs: scenarioBudgetMs,
+        ...(hasEvaluatorIdentity ? { uid: evaluatorUid, gid: evaluatorGid } : {}),
+        env: runtime.env,
+      });
+    } catch (error) {
+      attempts.push({
+        planIndex: scenarioIndex,
+        scenarioId: scenario.id,
+        generationId,
+        status: 'spawn_failed',
+        durationMs: 0,
+        errorCode: error?.code ?? null,
+      });
+      await checkpointSummary();
+      break;
+    } finally {
+      if (hasEvaluatorIdentity) terminateEvaluatorProcesses(evaluatorUid);
+    }
+    const attempt = {
+      planIndex: scenarioIndex,
+      scenarioId: scenario.id,
+      generationId,
+      durationMs: result.durationMs,
+      timeoutMs: scenarioBudgetMs,
+    };
+    progressSequence = result.progressSequence;
+    if (result.interruptedSignal) {
+      interruptedSignal = result.interruptedSignal;
+      attempts.push({ ...attempt, status: 'cancelled', signal: result.interruptedSignal });
+      await checkpointSummary();
+      break;
+    }
+    if (result.timedOut) {
+      attempts.push({ ...attempt, status: 'timed_out' });
+      await checkpointSummary();
+      continue;
+    }
+    if (result.outputExceeded) {
+      attempts.push({ ...attempt, status: 'output_limit_exceeded' });
+      await checkpointSummary();
+      continue;
+    }
+    const stdout = await readFile(partialStdoutFile, 'utf8');
     let raw;
     try {
-      raw = JSON.parse(result.stdout);
+      raw = JSON.parse(stdout);
     } catch {
-      fail(`Evaluator returned invalid JSON for ${scenario.id} (exit ${result.status}): ${result.stderr}`);
+      attempts.push({
+        ...attempt,
+        status: 'terminal_report_missing',
+        exitCode: result.status ?? null,
+        signal: result.signal ?? null,
+      });
+      await checkpointSummary();
+      continue;
     }
     const expectedExit = KNOWN_CLI_EXIT.get(raw.outcome);
     if (result.status !== expectedExit) {
       fail(`Evaluator exit/outcome mismatch for ${scenario.id}: exit ${result.status}, outcome ${raw.outcome}`);
     }
+    await rename(partialStdoutFile, stdoutFile);
     const evaluation = buildApiEvaluation(raw, context);
     const file = resolve(resultsDir, `${ordinal}-${scenario.id}.evaluation.json`);
     await writeJson(file, evaluation);
     reports.push({
+      planIndex: scenarioIndex,
       scenarioId: scenario.id,
       generationId,
       outcome: raw.outcome,
       outcomeReason: raw.outcomeReason,
       file,
     });
+    attempts.push({ ...attempt, status: 'completed', outcome: raw.outcome });
+    await checkpointSummary();
     if (raw.outcome === 'candidate_ready') break;
   }
 
-  const summary = {
-    schemaVersion: 'marketplace.pack-production-evaluate/v1',
-    cliVersion: version,
-    cliSha256: checksum,
-    reports,
-    selectedGenerationId: reports.find((report) => report.outcome === 'candidate_ready')?.generationId ?? null,
-  };
-  await writeJson(resolve(resultsDir, 'evaluate-summary.json'), summary);
+  const summary = buildSummary();
+  await checkpointSummary();
   process.stdout.write(`${JSON.stringify(summary)}\n`);
+  if (interruptedSignal) fail(`Evaluator interrupted by ${interruptedSignal}`);
+  const operationalFailures = attempts.filter((attempt) => attempt.status !== 'completed');
+  if (operationalFailures.length > 0) {
+    fail(
+      `Evaluation contained operationally incomplete attempts: `
+      + operationalFailures.map((attempt) => `${attempt.scenarioId}:${attempt.status}`).join(', '),
+    );
+  }
+  if (reports.length === 0) fail('No scenario produced a complete trusted evaluation report');
 }
 
 async function verifyEvaluation(args) {
@@ -338,6 +928,16 @@ async function verifyEvaluation(args) {
   if (!Array.isArray(summary.reports) || summary.reports.length < 1 || summary.reports.length > plan.scenarios.length) {
     fail('Evaluate summary report count is outside the immutable plan');
   }
+  if (!Array.isArray(summary.attempts) || summary.attempts.length < 1) {
+    fail('Evaluate summary attempts are missing');
+  }
+  const incompleteAttempts = summary.attempts.filter((attempt) => attempt?.status !== 'completed');
+  if (incompleteAttempts.length > 0) {
+    fail(
+      `Evaluate summary contains operationally incomplete attempts: `
+      + incompleteAttempts.map((attempt) => `${attempt?.scenarioId ?? 'unknown'}:${attempt?.status ?? 'missing'}`).join(', '),
+    );
+  }
 
   const version = cliVersion(cli);
   const expectedVersion = required(args, 'expected-cli-version');
@@ -351,16 +951,23 @@ async function verifyEvaluation(args) {
   const verifiedFiles = [];
   let selectedGenerationId = null;
   let candidateSeen = false;
+  let previousPlanIndex = -1;
   for (const [index, report] of summary.reports.entries()) {
-    const scenario = plan.scenarios[index];
-    if (!scenario || report.scenarioId !== scenario.id) fail('Evaluate summary scenario order differs from the plan');
+    const planIndex = report.planIndex ?? index;
+    if (!Number.isSafeInteger(planIndex) || planIndex < 0 || planIndex >= plan.scenarios.length) {
+      fail(`Invalid evaluate summary plan index: ${report.planIndex}`);
+    }
+    if (planIndex <= previousPlanIndex) fail('Evaluate summary plan indexes are not strictly increasing');
+    previousPlanIndex = planIndex;
+    const scenario = plan.scenarios[planIndex];
+    if (!scenario || report.scenarioId !== scenario.id) fail('Evaluate summary scenario differs from the immutable plan');
     if (!/^[a-z0-9][a-z0-9-]{0,79}$/.test(scenario.id)) fail(`Unsafe scenario id: ${scenario.id}`);
     if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(report.generationId || '')) {
       fail(`Invalid generation id for ${scenario.id}`);
     }
     if (candidateSeen) fail('Evaluate summary contains reports after a ready candidate');
 
-    const ordinal = String(index + 1).padStart(2, '0');
+    const ordinal = String(planIndex + 1).padStart(2, '0');
     const prefix = `${ordinal}-${scenario.id}`;
     const stdoutFile = `${prefix}.stdout.json`;
     const evaluationFile = `${prefix}.evaluation.json`;
