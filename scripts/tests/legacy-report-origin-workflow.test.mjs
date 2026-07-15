@@ -102,7 +102,7 @@ test('builds and verifies only the exact 70 identities from seven hash-bound cla
   }
 });
 
-test('workflow freezes and replays Git evidence and remains production-disabled at TODO digest', () => {
+test('workflow freezes and replays Git evidence with the audited CLI digest', () => {
   const workflow = readFileSync(resolve(
     import.meta.dirname,
     '../../.github/workflows/govern-legacy-report-origin-70.yml'
@@ -114,7 +114,7 @@ test('workflow freezes and replays Git evidence and remains production-disabled 
   assert.equal(cohort.selectedCount, 70);
   assert.equal(cohort.rows.length, 70);
   assert.equal(cohort.sourceBoundaries.length, 7);
-  assert.match(workflow, /ORIGIN_CLI_SHA256: 'TODO_REPLACE_WITH_AUDITED_LINUX_X64_SHA256'/);
+  assert.match(workflow, /ORIGIN_CLI_SHA256: 'ae2d7caf57ea7849ad39b0518d640ee2a0c51f1eee3f4eb2b9797c1abb0bd4cc'/);
   assert.match(workflow, /\[\[ "\$ORIGIN_CLI_SHA256" =~ \^\[0-9a-f\]\{64\}\$ \]\]/);
   assert.match(workflow, /\.workflowName == "Govern Legacy Report-Origin 70"/);
   assert.match(workflow, /sha256sum --check SHA256SUMS/);
