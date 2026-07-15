@@ -39,6 +39,8 @@ test('evaluate job cannot interpolate production write credentials', () => {
   assert.match(evaluate, /set \+e[\s\S]*EVALUATOR_RC=\$\?[\s\S]*exit "\$EVALUATOR_RC"/);
   assert.match(evaluate, /SKILLSTORE_AGENT_ENV_MODE=strict/);
   assert.match(evaluate, /persist-credentials: false/);
+  assert.ok(evaluate.indexOf('! sudo -n true') < evaluate.indexOf('set +e'));
+  assert.doesNotMatch(evaluate, /--plan "\$GITHUB_WORKSPACE|--skills-dir "\$GITHUB_WORKSPACE/);
 });
 
 test('evaluate runs on a disposable VM with a user-separated job-local inference proxy', () => {
@@ -54,6 +56,10 @@ test('evaluate runs on a disposable VM with a user-separated job-local inference
   assert.match(evaluate, /useradd .*packeval/);
   assert.match(evaluate, /\/usr\/local\/lib\/pack-evaluator-proxy\.mjs/);
   assert.match(evaluate, /\/usr\/local\/lib\/pack-production\.mjs/);
+  assert.match(evaluate, /\/opt\/pack-evaluator\/plan\.json/);
+  assert.match(evaluate, /\/opt\/pack-evaluator\/skills/);
+  assert.match(evaluate, /\/home\/packeval\/results/);
+  assert.match(evaluate, /cp -a \/home\/packeval\/results\/\./);
   assert.match(evaluate, /sudo -u packproxy env -i/);
   assert.match(evaluate, /sudo -u packeval env -i/);
   assert.match(evaluate, /! sudo -n true/);

@@ -215,17 +215,19 @@ jobs:
           sudo install -o root -g root -m 0555 \
             "$GITHUB_WORKSPACE/marketplace-evaluate/scripts/pack-production.mjs" \
             /usr/local/lib/pack-production.mjs
-          sudo chown -R root:root \
-            "$GITHUB_WORKSPACE/marketplace-evaluate" \
-            "$GITHUB_WORKSPACE/pack-production-input"
-          sudo chmod -R a=rX,u+w \
-            "$GITHUB_WORKSPACE/marketplace-evaluate" \
-            "$GITHUB_WORKSPACE/pack-production-input"
-          sudo install -d -o packeval -g "$RUNNER_GROUP" -m 0770 \
-            "$GITHUB_WORKSPACE/pack-results"
+          sudo install -d -o root -g root -m 0555 /opt/pack-evaluator
+          sudo install -o root -g root -m 0444 \
+            "$GITHUB_WORKSPACE/pack-production-input/plan.json" \
+            /opt/pack-evaluator/plan.json
+          sudo cp -a "$GITHUB_WORKSPACE/marketplace-evaluate/skills" /opt/pack-evaluator/skills
+          sudo chown -R root:root /opt/pack-evaluator/skills
+          sudo chmod -R a=rX,u+w /opt/pack-evaluator/skills
+          sudo chmod 0755 /home/packeval
+          sudo install -d -o packeval -g "$RUNNER_GROUP" -m 0770 /home/packeval/results
           sudo install -d -o packeval -g packeval -m 0700 \
             /home/packeval/tmp \
             /home/packeval/.codex
+          mkdir -p "$GITHUB_WORKSPACE/pack-results"
           printf '%s\n' \
             'model_provider = "pack_evaluator_proxy"' \
             '[model_providers.pack_evaluator_proxy]' \
@@ -293,7 +295,6 @@ jobs:
           PROXY_PID=$(pgrep -u packproxy -f pack-evaluator-proxy.mjs | head -n1)
           test -n "$PROXY_PID"
 
-          set +e
           sudo -u packeval env -i \
             PATH=/usr/local/bin:/usr/bin:/bin \
             HOME=/home/packeval \
@@ -308,6 +309,7 @@ jobs:
               ! env | grep -Eq "SUPABASE|HELM|GITHUB_TOKEN|GH_TOKEN|AUTOMATION|APP_PRIVATE_KEY|CALLBACK|CACHE_INVALIDATE"
             '
 
+          set +e
           sudo -u packeval env -i \
             PATH=/usr/local/bin:/usr/bin:/bin \
             HOME=/home/packeval \
@@ -325,11 +327,11 @@ jobs:
             timeout --signal=TERM 4h \
             prlimit --nproc=256:256 --as=6442450944:6442450944 -- \
             node /usr/local/lib/pack-production.mjs evaluate \
-            --plan "$GITHUB_WORKSPACE/pack-production-input/plan.json" \
-            --results-dir "$GITHUB_WORKSPACE/pack-results" \
+            --plan /opt/pack-evaluator/plan.json \
+            --results-dir /home/packeval/results \
             --cli /usr/local/bin/skillstore-cli-pack-evaluator \
             --expected-cli-version "$PACK_PRODUCTION_CLI_VERSION" \
-            --skills-dir "$GITHUB_WORKSPACE/marketplace-evaluate/skills" \
+            --skills-dir /opt/pack-evaluator/skills \
             --run-id "${{ github.run_id }}" \
             --run-attempt "${{ github.run_attempt }}" \
             --commit-sha "${{ github.sha }}" \
@@ -342,10 +344,12 @@ jobs:
             --threshold 7 \
             --baseline-delta 1 \
             --auto-publish-threshold 8 \
-            > "$GITHUB_WORKSPACE/pack-results/evaluate-command.json"
+            > /home/packeval/results/evaluate-command.json
           EVALUATOR_RC=$?
           set -e
           test ! -s "$PROXY_LOG" || sed -E 's/(Bearer|helm_live_)[^[:space:]]+/[REDACTED]/g' "$PROXY_LOG" >&2
+          sudo cp -a /home/packeval/results/. "$GITHUB_WORKSPACE/pack-results/"
+          sudo chown -R "$(id -u):$(id -g)" "$GITHUB_WORKSPACE/pack-results"
           if [ "$EVALUATOR_RC" -ne 0 ]; then
             printf 'evaluator_exit_code=%s\n' "$EVALUATOR_RC" \
               > "$GITHUB_WORKSPACE/pack-results/evaluator-failure.txt"
