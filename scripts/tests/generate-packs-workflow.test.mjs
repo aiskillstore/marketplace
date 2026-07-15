@@ -183,6 +183,7 @@ test('planning is bounded to three artifact scenarios and CLI release is immutab
   assert.match(evaluate, /if: needs\.plan\.outputs\.has_scenarios == 'true'/);
   assert.match(persist, /if: needs\.plan\.outputs\.has_scenarios == 'true'/);
   assert.match(finalize, /if: needs\.plan\.outputs\.has_scenarios == 'true'/);
+  assert.match(WORKFLOW, /group: generate-pack-production-v3/);
   assert.match(WORKFLOW, /PACK_PRODUCTION_CLI_VERSION: '2\.10\.0'/);
   assert.equal((WORKFLOW.match(/require-checksum: 'true'/g) ?? []).length, 1);
   assert.match(plan, /actions\/create-github-app-token@v3/);
