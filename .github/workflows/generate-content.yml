@@ -38,7 +38,9 @@ jobs:
         id: cli
         uses: ./.github/actions/download-skillstore-cli
         with:
-          version: latest
+          version: '2.9.0'
+          minimum-version: '2.9.0'
+          require-checksum: 'true'
           token: ${{ steps.app-token.outputs.token }}
           cache-dir: /home/runner/_work/_cache/skillstore-cli
 
@@ -65,3 +67,16 @@ jobs:
             FLAGS+=(--guide-only)
           fi
           "$CLI" pack generate-content --slug "$SLUG" --issue "$ISSUE" "${FLAGS[@]}"
+
+      - name: Dispatch translation after content is complete
+        if: github.event.client_payload.generationId != ''
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          SLUG: ${{ github.event.client_payload.slug }}
+          GENERATION_ID: ${{ github.event.client_payload.generationId }}
+        run: |
+          jq -n \
+            --arg slug "$SLUG" \
+            --arg generationId "$GENERATION_ID" \
+            '{event_type:"translate-packs",client_payload:{pack_slugs:$slug,source_generation_id:$generationId,cli_version:"2.9.0"}}' \
+            | gh api --method POST repos/aiskillstore/marketplace/dispatches --input -
