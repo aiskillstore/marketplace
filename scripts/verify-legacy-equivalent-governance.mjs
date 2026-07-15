@@ -31,6 +31,14 @@ function canonicalJson(value) {
   return JSON.stringify(canonicalize(value));
 }
 
+export function canonicalSourceEvidence(value) {
+  return canonicalJson({
+    ...value,
+    skills: [...(value?.skills || [])].sort((left, right) => String(left.id).localeCompare(String(right.id), 'en-US')),
+    audits: [...(value?.audits || [])].sort((left, right) => String(left.id).localeCompare(String(right.id), 'en-US')),
+  });
+}
+
 function sha256File(path) {
   return createHash('sha256').update(readFileSync(path)).digest('hex');
 }
@@ -413,7 +421,7 @@ export function verifyLegacyGovernanceBoundary({
   if (canonicalJson(boundary.groups) !== canonicalJson(expectedGroups)) {
     fail('downloaded boundary groups do not match plan/classification');
   }
-  if (canonicalJson(frozenSourceEvidence) !== canonicalJson(currentSourceEvidence)) {
+  if (canonicalSourceEvidence(frozenSourceEvidence) !== canonicalSourceEvidence(currentSourceEvidence)) {
     fail('Skill metadata or source audit changed after the frozen dry-run boundary');
   }
   assertQualificationMatchesEvidence(classification, frozenSourceEvidence);
@@ -503,7 +511,7 @@ export function verifyLegacyGovernanceExecution({
   frozenSourceEvidence,
   postSourceEvidence,
 }) {
-  if (canonicalJson(frozenSourceEvidence) !== canonicalJson(postSourceEvidence)) {
+  if (canonicalSourceEvidence(frozenSourceEvidence) !== canonicalSourceEvidence(postSourceEvidence)) {
     fail('Skill metadata or source audit changed during governance execution');
   }
   assertQualificationMatchesEvidence(classification, frozenSourceEvidence);
