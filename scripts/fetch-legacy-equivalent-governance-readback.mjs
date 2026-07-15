@@ -137,7 +137,7 @@ export async function fetchLegacyGovernanceSourceEvidence({
   const [skills, audits, bindings] = await Promise.all([
     request(
       'skills',
-      'id,slug,name,description,author_name,supported_tools,file_structure',
+      'id,slug,name,description,author_name,supported_tools,file_structure,public_eligibility_audit_id',
       'id',
       skillIds
     ),

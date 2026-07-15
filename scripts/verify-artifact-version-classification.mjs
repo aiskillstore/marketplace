@@ -6,6 +6,11 @@ import { pathToFileURL } from 'node:url';
 
 const SHA256_RE = /^[0-9a-f]{64}$/;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const LEGACY_TREE_HASH_SCHEME = 'legacy_path_sha256_merkle_v1';
+const LEGACY_PREVIOUS_REPORT_TREE_HASH_SCHEME =
+  'legacy_path_sha256_merkle_previous_report_v1';
+const LEGACY_PREVIOUS_REPORT_INPUT_RELATION =
+  'canonical_install_plus_previous_generated_report';
 const CLASSIFICATIONS = [
   'exact',
   'legacy_algorithm_equivalent',
@@ -148,16 +153,40 @@ function validateHashEvidence(artifact, before, expectedClassification) {
   const contentMismatch = repair.reportContentHash !== repair.packagedContentHash;
   const treeMismatch = repair.reportTreeHash !== repair.packagedTreeHash;
   const canonicalMatch = !contentMismatch && !treeMismatch;
-  const legacyMatch =
+  const plainLegacyMatch =
     repair.reportContentHash === repair.legacyCalculatedContentHash
     && repair.reportTreeHash === repair.legacyCalculatedTreeHash;
+  const previousReportEvidenceAbsent =
+    repair.previousReportSha256 == null
+    && repair.previousReportInputRelation == null
+    && repair.legacyPreviousReportCalculatedTreeHash == null;
+  const previousReportEvidenceComplete =
+    SHA256_RE.test(String(repair.previousReportSha256 ?? ''))
+    && repair.previousReportInputRelation === LEGACY_PREVIOUS_REPORT_INPUT_RELATION
+    && SHA256_RE.test(String(repair.legacyPreviousReportCalculatedTreeHash ?? ''));
+  if (
+    (!previousReportEvidenceAbsent && !previousReportEvidenceComplete)
+    || (previousReportEvidenceComplete
+      && repair.legacyPreviousReportCalculatedTreeHashScheme
+        !== LEGACY_PREVIOUS_REPORT_TREE_HASH_SCHEME)
+    || (previousReportEvidenceAbsent
+      && repair.legacyPreviousReportCalculatedTreeHashScheme != null
+      && repair.legacyPreviousReportCalculatedTreeHashScheme
+        !== LEGACY_PREVIOUS_REPORT_TREE_HASH_SCHEME)
+  ) {
+    fail(`Previous-report legacy evidence is incomplete for ${before.slug}`);
+  }
+  const previousReportLegacyMatch =
+    previousReportEvidenceComplete
+    && repair.reportContentHash === repair.legacyCalculatedContentHash
+    && repair.reportTreeHash === repair.legacyPreviousReportCalculatedTreeHash;
   if (
     repair.contentHashMismatch !== contentMismatch
     || repair.treeHashMismatch !== treeMismatch
     || repair.packagedContentHashScheme !== 'skill_md_raw_bytes_v1'
     || repair.packagedTreeHashScheme !== 'canonical_entries_v1'
     || repair.legacyCalculatedContentHashScheme !== 'skill_md_strip_version_trim_v1'
-    || repair.legacyCalculatedTreeHashScheme !== 'legacy_path_sha256_merkle_v1'
+    || repair.legacyCalculatedTreeHashScheme !== LEGACY_TREE_HASH_SCHEME
   ) {
     fail(`Hash algorithm evidence is internally inconsistent for ${before.slug}`);
   }
@@ -172,14 +201,20 @@ function validateHashEvidence(artifact, before, expectedClassification) {
     legacy_algorithm_equivalent: {
       reason: 'report_matches_complete_legacy_scheme_but_audit_rebinding_is_required',
       contentScheme: 'skill_md_strip_version_trim_v1',
-      treeScheme: 'legacy_path_sha256_merkle_v1',
-      matches: !canonicalMatch && legacyMatch,
+      treeScheme: repair.reportTreeHashScheme,
+      matches: !canonicalMatch && (
+        repair.reportTreeHashScheme === LEGACY_TREE_HASH_SCHEME
+          ? plainLegacyMatch
+          : repair.reportTreeHashScheme === LEGACY_PREVIOUS_REPORT_TREE_HASH_SCHEME
+            ? previousReportLegacyMatch && !plainLegacyMatch
+            : false
+      ),
     },
     actual_or_unproven_drift: {
       reason: 'report_hashes_do_not_match_one_complete_known_scheme',
       contentScheme: 'unproven',
       treeScheme: 'unproven',
-      matches: !canonicalMatch && !legacyMatch,
+      matches: !canonicalMatch && !plainLegacyMatch && !previousReportLegacyMatch,
     },
   }[expectedClassification];
   if (
