@@ -61,7 +61,9 @@ test('evaluate runs on a disposable VM with a user-separated job-local inference
   assert.match(evaluate, /\/home\/packeval\/results/);
   assert.match(evaluate, /cp -a \/home\/packeval\/results\/\./);
   assert.match(evaluate, /sudo -u packproxy env -i/);
-  assert.equal((evaluate.match(/sudo --chdir=\/home\/packeval -u packeval env -i/g) ?? []).length, 2);
+  assert.match(evaluate, /pushd \/home\/packeval >\/dev\/null/);
+  assert.equal((evaluate.match(/sudo -u packeval env -i/g) ?? []).length, 2);
+  assert.match(evaluate, /EVALUATOR_RC=\$\?[\s\S]*popd >\/dev\/null[\s\S]*set -e/);
   assert.match(evaluate, /! sudo -n true/);
   assert.match(evaluate, /! test -r .*PROXY_PID.*environ/);
   assert.match(evaluate, /PACK_EVALUATOR_HELM_API_KEY: \$\{\{ secrets\.PACK_EVALUATOR_HELM_API_KEY \}\}/);
