@@ -10,6 +10,7 @@ test('submission processing isolates every shard and stages only its frozen plan
   assert.match(reusable, /process-shard-\$\{\{ github\.run_attempt \}\}-\$\{\{ matrix\.shard \}\}/);
   assert.match(reusable, /--output "\$RESULT_DIR"/);
   assert.match(reusable, /tar -C "\$RESULT_DIR" -czf "\$RESULT_DIR\/shard-results\.tar\.gz"/);
+  assert.match(reusable, /planned-slugs\.csv/);
   assert.match(reusable, /tar -xzf "\$SHARD_ARCHIVE" -C "\$SHARD_ROOT" --no-same-owner/);
   assert.match(reusable, /node scripts\/resolve-approved-submission\.mjs/);
   assert.match(reusable, /git add -- "\$\{SUBMISSION_PATHS\[@\]\}"/);
@@ -18,6 +19,8 @@ test('submission processing isolates every shard and stages only its frozen plan
   assert.doesNotMatch(reusable, /git add pending\//);
   assert.match(reusable, /Downloaded \$\{#SHARD_DIRS\[@\]\}\/\$\{\{ needs\.discover-and-plan\.outputs\.shard_count \}\} shard artifact/);
   assert.match(reusable, /Published target already exists; use the explicit update workflow/);
+  assert.match(reusable, /produced a skill outside its planned slug set/);
+  assert.match(reusable, /produced no successful skills/);
 });
 
 test('merged approval scope comes only from immutable PR changed files', () => {

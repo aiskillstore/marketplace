@@ -464,14 +464,17 @@ jobs:
 
       - name: Create mode-preserving shard archive
         if: always()
+        env:
+          PLANNED_SLUGS: ${{ matrix.slugs }}
         run: |
           set -euo pipefail
           RESULT_DIR="/tmp/submission-shard-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}"
           LOG_FILE="$RESULT_DIR/process-output-${{ matrix.shard }}.log"
           mkdir -p "$RESULT_DIR/pending"
           test -f "$LOG_FILE" || : > "$LOG_FILE"
+          printf '%s\n' "$PLANNED_SLUGS" > "$RESULT_DIR/planned-slugs.csv"
           tar -C "$RESULT_DIR" -czf "$RESULT_DIR/shard-results.tar.gz" \
-            pending "$(basename "$LOG_FILE")"
+            pending "$(basename "$LOG_FILE")" planned-slugs.csv
 
       - name: Upload shard results
         if: always()
@@ -524,6 +527,7 @@ jobs:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           APP_TOKEN: ${{ steps.app-token.outputs.token }}
           REPOSITORY: ${{ github.repository }}
+          SHARD_MATRIX: ${{ needs.discover-and-plan.outputs.matrix }}
         run: |
           set -euo pipefail
 
@@ -563,15 +567,35 @@ jobs:
             test -f "$SHARD_ARCHIVE"
             mkdir -p "$SHARD_ROOT"
             tar -xzf "$SHARD_ARCHIVE" -C "$SHARD_ROOT" --no-same-owner
+            SHARD_INDEX="${shard_dir##*-}"
+            [[ "$SHARD_INDEX" =~ ^[0-9]+$ ]]
+            EXPECTED_SLUGS=$(jq -er --argjson shard "$SHARD_INDEX" \
+              '.include[] | select(.shard == $shard) | .slugs' <<< "$SHARD_MATRIX")
+            test "$(cat "$SHARD_ROOT/planned-slugs.csv")" = "$EXPECTED_SLUGS" || {
+              echo "::error::Shard $SHARD_INDEX planned slug evidence does not match the workflow matrix"
+              exit 1
+            }
             SHARD_FILES="${shard_dir}.files.txt"
             SHARD_PLAN="${shard_dir}.approval-plan.json"
             find "$SHARD_ROOT/pending" \( -type f -o -type l \) -print 2>/dev/null \
               | sed "s|^$SHARD_ROOT/||" > "$SHARD_FILES"
+            if [ ! -s "$SHARD_FILES" ]; then
+              echo "::warning::Shard $SHARD_INDEX produced no successful skills"
+              continue
+            fi
             node scripts/resolve-approved-submission.mjs \
               --repo-root "$SHARD_ROOT" \
               --files "$SHARD_FILES" \
               --output "$SHARD_PLAN" \
               --allow-blocked
+            jq -en --arg planned "$EXPECTED_SLUGS" --slurpfile plan "$SHARD_PLAN" '
+              ($planned | split(",") | map(select(length > 0)) | unique) as $expected
+              | ($plan[0].skills | map(.pendingDir | split("/")[-1]) | unique) as $actual
+              | (($actual - $expected) | length) == 0
+            ' >/dev/null || {
+              echo "::error::Shard $SHARD_INDEX produced a skill outside its planned slug set"
+              exit 1
+            }
             jq -c '.skills[]' "$SHARD_PLAN" >> "$PLAN_ITEMS"
             while IFS= read -r pending_dir; do
               test ! -e "$MERGED_RESULTS/$pending_dir" || {
@@ -582,9 +606,13 @@ jobs:
               cp -R "$SHARD_ROOT/$pending_dir" "$MERGED_RESULTS/$pending_dir"
             done < <(jq -r '.skills[].pendingDir' "$SHARD_PLAN")
           done
+          if [ ! -s "$PLAN_ITEMS" ]; then
+            echo "No skills were successfully processed"
+            echo "has_results=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           jq -s '
-            if length == 0 then error("no frozen shard results")
-            elif ([.[].pendingDir] | length) != ([.[].pendingDir] | unique | length)
+            if ([.[].pendingDir] | length) != ([.[].pendingDir] | unique | length)
               then error("duplicate pending path across submission shards")
             elif ([.[].targetDir] | length) != ([.[].targetDir] | unique | length)
               then error("duplicate publication target across submission shards")
