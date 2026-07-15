@@ -32,6 +32,7 @@ printf '%s' "$count" > "$count_file"
 
 response_file=""
 payload_arg=""
+max_time=""
 while [ "$#" -gt 0 ]; do
   case "$1" in
     -o)
@@ -42,7 +43,11 @@ while [ "$#" -gt 0 ]; do
       payload_arg="$2"
       shift 2
       ;;
-    -H|-X|-w|--connect-timeout|--max-time)
+    --max-time)
+      max_time="$2"
+      shift 2
+      ;;
+    -H|-X|-w|--connect-timeout)
       shift 2
       ;;
     *)
@@ -53,11 +58,12 @@ done
 
 payload_file="\${payload_arg#@}"
 cp "$payload_file" "$FAKE_CURL_LOG_DIR/payload-$count.json"
+printf '%s' "$max_time" > "$FAKE_CURL_LOG_DIR/max-time-$count"
 
 IFS=',' read -r -a results <<< "$FAKE_CURL_RESULTS"
 result_index=$((count - 1))
 if [ "$result_index" -ge "\${#results[@]}" ]; then
-  result_index=$(("\${#results[@]}" - 1))
+  result_index=$((\${#results[@]} - 1))
 fi
 result="\${results[$result_index]}"
 
@@ -73,9 +79,49 @@ case "$result" in
     if [ "$response" != "$status" ]; then
       curl_exit="\${response#*:}"
     fi
-    printf '{"ok":true}' > "$response_file"
+    jq '{
+      preflight: false,
+      type: (if .type == "plugins" then "packs" else .type end),
+      slugs,
+      invalidated: {
+        total: (.slugs | length),
+        page: (.slugs | length),
+        api: 0,
+        artifacts: 0,
+        listVersionBumped: (if (.type == "skills" or .type == "packs" or .type == "plugins") then true else false end),
+        listMaxStaleSeconds: 0
+      }
+    }' "$payload_file" > "$response_file"
     printf '%s' "$status"
     exit "$curl_exit"
+    ;;
+  contract:malformed)
+    printf '{' > "$response_file"
+    printf '200'
+    ;;
+  contract:preflight)
+    jq '{preflight: true, type, slugs, invalidated: {total: 1, page: 1, api: 0, artifacts: 0, listVersionBumped: true, listMaxStaleSeconds: 0}}' "$payload_file" > "$response_file"
+    printf '200'
+    ;;
+  contract:wrong-slugs)
+    jq '{preflight: false, type, slugs: ["unexpected"], invalidated: {total: 1, page: 1, api: 0, artifacts: 0, listVersionBumped: true, listMaxStaleSeconds: 0}}' "$payload_file" > "$response_file"
+    printf '200'
+    ;;
+  contract:missing-invalidated)
+    jq '{preflight: false, type, slugs}' "$payload_file" > "$response_file"
+    printf '200'
+    ;;
+  contract:zero-invalidated)
+    jq '{preflight: false, type, slugs, invalidated: {total: 0, page: 0, api: 0, artifacts: 0, listVersionBumped: false, listMaxStaleSeconds: 0}}' "$payload_file" > "$response_file"
+    printf '200'
+    ;;
+  contract:no-list-bump)
+    jq '{preflight: false, type, slugs, invalidated: {total: 1, page: 1, api: 0, artifacts: 0, listVersionBumped: false, listMaxStaleSeconds: 0}}' "$payload_file" > "$response_file"
+    printf '200'
+    ;;
+  closure-overflow)
+    printf '{"message":"Dependent pack closure exceeds the 100-pack cap"}' > "$response_file"
+    printf '409'
     ;;
   *)
     echo "unknown fake curl result: $result" >&2
@@ -88,6 +134,21 @@ const FAKE_SLEEP = `#!/usr/bin/env bash
 printf '%s\n' "$1" >> "$FAKE_SLEEP_LOG"
 `;
 
+const FAKE_DATE = `#!/usr/bin/env bash
+count=0
+if [ -f "$FAKE_DATE_COUNT" ]; then
+  count=$(cat "$FAKE_DATE_COUNT")
+fi
+count=$((count + 1))
+printf '%s' "$count" > "$FAKE_DATE_COUNT"
+IFS=',' read -r -a epochs <<< "$FAKE_DATE_EPOCHS"
+index=$((count - 1))
+if [ "$index" -ge "\${#epochs[@]}" ]; then
+  index=$((\${#epochs[@]} - 1))
+fi
+printf '%s\n' "\${epochs[$index]}"
+`;
+
 function runInvalidator({
   slugs = '',
   slugsFile = '',
@@ -96,19 +157,27 @@ function runInvalidator({
   maxAttempts = 3,
   maxItems = 100,
   retryBaseSeconds = 1,
+  fallbackMaxAttempts = 2,
+  fallbackRetryBaseSeconds = 1,
+  fallbackCurlMaxTime = 9,
   results = 'http:200',
   contentType = 'skills',
   mktempFails = false,
+  fakeDateEpochs = '',
 } = {}) {
   const tmp = mkdtempSync(join(tmpdir(), 'invalidate-cache-test-'));
   const bin = join(tmp, 'bin');
   const curlLogDir = join(tmp, 'curl-log');
   const sleepLog = join(tmp, 'sleep.log');
   const githubOutput = join(tmp, 'github-output');
+  const fakeDateCount = join(tmp, 'date-count');
   mkdirSync(bin);
   mkdirSync(curlLogDir);
   writeFileSync(join(bin, 'curl'), FAKE_CURL, { mode: 0o755 });
   writeFileSync(join(bin, 'sleep'), FAKE_SLEEP, { mode: 0o755 });
+  if (fakeDateEpochs) {
+    writeFileSync(join(bin, 'date'), FAKE_DATE, { mode: 0o755 });
+  }
   if (mktempFails) {
     writeFileSync(join(bin, 'mktemp'), '#!/usr/bin/env bash\nexit 1\n', { mode: 0o755 });
   }
@@ -128,12 +197,17 @@ function runInvalidator({
       MAX_ATTEMPTS: String(maxAttempts),
       MAX_ITEMS: String(maxItems),
       RETRY_BASE_SECONDS: String(retryBaseSeconds),
+      FALLBACK_MAX_ATTEMPTS: String(fallbackMaxAttempts),
+      FALLBACK_RETRY_BASE_SECONDS: String(fallbackRetryBaseSeconds),
+      FALLBACK_CURL_MAX_TIME: String(fallbackCurlMaxTime),
       CURL_CONNECT_TIMEOUT: '1',
       CURL_MAX_TIME: '2',
       GITHUB_OUTPUT: githubOutput,
       FAKE_CURL_LOG_DIR: curlLogDir,
       FAKE_CURL_RESULTS: results,
       FAKE_SLEEP_LOG: sleepLog,
+      FAKE_DATE_COUNT: fakeDateCount,
+      FAKE_DATE_EPOCHS: fakeDateEpochs,
     },
   });
 
@@ -144,6 +218,10 @@ function runInvalidator({
   const sleeps = readdirSync(tmp).includes('sleep.log')
     ? readFileSync(sleepLog, 'utf8').trim().split('\n').filter(Boolean)
     : [];
+  const maxTimes = readdirSync(curlLogDir)
+    .filter((name) => /^max-time-\d+$/.test(name))
+    .sort((a, b) => Number(a.match(/\d+/)[0]) - Number(b.match(/\d+/)[0]))
+    .map((name) => Number(readFileSync(join(curlLogDir, name), 'utf8')));
   const outputs = {};
   if (readdirSync(tmp).includes('github-output')) {
     for (const line of readFileSync(githubOutput, 'utf8').trim().split('\n').filter(Boolean)) {
@@ -154,7 +232,7 @@ function runInvalidator({
   }
 
   assert.doesNotMatch(`${result.stdout}${result.stderr}`, new RegExp(SECRET));
-  return { result, payloads, sleeps, outputs };
+  return { result, payloads, sleeps, maxTimes, outputs };
 }
 
 test('empty input succeeds without validating a secret or making an HTTP request', () => {
@@ -203,6 +281,16 @@ test('single and 96-item inputs use deterministic bounded JSON batches', () => {
   assert.deepEqual(unbounded.payloads, []);
 });
 
+test('plugin and release responses obey their canonical list-version contracts', () => {
+  const plugin = runInvalidator({ slugs: 'alpha', contentType: 'plugins' });
+  assert.equal(plugin.result.status, 0);
+  assert.equal(plugin.payloads[0].type, 'plugins');
+
+  const release = runInvalidator({ slugs: 'alpha', contentType: 'releases' });
+  assert.equal(release.result.status, 0);
+  assert.equal(release.payloads[0].type, 'releases');
+});
+
 test('inputs above the explicit 100-item budget fail before making an HTTP request', () => {
   const slugs = Array.from({ length: 101 }, (_, index) => `skill-${index}`);
   const { result, payloads, sleeps } = runInvalidator({
@@ -211,7 +299,7 @@ test('inputs above the explicit 100-item budget fail before making an HTTP reque
     maxItems: 100,
   });
 
-  assert.notEqual(result.status, 0);
+  assert.notEqual(result.status, 0, `STDOUT:\n${result.stdout}\nSTDERR:\n${result.stderr}`);
   assert.deepEqual(payloads, []);
   assert.deepEqual(sleeps, []);
   assert.match(result.stderr, /item count 101 exceeds MAX_ITEMS 100/);
@@ -223,7 +311,7 @@ test('temporary workspace failure fails closed before making an HTTP request', (
     mktempFails: true,
   });
 
-  assert.notEqual(result.status, 0);
+  assert.notEqual(result.status, 0, `STDOUT:\n${result.stdout}\nSTDERR:\n${result.stderr}`);
   assert.deepEqual(payloads, []);
   assert.deepEqual(outputs, {});
   assert.match(result.stderr, /Failed to create temporary workspace/);
@@ -265,13 +353,40 @@ test('HTTP 408, 429, and 5xx responses are transient and use finite retries', ()
   }
 });
 
+test('the exact pre-mutation closure overflow 409 safely splits into single requests', () => {
+  const { result, payloads, sleeps, outputs } = runInvalidator({
+    slugs: 'alpha,beta',
+    results: 'closure-overflow,http:200,http:200',
+  });
+
+  assert.equal(result.status, 0, `STDOUT:\n${result.stdout}\nSTDERR:\n${result.stderr}`);
+  assert.deepEqual(payloads.map((payload) => payload.slugs), [
+    ['alpha', 'beta'],
+    ['alpha'],
+    ['beta'],
+  ]);
+  assert.deepEqual(sleeps, []);
+  assert.deepEqual(outputs, { total_count: 2, success_count: 2, failed_count: 0 });
+});
+
+test('unrecognized 409 responses fail closed without split fallback', () => {
+  const { result, payloads, outputs } = runInvalidator({
+    slugs: 'alpha,beta',
+    results: 'http:409',
+  });
+
+  assert.notEqual(result.status, 0);
+  assert.equal(payloads.length, 1);
+  assert.deepEqual(outputs, { total_count: 2, success_count: 0, failed_count: 2 });
+});
+
 test('HTTP 401 takes precedence over curl exit 18 and fails after one request', () => {
   const { result, payloads, sleeps } = runInvalidator({
     slugs: 'alpha',
     results: 'http:401:18,http:200',
   });
 
-  assert.notEqual(result.status, 0);
+  assert.notEqual(result.status, 0, `STDOUT:\n${result.stdout}\nSTDERR:\n${result.stderr}`);
   assert.equal(payloads.length, 1);
   assert.deepEqual(sleeps, []);
   assert.match(result.stderr, /Non-transient HTTP 401/);
@@ -283,7 +398,7 @@ test('HTTP 403 takes precedence over curl exit 28 and fails after one request', 
     results: 'http:403:28,http:200',
   });
 
-  assert.notEqual(result.status, 0);
+  assert.notEqual(result.status, 0, `STDOUT:\n${result.stdout}\nSTDERR:\n${result.stderr}`);
   assert.equal(payloads.length, 1);
   assert.deepEqual(sleeps, []);
   assert.match(result.stderr, /Non-transient HTTP 403/);
@@ -316,6 +431,32 @@ test('HTTP 200 takes precedence over curl exit 18 and succeeds without retrying'
   assert.doesNotMatch(result.stderr, /curl transport failure|retrying/);
 });
 
+test('2xx responses fail closed when the cache response contract is invalid', () => {
+  for (const scenario of [
+    'contract:malformed',
+    'contract:preflight',
+    'contract:wrong-slugs',
+    'contract:missing-invalidated',
+    'contract:zero-invalidated',
+    'contract:no-list-bump',
+  ]) {
+    const { result, payloads, sleeps, outputs } = runInvalidator({
+      slugs: 'alpha',
+      results: scenario,
+    });
+
+    assert.notEqual(result.status, 0, scenario);
+    assert.equal(payloads.length, 1, scenario);
+    assert.deepEqual(sleeps, [], scenario);
+    assert.deepEqual(outputs, {
+      total_count: 1,
+      success_count: 0,
+      failed_count: 1,
+    });
+    assert.match(result.stderr, /response violated the requested contract/);
+  }
+});
+
 test('status 000 with curl exit 28 uses transport retries within the finite budget', () => {
   const { result, payloads, sleeps } = runInvalidator({
     slugs: 'alpha',
@@ -330,52 +471,99 @@ test('status 000 with curl exit 28 uses transport retries within the finite budg
   assert.match(result.stderr, /Transient curl transport failure \(exit 28\)/);
 });
 
-test('non-transient curl failures fail closed without retrying', () => {
-  const { result, payloads, sleeps } = runInvalidator({
+test('non-transient curl failures fail closed without retrying the failed batch', () => {
+  const { result, payloads, sleeps, outputs } = runInvalidator({
     slugs: 'alpha,beta,gamma',
     results: 'transport:3,http:200',
   });
 
   assert.notEqual(result.status, 0);
-  assert.equal(payloads.length, 1);
+  assert.equal(payloads.length, 2);
   assert.deepEqual(payloads[0].slugs, ['alpha', 'beta']);
+  assert.deepEqual(payloads[1].slugs, ['gamma']);
   assert.deepEqual(sleeps, []);
+  assert.deepEqual(outputs, { total_count: 3, success_count: 1, failed_count: 2 });
 });
 
-test('non-transient HTTP failures fail closed without retrying', () => {
-  const { result, payloads, sleeps } = runInvalidator({
+test('non-transient HTTP failures fail closed without retrying the failed batch', () => {
+  const { result, payloads, sleeps, outputs } = runInvalidator({
     slugs: 'alpha,beta,gamma',
     results: 'http:400,http:200',
   });
 
   assert.notEqual(result.status, 0);
-  assert.equal(payloads.length, 1);
+  assert.equal(payloads.length, 2);
   assert.deepEqual(payloads[0].slugs, ['alpha', 'beta']);
+  assert.deepEqual(payloads[1].slugs, ['gamma']);
   assert.deepEqual(sleeps, []);
+  assert.deepEqual(outputs, { total_count: 3, success_count: 1, failed_count: 2 });
 });
 
-test('an exhausted batch fails immediately without sending later batches', () => {
-  const { result, payloads, sleeps, outputs } = runInvalidator({
+test('an exhausted multi-item batch falls back to bounded single-item requests', () => {
+  const { result, payloads, sleeps, maxTimes, outputs } = runInvalidator({
     slugs: 'alpha,beta,gamma,delta,epsilon',
-    maxAttempts: 3,
-    results: 'http:200,http:503',
+    maxAttempts: 2,
+    fallbackMaxAttempts: 2,
+    results: 'http:200,http:503,http:503,http:200,http:200,http:200',
+  });
+
+  assert.equal(result.status, 0, `STDOUT:\n${result.stdout}\nSTDERR:\n${result.stderr}`);
+  assert.equal(payloads.length, 6);
+  assert.deepEqual(payloads[0].slugs, ['alpha', 'beta']);
+  assert.deepEqual(payloads.slice(1).map((payload) => payload.slugs), [
+    ['gamma', 'delta'],
+    ['gamma', 'delta'],
+    ['gamma'],
+    ['delta'],
+    ['epsilon'],
+  ]);
+  assert.deepEqual(sleeps, ['1']);
+  assert.deepEqual(maxTimes, [2, 2, 2, 9, 9, 2]);
+  assert.deepEqual(outputs, {
+    total_count: 5,
+    success_count: 5,
+    failed_count: 0,
+  });
+  assert.equal(outputs.total_count, outputs.success_count + outputs.failed_count);
+});
+
+test('single-item fallback failures preserve exact counts and fail closed', () => {
+  const { result, payloads, outputs } = runInvalidator({
+    slugs: 'alpha,beta',
+    maxAttempts: 2,
+    fallbackMaxAttempts: 2,
+    results: 'http:503,http:503,http:200,http:503,http:503',
   });
 
   assert.notEqual(result.status, 0);
-  assert.equal(payloads.length, 4);
-  assert.deepEqual(payloads[0].slugs, ['alpha', 'beta']);
-  assert.ok(
-    payloads.slice(1).every(
-      (payload) => JSON.stringify(payload.slugs) === '["gamma","delta"]',
-    ),
-  );
-  assert.equal(sleeps.length, 2);
+  assert.deepEqual(payloads.map((payload) => payload.slugs), [
+    ['alpha', 'beta'],
+    ['alpha', 'beta'],
+    ['alpha'],
+    ['beta'],
+    ['beta'],
+  ]);
   assert.deepEqual(outputs, {
-    total_count: 5,
-    success_count: 2,
-    failed_count: 3,
+    total_count: 2,
+    success_count: 1,
+    failed_count: 1,
   });
   assert.equal(outputs.total_count, outputs.success_count + outputs.failed_count);
+});
+
+test('the global deadline stops retries and fallback before the workflow timeout', () => {
+  const { result, payloads, sleeps, outputs } = runInvalidator({
+    slugs: 'alpha,beta',
+    maxAttempts: 3,
+    results: 'http:503',
+    fakeDateEpochs: '100,100,1300',
+  });
+
+  assert.notEqual(result.status, 0);
+  assert.equal(payloads.length, 1);
+  assert.deepEqual(sleeps, []);
+  assert.deepEqual(outputs, { total_count: 2, success_count: 0, failed_count: 2 });
+  assert.match(result.stderr, /runtime budget exhausted/);
 });
 
 test('sync workflow uses an artifact-backed bounded invalidator and preserves downstream success gates', () => {
@@ -415,8 +603,9 @@ test('sync workflow uses an artifact-backed bounded invalidator and preserves do
   );
 });
 
-test('each cache invalidation shard has a fixed 10-batch budget below its own timeout', () => {
+test('each cache invalidation shard has a hard runtime deadline below its own timeout', () => {
   const workflow = readFileSync(SYNC_WORKFLOW, 'utf8');
+  const invalidator = readFileSync(INVALIDATOR, 'utf8');
   const invalidationJob = workflow.slice(
     workflow.indexOf('  cache-invalidate-shard:'),
     workflow.indexOf('  cache-invalidate:'),
@@ -470,4 +659,15 @@ test('each cache invalidation shard has a fixed 10-batch budget below its own ti
   assert.equal(worstSecondsPerBatch, 105);
   assert.equal(worstCaseSeconds, 1050);
   assert.ok(worstCaseSeconds < timeoutMinutes * 60);
+
+  const runtimeMatch = invalidator.match(
+    /^MAX_RUNTIME_SECONDS="\$\{MAX_RUNTIME_SECONDS:-([0-9]+)\}"$/m,
+  );
+  assert.ok(runtimeMatch, 'invalidator must declare a fixed default runtime deadline');
+  const maxRuntimeSeconds = Number(runtimeMatch[1]);
+  assert.ok(maxRuntimeSeconds <= 1200);
+  assert.ok(
+    maxRuntimeSeconds <= timeoutMinutes * 60 - 60,
+    'script deadline must leave at least one minute for setup and teardown',
+  );
 });
