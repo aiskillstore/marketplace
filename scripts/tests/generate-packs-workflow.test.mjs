@@ -48,10 +48,11 @@ test('evaluate runs on a disposable VM with a user-separated job-local inference
   assert.match(evaluate, /runs-on: ubuntu-latest/);
   assert.match(evaluate, /@anthropic-ai\/claude-code@2\.1\.210/);
   assert.match(evaluate, /@openai\/codex@0\.139\.0/);
-  assert.match(evaluate, /apt-get install --yes --no-install-recommends ffmpeg poppler-utils/);
+  assert.match(evaluate, /apt-get install --yes --no-install-recommends ffmpeg poppler-utils ripgrep/);
   assert.match(evaluate, /command -v ffprobe/);
   assert.match(evaluate, /command -v pdfinfo/);
   assert.match(evaluate, /command -v pdftotext/);
+  assert.match(evaluate, /command -v rg/);
   assert.match(evaluate, /useradd .*packproxy/);
   assert.match(evaluate, /useradd .*packeval/);
   assert.match(evaluate, /\/usr\/local\/lib\/pack-evaluator-proxy\.mjs/);
@@ -66,6 +67,8 @@ test('evaluate runs on a disposable VM with a user-separated job-local inference
   assert.match(evaluate, /EVALUATOR_RC=\$\?[\s\S]*popd >\/dev\/null[\s\S]*set -e/);
   assert.match(evaluate, /! sudo -n true/);
   assert.match(evaluate, /! test -r .*PROXY_PID.*environ/);
+  assert.match(evaluate, /test -r \/opt\/pack-evaluator\/plan\.json/);
+  assert.match(evaluate, /find \/opt\/pack-evaluator\/skills -name skill-report\.json -print -quit/);
   assert.match(evaluate, /PACK_EVALUATOR_HELM_API_KEY: \$\{\{ secrets\.PACK_EVALUATOR_HELM_API_KEY \}\}/);
   assert.match(evaluate, /PACK_EVALUATOR_PROXY_TOKEN="\$LOCAL_TOKEN"/);
   assert.match(evaluate, /supports_websockets = false/);
