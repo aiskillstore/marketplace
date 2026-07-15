@@ -14,6 +14,10 @@ function unique(values) {
   return [...new Set(values.filter(Boolean))].sort();
 }
 
+function sortRowsById(rows) {
+  return [...rows].sort((left, right) => String(left.id).localeCompare(String(right.id), 'en-US'));
+}
+
 function headers(serviceKey) {
   return {
     apikey: serviceKey,
@@ -142,7 +146,13 @@ export async function fetchLegacyGovernanceSourceEvidence({
   if (skills.length !== legacy.length || audits.length !== legacy.length) {
     fail('source evidence readback is incomplete');
   }
-  return { schemaVersion: 1, status: 'source_evidence_fetched', skillIds, skills, audits };
+  return {
+    schemaVersion: 1,
+    status: 'source_evidence_fetched',
+    skillIds,
+    skills: sortRowsById(skills),
+    audits: sortRowsById(audits),
+  };
 }
 
 function parseArgs(argv) {

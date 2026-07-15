@@ -536,14 +536,29 @@ test('fetches bounded independent governance readback tables', async () => {
 });
 
 test('freezes the complete source audit row and unhashed Skill install metadata', async () => {
-  const classification = fixtures().classification;
+  const classification = structuredClone(fixtures().hashClassification);
+  const secondSkillId = '00000000-0000-4000-8000-000000000002';
+  const secondAuditId = '10000000-0000-4000-8000-000000000002';
+  classification.cohorts.legacy_algorithm_equivalent.push({
+    ...classification.cohorts.legacy_algorithm_equivalent[0],
+    id: secondSkillId,
+    slug: 'owner-second',
+    publicEligibilityAuditId: secondAuditId,
+  });
+  classification.counts.legacy_algorithm_equivalent = 2;
   const fetchImpl = async (url) => {
     const table = url.pathname.split('/').at(-1);
     if (table === 'skills') {
-      return { ok: true, json: async () => [{ id: SKILL_ID, name: 'Image', file_structure: [] }] };
+      return { ok: true, json: async () => [
+        { id: secondSkillId, name: 'Second', file_structure: [] },
+        { id: SKILL_ID, name: 'Image', file_structure: [] },
+      ] };
     }
     assert.equal(url.searchParams.get('select'), '*');
-    return { ok: true, json: async () => [{ id: SOURCE_AUDIT_ID, skill_id: SKILL_ID, version: 7 }] };
+    return { ok: true, json: async () => [
+      { id: secondAuditId, skill_id: secondSkillId, version: 8 },
+      { id: SOURCE_AUDIT_ID, skill_id: SKILL_ID, version: 7 },
+    ] };
   };
   const output = await fetchLegacyGovernanceSourceEvidence({
     supabaseUrl: 'https://db.example.test',
@@ -551,8 +566,8 @@ test('freezes the complete source audit row and unhashed Skill install metadata'
     classification,
     fetchImpl,
   });
-  assert.equal(output.skills.length, 1);
-  assert.equal(output.audits[0].id, SOURCE_AUDIT_ID);
+  assert.deepEqual(output.skills.map((row) => row.id), [SKILL_ID, secondSkillId]);
+  assert.deepEqual(output.audits.map((row) => row.id), [SOURCE_AUDIT_ID, secondAuditId]);
 });
 
 test('workflow is two-phase, exactly pinned, bounded, and never executes ordinary sync', () => {
