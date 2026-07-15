@@ -1,0 +1,382 @@
+name: Recover Score and Cache Closure
+
+on:
+  workflow_dispatch:
+    inputs:
+      scope:
+        description: 'Recover terminal score failures from one run, or close cache for the current approved catalog'
+        type: choice
+        required: true
+        default: source-run-failures
+        options: [source-run-failures, approved-catalog-cache]
+      source_run_id:
+        description: 'Completed Recalculate Skill Scores run ID (required for source-run-failures)'
+        type: string
+        required: false
+        default: ''
+      expected_failures:
+        description: 'Optional exact terminal-failure count asserted against the source log'
+        type: string
+        required: false
+        default: ''
+      score_concurrency:
+        description: 'Bounded failed-score recovery concurrency (1-2)'
+        type: choice
+        required: true
+        default: '1'
+        options: ['1', '2']
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  # Freeze DB identity, write scores, invalidate, and read back while holding
+  # the same mutex as every other production score writer.
+  group: production-skill-score-writes
+  cancel-in-progress: false
+
+env:
+  RECOVERY_CLI_VERSION: '2.8.0'
+  RECOVERY_CLI_SHA256: 'ecfaa49aa72d24b8ea6322c7dae24d4bbe9df174a5d009cc56d7d2a89e7ae05a'
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      scope: ${{ steps.plan.outputs.scope }}
+      slug_count: ${{ steps.plan.outputs.slug_count }}
+    steps:
+      - name: Checkout recovery planner
+        uses: actions/checkout@v5
+        with:
+          sparse-checkout: scripts/score-cache-closure.mjs
+          sparse-checkout-cone-mode: false
+          fetch-depth: 1
+
+      - name: Materialize exact file-backed recovery plan
+        id: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EXPECTED_FAILURES: ${{ inputs.expected_failures }}
+          PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SCOPE: ${{ inputs.scope }}
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: |
+          set -euo pipefail
+          plan="$RUNNER_TEMP/score-cache-recovery-plan"
+          mkdir -p "$plan"
+
+          if [ "$SCOPE" = source-run-failures ]; then
+            [[ "$SOURCE_RUN_ID" =~ ^[1-9][0-9]*$ ]] || {
+              echo '::error::source_run_id must be a positive GitHub Actions run ID'
+              exit 2
+            }
+            run_json=$(gh run view "$SOURCE_RUN_ID" --repo "$GITHUB_REPOSITORY" \
+              --json databaseId,displayTitle,status,conclusion,headSha,event)
+            jq -e --argjson runId "$SOURCE_RUN_ID" \
+              '.databaseId == $runId and .displayTitle == "Recalculate Skill Scores"
+               and .status == "completed" and (.headSha | test("^[0-9a-f]{40}$"))' \
+              <<< "$run_json" >/dev/null
+            printf '%s\n' "$run_json" > "$plan/source-run.json"
+            gh run view "$SOURCE_RUN_ID" --repo "$GITHUB_REPOSITORY" --log > "$plan/source-run.log"
+            args=(extract-run-log --log "$plan/source-run.log" --output "$plan/requested-slugs.txt")
+            if [ -n "$EXPECTED_FAILURES" ]; then
+              args+=(--expected-failures "$EXPECTED_FAILURES")
+            fi
+            node scripts/score-cache-closure.mjs "${args[@]}"
+          else
+            test "$SCOPE" = approved-catalog-cache
+            test -z "$SOURCE_RUN_ID" || {
+              echo '::error::source_run_id must be empty for approved-catalog-cache'
+              exit 2
+            }
+            node scripts/score-cache-closure.mjs approved-catalog \
+              --output "$plan/requested-slugs.txt"
+            node scripts/score-cache-closure.mjs freeze-score-evidence \
+              --slugs-file "$plan/requested-slugs.txt" \
+              --output "$plan/expected-score-evidence.json" \
+              --require-snapshot false
+          fi
+
+          slug_count=$(sed '/^$/d' "$plan/requested-slugs.txt" | sort -u | wc -l | tr -d ' ')
+          test "$slug_count" -gt 0
+          jq -n --arg scope "$SCOPE" --arg sourceRunId "$SOURCE_RUN_ID" \
+            --argjson slugCount "$slug_count" --arg workflowCommit "$GITHUB_SHA" \
+            '{schemaVersion:1,scope:$scope,sourceRunId:$sourceRunId,slugCount:$slugCount,workflowCommit:$workflowCommit}' \
+            > "$plan/metadata.json"
+          (cd "$plan" && find . -maxdepth 1 -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS)
+          echo "scope=$SCOPE" >> "$GITHUB_OUTPUT"
+          echo "slug_count=$slug_count" >> "$GITHUB_OUTPUT"
+
+      - name: Upload exact recovery plan
+        uses: actions/upload-artifact@v4
+        with:
+          name: score-cache-recovery-plan-${{ github.run_id }}
+          path: ${{ runner.temp }}/score-cache-recovery-plan
+          if-no-files-found: error
+          retention-days: 30
+
+  rescore-failures:
+    needs: plan
+    if: needs.plan.outputs.scope == 'source-run-failures'
+    runs-on: ubuntu-latest
+    timeout-minutes: 1440
+    steps:
+      - name: Checkout bounded score recovery runtime
+        uses: actions/checkout@v5
+        with:
+          sparse-checkout: |
+            .github/actions/download-skillstore-cli
+            scripts/recalculate-scores.sh
+            scripts/score-cache-closure.mjs
+          sparse-checkout-cone-mode: false
+          fetch-depth: 1
+
+      - name: Download recovery plan
+        uses: actions/download-artifact@v5
+        with:
+          name: score-cache-recovery-plan-${{ github.run_id }}
+          path: ${{ runner.temp }}/score-cache-recovery-plan
+
+      - name: Verify exact plan boundary
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/score-cache-recovery-plan"
+          sha256sum --check SHA256SUMS
+          test "$(sed '/^$/d' requested-slugs.txt | sort -u | wc -l | tr -d ' ')" \
+            -eq "$(jq -r .slugCount metadata.json)"
+
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ vars.APP_CLIENT_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+          repositories: marketplace,skillstore
+
+      - name: Download fixed score recovery CLI
+        uses: ./.github/actions/download-skillstore-cli
+        with:
+          version: ${{ env.RECOVERY_CLI_VERSION }}
+          minimum-version: ${{ env.RECOVERY_CLI_VERSION }}
+          token: ${{ steps.app-token.outputs.token }}
+          cache-dir: ${{ runner.temp }}/skillstore-cli-cache
+
+      - name: Verify fixed CLI identity
+        run: |
+          set -euo pipefail
+          test "$(sha256sum skillstore-cli | awk '{print $1}')" = "$RECOVERY_CLI_SHA256"
+
+      - name: Recalculate every terminal failure with bounded concurrency
+        id: score
+        env:
+          PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: |
+          set -euo pipefail
+          result="$RUNNER_TEMP/score-cache-recovery-result"
+          mkdir -p "$result"
+          requested="$RUNNER_TEMP/score-cache-recovery-plan/requested-slugs.txt"
+          node scripts/score-cache-closure.mjs freeze-score-evidence \
+            --slugs-file "$requested" \
+            --output "$result/before-score-evidence.json" \
+            --require-snapshot false
+          RUN_BOUNDARY=$(date -u +'%Y-%m-%dT%H:%M:%S.%3NZ')
+          printf '%s\n' "$RUN_BOUNDARY" > "$result/run-boundary.txt"
+          set +e
+          CACHE_INVALIDATE_SECRET= bash scripts/recalculate-scores.sh \
+            --cli "$GITHUB_WORKSPACE/skillstore-cli" \
+            --slugs-file "$requested" \
+            --success-slugs-file "$result/successful-slugs.txt" \
+            --failed-slugs-file "$result/failed-slugs.txt" \
+            --concurrency "${{ inputs.score_concurrency }}" \
+            --max-attempts 3 \
+            --retry-base-seconds 5 \
+            --timeout-seconds 300 2>&1 | tee "$result/score-output.log"
+          wrapper_exit=${PIPESTATUS[0]}
+          set -e
+          requested_count=$(sed '/^$/d' "$requested" | sort -u | wc -l | tr -d ' ')
+          successful_count=$(sed '/^$/d' "$result/successful-slugs.txt" | sort -u | wc -l | tr -d ' ')
+          failed_count=$(sed '/^$/d' "$result/failed-slugs.txt" | sort -u | wc -l | tr -d ' ')
+          test "$requested_count" -eq "$((successful_count + failed_count))"
+          proven_count=0
+          if [ "$successful_count" -gt 0 ]; then
+            node scripts/score-cache-closure.mjs freeze-score-evidence \
+              --slugs-file "$result/successful-slugs.txt" \
+              --output "$result/expected-score-evidence.json" \
+              --require-snapshot true
+            node scripts/score-cache-closure.mjs verify-score-transitions \
+              --before "$result/before-score-evidence.json" \
+              --after "$result/expected-score-evidence.json" \
+              --run-boundary "$RUN_BOUNDARY" \
+              --output "$result/score-write-evidence.json"
+            proven_count=$(jq -r .provenCount "$result/score-write-evidence.json")
+            test "$proven_count" -eq "$successful_count"
+          fi
+          jq -n --argjson requestedCount "$requested_count" \
+            --argjson successfulCount "$successful_count" --argjson failedCount "$failed_count" \
+            --argjson causallyProvenCount "$proven_count" --arg runBoundary "$RUN_BOUNDARY" \
+            --argjson wrapperExit "$wrapper_exit" --arg cliVersion "$RECOVERY_CLI_VERSION" \
+            --arg cliSha256 "$RECOVERY_CLI_SHA256" \
+            '{schemaVersion:1,requestedCount:$requestedCount,successfulCount:$successfulCount,failedCount:$failedCount,causallyProvenCount:$causallyProvenCount,runBoundary:$runBoundary,wrapperExit:$wrapperExit,cliVersion:$cliVersion,cliSha256:$cliSha256}' \
+            > "$result/metadata.json"
+          (cd "$result" && find . -maxdepth 1 -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS)
+          echo "successful_count=$successful_count" >> "$GITHUB_OUTPUT"
+          echo "failed_count=$failed_count" >> "$GITHUB_OUTPUT"
+
+      - name: Upload exact rescore result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: score-cache-recovery-result-${{ github.run_id }}
+          path: ${{ runner.temp }}/score-cache-recovery-result
+          if-no-files-found: error
+          retention-days: 30
+
+  close-cache:
+    needs: [plan, rescore-failures]
+    if: always() && needs.plan.result == 'success' && (needs.rescore-failures.result == 'success' || needs.rescore-failures.result == 'skipped')
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    steps:
+      - name: Checkout hosted cache closure runtime
+        uses: actions/checkout@v5
+        with:
+          sparse-checkout: |
+            .github/actions/invalidate-cache
+            scripts/score-cache-closure.mjs
+          sparse-checkout-cone-mode: false
+          fetch-depth: 1
+
+      - name: Download recovery plan
+        uses: actions/download-artifact@v5
+        with:
+          name: score-cache-recovery-plan-${{ github.run_id }}
+          path: ${{ runner.temp }}/score-cache-recovery-plan
+
+      - name: Download rescore result
+        if: needs.plan.outputs.scope == 'source-run-failures'
+        uses: actions/download-artifact@v5
+        with:
+          name: score-cache-recovery-result-${{ github.run_id }}
+          path: ${{ runner.temp }}/score-cache-recovery-result
+
+      - name: Select only proven cache closure slugs
+        id: selected
+        env:
+          SCOPE: ${{ needs.plan.outputs.scope }}
+        run: |
+          set -euo pipefail
+          (cd "$RUNNER_TEMP/score-cache-recovery-plan" && sha256sum --check SHA256SUMS)
+          target="$RUNNER_TEMP/cache-closure-slugs.txt"
+          expected="$RUNNER_TEMP/cache-closure-expected-score-evidence.json"
+          if [ "$SCOPE" = source-run-failures ]; then
+            result="$RUNNER_TEMP/score-cache-recovery-result"
+            (cd "$result" && sha256sum --check SHA256SUMS)
+            jq -e '.successfulCount > 0 and .causallyProvenCount == .successfulCount' "$result/metadata.json" >/dev/null
+            test "$(jq -r '.transitions | length' "$result/score-write-evidence.json")" \
+              -eq "$(jq -r .successfulCount "$result/metadata.json")"
+            cp "$result/successful-slugs.txt" "$target"
+            cp "$result/expected-score-evidence.json" "$expected"
+            echo "remaining_score_failures=$(jq -r .failedCount "$result/metadata.json")" >> "$GITHUB_OUTPUT"
+          else
+            cp "$RUNNER_TEMP/score-cache-recovery-plan/requested-slugs.txt" "$target"
+            cp "$RUNNER_TEMP/score-cache-recovery-plan/expected-score-evidence.json" "$expected"
+            echo 'remaining_score_failures=0' >> "$GITHUB_OUTPUT"
+          fi
+          count=$(sed '/^$/d' "$target" | sort -u | wc -l | tr -d ' ')
+          test "$count" -gt 0
+          test "$(jq -r '.scores | length' "$expected")" -eq "$count"
+          echo "slug_count=$count" >> "$GITHUB_OUTPUT"
+
+      - name: Invalidate selected score API entries
+        id: invalidate
+        uses: ./.github/actions/invalidate-cache
+        with:
+          type: skills
+          slugs-file: ${{ runner.temp }}/cache-closure-slugs.txt
+          site-url: https://skillstore.io
+          secret: ${{ secrets.CACHE_INVALIDATE_SECRET }}
+          batch-size: '30'
+          invalidate-artifacts: 'false'
+          invalidate-dependent-packs: 'false'
+          fail-on-error: 'true'
+
+      - name: Require exact invalidation count
+        env:
+          EXPECTED: ${{ steps.selected.outputs.slug_count }}
+          FAILED: ${{ steps.invalidate.outputs.failed_count }}
+          SUCCEEDED: ${{ steps.invalidate.outputs.success_count }}
+          TOTAL: ${{ steps.invalidate.outputs.total_count }}
+        run: |
+          set -euo pipefail
+          test "$TOTAL" -eq "$EXPECTED"
+          test "$SUCCEEDED" -eq "$EXPECTED"
+          test "$FAILED" -eq 0
+
+      - name: Verify every production cache readback
+        id: readback
+        run: |
+          node scripts/score-cache-closure.mjs readback \
+            --expected-score-evidence "$RUNNER_TEMP/cache-closure-expected-score-evidence.json" \
+            --evidence "$RUNNER_TEMP/cache-readback.json" \
+            --site-url https://skillstore.io \
+            --concurrency 8 \
+            --attempts 3 \
+            --timeout-ms 30000
+
+      - name: Write closure evidence
+        if: always()
+        env:
+          REMAINING: ${{ steps.selected.outputs.remaining_score_failures || 'unknown' }}
+          SLUG_COUNT: ${{ steps.selected.outputs.slug_count || 'unknown' }}
+        run: |
+          evidence="$RUNNER_TEMP/score-cache-recovery-evidence"
+          mkdir -p "$evidence"
+          cp "$RUNNER_TEMP/cache-closure-slugs.txt" "$evidence/selected-slugs.txt" 2>/dev/null || true
+          cp "$RUNNER_TEMP/cache-closure-expected-score-evidence.json" "$evidence/expected-score-evidence.json" 2>/dev/null || true
+          cp "$RUNNER_TEMP/cache-readback.json" "$evidence/cache-readback.json" 2>/dev/null || true
+          cp "$RUNNER_TEMP/score-cache-recovery-result/before-score-evidence.json" "$evidence/before-score-evidence.json" 2>/dev/null || true
+          cp "$RUNNER_TEMP/score-cache-recovery-result/run-boundary.txt" "$evidence/run-boundary.txt" 2>/dev/null || true
+          cp "$RUNNER_TEMP/score-cache-recovery-result/score-write-evidence.json" "$evidence/score-write-evidence.json" 2>/dev/null || true
+          jq -n --arg scope "${{ needs.plan.outputs.scope }}" --arg slugCount "$SLUG_COUNT" \
+            --arg remainingScoreFailures "$REMAINING" --arg invalidation "${{ steps.invalidate.outcome }}" \
+            --arg readback "${{ steps.readback.outcome }}" \
+            '{schemaVersion:1,scope:$scope,slugCount:$slugCount,remainingScoreFailures:$remainingScoreFailures,invalidation:$invalidation,readback:$readback}' \
+            > "$evidence/summary.json"
+
+      - name: Upload closure evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: score-cache-recovery-evidence-${{ github.run_id }}
+          path: ${{ runner.temp }}/score-cache-recovery-evidence
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Require complete score and cache recovery
+        env:
+          REMAINING: ${{ steps.selected.outputs.remaining_score_failures }}
+        run: |
+          set -euo pipefail
+          test "$REMAINING" -eq 0 || {
+            echo "::error::$REMAINING score recalculation(s) still failed; cache closure covered only proven successes"
+            exit 1
+          }
+
+      - name: Recovery summary
+        if: always()
+        run: |
+          {
+            echo '## Score and cache recovery'
+            echo
+            echo "- Scope: ${{ needs.plan.outputs.scope }}"
+            echo "- Planned slugs: ${{ needs.plan.outputs.slug_count }}"
+            echo "- Cache-closed slugs: ${{ steps.selected.outputs.slug_count || 'unknown' }}"
+            echo "- Remaining score failures: ${{ steps.selected.outputs.remaining_score_failures || 'unknown' }}"
+            echo "- Invalidation: ${{ steps.invalidate.outcome }}"
+            echo "- Production readback: ${{ steps.readback.outcome }}"
+          } >> "$GITHUB_STEP_SUMMARY"

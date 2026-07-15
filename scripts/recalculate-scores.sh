@@ -49,6 +49,8 @@ set -o pipefail
 CLI=""
 SLUGS_CSV=""
 SLUGS_FILE=""
+SUCCESS_SLUGS_FILE=""
+FAILED_SLUGS_FILE=""
 LIMIT=""
 CONCURRENCY=5
 DRY_RUN=0
@@ -66,6 +68,8 @@ Options:
   --cli PATH                  Path to skillstore-cli binary (required)
   --slugs CSV                 Comma-separated slug list (mutually exclusive with --slugs-file/--recalculate)
   --slugs-file PATH            Newline-delimited slug list; keeps full runs out of argv
+  --success-slugs-file PATH    Write the exact successful per-slug set to PATH
+  --failed-slugs-file PATH     Write the exact terminal-failure per-slug set to PATH
   --limit N                   Optional: limit total slugs (applied before per-slug loop)
   --concurrency N             Pass-through to CLI (default: 5)
   --dry-run                   Pass-through to CLI
@@ -83,6 +87,8 @@ while [ $# -gt 0 ]; do
 		--cli)               CLI="${2:-}"; shift 2 ;;
 		--slugs)             SLUGS_CSV="${2:-}"; shift 2 ;;
 		--slugs-file)        SLUGS_FILE="${2:-}"; shift 2 ;;
+		--success-slugs-file) SUCCESS_SLUGS_FILE="${2:-}"; shift 2 ;;
+		--failed-slugs-file) FAILED_SLUGS_FILE="${2:-}"; shift 2 ;;
 		--limit)             LIMIT="${2:-}"; shift 2 ;;
 		--concurrency)       CONCURRENCY="${2:-5}"; shift 2 ;;
 		--dry-run)           DRY_RUN=1; shift ;;
@@ -111,6 +117,14 @@ slug_sources=0
 [ "$RECALCULATE" -eq 1 ] && slug_sources=$((slug_sources + 1))
 if [ "$slug_sources" -gt 1 ]; then
 	echo "::error::--slugs, --slugs-file, and --recalculate are mutually exclusive" >&2
+	exit 2
+fi
+if [ -n "$SUCCESS_SLUGS_FILE" ] && [ "$SUCCESS_SLUGS_FILE" = "$FAILED_SLUGS_FILE" ]; then
+	echo "::error::success and failed slug output files must be different" >&2
+	exit 2
+fi
+if [ "$RECALCULATE" -eq 1 ] && { [ -n "$SUCCESS_SLUGS_FILE" ] || [ -n "$FAILED_SLUGS_FILE" ]; }; then
+	echo "::error::exact slug result files require per-slug mode" >&2
 	exit 2
 fi
 if [ -n "$SLUGS_FILE" ] && [ ! -f "$SLUGS_FILE" ]; then
@@ -142,6 +156,14 @@ PROCESSED=0
 UPDATED=0
 ERRORS=0
 FAILED_SLUGS=()
+SUCCESSFUL_SLUGS=()
+
+for output_file in "$SUCCESS_SLUGS_FILE" "$FAILED_SLUGS_FILE"; do
+	if [ -n "$output_file" ]; then
+		mkdir -p "$(dirname "$output_file")"
+		: > "$output_file"
+	fi
+done
 
 # ---------- per-slug worker ----------
 # Truncates long lines to keep workflow logs readable.
@@ -153,6 +175,26 @@ _truncate() {
 	else
 		printf '%s...[truncated %d chars]' "${s:0:$max}" "$(( ${#s} - max ))"
 	fi
+}
+
+validate_one_slug_success() {
+	local output_path="$1"
+	local processed updated errors
+	processed="$(grep -oE 'Processed:[[:space:]]*[0-9]+' "$output_path" | tail -n1 | grep -oE '[0-9]+' || true)"
+	updated="$(grep -oE 'Updated:[[:space:]]*[0-9]+' "$output_path" | tail -n1 | grep -oE '[0-9]+' || true)"
+	# CLI 2.8.0 reports `Final errors:`. Keep accepting the older
+	# aggregate `Errors:` label for compatibility with legacy releases.
+	errors="$(grep -oE '(Final errors|Errors):[[:space:]]*[0-9]+' "$output_path" | tail -n1 | grep -oE '[0-9]+' || true)"
+	if [ "$processed" != "1" ] || [ "$errors" != "0" ]; then
+		return 1
+	fi
+	if [ "$DRY_RUN" -ne 1 ] && [ "$updated" != "1" ]; then
+		return 1
+	fi
+	if [ "$DRY_RUN" -eq 1 ] && ! [[ "$updated" =~ ^[01]$ ]]; then
+		return 1
+	fi
+	return 0
 }
 
 # Runs the CLI for a single slug with retry/backoff. Echoes CLI's
@@ -224,7 +266,11 @@ score_one_slug() {
 		cat "$stdout_path" || true
 
 		if [ "$rc" -eq 0 ]; then
-			return 0
+			if validate_one_slug_success "$stdout_path"; then
+				return 0
+			fi
+			echo "CLI exited 0 without proving the target slug was processed successfully" >> "$stderr_path"
+			rc=65
 		fi
 		attempt=$(( attempt + 1 ))
 
@@ -257,6 +303,7 @@ ingest_one_slug_output() {
 		# run, so assume 1 (the slug itself) on success. This matches
 		# prior semantics: per-slug success == 1 update.
 		UPDATED=$(( UPDATED + 1 ))
+		SUCCESSFUL_SLUGS+=("$slug")
 	else
 		ERRORS=$(( ERRORS + 1 ))
 		FAILED_SLUGS+=("$slug")
@@ -337,7 +384,7 @@ if [ "$RECALCULATE" -eq 1 ]; then
 	if [ "$rc" -eq 0 ]; then
 		PROCESSED="$(grep -oE 'Processed:\s*[0-9]+' "$stdout_path" | tail -n1 | grep -oE '[0-9]+' || echo 0)"
 		UPDATED="$(grep -oE 'Updated:\s*[0-9]+' "$stdout_path" | tail -n1 | grep -oE '[0-9]+' || echo 0)"
-		ERRORS="$(grep -oE 'Errors:\s*[0-9]+' "$stdout_path" | tail -n1 | grep -oE '[0-9]+' || echo 0)"
+		ERRORS="$(grep -oE '(Final errors|Errors):[[:space:]]*[0-9]+' "$stdout_path" | tail -n1 | grep -oE '[0-9]+' || echo 0)"
 	else
 		ERRORS=1
 	fi
@@ -470,6 +517,29 @@ else
 	while [ "${#ACTIVE_PIDS[@]}" -gt 0 ]; do
 		collect_next_finished_job
 	done
+fi
+
+write_slug_result_file() {
+	local output_file="$1"
+	shift
+	if [ -z "$output_file" ]; then
+		return 0
+	fi
+	: > "$output_file"
+	if [ "$#" -gt 0 ]; then
+		printf '%s\n' "$@" | LC_ALL=C sort -u > "$output_file"
+	fi
+}
+
+if [ "${#SUCCESSFUL_SLUGS[@]}" -gt 0 ]; then
+	write_slug_result_file "$SUCCESS_SLUGS_FILE" "${SUCCESSFUL_SLUGS[@]}"
+else
+	write_slug_result_file "$SUCCESS_SLUGS_FILE"
+fi
+if [ "${#FAILED_SLUGS[@]}" -gt 0 ]; then
+	write_slug_result_file "$FAILED_SLUGS_FILE" "${FAILED_SLUGS[@]}"
+else
+	write_slug_result_file "$FAILED_SLUGS_FILE"
 fi
 
 # ---------- summary (matches workflow grep format) ----------

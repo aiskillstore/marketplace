@@ -32,25 +32,29 @@ on:
         type: boolean
         default: false
       cli_version:
-        description: 'CLI version (default: latest)'
+        description: 'Pinned score CLI version'
         type: string
-        default: 'latest'
+        default: '2.8.0'
       timeout_seconds:
         description: 'Per-skill CLI timeout in seconds (0 disables)'
         type: string
         default: '180'
 
 concurrency:
-  group: recalculate-scores
+  # This workflow-level mutex remains held through score writes, cache
+  # invalidation, and production readback. Every other production score writer
+  # uses the same group.
+  group: production-skill-score-writes
   cancel-in-progress: false
+
+env:
+  SCORE_CLI_VERSION: '2.8.0'
+  SCORE_CLI_SHA256: 'ecfaa49aa72d24b8ea6322c7dae24d4bbe9df174a5d009cc56d7d2a89e7ae05a'
 
 jobs:
   recalculate:
     runs-on: self-hosted
     timeout-minutes: 1440
-    concurrency:
-      group: production-skill-score-writes
-      cancel-in-progress: false
     steps:
       - name: Generate GitHub App Token
         id: app-token
@@ -73,28 +77,52 @@ jobs:
       - name: Download Skillstore CLI
         uses: ./.github/actions/download-skillstore-cli
         with:
-          version: ${{ inputs.cli_version || 'latest' }}
+          version: ${{ env.SCORE_CLI_VERSION }}
+          minimum-version: ${{ env.SCORE_CLI_VERSION }}
           token: ${{ steps.app-token.outputs.token }}
           cache-dir: /home/runner/_work/_cache/skillstore-cli
+
+      - name: Validate requested version and fixed CLI identity
+        env:
+          INPUT_CLI_VERSION: ${{ inputs.cli_version || '2.8.0' }}
+        run: |
+          set -euo pipefail
+          [[ "$INPUT_CLI_VERSION" =~ ^(cli-v)?[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
+            echo '::error::cli_version must be a plain semver or cli-v prefixed semver'
+            exit 2
+          }
+          normalized="${INPUT_CLI_VERSION#cli-v}"
+          test "$normalized" = "$SCORE_CLI_VERSION" || {
+            echo "::error::score workflow is pinned to CLI $SCORE_CLI_VERSION"
+            exit 2
+          }
+          test "$(sha256sum "$GITHUB_WORKSPACE/skillstore-cli" | awk '{print $1}')" = "$SCORE_CLI_SHA256"
 
       - name: Recalculate quality scores
         id: score
         env:
           PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
-          # Used below for one batched score-cache invalidation after scoring.
-          # The per-slug CLI children intentionally run with this env cleared.
-          CACHE_INVALIDATE_SECRET: ${{ secrets.CACHE_INVALIDATE_SECRET }}
           INPUT_SLUG: ${{ inputs.slug }}
           INPUT_LIMIT: ${{ inputs.limit }}
           INPUT_CONCURRENCY: ${{ inputs.concurrency || '1' }}
           INPUT_DRY_RUN: ${{ inputs.dry_run }}
           INPUT_TIMEOUT_SECONDS: ${{ inputs.timeout_seconds || '180' }}
+          INPUT_CLI_VERSION: ${{ inputs.cli_version || '2.8.0' }}
         run: |
           echo "=== Skill Quality Score Recalculation ==="
           echo "Time: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
           echo ""
-          INVALIDATE_SLUGS_FILE=""
+          INPUT_DRY_RUN="${INPUT_DRY_RUN:-false}"
+          [[ "$INPUT_CLI_VERSION" =~ ^(cli-v)?[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          NORMALIZED_CLI_VERSION="${INPUT_CLI_VERSION#cli-v}"
+          test "$NORMALIZED_CLI_VERSION" = "$SCORE_CLI_VERSION"
+          CLOSURE_DIR="$RUNNER_TEMP/score-closure"
+          SUCCESS_SLUGS_FILE="$CLOSURE_DIR/successful-slugs.txt"
+          FAILED_SLUGS_FILE="$CLOSURE_DIR/failed-slugs.txt"
+          mkdir -p "$CLOSURE_DIR"
+          : > "$SUCCESS_SLUGS_FILE"
+          : > "$FAILED_SLUGS_FILE"
 
           configure_tls() {
             if [ ! -s /etc/ssl/certs/ca-certificates.crt ] && command -v apt-get >/dev/null 2>&1; then
@@ -153,8 +181,6 @@ jobs:
             fi
             # Single-skill mode: per-slug wrapper
             WRAPPER_ARGS+=( --slugs "$INPUT_SLUG" )
-            INVALIDATE_SLUGS_FILE="$RUNNER_TEMP/recalculate-invalidate-slugs.txt"
-            printf '%s\n' "$INPUT_SLUG" > "$INVALIDATE_SLUGS_FILE"
             echo "Mode: Single skill ($INPUT_SLUG)"
           elif [ "$SUPPORTS_SLUGS" -eq 1 ]; then
             # Scheduled/default full recalculation must still use the
@@ -203,7 +229,6 @@ jobs:
             SLUGS_FILE="$RUNNER_TEMP/recalculate-slugs.txt"
             printf '%s\n' "${ALL_SLUGS[@]}" > "$SLUGS_FILE"
             WRAPPER_ARGS+=( --slugs-file "$SLUGS_FILE" )
-            INVALIDATE_SLUGS_FILE="$SLUGS_FILE"
             echo "Skills queued: ${#ALL_SLUGS[@]}"
             echo "Slug list file: $SLUGS_FILE"
           else
@@ -222,6 +247,13 @@ jobs:
               echo "Mode: All skills via legacy CLI"
             fi
             WRAPPER_ARGS+=( --recalculate )
+          fi
+
+          if [ "$SUPPORTS_SLUGS" -eq 1 ]; then
+            WRAPPER_ARGS+=(
+              --success-slugs-file "$SUCCESS_SLUGS_FILE"
+              --failed-slugs-file "$FAILED_SLUGS_FILE"
+            )
           fi
 
           if [ "$INPUT_CONCURRENCY" != "5" ]; then
@@ -243,8 +275,8 @@ jobs:
           # and preserve partial-success behavior.
           set +e
           # Full recalculation launches one CLI process per slug. Do not let
-          # each child invalidate cache independently; that turns 5k skills
-          # into 5k network calls. We batch invalidate after scoring succeeds.
+          # each child invalidate cache independently; the exact success set
+          # crosses to the hosted cache-closure job as an artifact.
           CACHE_INVALIDATE_SECRET= bash scripts/recalculate-scores.sh "${WRAPPER_ARGS[@]}" 2>&1 | tee score-output.log
           EXIT_CODE=${PIPESTATUS[0]}
           set -e
@@ -264,100 +296,57 @@ jobs:
           echo "updated=$UPDATED" >> $GITHUB_OUTPUT
           echo "errors=$ERRORS" >> $GITHUB_OUTPUT
           echo "duration=${DURATION}s" >> $GITHUB_OUTPUT
-          echo "exit_code=$EXIT_CODE" >> $GITHUB_OUTPUT
-
-          # Treat partial per-slug failures as a successful run only when
-          # at least one slug succeeded. A non-zero wrapper exit means the
-          # run made no successful progress (all/global failure) and must
-          # keep the workflow red.
+          FINAL_EXIT_CODE="$EXIT_CODE"
+          if [ "${ERRORS:-0}" -gt 0 ]; then
+            FINAL_EXIT_CODE=1
+          fi
           SUCCESSFUL=$(( ${PROCESSED:-0} - ${ERRORS:-0} ))
-          if [ "$EXIT_CODE" -ne 0 ]; then
+          SUCCESS_FILE_COUNT=$(sed '/^$/d' "$SUCCESS_SLUGS_FILE" | wc -l | tr -d ' ')
+          FAILED_FILE_COUNT=$(sed '/^$/d' "$FAILED_SLUGS_FILE" | wc -l | tr -d ' ')
+          if [ "$SUCCESS_FILE_COUNT" -ne "$SUCCESSFUL" ] || [ "$FAILED_FILE_COUNT" -ne "${ERRORS:-0}" ]; then
+            echo "::error::Exact score closure count mismatch: successful=$SUCCESSFUL/$SUCCESS_FILE_COUNT failed=${ERRORS:-0}/$FAILED_FILE_COUNT"
+            FINAL_EXIT_CODE=1
+          fi
+          echo "exit_code=$FINAL_EXIT_CODE" >> $GITHUB_OUTPUT
+
+          if [ "$INPUT_DRY_RUN" != "true" ] && [ "$SUCCESS_FILE_COUNT" -gt 0 ]; then
+            node scripts/score-cache-closure.mjs freeze-score-evidence \
+              --slugs-file "$SUCCESS_SLUGS_FILE" \
+              --output "$CLOSURE_DIR/expected-score-evidence.json" \
+              --require-snapshot true
+          fi
+
+          jq -n \
+            --argjson schemaVersion 1 \
+            --arg sourceRunId "$GITHUB_RUN_ID" \
+            --arg workflowCommit "$GITHUB_SHA" \
+            --arg cliVersion "$NORMALIZED_CLI_VERSION" \
+            --argjson processed "${PROCESSED:-0}" \
+            --argjson updated "${UPDATED:-0}" \
+            --argjson errors "${ERRORS:-0}" \
+            --argjson successfulCount "$SUCCESS_FILE_COUNT" \
+            --argjson failedCount "$FAILED_FILE_COUNT" \
+            --argjson dryRun "$INPUT_DRY_RUN" \
+            '{schemaVersion:$schemaVersion,sourceRunId:$sourceRunId,workflowCommit:$workflowCommit,cliVersion:$cliVersion,processed:$processed,updated:$updated,errors:$errors,successfulCount:$successfulCount,failedCount:$failedCount,dryRun:$dryRun}' \
+            > "$CLOSURE_DIR/metadata.json"
+
+          if [ "$FINAL_EXIT_CODE" -ne 0 ]; then
             if [ "${PROCESSED:-0}" -eq 0 ] || [ "$SUCCESSFUL" -le 0 ]; then
               echo "::error::Recalculation failed: no skills were scored successfully."
-              exit "$EXIT_CODE"
+            else
+              echo "::error::Score recalculation has ${ERRORS:-0} terminal failure(s); recovery is required."
             fi
-
-            echo "::warning::Score recalculation finished with $ERRORS error(s) after processing $PROCESSED skill(s); keeping the workflow green because it made progress."
-          elif [ "${ERRORS:-0}" -gt 0 ]; then
-            echo "::warning::Score recalculation finished with $ERRORS error(s) after processing $PROCESSED skill(s)."
+            exit "$FINAL_EXIT_CODE"
           fi
 
-          if [ "$INPUT_DRY_RUN" != "true" ] && [ -n "$INVALIDATE_SLUGS_FILE" ] && [ -s "$INVALIDATE_SLUGS_FILE" ] && [ "$SUCCESSFUL" -gt 0 ]; then
-            echo ""
-            echo "Batch invalidating skill score cache from $INVALIDATE_SLUGS_FILE"
-            INVALIDATE_SLUGS_FILE="$INVALIDATE_SLUGS_FILE" node <<'NODE' || echo "::warning::Batch cache invalidation failed; scores were already written and will be visible after cache refresh."
-          const fs = require('node:fs');
-
-          const file = process.env.INVALIDATE_SLUGS_FILE;
-          const secret = process.env.CACHE_INVALIDATE_SECRET;
-          const site = (process.env.SKILLSTORE_SITE_URL || 'https://skillstore.io').replace(/\/+$/, '');
-          const batchSize = 50;
-          const timeoutMs = 10_000;
-
-          async function postBatch(batch, index) {
-            const controller = new AbortController();
-            const timeout = setTimeout(() => controller.abort(), timeoutMs);
-            try {
-              const res = await fetch(`${site}/api/cache/invalidate`, {
-                method: 'POST',
-                signal: controller.signal,
-                headers: {
-                  Authorization: `Bearer ${secret}`,
-                  'Content-Type': 'application/json',
-                  'User-Agent': 'skillstore-marketplace-workflow',
-                },
-                body: JSON.stringify({
-                  type: 'skills',
-                  slugs: batch,
-                  invalidateApi: true,
-                  invalidateArtifacts: false,
-                }),
-              });
-              const text = await res.text();
-              if (!res.ok) {
-                console.error(`::warning::cache invalidation batch ${index} failed ${res.status}: ${text.slice(0, 300)}`);
-                return false;
-              }
-              console.log(`[cache] invalidated ${batch.length} skills in batch ${index}`);
-              return true;
-            } catch (error) {
-              const message = error instanceof Error ? error.message : String(error);
-              console.error(`::warning::cache invalidation batch ${index} skipped: ${message}`);
-              return false;
-            } finally {
-              clearTimeout(timeout);
-            }
-          }
-
-          (async () => {
-            if (!secret) {
-              console.log('[cache] skipped: CACHE_INVALIDATE_SECRET is not set');
-              return;
-            }
-            const slugs = [...new Set(
-              fs.readFileSync(file, 'utf8')
-                .split(/\r?\n/)
-                .map((slug) => slug.trim())
-                .filter(Boolean)
-            )];
-            if (slugs.length === 0) {
-              console.log('[cache] skipped: no slugs to invalidate');
-              return;
-            }
-
-            let failed = 0;
-            for (let i = 0; i < slugs.length; i += batchSize) {
-              const ok = await postBatch(slugs.slice(i, i + batchSize), Math.floor(i / batchSize) + 1);
-              if (!ok) failed++;
-            }
-            console.log(`[cache] batch invalidation complete: slugs=${slugs.length} failed_batches=${failed}`);
-            if (failed > 0) process.exitCode = 1;
-          })().catch((error) => {
-            console.error(error instanceof Error ? error.stack || error.message : String(error));
-            process.exitCode = 1;
-          });
-          NODE
-          fi
+      - name: Upload exact score closure
+        if: always() && inputs.dry_run != true
+        uses: actions/upload-artifact@v4
+        with:
+          name: score-closure-${{ github.run_id }}
+          path: ${{ runner.temp }}/score-closure
+          if-no-files-found: error
+          retention-days: 14
 
       - name: Cleanup
         if: always()
@@ -374,7 +363,7 @@ jobs:
           EXIT_CODE: ${{ steps.score.outputs.exit_code }}
           DRY_RUN: ${{ inputs.dry_run || 'false' }}
           SLUG: ${{ inputs.slug }}
-          CLI_VERSION: ${{ inputs.cli_version || 'latest' }}
+          CLI_VERSION: ${{ env.SCORE_CLI_VERSION }}
         run: |
           MODE="All skills"
           if [ -n "$SLUG" ]; then
@@ -401,10 +390,10 @@ jobs:
 
           EOF
 
-          if [ "$EXIT_CODE" = "0" ]; then
+          if [ "${EXIT_CODE:-1}" = "0" ]; then
             echo "✅ Score recalculation completed successfully" >> $GITHUB_STEP_SUMMARY
-          elif [ "$PROCESSED" -gt 0 ]; then
-            echo "⚠️ Score recalculation completed with warnings (non-fatal exit code: $EXIT_CODE)" >> $GITHUB_STEP_SUMMARY
+          elif [ "${PROCESSED:-0}" -gt 0 ]; then
+            echo "❌ Score recalculation has terminal failures and requires recovery (exit code: $EXIT_CODE)" >> $GITHUB_STEP_SUMMARY
           else
             echo "❌ Score recalculation failed before making progress (exit code: $EXIT_CODE)" >> $GITHUB_STEP_SUMMARY
           fi
@@ -416,3 +405,107 @@ jobs:
           - Skills older than 7 days now use actual metrics instead of neutral 50 score
           - Maintainability recency scores refreshed based on update timestamps
           EOF
+
+  cache-closure:
+    name: score cache closure (hosted)
+    needs: recalculate
+    if: always() && inputs.dry_run != true
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    steps:
+      - name: Checkout cache closure runtime
+        uses: actions/checkout@v5
+        with:
+          sparse-checkout: |
+            .github/actions/invalidate-cache
+            scripts/score-cache-closure.mjs
+          sparse-checkout-cone-mode: false
+          fetch-depth: 1
+
+      - name: Download exact score closure
+        uses: actions/download-artifact@v5
+        with:
+          name: score-closure-${{ github.run_id }}
+          path: ${{ runner.temp }}/score-closure
+
+      - name: Validate exact successful score set
+        id: closure
+        env:
+          CLOSURE_DIR: ${{ runner.temp }}/score-closure
+        run: |
+          set -euo pipefail
+          metadata="$CLOSURE_DIR/metadata.json"
+          successes="$CLOSURE_DIR/successful-slugs.txt"
+          failures="$CLOSURE_DIR/failed-slugs.txt"
+          expected="$CLOSURE_DIR/expected-score-evidence.json"
+          test -s "$metadata" && test -f "$successes" && test -f "$failures" && test -s "$expected"
+          jq -e --arg runId "$GITHUB_RUN_ID" \
+            '.schemaVersion == 1 and .sourceRunId == $runId and .dryRun == false
+             and (.processed == (.successfulCount + .failedCount))
+             and (.errors == .failedCount) and (.updated == .successfulCount)' \
+            "$metadata" >/dev/null
+          success_count=$(sed '/^$/d' "$successes" | sort -u | wc -l | tr -d ' ')
+          failed_count=$(sed '/^$/d' "$failures" | sort -u | wc -l | tr -d ' ')
+          test "$success_count" -eq "$(jq -r .successfulCount "$metadata")"
+          test "$failed_count" -eq "$(jq -r .failedCount "$metadata")"
+          test "$success_count" -gt 0
+          test "$(jq -r '.scores | length' "$expected")" -eq "$success_count"
+          test "$(jq -r '[.scores[].slug] | unique | length' "$expected")" -eq "$success_count"
+          echo "slug_count=$success_count" >> "$GITHUB_OUTPUT"
+
+      - name: Invalidate only successfully rescored API entries
+        id: invalidate
+        uses: ./.github/actions/invalidate-cache
+        with:
+          type: skills
+          slugs-file: ${{ runner.temp }}/score-closure/successful-slugs.txt
+          site-url: https://skillstore.io
+          secret: ${{ secrets.CACHE_INVALIDATE_SECRET }}
+          batch-size: '30'
+          invalidate-artifacts: 'false'
+          invalidate-dependent-packs: 'false'
+          fail-on-error: 'true'
+
+      - name: Require exact invalidation count
+        env:
+          EXPECTED: ${{ steps.closure.outputs.slug_count }}
+          TOTAL: ${{ steps.invalidate.outputs.total_count }}
+          SUCCEEDED: ${{ steps.invalidate.outputs.success_count }}
+          FAILED: ${{ steps.invalidate.outputs.failed_count }}
+        run: |
+          set -euo pipefail
+          test "$TOTAL" -eq "$EXPECTED"
+          test "$SUCCEEDED" -eq "$EXPECTED"
+          test "$FAILED" -eq 0
+
+      - name: Verify every production API cache readback
+        id: readback
+        run: |
+          node scripts/score-cache-closure.mjs readback \
+            --expected-score-evidence "$RUNNER_TEMP/score-closure/expected-score-evidence.json" \
+            --evidence "$RUNNER_TEMP/score-closure/cache-readback.json" \
+            --site-url https://skillstore.io \
+            --concurrency 8 \
+            --attempts 3 \
+            --timeout-ms 30000
+
+      - name: Upload score cache closure evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: score-cache-closure-${{ github.run_id }}
+          path: ${{ runner.temp }}/score-closure
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Cache closure summary
+        if: always()
+        run: |
+          {
+            echo '## Score cache closure'
+            echo
+            echo "- Scored entries selected: ${{ steps.closure.outputs.slug_count || 'unknown' }}"
+            echo "- Cache invalidation: ${{ steps.invalidate.outcome }}"
+            echo "- Production readback: ${{ steps.readback.outcome }}"
+            echo "- Hosted runner: ${{ runner.name }}"
+          } >> "$GITHUB_STEP_SUMMARY"
