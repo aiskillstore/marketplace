@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import {
   fetchApprovedCatalog,
   fetchScoreEvidence,
+  parseRecoveryResult,
   parseScoreRunLog,
   verifyCacheReadback,
   verifyScoreTransitions,
@@ -44,6 +45,36 @@ Processed: 2
 Updated: 0
 Errors: 2
 `), /repeats terminal failures/);
+});
+
+test('extracts only checksum-verified residual failures from a prior recovery result', () => {
+  const metadata = {
+    schemaVersion: 1,
+    requestedCount: 5,
+    successfulCount: 3,
+    failedCount: 2,
+    causallyProvenCount: 3,
+  };
+  assert.deepEqual(parseRecoveryResult({
+    metadata,
+    successfulText: 'charlie\nalpha\nbravo\n',
+    failedText: 'echo\ndelta\n',
+  }), {
+    failedCount: 2,
+    failedSlugs: ['delta', 'echo'],
+    requestedCount: 5,
+    successfulCount: 3,
+  });
+  assert.throws(() => parseRecoveryResult({
+    metadata: { ...metadata, causallyProvenCount: 2 },
+    successfulText: 'alpha\nbravo\ncharlie\n',
+    failedText: 'delta\necho\n',
+  }), /does not causally prove every success/);
+  assert.throws(() => parseRecoveryResult({
+    metadata,
+    successfulText: 'alpha\nbravo\ndelta\n',
+    failedText: 'delta\necho\n',
+  }), /success\/failure overlap/);
 });
 
 test('approved catalog pagination selects only public eligible canonical slugs', async () => {
@@ -274,9 +305,18 @@ test('manual recovery is file-backed, fixed-CLI, bounded, and red on any remaini
   assert.match(RECOVERY, /source_run_id:/);
   assert.match(RECOVERY, /gh run view "\$SOURCE_RUN_ID"[\s\S]*--log > "\$plan\/source-run\.log"/);
   assert.match(RECOVERY, /extract-run-log/);
+  assert.match(RECOVERY, /recovery-run-failures/);
+  assert.match(RECOVERY, /\.conclusion == "failure" or \.conclusion == "cancelled"/);
+  assert.match(RECOVERY, /score-cache-recovery-result-\$SOURCE_RUN_ID/);
+  assert.match(RECOVERY, /sha256sum --check SHA256SUMS/);
+  assert.match(RECOVERY, /extract-recovery-result/);
+  assert.match(RECOVERY, /source-result-metadata\.json/);
+  assert.match(RECOVERY, /compare\/\$source_sha\.\.\.\$GITHUB_SHA/);
+  assert.match(RECOVERY, /source run commit is not an ancestor/);
   assert.match(RECOVERY, /approved-catalog/);
   assert.match(RECOVERY, /name: score-cache-recovery-plan-\$\{\{ github\.run_id \}\}/);
-  assert.match(RECOVERY, /RECOVERY_CLI_VERSION: '2\.8\.0'/);
+  assert.match(RECOVERY, /RECOVERY_CLI_VERSION: '2\.8\.1'/);
+  assert.match(RECOVERY, /RECOVERY_CLI_SHA256: '0c53207352b1fe1c5bc73c9d544ee7d97067ed55ab6b72f00e5624b7ee0c7c5c'/);
   assert.match(RECOVERY, /RECOVERY_CLI_SHA256: '[0-9a-f]{64}'/);
   assert.match(RECOVERY, /runs-on: ubuntu-latest/);
   assert.match(RECOVERY, /group: production-skill-score-writes/);

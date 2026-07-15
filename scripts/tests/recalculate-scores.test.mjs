@@ -173,6 +173,8 @@ test('a slug that fails repeatedly lets the run finish; partial success -> exit 
 	assert.equal(sum.processed, '3');
 	assert.equal(sum.errors, '1');
 	assert.match(result.stdout, /doomed/, 'failed slug name should be surfaced in summary');
+	assert.match(result.stdout, /simulated persistent root cause/,
+		'actionable CLI root errors must survive into recovery evidence');
 });
 
 test('writes exact disjoint success and terminal-failure slug artifacts', () => {
@@ -224,7 +226,7 @@ test('all slugs succeed -> exit 0, errors=0', () => {
 	assert.equal(sum.processed, '3');
 	assert.equal(sum.errors, '0');
 	assert.equal(sum.updated, '3');
-	assert.match(result.stdout, /Final errors:\s*0/, 'fixture must model the fixed CLI 2.8.0 score summary contract');
+	assert.match(result.stdout, /Final errors:\s*0/, 'fixture must model the fixed CLI 2.8.x score summary contract');
 });
 
 test('CLI exit 0 without processing the target is a terminal failure', () => {
