@@ -229,7 +229,7 @@ function createBoundaryFixture() {
       runId: '12345',
       repository: 'aiskillstore/marketplace',
       workflowCommit: 'f'.repeat(40),
-      cliVersion: '2.5.0',
+      cliVersion: '2.7.0',
       cliSha256: '9'.repeat(64),
     },
   });
@@ -257,6 +257,26 @@ test('qualifies only exact v2/v3 source bindings and preserves hash classificati
     sourceEvidence: v3Evidence,
   });
   assert.equal(v3Qualified.governance.eligible[0].reason, 'eligible_v3');
+
+  const legacyEvidence = structuredClone(base.sourceEvidence);
+  legacyEvidence.audits[0].content_hash = payloadHash;
+  legacyEvidence.bindings = [{
+    id: 'binding-1',
+    skill_id: base.row.id,
+    source_audit_id: SOURCE_AUDIT_ID,
+    source_audit_version: legacyEvidence.audits[0].version,
+    source_audit_payload_hash: payloadHash,
+    subject_marketplace_commit_sha: COMMIT,
+    subject_content_hash: LEGACY_CONTENT,
+    subject_tree_hash: LEGACY_TREE,
+    subject_plugin_path: base.row.path,
+    report_object_spec: `${COMMIT}:${base.row.path}/skill-report.json`,
+  }];
+  const legacyQualified = qualifyLegacyGovernanceClassification({
+    classification: base.hashClassification,
+    sourceEvidence: legacyEvidence,
+  });
+  assert.equal(legacyQualified.governance.eligible[0].reason, 'eligible_legacy_binding_v1');
 
   const cases = [
     {
@@ -749,8 +769,8 @@ test('workflow is two-phase, exactly pinned, bounded, and never executes ordinar
     resolve(import.meta.dirname, '../../.github/workflows/backfill-artifact-versions.yml'),
     'utf8'
   );
-  assert.match(workflow, /default: '2\.5\.0'/);
-  assert.match(workflow, /test "\$CLI_VERSION" = '2\.5\.0'/);
+  assert.match(workflow, /default: '2\.7\.0'/);
+  assert.match(workflow, /test "\$CLI_VERSION" = '2\.7\.0'/);
   assert.doesNotMatch(workflow, /version:\s*(latest|'latest'|"latest")/);
   assert.match(workflow, /batch_size must be between 1 and 500/);
   assert.match(workflow, /dry_run_id/);
@@ -760,8 +780,8 @@ test('workflow is two-phase, exactly pinned, bounded, and never executes ordinar
   assert.match(workflow, /boundaries may only be created from main/);
   assert.match(workflow, /execute may only run from main/);
   assert.match(workflow, /sha256sum --check SHA256SUMS/);
-  assert.match(workflow, /CLI 2\.5\.0 binary differs from the frozen dry-run boundary/);
-  assert.ok((workflow.match(/e6110fa711ac570d4c4fa03bf03b57e5857ddc158a54a891500f72eb2023441e/g) || []).length >= 2);
+  assert.match(workflow, /binding-aware CLI binary differs from the frozen dry-run boundary/);
+  assert.ok((workflow.match(/cc987bdb22b3c19b7f7dec60b707032979823579167c0b911e408771ed9e13d7/g) || []).length >= 2);
   assert.match(workflow, /--phase execute-preflight/);
   assert.match(workflow, /--current-inventory "\$RUNNER_TEMP\/current-inventory\.json"/);
   assert.match(workflow, /\$\{\{ runner\.temp \}\}\/current-inventory\.json/);
