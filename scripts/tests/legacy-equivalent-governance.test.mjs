@@ -5,6 +5,7 @@ import { join, resolve } from 'node:path';
 import test from 'node:test';
 import {
   createLegacyGovernanceBoundary,
+  qualifyLegacyGovernanceClassification,
   verifyLegacyGovernanceBoundary,
   verifyLegacyGovernanceExecution,
 } from '../verify-legacy-equivalent-governance.mjs';
@@ -71,7 +72,7 @@ function fixtures() {
       }],
     }],
   };
-  const classification = {
+  const hashClassification = {
     schemaVersion: 1,
     status: 'classified',
     counts: { exact: 0, legacy_algorithm_equivalent: 1, actual_or_unproven_drift: 0 },
@@ -142,9 +143,25 @@ function fixtures() {
       supported_tools: ['claude', 'codex'],
       file_structure: [{ name: 'SKILL.md', type: 'file' }],
     }],
-    audits: [{ id: SOURCE_AUDIT_ID, skill_id: SKILL_ID, version: 7, audit_payload_hash: 'f'.repeat(32) }],
+    audits: [{
+      id: SOURCE_AUDIT_ID,
+      skill_id: SKILL_ID,
+      version: 7,
+      content_hash: `v2:${COMMIT}:${LEGACY_CONTENT}:${LEGACY_TREE}:${'f'.repeat(32)}`,
+      audit_payload_hash: null,
+      subject_marketplace_commit_sha: null,
+      subject_content_hash: null,
+      subject_tree_hash: null,
+      subject_plugin_path: null,
+      derived_from_audit_id: null,
+      derivation_kind: null,
+    }],
   };
-  return { row, plan, classification, rawSkill, preInventory, dryRunResults, sourceEvidence };
+  const classification = qualifyLegacyGovernanceClassification({
+    classification: hashClassification,
+    sourceEvidence,
+  });
+  return { row, plan, hashClassification, classification, rawSkill, preInventory, dryRunResults, sourceEvidence };
 }
 
 function createBoundaryFixture() {
@@ -177,6 +194,86 @@ function createBoundaryFixture() {
   });
   return { ...values, directory, files, boundary };
 }
+
+test('qualifies only exact v2/v3 source bindings and preserves hash classification', () => {
+  const base = fixtures();
+  assert.equal(base.classification.governance.eligibleCount, 1);
+  assert.equal(base.classification.governance.unprovenCount, 0);
+  assert.equal(base.classification.governance.eligible[0].reason, 'eligible_v2');
+  assert.deepEqual(base.classification.cohorts, base.hashClassification.cohorts);
+
+  const v3Evidence = structuredClone(base.sourceEvidence);
+  const v3Audit = v3Evidence.audits[0];
+  const payloadHash = 'f'.repeat(32);
+  v3Audit.content_hash = `v3:${COMMIT}:${LEGACY_CONTENT}:${LEGACY_TREE}:${Buffer.from(base.row.path).toString('hex')}:${payloadHash}`;
+  v3Audit.audit_payload_hash = payloadHash;
+  v3Audit.subject_marketplace_commit_sha = COMMIT;
+  v3Audit.subject_content_hash = LEGACY_CONTENT;
+  v3Audit.subject_tree_hash = LEGACY_TREE;
+  v3Audit.subject_plugin_path = base.row.path;
+  const v3Qualified = qualifyLegacyGovernanceClassification({
+    classification: base.hashClassification,
+    sourceEvidence: v3Evidence,
+  });
+  assert.equal(v3Qualified.governance.eligible[0].reason, 'eligible_v3');
+
+  const cases = [
+    {
+      name: 'plain legacy digest',
+      mutate: (audit) => { audit.content_hash = 'f'.repeat(32); },
+      reason: 'source_audit_binding_unproven_legacy_digest',
+    },
+    {
+      name: 'malformed binding',
+      mutate: (audit) => { audit.content_hash = 'v2:broken'; },
+      reason: 'source_audit_binding_malformed_or_unsupported',
+    },
+    {
+      name: 'subject mismatch',
+      mutate: (audit) => {
+        audit.content_hash = `v2:${'9'.repeat(40)}:${LEGACY_CONTENT}:${LEGACY_TREE}:${'f'.repeat(32)}`;
+      },
+      reason: 'source_audit_binding_subject_mismatch',
+    },
+    {
+      name: 'projection mismatch',
+      mutate: (audit) => { audit.audit_payload_hash = 'f'.repeat(32); },
+      reason: 'source_audit_projection_mismatch',
+    },
+    {
+      name: 'derived audit',
+      mutate: (audit) => { audit.derived_from_audit_id = DERIVED_AUDIT_ID; },
+      reason: 'source_audit_identity_unproven',
+    },
+    {
+      name: 'invalid audit version',
+      mutate: (audit) => { audit.version = 0; },
+      reason: 'source_audit_identity_unproven',
+    },
+  ];
+  for (const item of cases) {
+    const sourceEvidence = structuredClone(base.sourceEvidence);
+    item.mutate(sourceEvidence.audits[0]);
+    const qualified = qualifyLegacyGovernanceClassification({
+      classification: base.hashClassification,
+      sourceEvidence,
+    });
+    assert.equal(qualified.governance.eligibleCount, 0, item.name);
+    assert.equal(qualified.governance.unprovenCount, 1, item.name);
+    assert.equal(qualified.governance.unproven[0].reason, item.reason, item.name);
+    assert.deepEqual(qualified.cohorts, base.hashClassification.cohorts, item.name);
+  }
+});
+
+test('aborts instead of classifying incomplete source evidence', () => {
+  const fixture = fixtures();
+  const incomplete = structuredClone(fixture.sourceEvidence);
+  incomplete.audits = [];
+  assert.throws(() => qualifyLegacyGovernanceClassification({
+    classification: fixture.hashClassification,
+    sourceEvidence: incomplete,
+  }), /cover.*exactly once/);
+});
 
 test('freezes and verifies one exact dry-run boundary', () => {
   const fixture = createBoundaryFixture();
@@ -359,6 +456,7 @@ test('verifies artifact, derived audit, score, Pack, and attestation execution e
       postInventory,
       readback,
       frozenSourceEvidence: fixture.sourceEvidence,
+      postSourceEvidence: structuredClone(fixture.sourceEvidence),
     });
     assert.equal(verified.executedCount, 1);
     readback.scoreSnapshots[0].score_subject.auditId = SOURCE_AUDIT_ID;
@@ -371,6 +469,7 @@ test('verifies artifact, derived audit, score, Pack, and attestation execution e
       postInventory,
       readback,
       frozenSourceEvidence: fixture.sourceEvidence,
+      postSourceEvidence: structuredClone(fixture.sourceEvidence),
     }), /production readback mismatch/);
     readback.scoreSnapshots[0].score_subject.auditId = DERIVED_AUDIT_ID;
     readback.audits[0].summary = 'changed during execution';
@@ -383,7 +482,25 @@ test('verifies artifact, derived audit, score, Pack, and attestation execution e
       postInventory,
       readback,
       frozenSourceEvidence: fixture.sourceEvidence,
+      postSourceEvidence: structuredClone(fixture.sourceEvidence),
     }), /production readback mismatch/);
+
+    const changedPostEvidence = structuredClone(fixture.sourceEvidence);
+    changedPostEvidence.audits[0].summary = 'changed during execution';
+    assert.throws(() => verifyLegacyGovernanceExecution({
+      boundary: fixture.boundary,
+      plan: fixture.plan,
+      classification: fixture.classification,
+      executionResults,
+      frozenInventory: fixture.preInventory,
+      postInventory,
+      readback: {
+        ...readback,
+        audits: [{ ...fixture.sourceEvidence.audits[0] }, readback.audits[1]],
+      },
+      frozenSourceEvidence: fixture.sourceEvidence,
+      postSourceEvidence: changedPostEvidence,
+    }), /source audit changed during governance execution/);
   } finally {
     rmSync(fixture.directory, { recursive: true, force: true });
   }
@@ -461,6 +578,7 @@ test('workflow is two-phase, exactly pinned, bounded, and never executes ordinar
   assert.match(workflow, /CLI 2\.4\.2 binary differs from the frozen dry-run boundary/);
   assert.ok((workflow.match(/276eee5369128edc2b70bbc602592434940a57c494b0ee8ffe6b3eef51396125/g) || []).length >= 2);
   assert.match(workflow, /--phase execute-preflight/);
+  assert.match(workflow, /--phase qualify/);
   assert.match(workflow, /skill govern-legacy-equivalent/);
   assert.match(workflow, /cache batches of at most ten/);
   assert.match(workflow, /--concurrency 1/);
@@ -468,6 +586,14 @@ test('workflow is two-phase, exactly pinned, bounded, and never executes ordinar
   assert.match(workflow, /legacy-equivalent-execution-/);
   assert.match(workflow, /legacy-equivalent-failed-dry-run-/);
   assert.match(workflow, /Preserve execution status evidence/);
+  const sourceEvidenceIndex = workflow.indexOf('Fetch complete source audit evidence before governance planning');
+  const qualificationIndex = workflow.indexOf('Qualify source-audit bindings and plan only governable groups');
+  const governanceDryRunIndex = workflow.indexOf('Run administrator governance dry-run');
+  assert(sourceEvidenceIndex > 0 && sourceEvidenceIndex < qualificationIndex);
+  assert(qualificationIndex < governanceDryRunIndex);
+  assert.match(workflow, /cmp "\$RUNNER_TEMP\/source-evidence\.json" "\$RUNNER_TEMP\/source-evidence-after\.json"/);
+  assert.match(workflow, /--post-source-evidence "\$RUNNER_TEMP\/post-source-evidence\.json"/);
+  assert.match(workflow, /\$\{\{ runner\.temp \}\}\/post-source-evidence\.json/);
   const syncCalls = workflow.match(/skill sync[\s\S]{0,250}/g) || [];
   assert.equal(syncCalls.length, 1);
   assert.match(syncCalls[0], /--dry-run/);

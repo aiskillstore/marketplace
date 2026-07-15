@@ -205,6 +205,23 @@ jobs:
           jq -s . "$RUNNER_TEMP/classification-results.jsonl" > "$RUNNER_TEMP/classification-results.json"
           node scripts/verify-artifact-version-classification.mjs --phase classification \
             --plan "$RUNNER_TEMP/plan.json" --results "$RUNNER_TEMP/classification-results.json" \
+            --output "$RUNNER_TEMP/hash-classification.json"
+
+      - name: Fetch complete source audit evidence before governance planning
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: >-
+          node scripts/fetch-legacy-equivalent-governance-readback.mjs
+          --classification "$RUNNER_TEMP/hash-classification.json"
+          --output "$RUNNER_TEMP/source-evidence.json"
+
+      - name: Qualify source-audit bindings and plan only governable groups
+        run: |
+          set -euo pipefail
+          node scripts/verify-legacy-equivalent-governance.mjs --phase qualify \
+            --classification "$RUNNER_TEMP/hash-classification.json" \
+            --source-evidence "$RUNNER_TEMP/source-evidence.json" \
             --output "$RUNNER_TEMP/classification.json"
           node scripts/verify-legacy-equivalent-governance.mjs --phase groups \
             --plan "$RUNNER_TEMP/plan.json" --classification "$RUNNER_TEMP/classification.json" \
@@ -236,14 +253,18 @@ jobs:
           done < <(jq -c '.groups[]' "$RUNNER_TEMP/legacy-groups.json")
           jq -s . "$RUNNER_TEMP/governance-dry-run.jsonl" > "$RUNNER_TEMP/governance-dry-run.json"
 
-      - name: Freeze complete source audit and install metadata evidence
+      - name: Re-fetch and compare source evidence after administrator dry-run
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
-        run: >-
-          node scripts/fetch-legacy-equivalent-governance-readback.mjs
-          --classification "$RUNNER_TEMP/classification.json"
-          --output "$RUNNER_TEMP/source-evidence.json"
+        run: |
+          set -euo pipefail
+          node scripts/fetch-legacy-equivalent-governance-readback.mjs \
+            --classification "$RUNNER_TEMP/classification.json" \
+            --output "$RUNNER_TEMP/source-evidence-after.json"
+          cmp "$RUNNER_TEMP/source-evidence.json" "$RUNNER_TEMP/source-evidence-after.json" || {
+            echo '::error::Skill metadata or source audit changed during administrator dry-run'; exit 1;
+          }
 
       - name: Freeze immutable execution boundary
         run: |
@@ -284,6 +305,7 @@ jobs:
             echo "- CLI: \`2.4.2\`"
             echo "- Selected: \`${{ steps.plan.outputs.selected_count }}\` (maximum 500)"
             echo "- Scan end: \`${{ steps.plan.outputs.last_selected }}\`"
+            echo "- Hash-equivalent: \`$(jq -r .governance.hashEquivalentCount "$RUNNER_TEMP/classification.json")\`; governable: \`$(jq -r .governance.eligibleCount "$RUNNER_TEMP/classification.json")\`; source-audit unproven: \`$(jq -r .governance.unprovenCount "$RUNNER_TEMP/classification.json")\`"
             echo '- No production write was authorized.'
             echo "- Execute with \`dry_run_id=$GITHUB_RUN_ID\`; no scan cursor is a completion claim."
           } >> "$GITHUB_STEP_SUMMARY"
@@ -294,7 +316,7 @@ jobs:
           set -euo pipefail
           boundary="$RUNNER_TEMP/legacy-boundary"
           mkdir -p "$boundary"
-          for item in plan classification pre-inventory governance-dry-run source-evidence classification-results legacy-groups; do
+          for item in plan hash-classification classification pre-inventory governance-dry-run source-evidence source-evidence-after classification-results legacy-groups; do
             source="$RUNNER_TEMP/$item.json"
             [ ! -f "$source" ] || cp "$source" "$boundary/$item.json"
           done
@@ -470,6 +492,9 @@ jobs:
             --scope-inventory "$RUNNER_TEMP/boundary/plan.json" --output "$RUNNER_TEMP/post-inventory.json"
           node scripts/fetch-legacy-equivalent-governance-readback.mjs \
             --execution-results "$RUNNER_TEMP/execution-results.json" --output "$RUNNER_TEMP/governance-readback.json"
+          node scripts/fetch-legacy-equivalent-governance-readback.mjs \
+            --classification "$RUNNER_TEMP/boundary/classification.json" \
+            --output "$RUNNER_TEMP/post-source-evidence.json"
 
       - name: Verify complete production execution evidence
         run: >-
@@ -482,6 +507,7 @@ jobs:
           --post-inventory "$RUNNER_TEMP/post-inventory.json"
           --readback "$RUNNER_TEMP/governance-readback.json"
           --frozen-source-evidence "$RUNNER_TEMP/boundary/source-evidence.json"
+          --post-source-evidence "$RUNNER_TEMP/post-source-evidence.json"
           --output "$RUNNER_TEMP/execution-verification.json"
 
       - name: Preserve execution status evidence
@@ -510,6 +536,7 @@ jobs:
             ${{ runner.temp }}/execution-results.json
             ${{ runner.temp }}/post-inventory.json
             ${{ runner.temp }}/governance-readback.json
+            ${{ runner.temp }}/post-source-evidence.json
             ${{ runner.temp }}/execution-verification.json
             ${{ runner.temp }}/execution-evidence/run-status.json
           if-no-files-found: error

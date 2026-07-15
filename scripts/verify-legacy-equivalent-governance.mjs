@@ -8,6 +8,9 @@ import { pathToFileURL } from 'node:url';
 const CLI_VERSION = '2.4.2';
 const MAX_BATCH_SIZE = 500;
 const SHA256_RE = /^[0-9a-f]{64}$/;
+const COMMIT_RE = /^[0-9a-f]{40}$/;
+const AUDIT_PAYLOAD_HASH_RE = /^[0-9a-f]{32}$/;
+const LOWER_HEX_RE = /^[0-9a-f]+$/;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 function fail(message) {
@@ -45,15 +48,208 @@ function asMap(rows, key, label) {
   return map;
 }
 
+function decodePluginPath(value) {
+  if (!value || value.length % 2 !== 0 || !LOWER_HEX_RE.test(value)) return null;
+  const bytes = new Uint8Array(value.length / 2);
+  for (let index = 0; index < value.length; index += 2) {
+    bytes[index / 2] = Number.parseInt(value.slice(index, index + 2), 16);
+  }
+  let path;
+  try {
+    path = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+  } catch {
+    return null;
+  }
+  if (
+    !path
+    || path.trim() !== path
+    || path.startsWith('/')
+    || path.includes('\\')
+    || path.includes('\0')
+    || path.split('/').some((segment) => !segment || segment === '.' || segment === '..')
+  ) return null;
+  return path;
+}
+
+function qualifySourceAudit(audit, row) {
+  if (
+    audit.skill_id !== row.id
+    || audit.derived_from_audit_id != null
+    || audit.derivation_kind != null
+    || !Number.isSafeInteger(audit.version)
+    || audit.version < 1
+    || typeof audit.content_hash !== 'string'
+  ) {
+    return { eligible: false, reason: 'source_audit_identity_unproven' };
+  }
+  if (AUDIT_PAYLOAD_HASH_RE.test(audit.content_hash)) {
+    return { eligible: false, reason: 'source_audit_binding_unproven_legacy_digest' };
+  }
+
+  const parts = audit.content_hash.split(':');
+  let binding;
+  if (
+    parts[0] === 'v2'
+    && parts.length === 5
+    && COMMIT_RE.test(parts[1])
+    && SHA256_RE.test(parts[2])
+    && SHA256_RE.test(parts[3])
+    && AUDIT_PAYLOAD_HASH_RE.test(parts[4])
+  ) {
+    binding = {
+      version: 'v2', marketplaceCommit: parts[1], contentHash: parts[2], treeHash: parts[3],
+      pluginPath: null, auditPayloadHash: parts[4],
+    };
+  } else if (
+    parts[0] === 'v3'
+    && parts.length === 6
+    && COMMIT_RE.test(parts[1])
+    && SHA256_RE.test(parts[2])
+    && SHA256_RE.test(parts[3])
+    && AUDIT_PAYLOAD_HASH_RE.test(parts[5])
+  ) {
+    const pluginPath = decodePluginPath(parts[4]);
+    if (pluginPath) {
+      binding = {
+        version: 'v3', marketplaceCommit: parts[1], contentHash: parts[2], treeHash: parts[3],
+        pluginPath, auditPayloadHash: parts[5],
+      };
+    }
+  }
+  if (!binding) return { eligible: false, reason: 'source_audit_binding_malformed_or_unsupported' };
+  if (
+    binding.marketplaceCommit !== row.marketplaceCommit
+    || binding.contentHash !== row.contentHash
+    || binding.treeHash !== row.treeHash
+    || (binding.version === 'v3' && binding.pluginPath !== row.path)
+  ) {
+    return { eligible: false, reason: 'source_audit_binding_subject_mismatch' };
+  }
+
+  const projections = [
+    audit.subject_marketplace_commit_sha,
+    audit.subject_content_hash,
+    audit.subject_tree_hash,
+    audit.subject_plugin_path,
+  ];
+  if (binding.version === 'v2') {
+    if (audit.audit_payload_hash === null && projections.every((value) => value === null)) {
+      return { eligible: true, reason: 'eligible_v2' };
+    }
+    return { eligible: false, reason: 'source_audit_projection_mismatch' };
+  }
+  if (
+    audit.audit_payload_hash === binding.auditPayloadHash
+    && audit.subject_marketplace_commit_sha === binding.marketplaceCommit
+    && audit.subject_content_hash === binding.contentHash
+    && audit.subject_tree_hash === binding.treeHash
+    && audit.subject_plugin_path === binding.pluginPath
+  ) {
+    return { eligible: true, reason: 'eligible_v3' };
+  }
+  return { eligible: false, reason: 'source_audit_projection_mismatch' };
+}
+
+export function qualifyLegacyGovernanceClassification({ classification, sourceEvidence }) {
+  if (classification?.schemaVersion !== 1 || classification?.status !== 'classified') {
+    fail('classification contract is not frozen');
+  }
+  if (sourceEvidence?.schemaVersion !== 1 || sourceEvidence?.status !== 'source_evidence_fetched') {
+    fail('source evidence contract is not complete');
+  }
+  const legacy = asMap(classification?.cohorts?.legacy_algorithm_equivalent, 'slug', 'legacy cohort');
+  const skills = asMap(sourceEvidence.skills, 'id', 'source evidence Skills');
+  const audits = asMap(sourceEvidence.audits, 'id', 'source evidence audits');
+  if (
+    skills.size !== legacy.size
+    || audits.size !== legacy.size
+    || canonicalJson(sourceEvidence.skillIds) !== canonicalJson([...legacy.values()].map((row) => row.id).sort())
+  ) {
+    fail('source evidence does not cover the hash-equivalent cohort exactly once');
+  }
+
+  const eligible = [];
+  const unproven = [];
+  for (const row of legacy.values()) {
+    const skill = skills.get(row.id);
+    const audit = audits.get(row.publicEligibilityAuditId);
+    if (!skill || skill.slug !== row.slug || !audit || audit.id !== row.publicEligibilityAuditId) {
+      fail(`source evidence identity mismatch for ${row.slug}`);
+    }
+    const decision = qualifySourceAudit(audit, row);
+    const frozen = {
+      slug: row.slug,
+      skillId: row.id,
+      sourceAuditId: row.publicEligibilityAuditId,
+      reason: decision.reason,
+    };
+    (decision.eligible ? eligible : unproven).push(frozen);
+  }
+  if (eligible.length + unproven.length !== legacy.size) {
+    fail('source audit qualification lost a hash-equivalent row');
+  }
+  return {
+    ...classification,
+    governance: {
+      schemaVersion: 1,
+      status: 'source_audit_qualified',
+      hashEquivalentCount: legacy.size,
+      eligibleCount: eligible.length,
+      unprovenCount: unproven.length,
+      eligible,
+      unproven,
+    },
+  };
+}
+
+function assertQualificationMatchesEvidence(classification, sourceEvidence) {
+  const requalified = qualifyLegacyGovernanceClassification({ classification, sourceEvidence });
+  if (canonicalJson(requalified.governance) !== canonicalJson(classification.governance)) {
+    fail('frozen source audit qualification does not match source evidence');
+  }
+}
+
+function governableLegacyRows(classification) {
+  const rawLegacy = asMap(classification?.cohorts?.legacy_algorithm_equivalent, 'slug', 'legacy cohort');
+  const governance = classification?.governance;
+  const eligible = asMap(governance?.eligible, 'slug', 'governable legacy cohort');
+  const unproven = asMap(governance?.unproven, 'slug', 'unproven source-audit cohort');
+  if (
+    governance?.schemaVersion !== 1
+    || governance?.status !== 'source_audit_qualified'
+    || governance.hashEquivalentCount !== rawLegacy.size
+    || governance.eligibleCount !== eligible.size
+    || governance.unprovenCount !== unproven.size
+    || eligible.size + unproven.size !== rawLegacy.size
+  ) {
+    fail('source audit qualification coverage is invalid');
+  }
+  for (const slug of rawLegacy.keys()) {
+    if (eligible.has(slug) === unproven.has(slug)) {
+      fail(`source audit qualification is not a disjoint cover for ${slug}`);
+    }
+  }
+  for (const decision of [...eligible.values(), ...unproven.values()]) {
+    const row = rawLegacy.get(decision.slug);
+    if (
+      !row
+      || decision.skillId !== row.id
+      || decision.sourceAuditId !== row.publicEligibilityAuditId
+      || typeof decision.reason !== 'string'
+      || !decision.reason
+    ) {
+      fail(`source audit qualification identity mismatch for ${decision.slug}`);
+    }
+  }
+  return [...eligible.keys()].map((slug) => rawLegacy.get(slug));
+}
+
 function legacyGroups(plan, classification) {
-  const legacyRows = classification?.cohorts?.legacy_algorithm_equivalent;
+  const legacyRows = governableLegacyRows(classification);
   const selected = asMap(plan?.selected, 'slug', 'plan selected rows');
   const legacy = asMap(legacyRows, 'slug', 'legacy cohort');
   if (plan?.selectedCount !== plan?.selected?.length || plan.selectedCount > MAX_BATCH_SIZE) {
     fail('plan is not a bounded complete batch');
-  }
-  if (classification?.schemaVersion !== 1 || classification?.status !== 'classified') {
-    fail('classification contract is not frozen');
   }
   for (const slug of legacy.keys()) {
     if (!selected.has(slug)) fail(`legacy cohort contains an unplanned slug: ${slug}`);
@@ -99,7 +295,7 @@ function validateAdminWrapper(wrapper, expected, mode, classification) {
   ) {
     fail(`${mode} administrator result has an invalid summary`);
   }
-  const legacy = asMap(classification.cohorts.legacy_algorithm_equivalent, 'slug', 'legacy cohort');
+  const legacy = asMap(governableLegacyRows(classification), 'slug', 'governable legacy cohort');
   const results = asMap(result.results, 'slug', `${mode} administrator rows`);
   for (const slug of expected.slugs) {
     const frozen = legacy.get(slug);
@@ -150,6 +346,10 @@ export function createLegacyGovernanceBoundary({
   ) {
     fail('invalid dry-run workflow metadata');
   }
+  assertQualificationMatchesEvidence(
+    classification,
+    JSON.parse(readFileSync(paths.sourceEvidence, 'utf8'))
+  );
   const groups = legacyGroups(plan, classification);
   if (!Array.isArray(dryRunResults) || dryRunResults.length !== groups.length) {
     fail('dry-run result group count does not match the frozen legacy cohort');
@@ -167,7 +367,9 @@ export function createLegacyGovernanceBoundary({
     cliVersion: CLI_VERSION,
     cliSha256: metadata.cliSha256,
     selectedCount: plan.selectedCount,
-    legacyCount: classification.counts.legacy_algorithm_equivalent,
+    hashEquivalentCount: classification.counts.legacy_algorithm_equivalent,
+    legacyCount: classification.governance.eligibleCount,
+    unprovenSourceAuditCount: classification.governance.unprovenCount,
     lastSelected: plan.lastSelected,
     hashes: {
       plan: sha256File(paths.plan),
@@ -214,11 +416,12 @@ export function verifyLegacyGovernanceBoundary({
   if (canonicalJson(frozenSourceEvidence) !== canonicalJson(currentSourceEvidence)) {
     fail('Skill metadata or source audit changed after the frozen dry-run boundary');
   }
+  assertQualificationMatchesEvidence(classification, frozenSourceEvidence);
   const frozenSkills = asMap(frozenInventory.rows, 'slug', 'frozen Skills');
   const currentSkills = asMap(currentInventory.rows, 'slug', 'current Skills');
   const artifacts = asMap(currentInventory.artifacts, 'skill_id', 'current artifacts');
   const observations = asMap(currentInventory.observations, 'skill_id', 'current observations');
-  const legacySlugs = new Set(classification.cohorts.legacy_algorithm_equivalent.map((row) => row.slug));
+  const legacySlugs = new Set(governableLegacyRows(classification).map((row) => row.slug));
   if (
     canonicalJson(frozenInventory.packMemberships) !== canonicalJson(currentInventory.packMemberships)
     || canonicalJson(frozenInventory.packs) !== canonicalJson(currentInventory.packs)
@@ -298,7 +501,12 @@ export function verifyLegacyGovernanceExecution({
   postInventory,
   readback,
   frozenSourceEvidence,
+  postSourceEvidence,
 }) {
+  if (canonicalJson(frozenSourceEvidence) !== canonicalJson(postSourceEvidence)) {
+    fail('Skill metadata or source audit changed during governance execution');
+  }
+  assertQualificationMatchesEvidence(classification, frozenSourceEvidence);
   const groups = legacyGroups(plan, classification);
   if (!Array.isArray(executionResults) || executionResults.length !== groups.length) {
     fail('execute result group count mismatch');
@@ -322,8 +530,10 @@ export function verifyLegacyGovernanceExecution({
   const frozenSourceAudits = asMap(frozenSourceEvidence?.audits, 'id', 'frozen source audits');
   const frozenSkillMetadata = asMap(frozenSourceEvidence?.skills, 'id', 'frozen Skill metadata');
   const attestations = readback.attestations || [];
-  const legacyRows = classification.cohorts.legacy_algorithm_equivalent;
+  const legacyRows = governableLegacyRows(classification);
   const legacySlugs = new Set(legacyRows.map((row) => row.slug));
+  const rawLegacy = asMap(classification.cohorts.legacy_algorithm_equivalent, 'slug', 'legacy cohort');
+  const sourceAuditUnproven = classification.governance.unproven.map((decision) => rawLegacy.get(decision.slug));
 
   if (
     canonicalJson(frozenInventory.packMemberships) !== canonicalJson(postInventory.packMemberships)
@@ -333,7 +543,8 @@ export function verifyLegacyGovernanceExecution({
   }
 
   for (const frozen of classification.cohorts.exact.concat(
-    classification.cohorts.actual_or_unproven_drift
+    classification.cohorts.actual_or_unproven_drift,
+    sourceAuditUnproven
   )) {
     if (canonicalJson(frozenSkills.get(frozen.slug)) !== canonicalJson(postSkills.get(frozen.slug))) {
       fail(`non-legacy cohort row changed: ${frozen.slug}`);
@@ -439,7 +650,12 @@ function readJson(path) {
 export function main(argv = process.argv.slice(2)) {
   const args = parseArgs(argv);
   let output;
-  if (args.phase === 'groups') {
+  if (args.phase === 'qualify') {
+    output = qualifyLegacyGovernanceClassification({
+      classification: readJson(args.classification),
+      sourceEvidence: readJson(args['source-evidence']),
+    });
+  } else if (args.phase === 'groups') {
     output = {
       schemaVersion: 1,
       status: 'legacy_groups_planned',
@@ -493,9 +709,10 @@ export function main(argv = process.argv.slice(2)) {
       postInventory: readJson(args['post-inventory']),
       readback: readJson(args.readback),
       frozenSourceEvidence: readJson(args['frozen-source-evidence']),
+      postSourceEvidence: readJson(args['post-source-evidence']),
     });
   } else {
-    fail('--phase must be groups, freeze, execute-preflight, or execution');
+    fail('--phase must be qualify, groups, freeze, execute-preflight, or execution');
   }
   writeFileSync(resolve(args.output), `${JSON.stringify(output, null, 2)}\n`, { flag: 'wx' });
   process.stdout.write(`${JSON.stringify({ status: output.status })}\n`);
