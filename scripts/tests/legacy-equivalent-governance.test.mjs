@@ -7,6 +7,7 @@ import {
   canonicalSourceEvidence,
   createLegacyGovernanceBoundary,
   qualifyLegacyGovernanceClassification,
+  validateLegacyPreviousReportManifest,
   verifyLegacyGovernanceBoundary,
   verifyLegacyGovernanceExecution,
 } from '../verify-legacy-equivalent-governance.mjs';
@@ -177,7 +178,29 @@ function fixtures() {
     classification: hashClassification,
     sourceEvidence,
   });
-  return { row, plan, hashClassification, classification, rawSkill, preInventory, dryRunResults, sourceEvidence };
+  const previousReportManifest = {
+    schemaVersion: 1,
+    status: 'legacy_previous_reports_materialized',
+    selectedCount: 1,
+    entries: [{
+      path: row.path,
+      currentCommit: COMMIT,
+      parentCommit: '8'.repeat(40),
+      present: true,
+      sha256: '7'.repeat(64),
+    }],
+  };
+  return {
+    row,
+    plan,
+    hashClassification,
+    classification,
+    rawSkill,
+    preInventory,
+    dryRunResults,
+    sourceEvidence,
+    previousReportManifest,
+  };
 }
 
 function createBoundaryFixture() {
@@ -189,12 +212,14 @@ function createBoundaryFixture() {
     preInventory: join(directory, 'pre-inventory.json'),
     dryRunResults: join(directory, 'dry-run.json'),
     sourceEvidence: join(directory, 'source-evidence.json'),
+    previousReportManifest: join(directory, 'legacy-previous-report-manifest.json'),
   };
   writeFileSync(files.plan, JSON.stringify(values.plan));
   writeFileSync(files.classification, JSON.stringify(values.classification));
   writeFileSync(files.preInventory, JSON.stringify(values.preInventory));
   writeFileSync(files.dryRunResults, JSON.stringify(values.dryRunResults));
   writeFileSync(files.sourceEvidence, JSON.stringify(values.sourceEvidence));
+  writeFileSync(files.previousReportManifest, JSON.stringify(values.previousReportManifest));
   const boundary = createLegacyGovernanceBoundary({
     plan: values.plan,
     classification: values.classification,
@@ -204,7 +229,7 @@ function createBoundaryFixture() {
       runId: '12345',
       repository: 'aiskillstore/marketplace',
       workflowCommit: 'f'.repeat(40),
-      cliVersion: '2.4.4',
+      cliVersion: '2.5.0',
       cliSha256: '9'.repeat(64),
     },
   });
@@ -291,11 +316,44 @@ test('aborts instead of classifying incomplete source evidence', () => {
   }), /cover.*exactly once/);
 });
 
+test('validates exact present and absent previous-report manifest evidence', () => {
+  const fixture = fixtures();
+  const absent = structuredClone(fixture.previousReportManifest);
+  absent.entries[0].present = false;
+  absent.entries[0].sha256 = null;
+  assert.doesNotThrow(() => validateLegacyPreviousReportManifest(absent, fixture.plan));
+
+  const cases = [
+    {
+      mutate(manifest) { manifest.entries[0].unexpected = true; },
+      error: /unexpected fields/,
+    },
+    {
+      mutate(manifest) { manifest.entries[0].sha256 = 'bad'; },
+      error: /manifest mismatch/,
+    },
+    {
+      mutate(manifest) { manifest.entries[0].parentCommit = COMMIT; },
+      error: /manifest mismatch/,
+    },
+    {
+      mutate(manifest) { manifest.entries[0] = null; },
+      error: /not an object/,
+    },
+  ];
+  for (const item of cases) {
+    const manifest = structuredClone(fixture.previousReportManifest);
+    item.mutate(manifest);
+    assert.throws(() => validateLegacyPreviousReportManifest(manifest, fixture.plan), item.error);
+  }
+});
+
 test('freezes and verifies one exact dry-run boundary', () => {
   const fixture = createBoundaryFixture();
   try {
     assert.equal(fixture.boundary.status, 'frozen');
     assert.equal(fixture.boundary.legacyCount, 1);
+    assert.match(fixture.boundary.hashes.previousReportManifest, /^[0-9a-f]{64}$/);
     const verified = verifyLegacyGovernanceBoundary({
       boundary: fixture.boundary,
       plan: fixture.plan,
@@ -433,6 +491,22 @@ test('freezes and verifies one exact dry-run boundary', () => {
       paths: fixture.files,
       expectedRunId: '12345',
     }), /source audit changed/);
+
+    writeFileSync(fixture.files.previousReportManifest, JSON.stringify({
+      ...fixture.previousReportManifest,
+      entries: [{ ...fixture.previousReportManifest.entries[0], sha256: '6'.repeat(64) }],
+    }));
+    assert.throws(() => verifyLegacyGovernanceBoundary({
+      boundary: fixture.boundary,
+      plan: fixture.plan,
+      classification: fixture.classification,
+      frozenInventory: fixture.preInventory,
+      currentInventory: fixture.preInventory,
+      frozenSourceEvidence: fixture.sourceEvidence,
+      currentSourceEvidence: fixture.sourceEvidence,
+      paths: fixture.files,
+      expectedRunId: '12345',
+    }), /previousReportManifest hash mismatch/);
   } finally {
     rmSync(fixture.directory, { recursive: true, force: true });
   }
@@ -675,8 +749,8 @@ test('workflow is two-phase, exactly pinned, bounded, and never executes ordinar
     resolve(import.meta.dirname, '../../.github/workflows/backfill-artifact-versions.yml'),
     'utf8'
   );
-  assert.match(workflow, /default: '2\.4\.4'/);
-  assert.match(workflow, /test "\$CLI_VERSION" = '2\.4\.4'/);
+  assert.match(workflow, /default: '2\.5\.0'/);
+  assert.match(workflow, /test "\$CLI_VERSION" = '2\.5\.0'/);
   assert.doesNotMatch(workflow, /version:\s*(latest|'latest'|"latest")/);
   assert.match(workflow, /batch_size must be between 1 and 500/);
   assert.match(workflow, /dry_run_id/);
@@ -686,8 +760,8 @@ test('workflow is two-phase, exactly pinned, bounded, and never executes ordinar
   assert.match(workflow, /boundaries may only be created from main/);
   assert.match(workflow, /execute may only run from main/);
   assert.match(workflow, /sha256sum --check SHA256SUMS/);
-  assert.match(workflow, /CLI 2\.4\.4 binary differs from the frozen dry-run boundary/);
-  assert.ok((workflow.match(/4ee53da0adf5b1ab990f065edacff5e9ec60a37ce015e10decf76c65828321b0/g) || []).length >= 2);
+  assert.match(workflow, /CLI 2\.5\.0 binary differs from the frozen dry-run boundary/);
+  assert.ok((workflow.match(/e6110fa711ac570d4c4fa03bf03b57e5857ddc158a54a891500f72eb2023441e/g) || []).length >= 2);
   assert.match(workflow, /--phase execute-preflight/);
   assert.match(workflow, /--current-inventory "\$RUNNER_TEMP\/current-inventory\.json"/);
   assert.match(workflow, /\$\{\{ runner\.temp \}\}\/current-inventory\.json/);
@@ -700,6 +774,13 @@ test('workflow is two-phase, exactly pinned, bounded, and never executes ordinar
   assert.match(workflow, /legacy-equivalent-execution-/);
   assert.match(workflow, /legacy-equivalent-failed-dry-run-/);
   assert.match(workflow, /Preserve execution status evidence/);
+  assert.match(workflow, /scripts\/materialize-legacy-previous-reports\.mjs/);
+  assert.match(workflow, /--manifest "\$RUNNER_TEMP\/legacy-previous-report-manifest\.json"/);
+  assert.match(workflow, /--manifest "\$RUNNER_TEMP\/current-legacy-previous-report-manifest\.json"/);
+  assert.match(workflow, /cmp \\\n+\s+"\$RUNNER_TEMP\/boundary\/legacy-previous-report-manifest\.json" \\\n+\s+"\$RUNNER_TEMP\/current-legacy-previous-report-manifest\.json"/);
+  assert.match(workflow, /--previous-report-manifest "\$RUNNER_TEMP\/boundary\/legacy-previous-report-manifest\.json"/);
+  assert.match(workflow, /sha256sum plan\.json classification\.json pre-inventory\.json governance-dry-run\.json source-evidence\.json legacy-previous-report-manifest\.json boundary\.json/);
+  assert.match(workflow, /\$\{\{ runner\.temp \}\}\/current-legacy-previous-report-manifest\.json/);
   const sourceEvidenceIndex = workflow.indexOf('Fetch complete source audit evidence before governance planning');
   const qualificationIndex = workflow.indexOf('Qualify source-audit bindings and plan only governable groups');
   const governanceDryRunIndex = workflow.indexOf('Run administrator governance dry-run');
@@ -712,6 +793,14 @@ test('workflow is two-phase, exactly pinned, bounded, and never executes ordinar
   assert.equal(syncCalls.length, 1);
   assert.match(syncCalls[0], /--dry-run/);
   assert.match(syncCalls[0], /--repair-stale-report-hashes/);
+  assert.match(syncCalls[0], /--legacy-previous-report-root "\$RUNNER_TEMP\/legacy-previous-reports\/batch-\$index\/\$commit"/);
+  const governanceCalls = workflow.match(/skill govern-legacy-equivalent[\s\S]{0,420}/g) || [];
+  assert.equal(governanceCalls.length, 2);
+  assert.match(governanceCalls[0], /--legacy-previous-report-root "\$RUNNER_TEMP\/legacy-previous-reports\/batch-\$index\/\$commit"/);
+  assert.match(governanceCalls[1], /--legacy-previous-report-root "\$RUNNER_TEMP\/current-legacy-previous-reports\/batch-\$index\/\$commit"/);
+  const recomputeIndex = workflow.indexOf('Recompute and match frozen first-parent report evidence');
+  const executeIndex = workflow.indexOf('Execute frozen legacy cohort serially');
+  assert(recomputeIndex > 0 && recomputeIndex < executeIndex);
   assert.match(ordinaryWorkflow, /\.exactBatches\[\]/);
   assert.match(ordinaryWorkflow, /CLI_VERSION" != "2\.3\.1"/);
 });
