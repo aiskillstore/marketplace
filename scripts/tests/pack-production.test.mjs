@@ -1,9 +1,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
+import { once } from 'node:events';
 import {
   chmodSync,
+  existsSync,
   mkdtempSync,
   readFileSync,
   writeFileSync,
@@ -25,6 +27,7 @@ import {
 } from '../pack-production.mjs';
 
 const PACK_PRODUCTION = fileURLToPath(new URL('../pack-production.mjs', import.meta.url));
+const PACK_PRODUCTION_URL = new URL('../pack-production.mjs', import.meta.url).href;
 
 function cliReport() {
   const summary = {
@@ -261,6 +264,140 @@ test('async evaluator bounds a hung child and records the timeout terminal signa
   assert.ok(events.some((event) => event.event === 'scenario.process_exited' && event.timedOut));
 });
 
+test('async evaluator stalls despite continuous untrusted stdout and stderr noise', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'pack-production-stall-'));
+  const progressFile = join(directory, 'progress.ndjson');
+  const result = await runEvaluatorProcess(
+    process.execPath,
+    ['-e', `setInterval(() => {
+      process.stdout.write('untrusted-noise');
+      process.stderr.write('not allowlisted evaluator progress\\n');
+    }, 5)`],
+    {
+      cwd: directory,
+      env: process.env,
+      stdoutFile: join(directory, 'stdout.json'),
+      stderrFile: join(directory, 'run.log'),
+      progressFile,
+      label: 'excel-dashboard',
+      heartbeatMs: 10,
+      idleTimeoutMs: 40,
+      timeoutMs: 1_000,
+      killGraceMs: 100,
+      onProgress: () => {},
+    },
+  );
+
+  assert.equal(result.stalled, true);
+  assert.equal(result.timedOut, false);
+  const events = readFileSync(progressFile, 'utf8').trim().split('\n').map(JSON.parse);
+  assert.ok(events.some((event) => event.event === 'scenario.heartbeat'));
+  assert.ok(events.some((event) => event.event === 'scenario.stalled'));
+  assert.ok(events.some((event) => event.event === 'scenario.process_exited' && event.stalled));
+});
+
+test('external proxy activity extends the idle deadline without exposing request data', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'pack-production-proxy-activity-'));
+  const activityFile = join(directory, 'proxy.activity');
+  writeFileSync(activityFile, '');
+  const activityTimer = setInterval(() => writeFileSync(activityFile, `${Date.now()}\n`), 20);
+  let result;
+  try {
+    result = await runEvaluatorProcess(
+      process.execPath,
+      ['-e', 'setTimeout(() => process.exit(0), 180)'],
+      {
+        cwd: directory,
+        env: process.env,
+        stdoutFile: join(directory, 'stdout.json'),
+        stderrFile: join(directory, 'run.log'),
+        progressFile: join(directory, 'progress.ndjson'),
+        externalActivityFile: activityFile,
+        label: 'excel-dashboard',
+        heartbeatMs: 10,
+        idleTimeoutMs: 50,
+        timeoutMs: 1_000,
+        killGraceMs: 100,
+        onProgress: () => {},
+      },
+    );
+  } finally {
+    clearInterval(activityTimer);
+  }
+
+  assert.equal(result.status, 0);
+  assert.equal(result.stalled, false);
+  assert.equal(result.timedOut, false);
+});
+
+test('linux SIGTERM writes diagnostics and kills a TERM-ignoring grandchild process tree', {
+  skip: process.platform !== 'linux',
+}, async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'pack-production-sigterm-'));
+  const grandchildPidFile = join(directory, 'grandchild.pid');
+  const progressFile = join(directory, 'progress.ndjson');
+  const checkpointFile = join(directory, 'checkpoint.json');
+  const resultFile = join(directory, 'result.json');
+  const grandchildScript = [
+    "const { writeFileSync } = require('node:fs')",
+    `writeFileSync(${JSON.stringify(grandchildPidFile)}, String(process.pid))`,
+    "process.on('SIGTERM', () => {})",
+    'setInterval(() => {}, 1000)',
+  ].join(';');
+  const childScript = [
+    "const { spawn } = require('node:child_process')",
+    `spawn(process.execPath, ['-e', ${JSON.stringify(grandchildScript)}], { stdio: 'inherit' })`,
+    'setInterval(() => {}, 1000)',
+  ].join(';');
+  const helperScript = `
+    import { writeFileSync } from 'node:fs';
+    import { runEvaluatorProcess } from ${JSON.stringify(PACK_PRODUCTION_URL)};
+    const result = await runEvaluatorProcess(process.execPath, ['-e', ${JSON.stringify(childScript)}], {
+      cwd: ${JSON.stringify(directory)},
+      env: process.env,
+      stdoutFile: ${JSON.stringify(join(directory, 'stdout.json'))},
+      stderrFile: ${JSON.stringify(join(directory, 'run.log'))},
+      progressFile: ${JSON.stringify(progressFile)},
+      checkpointFile: ${JSON.stringify(checkpointFile)},
+      label: 'excel-dashboard',
+      heartbeatMs: 20,
+      idleTimeoutMs: 2_000,
+      timeoutMs: 5_000,
+      killGraceMs: 100,
+      onProgress: () => {},
+    });
+    writeFileSync(${JSON.stringify(resultFile)}, JSON.stringify(result));
+  `;
+  const helper = spawn(process.execPath, ['--input-type=module', '-e', helperScript], {
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  for (let attempt = 0; attempt < 100 && !existsSync(grandchildPidFile); attempt += 1) {
+    await new Promise((resolveWait) => setTimeout(resolveWait, 10));
+  }
+  assert.equal(existsSync(grandchildPidFile), true);
+  const grandchildPid = Number(readFileSync(grandchildPidFile, 'utf8'));
+  helper.kill('SIGTERM');
+  const [helperStatus] = await once(helper, 'close');
+  assert.equal(helperStatus, 0);
+  const result = JSON.parse(readFileSync(resultFile, 'utf8'));
+
+  assert.equal(result.interruptedSignal, 'SIGTERM');
+  assert.ok(readFileSync(progressFile, 'utf8').length > 0);
+  assert.ok(readFileSync(checkpointFile, 'utf8').length > 0);
+  assert.match(readFileSync(progressFile, 'utf8'), /scenario\.signal_received/);
+  let grandchildAlive = true;
+  for (let attempt = 0; attempt < 100 && grandchildAlive; attempt += 1) {
+    try {
+      process.kill(grandchildPid, 0);
+      await new Promise((resolveWait) => setTimeout(resolveWait, 10));
+    } catch (error) {
+      if (error?.code !== 'ESRCH') throw error;
+      grandchildAlive = false;
+    }
+  }
+  assert.equal(grandchildAlive, false);
+});
+
 test('scenario budgets reserve real execution time for the fallback queue', () => {
   assert.equal(allocateScenarioBudgetMs({
     remainingBudgetMs: 13_800_000,
@@ -282,7 +419,7 @@ test('scenario budgets reserve real execution time for the fallback queue', () =
   }), 2_700_000);
 });
 
-test('a timed-out scenario keeps later evidence diagnostic-only and blocks workflow success', () => {
+test('a timed-out scenario stops fallback work and blocks workflow success', () => {
   const directory = mkdtempSync(join(tmpdir(), 'pack-production-fallback-'));
   const cli = join(directory, 'fake-skillstore-cli');
   const scenarios = {
@@ -360,18 +497,18 @@ if (scenarioId === 'slow') {
   assert.match(evaluation.stderr, /operationally incomplete attempts: slow:timed_out/);
 
   const summary = JSON.parse(readFileSync(join(resultsDir, 'evaluate-summary.json'), 'utf8'));
-  assert.deepEqual(summary.attempts.map((attempt) => attempt.status), ['timed_out', 'completed']);
-  assert.equal(summary.reports[0].planIndex, 1);
-  assert.equal(summary.reports[0].scenarioId, 'fast');
+  assert.deepEqual(summary.attempts.map((attempt) => attempt.status), ['timed_out']);
+  assert.deepEqual(summary.reports, []);
   assert.equal(readFileSync(join(resultsDir, '01-slow.run.log'), 'utf8'), '');
   assert.throws(() => readFileSync(join(resultsDir, '01-slow.evaluation.json')));
+  assert.throws(() => readFileSync(join(resultsDir, '02-fast.run.log')));
 
   const verification = spawnSync(process.execPath, [PACK_PRODUCTION, 'verify', ...common], {
     encoding: 'utf8',
     timeout: 5_000,
   });
   assert.notEqual(verification.status, 0);
-  assert.match(verification.stderr, /operationally incomplete attempts: slow:timed_out/);
+  assert.match(verification.stderr, /Evaluate summary report count is outside the immutable plan/);
   assert.throws(() => readFileSync(join(resultsDir, 'evaluation-verification.json')));
 });
 
