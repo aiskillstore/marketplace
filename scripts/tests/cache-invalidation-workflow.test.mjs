@@ -126,12 +126,12 @@ test('sync materializes only the detected paths from the exact workflow commit',
   assert.match(sync, /--marketplace-commit "\$GITHUB_SHA"/);
 });
 
-test('sync downloads the canonical-hash CLI release', () => {
+test('sync downloads the security-event-capable CLI release', () => {
   const workflow = readFileSync(WORKFLOW, 'utf8');
   const download = section(workflow, '      - name: Download skillstore-cli', '      - name: Sync skills to Supabase');
 
-  assert.match(download, /version: '2\.2\.1'/);
-  assert.match(download, /minimum-version: '2\.2\.1'/);
+  assert.match(download, /version: '2\.3\.0'/);
+  assert.match(download, /minimum-version: '2\.3\.0'/);
 });
 
 test('one permanently failed shard makes the aggregate fail closed', () => {

@@ -139,13 +139,14 @@ jobs:
           echo "Cache matrix preflight: $TARGET_COUNT target(s) within $MAX_CACHE_ITEMS capacity"
 
       - name: Download skillstore-cli
+        id: download-cli
         if: steps.changes.outputs.skip_sync != 'true'
         uses: ./.github/actions/download-skillstore-cli
         with:
-          version: '2.2.1'
+          version: '2.3.0'
           token: ${{ steps.app-token.outputs.token }}
           cache-dir: /home/runner/_work/_cache/skillstore-cli
-          minimum-version: '2.2.1'
+          minimum-version: '2.3.0'
 
       - name: Materialize changed skills
         if: steps.changes.outputs.skip_sync != 'true'
@@ -166,6 +167,7 @@ jobs:
           CHANGED_SKILLS: ${{ steps.changes.outputs.changed_skills }}
           SYNC_MODE: ${{ steps.changes.outputs.mode }}
           SECURITY_PASSPORT_MODE: ${{ vars.SECURITY_PASSPORT_MODE || 'off' }}
+          SECURITY_NOTIFICATIONS_ENABLED: ${{ vars.SECURITY_NOTIFICATIONS_ENABLED || 'false' }}
           PUBLIC_SITE_URL: https://skillstore.io
           AUTOMATION_API_KEY: ${{ secrets.SECURITY_ATTESTATION_AUTOMATION_KEY }}
         run: |
@@ -370,6 +372,29 @@ jobs:
           SYNCED_COUNT=$(wc -l < synced-slugs.txt | tr -d ' ')
           echo "synced_count=$SYNCED_COUNT" >> "$GITHUB_OUTPUT"
           echo "::notice::Synced $SYNCED_COUNT skill(s); slug payload saved to artifact input"
+
+      - name: Reconcile durable security change events
+        id: reconcile-security-events
+        if: ${{ !cancelled() && steps.download-cli.outcome == 'success' }}
+        continue-on-error: true
+        env:
+          PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          SECURITY_NOTIFICATIONS_ENABLED: ${{ vars.SECURITY_NOTIFICATIONS_ENABLED || 'false' }}
+        run: |
+          set -euo pipefail
+          timeout --signal=TERM --kill-after=30s 15m \
+            "$GITHUB_WORKSPACE/skillstore-cli" skill reconcile-security-events --batch-size 100
+
+      - name: Report security event reconciliation failure
+        if: ${{ always() && steps.reconcile-security-events.outcome == 'failure' }}
+        run: |
+          echo "::warning::Durable security event reconciliation failed; queued jobs remain retryable"
+          cat <<'EOF' >> "$GITHUB_STEP_SUMMARY"
+          ## Security event reconciliation warning
+
+          The bounded audit and attestation projection drain failed. Skill sync results remain committed, and the durable jobs will be retried by the next scheduled or sync-triggered run.
+          EOF
 
       - name: Remove generated report evidence from synced audits
         if: steps.changes.outputs.skip_sync != 'true' && steps.sync.outputs.synced_count != '0'

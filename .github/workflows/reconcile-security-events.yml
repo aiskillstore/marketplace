@@ -1,0 +1,51 @@
+name: Reconcile Security Events
+
+on:
+  schedule:
+    # Stagger the 15-minute durable-outbox drain away from top-of-hour jobs.
+    - cron: '7,22,37,52 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: security-event-reconciler
+  cancel-in-progress: false
+
+jobs:
+  reconcile:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout CLI download action
+        uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+          sparse-checkout: .github/actions/download-skillstore-cli
+          sparse-checkout-cone-mode: false
+
+      - name: Generate GitHub App Token
+        id: app-token
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ vars.APP_CLIENT_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+          repositories: marketplace,skillstore
+
+      - name: Download skillstore-cli
+        uses: ./.github/actions/download-skillstore-cli
+        with:
+          version: '2.3.0'
+          token: ${{ steps.app-token.outputs.token }}
+          minimum-version: '2.3.0'
+
+      - name: Reconcile durable security change events
+        env:
+          PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          SECURITY_NOTIFICATIONS_ENABLED: ${{ vars.SECURITY_NOTIFICATIONS_ENABLED || 'false' }}
+        run: |
+          set -euo pipefail
+          timeout --signal=TERM --kill-after=30s 15m \
+            "$GITHUB_WORKSPACE/skillstore-cli" skill reconcile-security-events --batch-size 100
