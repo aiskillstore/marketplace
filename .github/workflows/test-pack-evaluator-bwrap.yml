@@ -1,0 +1,75 @@
+name: Test Pack Evaluator Bubblewrap
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/generate-packs.yml'
+      - '.github/workflows/test-pack-evaluator-bwrap.yml'
+      - 'scripts/configure-pack-evaluator-bwrap.sh'
+      - 'scripts/pack-evaluator-bwrap.apparmor'
+      - 'scripts/pack-evaluator-preflight.sh'
+      - 'scripts/tests/generate-packs-workflow.test.mjs'
+      - 'scripts/tests/pack-evaluator-bwrap-userns.test.mjs'
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/generate-packs.yml'
+      - '.github/workflows/test-pack-evaluator-bwrap.yml'
+      - 'scripts/configure-pack-evaluator-bwrap.sh'
+      - 'scripts/pack-evaluator-bwrap.apparmor'
+      - 'scripts/pack-evaluator-preflight.sh'
+      - 'scripts/tests/generate-packs-workflow.test.mjs'
+      - 'scripts/tests/pack-evaluator-bwrap-userns.test.mjs'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: test-pack-evaluator-bwrap-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  userns:
+    name: Prove scoped bwrap user namespace
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout immutable helper
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          filter: ''
+          clean: true
+          persist-credentials: false
+
+      - name: Install bubblewrap and prepare disposable runtime
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends apparmor bubblewrap util-linux
+          sudo useradd --create-home --home-dir /home/packeval --shell /bin/bash packeval
+          NODE_SOURCE=$(command -v node)
+          test -x "$NODE_SOURCE"
+          sudo install -d -o root -g root -m 0755 \
+            /opt/pack-evaluator \
+            /opt/pack-evaluator/runtime \
+            /opt/pack-evaluator/runtime/bin
+          sudo install -o root -g root -m 0555 \
+            "$NODE_SOURCE" /opt/pack-evaluator/runtime/bin/node
+          sudo install -d -o packeval -g packeval -m 0700 /home/packeval/tmp
+          sudo install -d -o root -g root -m 1777 /opt/pack-evaluator/codex-home
+          sudo chown root:root \
+            scripts/configure-pack-evaluator-bwrap.sh \
+            scripts/pack-evaluator-bwrap.apparmor
+          sudo chmod 0555 scripts/configure-pack-evaluator-bwrap.sh
+          sudo chmod 0444 scripts/pack-evaluator-bwrap.apparmor
+
+      - name: Configure scoped AppArmor policy and prove the real sandbox
+        run: |
+          set -euo pipefail
+          sudo env \
+            PACK_EVALUATOR_OUTER_WORKSPACE="$GITHUB_WORKSPACE" \
+            "$GITHUB_WORKSPACE/scripts/configure-pack-evaluator-bwrap.sh"

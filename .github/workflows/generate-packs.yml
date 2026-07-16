@@ -25,7 +25,7 @@ concurrency:
 env:
   # Production v4 requires the immutable binding-aware release and verifies its
   # checksums.txt asset before the binary crosses into the evaluator boundary.
-  PACK_PRODUCTION_CLI_VERSION: '2.13.0'
+  PACK_PRODUCTION_CLI_VERSION: '2.13.1'
 
 jobs:
   contract_smoke_only:
@@ -257,7 +257,7 @@ jobs:
     if: needs.plan.outputs.has_scenarios == 'true'
     # GitHub-hosted runners are single-use VMs. The evaluator never reuses the
     # persistent OAuth HOME or sibling workspaces from our self-hosted pool.
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 330
     steps:
       - name: Checkout immutable skills and orchestrator
@@ -359,7 +359,8 @@ jobs:
       - name: Install evaluator runtimes before secrets are available
         run: |
           sudo apt-get update
-          sudo apt-get install --yes --no-install-recommends bubblewrap ffmpeg poppler-utils ripgrep
+          sudo apt-get install --yes --no-install-recommends \
+            apparmor bubblewrap ffmpeg poppler-utils ripgrep util-linux
           sudo install -d -o root -g root -m 0755 \
             /opt/pack-evaluator \
             /opt/pack-evaluator/runtime
@@ -455,6 +456,13 @@ jobs:
             | sudo tee /opt/pack-evaluator/codex-home/config.toml >/dev/null
           sudo chown root:root /opt/pack-evaluator/codex-home/config.toml
           sudo chmod 0444 /opt/pack-evaluator/codex-home/config.toml
+
+      - name: Configure and prove scoped bubblewrap user namespaces before secrets
+        run: |
+          set -euo pipefail
+          sudo env \
+            PACK_EVALUATOR_OUTER_WORKSPACE="$GITHUB_WORKSPACE" \
+            "$GITHUB_WORKSPACE/marketplace-evaluate/scripts/configure-pack-evaluator-bwrap.sh"
 
       # The real Helm credential exists only in this runner-owned shell and the
       # separate packproxy process. Agent commands run as a different, non-sudo
@@ -671,49 +679,6 @@ jobs:
               > "$GITHUB_WORKSPACE/pack-diagnostics/preflight-failure.txt"
             exit 1
           fi
-
-          # Match the Skillstore agent sandbox contract before any model CLI
-          # is allowed to run. The fresh PID namespace must hide the proxy's
-          # parent process, and the empty mount root must not expose evaluator
-          # orchestration code, immutable inputs, results, or the checkout.
-          sudo -u packeval env -i \
-            /usr/bin/bwrap \
-              --die-with-parent \
-              --new-session \
-              --unshare-pid \
-              --unshare-ipc \
-              --unshare-uts \
-              --tmpfs / \
-              --proc /proc \
-              --dev /dev \
-              --dir /opt \
-              --dir /opt/pack-evaluator \
-              --ro-bind /opt/pack-evaluator/runtime /opt/pack-evaluator/runtime \
-              --dir /usr \
-              --ro-bind /usr /usr \
-              --symlink usr/bin /bin \
-              --symlink usr/lib /lib \
-              --symlink usr/lib64 /lib64 \
-              --dir /home \
-              --dir /home/packeval \
-              --bind /home/packeval /home/packeval \
-              --dir /tmp \
-              --bind /home/packeval/tmp /tmp \
-              --setenv HOME /home/packeval \
-              --setenv TMPDIR /tmp \
-              --setenv PATH /opt/pack-evaluator/runtime/bin:/usr/bin:/bin \
-              --setenv PROXY_PID "$PROXY_PID" \
-              --setenv OUTER_WORKSPACE "$GITHUB_WORKSPACE" \
-              /usr/bin/bash -c '
-                set -euo pipefail
-                test -x /opt/pack-evaluator/runtime/bin/node
-                ! test -e /opt/pack-evaluator/bin
-                ! test -e /opt/pack-evaluator/lib
-                ! test -e /opt/pack-evaluator/input
-                ! test -e /opt/pack-evaluator/results
-                ! test -e "$OUTER_WORKSPACE"
-                ! test -e "/proc/$PROXY_PID"
-              '
 
           # Two single-request contract probes (Messages and Responses) prove
           # the Helm key/model/route contract before any expensive agent run.

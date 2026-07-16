@@ -83,10 +83,13 @@ test('evaluate runs on a disposable VM with a user-separated job-local inference
   assert.ok(preflightCallLines.length >= 3);
   assert.ok(preflightCallLines.every((line) => line.endsWith(` ${continuation}`)));
   assert.ok(preflightCallLines.every((line) => !line.endsWith(` ${continuation}${continuation}`)));
-  assert.match(evaluate, /runs-on: ubuntu-latest/);
+  assert.match(evaluate, /runs-on: ubuntu-24\.04/);
   assert.match(evaluate, /@anthropic-ai\/claude-code@2\.1\.210/);
   assert.match(evaluate, /@openai\/codex@0\.139\.0/);
-  assert.match(evaluate, /apt-get install --yes --no-install-recommends bubblewrap ffmpeg poppler-utils ripgrep/);
+  assert.match(
+    evaluate,
+    /apt-get install --yes --no-install-recommends[\s\\]+apparmor bubblewrap ffmpeg poppler-utils ripgrep util-linux/,
+  );
   assert.match(evaluate, /test "\$\(command -v bwrap\)" = \/usr\/bin\/bwrap/);
   assert.match(evaluate, /command -v ffprobe/);
   assert.match(evaluate, /command -v pdfinfo/);
@@ -264,9 +267,11 @@ test('evaluate runs on a disposable VM with a user-separated job-local inference
   assert.ok(maximumWireRequests + 64 <= 256);
   assert.match(evaluate, /SKILLSTORE_AGENT_SANDBOX_MODE=bwrap/);
   assert.match(evaluate, /SKILLSTORE_AGENT_SANDBOX_RUNTIME_ROOT=\/opt\/pack-evaluator\/runtime/);
-  assert.match(evaluate, /\/usr\/bin\/bwrap[\s\S]*--unshare-pid/);
-  assert.match(evaluate, /! test -e \/opt\/pack-evaluator\/lib/);
-  assert.match(evaluate, /! test -e "\/proc\/\$PROXY_PID"/);
+  assert.match(
+    evaluate,
+    /--unshare-all\s+--share-net\s+--disable-userns\s+--cap-drop ALL/,
+  );
+  assert.match(evaluate, /! test -r "\/proc\/\$PROXY_PID\/environ"/);
   assert.doesNotMatch(evaluate, /PATH=\/opt\/pack-evaluator\/runtime\/bin:\/opt\/pack-evaluator\/bin/);
 });
 
@@ -285,7 +290,11 @@ test('extracted evaluator preflight is valid bounded bash', () => {
   assert.match(EVALUATOR_PREFLIGHT, /PACK_DIAGNOSTICS_DIR\/proxy-activity\.ndjson/);
   assert.match(EVALUATOR_PREFLIGHT, /readonly -a AGENT_BWRAP=/);
   assert.match(EVALUATOR_PREFLIGHT, /--tmpfs \//);
-  assert.match(EVALUATOR_PREFLIGHT, /--unshare-pid/);
+  assert.match(
+    EVALUATOR_PREFLIGHT,
+    /--unshare-all\s+--share-net\s+--disable-userns\s+--cap-drop ALL/,
+  );
+  assert.match(EVALUATOR_PREFLIGHT, /--tmpfs \/run/);
   assert.match(EVALUATOR_PREFLIGHT, /--ro-bind \/opt\/pack-evaluator\/runtime \/opt\/pack-evaluator\/runtime/);
   assert.doesNotMatch(EVALUATOR_PREFLIGHT, /--ro-bind \/ \//);
   assert.doesNotMatch(EVALUATOR_PREFLIGHT, /--(?:ro-)?bind \/opt\/pack-evaluator\/(?:bin|lib|input|results)/);
@@ -458,7 +467,7 @@ test('planning uses a read-only API and admits at most one artifact scenario', (
   assert.match(finalize, /if: needs\.plan\.outputs\.has_scenarios == 'true'/);
   assert.match(WORKFLOW, /group: generate-pack-production-v4/);
   assert.match(WORKFLOW, /cron: '17 19 \* \* 1,3,5'/);
-  assert.match(WORKFLOW, /PACK_PRODUCTION_CLI_VERSION: '2\.13\.0'/);
+  assert.match(WORKFLOW, /PACK_PRODUCTION_CLI_VERSION: '2\.13\.1'/);
   assert.doesNotMatch(WORKFLOW, /2\.12\.0|RELEASE BLOCKER/);
   assert.equal((WORKFLOW.match(/require-checksum: 'true'/g) ?? []).length, 1);
   assert.match(plan, /actions\/create-github-app-token@v3/);
@@ -547,8 +556,8 @@ test('production content is nonce-bound and never dispatches the legacy translat
   assert.doesNotMatch(GENERATE_CONTENT, /Dispatch translation after content is complete/);
   assert.doesNotMatch(GENERATE_CONTENT, /event_type:\"translate-packs\"/);
   assert.match(GENERATE_CONTENT, /if \[ -n "\$GENERATION_ID" \]; then/);
-  assert.match(GENERATE_CONTENT, /version: '2\.13\.0'/);
-  assert.match(GENERATE_CONTENT, /minimum-version: '2\.13\.0'/);
+  assert.match(GENERATE_CONTENT, /version: '2\.13\.1'/);
+  assert.match(GENERATE_CONTENT, /minimum-version: '2\.13\.1'/);
   assert.match(GENERATE_CONTENT, /bindingDigest/);
   assert.match(GENERATE_CONTENT, /usageGuideMarker/);
   assert.match(GENERATE_CONTENT, /github\.event\.client_payload\.contentDispatchNonce/);
