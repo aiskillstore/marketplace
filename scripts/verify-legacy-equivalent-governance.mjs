@@ -5,7 +5,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-const CLI_VERSION = '2.7.0';
+const CLI_VERSION = '2.11.1';
 const MAX_BATCH_SIZE = 500;
 const SHA256_RE = /^[0-9a-f]{64}$/;
 const COMMIT_RE = /^[0-9a-f]{40}$/;

@@ -229,7 +229,7 @@ function createBoundaryFixture() {
       runId: '12345',
       repository: 'aiskillstore/marketplace',
       workflowCommit: 'f'.repeat(40),
-      cliVersion: '2.7.0',
+      cliVersion: '2.11.1',
       cliSha256: '9'.repeat(64),
     },
   });
@@ -769,8 +769,8 @@ test('workflow is two-phase, exactly pinned, bounded, and never executes ordinar
     resolve(import.meta.dirname, '../../.github/workflows/backfill-artifact-versions.yml'),
     'utf8'
   );
-  assert.match(workflow, /default: '2\.7\.0'/);
-  assert.match(workflow, /test "\$CLI_VERSION" = '2\.7\.0'/);
+  assert.match(workflow, /default: '2\.11\.1'/);
+  assert.match(workflow, /test "\$CLI_VERSION" = '2\.11\.1'/);
   assert.doesNotMatch(workflow, /version:\s*(latest|'latest'|"latest")/);
   assert.match(workflow, /batch_size must be between 1 and 500/);
   assert.match(workflow, /dry_run_id/);
@@ -781,7 +781,7 @@ test('workflow is two-phase, exactly pinned, bounded, and never executes ordinar
   assert.match(workflow, /execute may only run from main/);
   assert.match(workflow, /sha256sum --check SHA256SUMS/);
   assert.match(workflow, /binding-aware CLI binary differs from the frozen dry-run boundary/);
-  assert.ok((workflow.match(/cc987bdb22b3c19b7f7dec60b707032979823579167c0b911e408771ed9e13d7/g) || []).length >= 2);
+  assert.ok((workflow.match(/9aa6a6e15d249e52bed690049974d8312f3257c205025823a68d249cc5cc8367/g) || []).length >= 2);
   assert.match(workflow, /--phase execute-preflight/);
   assert.match(workflow, /--current-inventory "\$RUNNER_TEMP\/current-inventory\.json"/);
   assert.match(workflow, /\$\{\{ runner\.temp \}\}\/current-inventory\.json/);
