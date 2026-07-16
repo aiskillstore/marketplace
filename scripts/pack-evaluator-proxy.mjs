@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { timingSafeEqual } from 'node:crypto';
+import { createHash, timingSafeEqual } from 'node:crypto';
 import { appendFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { pathToFileURL } from 'node:url';
@@ -28,6 +28,14 @@ const STRIPPED_HEADERS = new Set([
   'x-api-key',
 ]);
 const MAX_BODY_BYTES = 32 * 1024 * 1024;
+const MAX_ERROR_DIAGNOSTIC_BYTES = 64 * 1024;
+const TRACE_HEADERS = [
+  'cf-ray',
+  'request-id',
+  'traceparent',
+  'x-request-id',
+  'x-trace-id',
+];
 const DEFAULT_ALLOWED_MODELS = new Set([
   'claude-sonnet-4.6',
   'claude-sonnet-4-6',
@@ -50,6 +58,105 @@ function sameToken(actual, expected) {
   const left = Buffer.from(actual || '');
   const right = Buffer.from(expected || '');
   return left.length === right.length && left.length > 0 && timingSafeEqual(left, right);
+}
+
+function sha256(value) {
+  return createHash('sha256').update(value).digest('hex');
+}
+
+function safeDiagnosticToken(value, maximumLength = 128) {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  if (!trimmed || trimmed.length > maximumLength) return null;
+  return /^[A-Za-z0-9_.:/\[\]-]+$/.test(trimmed) ? trimmed : null;
+}
+
+/**
+ * Convert a potentially sensitive upstream message into one fixed operational
+ * category. The caller may retain the category and hash, never the raw text.
+ */
+export function classifyUpstreamErrorMessage(message) {
+  if (typeof message !== 'string' || !message.trim()) return 'other';
+  const normalized = message.toLowerCase();
+  if (
+    /(?:unknown|unsupported|invalid|unavailable|not found|does not exist)[\s\S]{0,80}(?:model|lane)/.test(normalized)
+    || /(?:model|lane)[\s\S]{0,80}(?:unknown|unsupported|invalid|unavailable|not found|does not exist|not allowed)/.test(normalized)
+    || /no (?:available )?(?:model|lane|route|endpoint)/.test(normalized)
+  ) return 'unknown_model_or_lane';
+  if (
+    /(?:unknown|unsupported|unrecognized|invalid)[\s\S]{0,80}(?:parameter|param|field)/.test(normalized)
+    || /(?:parameter|param|field)[\s\S]{0,80}(?:unknown|unsupported|unrecognized|not supported|not allowed)/.test(normalized)
+  ) return 'unsupported_parameter';
+  if (/unauthori[sz]ed|authentication|invalid api key|api key is invalid|credential|forbidden/.test(normalized)) {
+    return 'authentication_failed';
+  }
+  if (/context (?:length|window)|maximum context|too many tokens|token limit|input is too long/.test(normalized)) {
+    return 'context_length_exceeded';
+  }
+  if (/malformed|invalid json|request body|could not parse|failed to parse|schema validation/.test(normalized)) {
+    return 'malformed_request';
+  }
+  return 'other';
+}
+
+function traceHeaders(headers) {
+  const traces = {};
+  for (const name of TRACE_HEADERS) {
+    const value = safeDiagnosticToken(headers.get(name), 256);
+    if (value) traces[name] = value;
+  }
+  return traces;
+}
+
+async function boundedResponseBody(response, maximumBytes = MAX_ERROR_DIAGNOSTIC_BYTES) {
+  if (!response.body) return Buffer.alloc(0);
+  const reader = response.body.getReader();
+  const chunks = [];
+  let size = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      size += value.byteLength;
+      if (size > maximumBytes) {
+        await reader.cancel('diagnostic body limit reached');
+        return null;
+      }
+      chunks.push(Buffer.from(value));
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  return Buffer.concat(chunks);
+}
+
+async function errorDiagnostics(upstream) {
+  if (upstream.status < 400) return {};
+  const body = await boundedResponseBody(upstream.clone());
+  if (!body) return { errorBodyTruncated: true };
+  let payload;
+  try {
+    payload = JSON.parse(body.toString('utf8'));
+  } catch {
+    return {
+      errorBodyBytes: body.length,
+      errorBodySha256: body.length > 0 ? sha256(body) : null,
+    };
+  }
+  const error = payload?.error && typeof payload.error === 'object' ? payload.error : payload;
+  const message = typeof error?.message === 'string'
+    ? error.message
+    : typeof payload?.message === 'string'
+      ? payload.message
+      : null;
+  return {
+    errorType: safeDiagnosticToken(error?.type),
+    errorCode: safeDiagnosticToken(error?.code),
+    errorParam: safeDiagnosticToken(error?.param),
+    errorCategory: classifyUpstreamErrorMessage(message),
+    errorMessageSha256: message ? sha256(message) : null,
+    errorBodyBytes: body.length,
+  };
 }
 
 function requestToken(request) {
@@ -109,7 +216,11 @@ function boundedInferenceBody(body, pathname, allowedModels, maxOutputTokens) {
   if (pathname === '/v1/responses' && payload.max_output_tokens == null) {
     payload.max_output_tokens = maxOutputTokens;
   }
-  return Buffer.from(JSON.stringify(payload));
+  return {
+    body: Buffer.from(JSON.stringify(payload)),
+    model,
+    stream: payload.stream === true,
+  };
 }
 
 function upstreamHeaders(request, upstreamKey) {
@@ -137,6 +248,10 @@ function json(response, status, payload) {
   response.end(`${JSON.stringify(payload)}\n`);
 }
 
+function isDeterministicClientFailure(status) {
+  return status >= 400 && status < 500 && ![408, 425, 429].includes(status);
+}
+
 export function createPackEvaluatorProxy({
   localToken,
   upstreamKey,
@@ -161,6 +276,7 @@ export function createPackEvaluatorProxy({
   const expiresAt = Date.now() + lifetimeMs;
   let requestsStarted = 0;
   let activeRequests = 0;
+  let circuitFailure = null;
   const recordActivity = (activity) => {
     try {
       onActivity(activity);
@@ -203,15 +319,33 @@ export function createPackEvaluatorProxy({
       }
 
       const target = new URL(`${incoming.pathname}${incoming.search}`, upstreamBase);
-      const body = boundedInferenceBody(
-        await requestBody(request),
+      const incomingBody = await requestBody(request);
+      const bounded = boundedInferenceBody(
+        incomingBody,
         incoming.pathname,
         modelAllowlist,
         outputTokenLimit,
       );
+      const requestDiagnostics = {
+        path: incoming.pathname,
+        model: bounded.model,
+        requestBytes: incomingBody.length,
+        stream: bounded.stream,
+      };
+      if (circuitFailure) {
+        recordActivity({
+          phase: 'circuit_open',
+          requestNumber: requestsStarted + 1,
+          ...requestDiagnostics,
+          status: circuitFailure.status,
+          originalRequestNumber: circuitFailure.requestNumber,
+        });
+        json(response, 424, { error: 'upstream deterministic client failure opened the evaluator circuit' });
+        return;
+      }
       requestsStarted += 1;
       activeRequests += 1;
-      recordActivity({ phase: 'started', requestNumber: requestsStarted });
+      recordActivity({ phase: 'started', requestNumber: requestsStarted, ...requestDiagnostics });
       const requestNumber = requestsStarted;
       const upstreamController = new AbortController();
       const upstreamTimeout = setTimeout(() => upstreamController.abort(), timeoutMs);
@@ -224,14 +358,21 @@ export function createPackEvaluatorProxy({
         const upstream = await fetchImpl(target, {
           method: 'POST',
           headers: upstreamHeaders(request, upstreamKey),
-          body,
+          body: bounded.body,
           redirect: 'error',
           signal: upstreamController.signal,
         });
+        const upstreamDiagnostics = await errorDiagnostics(upstream);
+        if (isDeterministicClientFailure(upstream.status)) {
+          circuitFailure = { status: upstream.status, requestNumber };
+        }
         recordActivity({
           phase: 'response',
           requestNumber,
-          statusClass: Math.floor(upstream.status / 100) * 100,
+          ...requestDiagnostics,
+          status: upstream.status,
+          traceHeaders: traceHeaders(upstream.headers),
+          ...upstreamDiagnostics,
         });
         response.writeHead(upstream.status, responseHeaders(upstream));
         if (!upstream.body) {
@@ -247,6 +388,18 @@ export function createPackEvaluatorProxy({
           }
         }
         response.end();
+      } catch (error) {
+        recordActivity({
+          phase: 'error',
+          requestNumber,
+          ...requestDiagnostics,
+          status: null,
+          errorType: safeDiagnosticToken(error?.name) ?? 'proxy_upstream_error',
+          errorCode: safeDiagnosticToken(error?.code),
+          errorCategory: classifyUpstreamErrorMessage(error instanceof Error ? error.message : null),
+          errorMessageSha256: error instanceof Error ? sha256(error.message) : null,
+        });
+        throw error;
       } finally {
         clearTimeout(upstreamTimeout);
         request.off('aborted', abortUpstream);

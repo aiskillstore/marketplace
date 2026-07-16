@@ -1,19 +1,30 @@
 #!/usr/bin/env node
 
-import { createHash, randomUUID } from 'node:crypto';
+import { createHash } from 'node:crypto';
 import { spawn, spawnSync } from 'node:child_process';
-import { createWriteStream, statSync } from 'node:fs';
+import { createWriteStream, readFileSync, statSync } from 'node:fs';
 import { chmod, chown, copyFile, mkdir, readFile, readdir, rename, writeFile } from 'node:fs/promises';
 import { basename, resolve } from 'node:path';
 import { finished } from 'node:stream/promises';
 import { fileURLToPath } from 'node:url';
 
 const CLI_SCHEMA = 'pack-generation-evaluation/v2';
-const API_SCHEMA = 'skillstore.pack-evaluation/v3';
+const API_SCHEMA = 'skillstore.pack-evaluation/v4';
 const STATUS_SCHEMA = 'skillstore.pack-production-status/v1';
 const READBACK_SCHEMA = 'skillstore.pack-production-readback/v1';
 const SLO_SCHEMA = 'marketplace.pack-production-slo/v1';
 const VERIFICATION_SCHEMA = 'marketplace.pack-production-evaluation-verification/v1';
+const INFRASTRUCTURE_FAILURE_SCHEMA = 'marketplace.pack-production-infrastructure-failure/v1';
+const CLI_EVIDENCE_SCHEMA = 'marketplace.pack-production-cli-evidence/v1';
+const CLI_ERROR_DIGESTS_PER_CATEGORY = 16;
+const CLI_ERROR_DIGESTS_TOTAL = 64;
+const CLI_ERROR_ITEMS_PER_ARRAY = 256;
+const CLI_ERROR_ITEM_LIMIT_BYTES = 4096;
+const CANDIDATE_TECHNICAL_ERROR_CODES = Object.freeze({
+  evaluation: 'evaluation_reported_error',
+  packVerification: 'pack_verification_reported_error',
+  baselineVerification: 'baseline_verification_reported_error',
+});
 const KNOWN_CLI_EXIT = new Map([
   ['candidate_ready', 0],
   ['quality_rejected', 10],
@@ -21,6 +32,9 @@ const KNOWN_CLI_EXIT = new Map([
   ['infrastructure_failed', 30],
 ]);
 const EVALUATOR_OUTPUT_LIMIT_BYTES = 16 * 1024 * 1024;
+const EXPECTED_REPOSITORY = 'aiskillstore/marketplace';
+const EXPECTED_WORKFLOW = 'Generate Pack';
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 function fail(message) {
   throw new Error(message);
@@ -94,12 +108,25 @@ export function normalizeEvaluatorProgressLine(line) {
   if (match) return `[4/5] verifying the whole pack ${match[1]} times`;
   match = line.match(/^\[5\/5\] running ([1-9][0-9]*)-run no-skill baseline$/);
   if (match) return `[5/5] running ${match[1]}-run no-skill baseline`;
+  match = line.match(/^\[5\/6\] running ([1-9][0-9]*)-run plan-only baseline with the identical DAG$/);
+  if (match) return `[5/6] running ${match[1]}-run plan-only baseline`;
+  if (line === '[6/7] running every viable unique finalist end-to-end for the true best-single baseline') {
+    return '[6/7] running true best-single tournament';
+  }
+  match = line.match(/^\[7\/7\] running one leave-one-out comparison for each of ([2-4]) members$/);
+  if (match) return `[7/7] running ${match[1]} leave-one-out comparisons`;
   match = line.match(/^\s{0,12}slot ([a-z0-9][a-z0-9-]{0,79}): finding candidates for [A-Za-z0-9 .,+_\/-]{1,200}$/);
   if (match) return `slot ${match[1]}: finding candidates`;
   match = line.match(
     /^\s{0,12}slot ([a-z0-9][a-z0-9-]{0,79}): verifying ([a-z0-9][a-z0-9-]{0,79})$/,
   );
   if (match) return `slot ${match[1]}: verifying ${match[2]}`;
+  match = line.match(
+    /^\s{0,12}slot ([a-z0-9][a-z0-9-]{0,79}): winner ([a-z0-9][a-z0-9-]{0,159}) after evaluating all ([1-2]) bounded candidates$/,
+  );
+  if (match) return `slot ${match[1]}: winner ${match[2]} after ${match[3]} candidates`;
+  match = line.match(/^\s{0,12}pack ([a-z0-9][a-z0-9-]{0,85}): [a-z0-9-]+(?:, [a-z0-9-]+){1,3}$/);
+  if (match) return `pack ${match[1]}: composition selected`;
   match = line.match(/^run ([1-9][0-9]*)\/([1-9][0-9]*): (executing task\.\.\.|judging output\.\.\.)$/);
   if (match) return `run ${match[1]}/${match[2]}: ${match[3]}`;
   match = line.match(
@@ -131,6 +158,155 @@ export function allocateScenarioBudgetMs({
   const fairShare = Math.max(1, Math.floor(remainingBudgetMs / remainingScenarios));
   const available = remainingBudgetMs - reservedForFallbacks;
   return Math.min(maximum, Math.max(1, available > 0 ? available : fairShare));
+}
+
+function safeActivityToken(value, maximumLength = 128) {
+  if (typeof value !== 'string' || value.length < 1 || value.length > maximumLength) return null;
+  return /^[A-Za-z0-9_.:/\[\]-]+$/.test(value) ? value : null;
+}
+
+const INFRASTRUCTURE_FAILURE_STAGES = new Set([
+  'contract_smoke',
+  'agent_preflight',
+  'evaluation',
+]);
+const INFRASTRUCTURE_FAILURE_REASONS = new Set([
+  'deterministic_http',
+  'timeout',
+  'stalled',
+  'terminal_report_missing',
+  'contract_failed',
+  'preflight_failed',
+  'cancelled',
+]);
+const INFRASTRUCTURE_ERROR_CATEGORIES = new Set([
+  'unknown_model_or_lane',
+  'unsupported_parameter',
+  'authentication_failed',
+  'context_length_exceeded',
+  'malformed_request',
+  'other',
+]);
+const INTERRUPTED_SIGNALS = new Set(['SIGINT', 'SIGTERM', 'SIGHUP']);
+
+export function normalizeInterruptedSignal(value) {
+  if (!INTERRUPTED_SIGNALS.has(value)) fail('Evaluator interruption signal is not allowlisted');
+  return value;
+}
+
+export function normalizeInfrastructureFailure(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    fail('Infrastructure failure evidence must be an object');
+  }
+  if (value.schemaVersion !== INFRASTRUCTURE_FAILURE_SCHEMA) {
+    fail(`Unsupported infrastructure failure schema: ${value.schemaVersion}`);
+  }
+  if (!INFRASTRUCTURE_FAILURE_STAGES.has(value.stage)) {
+    fail(`Unsupported infrastructure failure stage: ${value.stage}`);
+  }
+  if (!INFRASTRUCTURE_FAILURE_REASONS.has(value.reason)) {
+    fail(`Unsupported infrastructure failure reason: ${value.reason}`);
+  }
+  const diagnosticSha256 = value.diagnosticSha256 == null
+    ? null
+    : safeActivityToken(value.diagnosticSha256, 64);
+  if (diagnosticSha256 != null && !/^[0-9a-f]{64}$/.test(diagnosticSha256)) {
+    fail('Infrastructure diagnostic hash is invalid');
+  }
+  const status = value.status == null ? null : Number(value.status);
+  if (status != null && (!Number.isSafeInteger(status) || status < 100 || status > 599)) {
+    fail('Infrastructure HTTP status is invalid');
+  }
+  const errorCategory = value.errorCategory == null ? null : value.errorCategory;
+  if (errorCategory != null && !INFRASTRUCTURE_ERROR_CATEGORIES.has(errorCategory)) {
+    fail('Infrastructure error category is not allowlisted');
+  }
+  const signal = value.signal == null ? null : normalizeInterruptedSignal(value.signal);
+  if ((value.reason === 'cancelled') !== (signal != null)) {
+    fail('Cancelled infrastructure evidence must contain exactly one allowlisted signal');
+  }
+  return {
+    schemaVersion: INFRASTRUCTURE_FAILURE_SCHEMA,
+    stage: value.stage,
+    reason: value.reason,
+    status,
+    path: safeActivityToken(value.path),
+    model: safeActivityToken(value.model),
+    errorCategory,
+    diagnosticSha256,
+    ...(signal == null ? {} : { signal }),
+  };
+}
+
+export function buildInfrastructureCliReport({
+  scenario,
+  context,
+  failure,
+  startedAt,
+  completedAt,
+}) {
+  const normalizedFailure = normalizeInfrastructureFailure({
+    ...failure,
+    schemaVersion: INFRASTRUCTURE_FAILURE_SCHEMA,
+  });
+  return {
+    schemaVersion: CLI_SCHEMA,
+    generationId: context.generationId,
+    evaluationStartedAt: startedAt,
+    evaluationCompletedAt: completedAt,
+    outcome: 'infrastructure_failed',
+    outcomeReason: `${normalizedFailure.stage}:${normalizedFailure.reason}`,
+    autoPublishEligible: false,
+    scenario,
+    slotEvaluations: [],
+    manifest: null,
+    composition: null,
+    packVerification: null,
+    baselineVerification: null,
+    baselineScoreDelta: null,
+    errors: [],
+    infrastructureFailure: normalizedFailure,
+  };
+}
+
+export function deterministicHttpFailureFromActivity(contents) {
+  if (typeof contents !== 'string') return null;
+  const lines = contents.split('\n').filter(Boolean);
+  for (let index = lines.length - 1; index >= 0; index -= 1) {
+    let activity;
+    try {
+      activity = JSON.parse(lines[index]);
+    } catch {
+      continue;
+    }
+    if (!['response', 'circuit_open'].includes(activity?.phase)) continue;
+    const status = Number(activity.status);
+    if (!Number.isSafeInteger(status) || status < 400 || status >= 500 || [408, 425, 429].includes(status)) {
+      continue;
+    }
+    const errorCategories = new Set([
+      'unknown_model_or_lane',
+      'unsupported_parameter',
+      'authentication_failed',
+      'context_length_exceeded',
+      'malformed_request',
+      'other',
+    ]);
+    return {
+      status,
+      path: safeActivityToken(activity.path),
+      model: safeActivityToken(activity.model),
+      requestNumber: Number.isSafeInteger(activity.requestNumber) ? activity.requestNumber : null,
+      errorType: safeActivityToken(activity.errorType),
+      errorCode: safeActivityToken(activity.errorCode),
+      errorParam: safeActivityToken(activity.errorParam),
+      errorCategory: errorCategories.has(activity.errorCategory) ? activity.errorCategory : null,
+      errorMessageSha256: /^[a-f0-9]{64}$/.test(activity.errorMessageSha256 || '')
+        ? activity.errorMessageSha256
+        : null,
+    };
+  }
+  return null;
 }
 
 function terminateEvaluatorProcesses(uid) {
@@ -211,6 +387,7 @@ export async function runEvaluatorProcess(command, commandArgs, options) {
   let timedOut = false;
   let stalled = false;
   let interruptedSignal = null;
+  let deterministicHttpFailure = null;
   let stderrRemainder = '';
   let killTimer = null;
   let terminationRequested = false;
@@ -353,14 +530,31 @@ export async function runEvaluatorProcess(command, commandArgs, options) {
     });
     onProgress(`[pack-evaluator] scenario=${label} heartbeat elapsed=${Math.floor(elapsedMs / 1000)}s`);
   }, heartbeatMs);
-  const idleTimer = setInterval(() => {
-    if (stalled || terminationRequested) return;
+  const probeExternalActivity = () => {
     if (options.externalActivityFile) {
       try {
         const activity = statSync(options.externalActivityFile);
         if (activity.mtimeMs > externalActivityMtimeMs) {
           externalActivityMtimeMs = activity.mtimeMs;
           markActivity();
+          if (activity.size > 1024 * 1024) {
+            requestTermination('scenario.activity_limit_exceeded');
+            return;
+          }
+          deterministicHttpFailure = deterministicHttpFailureFromActivity(
+            readFileSync(options.externalActivityFile, 'utf8'),
+          );
+          if (deterministicHttpFailure && requestTermination('scenario.deterministic_http_failure')) {
+            writeProgressEvent({
+              event: 'scenario.http_circuit_opened',
+              scenarioId: label,
+              elapsedMs: Date.now() - startedAt,
+              ...deterministicHttpFailure,
+            });
+            onProgress(
+              `[pack-evaluator] scenario=${label} stopped after deterministic HTTP ${deterministicHttpFailure.status}`,
+            );
+          }
         }
       } catch (error) {
         if (error?.code !== 'ENOENT' && requestTermination('scenario.activity_probe_failed')) {
@@ -369,6 +563,13 @@ export async function runEvaluatorProcess(command, commandArgs, options) {
         }
       }
     }
+  };
+  const activityTimer = options.externalActivityFile
+    ? setInterval(probeExternalActivity, 500)
+    : null;
+  const idleTimer = setInterval(() => {
+    if (stalled || terminationRequested) return;
+    probeExternalActivity();
     if (Date.now() - lastActivityAt >= idleTimeoutMs) {
       if (requestTermination('scenario.stalled')) {
         stalled = true;
@@ -413,6 +614,7 @@ export async function runEvaluatorProcess(command, commandArgs, options) {
     signalProcessGroup('SIGKILL');
     clearInterval(heartbeatTimer);
     clearInterval(idleTimer);
+    if (activityTimer != null) clearInterval(activityTimer);
     clearTimeout(scenarioTimer);
     if (killTimer != null) clearTimeout(killTimer);
     process.removeListener('SIGINT', onSigint);
@@ -432,6 +634,7 @@ export async function runEvaluatorProcess(command, commandArgs, options) {
       stderrBytes,
       stderrSha256: stderrDigest.digest('hex'),
       interruptedSignal,
+      deterministicHttpFailure,
     });
     stdoutStream.end();
     stderrStream.end();
@@ -452,6 +655,7 @@ export async function runEvaluatorProcess(command, commandArgs, options) {
     stalled,
     outputExceeded,
     interruptedSignal,
+    deterministicHttpFailure,
     stdoutBytes,
     stderrBytes,
     durationMs: Date.now() - startedAt,
@@ -548,6 +752,644 @@ function apiSlotAssignments(raw, manifestSkills, requiredSlots) {
   return assignments;
 }
 
+function object(value, name) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) fail(`${name} must be an object`);
+  return value;
+}
+
+function nonEmptyString(value, name, pattern) {
+  if (typeof value !== 'string' || !value.trim() || (pattern && !pattern.test(value))) {
+    fail(`${name} is missing or invalid`);
+  }
+  return value;
+}
+
+function exactStrings(value, name, { length, pattern, allowDuplicates = false } = {}) {
+  if (!Array.isArray(value) || (length != null && value.length !== length)) {
+    fail(`${name} must contain exactly ${length} items`);
+  }
+  const result = value.map((item, index) => nonEmptyString(item, `${name}[${index}]`, pattern));
+  if (!allowDuplicates && new Set(result).size !== result.length) fail(`${name} must not contain duplicates`);
+  return result;
+}
+
+function exactBooleans(value, name, length) {
+  if (!Array.isArray(value) || value.length !== length || value.some((item) => typeof item !== 'boolean')) {
+    fail(`${name} must contain exactly ${length} boolean items`);
+  }
+  return [...value];
+}
+
+function exactScores(value, name, length = 3) {
+  if (!Array.isArray(value) || value.length !== length) fail(`${name} must contain exactly ${length} scores`);
+  return value.map((score, index) => {
+    const parsed = Number(score);
+    if (!Number.isFinite(parsed) || parsed < 0 || parsed > 10) fail(`${name}[${index}] is invalid`);
+    return parsed;
+  });
+}
+
+function median(values) {
+  const sorted = [...values].sort((left, right) => left - right);
+  const middle = Math.floor(sorted.length / 2);
+  return sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2;
+}
+
+function apiExecutionDag(raw, manifestSkills, slotAssignments, requiredSlots) {
+  const source = object(raw.manifest?.execution_dag, 'candidate_ready manifest execution DAG');
+  if (source.schema_version !== 'skillstore.pack-execution-dag/v1') {
+    fail('candidate_ready execution DAG schema is invalid');
+  }
+  if (!Array.isArray(source.nodes) || source.nodes.length !== requiredSlots.length) {
+    fail('candidate_ready execution DAG nodes must match the required slots');
+  }
+  const nodes = source.nodes.map((value, index) => {
+    const node = object(value, `candidate_ready execution DAG node ${index + 1}`);
+    const id = nonEmptyString(node.id, `candidate_ready execution DAG node ${index + 1} id`, /^[a-z0-9]+(?:-[a-z0-9]+)*$/);
+    const dependsOn = exactStrings(node.depends_on, `candidate_ready execution DAG node ${id} dependencies`, {
+      pattern: /^[a-z0-9]+(?:-[a-z0-9]+)*$/,
+    });
+    const artifactIds = exactStrings(node.artifact_ids, `candidate_ready execution DAG node ${id} artifacts`, {
+      pattern: /^[a-z0-9]+(?:-[a-z0-9]+)*$/,
+    });
+    return {
+      id,
+      instruction: nonEmptyString(node.instruction, `candidate_ready execution DAG node ${id} instruction`),
+      dependsOn,
+      artifactIds,
+    };
+  });
+  if (canonicalJson(nodes.map((node) => node.id)) !== canonicalJson(requiredSlots)) {
+    fail('candidate_ready execution DAG nodes must follow the exact required slot order');
+  }
+  const nodeOrder = new Map(nodes.map((node, index) => [node.id, index]));
+  nodes.forEach((node, index) => {
+    if (node.dependsOn.some((dependency) => !nodeOrder.has(dependency) || nodeOrder.get(dependency) >= index)) {
+      fail(`candidate_ready execution DAG node ${node.id} has an invalid dependency`);
+    }
+  });
+  if (!Array.isArray(source.handoffs)) fail('candidate_ready execution DAG handoffs are missing');
+  const handoffs = source.handoffs.map((value, index) => {
+    const handoff = object(value, `candidate_ready execution DAG handoff ${index + 1}`);
+    if (handoff.contract !== 'validated-artifacts-only') {
+      fail(`candidate_ready execution DAG handoff ${index + 1} has an invalid contract`);
+    }
+    return {
+      from: nonEmptyString(handoff.from, `candidate_ready execution DAG handoff ${index + 1} from`),
+      to: nonEmptyString(handoff.to, `candidate_ready execution DAG handoff ${index + 1} to`),
+      artifactIds: exactStrings(handoff.artifact_ids, `candidate_ready execution DAG handoff ${index + 1} artifacts`, {
+        pattern: /^[a-z0-9]+(?:-[a-z0-9]+)*$/,
+      }),
+      contract: 'validated-artifacts-only',
+    };
+  });
+  const expectedHandoffs = nodes.flatMap((node) => node.dependsOn.map((dependency) => `${dependency}->${node.id}`)).sort();
+  const actualHandoffs = handoffs.map((handoff) => `${handoff.from}->${handoff.to}`).sort();
+  if (canonicalJson(actualHandoffs) !== canonicalJson(expectedHandoffs)) {
+    fail('candidate_ready execution DAG handoffs do not exactly match its dependencies');
+  }
+  if (!Array.isArray(source.skill_bindings) || source.skill_bindings.length !== manifestSkills.length) {
+    fail('candidate_ready execution DAG bindings must match all manifest Skills');
+  }
+  const skillBindings = source.skill_bindings.map((value, index) => {
+    const binding = object(value, `candidate_ready execution DAG binding ${index + 1}`);
+    const canonicalId = nonEmptyString(binding.canonical_id, `candidate_ready execution DAG binding ${index + 1} canonical id`, /^[a-z0-9]+(?:-[a-z0-9]+)*$/);
+    const slotIds = exactStrings(binding.slot_ids, `candidate_ready execution DAG binding ${canonicalId} slots`, {
+      pattern: /^[a-z0-9]+(?:-[a-z0-9]+)*$/,
+    });
+    return {
+      canonicalId,
+      contentHash: nonEmptyString(binding.content_hash, `candidate_ready execution DAG binding ${canonicalId} content hash`, /^[0-9a-f]{64}$/),
+      version: nonEmptyString(binding.version, `candidate_ready execution DAG binding ${canonicalId} version`),
+      slotIds,
+    };
+  });
+  if (canonicalJson(skillBindings.map((binding) => binding.canonicalId)) !== canonicalJson(manifestSkills)) {
+    fail('candidate_ready execution DAG bindings must follow manifest Skill order');
+  }
+  for (const binding of skillBindings) {
+    const expectedSlots = requiredSlots.filter((slotId) => slotAssignments[slotId].includes(binding.canonicalId));
+    if (canonicalJson(binding.slotIds) !== canonicalJson(expectedSlots)) {
+      fail(`candidate_ready execution DAG binding for ${binding.canonicalId} has incorrect slots`);
+    }
+  }
+  const workflowDigest = nonEmptyString(source.workflow_digest, 'candidate_ready execution DAG workflow digest', /^[0-9a-f]{64}$/);
+  const bindingDigest = nonEmptyString(source.binding_digest, 'candidate_ready execution DAG binding digest', /^[0-9a-f]{64}$/);
+  const expectedWorkflowDigest = sha256(canonicalJson({
+    schema_version: source.schema_version,
+    nodes: nodes.map((node) => ({
+      id: node.id,
+      instruction: node.instruction,
+      depends_on: node.dependsOn,
+      artifact_ids: node.artifactIds,
+    })),
+    handoffs: handoffs.map((handoff) => ({
+      from: handoff.from,
+      to: handoff.to,
+      artifact_ids: handoff.artifactIds,
+      contract: handoff.contract,
+    })),
+  }));
+  const expectedBindingDigest = sha256(canonicalJson({
+    workflow_digest: expectedWorkflowDigest,
+    skill_bindings: skillBindings.map((binding) => ({
+      canonical_id: binding.canonicalId,
+      content_hash: binding.contentHash,
+      version: binding.version,
+      slot_ids: binding.slotIds,
+    })),
+  }));
+  if (workflowDigest !== expectedWorkflowDigest || bindingDigest !== expectedBindingDigest) {
+    fail('candidate_ready execution DAG digests do not match canonical evidence');
+  }
+  const usageGuideMarker = nonEmptyString(source.usage_guide_marker, 'candidate_ready execution DAG usage guide marker');
+  if (usageGuideMarker !== `<!-- skillstore-execution-binding:${bindingDigest} -->`) {
+    fail('candidate_ready execution DAG usage guide marker does not bind the binding digest');
+  }
+  return {
+    schemaVersion: 'skillstore.pack-execution-dag/v1',
+    workflowDigest,
+    bindingDigest,
+    nodes,
+    handoffs,
+    skillBindings,
+    usageGuideMarker,
+  };
+}
+
+function validateCandidateTournament(raw, requiredSlots) {
+  if (!Array.isArray(raw.slotEvaluations)) fail('candidate_ready slot tournament is missing');
+  const bySlot = new Map(raw.slotEvaluations.map((entry) => [entry?.slot?.id, entry]));
+  const viableSkills = [];
+  for (const slotId of requiredSlots) {
+    const tournament = bySlot.get(slotId);
+    if (!tournament || !Array.isArray(tournament.candidates) || tournament.candidates.length < 1 || tournament.candidates.length > 4) {
+      fail(`candidate_ready slot ${slotId} must retain one to four bounded candidate results`);
+    }
+    const candidateSlugs = [];
+    for (const [index, candidate] of tournament.candidates.entries()) {
+      const slug = nonEmptyString(candidate?.slug, `candidate_ready slot ${slotId} candidate ${index + 1}`, /^[a-z0-9]+(?:-[a-z0-9]+)*$/);
+      if (!candidate?.summary || !Array.isArray(candidate.verdicts) || !Array.isArray(candidate.errors)) {
+        fail(`candidate_ready slot ${slotId} candidate ${slug} lacks terminal execution evidence`);
+      }
+      candidateSlugs.push(slug);
+    }
+    if (new Set(candidateSlugs).size !== candidateSlugs.length) {
+      fail(`candidate_ready slot ${slotId} contains duplicate candidates`);
+    }
+    if (!Array.isArray(tournament.eligible)) fail(`candidate_ready slot ${slotId} eligible candidates are missing`);
+    const expectedEligible = tournament.candidates
+      .filter((candidate) => candidate.summary?.passed === true && candidate.summary?.usedSkillEver === true)
+      .sort((left, right) =>
+        Number(right.summary.artifactsPassed) - Number(left.summary.artifactsPassed)
+        || Number(right.summary.medianScore) - Number(left.summary.medianScore)
+        || Number(right.summary.minimumScore) - Number(left.summary.minimumScore)
+        || Number(right.summary.taskCompletedRate) - Number(left.summary.taskCompletedRate)
+        || Number(right.summary.usedSkillRate) - Number(left.summary.usedSkillRate)
+        || Number(right.hits) - Number(left.hits)
+        || String(left.slug).localeCompare(String(right.slug))
+      )
+      .map((candidate) => candidate.slug);
+    const actualEligible = tournament.eligible.map((candidate) => candidate?.slug);
+    if (canonicalJson(actualEligible) !== canonicalJson(expectedEligible) || actualEligible.length < 1) {
+      fail(`candidate_ready slot ${slotId} did not retain every viable bounded candidate`);
+    }
+    if (tournament.winner?.slug !== actualEligible[0]) {
+      fail(`candidate_ready slot ${slotId} winner is not the ranked tournament winner`);
+    }
+    viableSkills.push(...actualEligible);
+  }
+  return [...new Set(viableSkills)].sort();
+}
+
+function apiBestSingle(raw, packScore, executionDag, tournamentViableSkills, evaluationSuite) {
+  const source = object(raw.bestSingleEvidence, 'candidate_ready best-single verification');
+  if (source.complete !== true) fail('candidate_ready best-single tournament is incomplete');
+  const eligibleCandidateSkills = exactStrings(
+    source.eligibleCandidateSkills,
+    'candidate_ready best-single eligible candidate Skills',
+    { pattern: /^[a-z0-9]+(?:-[a-z0-9]+)*$/ }
+  );
+  if (canonicalJson([...eligibleCandidateSkills].sort()) !== canonicalJson(tournamentViableSkills)) {
+    fail('candidate_ready best-single eligible candidates differ from the complete slot tournament');
+  }
+  if (!Array.isArray(source.competitors) || source.competitors.length !== eligibleCandidateSkills.length) {
+    fail('candidate_ready best-single verification must compare every eligible candidate end to end');
+  }
+  const competitors = source.competitors.map((value, index) => {
+    const competitor = object(value, `candidate_ready best-single competitor ${index + 1}`);
+    const skill = nonEmptyString(competitor.skill, `candidate_ready best-single competitor ${index + 1} Skill`, /^[a-z0-9]+(?:-[a-z0-9]+)*$/);
+    const verification = object(competitor.verification, `candidate_ready best-single competitor ${skill} verification`);
+    const scores = exactScores(verification.summary?.scores, `candidate_ready best-single competitor ${skill} scores`);
+    const artifactPasses = exactBooleans(
+      verification.artifactEvidence?.map((run) => run?.passed),
+      `candidate_ready best-single competitor ${skill} artifact passes`,
+      3
+    );
+    const deterministicPasses = exactBooleans(
+      verification.deterministicValidations?.map((run) => run?.passed),
+      `candidate_ready best-single competitor ${skill} deterministic passes`,
+      3
+    );
+    const variantIds = exactStrings(
+      verification.deterministicValidations?.map((run) => run?.variantId),
+      `candidate_ready best-single competitor ${skill} variant ids`,
+      { length: 3, pattern: /^[a-z0-9]+(?:-[a-z0-9]+)*$/ }
+    );
+    const errors = exactStrings(verification.errors ?? [], `candidate_ready best-single competitor ${skill} errors`);
+    if (errors.length > 0) fail(`candidate_ready best-single competitor ${skill} contains technical errors`);
+    if (competitor.workflowDigest !== executionDag.workflowDigest) {
+      fail(`candidate_ready best-single competitor ${skill} did not use the neutral execution DAG`);
+    }
+    if (canonicalJson(variantIds) !== canonicalJson(evaluationSuite.variantIds)) {
+      fail(`candidate_ready best-single competitor ${skill} did not use the paired variant order`);
+    }
+    return {
+      skill,
+      workflowDigest: executionDag.workflowDigest,
+      variantIds,
+      scores,
+      artifactPasses,
+      deterministicPasses,
+      errors,
+    };
+  });
+  if (canonicalJson(competitors.map((item) => item.skill)) !== canonicalJson(eligibleCandidateSkills)) {
+    fail('candidate_ready best-single competitors differ from the eligible candidate set');
+  }
+  if (canonicalJson(raw.treatmentWorkflowDigests?.bestSingle) !== canonicalJson(
+    competitors.map((competitor) => ({ skill: competitor.skill, workflowDigest: competitor.workflowDigest }))
+  )) {
+    fail('candidate_ready best-single treatment digests are incomplete or inconsistent');
+  }
+  const ranked = [...competitors].sort((left, right) =>
+    right.deterministicPasses.filter(Boolean).length - left.deterministicPasses.filter(Boolean).length
+    || right.artifactPasses.filter(Boolean).length - left.artifactPasses.filter(Boolean).length
+    || median(right.scores) - median(left.scores)
+    || Math.min(...right.scores) - Math.min(...left.scores)
+    || left.skill.localeCompare(right.skill)
+  );
+  const winnerSkill = nonEmptyString(source.winnerSkill, 'candidate_ready best-single winner Skill');
+  if (winnerSkill !== ranked[0]?.skill) {
+    fail('candidate_ready best-single winner is not the true end-to-end maximum');
+  }
+  const score = median(ranked[0].scores);
+  const improvement = packScore - score;
+  if (Number(raw.bestSingleScoreDelta) !== improvement || improvement < 1) {
+    fail('candidate_ready Pack must improve on the true best-single baseline by at least one point');
+  }
+  return { eligibleCandidateSkills, competitors, winnerSkill, score, improvement };
+}
+
+function apiAblation(raw, manifestSkills, executionDag, runs) {
+  if (!Array.isArray(raw.ablationVerification) || raw.ablationVerification.length !== manifestSkills.length) {
+    fail('candidate_ready ablation must contain exactly one treatment per manifest Skill');
+  }
+  const result = raw.ablationVerification.map((value, index) => {
+    const item = object(value, `candidate_ready ablation ${index + 1}`);
+    const removedSkill = nonEmptyString(item.removedSkill, `candidate_ready ablation ${index + 1} removed Skill`);
+    if (removedSkill !== manifestSkills[index]) fail('candidate_ready ablation must follow manifest Skill order');
+    const remainingSkills = exactStrings(item.remainingSkills, `candidate_ready ablation for ${removedSkill} remaining Skills`, {
+      length: manifestSkills.length - 1,
+      pattern: /^[a-z0-9]+(?:-[a-z0-9]+)*$/,
+    });
+    if (canonicalJson(remainingSkills) !== canonicalJson(manifestSkills.filter((skill) => skill !== removedSkill))) {
+      fail(`candidate_ready ablation for ${removedSkill} has the wrong remaining Skills`);
+    }
+    const binding = executionDag.skillBindings.find((candidate) => candidate.canonicalId === removedSkill);
+    if (item.workflowDigest !== executionDag.workflowDigest) {
+      fail(`candidate_ready ablation for ${removedSkill} did not use the neutral execution DAG`);
+    }
+    const boundSlotIds = exactStrings(item.boundSlotIds, `candidate_ready ablation for ${removedSkill} bound slots`, {
+      pattern: /^[a-z0-9]+(?:-[a-z0-9]+)*$/,
+    });
+    if (canonicalJson(boundSlotIds) !== canonicalJson(binding.slotIds)) {
+      fail(`candidate_ready ablation for ${removedSkill} is not bound to the execution DAG slots`);
+    }
+    const expectedArtifacts = [...new Set(binding.slotIds.flatMap((slotId) =>
+      executionDag.nodes.find((node) => node.id === slotId)?.artifactIds ?? []
+    ))];
+    const boundArtifactIds = exactStrings(item.boundArtifactIds, `candidate_ready ablation for ${removedSkill} bound artifacts`, {
+      pattern: /^[a-z0-9]+(?:-[a-z0-9]+)*$/,
+    });
+    if (canonicalJson(boundArtifactIds) !== canonicalJson(expectedArtifacts)) {
+      fail(`candidate_ready ablation for ${removedSkill} is not bound to the execution DAG artifacts`);
+    }
+    const fullArtifactPasses = exactBooleans(item.fullArtifactPasses, `candidate_ready ablation for ${removedSkill} full results`, runs);
+    const artifactPasses = exactBooleans(item.ablatedArtifactPasses, `candidate_ready ablation for ${removedSkill} treatment results`, runs);
+    const fullSlotPasses = exactBooleans(item.fullSlotPasses, `candidate_ready ablation for ${removedSkill} full slot results`, runs);
+    const slotPasses = exactBooleans(item.ablatedSlotPasses, `candidate_ready ablation for ${removedSkill} treatment slot results`, runs);
+    const deterministicMarginalContribution = item.deterministicMarginalContribution === true;
+    if (!deterministicMarginalContribution || !fullSlotPasses.every(Boolean) || !slotPasses.every((passed) => !passed)) {
+      fail(`candidate_ready ablation for ${removedSkill} did not prove deterministic marginal value`);
+    }
+    return {
+      removedSkill,
+      remainingSkills,
+      workflowDigest: executionDag.workflowDigest,
+      boundSlotIds,
+      boundArtifactIds,
+      fullSlotPasses,
+      slotPasses,
+      fullArtifactPasses,
+      artifactPasses,
+      deterministicMarginalContribution,
+    };
+  });
+  if (canonicalJson(raw.deterministicMarginalSkills) !== canonicalJson(manifestSkills)) {
+    fail('candidate_ready every manifest Skill must have deterministic marginal value');
+  }
+  if (canonicalJson(raw.treatmentWorkflowDigests?.leaveOneOut) !== canonicalJson(
+    result.map((item) => ({ removedSkill: item.removedSkill, workflowDigest: executionDag.workflowDigest }))
+  )) {
+    fail('candidate_ready leave-one-out treatment digests are incomplete or inconsistent');
+  }
+  return result;
+}
+
+function apiEvaluationSuite(raw) {
+  const source = object(raw.evaluationSuiteEvidence, 'candidate_ready evaluation suite');
+  if (source.schemaVersion !== 'skillstore.pack-evaluation-suite/v1' || source.executed !== true) {
+    fail('candidate_ready must execute the v1 paired evaluation suite');
+  }
+  const variantIds = exactStrings(source.variantIds, 'candidate_ready evaluation suite variant ids', {
+    length: 3,
+    pattern: /^[a-z0-9]+(?:-[a-z0-9]+)*$/,
+  });
+  if (source.hiddenVariantCount !== 2) fail('candidate_ready evaluation suite must contain exactly two hidden variants');
+  const digest = (field, allowDuplicates = false) => exactStrings(source[field], `candidate_ready evaluation suite ${field}`, {
+    length: 3,
+    pattern: /^[0-9a-f]{64}$/,
+    allowDuplicates,
+  });
+  const taskDigests = digest('taskDigests', true);
+  const fixtureDigests = digest('fixtureDigests');
+  const validatorDigests = digest('validatorDigests', true);
+  if (new Set(taskDigests).size !== 1 || new Set(validatorDigests).size !== 1) {
+    fail('candidate_ready paired variants must use identical task and validator contracts');
+  }
+  return {
+    schemaVersion: 'skillstore.pack-evaluation-suite/v1',
+    executed: true,
+    variantIds,
+    hiddenVariantCount: 2,
+    taskDigests,
+    fixtureDigests,
+    validatorDigests,
+  };
+}
+
+function apiUsageProvenance(raw, executionDag, evaluationSuite) {
+  const source = object(raw.usageProvenance, 'candidate_ready usage provenance');
+  if (source.deterministic !== true || source.source !== 'runner-trace-v1') {
+    fail('candidate_ready requires deterministic runner Skill usage provenance');
+  }
+  if (!Array.isArray(source.traces) || source.traces.length !== evaluationSuite.variantIds.length) {
+    fail('candidate_ready usage provenance must cover every paired variant');
+  }
+  const bindingById = new Map(executionDag.skillBindings.map((binding) => [binding.canonicalId, binding]));
+  const traces = source.traces.map((value, traceIndex) => {
+    const trace = object(value, `candidate_ready usage trace ${traceIndex + 1}`);
+    if (trace.variantId !== evaluationSuite.variantIds[traceIndex] || !Array.isArray(trace.events) || trace.events.length < 1) {
+      fail(`candidate_ready usage trace ${traceIndex + 1} is missing or out of order`);
+    }
+    const events = trace.events.map((value, eventIndex) => {
+      const event = object(value, `candidate_ready usage trace ${traceIndex + 1} event ${eventIndex + 1}`);
+      const canonicalId = nonEmptyString(event.canonicalId, 'candidate_ready usage event canonical id');
+      const binding = bindingById.get(canonicalId);
+      if (
+        !binding
+        || event.contentHash !== binding.contentHash
+        || event.version !== binding.version
+        || event.sequence !== eventIndex + 1
+      ) {
+        fail('candidate_ready usage event does not match the exact bound Skill identity and sequence');
+      }
+      return {
+        canonicalId,
+        contentHash: binding.contentHash,
+        version: binding.version,
+        sequence: event.sequence,
+      };
+    });
+    const observed = new Set(events.map((event) => event.canonicalId));
+    if (executionDag.skillBindings.some((binding) => !observed.has(binding.canonicalId))) {
+      fail(`candidate_ready usage trace ${trace.variantId} did not execute every bound Skill`);
+    }
+    return { variantId: trace.variantId, events };
+  });
+  return { deterministic: true, source: 'runner-trace-v1', traces };
+}
+
+const CLI_ERROR_SOURCES = [
+  ['evaluation', (raw) => raw.errors],
+  ['composition', (raw) => raw.composition],
+  ['pack_verification', (raw) => raw.packVerification],
+  ['baseline_verification', (raw) => raw.baselineVerification],
+  ['slot_evaluation', (raw) => raw.slotEvaluations],
+  ['best_single', (raw) => raw.bestSingleEvidence],
+  ['ablation', (raw) => raw.ablationVerification],
+];
+const CLI_OUTCOME_CATEGORIES = Object.freeze({
+  candidate_ready: 'passed',
+  quality_rejected: 'quality',
+  evaluation_inconclusive: 'inconclusive',
+  infrastructure_failed: 'infrastructure',
+});
+
+function cliOutcomeCategory(outcome) {
+  if (!Object.hasOwn(CLI_OUTCOME_CATEGORIES, outcome)) fail(`Unsupported CLI outcome: ${outcome}`);
+  return CLI_OUTCOME_CATEGORIES[outcome];
+}
+
+function strictErrorStrings(value, name, { required = false } = {}) {
+  if (value == null && !required) return [];
+  if (!Array.isArray(value)) fail(`${name} must be an array of error strings`);
+  if (value.length > CLI_ERROR_ITEMS_PER_ARRAY) {
+    fail(`${name} exceeds the bounded error item count`);
+  }
+  return value.map((item, index) => {
+    if (
+      typeof item !== 'string'
+      || item.length < 1
+      || Buffer.byteLength(item, 'utf8') > CLI_ERROR_ITEM_LIMIT_BYTES
+    ) {
+      fail(`${name}[${index}] must be a bounded non-empty error string`);
+    }
+    return item;
+  });
+}
+
+function collectErrorStrings(value, captureRoot = false, result = [], path = 'CLI report') {
+  if (captureRoot) {
+    result.push(...strictErrorStrings(value, `${path}.errors`, { required: true }));
+    return result;
+  }
+  if (Array.isArray(value)) {
+    value.forEach((item, index) => collectErrorStrings(item, false, result, `${path}[${index}]`));
+    return result;
+  }
+  if (value && typeof value === 'object') {
+    for (const [key, item] of Object.entries(value)) {
+      if (key === 'errors') {
+        result.push(...strictErrorStrings(item, `${path}.errors`));
+      } else {
+        collectErrorStrings(item, false, result, `${path}.${key}`);
+      }
+    }
+  }
+  return result;
+}
+
+function isoInstant(value, name) {
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(value)) {
+    fail(`${name} is not a canonical UTC instant`);
+  }
+  const parsed = new Date(value);
+  if (!Number.isFinite(parsed.getTime()) || parsed.toISOString() !== value) {
+    fail(`${name} is not a valid UTC instant`);
+  }
+  return value;
+}
+
+function safeInfrastructureEvidence(value) {
+  if (value == null) return null;
+  const failure = normalizeInfrastructureFailure(value);
+  return {
+    schemaVersion: INFRASTRUCTURE_FAILURE_SCHEMA,
+    stage: failure.stage,
+    reason: failure.reason,
+    status: failure.status,
+    errorCategory: failure.errorCategory,
+    diagnosticSha256: failure.diagnosticSha256,
+    pathSha256: failure.path == null ? null : sha256(failure.path),
+    modelSha256: failure.model == null ? null : sha256(failure.model),
+    ...(failure.signal == null ? {} : { signal: failure.signal }),
+  };
+}
+
+export function buildSafeCliEvidence(raw, context) {
+  if (typeof raw.outcomeReason !== 'string') fail('CLI outcome reason must be a string');
+  let remainingErrorDigests = CLI_ERROR_DIGESTS_TOTAL;
+  const categories = CLI_ERROR_SOURCES.map(([category, read]) => {
+    const errors = collectErrorStrings(read(raw), category === 'evaluation', [], category);
+    const allDigests = errors.map((error) => sha256(error)).sort();
+    const capturedCount = Math.min(
+      allDigests.length,
+      CLI_ERROR_DIGESTS_PER_CATEGORY,
+      remainingErrorDigests,
+    );
+    const digests = allDigests.slice(0, capturedCount);
+    remainingErrorDigests -= digests.length;
+    return {
+      category,
+      count: errors.length,
+      capturedCount,
+      truncated: capturedCount < errors.length,
+      sha256: digests,
+    };
+  }).filter((entry) => entry.count > 0);
+  const totalErrors = categories.reduce((count, entry) => count + entry.count, 0);
+  const capturedErrorDigests = categories.reduce((count, entry) => count + entry.capturedCount, 0);
+  return {
+    schemaVersion: CLI_EVIDENCE_SCHEMA,
+    sourceSchemaVersion: CLI_SCHEMA,
+    generationId: context.generationId,
+    scenarioId: context.scenarioId,
+    outcome: raw.outcome,
+    outcomeCategory: cliOutcomeCategory(raw.outcome),
+    startedAt: isoInstant(raw.evaluationStartedAt, 'CLI evaluation start'),
+    completedAt: isoInstant(raw.evaluationCompletedAt, 'CLI evaluation completion'),
+    rawReportSha256: sha256(canonicalJson(raw)),
+    outcomeReasonSha256: sha256(raw.outcomeReason),
+    counts: {
+      slotEvaluations: Array.isArray(raw.slotEvaluations) ? raw.slotEvaluations.length : 0,
+      manifestSkills: Array.isArray(raw.manifest?.skills) ? raw.manifest.skills.length : 0,
+      packVerdicts: Array.isArray(raw.packVerification?.verdicts) ? raw.packVerification.verdicts.length : 0,
+      baselineVerdicts: Array.isArray(raw.baselineVerification?.verdicts) ? raw.baselineVerification.verdicts.length : 0,
+      errors: totalErrors,
+      errorDigestsCaptured: capturedErrorDigests,
+      errorDigestsTruncated: capturedErrorDigests < totalErrors,
+    },
+    errorEvidence: categories,
+    infrastructureFailure: safeInfrastructureEvidence(raw.infrastructureFailure),
+  };
+}
+
+export function buildInfrastructureApiEvaluation({
+  scenario,
+  context,
+  failure,
+  startedAt,
+  completedAt,
+  sourceEvidenceSha256,
+}) {
+  const normalizedFailure = normalizeInfrastructureFailure({
+    ...failure,
+    schemaVersion: INFRASTRUCTURE_FAILURE_SCHEMA,
+  });
+  if (!/^[0-9a-f]{64}$/.test(sourceEvidenceSha256 || '')) {
+    fail('Infrastructure source evidence hash is invalid');
+  }
+  const requiredSlots = requiredCapabilitySlots({ scenario });
+  const safeEvidence = {
+    schemaVersion: CLI_EVIDENCE_SCHEMA,
+    sourceSchemaVersion: 'marketplace.pack-production-cancellation-recovery/v1',
+    source: 'cancelled-run-recovery',
+    generationId: context.generationId,
+    scenarioId: context.scenarioId,
+    outcome: 'infrastructure_failed',
+    outcomeCategory: 'infrastructure',
+    startedAt: isoInstant(startedAt, 'recovery evaluation start'),
+    completedAt: isoInstant(completedAt, 'recovery evaluation completion'),
+    sourceEvidenceSha256,
+    outcomeReasonSha256: sha256(`${normalizedFailure.stage}:${normalizedFailure.reason}`),
+    counts: {
+      slotEvaluations: 0,
+      manifestSkills: 0,
+      packVerdicts: 0,
+      baselineVerdicts: 0,
+      errors: 0,
+      errorDigestsCaptured: 0,
+      errorDigestsTruncated: false,
+    },
+    errorEvidence: [],
+    infrastructureFailure: safeInfrastructureEvidence(normalizedFailure),
+  };
+  const unsigned = {
+    schemaVersion: API_SCHEMA,
+    generationId: context.generationId,
+    workflow: {
+      repository: EXPECTED_REPOSITORY,
+      runId: context.runId,
+      runAttempt: context.runAttempt,
+      runUrl: `https://github.com/${EXPECTED_REPOSITORY}/actions/runs/${context.runId}`,
+      commitSha: context.commitSha,
+    },
+    scenario: {
+      id: scenario.id,
+      version: String(scenario.version),
+      task: scenario.task,
+      slug: scenario.slug,
+      name: scenario.name,
+      tags: scenario.tags,
+      requiredCapabilitySlots: requiredSlots,
+    },
+    evaluator: {
+      cliVersion: context.cliVersion,
+      cliSha256: context.cliSha256,
+      model: context.model,
+      judgeModel: context.judgeModel,
+      startedAt: safeEvidence.startedAt,
+      completedAt: safeEvidence.completedAt,
+    },
+    outcome: 'infrastructure_failed',
+    candidate: null,
+    evidence: { cliReport: safeEvidence },
+  };
+  return { ...unsigned, evidenceDigest: sha256(canonicalJson(unsigned)) };
+}
+
 export function buildApiEvaluation(raw, context) {
   if (raw.schemaVersion !== CLI_SCHEMA) fail(`Unsupported CLI report schema: ${raw.schemaVersion}`);
   if (!KNOWN_CLI_EXIT.has(raw.outcome)) fail(`Unsupported CLI outcome: ${raw.outcome}`);
@@ -569,10 +1411,12 @@ export function buildApiEvaluation(raw, context) {
     const produced = artifactKind === 'file' ? references.length > 0 : summary.taskCompletedRate === 1;
     const manifestSkills = Array.isArray(raw.manifest.skills) ? raw.manifest.skills.map(String) : [];
     const manifestSkillSet = new Set(manifestSkills);
-    if (manifestSkills.length < 2 || manifestSkillSet.size !== manifestSkills.length) {
-      fail('candidate_ready report must contain at least two distinct manifest Skills');
+    if (manifestSkills.length < 2 || manifestSkills.length > 4 || manifestSkillSet.size !== manifestSkills.length) {
+      fail('candidate_ready report must contain two to four distinct manifest Skills');
     }
     const slotAssignments = apiSlotAssignments(raw, manifestSkills, requiredSlots);
+    const tournamentViableSkills = validateCandidateTournament(raw, requiredSlots);
+    const executionDag = apiExecutionDag(raw, manifestSkills, slotAssignments, requiredSlots);
     if (verdicts.length !== 3) fail('candidate_ready report must contain exactly three final-run verdicts');
     verdicts.forEach((verdict, index) => {
       if (verdict.usedSkill !== (verdict.usedSkills.length > 0)) {
@@ -611,9 +1455,33 @@ export function buildApiEvaluation(raw, context) {
       fail('candidate_ready summary does not satisfy the multi-Skill and per-run score gates');
     }
     if (raw.composition?.fallbackUsed) fail('candidate_ready report used composition fallback');
+    const compositionErrors = strictErrorStrings(
+      raw.composition?.errors,
+      'candidate_ready composition errors',
+      { required: true },
+    );
+    const evaluationErrors = strictErrorStrings(
+      raw.errors,
+      'candidate_ready evaluation errors',
+      { required: true },
+    ).filter((error) => !compositionErrors.includes(error));
+    const packErrors = strictErrorStrings(
+      raw.packVerification?.errors,
+      'candidate_ready pack verification errors',
+      { required: true },
+    );
+    const baselineErrors = strictErrorStrings(
+      raw.baselineVerification?.errors,
+      'candidate_ready baseline verification errors',
+      { required: true },
+    );
+    const technicalErrorCodes = [
+      ...(evaluationErrors.length > 0 ? [CANDIDATE_TECHNICAL_ERROR_CODES.evaluation] : []),
+      ...(packErrors.length > 0 ? [CANDIDATE_TECHNICAL_ERROR_CODES.packVerification] : []),
+      ...(baselineErrors.length > 0 ? [CANDIDATE_TECHNICAL_ERROR_CODES.baselineVerification] : []),
+    ];
     const baselineScores = Array.isArray(baseline.scores) ? baseline.scores.map(Number) : [];
     const baselineRuns = Number(baseline.runs);
-    const baselineErrors = (raw.baselineVerification?.errors ?? []).map(String);
     if (
       baselineRuns !== 3
       || baselineScores.length !== baselineRuns
@@ -621,6 +1489,26 @@ export function buildApiEvaluation(raw, context) {
     ) {
       fail('candidate_ready baseline lacks exactly three valid run scores');
     }
+    const treatmentWorkflowDigests = object(
+      raw.treatmentWorkflowDigests,
+      'candidate_ready treatment workflow digests'
+    );
+    if (
+      treatmentWorkflowDigests.fullPack !== executionDag.workflowDigest
+      || treatmentWorkflowDigests.planOnly !== executionDag.workflowDigest
+    ) {
+      fail('candidate_ready full Pack and plan-only baseline must use the same neutral execution DAG');
+    }
+    const evaluationSuite = apiEvaluationSuite(raw);
+    const usageProvenance = apiUsageProvenance(raw, executionDag, evaluationSuite);
+    const ablation = apiAblation(raw, manifestSkills, executionDag, verdicts.length);
+    const bestSingle = apiBestSingle(
+      raw,
+      Number(summary.medianScore),
+      executionDag,
+      tournamentViableSkills,
+      evaluationSuite
+    );
     candidate = {
       manifest: {
         name: raw.manifest.name,
@@ -630,6 +1518,7 @@ export function buildApiEvaluation(raw, context) {
         riskFlags: raw.manifest.risk_flags,
         skills: manifestSkills,
         slotAssignments,
+        executionDag,
         rationale: raw.manifest.rationale,
       },
       fitness: {
@@ -652,19 +1541,34 @@ export function buildApiEvaluation(raw, context) {
           references,
         },
         baseline: {
+          workflowDigest: executionDag.workflowDigest,
           runs: baselineRuns,
           scores: baselineScores,
           score: baseline.medianScore,
           improvement: summary.medianScore - baseline.medianScore,
-          errors: baselineErrors,
+          errors: baselineErrors.length > 0
+            ? [CANDIDATE_TECHNICAL_ERROR_CODES.baselineVerification]
+            : [],
         },
+        bestSingle,
+        treatmentWorkflowDigests: {
+          fullPack: treatmentWorkflowDigests.fullPack,
+          planOnly: treatmentWorkflowDigests.planOnly,
+          bestSingle: treatmentWorkflowDigests.bestSingle.map((item) => ({
+            skill: item.skill,
+            workflowDigest: item.workflowDigest,
+          })),
+          leaveOneOut: treatmentWorkflowDigests.leaveOneOut.map((item) => ({
+            removedSkill: item.removedSkill,
+            workflowDigest: item.workflowDigest,
+          })),
+        },
+        ablation,
+        deterministicMarginalSkills: [...manifestSkills],
+        evaluationSuite,
+        usageProvenance,
         verdicts,
-        errors: [
-          ...(raw.errors ?? []).map((error) => `evaluation: ${error}`),
-          ...(raw.composition?.errors ?? []).map((error) => `composition: ${error}`),
-          ...(raw.packVerification?.errors ?? []).map((error) => `pack: ${error}`),
-          ...(raw.baselineVerification?.errors ?? []).map((error) => `baseline: ${error}`),
-        ],
+        errors: technicalErrorCodes,
       },
     };
   }
@@ -698,7 +1602,7 @@ export function buildApiEvaluation(raw, context) {
     },
     outcome: raw.outcome,
     candidate,
-    evidence: { cliReport: raw },
+    evidence: { cliReport: buildSafeCliEvidence(raw, context) },
   };
   return { ...unsigned, evidenceDigest: sha256(canonicalJson(unsigned)) };
 }
@@ -723,15 +1627,46 @@ function workflowContext(args, generationId, scenarioId, cli, version, checksum)
   };
 }
 
+function exactObjectKeys(value, expected) {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    && canonicalJson(Object.keys(value).sort()) === canonicalJson([...expected].sort());
+}
+
+export function validateImmutableProductionPlan(plan, args) {
+  if (plan?.schemaVersion !== 'pack-production-queue/v1') {
+    fail(`Unsupported plan schema: ${plan?.schemaVersion}`);
+  }
+  if (plan.source !== 'signals' || !Array.isArray(plan.scenarios) || plan.scenarios.length !== 1) {
+    fail('Production v4 plan must contain exactly one signal-admitted scenario');
+  }
+  const scenario = plan.scenarios[0];
+  if (!/^[a-z0-9][a-z0-9-]{0,79}$/.test(scenario?.id || '')) fail(`Unsafe scenario id: ${scenario?.id}`);
+  if (!UUID_RE.test(scenario.generationId || '')) {
+    fail(`Immutable plan generation id is invalid for ${scenario.id}`);
+  }
+  const binding = plan.workflowBinding;
+  const bindingKeys = ['repository', 'workflow', 'runId', 'runAttempt', 'commitSha', 'scenarioId'];
+  if (!exactObjectKeys(binding, bindingKeys)) fail('Immutable plan workflow binding has unexpected fields');
+  const runId = required(args, 'run-id');
+  const runAttempt = positiveInteger(args['run-attempt'], 'run-attempt', 1);
+  const commitSha = required(args, 'commit-sha');
+  if (
+    binding.repository !== EXPECTED_REPOSITORY
+    || binding.workflow !== EXPECTED_WORKFLOW
+    || String(binding.runId) !== runId
+    || binding.runAttempt !== runAttempt
+    || binding.commitSha !== commitSha
+    || binding.scenarioId !== scenario.id
+  ) fail('Immutable plan workflow binding differs from this workflow invocation');
+  return scenario;
+}
+
 async function evaluate(args) {
   const cli = resolve(required(args, 'cli'));
   const plan = await readJson(resolve(required(args, 'plan')));
   const resultsDir = resolve(required(args, 'results-dir'));
   const skillsDir = resolve(required(args, 'skills-dir'));
-  if (plan.schemaVersion !== 'pack-production-queue/v1') fail(`Unsupported plan schema: ${plan.schemaVersion}`);
-  if (!Array.isArray(plan.scenarios) || plan.scenarios.length < 1 || plan.scenarios.length > 3) {
-    fail('Plan must contain one to three scenarios');
-  }
+  validateImmutableProductionPlan(plan, args);
   await mkdir(resultsDir, { recursive: true });
 
   const version = cliVersion(cli);
@@ -754,6 +1689,9 @@ async function evaluate(args) {
     20 * 60_000,
   );
   const proxyActivityFile = args['proxy-activity-file'] ? resolve(args['proxy-activity-file']) : null;
+  const externalInfrastructureFailure = args['infrastructure-failure-file']
+    ? normalizeInfrastructureFailure(await readJson(resolve(args['infrastructure-failure-file'])))
+    : null;
   const minimumFallbackMs = positiveInteger(
     args['minimum-fallback-ms'],
     'minimum-fallback-ms',
@@ -784,7 +1722,6 @@ async function evaluate(args) {
     fail('Evaluator identity separation requires a root orchestrator');
   }
   const evaluationDeadline = Date.now() + evaluationBudgetMs;
-  let interruptedSignal = null;
   let progressSequence = 0;
 
   const buildSummary = () => ({
@@ -814,7 +1751,7 @@ async function evaluate(args) {
       attempts.push({
         planIndex: scenarioIndex,
         scenarioId: scenario.id,
-        generationId: null,
+        generationId: scenario.generationId,
         status: 'budget_exhausted',
         durationMs: 0,
       });
@@ -822,7 +1759,7 @@ async function evaluate(args) {
       break;
     }
     const ordinal = String(scenarioIndex + 1).padStart(2, '0');
-    const generationId = randomUUID();
+    const generationId = scenario.generationId;
     const context = workflowContext(args, generationId, scenario.id, cli, version, checksum);
     const commandArgs = [
       'pack', 'generate',
@@ -845,10 +1782,49 @@ async function evaluate(args) {
     const partialStdoutFile = resolve(resultsDir, `${ordinal}-${scenario.id}.stdout.partial`);
     const stdoutFile = resolve(resultsDir, `${ordinal}-${scenario.id}.stdout.json`);
     const runLogFile = resolve(resultsDir, `${ordinal}-${scenario.id}.run.log`);
+    const scenarioStartedAt = new Date().toISOString();
+    const recordInfrastructureFailure = async (failure, attempt) => {
+      const raw = buildInfrastructureCliReport({
+        scenario,
+        context,
+        failure,
+        startedAt: scenarioStartedAt,
+        completedAt: new Date().toISOString(),
+      });
+      await writeJson(partialStdoutFile, raw);
+      await rename(partialStdoutFile, stdoutFile);
+      const evaluation = buildApiEvaluation(raw, context);
+      const file = resolve(resultsDir, `${ordinal}-${scenario.id}.evaluation.json`);
+      await writeJson(file, evaluation);
+      reports.push({
+        planIndex: scenarioIndex,
+        scenarioId: scenario.id,
+        generationId,
+        outcome: raw.outcome,
+        outcomeCategory: evaluation.evidence.cliReport.outcomeCategory,
+        outcomeReasonSha256: evaluation.evidence.cliReport.outcomeReasonSha256,
+        file,
+      });
+      attempts.push({
+        planIndex: scenarioIndex,
+        scenarioId: scenario.id,
+        generationId,
+        durationMs: attempt.durationMs ?? 0,
+        timeoutMs: scenarioBudgetMs,
+        status: 'completed',
+        outcome: raw.outcome,
+        infrastructureAudit: true,
+      });
+      await checkpointSummary();
+    };
     const baseEnv = {
       ...process.env,
       SKILLSTORE_AGENT_ENV_MODE: 'strict',
     };
+    if (externalInfrastructureFailure) {
+      await recordInfrastructureFailure(externalInfrastructureFailure, { durationMs: 0 });
+      break;
+    }
     let runtime = { cwd: evaluatorCwd, env: baseEnv };
     let result;
     try {
@@ -902,19 +1878,37 @@ async function evaluate(args) {
     };
     progressSequence = result.progressSequence;
     if (result.interruptedSignal) {
-      interruptedSignal = result.interruptedSignal;
-      attempts.push({ ...attempt, status: 'cancelled', signal: result.interruptedSignal });
-      await checkpointSummary();
+      await recordInfrastructureFailure({
+        stage: 'evaluation',
+        reason: 'cancelled',
+        signal: normalizeInterruptedSignal(result.interruptedSignal),
+      }, attempt);
+      break;
+    }
+    if (result.deterministicHttpFailure) {
+      await recordInfrastructureFailure({
+        stage: 'evaluation',
+        reason: 'deterministic_http',
+        status: result.deterministicHttpFailure.status,
+        path: result.deterministicHttpFailure.path,
+        model: result.deterministicHttpFailure.model,
+        errorCategory: result.deterministicHttpFailure.errorCategory,
+        diagnosticSha256: result.deterministicHttpFailure.errorMessageSha256,
+      }, attempt);
       break;
     }
     if (result.timedOut) {
-      attempts.push({ ...attempt, status: 'timed_out' });
-      await checkpointSummary();
+      await recordInfrastructureFailure({
+        stage: 'evaluation',
+        reason: 'timeout',
+      }, attempt);
       break;
     }
     if (result.stalled) {
-      attempts.push({ ...attempt, status: 'stalled' });
-      await checkpointSummary();
+      await recordInfrastructureFailure({
+        stage: 'evaluation',
+        reason: 'stalled',
+      }, attempt);
       break;
     }
     if (result.outputExceeded) {
@@ -927,14 +1921,12 @@ async function evaluate(args) {
     try {
       raw = JSON.parse(stdout);
     } catch {
-      attempts.push({
-        ...attempt,
-        status: 'terminal_report_missing',
-        exitCode: result.status ?? null,
-        signal: result.signal ?? null,
-      });
-      await checkpointSummary();
-      continue;
+      await recordInfrastructureFailure({
+        stage: 'evaluation',
+        reason: 'terminal_report_missing',
+        diagnosticSha256: sha256(stdout),
+      }, attempt);
+      break;
     }
     const expectedExit = KNOWN_CLI_EXIT.get(raw.outcome);
     if (result.status !== expectedExit) {
@@ -949,7 +1941,8 @@ async function evaluate(args) {
       scenarioId: scenario.id,
       generationId,
       outcome: raw.outcome,
-      outcomeReason: raw.outcomeReason,
+      outcomeCategory: evaluation.evidence.cliReport.outcomeCategory,
+      outcomeReasonSha256: evaluation.evidence.cliReport.outcomeReasonSha256,
       file,
     });
     attempts.push({ ...attempt, status: 'completed', outcome: raw.outcome });
@@ -960,7 +1953,6 @@ async function evaluate(args) {
   const summary = buildSummary();
   await checkpointSummary();
   process.stdout.write(`${JSON.stringify(summary)}\n`);
-  if (interruptedSignal) fail(`Evaluator interrupted by ${interruptedSignal}`);
   const operationalFailures = attempts.filter((attempt) => attempt.status !== 'completed');
   if (operationalFailures.length > 0) {
     fail(
@@ -976,18 +1968,15 @@ async function verifyEvaluation(args) {
   const plan = await readJson(resolve(required(args, 'plan')));
   const resultsDir = resolve(required(args, 'results-dir'));
   const summary = await readJson(resolve(resultsDir, 'evaluate-summary.json'));
-  if (plan.schemaVersion !== 'pack-production-queue/v1') fail(`Unsupported plan schema: ${plan.schemaVersion}`);
-  if (!Array.isArray(plan.scenarios) || plan.scenarios.length < 1 || plan.scenarios.length > 3) {
-    fail('Plan must contain one to three scenarios');
-  }
+  validateImmutableProductionPlan(plan, args);
   if (summary.schemaVersion !== 'marketplace.pack-production-evaluate/v1') {
     fail(`Unsupported evaluate summary schema: ${summary.schemaVersion}`);
   }
   if (!Array.isArray(summary.reports) || summary.reports.length < 1 || summary.reports.length > plan.scenarios.length) {
     fail('Evaluate summary report count is outside the immutable plan');
   }
-  if (!Array.isArray(summary.attempts) || summary.attempts.length < 1) {
-    fail('Evaluate summary attempts are missing');
+  if (!Array.isArray(summary.attempts) || summary.attempts.length !== plan.scenarios.length) {
+    fail('Evaluate summary attempts do not exactly cover the immutable plan');
   }
   const incompleteAttempts = summary.attempts.filter((attempt) => attempt?.status !== 'completed');
   if (incompleteAttempts.length > 0) {
@@ -995,6 +1984,14 @@ async function verifyEvaluation(args) {
       `Evaluate summary contains operationally incomplete attempts: `
       + incompleteAttempts.map((attempt) => `${attempt?.scenarioId ?? 'unknown'}:${attempt?.status ?? 'missing'}`).join(', '),
     );
+  }
+  for (const [planIndex, attempt] of summary.attempts.entries()) {
+    const scenario = plan.scenarios[planIndex];
+    if (
+      attempt?.planIndex !== planIndex
+      || attempt.scenarioId !== scenario.id
+      || attempt.generationId !== scenario.generationId
+    ) fail('Evaluate summary attempt differs from the immutable plan generation binding');
   }
 
   const version = cliVersion(cli);
@@ -1007,6 +2004,7 @@ async function verifyEvaluation(args) {
 
   const expectedFiles = [];
   const verifiedFiles = [];
+  const stdoutSanitizations = [];
   let selectedGenerationId = null;
   let candidateSeen = false;
   let previousPlanIndex = -1;
@@ -1020,8 +2018,8 @@ async function verifyEvaluation(args) {
     const scenario = plan.scenarios[planIndex];
     if (!scenario || report.scenarioId !== scenario.id) fail('Evaluate summary scenario differs from the immutable plan');
     if (!/^[a-z0-9][a-z0-9-]{0,79}$/.test(scenario.id)) fail(`Unsafe scenario id: ${scenario.id}`);
-    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(report.generationId || '')) {
-      fail(`Invalid generation id for ${scenario.id}`);
+    if (report.generationId !== scenario.generationId) {
+      fail(`Evaluate summary generation id differs from the immutable plan for ${scenario.id}`);
     }
     if (candidateSeen) fail('Evaluate summary contains reports after a ready candidate');
 
@@ -1033,7 +2031,11 @@ async function verifyEvaluation(args) {
       fail(`Evaluate summary file differs from the deterministic path for ${scenario.id}`);
     }
     const raw = await readJson(resolve(resultsDir, stdoutFile));
-    if (raw.outcome !== report.outcome || raw.outcomeReason !== report.outcomeReason) {
+    if (
+      raw.outcome !== report.outcome
+      || report.outcomeCategory !== cliOutcomeCategory(raw.outcome)
+      || report.outcomeReasonSha256 !== sha256(String(raw.outcomeReason))
+    ) {
       fail(`Evaluate summary outcome differs from stdout for ${scenario.id}`);
     }
     const context = workflowContext(args, report.generationId, scenario.id, cli, version, checksum);
@@ -1042,6 +2044,7 @@ async function verifyEvaluation(args) {
     if (canonicalJson(recorded) !== canonicalJson(rebuilt)) {
       fail(`Evaluation artifact differs from trusted reconstruction for ${scenario.id}`);
     }
+    stdoutSanitizations.push({ file: stdoutFile, evidence: rebuilt.evidence.cliReport });
     expectedFiles.push(evaluationFile);
     verifiedFiles.push({ file: evaluationFile, sha256: await sha256File(resolve(resultsDir, evaluationFile)) });
     if (raw.outcome === 'candidate_ready') {
@@ -1057,6 +2060,11 @@ async function verifyEvaluation(args) {
   if (canonicalJson(actualFiles) !== canonicalJson([...expectedFiles].sort())) {
     fail('Evaluation artifact set is not the exact trusted closure');
   }
+  // Raw CLI stdout is needed only for this trusted reconstruction. Replace it
+  // before the workflow copies the closure into its 90-day artifact.
+  await Promise.all(stdoutSanitizations.map(({ file, evidence }) =>
+    writeJson(resolve(resultsDir, file), evidence)
+  ));
   const verification = {
     schemaVersion: VERIFICATION_SCHEMA,
     cliVersion: version,
@@ -1098,6 +2106,74 @@ function apiBase(args) {
   return required(args, 'api-url').replace(/\/$/, '');
 }
 
+export function planTrustedPersistence(evaluations, selectedGenerationId) {
+  if (!Array.isArray(evaluations) || evaluations.some((item) => !item?.evaluation || !item?.file)) {
+    fail('Trusted persistence planning requires complete evaluation artifacts');
+  }
+  const candidates = evaluations.filter(({ evaluation }) => evaluation.outcome === 'candidate_ready');
+  const candidateNull = evaluations.filter(({ evaluation }) => evaluation.outcome !== 'candidate_ready');
+  for (const { file, evaluation } of candidateNull) {
+    if (evaluation.candidate !== null) {
+      fail(`Non-candidate evaluation ${file} unexpectedly contains a candidate`);
+    }
+  }
+  const candidateNullPosts = candidateNull.filter(
+    ({ evaluation }) => evaluation.schemaVersion === API_SCHEMA,
+  );
+  const artifactOnly = candidateNull.filter(
+    ({ evaluation }) => evaluation.schemaVersion !== API_SCHEMA,
+  );
+  if (candidates.length > 1) fail('Trusted evaluation closure contains more than one candidate_ready artifact');
+  if (candidates.length === 0) {
+    if (selectedGenerationId != null) {
+      fail('Trusted verification selected a generation without a candidate_ready artifact');
+    }
+    return { candidate: null, candidateNullPosts, auditOnly: artifactOnly };
+  }
+  const candidate = candidates[0];
+  const evaluation = candidate.evaluation;
+  if (
+    selectedGenerationId !== evaluation.generationId
+    || evaluation.schemaVersion !== API_SCHEMA
+    || !evaluation.candidate?.manifest?.executionDag?.bindingDigest
+    || !evaluation.candidate?.fitness?.bestSingle
+    || !Array.isArray(evaluation.candidate?.fitness?.bestSingle?.competitors)
+    || !Array.isArray(evaluation.candidate?.fitness?.ablation)
+    || evaluation.candidate?.fitness?.evaluationSuite?.executed !== true
+    || evaluation.candidate?.fitness?.usageProvenance?.deterministic !== true
+    || !Array.isArray(evaluation.candidate?.fitness?.errors)
+    || evaluation.candidate.fitness.errors.length > 0
+    || !Array.isArray(evaluation.candidate?.fitness?.baseline?.errors)
+    || evaluation.candidate.fitness.baseline.errors.length > 0
+  ) {
+    fail('candidate_ready evidence is incomplete; persistence and enrichment are forbidden');
+  }
+  return {
+    candidate,
+    candidateNullPosts,
+    auditOnly: artifactOnly,
+  };
+}
+
+export function validateCandidateNullPersistResponse(response, evaluation) {
+  const data = response?.data;
+  if (
+    evaluation?.schemaVersion !== API_SCHEMA
+    || evaluation?.outcome === 'candidate_ready'
+    || evaluation?.candidate !== null
+    || data?.generationId !== evaluation.generationId
+    || data?.evaluationOutcome !== evaluation.outcome
+    || data?.outcome !== evaluation.outcome
+    || data?.pack !== null
+    || data?.enrichment?.content !== 'not_applicable'
+    || data?.enrichment?.translation !== 'not_applicable'
+    || data?.enrichment?.contentDispatchNonce !== null
+  ) {
+    fail('Persist response did not bind the exact candidate-null v4 audit outcome');
+  }
+  return data;
+}
+
 export function buildPublicReadbackExpectation(persisted, selected, publicSlug) {
   const generationId = selected?.generationId;
   const packId = selected?.pack?.id;
@@ -1113,13 +2189,61 @@ export function buildPublicReadbackExpectation(persisted, selected, publicSlug) 
   const persistedAttempt = persisted?.persisted?.find(
     (item) => item?.request?.generationId === generationId,
   );
-  const skillSlugs = persistedAttempt?.request?.candidate?.manifest?.skills;
+  const evaluation = persistedAttempt?.request;
+  const manifest = persistedAttempt?.request?.candidate?.manifest;
+  const skillSlugs = manifest?.skills;
+  const executionDag = manifest?.executionDag;
   if (!Array.isArray(skillSlugs) || skillSlugs.length < 1 || skillSlugs.some(
     (slug) => typeof slug !== 'string' || !slug,
   )) {
     fail('Persisted candidate evidence did not contain exact Skill slugs');
   }
-  return { generationId, packId, publicSlug, skillSlugs: [...skillSlugs] };
+  if (
+    !executionDag
+    || !/^[0-9a-f]{64}$/.test(executionDag.workflowDigest || '')
+    || !/^[0-9a-f]{64}$/.test(executionDag.bindingDigest || '')
+    || !Array.isArray(executionDag.skillBindings)
+    || executionDag.skillBindings.length !== skillSlugs.length
+  ) {
+    fail('Persisted candidate evidence did not contain the exact execution DAG binding');
+  }
+  const skillBindings = executionDag.skillBindings.map((binding, index) => {
+    if (
+      binding?.canonicalId !== skillSlugs[index]
+      || typeof binding?.version !== 'string'
+      || !binding.version
+      || !/^[0-9a-f]{64}$/.test(binding?.contentHash || '')
+    ) {
+      fail(`Persisted candidate Skill binding ${index + 1} is incomplete`);
+    }
+    return {
+      slug: binding.canonicalId,
+      version: binding.version,
+      contentHash: binding.contentHash,
+    };
+  });
+  return {
+    generationId,
+    packId,
+    publicSlug,
+    skillSlugs: [...skillSlugs],
+    skillBindings,
+    executionDag,
+    workflowDigest: executionDag.workflowDigest,
+    bindingDigest: executionDag.bindingDigest,
+    usageGuideMarker: executionDag.usageGuideMarker,
+    executionBinding: {
+      schemaVersion: 'skillstore.pack-execution-binding/v1',
+      generationId,
+      evidenceDigest: evaluation.evidenceDigest,
+      workflowDigest: executionDag.workflowDigest,
+      bindingDigest: executionDag.bindingDigest,
+      usageGuideMarker: executionDag.usageGuideMarker,
+      marketplaceCommitSha: evaluation.workflow?.commitSha,
+      skills: executionDag.skillBindings,
+      executionDag,
+    },
+  };
 }
 
 export function validatePublicPackReadback(pack, expected) {
@@ -1138,9 +2262,45 @@ export function validatePublicPackReadback(pack, expected) {
   if (pack.reviewStatus !== 'approved') {
     mismatches.push(`Pack reviewStatus is ${String(pack.reviewStatus ?? 'missing')}, expected approved`);
   }
-  const actualSkillSlugs = Array.isArray(pack.skills)
-    ? pack.skills.map((skill) => skill?.slug)
+  const executionBinding = pack.executionBinding;
+  if (!executionBinding || typeof executionBinding !== 'object') {
+    mismatches.push('Pack executionBinding is missing');
+  } else {
+    for (const field of [
+      'schemaVersion',
+      'generationId',
+      'evidenceDigest',
+      'workflowDigest',
+      'bindingDigest',
+      'usageGuideMarker',
+      'marketplaceCommitSha',
+    ]) {
+      if (executionBinding[field] !== expected.executionBinding[field]) {
+        mismatches.push(`Pack executionBinding.${field} mismatch`);
+      }
+    }
+    if (canonicalJson(executionBinding.skills) !== canonicalJson(expected.executionBinding.skills)) {
+      mismatches.push('Pack executionBinding Skills differ from the evaluated identities');
+    }
+  }
+  if (
+    !executionBinding?.executionDag
+    || typeof executionBinding.executionDag !== 'object'
+    || canonicalJson(executionBinding.executionDag) !== canonicalJson(expected.executionDag)
+  ) {
+    mismatches.push('Pack executionBinding.executionDag differs from the persisted canonical DAG');
+  }
+  if (typeof pack.usageGuide !== 'string' || !pack.usageGuide.includes(expected.usageGuideMarker)) {
+    mismatches.push('Pack usageGuide is not bound to the canonical DAG marker');
+  }
+  const actualSkillBindings = Array.isArray(pack.skills)
+    ? pack.skills.map((skill) => ({
+      slug: skill?.slug,
+      version: skill?.version,
+      contentHash: skill?.contentHash,
+    }))
     : [];
+  const actualSkillSlugs = actualSkillBindings.map((binding) => binding.slug);
   if (actualSkillSlugs.some((slug) => typeof slug !== 'string')) {
     mismatches.push('Pack skills contain a missing or invalid slug');
   } else if (
@@ -1151,7 +2311,10 @@ export function validatePublicPackReadback(pack, expected) {
       `Pack Skill slugs mismatch: expected ${expected.skillSlugs.join(',')}, got ${actualSkillSlugs.join(',')}`,
     );
   }
-  return { matched: mismatches.length === 0, mismatches, actualSkillSlugs };
+  if (canonicalJson(actualSkillBindings) !== canonicalJson(expected.skillBindings)) {
+    mismatches.push('Pack Skill version/contentHash bindings differ from the evaluated identities');
+  }
+  return { matched: mismatches.length === 0, mismatches, actualSkillSlugs, actualSkillBindings };
 }
 
 export async function readExactPublicPack(base, expected, fetchImpl = fetch) {
@@ -1202,19 +2365,68 @@ async function persist(args) {
     }
   }
 
-  const persisted = [];
-  for (const file of files) {
-    const evaluation = await readJson(resolve(resultsDir, file));
+  // Read and validate the complete closure before the first write-capable
+  // request. Every complete v4 candidate-null outcome is persisted as an audit
+  // attempt, while legacy v3 audits remain artifact-only. Candidate-null POSTs
+  // must never create placeholder Packs or dispatch enrichment.
+  const evaluations = await Promise.all(files.map(async (file) => ({
+    file,
+    evaluation: await readJson(resolve(resultsDir, file)),
+  })));
+  const persistencePlan = planTrustedPersistence(evaluations, verification.selectedGenerationId ?? null);
+  const persisted = persistencePlan.auditOnly.map(({ file, evaluation }) => ({
+    file,
+    request: evaluation,
+    response: null,
+    auditOnly: true,
+    persistedRemotely: false,
+  }));
+  for (const { file, evaluation } of persistencePlan.candidateNullPosts) {
     const response = await apiRequest(`${base}/api/automation/packs/production`, token, {
       method: 'POST',
       body: JSON.stringify(evaluation),
     });
-    persisted.push({ file, request: evaluation, response });
+    validateCandidateNullPersistResponse(response, evaluation);
+    persisted.push({
+      file,
+      request: evaluation,
+      response,
+      auditOnly: true,
+      persistedRemotely: true,
+    });
+  }
+
+  let selected = null;
+  if (persistencePlan.candidate) {
+    const { file, evaluation } = persistencePlan.candidate;
+    const response = await apiRequest(`${base}/api/automation/packs/production`, token, {
+      method: 'POST',
+      body: JSON.stringify(evaluation),
+    });
+    selected = response?.data;
+    if (
+      selected?.generationId !== evaluation.generationId
+      || selected?.evaluationOutcome !== 'candidate_ready'
+      || !selected?.pack?.id
+      || !selected?.pack?.slug
+      || selected?.enrichment?.content !== 'dispatched'
+      || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+        .test(selected?.enrichment?.contentDispatchNonce ?? '')
+    ) {
+      fail('Persist response did not bind and dispatch the exact complete candidate');
+    }
+    persisted.push({
+      file,
+      request: evaluation,
+      response,
+      auditOnly: false,
+      persistedRemotely: true,
+    });
   }
   const summary = {
     schemaVersion: 'marketplace.pack-production-persist/v1',
     persisted,
-    selected: persisted.find((item) => item.request.outcome === 'candidate_ready')?.response?.data ?? null,
+    selected,
   };
   await writeJson(resolve(resultsDir, 'persist-summary.json'), summary);
   process.stdout.write(`${JSON.stringify(summary)}\n`);
@@ -1276,6 +2488,16 @@ async function patchStatus(base, token, generationId, body) {
   });
 }
 
+export function validateCurrentContentDispatchNonce(attempt, expectedNonce, generationId) {
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(expectedNonce ?? '')) {
+    fail(`Persisted content dispatch nonce is invalid for ${generationId}`);
+  }
+  if (attempt?.content_dispatch_nonce !== expectedNonce) {
+    fail(`Content dispatch ${expectedNonce} was superseded for ${generationId}`);
+  }
+  return expectedNonce;
+}
+
 function wait(milliseconds) {
   return new Promise((resolveWait) => setTimeout(resolveWait, milliseconds));
 }
@@ -1295,28 +2517,55 @@ async function finalize(args) {
     return;
   }
 
+  const persistedCandidate = persisted.persisted.find(
+    (item) => item?.request?.generationId === selected.generationId,
+  );
+  if (
+    persistedCandidate?.auditOnly !== false
+    || persistedCandidate?.request?.outcome !== 'candidate_ready'
+    || persistedCandidate?.response?.data?.generationId !== selected.generationId
+    || !persistedCandidate?.request?.candidate?.manifest?.executionDag?.bindingDigest
+    || !persistedCandidate?.request?.candidate?.fitness?.bestSingle
+    || !Array.isArray(persistedCandidate?.request?.candidate?.fitness?.bestSingle?.competitors)
+    || !Array.isArray(persistedCandidate?.request?.candidate?.fitness?.ablation)
+    || persistedCandidate?.request?.candidate?.fitness?.evaluationSuite?.executed !== true
+    || persistedCandidate?.request?.candidate?.fitness?.usageProvenance?.deterministic !== true
+    || persistedCandidate?.response?.data?.enrichment?.contentDispatchNonce
+      !== selected?.enrichment?.contentDispatchNonce
+  ) {
+    fail('Finalize refused an incomplete or audit-only candidate; no enrichment or publish action was taken');
+  }
+
   const token = required(args, 'token');
   const base = apiBase(args);
   const generationId = selected.generationId;
+  const contentDispatchNonce = selected.enrichment.contentDispatchNonce;
   const maxWaitSeconds = positiveInteger(args['max-wait-seconds'], 'max-wait-seconds', 1800);
   const pollSeconds = positiveInteger(args['poll-seconds'], 'poll-seconds', 30);
+  const maxPollSeconds = positiveInteger(args['max-poll-seconds'], 'max-poll-seconds', 180);
+  if (maxPollSeconds < pollSeconds) fail('--max-poll-seconds must be at least --poll-seconds');
   const deadline = Date.now() + maxWaitSeconds * 1000;
+  let nextPollSeconds = pollSeconds;
   let attempt;
   let ready;
   while (Date.now() < deadline) {
     const response = await apiRequest(`${base}/api/automation/packs/production/${generationId}`, token);
     const readback = response?.data;
     attempt = readback?.attempt ?? readback;
+    validateCurrentContentDispatchNonce(attempt, contentDispatchNonce, generationId);
     ready = readiness(readback);
     if (ready?.contentReady && ready.translationReady) break;
     if (attempt?.outcome === 'enrichment_failed') {
       fail(`Enrichment failed for ${generationId}: ${attempt.last_error ?? 'unknown error'}`);
     }
-    await wait(pollSeconds * 1000);
+    const remainingMs = deadline - Date.now();
+    if (remainingMs > 0) await wait(Math.min(nextPollSeconds * 1000, remainingMs));
+    nextPollSeconds = Math.min(maxPollSeconds, nextPollSeconds * 2);
   }
   if (!ready?.contentReady || !ready.translationReady) {
     await patchStatus(base, token, generationId, {
       outcome: 'enrichment_failed',
+      contentDispatchNonce,
       contentStatus: ready?.contentReady ? 'succeeded' : 'failed',
       translationStatus: ready?.translationReady ? 'succeeded' : 'failed',
       error: `enrichment readiness timed out after ${maxWaitSeconds}s`,
@@ -1326,6 +2575,7 @@ async function finalize(args) {
 
   await patchStatus(base, token, generationId, {
     outcome: 'review_pending',
+    contentDispatchNonce,
     contentStatus: 'succeeded',
     translationStatus: 'succeeded',
     error: null,
@@ -1358,7 +2608,7 @@ async function finalize(args) {
 
   let publicPack = null;
   let readbackMismatches = [];
-  for (let attemptNumber = 1; attemptNumber <= 20; attemptNumber += 1) {
+  for (let attemptNumber = 1; attemptNumber <= 10; attemptNumber += 1) {
     try {
       const readback = await readExactPublicPack(base, expectedPublicPack);
       publicPack = readback.pack;
@@ -1368,7 +2618,7 @@ async function finalize(args) {
       // Production cache/readback may lag; retry within the bounded window.
       readbackMismatches = [cause instanceof Error ? cause.message : String(cause)];
     }
-    await wait(15_000);
+    if (attemptNumber < 10) await wait(30_000);
   }
   const checkedAt = new Date().toISOString();
   if (!publicPack) {
@@ -1396,17 +2646,11 @@ async function finalize(args) {
       error: null,
     }),
   });
-  const slo = (await apiRequest(`${base}/api/automation/packs/production?windowDays=7`, token))?.data;
-  if (slo && !slo.met) {
-    process.stderr.write(`::error::Rolling 7-day Pack production SLO is below target: ${slo.publishedReadbackPassed}/${slo.target}\n`);
-  }
-
   const result = {
     outcome: 'published',
     generationId,
     pack: { id: publicPack.id, slug: publicSlug, skillCount: publicPack.skills.length },
     readbackPassed: true,
-    rollingSevenDaySlo: slo ?? null,
   };
   await writeJson(resolve(resultsDir, 'final-result.json'), result);
   process.stdout.write(`${JSON.stringify(result)}\n`);
@@ -1422,7 +2666,7 @@ async function reportSlo(args) {
   await writeJson(resolve(resultsDir, 'slo-result.json'), result);
   if (!result.met) {
     process.stderr.write(
-      `::error::Rolling 7-day Pack production SLO is below target: ${result.publishedReadbackPassed}/${result.target}\n`,
+      `::warning::Rolling 7-day Pack production SLO is below target: ${result.publishedReadbackPassed}/${result.target}\n`,
     );
   }
   process.stdout.write(`${JSON.stringify(result)}\n`);

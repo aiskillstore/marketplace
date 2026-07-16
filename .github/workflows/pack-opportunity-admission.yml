@@ -1,0 +1,73 @@
+name: Pack Opportunity Admission
+
+on:
+  schedule:
+    - cron: '47 18 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pack-opportunity-admission
+  cancel-in-progress: true
+
+jobs:
+  admission:
+    name: Check the read-only opportunity queue
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Query one admitted scenario without production write credentials
+        env:
+          SKILLSTORE_API_URL: ${{ secrets.SKILLSTORE_API_URL }}
+          PACK_PRODUCTION_PLANNER_KEY: ${{ secrets.PACK_PRODUCTION_PLANNER_KEY }}
+        run: |
+          set -euo pipefail
+          API_BASE=${SKILLSTORE_API_URL%/}
+          case "$API_BASE" in
+            https://*) ;;
+            *) echo '::error::SKILLSTORE_API_URL must use HTTPS'; exit 1 ;;
+          esac
+          mkdir -p "$GITHUB_WORKSPACE/pack-admission"
+          RESPONSE=$(mktemp)
+          trap 'rm -f "$RESPONSE"' EXIT
+          printf 'header = "Authorization: Bearer %s"\nheader = "Accept: application/json"\n' \
+            "$PACK_PRODUCTION_PLANNER_KEY" | \
+            curl --config - --fail --silent --show-error --max-time 30 --retry 0 \
+              --get "$API_BASE/api/automation/packs/production/queue" \
+              --data-urlencode 'limit=1' \
+              --data-urlencode 'lookbackDays=30' \
+              --data-urlencode 'cooldownDays=7' \
+              --output "$RESPONSE"
+          jq -e '
+            .data |
+            .schemaVersion == "pack-production-queue/v1" and
+            (.scenarios | type == "array" and length <= 1) and
+            ((.source == "signals" and (.scenarios | length) == 1) or
+             (.source == "no-op" and (.scenarios | length) == 0)) and
+            (all(.scenarios[];
+              (.capabilitySlots | length >= 1 and length <= 4) and
+              (.requiredArtifacts | length >= 1)
+            ))
+          ' "$RESPONSE" >/dev/null
+          jq '.data' "$RESPONSE" > "$GITHUB_WORKSPACE/pack-admission/queue.json"
+          COUNT=$(jq '.scenarios | length' "$GITHUB_WORKSPACE/pack-admission/queue.json")
+          {
+            echo '## Daily Pack Opportunity Admission'
+            echo ''
+            echo "- Admitted scenarios: $COUNT"
+            jq -r '.scenarios[]? | "- Ready: \(.id)@\(.version)"' \
+              "$GITHUB_WORKSPACE/pack-admission/queue.json"
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$COUNT" -eq 0 ]; then
+            echo '::warning::No scenario currently meets the demand and cooldown admission gates'
+          fi
+
+      - name: Upload admission evidence
+        uses: actions/upload-artifact@v6
+        with:
+          name: pack-opportunity-admission
+          path: pack-admission/
+          if-no-files-found: error
+          retention-days: 30
