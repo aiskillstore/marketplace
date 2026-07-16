@@ -1,7 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -88,7 +89,7 @@ test('evaluate runs on a disposable VM with a user-separated job-local inference
   assert.match(evaluate, /@openai\/codex@0\.139\.0/);
   assert.match(
     evaluate,
-    /apt-get install --yes --no-install-recommends[\s\\]+apparmor bubblewrap ffmpeg poppler-utils ripgrep util-linux/,
+    /apt-get install --yes --no-install-recommends[\s\\]+apparmor bubblewrap ffmpeg iptables poppler-utils ripgrep util-linux/,
   );
   assert.match(evaluate, /test "\$\(command -v bwrap\)" = \/usr\/bin\/bwrap/);
   assert.match(evaluate, /command -v ffprobe/);
@@ -198,6 +199,11 @@ test('evaluate runs on a disposable VM with a user-separated job-local inference
   assert.doesNotMatch(evaluate, /connect\|connection\|transport\|request/);
   assert.match(evaluate, /SKILLSTORE_AGENTS=codex,claude/);
   assert.match(evaluate, /agent-preflight-diagnostics\.json/);
+  assert.match(evaluate, /PREFLIGHT_REASON=\$\(jq -r/);
+  assert.match(evaluate, /--arg reason "\$PREFLIGHT_REASON"/);
+  assert.match(evaluate, /errorCategory: null/);
+  assert.doesNotMatch(evaluate, /PREFLIGHT_ERROR_CATEGORY=/);
+  assert.doesNotMatch(evaluate, /--arg errorCategory "\$PREFLIGHT_REASON"/);
   assert.match(evaluate, /CLAUDE_OUTCOME=invalid_response/);
   assert.match(evaluate, /CODEX_OUTCOME=invalid_response/);
   assert.match(evaluate, /classify_error\(\)/);
@@ -295,10 +301,72 @@ test('extracted evaluator preflight is valid bounded bash', () => {
     /--unshare-all\s+--share-net\s+--unshare-user\s+--disable-userns\s+--cap-drop ALL/,
   );
   assert.match(EVALUATOR_PREFLIGHT, /--tmpfs \/run/);
+  assert.match(EVALUATOR_PREFLIGHT, /--chdir \/home\/packeval/);
   assert.match(EVALUATOR_PREFLIGHT, /--ro-bind \/opt\/pack-evaluator\/runtime \/opt\/pack-evaluator\/runtime/);
   assert.doesNotMatch(EVALUATOR_PREFLIGHT, /--ro-bind \/ \//);
   assert.doesNotMatch(EVALUATOR_PREFLIGHT, /--(?:ro-)?bind \/opt\/pack-evaluator\/(?:bin|lib|input|results)/);
   assert.doesNotMatch(EVALUATOR_PREFLIGHT, /GITHUB_WORKSPACE/);
+});
+
+test('evaluator preflight classifies both output streams without retaining their text', () => {
+  const start = EVALUATOR_PREFLIGHT.indexOf('classify_error() {');
+  const end = EVALUATOR_PREFLIGHT.indexOf('\n}\n', start);
+  assert.ok(start >= 0 && end > start, 'error classifier must be extractable');
+  const classifier = EVALUATOR_PREFLIGHT.slice(start, end + 3);
+  const directory = mkdtempSync(join(tmpdir(), 'pack-preflight-classifier-'));
+  const stdout = join(directory, 'stdout');
+  const stderr = join(directory, 'stderr');
+
+  const classify = ({ stdoutText = '', stderrText = '', outcome, exitCode, fatal = '', retryable = '' }) => {
+    writeFileSync(stdout, stdoutText);
+    writeFileSync(stderr, stderrText);
+    return spawnSync(
+      'bash',
+      [
+        '-c',
+        `${classifier}\nclassify_error "$1" "$2" "$3" "$4" "$5" "$6"`,
+        'classifier',
+        stdout,
+        stderr,
+        outcome,
+        String(exitCode),
+        fatal,
+        retryable,
+      ],
+      { encoding: 'utf8' },
+    );
+  };
+
+  assert.equal(classify({
+    stdoutText: 'Not logged in. Please run /login.',
+    outcome: 'command_failed',
+    exitCode: 1,
+  }).stdout.trim(), 'authentication');
+  assert.equal(classify({
+    stderrText: 'unable to open session database',
+    outcome: 'command_failed',
+    exitCode: 1,
+  }).stdout.trim(), 'state_storage');
+  assert.equal(classify({
+    stdoutText: 'PACK_EVALUATOR_READY\n',
+    outcome: 'passed',
+    exitCode: 0,
+  }).stdout.trim(), 'none');
+  assert.equal(classify({
+    stdoutText: 'unexpected model response',
+    outcome: 'invalid_response',
+    exitCode: 0,
+  }).stdout.trim(), 'unknown');
+  assert.equal(classify({
+    outcome: 'command_failed',
+    exitCode: 1,
+    fatal: '401',
+  }).stdout.trim(), 'deterministic_http');
+  assert.equal(classify({
+    outcome: 'command_failed',
+    exitCode: 1,
+    retryable: '503',
+  }).stdout.trim(), 'retryable_http');
 });
 
 test('evaluator preflight retries only an exact bounded HTTP failure once', () => {

@@ -492,6 +492,14 @@ test('infrastructure audit reports retain only bounded operational evidence', ()
     stage: 'evaluation',
     reason: 'invented',
   }), /Unsupported infrastructure failure reason/);
+  for (const diagnosticSha256 of ['a'.repeat(65), `${'a'.repeat(63)} `, 42]) {
+    assert.throws(() => normalizeInfrastructureFailure({
+      schemaVersion: 'marketplace.pack-production-infrastructure-failure/v1',
+      stage: 'agent_preflight',
+      reason: 'preflight_failed',
+      diagnosticSha256,
+    }), /Infrastructure diagnostic hash is invalid/);
+  }
 });
 
 test('safe CLI evidence hard-caps error digests per category and in total', () => {
@@ -955,11 +963,10 @@ exit 99
   writeFileSync(planFile, `${JSON.stringify(immutableProductionPlan(report.scenario))}\n`);
   writeFileSync(failureFile, `${JSON.stringify({
     schemaVersion: 'marketplace.pack-production-infrastructure-failure/v1',
-    stage: 'contract_smoke',
-    reason: 'deterministic_http',
-    status: 400,
-    path: '/v1/messages',
-    model: 'claude-sonnet-5',
+    stage: 'agent_preflight',
+    reason: 'preflight_failed',
+    status: null,
+    errorCategory: null,
     diagnosticSha256: 'a'.repeat(64),
   })}\n`);
   const result = spawnSync(process.execPath, [
@@ -986,13 +993,13 @@ exit 99
   assert.equal(audit.candidate, null);
   assert.deepEqual(audit.evidence.cliReport.infrastructureFailure, {
     schemaVersion: 'marketplace.pack-production-infrastructure-failure/v1',
-    stage: 'contract_smoke',
-    reason: 'deterministic_http',
-    status: 400,
+    stage: 'agent_preflight',
+    reason: 'preflight_failed',
+    status: null,
     errorCategory: null,
     diagnosticSha256: 'a'.repeat(64),
-    pathSha256: createHash('sha256').update('/v1/messages').digest('hex'),
-    modelSha256: createHash('sha256').update('claude-sonnet-5').digest('hex'),
+    pathSha256: null,
+    modelSha256: null,
   });
 
   const replayResultsDir = join(directory, 'replay-results');

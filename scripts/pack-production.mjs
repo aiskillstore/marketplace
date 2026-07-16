@@ -207,10 +207,11 @@ export function normalizeInfrastructureFailure(value) {
   if (!INFRASTRUCTURE_FAILURE_REASONS.has(value.reason)) {
     fail(`Unsupported infrastructure failure reason: ${value.reason}`);
   }
-  const diagnosticSha256 = value.diagnosticSha256 == null
-    ? null
-    : safeActivityToken(value.diagnosticSha256, 64);
-  if (diagnosticSha256 != null && !/^[0-9a-f]{64}$/.test(diagnosticSha256)) {
+  const diagnosticSha256 = value.diagnosticSha256 == null ? null : value.diagnosticSha256;
+  if (
+    diagnosticSha256 != null
+    && (typeof diagnosticSha256 !== 'string' || !/^[0-9a-f]{64}$/.test(diagnosticSha256))
+  ) {
     fail('Infrastructure diagnostic hash is invalid');
   }
   const status = value.status == null ? null : Number(value.status);
