@@ -12,4 +12,4 @@ Marketplace-only fixture update is a release blocker, not backward
 compatibility.
 
 The Generate Pack and content workflows are pinned to the immutable,
-checksum-verified CLI 2.14.0 release that owns this v4 contract.
+checksum-verified CLI 2.14.1 release that owns this v4 contract.

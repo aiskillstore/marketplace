@@ -119,7 +119,7 @@ test('hosted proof is manually gated, read-only, pinned, and invokes the product
   assert.match(HOSTED_CI, /actions\/create-github-app-token@v3/);
   assert.match(HOSTED_CI, /repositories: skillstore/);
   assert.match(HOSTED_CI, /permission-contents: read/);
-  assert.match(HOSTED_CI, /PACK_PRODUCTION_CLI_VERSION: '2\.14\.0'/);
+  assert.match(HOSTED_CI, /PACK_PRODUCTION_CLI_VERSION: '2\.14\.1'/);
   assert.match(HOSTED_CI, /download-skillstore-cli/);
   assert.match(HOSTED_CI, /require-checksum: 'true'/);
   assert.match(HOSTED_CI, /\/opt\/pack-evaluator\/bin\/skillstore-cli/);
