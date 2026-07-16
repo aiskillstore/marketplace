@@ -467,11 +467,17 @@ jobs:
       - name: Verify frozen CLI binary identity
         run: |
           set -euo pipefail
-          audited='c596ca3b6d27875fdcd231bfb889899f08ea8ae95217def7bf46de2aa3722b81'
-          expected=$(jq -r .cliSha256 "$RUNNER_TEMP/boundary/boundary.json")
+          execution_audited='c596ca3b6d27875fdcd231bfb889899f08ea8ae95217def7bf46de2aa3722b81'
+          boundary_version=$(jq -r .cliVersion "$RUNNER_TEMP/boundary/boundary.json")
+          boundary_actual=$(jq -r .cliSha256 "$RUNNER_TEMP/boundary/boundary.json")
+          case "$boundary_version" in
+            2.11.1) boundary_audited='9aa6a6e15d249e52bed690049974d8312f3257c205025823a68d249cc5cc8367' ;;
+            2.11.2) boundary_audited="$execution_audited" ;;
+            *) echo '::error::frozen boundary CLI version is not executable'; exit 1 ;;
+          esac
           actual=$(sha256sum "$GITHUB_WORKSPACE/skillstore-cli" | awk '{print $1}')
-          test "$expected" = "$audited" && test "$actual" = "$audited" || {
-            echo '::error::binding-aware CLI binary differs from the frozen dry-run boundary'; exit 1;
+          test "$boundary_actual" = "$boundary_audited" && test "$actual" = "$execution_audited" || {
+            echo '::error::boundary or execution CLI binary differs from its audited release'; exit 1;
           }
 
       - name: Materialize only frozen legacy groups

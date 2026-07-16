@@ -833,7 +833,9 @@ test('workflow is two-phase, exactly pinned, bounded, and never executes ordinar
   assert.match(workflow, /boundaries may only be created from main/);
   assert.match(workflow, /execute may only run from main/);
   assert.match(workflow, /sha256sum --check SHA256SUMS/);
-  assert.match(workflow, /binding-aware CLI binary differs from the frozen dry-run boundary/);
+  assert.match(workflow, /boundary or execution CLI binary differs from its audited release/);
+  assert.match(workflow, /2\.11\.1\) boundary_audited='9aa6a6e15d249e52bed690049974d8312f3257c205025823a68d249cc5cc8367'/);
+  assert.match(workflow, /test "\$boundary_actual" = "\$boundary_audited" && test "\$actual" = "\$execution_audited"/);
   assert.ok((workflow.match(/c596ca3b6d27875fdcd231bfb889899f08ea8ae95217def7bf46de2aa3722b81/g) || []).length >= 2);
   assert.match(workflow, /--phase execute-preflight/);
   assert.match(workflow, /--current-inventory "\$RUNNER_TEMP\/current-inventory\.json"/);
