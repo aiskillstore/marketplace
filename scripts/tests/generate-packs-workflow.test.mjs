@@ -48,6 +48,13 @@ test('evaluate runs on a disposable VM with a user-separated job-local inference
   const evaluateWorkflow = section('  evaluate:', '  persist:');
   const evaluate = `${evaluateWorkflow}\n${EVALUATOR_PREFLIGHT}`;
   assert.match(evaluateWorkflow, /scripts\/pack-evaluator-preflight\.sh/);
+  const continuation = String.fromCharCode(92);
+  const preflightCallLines = evaluateWorkflow
+    .split('\n')
+    .filter((line) => /^ {10}(PACK_EVALUATOR_PROXY_TOKEN|PACK_DIAGNOSTICS_DIR)=/.test(line));
+  assert.equal(preflightCallLines.length, 2);
+  assert.ok(preflightCallLines.every((line) => line.endsWith(` ${continuation}`)));
+  assert.ok(preflightCallLines.every((line) => !line.endsWith(` ${continuation}${continuation}`)));
   assert.match(evaluate, /runs-on: ubuntu-latest/);
   assert.match(evaluate, /@anthropic-ai\/claude-code@2\.1\.210/);
   assert.match(evaluate, /@openai\/codex@0\.139\.0/);
