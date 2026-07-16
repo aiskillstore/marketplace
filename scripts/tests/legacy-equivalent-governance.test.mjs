@@ -230,7 +230,7 @@ function createBoundaryFixture() {
       repository: 'aiskillstore/marketplace',
       workflowCommit: 'f'.repeat(40),
       cliVersion: '2.11.2',
-      cliSha256: '9'.repeat(64),
+      cliSha256: 'c596ca3b6d27875fdcd231bfb889899f08ea8ae95217def7bf46de2aa3722b81',
     },
   });
   return { ...values, directory, files, boundary };
@@ -386,6 +386,33 @@ test('freezes and verifies one exact dry-run boundary', () => {
       expectedRunId: '12345',
     });
     assert.equal(verified.status, 'execution_preflight_verified');
+    const priorCliBoundary = {
+      ...fixture.boundary,
+      cliVersion: '2.11.1',
+      cliSha256: '9aa6a6e15d249e52bed690049974d8312f3257c205025823a68d249cc5cc8367',
+    };
+    assert.equal(verifyLegacyGovernanceBoundary({
+      boundary: priorCliBoundary,
+      plan: fixture.plan,
+      classification: fixture.classification,
+      frozenInventory: fixture.preInventory,
+      currentInventory: structuredClone(fixture.preInventory),
+      frozenSourceEvidence: fixture.sourceEvidence,
+      currentSourceEvidence: structuredClone(fixture.sourceEvidence),
+      paths: fixture.files,
+      expectedRunId: '12345',
+    }).status, 'execution_preflight_verified');
+    assert.throws(() => verifyLegacyGovernanceBoundary({
+      boundary: { ...priorCliBoundary, cliVersion: '2.11.0' },
+      plan: fixture.plan,
+      classification: fixture.classification,
+      frozenInventory: fixture.preInventory,
+      currentInventory: structuredClone(fixture.preInventory),
+      frozenSourceEvidence: fixture.sourceEvidence,
+      currentSourceEvidence: structuredClone(fixture.sourceEvidence),
+      paths: fixture.files,
+      expectedRunId: '12345',
+    }), /downloaded boundary metadata is invalid/);
     const reorderedSourceEvidence = structuredClone(fixture.sourceEvidence);
     reorderedSourceEvidence.skills.reverse();
     reorderedSourceEvidence.audits.reverse();

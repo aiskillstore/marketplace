@@ -6,6 +6,10 @@ import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 const CLI_VERSION = '2.11.2';
+const EXECUTABLE_BOUNDARY_CLI_SHA256 = new Map([
+  ['2.11.1', '9aa6a6e15d249e52bed690049974d8312f3257c205025823a68d249cc5cc8367'],
+  ['2.11.2', 'c596ca3b6d27875fdcd231bfb889899f08ea8ae95217def7bf46de2aa3722b81'],
+]);
 const MAX_BATCH_SIZE = 500;
 const SHA256_RE = /^[0-9a-f]{64}$/;
 const COMMIT_RE = /^[0-9a-f]{40}$/;
@@ -460,7 +464,7 @@ export function createLegacyGovernanceBoundary({
 }) {
   if (
     metadata.cliVersion !== CLI_VERSION
-    || !SHA256_RE.test(String(metadata.cliSha256 || ''))
+    || metadata.cliSha256 !== EXECUTABLE_BOUNDARY_CLI_SHA256.get(CLI_VERSION)
     || !/^\d+$/.test(String(metadata.runId))
     || !/^[0-9a-f]{40}$/.test(String(metadata.workflowCommit || ''))
     || metadata.repository !== 'aiskillstore/marketplace'
@@ -525,8 +529,7 @@ export function verifyLegacyGovernanceBoundary({
     || boundary?.workflow !== 'govern-legacy-equivalent-artifacts'
     || boundary?.repository !== 'aiskillstore/marketplace'
     || boundary?.runId !== String(expectedRunId)
-    || boundary?.cliVersion !== CLI_VERSION
-    || !SHA256_RE.test(String(boundary?.cliSha256 || ''))
+    || EXECUTABLE_BOUNDARY_CLI_SHA256.get(boundary?.cliVersion) !== boundary?.cliSha256
   ) {
     fail('downloaded boundary metadata is invalid');
   }
