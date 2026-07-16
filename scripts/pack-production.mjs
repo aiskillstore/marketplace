@@ -185,6 +185,9 @@ const INFRASTRUCTURE_ERROR_CATEGORIES = new Set([
   'context_length_exceeded',
   'malformed_request',
   'other',
+  'request_body_too_large',
+  'model_not_allowed',
+  'invalid_output_token_limit',
 ]);
 const INTERRUPTED_SIGNALS = new Set(['SIGINT', 'SIGTERM', 'SIGHUP']);
 
@@ -284,14 +287,6 @@ export function deterministicHttpFailureFromActivity(contents) {
     if (!Number.isSafeInteger(status) || status < 400 || status >= 500 || [408, 425, 429].includes(status)) {
       continue;
     }
-    const errorCategories = new Set([
-      'unknown_model_or_lane',
-      'unsupported_parameter',
-      'authentication_failed',
-      'context_length_exceeded',
-      'malformed_request',
-      'other',
-    ]);
     return {
       status,
       path: safeActivityToken(activity.path),
@@ -300,7 +295,9 @@ export function deterministicHttpFailureFromActivity(contents) {
       errorType: safeActivityToken(activity.errorType),
       errorCode: safeActivityToken(activity.errorCode),
       errorParam: safeActivityToken(activity.errorParam),
-      errorCategory: errorCategories.has(activity.errorCategory) ? activity.errorCategory : null,
+      errorCategory: INFRASTRUCTURE_ERROR_CATEGORIES.has(activity.errorCategory)
+        ? activity.errorCategory
+        : null,
       errorMessageSha256: /^[a-f0-9]{64}$/.test(activity.errorMessageSha256 || '')
         ? activity.errorMessageSha256
         : null,

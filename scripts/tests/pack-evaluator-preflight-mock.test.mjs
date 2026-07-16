@@ -43,6 +43,7 @@ test('mock serves protocol-complete Messages and Responses streams without retai
     body: JSON.stringify({
       model: 'sonnet',
       stream: true,
+      max_tokens: 16384,
       messages: [{ role: 'user', content: 'sensitive mock prompt' }],
     }),
   });
@@ -53,7 +54,12 @@ test('mock serves protocol-complete Messages and Responses streams without retai
   const responses = await fetch(`${baseUrl}/v1/responses`, {
     method: 'POST',
     headers,
-    body: JSON.stringify({ model: 'gpt-5.5', stream: true, input: 'sensitive mock prompt' }),
+    body: JSON.stringify({
+      model: 'gpt-5.5',
+      stream: true,
+      max_output_tokens: 4096,
+      input: 'sensitive mock prompt',
+    }),
   });
   assert.equal(responses.status, 200);
   const responseBody = await responses.text();
@@ -61,14 +67,15 @@ test('mock serves protocol-complete Messages and Responses streams without retai
   assert.match(responseBody, /response\.completed/);
 
   assert.deepEqual(
-    activities.filter((activity) => activity.status === 200).map(({ path, model, stream }) => ({
+    activities.filter((activity) => activity.status === 200).map(({ path, model, stream, maxTokens }) => ({
       path,
       model,
       stream,
+      maxTokens,
     })),
     [
-      { path: '/v1/messages', model: 'sonnet', stream: true },
-      { path: '/v1/responses', model: 'gpt-5.5', stream: true },
+      { path: '/v1/messages', model: 'sonnet', stream: true, maxTokens: 16384 },
+      { path: '/v1/responses', model: 'gpt-5.5', stream: true, maxTokens: 4096 },
     ],
   );
   const serialized = JSON.stringify(activities);

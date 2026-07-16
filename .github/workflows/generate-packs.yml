@@ -26,6 +26,8 @@ env:
   # Production v4 requires the immutable binding-aware release and verifies its
   # checksums.txt asset before the binary crosses into the evaluator boundary.
   PACK_PRODUCTION_CLI_VERSION: '2.13.2'
+  # One cap feeds the local proxy and every Claude CLI process.
+  PACK_EVALUATOR_MAX_OUTPUT_TOKENS: '16384'
 
 jobs:
   contract_smoke_only:
@@ -634,7 +636,7 @@ jobs:
             PACK_EVALUATOR_ALLOWED_MODELS=claude-sonnet-4.6,claude-sonnet-4-6,claude-sonnet-5,sonnet,gpt-5.5 \
             PACK_EVALUATOR_MAX_REQUESTS=256 \
             PACK_EVALUATOR_MAX_CONCURRENT=4 \
-            PACK_EVALUATOR_MAX_OUTPUT_TOKENS=16384 \
+            PACK_EVALUATOR_MAX_OUTPUT_TOKENS="$PACK_EVALUATOR_MAX_OUTPUT_TOKENS" \
             PACK_EVALUATOR_TTL_MS=14400000 \
             PACK_EVALUATOR_REQUEST_TIMEOUT_MS=600000 \
             PACK_EVALUATOR_ACTIVITY_FILE="$PROXY_ACTIVITY" \
@@ -773,17 +775,45 @@ jobs:
                 | map(.fatalHttpStatus // .retryableHttpStatus)
                 | map(select(. != null)) | last // empty
               ' "$PREFLIGHT_DIAGNOSTICS")
+              PREFLIGHT_ERROR_CATEGORY=$(sudo jq -rs '
+                [
+                  .[]
+                  | select(
+                      .phase == "response"
+                      and (.status | type) == "number"
+                      and .status >= 400 and .status < 500
+                      and (.status != 408 and .status != 425 and .status != 429)
+                    )
+                ]
+                | last as $activity
+                | [
+                    "unknown_model_or_lane",
+                    "unsupported_parameter",
+                    "authentication_failed",
+                    "context_length_exceeded",
+                    "malformed_request",
+                    "other",
+                    "request_body_too_large",
+                    "model_not_allowed",
+                    "invalid_output_token_limit"
+                  ] as $allowed
+                | if $activity != null and ($allowed | index($activity.errorCategory)) != null
+                  then $activity.errorCategory
+                  else empty
+                  end
+              ' "$PROXY_ACTIVITY" 2>/dev/null || true)
               jq -n \
                 --arg stage agent_preflight \
                 --arg reason "$PREFLIGHT_REASON" \
                 --arg status "$PREFLIGHT_STATUS" \
+                --arg errorCategory "$PREFLIGHT_ERROR_CATEGORY" \
                 --arg diagnosticSha256 "$DIAGNOSTIC_SHA256" \
                 '{
                   schemaVersion: "marketplace.pack-production-infrastructure-failure/v1",
                   stage: $stage,
                   reason: $reason,
                   status: (if $status == "" then null else ($status | tonumber) end),
-                  errorCategory: null,
+                  errorCategory: (if $errorCategory == "" then null else $errorCategory end),
                   diagnosticSha256: $diagnosticSha256
                 }' > "$INFRASTRUCTURE_FAILURE_FILE"
             fi
@@ -808,13 +838,14 @@ jobs:
             NO_COLOR=1 \
             SKILLSTORE_AGENTS=codex,claude \
             SKILLSTORE_AGENT_ENV_MODE=strict \
-            SKILLSTORE_AGENT_ENV_ALLOWLIST=CODEX_HOME,PACK_EVALUATOR_PROXY_TOKEN,PACK_EVALUATOR_CHROMIUM_PATH,ANTHROPIC_BASE_URL,ANTHROPIC_AUTH_TOKEN,NO_PROXY,SKILLSTORE_AGENT_SANDBOX_MODE,SKILLSTORE_AGENT_SANDBOX_RUNTIME_ROOT \
+            SKILLSTORE_AGENT_ENV_ALLOWLIST=CODEX_HOME,PACK_EVALUATOR_PROXY_TOKEN,PACK_EVALUATOR_CHROMIUM_PATH,ANTHROPIC_BASE_URL,ANTHROPIC_AUTH_TOKEN,CLAUDE_CODE_MAX_OUTPUT_TOKENS,NO_PROXY,SKILLSTORE_AGENT_SANDBOX_MODE,SKILLSTORE_AGENT_SANDBOX_RUNTIME_ROOT \
             SKILLSTORE_AGENT_SANDBOX_MODE=bwrap \
             SKILLSTORE_AGENT_SANDBOX_RUNTIME_ROOT=/opt/pack-evaluator/runtime \
             PACK_EVALUATOR_CHROMIUM_PATH=/usr/bin/google-chrome \
             PACK_EVALUATOR_PROXY_TOKEN="$LOCAL_TOKEN" \
             ANTHROPIC_BASE_URL=http://127.0.0.1:18765 \
             ANTHROPIC_AUTH_TOKEN="$LOCAL_TOKEN" \
+            CLAUDE_CODE_MAX_OUTPUT_TOKENS="$PACK_EVALUATOR_MAX_OUTPUT_TOKENS" \
             NO_PROXY=127.0.0.1,localhost \
             timeout --signal=TERM --kill-after=30s 4h \
             prlimit --nproc=256:256 --as=6442450944:6442450944 -- \

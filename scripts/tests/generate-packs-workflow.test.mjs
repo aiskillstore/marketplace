@@ -154,7 +154,29 @@ test('evaluate runs on a disposable VM with a user-separated job-local inference
   assert.match(evaluate, /PACK_EVALUATOR_ALLOWED_MODELS=claude-sonnet-4\.6,claude-sonnet-4-6,claude-sonnet-5,sonnet,gpt-5\.5/);
   assert.match(evaluate, /PACK_EVALUATOR_MAX_REQUESTS=256/);
   assert.match(evaluate, /PACK_EVALUATOR_MAX_CONCURRENT=4/);
-  assert.match(evaluate, /PACK_EVALUATOR_MAX_OUTPUT_TOKENS=16384/);
+  assert.equal(
+    (WORKFLOW.match(/^  PACK_EVALUATOR_MAX_OUTPUT_TOKENS: '16384'$/gm) ?? []).length,
+    1,
+    'the production workflow must define one output-token cap',
+  );
+  assert.match(
+    evaluateWorkflow,
+    /PACK_EVALUATOR_MAX_OUTPUT_TOKENS="\$PACK_EVALUATOR_MAX_OUTPUT_TOKENS"/,
+  );
+  assert.match(
+    evaluateWorkflow,
+    /CLAUDE_CODE_MAX_OUTPUT_TOKENS="\$PACK_EVALUATOR_MAX_OUTPUT_TOKENS"/,
+  );
+  assert.match(
+    evaluateWorkflow,
+    /SKILLSTORE_AGENT_ENV_ALLOWLIST=.*CLAUDE_CODE_MAX_OUTPUT_TOKENS/,
+  );
+  assert.match(EVALUATOR_PREFLIGHT, /PACK_EVALUATOR_MAX_OUTPUT_TOKENS is required/);
+  assert.match(EVALUATOR_PREFLIGHT, /\^\[1-9\]\[0-9\]\*\$/);
+  assert.match(
+    EVALUATOR_PREFLIGHT,
+    /--setenv CLAUDE_CODE_MAX_OUTPUT_TOKENS "\$PACK_EVALUATOR_MAX_OUTPUT_TOKENS"/,
+  );
   assert.match(evaluate, /PACK_EVALUATOR_ACTIVITY_FILE="\$PROXY_ACTIVITY"/);
   assert.match(evaluate, /PACK_EVALUATOR_ACTIVITY_FILE="\$PROXY_ACTIVITY"[\s\\]+bash .*pack-evaluator-preflight\.sh/);
   assert.match(evaluate, /sudo rm -f "\$PROXY_ACTIVITY"/);
@@ -201,8 +223,21 @@ test('evaluate runs on a disposable VM with a user-separated job-local inference
   assert.match(evaluate, /agent-preflight-diagnostics\.json/);
   assert.match(evaluate, /PREFLIGHT_REASON=\$\(jq -r/);
   assert.match(evaluate, /--arg reason "\$PREFLIGHT_REASON"/);
-  assert.match(evaluate, /errorCategory: null/);
-  assert.doesNotMatch(evaluate, /PREFLIGHT_ERROR_CATEGORY=/);
+  assert.match(evaluate, /PREFLIGHT_ERROR_CATEGORY=\$\(sudo jq -rs/);
+  assert.match(evaluate, /\.phase == "response"/);
+  assert.match(evaluate, /\| last as \$activity/);
+  for (const category of [
+    'request_body_too_large',
+    'model_not_allowed',
+    'invalid_output_token_limit',
+  ]) {
+    assert.match(evaluate, new RegExp(`"${category}"`));
+  }
+  assert.match(evaluate, /--arg errorCategory "\$PREFLIGHT_ERROR_CATEGORY"/);
+  assert.match(
+    evaluate,
+    /errorCategory: \(if \$errorCategory == "" then null else \$errorCategory end\)/,
+  );
   assert.doesNotMatch(evaluate, /--arg errorCategory "\$PREFLIGHT_REASON"/);
   assert.match(evaluate, /CLAUDE_OUTCOME=invalid_response/);
   assert.match(evaluate, /CODEX_OUTCOME=invalid_response/);
@@ -306,6 +341,50 @@ test('extracted evaluator preflight is valid bounded bash', () => {
   assert.doesNotMatch(EVALUATOR_PREFLIGHT, /--ro-bind \/ \//);
   assert.doesNotMatch(EVALUATOR_PREFLIGHT, /--(?:ro-)?bind \/opt\/pack-evaluator\/(?:bin|lib|input|results)/);
   assert.doesNotMatch(EVALUATOR_PREFLIGHT, /GITHUB_WORKSPACE/);
+});
+
+test('evaluator preflight rejects a non-positive Claude output-token cap before execution', () => {
+  const result = spawnSync('bash', [EVALUATOR_PREFLIGHT_PATH], {
+    encoding: 'utf8',
+    env: {
+      PATH: process.env.PATH,
+      PACK_EVALUATOR_PROXY_TOKEN: 'local-token-that-is-longer-than-thirty-two-bytes',
+      PACK_DIAGNOSTICS_DIR: '/tmp',
+      PACK_EVALUATOR_MAX_OUTPUT_TOKENS: '0',
+    },
+  });
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /PACK_EVALUATOR_MAX_OUTPUT_TOKENS must be a positive integer/);
+});
+
+test('preflight infrastructure evidence selects the last fatal response before category allowlisting', () => {
+  const prefix = "PREFLIGHT_ERROR_CATEGORY=$(sudo jq -rs '\n";
+  const suffix = "\n              ' \"$PROXY_ACTIVITY\" 2>/dev/null || true)";
+  const start = WORKFLOW.indexOf(prefix);
+  assert.notEqual(start, -1);
+  const filterStart = start + prefix.length;
+  const end = WORKFLOW.indexOf(suffix, filterStart);
+  assert.notEqual(end, -1);
+  const filter = WORKFLOW.slice(filterStart, end);
+  const extract = (activities) => spawnSync('jq', ['-rs', filter], {
+    encoding: 'utf8',
+    input: `${activities.map((activity) => JSON.stringify(activity)).join('\n')}\n`,
+  });
+
+  const allowed = extract([
+    { phase: 'response', status: 403, errorCategory: 'model_not_allowed' },
+    { phase: 'response', status: 400, errorCategory: 'invalid_output_token_limit' },
+    { phase: 'response', status: 503, errorCategory: 'other' },
+  ]);
+  assert.equal(allowed.status, 0, allowed.stderr);
+  assert.equal(allowed.stdout.trim(), 'invalid_output_token_limit');
+
+  const rejected = extract([
+    { phase: 'response', status: 403, errorCategory: 'model_not_allowed' },
+    { phase: 'response', status: 400, errorCategory: 'attacker_supplied_category' },
+  ]);
+  assert.equal(rejected.status, 0, rejected.stderr);
+  assert.equal(rejected.stdout, '');
 });
 
 test('evaluator preflight classifies both output streams without retaining their text', () => {

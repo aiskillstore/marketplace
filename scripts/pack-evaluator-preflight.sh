@@ -3,6 +3,12 @@ set -euo pipefail
 
 : "${PACK_EVALUATOR_PROXY_TOKEN:?PACK_EVALUATOR_PROXY_TOKEN is required}"
 : "${PACK_DIAGNOSTICS_DIR:?PACK_DIAGNOSTICS_DIR is required}"
+: "${PACK_EVALUATOR_MAX_OUTPUT_TOKENS:?PACK_EVALUATOR_MAX_OUTPUT_TOKENS is required}"
+if ! [[ "$PACK_EVALUATOR_MAX_OUTPUT_TOKENS" =~ ^[1-9][0-9]*$ ]]; then
+  echo 'PACK_EVALUATOR_MAX_OUTPUT_TOKENS must be a positive integer' >&2
+  exit 1
+fi
+readonly PACK_EVALUATOR_MAX_OUTPUT_TOKENS
 readonly PREFLIGHT_TIMEOUT_SECONDS=180
 readonly BWRAP=/usr/bin/bwrap
 [ -x "$BWRAP" ] || { echo 'bubblewrap is required for evaluator preflight' >&2; exit 1; }
@@ -202,6 +208,7 @@ for ATTEMPT in 1 2; do
       "${AGENT_BWRAP[@]}" \
         --setenv ANTHROPIC_BASE_URL http://127.0.0.1:18765 \
         --setenv ANTHROPIC_AUTH_TOKEN "$PACK_EVALUATOR_PROXY_TOKEN" \
+        --setenv CLAUDE_CODE_MAX_OUTPUT_TOKENS "$PACK_EVALUATOR_MAX_OUTPUT_TOKENS" \
         /opt/pack-evaluator/runtime/bin/claude \
         --print \
         --output-format text \

@@ -188,6 +188,11 @@ export function createPackEvaluatorPreflightMock({ localToken, onActivity = () =
     }
     requestNumber += 1;
     const model = typeof parsed.value.model === 'string' ? parsed.value.model : null;
+    const requestedMaxTokens = path === '/v1/messages'
+      ? parsed.value.max_tokens
+      : path === '/v1/responses'
+        ? parsed.value.max_output_tokens
+        : null;
     const activity = {
       phase: 'response',
       requestNumber,
@@ -195,6 +200,9 @@ export function createPackEvaluatorPreflightMock({ localToken, onActivity = () =
       model,
       requestBytes: parsed.bytes,
       stream: parsed.value.stream === true,
+      maxTokens: Number.isSafeInteger(requestedMaxTokens) && requestedMaxTokens > 0
+        ? requestedMaxTokens
+        : null,
       status: 200,
     };
 

@@ -48,9 +48,10 @@ function fail(message) {
   throw new Error(message);
 }
 
-function reject(message, status) {
+function reject(message, status, policyCategory) {
   const error = new Error(message);
   error.status = status;
+  if (policyCategory) error.policyCategory = policyCategory;
   throw error;
 }
 
@@ -171,7 +172,9 @@ async function requestBody(request) {
   let size = 0;
   for await (const chunk of request) {
     size += chunk.length;
-    if (size > MAX_BODY_BYTES) fail('request body exceeds 32 MiB');
+    if (size > MAX_BODY_BYTES) {
+      reject('request body exceeds 32 MiB', 400, 'request_body_too_large');
+    }
     chunks.push(chunk);
   }
   return Buffer.concat(chunks);
@@ -197,19 +200,21 @@ function boundedInferenceBody(body, pathname, allowedModels, maxOutputTokens) {
   try {
     payload = JSON.parse(body.toString('utf8'));
   } catch {
-    reject('inference request body must be valid JSON', 400);
+    reject('inference request body must be valid JSON', 400, 'malformed_request');
   }
   if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
-    reject('inference request body must be a JSON object', 400);
+    reject('inference request body must be a JSON object', 400, 'malformed_request');
   }
 
   const model = typeof payload.model === 'string' ? payload.model.trim() : '';
-  if (!model || !allowedModels.has(model)) reject(`model is not allowed: ${model || '(missing)'}`, 403);
+  if (!model || !allowedModels.has(model)) {
+    reject(`model is not allowed: ${model || '(missing)'}`, 403, 'model_not_allowed');
+  }
 
   for (const field of ['max_tokens', 'max_output_tokens']) {
     if (payload[field] == null) continue;
     if (!Number.isSafeInteger(payload[field]) || payload[field] < 1 || payload[field] > maxOutputTokens) {
-      reject(`${field} must be between 1 and ${maxOutputTokens}`, 400);
+      reject(`${field} must be between 1 and ${maxOutputTokens}`, 400, 'invalid_output_token_limit');
     }
   }
   if (pathname === '/v1/messages' && payload.max_tokens == null) payload.max_tokens = maxOutputTokens;
@@ -275,6 +280,7 @@ export function createPackEvaluatorProxy({
   const timeoutMs = positiveInteger(requestTimeoutMs, 'requestTimeoutMs', 10 * 60 * 1000);
   const expiresAt = Date.now() + lifetimeMs;
   let requestsStarted = 0;
+  let activityRequestSequence = 0;
   let activeRequests = 0;
   let circuitFailure = null;
   const recordActivity = (activity) => {
@@ -319,13 +325,29 @@ export function createPackEvaluatorProxy({
       }
 
       const target = new URL(`${incoming.pathname}${incoming.search}`, upstreamBase);
-      const incomingBody = await requestBody(request);
-      const bounded = boundedInferenceBody(
-        incomingBody,
-        incoming.pathname,
-        modelAllowlist,
-        outputTokenLimit,
-      );
+      const requestNumber = ++activityRequestSequence;
+      let incomingBody;
+      let bounded;
+      try {
+        incomingBody = await requestBody(request);
+        bounded = boundedInferenceBody(
+          incomingBody,
+          incoming.pathname,
+          modelAllowlist,
+          outputTokenLimit,
+        );
+      } catch (error) {
+        if ([400, 403].includes(error?.status) && error?.policyCategory) {
+          recordActivity({
+            phase: 'response',
+            requestNumber,
+            path: incoming.pathname,
+            status: error.status,
+            errorCategory: error.policyCategory,
+          });
+        }
+        throw error;
+      }
       const requestDiagnostics = {
         path: incoming.pathname,
         model: bounded.model,
@@ -335,7 +357,7 @@ export function createPackEvaluatorProxy({
       if (circuitFailure) {
         recordActivity({
           phase: 'circuit_open',
-          requestNumber: requestsStarted + 1,
+          requestNumber,
           ...requestDiagnostics,
           status: circuitFailure.status,
           originalRequestNumber: circuitFailure.requestNumber,
@@ -345,8 +367,7 @@ export function createPackEvaluatorProxy({
       }
       requestsStarted += 1;
       activeRequests += 1;
-      recordActivity({ phase: 'started', requestNumber: requestsStarted, ...requestDiagnostics });
-      const requestNumber = requestsStarted;
+      recordActivity({ phase: 'started', requestNumber, ...requestDiagnostics });
       const upstreamController = new AbortController();
       const upstreamTimeout = setTimeout(() => upstreamController.abort(), timeoutMs);
       const abortUpstream = () => {
