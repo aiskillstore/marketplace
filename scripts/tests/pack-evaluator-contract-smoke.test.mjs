@@ -139,6 +139,47 @@ for (const emptyContract of ['messages', 'responses']) {
   });
 }
 
+for (const errorContract of ['messages', 'responses']) {
+  test(`${errorContract} error SSE event remains a protocol failure`, async () => {
+    const directory = mkdtempSync(join(tmpdir(), `pack-contract-smoke-error-event-${errorContract}-`));
+    const diagnosticsFile = join(directory, 'contract-smoke.json');
+    let calls = 0;
+    await assert.rejects(
+      runContractSmoke({
+        proxyUrl: 'http://127.0.0.1:18765',
+        token: 'job-local-secret',
+        diagnosticsFile,
+        fetchImpl: async (url) => {
+          calls += 1;
+          const isMessages = String(url).endsWith('/v1/messages');
+          const events = isMessages ? messagesEvents() : responsesEvents();
+          if ((isMessages ? 'messages' : 'responses') === errorContract) {
+            events.splice(-1, 0, {
+              type: 'error',
+              data: { error: { message: 'private upstream stream error' } },
+            });
+          }
+          return new Response(sse(events), {
+            status: 200,
+            headers: { 'content-type': 'text/event-stream' },
+          });
+        },
+      }),
+      /contract=(?:claude_messages|codex_responses) outcome=invalid_response status=200/,
+    );
+    assert.equal(calls, 2);
+    const persistedText = readFileSync(diagnosticsFile, 'utf8');
+    const persisted = JSON.parse(persistedText);
+    const failed = persisted.contracts.find((contract) => contract.outcome === 'invalid_response');
+    assert.equal(failed.name, errorContract === 'messages' ? 'claude_messages' : 'codex_responses');
+    assert.equal(failed.protocol.firstEventValid, true);
+    assert.equal(failed.protocol.textDeltaSeen, true);
+    assert.equal(failed.protocol.completed, true);
+    assert.equal(failed.protocol.errorFree, false);
+    assert.doesNotMatch(persistedText, /private upstream stream error/);
+  });
+}
+
 test('HTTP 200 JSON is not accepted as an SSE protocol response', async () => {
   const directory = mkdtempSync(join(tmpdir(), 'pack-contract-smoke-json-'));
   const diagnosticsFile = join(directory, 'contract-smoke.json');

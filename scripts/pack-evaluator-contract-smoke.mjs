@@ -11,6 +11,7 @@ const REQUIRED_PROTOCOL_CHECKS = [
   'firstEventValid',
   'textDeltaSeen',
   'completed',
+  'errorFree',
 ];
 
 function fail(message) {
@@ -136,6 +137,7 @@ function outputTextDiagnostics(text) {
 
 function validateMessagesEvents(events) {
   const firstEventValid = events[0]?.type === 'message_start';
+  const errorFree = events.every((event) => event.type !== 'error');
   const deltas = events.filter((event) => (
     event.type === 'content_block_delta'
     && event.data?.delta?.type === 'text_delta'
@@ -146,12 +148,14 @@ function validateMessagesEvents(events) {
   return {
     firstEventValid,
     completed,
+    errorFree,
     ...outputTextDiagnostics(text),
   };
 }
 
 function validateResponsesEvents(events) {
   const firstEventValid = events[0]?.type === 'response.created';
+  const errorFree = events.every((event) => event.type !== 'error');
   const deltas = events.filter((event) => (
     event.type === 'response.output_text.delta'
     && typeof event.data?.delta === 'string'
@@ -161,6 +165,7 @@ function validateResponsesEvents(events) {
   return {
     firstEventValid,
     completed,
+    errorFree,
     ...outputTextDiagnostics(text),
   };
 }
@@ -226,6 +231,7 @@ async function runOneContract({ contract, proxyUrl, token, fetchImpl, timeoutMs 
     firstEventValid: false,
     textDeltaSeen: false,
     completed: false,
+    errorFree: false,
     textMatches: false,
     outputTextBytes: 0,
     outputTextSha256: null,
