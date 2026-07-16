@@ -59,6 +59,16 @@ test('real probe matches the executor namespace contract and verifies its closur
   for (const required of ['--tmpfs /', '--proc /proc', '--dev /dev', '--tmpfs /run']) {
     assert.match(HELPER, new RegExp(required.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
   }
+  for (const runtimePath of [
+    '/usr', '/bin', '/sbin', '/lib', '/lib64', '/opt/google/chrome',
+    '/etc/alternatives', '/etc/ca-certificates', '/etc/fonts', '/etc/group',
+    '/etc/hosts', '/etc/localtime', '/etc/magic', '/etc/magic.mime',
+    '/etc/mime.types', '/etc/nsswitch.conf', '/etc/passwd', '/etc/pki',
+    '/etc/resolv.conf', '/etc/ssl',
+  ]) {
+    const escaped = runtimePath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    assert.match(HELPER, new RegExp(`--ro-bind-try ${escaped} ${escaped}`));
+  }
   assert.match(HELPER, /\/proc\/self\/uid_map/);
   assert.match(HELPER, /\^Cap\(Inh\|Prm\|Eff\|Bnd\|Amb\):\$/);
   assert.match(HELPER, /test -x \/opt\/pack-evaluator\/runtime\/bin\/node/);

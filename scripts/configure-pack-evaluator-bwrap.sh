@@ -119,12 +119,19 @@ runuser -u "$EVALUATOR_USER" -- \
     --ro-bind-try /sbin /sbin \
     --ro-bind-try /lib /lib \
     --ro-bind-try /lib64 /lib64 \
+    --ro-bind-try /opt/google/chrome /opt/google/chrome \
+    --ro-bind-try /etc/alternatives /etc/alternatives \
     --ro-bind-try /etc/ca-certificates /etc/ca-certificates \
+    --ro-bind-try /etc/fonts /etc/fonts \
     --ro-bind-try /etc/group /etc/group \
     --ro-bind-try /etc/hosts /etc/hosts \
     --ro-bind-try /etc/localtime /etc/localtime \
+    --ro-bind-try /etc/magic /etc/magic \
+    --ro-bind-try /etc/magic.mime /etc/magic.mime \
+    --ro-bind-try /etc/mime.types /etc/mime.types \
     --ro-bind-try /etc/nsswitch.conf /etc/nsswitch.conf \
     --ro-bind-try /etc/passwd /etc/passwd \
+    --ro-bind-try /etc/pki /etc/pki \
     --ro-bind-try /etc/resolv.conf /etc/resolv.conf \
     --ro-bind-try /etc/ssl /etc/ssl \
     --bind "$EVALUATOR_HOME" "$EVALUATOR_HOME" \
