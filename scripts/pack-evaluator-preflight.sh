@@ -14,12 +14,15 @@ readonly -a AGENT_BWRAP=(
   "$BWRAP"
   --die-with-parent
   --new-session
-  --unshare-pid
-  --unshare-ipc
-  --unshare-uts
+  --unshare-all
+  --share-net
+  --unshare-user
+  --disable-userns
+  --cap-drop ALL
   --tmpfs /
   --proc /proc
   --dev /dev
+  --tmpfs /run
   --dir /opt
   --dir /opt/pack-evaluator
   --ro-bind /opt/pack-evaluator/runtime /opt/pack-evaluator/runtime
