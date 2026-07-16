@@ -123,6 +123,15 @@ test('evaluate runs on a disposable VM with a user-separated job-local inference
   assert.match(evaluate, /-m gpt-5\.5/);
   assert.match(evaluate, /CLAUDE_PREFLIGHT_OUTCOME=command_failed/);
   assert.match(evaluate, /CODEX_PREFLIGHT_OUTCOME=command_failed/);
+  assert.match(evaluate, /for CODEX_PREFLIGHT_ATTEMPT in 1 2/);
+  assert.match(evaluate, /CODEX_PREFLIGHT_ERROR_CLASS.*upstream_transport/s);
+  assert.match(evaluate, /CODEX_PREFLIGHT_ATTEMPT" -eq 2/);
+  assert.match(evaluate, /cleanup_preflight_processes\(\)/);
+  assert.match(evaluate, /PREFLIGHT_RETRY_CLEANUP_OUTCOME=passed/);
+  assert.match(evaluate, /sleep 5/);
+  assert.match(evaluate, /attempts: \$codexAttempts/);
+  assert.match(evaluate, /durationMs: \$durationMs/);
+  assert.doesNotMatch(evaluate, /connect\|connection\|transport\|request/);
   assert.match(evaluate, /SKILLSTORE_AGENTS=codex,claude/);
   assert.match(evaluate, /agent-preflight-diagnostics\.json/);
   assert.match(evaluate, /CLAUDE_PREFLIGHT_OUTCOME=invalid_response/);
@@ -136,10 +145,10 @@ test('evaluate runs on a disposable VM with a user-separated job-local inference
   assert.match(evaluate, /errorClass: \$codexErrorClass/);
   assert.match(evaluate, /claude:\s*\{/);
   assert.match(evaluate, /codex:\s*\{/);
-  assert.match(evaluate, /cleanup:\s*\{outcome: \$cleanupOutcome\}/);
+  assert.match(evaluate, /cleanup:\s*\{[\s\S]*outcome: \$cleanupOutcome,[\s\S]*retryOutcome: \$retryCleanupOutcome/);
   assert.match(evaluate, /PREFLIGHT_CLEANUP_OUTCOME=failed/);
   assert.match(evaluate, /PREFLIGHT_CLEANUP_OUTCOME=probe_failed/);
-  assert.match(evaluate, /PREFLIGHT_PGREP_RC/);
+  assert.match(evaluate, /PREFLIGHT_CLEANUP_RC/);
   assert.match(evaluate, /tr -d '\\r\\n'/);
   assert.doesNotMatch(evaluate, /SKILLSTORE_AGENTS: \$\{\{ vars\.SKILLSTORE_AGENTS \}\}/);
   assert.doesNotMatch(evaluate, /sed -E .*Bearer|proxy\.log|proxy-failure\.log/);

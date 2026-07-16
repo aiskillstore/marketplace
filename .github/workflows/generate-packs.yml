@@ -489,6 +489,48 @@ jobs:
             exit 1
           fi
 
+          classify_preflight_error() {
+            local file="$1"
+            if [ ! -s "$file" ]; then
+              printf 'none\n'
+            elif grep -Eqi 'permission denied|read-only file system|unable to open.*database|failed to.*(state|log|session)' "$file"; then
+              printf 'state_storage\n'
+            elif grep -Eqi '401|403|unauthoriz|authentication|api key' "$file"; then
+              printf 'authentication\n'
+            elif grep -Eqi '404|model.*not found|unsupported model' "$file"; then
+              printf 'model_route\n'
+            elif grep -Eqi 'timed out|timeout' "$file"; then
+              printf 'timeout\n'
+            elif grep -Eqi 'unknown argument|unexpected argument|usage:' "$file"; then
+              printf 'cli_arguments\n'
+            elif grep -Eqi 'error sending request|failed to send request|connection (reset|refused|closed|aborted)|transport.*(closed|error)|unexpected (eof|end of file)|temporary failure in name resolution|dns.*temporary|tls.*(handshake|temporary)|http[^0-9]*(408|429|502|503|504)|status( code)?[^0-9]*(408|429|502|503|504)' "$file"; then
+              printf 'upstream_transport\n'
+            else
+              printf 'unknown\n'
+            fi
+          }
+          cleanup_preflight_processes() {
+            local probe_rc
+            sudo pkill -TERM -u packeval 2>/dev/null || true
+            for _ in $(seq 1 10); do
+              if ! sudo pgrep -u packeval >/dev/null 2>&1; then
+                break
+              fi
+              sleep 0.1
+            done
+            sudo pkill -KILL -u packeval 2>/dev/null || true
+            sleep 0.1
+            if sudo pgrep -u packeval >/dev/null 2>&1; then
+              return 1
+            else
+              probe_rc=$?
+              if [ "$probe_rc" -ne 1 ]; then
+                return 2
+              fi
+            fi
+            return 0
+          }
+
           CLAUDE_PREFLIGHT_OUTCOME=passed
           if ! printf '%s\n' 'Reply with exactly PACK_EVALUATOR_READY and nothing else.' | \
             sudo -u packeval env -i \
@@ -516,34 +558,87 @@ jobs:
           fi
 
           CODEX_PREFLIGHT_OUTCOME=not_run
+          CODEX_PREFLIGHT_ERROR_CLASS=none
+          CODEX_PREFLIGHT_ATTEMPTS='[]'
+          PREFLIGHT_RETRY_CLEANUP_OUTCOME=not_needed
           if [ "$CLAUDE_PREFLIGHT_OUTCOME" = "passed" ]; then
-            CODEX_PREFLIGHT_OUTCOME=passed
-            if ! printf '%s\n' 'Reply with exactly PACK_EVALUATOR_READY and nothing else.' | \
-              sudo -u packeval env -i \
-                PATH=/opt/pack-evaluator/runtime/bin:/opt/pack-evaluator/bin:/usr/bin:/bin \
-                HOME=/home/packeval \
-                CODEX_HOME=/opt/pack-evaluator/codex-home \
-                TMPDIR=/home/packeval/tmp \
-                CI=true \
-                NO_COLOR=1 \
-                PACK_EVALUATOR_PROXY_TOKEN="$LOCAL_TOKEN" \
-                NO_PROXY=127.0.0.1,localhost \
-                timeout --signal=TERM --kill-after=5s 60s \
-                /opt/pack-evaluator/runtime/bin/codex \
-                  exec \
-                  --skip-git-repo-check \
-                  --sandbox read-only \
-                  --cd /home/packeval \
-                  --ephemeral \
-                  --color never \
-                  -m gpt-5.5 \
-                  - \
-                > "$CODEX_PREFLIGHT_STDOUT" \
-                2> "$CODEX_PREFLIGHT_STDERR"; then
-              CODEX_PREFLIGHT_OUTCOME=command_failed
-            elif [ "$(tr -d '\r\n' < "$CODEX_PREFLIGHT_STDOUT")" != 'PACK_EVALUATOR_READY' ]; then
-              CODEX_PREFLIGHT_OUTCOME=invalid_response
-            fi
+            # Retry only one narrowly classified transport failure. Permission,
+            # auth, routing, CLI, timeout, and response-shape failures stay fail-closed.
+            for CODEX_PREFLIGHT_ATTEMPT in 1 2; do
+              : > "$CODEX_PREFLIGHT_STDOUT"
+              : > "$CODEX_PREFLIGHT_STDERR"
+              CODEX_PREFLIGHT_STARTED_MS=$(date +%s%3N)
+              CODEX_PREFLIGHT_OUTCOME=passed
+              if ! printf '%s\n' 'Reply with exactly PACK_EVALUATOR_READY and nothing else.' | \
+                sudo -u packeval env -i \
+                  PATH=/opt/pack-evaluator/runtime/bin:/opt/pack-evaluator/bin:/usr/bin:/bin \
+                  HOME=/home/packeval \
+                  CODEX_HOME=/opt/pack-evaluator/codex-home \
+                  TMPDIR=/home/packeval/tmp \
+                  CI=true \
+                  NO_COLOR=1 \
+                  PACK_EVALUATOR_PROXY_TOKEN="$LOCAL_TOKEN" \
+                  NO_PROXY=127.0.0.1,localhost \
+                  timeout --signal=TERM --kill-after=5s 60s \
+                  /opt/pack-evaluator/runtime/bin/codex \
+                    exec \
+                    --skip-git-repo-check \
+                    --sandbox read-only \
+                    --cd /home/packeval \
+                    --ephemeral \
+                    --color never \
+                    -m gpt-5.5 \
+                    - \
+                  > "$CODEX_PREFLIGHT_STDOUT" \
+                  2> "$CODEX_PREFLIGHT_STDERR"; then
+                CODEX_PREFLIGHT_OUTCOME=command_failed
+              elif [ "$(tr -d '\r\n' < "$CODEX_PREFLIGHT_STDOUT")" != 'PACK_EVALUATOR_READY' ]; then
+                CODEX_PREFLIGHT_OUTCOME=invalid_response
+              fi
+              CODEX_PREFLIGHT_DURATION_MS=$(( $(date +%s%3N) - CODEX_PREFLIGHT_STARTED_MS ))
+              CODEX_PREFLIGHT_STDOUT_BYTES=$(wc -c < "$CODEX_PREFLIGHT_STDOUT")
+              CODEX_PREFLIGHT_STDERR_BYTES=$(wc -c < "$CODEX_PREFLIGHT_STDERR")
+              CODEX_PREFLIGHT_STDOUT_SHA256=$(sha256sum "$CODEX_PREFLIGHT_STDOUT" | awk '{print $1}')
+              CODEX_PREFLIGHT_STDERR_SHA256=$(sha256sum "$CODEX_PREFLIGHT_STDERR" | awk '{print $1}')
+              CODEX_PREFLIGHT_ERROR_CLASS=$(classify_preflight_error "$CODEX_PREFLIGHT_STDERR")
+              CODEX_PREFLIGHT_ATTEMPTS=$(jq -c \
+                --argjson attempt "$CODEX_PREFLIGHT_ATTEMPT" \
+                --arg outcome "$CODEX_PREFLIGHT_OUTCOME" \
+                --arg errorClass "$CODEX_PREFLIGHT_ERROR_CLASS" \
+                --argjson durationMs "$CODEX_PREFLIGHT_DURATION_MS" \
+                --argjson stdoutBytes "$CODEX_PREFLIGHT_STDOUT_BYTES" \
+                --argjson stderrBytes "$CODEX_PREFLIGHT_STDERR_BYTES" \
+                --arg stdoutSha256 "$CODEX_PREFLIGHT_STDOUT_SHA256" \
+                --arg stderrSha256 "$CODEX_PREFLIGHT_STDERR_SHA256" \
+                '. + [{
+                  attempt: $attempt,
+                  outcome: $outcome,
+                  errorClass: $errorClass,
+                  durationMs: $durationMs,
+                  stdoutBytes: $stdoutBytes,
+                  stderrBytes: $stderrBytes,
+                  stdoutSha256: $stdoutSha256,
+                  stderrSha256: $stderrSha256
+                }]' <<< "$CODEX_PREFLIGHT_ATTEMPTS")
+              if [ "$CODEX_PREFLIGHT_OUTCOME" = "passed" ] || \
+                 [ "$CODEX_PREFLIGHT_OUTCOME" != "command_failed" ] || \
+                 [ "$CODEX_PREFLIGHT_ERROR_CLASS" != "upstream_transport" ] || \
+                 [ "$CODEX_PREFLIGHT_ATTEMPT" -eq 2 ]; then
+                break
+              fi
+              if cleanup_preflight_processes; then
+                PREFLIGHT_RETRY_CLEANUP_OUTCOME=passed
+              else
+                PREFLIGHT_RETRY_CLEANUP_RC=$?
+                if [ "$PREFLIGHT_RETRY_CLEANUP_RC" -eq 1 ]; then
+                  PREFLIGHT_RETRY_CLEANUP_OUTCOME=failed
+                else
+                  PREFLIGHT_RETRY_CLEANUP_OUTCOME=probe_failed
+                fi
+                break
+              fi
+              sleep 5
+            done
           fi
 
           CLAUDE_PREFLIGHT_STDOUT_BYTES=$(wc -c < "$CLAUDE_PREFLIGHT_STDOUT")
@@ -554,43 +649,15 @@ jobs:
           CODEX_PREFLIGHT_STDERR_BYTES=$(wc -c < "$CODEX_PREFLIGHT_STDERR")
           CODEX_PREFLIGHT_STDOUT_SHA256=$(sha256sum "$CODEX_PREFLIGHT_STDOUT" | awk '{print $1}')
           CODEX_PREFLIGHT_STDERR_SHA256=$(sha256sum "$CODEX_PREFLIGHT_STDERR" | awk '{print $1}')
-          classify_preflight_error() {
-            local file="$1"
-            if [ ! -s "$file" ]; then
-              printf 'none\n'
-            elif grep -Eqi 'permission denied|read-only file system|unable to open.*database|failed to.*(state|log|session)' "$file"; then
-              printf 'state_storage\n'
-            elif grep -Eqi '401|unauthoriz|authentication|api key' "$file"; then
-              printf 'authentication\n'
-            elif grep -Eqi '404|model.*not found|unsupported model' "$file"; then
-              printf 'model_route\n'
-            elif grep -Eqi 'timed out|timeout' "$file"; then
-              printf 'timeout\n'
-            elif grep -Eqi 'unknown argument|unexpected argument|usage:' "$file"; then
-              printf 'cli_arguments\n'
-            elif grep -Eqi 'connect|connection|transport|request' "$file"; then
-              printf 'upstream_transport\n'
-            else
-              printf 'unknown\n'
-            fi
-          }
           CLAUDE_PREFLIGHT_ERROR_CLASS=$(classify_preflight_error "$CLAUDE_PREFLIGHT_STDERR")
-          CODEX_PREFLIGHT_ERROR_CLASS=$(classify_preflight_error "$CODEX_PREFLIGHT_STDERR")
           PREFLIGHT_CLEANUP_OUTCOME=passed
-          sudo pkill -TERM -u packeval 2>/dev/null || true
-          for _ in $(seq 1 10); do
-            if ! sudo pgrep -u packeval >/dev/null 2>&1; then
-              break
-            fi
-            sleep 0.1
-          done
-          sudo pkill -KILL -u packeval 2>/dev/null || true
-          sleep 0.1
-          if sudo pgrep -u packeval >/dev/null 2>&1; then
-            PREFLIGHT_CLEANUP_OUTCOME=failed
+          if cleanup_preflight_processes; then
+            PREFLIGHT_CLEANUP_OUTCOME=passed
           else
-            PREFLIGHT_PGREP_RC=$?
-            if [ "$PREFLIGHT_PGREP_RC" -ne 1 ]; then
+            PREFLIGHT_CLEANUP_RC=$?
+            if [ "$PREFLIGHT_CLEANUP_RC" -eq 1 ]; then
+              PREFLIGHT_CLEANUP_OUTCOME=failed
+            else
               PREFLIGHT_CLEANUP_OUTCOME=probe_failed
             fi
           fi
@@ -607,7 +674,9 @@ jobs:
             --arg codexStdoutSha256 "$CODEX_PREFLIGHT_STDOUT_SHA256" \
             --arg codexStderrSha256 "$CODEX_PREFLIGHT_STDERR_SHA256" \
             --arg codexErrorClass "$CODEX_PREFLIGHT_ERROR_CLASS" \
+            --argjson codexAttempts "$CODEX_PREFLIGHT_ATTEMPTS" \
             --arg cleanupOutcome "$PREFLIGHT_CLEANUP_OUTCOME" \
+            --arg retryCleanupOutcome "$PREFLIGHT_RETRY_CLEANUP_OUTCOME" \
             '{
               claude: {
                 outcome: $claudeOutcome,
@@ -623,15 +692,21 @@ jobs:
                 stderrBytes: $codexStderrBytes,
                 stdoutSha256: $codexStdoutSha256,
                 stderrSha256: $codexStderrSha256,
-                errorClass: $codexErrorClass
+                errorClass: $codexErrorClass,
+                attempts: $codexAttempts
               },
-              cleanup: {outcome: $cleanupOutcome}
+              cleanup: {
+                outcome: $cleanupOutcome,
+                retryOutcome: $retryCleanupOutcome
+              }
             }' \
             > "$GITHUB_WORKSPACE/pack-diagnostics/agent-preflight-diagnostics.json"
           if [ "$CLAUDE_PREFLIGHT_OUTCOME" != "passed" ] || \
              [ "$CODEX_PREFLIGHT_OUTCOME" != "passed" ] || \
-             [ "$PREFLIGHT_CLEANUP_OUTCOME" != "passed" ]; then
-            echo "::error::Pack evaluator model preflight failed: claude=$CLAUDE_PREFLIGHT_OUTCOME codex=$CODEX_PREFLIGHT_OUTCOME cleanup=$PREFLIGHT_CLEANUP_OUTCOME"
+             [ "$PREFLIGHT_CLEANUP_OUTCOME" != "passed" ] || \
+             { [ "$PREFLIGHT_RETRY_CLEANUP_OUTCOME" != "not_needed" ] && \
+               [ "$PREFLIGHT_RETRY_CLEANUP_OUTCOME" != "passed" ]; }; then
+            echo "::error::Pack evaluator model preflight failed: claude=$CLAUDE_PREFLIGHT_OUTCOME codex=$CODEX_PREFLIGHT_OUTCOME cleanup=$PREFLIGHT_CLEANUP_OUTCOME retry_cleanup=$PREFLIGHT_RETRY_CLEANUP_OUTCOME"
             exit 1
           fi
 
