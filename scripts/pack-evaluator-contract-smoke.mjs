@@ -5,6 +5,13 @@ import { writeFile } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
 
 const MAX_RESPONSE_BYTES = 1024 * 1024;
+const EXPECTED_RESPONSE_TEXT = 'PACK_EVALUATOR_READY';
+const REQUIRED_PROTOCOL_CHECKS = [
+  'contentTypeValid',
+  'firstEventValid',
+  'textDeltaSeen',
+  'completed',
+];
 
 function fail(message) {
   throw new Error(message);
@@ -117,6 +124,16 @@ function sseEvents(body) {
   return events;
 }
 
+function outputTextDiagnostics(text) {
+  const normalized = text.trim();
+  return {
+    textDeltaSeen: normalized.length > 0,
+    textMatches: normalized === EXPECTED_RESPONSE_TEXT,
+    outputTextBytes: Buffer.byteLength(normalized),
+    outputTextSha256: normalized ? sha256(normalized) : null,
+  };
+}
+
 function validateMessagesEvents(events) {
   const firstEventValid = events[0]?.type === 'message_start';
   const deltas = events.filter((event) => (
@@ -125,12 +142,11 @@ function validateMessagesEvents(events) {
     && typeof event.data.delta.text === 'string'
   ));
   const completed = events.some((event) => event.type === 'message_stop');
-  const text = deltas.map((event) => event.data.delta.text).join('').trim();
+  const text = deltas.map((event) => event.data.delta.text).join('');
   return {
     firstEventValid,
-    textDeltaSeen: deltas.length > 0,
     completed,
-    textMatches: text === 'PACK_EVALUATOR_READY',
+    ...outputTextDiagnostics(text),
   };
 }
 
@@ -141,12 +157,11 @@ function validateResponsesEvents(events) {
     && typeof event.data?.delta === 'string'
   ));
   const completed = events.some((event) => event.type === 'response.completed');
-  const text = deltas.map((event) => event.data.delta).join('').trim();
+  const text = deltas.map((event) => event.data.delta).join('');
   return {
     firstEventValid,
-    textDeltaSeen: deltas.length > 0,
     completed,
-    textMatches: text === 'PACK_EVALUATOR_READY',
+    ...outputTextDiagnostics(text),
   };
 }
 
@@ -212,6 +227,8 @@ async function runOneContract({ contract, proxyUrl, token, fetchImpl, timeoutMs 
     textDeltaSeen: false,
     completed: false,
     textMatches: false,
+    outputTextBytes: 0,
+    outputTextSha256: null,
   };
   let eventCount = 0;
   if (response?.ok) {
@@ -226,7 +243,7 @@ async function runOneContract({ contract, proxyUrl, token, fetchImpl, timeoutMs 
       protocol = { ...protocol, malformed: true };
     }
   }
-  const validResponse = Object.values(protocol).every((value) => value === true);
+  const validResponse = REQUIRED_PROTOCOL_CHECKS.every((check) => protocol[check] === true);
   return {
     name: contract.name,
     outcome: transportError
