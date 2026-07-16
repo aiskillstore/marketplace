@@ -327,14 +327,27 @@ jobs:
           count=$(sed '/^$/d' "$target" | sort -u | wc -l | tr -d ' ')
           test "$count" -gt 0
           test "$(jq -r '.scores | length' "$expected")" -eq "$count"
+          invalidation_target="$RUNNER_TEMP/cache-invalidation-slugs.txt"
+          if [ "$SCOPE" = approved-catalog-cache ]; then
+            # The deployed Skill detail v6 / recommendation v3 / page-build
+            # generations make every old per-Skill key unreachable. One exact
+            # invalidation still bumps the shared Skill-list generation without
+            # issuing millions of redundant KV deletes for the full catalog.
+            awk 'NF { print; exit }' "$target" > "$invalidation_target"
+          else
+            cp "$target" "$invalidation_target"
+          fi
+          invalidation_count=$(sed '/^$/d' "$invalidation_target" | sort -u | wc -l | tr -d ' ')
+          test "$invalidation_count" -gt 0
           echo "slug_count=$count" >> "$GITHUB_OUTPUT"
+          echo "invalidation_count=$invalidation_count" >> "$GITHUB_OUTPUT"
 
       - name: Invalidate selected score API entries
         id: invalidate
         uses: ./.github/actions/invalidate-cache
         with:
           type: skills
-          slugs-file: ${{ runner.temp }}/cache-closure-slugs.txt
+          slugs-file: ${{ runner.temp }}/cache-invalidation-slugs.txt
           site-url: https://skillstore.io
           secret: ${{ secrets.CACHE_INVALIDATE_SECRET }}
           batch-size: '30'
@@ -345,8 +358,9 @@ jobs:
 
       - name: Require exact invalidation count
         env:
-          EXPECTED: ${{ steps.selected.outputs.slug_count }}
+          EXPECTED: ${{ steps.selected.outputs.invalidation_count }}
           FAILED: ${{ steps.invalidate.outputs.failed_count }}
+          LIST_VERSION_BUMPED: ${{ steps.invalidate.outputs.list_version_bumped }}
           SUCCEEDED: ${{ steps.invalidate.outputs.success_count }}
           TOTAL: ${{ steps.invalidate.outputs.total_count }}
         run: |
@@ -354,6 +368,7 @@ jobs:
           test "$TOTAL" -eq "$EXPECTED"
           test "$SUCCEEDED" -eq "$EXPECTED"
           test "$FAILED" -eq 0
+          test "$LIST_VERSION_BUMPED" = true
 
       - name: Verify every production cache readback
         id: readback
@@ -362,28 +377,34 @@ jobs:
             --expected-score-evidence "$RUNNER_TEMP/cache-closure-expected-score-evidence.json" \
             --evidence "$RUNNER_TEMP/cache-readback.json" \
             --site-url https://skillstore.io \
-            --concurrency 8 \
+            --expected-cache-version v6 \
+            --concurrency 16 \
             --attempts 3 \
             --timeout-ms 30000
 
       - name: Write closure evidence
         if: always()
         env:
+          INVALIDATION_COUNT: ${{ steps.selected.outputs.invalidation_count || 'unknown' }}
+          LIST_VERSION_BUMPED: ${{ steps.invalidate.outputs.list_version_bumped || 'unknown' }}
           REMAINING: ${{ steps.selected.outputs.remaining_score_failures || 'unknown' }}
           SLUG_COUNT: ${{ steps.selected.outputs.slug_count || 'unknown' }}
         run: |
           evidence="$RUNNER_TEMP/score-cache-recovery-evidence"
           mkdir -p "$evidence"
           cp "$RUNNER_TEMP/cache-closure-slugs.txt" "$evidence/selected-slugs.txt" 2>/dev/null || true
+          cp "$RUNNER_TEMP/cache-invalidation-slugs.txt" "$evidence/invalidation-slugs.txt" 2>/dev/null || true
           cp "$RUNNER_TEMP/cache-closure-expected-score-evidence.json" "$evidence/expected-score-evidence.json" 2>/dev/null || true
           cp "$RUNNER_TEMP/cache-readback.json" "$evidence/cache-readback.json" 2>/dev/null || true
           cp "$RUNNER_TEMP/score-cache-recovery-result/before-score-evidence.json" "$evidence/before-score-evidence.json" 2>/dev/null || true
           cp "$RUNNER_TEMP/score-cache-recovery-result/run-boundary.txt" "$evidence/run-boundary.txt" 2>/dev/null || true
           cp "$RUNNER_TEMP/score-cache-recovery-result/score-write-evidence.json" "$evidence/score-write-evidence.json" 2>/dev/null || true
           jq -n --arg scope "${{ needs.plan.outputs.scope }}" --arg slugCount "$SLUG_COUNT" \
+            --arg invalidationCount "$INVALIDATION_COUNT" \
+            --arg listVersionBumped "$LIST_VERSION_BUMPED" \
             --arg remainingScoreFailures "$REMAINING" --arg invalidation "${{ steps.invalidate.outcome }}" \
             --arg readback "${{ steps.readback.outcome }}" \
-            '{schemaVersion:1,scope:$scope,slugCount:$slugCount,remainingScoreFailures:$remainingScoreFailures,invalidation:$invalidation,readback:$readback}' \
+            '{schemaVersion:1,scope:$scope,slugCount:$slugCount,invalidationCount:$invalidationCount,listVersionBumped:$listVersionBumped,remainingScoreFailures:$remainingScoreFailures,invalidation:$invalidation,readback:$readback}' \
             > "$evidence/summary.json"
 
       - name: Upload closure evidence
@@ -414,6 +435,8 @@ jobs:
             echo "- Scope: ${{ needs.plan.outputs.scope }}"
             echo "- Planned slugs: ${{ needs.plan.outputs.slug_count }}"
             echo "- Cache-closed slugs: ${{ steps.selected.outputs.slug_count || 'unknown' }}"
+            echo "- List-generation invalidation slugs: ${{ steps.selected.outputs.invalidation_count || 'unknown' }}"
+            echo "- Skill list generation bumped: ${{ steps.invalidate.outputs.list_version_bumped || 'unknown' }}"
             echo "- Remaining score failures: ${{ steps.selected.outputs.remaining_score_failures || 'unknown' }}"
             echo "- Invalidation: ${{ steps.invalidate.outcome }}"
             echo "- Production readback: ${{ steps.readback.outcome }}"

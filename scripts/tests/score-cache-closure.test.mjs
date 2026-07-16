@@ -204,19 +204,37 @@ test('production readback requires a closed first read and a stable HIT+SKIPPED 
     })),
     attempts: 1,
     concurrency: 2,
+    expectedCacheVersion: 'v6',
     fetchImpl: async (url) => {
       const slug = String(url).split('/').at(-1);
       const count = (calls.get(slug) || 0) + 1;
       calls.set(slug, count);
       return cachedResponse(slug, count === 1
-        ? { cache: 'MISS', write: 'STORED' }
-        : { cache: 'HIT', write: 'SKIPPED' });
+        ? { cache: 'MISS', version: 'v6', write: 'STORED' }
+        : { cache: 'HIT', version: 'v6', write: 'SKIPPED' });
     },
   });
   assert.equal(evidence.failures.length, 0);
   assert.equal(evidence.slugCount, 2);
   assert.deepEqual(evidence.builds, ['build-a']);
   assert.deepEqual(Object.fromEntries(calls), { alpha: 2, beta: 2 });
+});
+
+test('readback rejects a stable cache generation that is not the required version', async () => {
+  const evidence = await verifyCacheReadback({
+    expectedScores: [{
+      slug: 'alpha', qualityScore: 88, qualityTier: 'silver',
+      calculatedAt: '2026-07-15T12:00:00+00:00', snapshotId: '11111111-1111-4111-8111-111111111111',
+    }],
+    attempts: 1,
+    concurrency: 1,
+    expectedCacheVersion: 'v6',
+    fetchImpl: async () => cachedResponse('alpha', {
+      cache: 'HIT', version: 'v5', write: 'SKIPPED',
+    }),
+  });
+  assert.equal(evidence.failures.length, 1);
+  assert.match(evidence.failures[0].error, /cache version was v5\/v5; expected v6/);
 });
 
 test('readback records unstable cache identity as a failure', async () => {
@@ -323,7 +341,16 @@ test('manual recovery is file-backed, fixed-CLI, bounded, and red on any remaini
   assert.match(RECOVERY, /group: production-skill-score-writes/);
   assert.match(RECOVERY, /--concurrency "\$\{\{ inputs\.score_concurrency \}\}"/);
   assert.match(RECOVERY, /Invalidate selected score API entries/);
+  assert.match(RECOVERY, /awk 'NF \{ print; exit \}' "\$target" > "\$invalidation_target"/);
+  assert.match(RECOVERY, /slugs-file: \$\{\{ runner\.temp \}\}\/cache-invalidation-slugs\.txt/);
+  assert.match(RECOVERY, /EXPECTED: \$\{\{ steps\.selected\.outputs\.invalidation_count \}\}/);
+  assert.match(RECOVERY, /test "\$LIST_VERSION_BUMPED" = true/);
+  assert.match(RECOVERY, /invalidationCount:\$invalidationCount/);
+  assert.match(RECOVERY, /listVersionBumped:\$listVersionBumped/);
+  assert.match(RECOVERY, /List-generation invalidation slugs:/);
   assert.match(RECOVERY, /batch-size: '30'\n\s+concurrency: \$\{\{ needs\.plan\.outputs\.scope == 'approved-catalog-cache' && '4' \|\| '1' \}\}/);
+  assert.match(RECOVERY, /--expected-cache-version v6/);
+  assert.match(RECOVERY, /--concurrency 16/);
   assert.match(RECOVERY, /Require complete score and cache recovery/);
   assert.match(RECOVERY, /freeze-score-evidence/);
   assert.match(RECOVERY, /before-score-evidence\.json/);
@@ -359,6 +386,8 @@ test('shared invalidation action preserves score-only closure flags and validate
   assert.match(INVALIDATE_ACTION, /invalidateArtifacts: \$invalidateArtifacts/);
   assert.match(INVALIDATE_ACTION, /invalidateDependentPacks: \$invalidateDependentPacks/);
   assert.match(INVALIDATE_ACTION, /Cache invalidation response violated the requested closure contract/);
+  assert.match(INVALIDATE_ACTION, /\.invalidated\.listVersionBumped == true/);
+  assert.match(INVALIDATE_ACTION, /list_version_bumped=true/);
   assert.match(INVALIDATE_ACTION, /--max-time 90/);
   assert.match(INVALIDATE_ACTION, /local max_attempts=4/);
   assert.match(INVALIDATE_ACTION, /concurrency:[\s\S]*default: '1'/);
