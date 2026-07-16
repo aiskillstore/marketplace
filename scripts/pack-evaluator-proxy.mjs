@@ -29,6 +29,7 @@ const STRIPPED_HEADERS = new Set([
 ]);
 const MAX_BODY_BYTES = 32 * 1024 * 1024;
 const MAX_ERROR_DIAGNOSTIC_BYTES = 64 * 1024;
+const MAX_AUTH_REJECTION_DIAGNOSTICS = 8;
 const TRACE_HEADERS = [
   'cf-ray',
   'request-id',
@@ -282,6 +283,7 @@ export function createPackEvaluatorProxy({
   let requestsStarted = 0;
   let activityRequestSequence = 0;
   let activeRequests = 0;
+  let authRejectionDiagnostics = 0;
   let circuitFailure = null;
   const recordActivity = (activity) => {
     try {
@@ -298,6 +300,17 @@ export function createPackEvaluatorProxy({
   return createServer(async (request, response) => {
     try {
       if (!sameToken(requestToken(request), localToken)) {
+        if (authRejectionDiagnostics < MAX_AUTH_REJECTION_DIAGNOSTICS) {
+          const rejectedPath = new URL(request.url || '/', 'http://127.0.0.1').pathname;
+          recordActivity({
+            phase: 'response',
+            requestNumber: ++activityRequestSequence,
+            path: ALLOWED_PATHS.has(rejectedPath) ? rejectedPath : 'not_allowed',
+            status: 401,
+            errorCategory: 'authentication_failed',
+          });
+          authRejectionDiagnostics += 1;
+        }
         json(response, 401, { error: 'invalid local proxy token' });
         return;
       }

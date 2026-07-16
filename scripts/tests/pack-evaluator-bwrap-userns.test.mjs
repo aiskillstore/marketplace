@@ -98,7 +98,7 @@ test('production configures and proves bwrap before the only Helm secret step', 
   assert.doesNotMatch(evaluate.slice(0, secretStepIndex), /secrets\./);
 });
 
-test('hosted proof is pinned, secret-free, and invokes the production helper', () => {
+test('hosted proof is manually gated, read-only, pinned, and invokes the production helper', () => {
   assert.match(HOSTED_CI, /runs-on: ubuntu-24\.04/);
   assert.match(HOSTED_CI, /timeout-minutes: 10/);
   assert.match(HOSTED_CI, /permissions:\n  contents: read/);
@@ -115,13 +115,29 @@ test('hosted proof is pinned, secret-free, and invokes the production helper', (
   assert.match(HOSTED_CI, /scripts\/configure-pack-evaluator-bwrap\.sh/);
   assert.match(HOSTED_CI, /scripts\/pack-evaluator-preflight-mock\.mjs/);
   assert.match(HOSTED_CI, /scripts\/pack-evaluator-preflight\.sh/);
+  assert.match(HOSTED_CI, /if: github\.event_name == 'workflow_dispatch'/);
+  assert.match(HOSTED_CI, /actions\/create-github-app-token@v3/);
+  assert.match(HOSTED_CI, /repositories: skillstore/);
+  assert.match(HOSTED_CI, /permission-contents: read/);
+  assert.match(HOSTED_CI, /PACK_PRODUCTION_CLI_VERSION: '2\.14\.0'/);
+  assert.match(HOSTED_CI, /download-skillstore-cli/);
+  assert.match(HOSTED_CI, /require-checksum: 'true'/);
+  assert.match(HOSTED_CI, /\/opt\/pack-evaluator\/bin\/skillstore-cli/);
   assert.match(HOSTED_CI, /PACK_EVALUATOR_MAX_OUTPUT_TOKENS: '16384'/);
   assert.match(
     HOSTED_CI,
     /PACK_EVALUATOR_MAX_OUTPUT_TOKENS="\$PACK_EVALUATOR_MAX_OUTPUT_TOKENS"/,
   );
   assert.match(HOSTED_CI, /\.maxTokens == 16384/);
-  assert.match(HOSTED_CI, /\.claude\.outcome == "passed"/);
-  assert.match(HOSTED_CI, /\.codex\.outcome == "passed"/);
-  assert.doesNotMatch(HOSTED_CI, /secrets\.|pull_request_target|self-hosted/);
+  assert.match(HOSTED_CI, /\.schemaVersion == "marketplace\.pack-executor-preflight\/v1"/);
+  assert.match(HOSTED_CI, /\.mode == "pack-production-node-uid-nested-bwrap"/);
+  assert.match(HOSTED_CI, /\.outcome == "passed"/);
+  assert.match(HOSTED_CI, /\.agentExecutionEvidence \| length/);
+  assert.match(HOSTED_CI, /runnerTraceEvidence\.bindingDigest/);
+  assert.match(HOSTED_CI, /proofBinding\.marketplaceCommitSha == env\.GITHUB_SHA/);
+  assert.match(HOSTED_CI, /proofBinding\.cliSha256 == env\.CLI_SHA256/);
+  assert.match(HOSTED_CI, /Upload commit- and checksum-bound proof/);
+  assert.match(HOSTED_CI, /PACK_EVALUATOR_PREFLIGHT_MODE=pack-verify/);
+  assert.match(HOSTED_CI, /private-key: \$\{\{ secrets\.APP_PRIVATE_KEY \}\}/);
+  assert.doesNotMatch(HOSTED_CI, /pull_request_target|self-hosted|PACK_EVALUATOR_HELM_API_KEY|SUPABASE/);
 });

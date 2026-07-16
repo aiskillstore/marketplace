@@ -10,10 +10,12 @@ on:
       - 'scripts/pack-evaluator-bwrap.apparmor'
       - 'scripts/pack-evaluator-preflight.sh'
       - 'scripts/pack-evaluator-preflight-mock.mjs'
+      - 'scripts/pack-production.mjs'
       - 'scripts/tests/generate-packs-workflow.test.mjs'
       - 'scripts/tests/pack-evaluator-bwrap-userns.test.mjs'
       - 'scripts/tests/pack-evaluator-egress.test.mjs'
       - 'scripts/tests/pack-evaluator-preflight-mock.test.mjs'
+      - 'scripts/tests/pack-production.test.mjs'
   push:
     branches:
       - main
@@ -25,16 +27,19 @@ on:
       - 'scripts/pack-evaluator-bwrap.apparmor'
       - 'scripts/pack-evaluator-preflight.sh'
       - 'scripts/pack-evaluator-preflight-mock.mjs'
+      - 'scripts/pack-production.mjs'
       - 'scripts/tests/generate-packs-workflow.test.mjs'
       - 'scripts/tests/pack-evaluator-bwrap-userns.test.mjs'
       - 'scripts/tests/pack-evaluator-egress.test.mjs'
       - 'scripts/tests/pack-evaluator-preflight-mock.test.mjs'
+      - 'scripts/tests/pack-production.test.mjs'
   workflow_dispatch:
 
 permissions:
   contents: read
 
 env:
+  PACK_PRODUCTION_CLI_VERSION: '2.14.0'
   PACK_EVALUATOR_MAX_OUTPUT_TOKENS: '16384'
 
 concurrency:
@@ -42,8 +47,32 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  contract:
+    name: Validate secret-free preflight contracts
+    if: github.event_name != 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Checkout immutable contracts
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          filter: ''
+          clean: true
+          persist-credentials: false
+
+      - name: Run bounded contract tests
+        run: |
+          CI=true node --test \
+            scripts/tests/generate-packs-workflow.test.mjs \
+            scripts/tests/pack-evaluator-bwrap-userns.test.mjs \
+            scripts/tests/pack-evaluator-preflight-mock.test.mjs \
+            scripts/tests/pack-production.test.mjs
+
   userns:
     name: Prove scoped bwrap user namespace
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -56,7 +85,17 @@ jobs:
           clean: true
           persist-credentials: false
 
+      - name: Generate read-only Skillstore release token
+        id: cli-app-token
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ vars.APP_CLIENT_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+          repositories: skillstore
+          permission-contents: read
+
       - name: Install bubblewrap and pinned evaluator CLIs
+        id: runtimes
         run: |
           set -euo pipefail
           sudo apt-get update
@@ -67,13 +106,24 @@ jobs:
           test -x "$NODE_SOURCE"
           sudo install -d -o root -g root -m 0755 \
             /opt/pack-evaluator \
+            /opt/pack-evaluator/bin \
+            /opt/pack-evaluator/lib \
             /opt/pack-evaluator/runtime \
-            /opt/pack-evaluator/runtime/bin
+            /opt/pack-evaluator/runtime/bin \
+            /opt/pack-evaluator/generations
           sudo npm install --global --prefix /opt/pack-evaluator/runtime \
             @anthropic-ai/claude-code@2.1.210 \
             @openai/codex@0.139.0
           sudo install -o root -g root -m 0555 \
-            "$NODE_SOURCE" /opt/pack-evaluator/runtime/bin/node
+            "$NODE_SOURCE" \
+            /opt/pack-evaluator/bin/node
+          sudo install -o root -g root -m 0555 \
+            "$NODE_SOURCE" \
+            /opt/pack-evaluator/runtime/bin/node
+          sudo install -o root -g root -m 0444 \
+            scripts/pack-production.mjs \
+            /opt/pack-evaluator/lib/pack-production.mjs
+          sudo chmod 0711 /opt/pack-evaluator/generations
           sudo chown -R root:root /opt/pack-evaluator/runtime
           sudo chmod -R a=rX /opt/pack-evaluator/runtime
           sudo install -d -o packeval -g packeval -m 0700 /home/packeval/tmp
@@ -97,15 +147,37 @@ jobs:
             scripts/configure-pack-evaluator-egress.sh \
             scripts/pack-evaluator-bwrap.apparmor \
             scripts/pack-evaluator-preflight.sh \
-            scripts/pack-evaluator-preflight-mock.mjs
+            scripts/pack-evaluator-preflight-mock.mjs \
+            scripts/pack-production.mjs
           sudo chmod 0555 \
             scripts/configure-pack-evaluator-bwrap.sh \
             scripts/configure-pack-evaluator-egress.sh \
             scripts/pack-evaluator-preflight.sh \
             scripts/pack-evaluator-preflight-mock.mjs
+          sudo chmod 0444 scripts/pack-production.mjs
           sudo chmod 0444 scripts/pack-evaluator-bwrap.apparmor
           test "$(/opt/pack-evaluator/runtime/bin/claude --version | awk '{print $1}')" = '2.1.210'
           test "$(/opt/pack-evaluator/runtime/bin/codex --version | awk '{print $2}')" = '0.139.0'
+
+      - name: Download the checksum-verified Skillstore CLI
+        id: cli
+        uses: ./.github/actions/download-skillstore-cli
+        with:
+          version: ${{ env.PACK_PRODUCTION_CLI_VERSION }}
+          minimum-version: ${{ env.PACK_PRODUCTION_CLI_VERSION }}
+          require-checksum: 'true'
+          token: ${{ steps.cli-app-token.outputs.token }}
+
+      - name: Install the verified CLI into the production path
+        env:
+          CLI: ${{ steps.cli.outputs.cli-path }}
+          CLI_SHA256: ${{ steps.cli.outputs.cli-sha256 }}
+        run: |
+          set -euo pipefail
+          test "$(sha256sum "$CLI" | awk '{print $1}')" = "$CLI_SHA256"
+          sudo install -o root -g root -m 0555 "$CLI" /opt/pack-evaluator/bin/skillstore-cli
+          test "$(/opt/pack-evaluator/bin/skillstore-cli --version | grep -Eo '[0-9]+([.][0-9]+){2}' | head -n1)" = \
+            "$PACK_PRODUCTION_CLI_VERSION"
 
       - name: Configure scoped AppArmor policy and prove the real sandbox
         run: |
@@ -140,6 +212,8 @@ jobs:
           test "$IPV6_REJECT_AFTER" -gt "$IPV6_REJECT_BEFORE"
 
       - name: Run both pinned CLIs through the production preflight sandbox
+        env:
+          CLI_SHA256: ${{ steps.cli.outputs.cli-sha256 }}
         run: |
           set -euo pipefail
           LOCAL_TOKEN=local-preflight-token-longer-than-thirty-two-bytes
@@ -154,6 +228,7 @@ jobs:
             PACK_EVALUATOR_LOCAL_TOKEN="$LOCAL_TOKEN" \
             PACK_EVALUATOR_PROXY_PORT=18765 \
             PACK_EVALUATOR_ACTIVITY_FILE="$ACTIVITY_FILE" \
+            PACK_EVALUATOR_PREFLIGHT_MODE=pack-verify \
             /opt/pack-evaluator/runtime/bin/node \
               "$GITHUB_WORKSPACE/scripts/pack-evaluator-preflight-mock.mjs" \
               >"$MOCK_LOG" 2>&1 &
@@ -182,15 +257,50 @@ jobs:
             PACK_DIAGNOSTICS_DIR="$DIAGNOSTICS_DIR" \
             PACK_EVALUATOR_ACTIVITY_FILE="$ACTIVITY_FILE" \
             PACK_EVALUATOR_MAX_OUTPUT_TOKENS="$PACK_EVALUATOR_MAX_OUTPUT_TOKENS" \
+            PACK_PRODUCTION_CLI_VERSION="$PACK_PRODUCTION_CLI_VERSION" \
+            PACK_EVALUATOR_MARKETPLACE_COMMIT_SHA="$GITHUB_SHA" \
+            PACK_EVALUATOR_CLI_SHA256="$CLI_SHA256" \
             bash "$GITHUB_WORKSPACE/scripts/pack-evaluator-preflight.sh"
           IPV4_ACCEPT_AFTER=$(sudo iptables -w 5 -L PACK_EVALUATOR_EGRESS -v -n -x \
             | awk '$3 == "ACCEPT" {print $1}')
           test "$IPV4_ACCEPT_AFTER" -gt "$IPV4_ACCEPT_BEFORE"
           jq -e '
-            .claude.outcome == "passed"
-            and .claude.errorClass == "none"
-            and .codex.outcome == "passed"
-            and .codex.errorClass == "none"
+            .schemaVersion == "marketplace.pack-executor-preflight/v1"
+            and .mode == "pack-production-node-uid-nested-bwrap"
+            and .outcome == "passed"
+            and .errorClass == "none"
+            and .outerExecution.exitCode == 0
+            and .outerExecution.signal == null
+            and .outerExecution.timedOut == false
+            and .outerExecution.stalled == false
+            and .outerExecution.outputExceeded == false
+            and .runnerTraceEvidence.schemaVersion == "marketplace.pack-executor-trace-evidence/v1"
+            and .runnerTraceEvidence.deterministic == true
+            and .runnerTraceEvidence.traceCount == 1
+            and .runnerTraceEvidence.eventCount == 2
+            and (.runnerTraceEvidence.bindingDigest | test("^[0-9a-f]{64}$"))
+            and (.commandAttempts | length) == 1
+            and .commandAttempts[0].attempt == 1
+            and .commandAttempts[0].recovered == false
+            and .commandAttempts[0].outerExecution == .outerExecution
+            and .commandAttempts[0].agentExecutionEvidence == .agentExecutionEvidence
+            and .proofBinding.marketplaceCommitSha == env.GITHUB_SHA
+            and .proofBinding.cliVersion == env.PACK_PRODUCTION_CLI_VERSION
+            and .proofBinding.cliSha256 == env.CLI_SHA256
+            and (.agentExecutionEvidence | length) == 2
+            and all(.agentExecutionEvidence[];
+              .succeeded == true
+              and (.attempts | length) == 1
+              and all(.attempts[];
+                .sandboxed == true
+                and .outcome == "succeeded"
+                and .failureCategory == "none"
+                and .exitCode == 0
+                and .signal == null
+              )
+            )
+            and .http.messages200 >= 2
+            and .http.responses200 >= 1
             and .cleanup.outcome == "passed"
           ' "$DIAGNOSTICS_DIR/agent-preflight-diagnostics.json" >/dev/null
           jq -se '
@@ -200,13 +310,23 @@ jobs:
           ' "$DIAGNOSTICS_DIR/proxy-activity.ndjson" >/dev/null
           jq -se '
             [ .[] | select(.phase == "response" and .status == 200 and .path == "/v1/messages") ]
-            | length > 0 and all(.[]; .maxTokens == 16384)
+            | length >= 2 and all(.[]; .maxTokens == 16384)
           ' "$DIAGNOSTICS_DIR/proxy-activity.ndjson" >/dev/null
           if rg -F \
             -e "$LOCAL_TOKEN" \
             -e 'Reply with exactly' \
             -e 'PACK_EVALUATOR_READY' \
+            -e 'executor path healthy' \
             "$DIAGNOSTICS_DIR"; then
             echo 'Preflight diagnostics retained forbidden raw content' >&2
             exit 1
           fi
+
+      - name: Upload commit- and checksum-bound proof
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: pack-executor-preflight-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/pack-preflight-diagnostics
+          if-no-files-found: error
+          retention-days: 7

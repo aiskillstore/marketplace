@@ -6,6 +6,19 @@ import { createServer } from 'node:http';
 import { pathToFileURL } from 'node:url';
 
 const READY_TEXT = 'PACK_EVALUATOR_READY';
+const PREFLIGHT_SKILL_IDS = [
+  'pack-executor-preflight-a',
+  'pack-executor-preflight-b',
+];
+const VERIFY_JUDGE_TEXT = JSON.stringify({
+  used_skill: true,
+  used_skills: PREFLIGHT_SKILL_IDS,
+  task_completed: true,
+  env_blocked: false,
+  score: 10,
+  reason: 'executor path healthy',
+  issues: [],
+});
 const MAX_REQUEST_BYTES = 1024 * 1024;
 
 function fail(message) {
@@ -94,18 +107,65 @@ function messagesEvents(model) {
   ];
 }
 
-function responseItem() {
+function messagesToolUseEvents(model, skillIds) {
+  const events = [
+    { type: 'message_start', message: messageObject(model, [], null) },
+  ];
+  skillIds.forEach((skill, index) => {
+    events.push({
+      type: 'content_block_start',
+      index,
+      content_block: {
+        type: 'tool_use',
+        id: `toolu_pack_preflight_${index + 1}`,
+        name: 'Skill',
+        input: {},
+      },
+    });
+    events.push({
+      type: 'content_block_delta',
+      index,
+      delta: { type: 'input_json_delta', partial_json: JSON.stringify({ skill }) },
+    });
+    events.push({ type: 'content_block_stop', index });
+  });
+  events.push({
+    type: 'message_delta',
+    delta: { stop_reason: 'tool_use', stop_sequence: null },
+    usage: { output_tokens: 1 },
+  });
+  events.push({ type: 'message_stop' });
+  return events;
+}
+
+function hasSkillTool(value) {
+  return Array.isArray(value.tools) && value.tools.some((tool) => tool?.name === 'Skill');
+}
+
+function hasExactToolResults(value, expectedCount) {
+  if (!Array.isArray(value.messages) || value.messages.length === 0) return false;
+  const last = value.messages.at(-1);
+  if (last?.role !== 'user' || !Array.isArray(last.content)) return false;
+  const resultIds = last.content
+    .filter((block) => block?.type === 'tool_result')
+    .map((block) => block.tool_use_id);
+  return resultIds.length === expectedCount && resultIds.every(
+    (id, index) => id === `toolu_pack_preflight_${index + 1}`,
+  );
+}
+
+function responseItem(outputText) {
   return {
     id: 'msg_pack_preflight_mock',
     type: 'message',
     role: 'assistant',
-    content: [{ type: 'output_text', text: READY_TEXT, annotations: [] }],
+    content: [{ type: 'output_text', text: outputText, annotations: [] }],
   };
 }
 
-function responsesEvents() {
+function responsesEvents(outputText) {
   const id = 'resp_pack_preflight_mock';
-  const item = responseItem();
+  const item = responseItem(outputText);
   return [
     { type: 'response.created', response: { id } },
     { type: 'response.output_item.added', output_index: 0, item: { ...item, content: [] } },
@@ -121,14 +181,14 @@ function responsesEvents() {
       item_id: item.id,
       output_index: 0,
       content_index: 0,
-      delta: READY_TEXT,
+      delta: outputText,
     },
     {
       type: 'response.output_text.done',
       item_id: item.id,
       output_index: 0,
       content_index: 0,
-      text: READY_TEXT,
+      text: outputText,
     },
     {
       type: 'response.content_part.done',
@@ -156,11 +216,17 @@ function responsesEvents() {
   ];
 }
 
-export function createPackEvaluatorPreflightMock({ localToken, onActivity = () => {} }) {
+export function createPackEvaluatorPreflightMock({
+  localToken,
+  onActivity = () => {},
+  responsesOutput = READY_TEXT,
+  preflightSkillIds = [],
+}) {
   if (typeof localToken !== 'string' || localToken.length < 32) {
     fail('PACK_EVALUATOR_LOCAL_TOKEN must be at least 32 characters');
   }
   let requestNumber = 0;
+  let messagesRequestNumber = 0;
   return createServer(async (request, response) => {
     const path = new URL(request.url || '/', 'http://127.0.0.1').pathname;
     if (!sameToken(requestToken(request), localToken)) {
@@ -212,9 +278,32 @@ export function createPackEvaluatorPreflightMock({ localToken, onActivity = () =
       return;
     }
     if (path === '/v1/messages') {
+      messagesRequestNumber += 1;
+      if (preflightSkillIds.length > 0) {
+        if (messagesRequestNumber === 1 && !hasSkillTool(parsed.value)) {
+          onActivity({ ...activity, status: 400 });
+          json(response, 400, { error: 'Skill tool is required by Pack preflight' });
+          return;
+        }
+        if (messagesRequestNumber === 2 && !hasExactToolResults(parsed.value, preflightSkillIds.length)) {
+          onActivity({ ...activity, status: 400 });
+          json(response, 400, { error: 'Pack preflight tool results were incomplete' });
+          return;
+        }
+        if (messagesRequestNumber > 2) {
+          onActivity({ ...activity, status: 400 });
+          json(response, 400, { error: 'Pack preflight exceeded the Messages request budget' });
+          return;
+        }
+      }
       onActivity(activity);
       if (parsed.value.stream === true) {
-        sse(response, messagesEvents(model || 'sonnet'));
+        sse(
+          response,
+          preflightSkillIds.length > 0 && messagesRequestNumber === 1
+            ? messagesToolUseEvents(model || 'sonnet', preflightSkillIds)
+            : messagesEvents(model || 'sonnet'),
+        );
       } else {
         json(response, 200, messageObject(model || 'sonnet', [{ type: 'text', text: READY_TEXT }], 'end_turn'));
       }
@@ -223,9 +312,9 @@ export function createPackEvaluatorPreflightMock({ localToken, onActivity = () =
     if (path === '/v1/responses') {
       onActivity(activity);
       if (parsed.value.stream === true) {
-        sse(response, responsesEvents());
+        sse(response, responsesEvents(responsesOutput));
       } else {
-        json(response, 200, responsesEvents().at(-1).response);
+        json(response, 200, responsesEvents(responsesOutput).at(-1).response);
       }
       return;
     }
@@ -246,6 +335,12 @@ export async function startPackEvaluatorPreflightMock(environment = process.env)
   const activityFile = environment.PACK_EVALUATOR_ACTIVITY_FILE;
   const server = createPackEvaluatorPreflightMock({
     localToken: environment.PACK_EVALUATOR_LOCAL_TOKEN,
+    responsesOutput: ['verify', 'pack-verify'].includes(environment.PACK_EVALUATOR_PREFLIGHT_MODE)
+      ? VERIFY_JUDGE_TEXT
+      : READY_TEXT,
+    preflightSkillIds: environment.PACK_EVALUATOR_PREFLIGHT_MODE === 'pack-verify'
+      ? PREFLIGHT_SKILL_IDS
+      : [],
     onActivity: activityFile
       ? (activity) => appendFileSync(
         activityFile,
