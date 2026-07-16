@@ -1,0 +1,292 @@
+name: Publish Pack Production v4
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_run_id:
+        description: 'Successful Generate Pack run that ended in review_pending'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: publish-pack-production-v4
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    name: Prepare immutable generation approval
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      generation_id: ${{ steps.approval.outputs.generation_id }}
+      pack_slug: ${{ steps.approval.outputs.pack_slug }}
+      source_sha: ${{ steps.approval.outputs.source_sha }}
+      binding_digest: ${{ steps.approval.outputs.binding_digest }}
+      score: ${{ steps.approval.outputs.score }}
+    steps:
+      - name: Checkout the manual publisher from main
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          filter: ''
+          clean: true
+          persist-credentials: false
+          sparse-checkout: scripts/pack-production-manual-publish.mjs
+          sparse-checkout-cone-mode: false
+
+      - name: Require main and a disabled automatic publish gate
+        env:
+          AUTO_PUBLISH_ENABLED: ${{ vars.PACK_PRODUCTION_AUTO_PUBLISH_ENABLED }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = refs/heads/main
+          if [ "${AUTO_PUBLISH_ENABLED:-false}" = true ]; then
+            echo '::error::Manual publication is forbidden while PACK_PRODUCTION_AUTO_PUBLISH_ENABLED=true'
+            exit 1
+          fi
+
+      - name: Resolve the exact source run and final artifact
+        id: source
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+        run: |
+          set -euo pipefail
+          if ! [[ "$SOURCE_RUN_ID" =~ ^[1-9][0-9]{5,19}$ ]]; then
+            echo '::error::source_run_id must be a GitHub Actions run id'
+            exit 1
+          fi
+          mkdir -p "$RUNNER_TEMP/pack-manual-source"
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN_ID" \
+            > "$RUNNER_TEMP/pack-manual-source/source-run.json"
+          gh api "repos/$GITHUB_REPOSITORY/actions/workflows/generate-packs.yml" \
+            > "$RUNNER_TEMP/pack-manual-source/workflow.json"
+          gh api --paginate \
+            "repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN_ID/artifacts?name=pack-production-final&per_page=100" \
+            --slurp | jq -e '
+              [.[].artifacts[] | select(.name == "pack-production-final")] as $artifacts |
+              if ($artifacts | length) == 1 then $artifacts[0]
+              else error("expected one exact pack-production-final artifact") end
+            ' > "$RUNNER_TEMP/pack-manual-source/artifact.json"
+          ARTIFACT_ID=$(jq -er '
+            select(.expired == false) |
+            select(.digest | test("^sha256:[0-9a-f]{64}$")) |
+            select(.size_in_bytes > 0 and .size_in_bytes <= 33554432) |
+            .id
+          ' "$RUNNER_TEMP/pack-manual-source/artifact.json")
+          echo "artifact_id=$ARTIFACT_ID" >> "$GITHUB_OUTPUT"
+
+      - name: Download, authenticate, and bound the source artifact ZIP
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ steps.source.outputs.artifact_id }}
+        run: |
+          set -euo pipefail
+          EXPECTED=$(jq -er '.digest | sub("^sha256:"; "")' \
+            "$RUNNER_TEMP/pack-manual-source/artifact.json")
+          gh api \
+            -H 'Accept: application/vnd.github+json' \
+            "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID/zip" \
+            > "$RUNNER_TEMP/pack-manual-source/source-artifact.zip"
+          ACTUAL=$(sha256sum "$RUNNER_TEMP/pack-manual-source/source-artifact.zip" | awk '{print $1}')
+          if [ "$ACTUAL" != "$EXPECTED" ]; then
+            echo '::error::pack-production-final artifact digest mismatch'
+            exit 1
+          fi
+          COMPRESSED_BYTES=$(stat -c '%s' "$RUNNER_TEMP/pack-manual-source/source-artifact.zip")
+          METADATA_BYTES=$(jq -er '.size_in_bytes' "$RUNNER_TEMP/pack-manual-source/artifact.json")
+          if [ "$COMPRESSED_BYTES" -ne "$METADATA_BYTES" ] || [ "$COMPRESSED_BYTES" -gt 33554432 ]; then
+            echo '::error::pack-production-final compressed size is invalid or exceeds 32 MiB'
+            exit 1
+          fi
+          ZIP_TOTALS=$(LC_ALL=C zipinfo -t "$RUNNER_TEMP/pack-manual-source/source-artifact.zip")
+          ENTRY_COUNT=$(awk '{print $1}' <<<"$ZIP_TOTALS")
+          UNCOMPRESSED_BYTES=$(awk '{print $3}' <<<"$ZIP_TOTALS")
+          if ! [[ "$ENTRY_COUNT" =~ ^[0-9]+$ && "$UNCOMPRESSED_BYTES" =~ ^[0-9]+$ ]]; then
+            echo '::error::pack-production-final ZIP totals are invalid'
+            exit 1
+          fi
+          if [ "$ENTRY_COUNT" -lt 1 ] || [ "$ENTRY_COUNT" -gt 1024 ]; then
+            echo '::error::pack-production-final entry count exceeds 1024'
+            exit 1
+          fi
+          if [ "$UNCOMPRESSED_BYTES" -lt 1 ] || [ "$UNCOMPRESSED_BYTES" -gt 134217728 ]; then
+            echo '::error::pack-production-final uncompressed size exceeds 128 MiB'
+            exit 1
+          fi
+          if unzip -Z1 "$RUNNER_TEMP/pack-manual-source/source-artifact.zip" \
+            | grep -Eq '(^/|(^|/)\.\.(/|$)|\\)'; then
+            echo '::error::pack-production-final contains an unsafe ZIP path'
+            exit 1
+          fi
+          rm -rf "$RUNNER_TEMP/pack-production-final"
+          mkdir -p "$RUNNER_TEMP/pack-production-final"
+          unzip -q "$RUNNER_TEMP/pack-manual-source/source-artifact.zip" \
+            -d "$RUNNER_TEMP/pack-production-final"
+          if [ -n "$(find "$RUNNER_TEMP/pack-production-final" -type l -print -quit)" ]; then
+            echo '::error::pack-production-final contains a symbolic link'
+            exit 1
+          fi
+
+      - name: Validate generation, nonce, source SHA, quality, and binding
+        id: approval
+        env:
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/pack-manual-ready"
+          node scripts/pack-production-manual-publish.mjs prepare \
+            --source-dir "$RUNNER_TEMP/pack-production-final" \
+            --source-run-id "$SOURCE_RUN_ID" \
+            --source-run-file "$RUNNER_TEMP/pack-manual-source/source-run.json" \
+            --workflow-file "$RUNNER_TEMP/pack-manual-source/workflow.json" \
+            --artifact-file "$RUNNER_TEMP/pack-manual-source/artifact.json" \
+            --output "$RUNNER_TEMP/pack-manual-ready/approval.json" \
+            > "$RUNNER_TEMP/pack-manual-ready/prepare-result.json"
+          jq -e --arg run "$SOURCE_RUN_ID" '.sourceRunId == $run' \
+            "$RUNNER_TEMP/pack-manual-ready/prepare-result.json" >/dev/null
+          echo "generation_id=$(jq -r .generationId "$RUNNER_TEMP/pack-manual-ready/prepare-result.json")" >> "$GITHUB_OUTPUT"
+          echo "pack_slug=$(jq -r .packSlug "$RUNNER_TEMP/pack-manual-ready/prepare-result.json")" >> "$GITHUB_OUTPUT"
+          echo "source_sha=$(jq -r .sourceSha "$RUNNER_TEMP/pack-manual-ready/prepare-result.json")" >> "$GITHUB_OUTPUT"
+          echo "binding_digest=$(jq -r .bindingDigest "$RUNNER_TEMP/pack-manual-ready/prepare-result.json")" >> "$GITHUB_OUTPUT"
+          echo "score=$(jq -r .score "$RUNNER_TEMP/pack-manual-ready/prepare-result.json")" >> "$GITHUB_OUTPUT"
+
+      - name: Summarize the approval request without the nonce
+        run: |
+          {
+            echo '## Pack Production v4 manual approval'
+            echo
+            echo "- Source run: \`${{ inputs.source_run_id }}\`"
+            echo "- Source SHA: \`${{ steps.approval.outputs.source_sha }}\`"
+            echo "- Generation: \`${{ steps.approval.outputs.generation_id }}\`"
+            echo "- Pack: \`${{ steps.approval.outputs.pack_slug }}\`"
+            echo "- Binding: \`${{ steps.approval.outputs.binding_digest }}\`"
+            echo "- Evaluation score: \`${{ steps.approval.outputs.score }}\`"
+            echo '- Quality override: **forbidden**'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload immutable approval handoff
+        uses: actions/upload-artifact@v6
+        with:
+          name: pack-production-manual-approval
+          path: ${{ runner.temp }}/pack-manual-ready/approval.json
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 0
+
+  publish:
+    name: Publish and prove the exact generation
+    needs: prepare
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    environment:
+      name: production
+    steps:
+      - name: Checkout the manual publisher from main
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          filter: ''
+          clean: true
+          persist-credentials: false
+          sparse-checkout: scripts/pack-production-manual-publish.mjs
+          sparse-checkout-cone-mode: false
+
+      - name: Download the reviewed immutable approval handoff
+        uses: actions/download-artifact@v6
+        with:
+          name: pack-production-manual-approval
+          path: ${{ runner.temp }}/pack-manual-ready
+
+      - name: Publish through the nonce-bound manual API
+        id: publish
+        env:
+          SKILLSTORE_API_URL: ${{ secrets.SKILLSTORE_API_URL }}
+          PACK_PRODUCTION_MANUAL_PUBLISH_KEY: ${{ secrets.PACK_PRODUCTION_MANUAL_PUBLISH_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/pack-manual-release"
+          node scripts/pack-production-manual-publish.mjs publish \
+            --approval "$RUNNER_TEMP/pack-manual-ready/approval.json" \
+            --api-url "$SKILLSTORE_API_URL" \
+            --token "$PACK_PRODUCTION_MANUAL_PUBLISH_KEY" \
+            --output "$RUNNER_TEMP/pack-manual-release/publish-result.json" \
+            > "$RUNNER_TEMP/pack-manual-release/publish-command.json"
+          PACK_SLUG=$(jq -er .packSlug "$RUNNER_TEMP/pack-manual-release/publish-result.json")
+          echo "pack_slug=$PACK_SLUG" >> "$GITHUB_OUTPUT"
+
+      - name: Verify page, API, signatures, binding, and every file hash
+        id: public_readback
+        continue-on-error: true
+        env:
+          PACK_PUBLIC_URL: https://skillstore.io
+        run: |
+          set -euo pipefail
+          node scripts/pack-production-manual-publish.mjs public-readback \
+            --approval "$RUNNER_TEMP/pack-manual-ready/approval.json" \
+            --publish-result "$RUNNER_TEMP/pack-manual-release/publish-result.json" \
+            --public-url "$PACK_PUBLIC_URL" \
+            --attempts 10 \
+            --poll-seconds 30 \
+            --output "$RUNNER_TEMP/pack-manual-release/public-readback.json" \
+            > "$RUNNER_TEMP/pack-manual-release/public-readback-command.json"
+
+      - name: Install the real Pack with the public Linux CLI
+        id: cli_readback
+        continue-on-error: true
+        env:
+          PACK_SLUG: ${{ steps.publish.outputs.pack_slug }}
+          HOME: ${{ runner.temp }}/pack-cli-home
+          NPM_CONFIG_CACHE: ${{ runner.temp }}/pack-cli-home/.npm
+          NPM_CONFIG_UPDATE_NOTIFIER: 'false'
+          NO_COLOR: '1'
+        run: |
+          set -euo pipefail
+          mkdir -p "$HOME" "$RUNNER_TEMP/pack-cli-work"
+          cd "$RUNNER_TEMP/pack-cli-work"
+          npx --yes skillstore@0.1.9 add "@$PACK_SLUG" --agent codex --overwrite
+          npx --yes skillstore@0.1.9 check --json \
+            > "$RUNNER_TEMP/pack-manual-release/cli-check.json"
+          jq -e '.errors == [] and .updates == [] and (.upToDate | type == "array")' \
+            "$RUNNER_TEMP/pack-manual-release/cli-check.json" >/dev/null
+
+      - name: Record generation production readback only after every proof
+        if: always() && steps.publish.outcome == 'success'
+        env:
+          SKILLSTORE_API_URL: ${{ secrets.SKILLSTORE_API_URL }}
+          PACK_PRODUCTION_MANUAL_PUBLISH_KEY: ${{ secrets.PACK_PRODUCTION_MANUAL_PUBLISH_KEY }}
+          PUBLIC_READBACK_OUTCOME: ${{ steps.public_readback.outcome }}
+          CLI_READBACK_OUTCOME: ${{ steps.cli_readback.outcome }}
+        run: |
+          set -euo pipefail
+          if [ "$PUBLIC_READBACK_OUTCOME" = success ] && [ "$CLI_READBACK_OUTCOME" = success ]; then
+            STATUS=succeeded
+            ERROR_MESSAGE=''
+          else
+            STATUS=failed
+            ERROR_MESSAGE="public_readback=$PUBLIC_READBACK_OUTCOME; cli_readback=$CLI_READBACK_OUTCOME"
+          fi
+          node scripts/pack-production-manual-publish.mjs complete \
+            --approval "$RUNNER_TEMP/pack-manual-ready/approval.json" \
+            --api-url "$SKILLSTORE_API_URL" \
+            --token "$PACK_PRODUCTION_MANUAL_PUBLISH_KEY" \
+            --status "$STATUS" \
+            --error "${ERROR_MESSAGE:-none}" \
+            --public-readback "$RUNNER_TEMP/pack-manual-release/public-readback.json" \
+            --cli-check "$RUNNER_TEMP/pack-manual-release/cli-check.json" \
+            --output "$RUNNER_TEMP/pack-manual-release/final-release.json"
+
+      - name: Upload manual publication evidence
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: pack-production-manual-release
+          path: ${{ runner.temp }}/pack-manual-release/
+          if-no-files-found: warn
+          retention-days: 90

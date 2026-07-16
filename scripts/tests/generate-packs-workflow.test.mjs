@@ -558,7 +558,13 @@ test('trusted phases use the Automation API and retain full evidence for 90 days
   assert.match(finalize, /--poll-seconds 60/);
   assert.match(finalize, /--max-poll-seconds 180/);
   assert.match(PACK_PRODUCTION, /nextPollSeconds = Math\.min\(maxPollSeconds, nextPollSeconds \* 2\)/);
-  assert.match(PACK_PRODUCTION, /attemptNumber <= 10/);
+  assert.match(PACK_PRODUCTION, /buildHardDisabledReviewPendingResult/);
+  assert.match(PACK_PRODUCTION, /publicationMode: 'manual_only'/);
+  const finalizeImplementation = PACK_PRODUCTION.slice(
+    PACK_PRODUCTION.indexOf('async function finalize(args)'),
+    PACK_PRODUCTION.indexOf('async function reportSlo(args)'),
+  );
+  assert.doesNotMatch(finalizeImplementation, /\/api\/automation\/packs\/[^\n]+\/publish/);
   assert.match(WORKFLOW, /auto_publish:[\s\S]*?default: false/);
   assert.match(PACK_PRODUCTION, /skillstore\.pack-evaluation\/v4/);
   assert.match(PACK_PRODUCTION, /candidate_ready evidence is incomplete; persistence and enrichment are forbidden/);
