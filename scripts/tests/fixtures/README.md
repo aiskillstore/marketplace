@@ -11,5 +11,5 @@ the copied parser test in `aiskillstore/skillstore` in the same rollout. A
 Marketplace-only fixture update is a release blocker, not backward
 compatibility.
 
-The Generate Pack workflow remains pinned to CLI 2.12.0 and therefore fails
-closed before Persist until the binding-aware CLI 2.13.0 release is available.
+The Generate Pack and content workflows are pinned to the immutable,
+checksum-verified CLI 2.13.0 release that owns this v4 contract.

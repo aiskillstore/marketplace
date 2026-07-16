@@ -437,8 +437,8 @@ test('planning uses a read-only API and admits at most one artifact scenario', (
   assert.match(finalize, /if: needs\.plan\.outputs\.has_scenarios == 'true'/);
   assert.match(WORKFLOW, /group: generate-pack-production-v4/);
   assert.match(WORKFLOW, /cron: '17 19 \* \* 1,3,5'/);
-  assert.match(WORKFLOW, /PACK_PRODUCTION_CLI_VERSION: '2\.12\.0'/);
-  assert.match(WORKFLOW, /RELEASE BLOCKER: 2\.12\.0 cannot emit the complete v4 evidence contract/);
+  assert.match(WORKFLOW, /PACK_PRODUCTION_CLI_VERSION: '2\.13\.0'/);
+  assert.doesNotMatch(WORKFLOW, /2\.12\.0|RELEASE BLOCKER/);
   assert.equal((WORKFLOW.match(/require-checksum: 'true'/g) ?? []).length, 1);
   assert.match(plan, /actions\/create-github-app-token@v3/);
   assert.match(plan, /repositories: marketplace,skillstore/);
@@ -526,8 +526,8 @@ test('production content is nonce-bound and never dispatches the legacy translat
   assert.doesNotMatch(GENERATE_CONTENT, /Dispatch translation after content is complete/);
   assert.doesNotMatch(GENERATE_CONTENT, /event_type:\"translate-packs\"/);
   assert.match(GENERATE_CONTENT, /if \[ -n "\$GENERATION_ID" \]; then/);
-  assert.match(GENERATE_CONTENT, /version: '2\.12\.0'/);
-  assert.match(GENERATE_CONTENT, /minimum-version: '2\.12\.0'/);
+  assert.match(GENERATE_CONTENT, /version: '2\.13\.0'/);
+  assert.match(GENERATE_CONTENT, /minimum-version: '2\.13\.0'/);
   assert.match(GENERATE_CONTENT, /bindingDigest/);
   assert.match(GENERATE_CONTENT, /usageGuideMarker/);
   assert.match(GENERATE_CONTENT, /github\.event\.client_payload\.contentDispatchNonce/);
@@ -537,7 +537,7 @@ test('production content is nonce-bound and never dispatches the legacy translat
   assert.match(GENERATE_CONTENT, /--usage-guide-marker \"\$USAGE_GUIDE_MARKER\"/);
   assert.match(GENERATE_CONTENT, /SKILLSTORE_API_URL: \$\{\{ secrets\.SKILLSTORE_API_URL \}\}/);
   assert.match(GENERATE_CONTENT, /PACK_PRODUCTION_AUTOMATION_KEY: \$\{\{ secrets\.PACK_PRODUCTION_AUTOMATION_KEY \}\}/);
-  assert.match(GENERATE_CONTENT, /RELEASE BLOCKER: production generation remains fail-closed/);
+  assert.doesNotMatch(GENERATE_CONTENT, /2\.12\.0|RELEASE BLOCKER/);
   assert.match(GENERATE_CONTENT, /require-checksum: 'true'/);
   assert.match(GENERATE_CONTENT, /name: Mark failed or cancelled production enrichment/);
   assert.match(GENERATE_CONTENT, /\(failure\(\) \|\| cancelled\(\)\).*generationId != ''/);
