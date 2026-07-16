@@ -34,6 +34,9 @@ on:
 permissions:
   contents: read
 
+env:
+  PACK_EVALUATOR_MAX_OUTPUT_TOKENS: '16384'
+
 concurrency:
   group: test-pack-evaluator-bwrap-${{ github.ref }}
   cancel-in-progress: true
@@ -177,6 +180,7 @@ jobs:
             PACK_EVALUATOR_PROXY_TOKEN="$LOCAL_TOKEN" \
             PACK_DIAGNOSTICS_DIR="$DIAGNOSTICS_DIR" \
             PACK_EVALUATOR_ACTIVITY_FILE="$ACTIVITY_FILE" \
+            PACK_EVALUATOR_MAX_OUTPUT_TOKENS="$PACK_EVALUATOR_MAX_OUTPUT_TOKENS" \
             bash "$GITHUB_WORKSPACE/scripts/pack-evaluator-preflight.sh"
           IPV4_ACCEPT_AFTER=$(sudo iptables -w 5 -L PACK_EVALUATOR_EGRESS -v -n -x \
             | awk '$3 == "ACCEPT" {print $1}')
@@ -192,6 +196,10 @@ jobs:
             [ .[] | select(.phase == "response" and .status == 200) | .path ] as $paths
             | ($paths | index("/v1/messages")) != null
             and ($paths | index("/v1/responses")) != null
+          ' "$DIAGNOSTICS_DIR/proxy-activity.ndjson" >/dev/null
+          jq -se '
+            [ .[] | select(.phase == "response" and .status == 200 and .path == "/v1/messages") ]
+            | length > 0 and all(.[]; .maxTokens == 16384)
           ' "$DIAGNOSTICS_DIR/proxy-activity.ndjson" >/dev/null
           if rg -F \
             -e "$LOCAL_TOKEN" \

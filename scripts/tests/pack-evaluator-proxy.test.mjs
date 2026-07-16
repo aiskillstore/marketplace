@@ -39,6 +39,7 @@ before(async () => {
     localToken: LOCAL_TOKEN,
     upstreamKey: UPSTREAM_KEY,
     upstreamBaseUrl: upstreamUrl,
+    maxOutputTokens: 16384,
     onActivity: (activity) => activities.push(activity),
   });
   proxy.listen(0, '127.0.0.1');
@@ -54,19 +55,29 @@ after(async () => {
 });
 
 test('requires the job-local token even for health checks', async () => {
+  const activityCount = activities.length;
   assert.equal((await fetch(`${proxyUrl}/healthz`)).status, 401);
+  assert.equal((await fetch(`${proxyUrl}/v1/messages`, { method: 'HEAD' })).status, 401);
   const response = await fetch(`${proxyUrl}/healthz`, {
     headers: { Authorization: `Bearer ${LOCAL_TOKEN}` },
   });
   assert.equal(response.status, 200);
+  assert.equal(activities.length, activityCount, 'unauthenticated probes must not emit fatal activity');
 });
 
 test('allows only the explicit inference endpoint allowlist', async () => {
+  const activityCount = activities.length;
   const response = await fetch(`${proxyUrl}/admin/api/keys`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${LOCAL_TOKEN}` },
   });
   assert.equal(response.status, 403);
+  const head = await fetch(`${proxyUrl}/v1/messages`, {
+    method: 'HEAD',
+    headers: { Authorization: `Bearer ${LOCAL_TOKEN}` },
+  });
+  assert.equal(head.status, 403);
+  assert.equal(activities.length, activityCount, 'HEAD and non-inference probes must not emit fatal activity');
 });
 
 test('replaces local credentials with the bounded upstream credential', async () => {
@@ -87,7 +98,7 @@ test('replaces local credentials with the bounded upstream credential', async ()
   assert.equal(observed.apiKey, undefined);
   assert.match(observed.body, /gpt-5\.5/);
   assert.equal(response.headers.has('set-cookie'), false);
-  assert.equal(JSON.parse(observed.body).max_output_tokens, 65536);
+  assert.equal(JSON.parse(observed.body).max_output_tokens, 16384);
   assert.deepEqual(
     activities.slice(-3).map((activity) => activity.phase),
     ['started', 'response', 'completed']
@@ -193,7 +204,10 @@ test('records exact redacted upstream error diagnostics without response text or
   assert.equal(circuitResponse.status, 424);
   assert.equal(upstreamCalls, 1, 'a deterministic 4xx must open the circuit before another upstream call');
   assert.ok(redactedActivities.some((entry) => (
-    entry.phase === 'circuit_open' && entry.status === 422 && entry.originalRequestNumber === 1
+    entry.phase === 'circuit_open'
+    && entry.status === 422
+    && entry.originalRequestNumber === 1
+    && entry.requestNumber === 2
   )));
   await new Promise((resolve) => rejectingProxy.close(resolve));
 });
@@ -217,6 +231,7 @@ test('classifies upstream 400 causes into a fixed enum without retaining raw tex
 });
 
 test('rejects models and token requests outside the evaluator budget', async () => {
+  const activityStart = activities.length;
   const forbiddenModel = await fetch(`${proxyUrl}/v1/responses`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${LOCAL_TOKEN}`, 'content-type': 'application/json' },
@@ -228,10 +243,134 @@ test('rejects models and token requests outside the evaluator budget', async () 
   const excessiveTokens = await fetch(`${proxyUrl}/v1/messages`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${LOCAL_TOKEN}`, 'content-type': 'application/json' },
-    body: JSON.stringify({ model: 'sonnet', max_tokens: 65537, messages: [] }),
+    body: JSON.stringify({ model: 'sonnet', max_tokens: 16385, messages: [] }),
   });
   assert.equal(excessiveTokens.status, 400);
   assert.match((await excessiveTokens.json()).error, /max_tokens/);
+
+  const malformedBody = await fetch(`${proxyUrl}/v1/messages`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${LOCAL_TOKEN}`, 'content-type': 'application/json' },
+    body: '{"sensitive request text":',
+  });
+  assert.equal(malformedBody.status, 400);
+
+  const policyActivities = activities.slice(activityStart);
+  assert.deepEqual(
+    policyActivities.map(({ phase, path, status, errorCategory }) => ({
+      phase,
+      path,
+      status,
+      errorCategory,
+    })),
+    [
+      {
+        phase: 'response',
+        path: '/v1/responses',
+        status: 403,
+        errorCategory: 'model_not_allowed',
+      },
+      {
+        phase: 'response',
+        path: '/v1/messages',
+        status: 400,
+        errorCategory: 'invalid_output_token_limit',
+      },
+      {
+        phase: 'response',
+        path: '/v1/messages',
+        status: 400,
+        errorCategory: 'malformed_request',
+      },
+    ],
+  );
+  for (const activity of policyActivities) {
+    assert.deepEqual(
+      Object.keys(activity).sort(),
+      ['errorCategory', 'path', 'phase', 'requestNumber', 'status'],
+    );
+  }
+  assert.deepEqual(
+    policyActivities.map((activity) => activity.requestNumber),
+    [
+      policyActivities[0].requestNumber,
+      policyActivities[0].requestNumber + 1,
+      policyActivities[0].requestNumber + 2,
+    ],
+    'consecutive local policy rejections must receive distinct monotonic identifiers',
+  );
+  assert.doesNotMatch(
+    JSON.stringify(policyActivities),
+    /gpt-unbounded|sensitive request text|local-token|upstream-secret/,
+  );
+
+  const authorized = await fetch(`${proxyUrl}/v1/responses`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${LOCAL_TOKEN}`, 'content-type': 'application/json' },
+    body: JSON.stringify({ model: 'gpt-5.5', input: 'allowed after policy rejection' }),
+  });
+  assert.equal(authorized.status, 200);
+  const nextStarted = activities.slice(activityStart + policyActivities.length)
+    .find((activity) => activity.phase === 'started');
+  assert.equal(nextStarted.requestNumber, policyActivities.at(-1).requestNumber + 1);
+});
+
+test('policy rejections use monotonic activity ids without spending the forwarding budget', async () => {
+  const recorded = [];
+  let upstreamCalls = 0;
+  const bounded = createPackEvaluatorProxy({
+    localToken: LOCAL_TOKEN,
+    upstreamKey: UPSTREAM_KEY,
+    upstreamBaseUrl: upstreamUrl,
+    maxRequests: 1,
+    maxOutputTokens: 16384,
+    fetchImpl: async () => {
+      upstreamCalls += 1;
+      return new Response('{"ok":true}', {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    },
+    onActivity: (activity) => recorded.push(activity),
+  });
+  bounded.listen(0, '127.0.0.1');
+  await once(bounded, 'listening');
+  const url = `http://127.0.0.1:${bounded.address().port}`;
+  const headers = { Authorization: `Bearer ${LOCAL_TOKEN}`, 'content-type': 'application/json' };
+
+  assert.equal((await fetch(`${url}/v1/responses`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ model: 'not-allowed', input: 'one' }),
+  })).status, 403);
+  assert.equal((await fetch(`${url}/v1/messages`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ model: 'sonnet', max_tokens: 16385, messages: [] }),
+  })).status, 400);
+  assert.equal((await fetch(`${url}/v1/responses`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ model: 'gpt-5.5', input: 'forward exactly once' }),
+  })).status, 200);
+  assert.equal((await fetch(`${url}/v1/responses`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ model: 'gpt-5.5', input: 'budget exhausted' }),
+  })).status, 429);
+
+  assert.equal(upstreamCalls, 1);
+  assert.deepEqual(
+    recorded.map(({ phase, requestNumber }) => ({ phase, requestNumber })),
+    [
+      { phase: 'response', requestNumber: 1 },
+      { phase: 'response', requestNumber: 2 },
+      { phase: 'started', requestNumber: 3 },
+      { phase: 'response', requestNumber: 3 },
+      { phase: 'completed', requestNumber: 3 },
+    ],
+  );
+  await new Promise((resolve) => bounded.close(resolve));
 });
 
 test('enforces request, concurrency, and TTL limits', async () => {

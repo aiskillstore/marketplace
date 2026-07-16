@@ -111,6 +111,12 @@ test('hosted proof is pinned, secret-free, and invokes the production helper', (
   assert.match(HOSTED_CI, /scripts\/configure-pack-evaluator-bwrap\.sh/);
   assert.match(HOSTED_CI, /scripts\/pack-evaluator-preflight-mock\.mjs/);
   assert.match(HOSTED_CI, /scripts\/pack-evaluator-preflight\.sh/);
+  assert.match(HOSTED_CI, /PACK_EVALUATOR_MAX_OUTPUT_TOKENS: '16384'/);
+  assert.match(
+    HOSTED_CI,
+    /PACK_EVALUATOR_MAX_OUTPUT_TOKENS="\$PACK_EVALUATOR_MAX_OUTPUT_TOKENS"/,
+  );
+  assert.match(HOSTED_CI, /\.maxTokens == 16384/);
   assert.match(HOSTED_CI, /\.claude\.outcome == "passed"/);
   assert.match(HOSTED_CI, /\.codex\.outcome == "passed"/);
   assert.doesNotMatch(HOSTED_CI, /secrets\.|pull_request_target|self-hosted/);

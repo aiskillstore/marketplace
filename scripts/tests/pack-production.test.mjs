@@ -504,6 +504,19 @@ test('infrastructure audit reports retain only bounded operational evidence', ()
   assert.equal(evaluation.candidate, null);
   assert.equal(evaluation.outcome, 'infrastructure_failed');
   assert.match(evaluation.evidenceDigest, /^[0-9a-f]{64}$/);
+  for (const errorCategory of [
+    'request_body_too_large',
+    'model_not_allowed',
+    'invalid_output_token_limit',
+  ]) {
+    assert.equal(normalizeInfrastructureFailure({
+      schemaVersion: 'marketplace.pack-production-infrastructure-failure/v1',
+      stage: 'agent_preflight',
+      reason: 'deterministic_http',
+      status: 400,
+      errorCategory,
+    }).errorCategory, errorCategory);
+  }
   assert.throws(() => normalizeInfrastructureFailure({
     schemaVersion: 'marketplace.pack-production-infrastructure-failure/v1',
     stage: 'evaluation',
@@ -981,9 +994,9 @@ exit 99
   writeFileSync(failureFile, `${JSON.stringify({
     schemaVersion: 'marketplace.pack-production-infrastructure-failure/v1',
     stage: 'agent_preflight',
-    reason: 'preflight_failed',
-    status: null,
-    errorCategory: null,
+    reason: 'deterministic_http',
+    status: 400,
+    errorCategory: 'invalid_output_token_limit',
     diagnosticSha256: 'a'.repeat(64),
   })}\n`);
   const result = spawnSync(process.execPath, [
@@ -1011,9 +1024,9 @@ exit 99
   assert.deepEqual(audit.evidence.cliReport.infrastructureFailure, {
     schemaVersion: 'marketplace.pack-production-infrastructure-failure/v1',
     stage: 'agent_preflight',
-    reason: 'preflight_failed',
-    status: null,
-    errorCategory: null,
+    reason: 'deterministic_http',
+    status: 400,
+    errorCategory: 'invalid_output_token_limit',
     diagnosticSha256: 'a'.repeat(64),
     pathSha256: null,
     modelSha256: null,
