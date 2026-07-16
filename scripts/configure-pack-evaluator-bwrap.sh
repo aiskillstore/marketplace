@@ -106,6 +106,7 @@ runuser -u "$EVALUATOR_USER" -- \
     --new-session \
     --unshare-all \
     --share-net \
+    --unshare-user \
     --disable-userns \
     --cap-drop ALL \
     --tmpfs / \

@@ -82,7 +82,7 @@ function metadata() {
     },
     workflowSource: `name: Generate Pack
 env:
-  PACK_PRODUCTION_CLI_VERSION: '2.13.1'
+  PACK_PRODUCTION_CLI_VERSION: '2.13.2'
 jobs:
   evaluate:
     steps:
@@ -152,7 +152,7 @@ function createInput({ generationId = GENERATION_ID, artifacts, diagnostics = nu
       scenarioId: 'spreadsheet-audit',
     },
   });
-  json(join(planDir, 'cli-identity.json'), { version: '2.13.1', sha256: CLI_SHA });
+  json(join(planDir, 'cli-identity.json'), { version: '2.13.2', sha256: CLI_SHA });
   if (diagnostics) {
     for (const [name, value] of Object.entries(diagnostics)) {
       if (typeof value === 'string') writeFileSync(join(diagnosticsDir, name), value);
@@ -327,7 +327,7 @@ test('an evaluator summary with a recorded report is never overwritten by recove
     diagnostics: {
       'evaluate-summary.json': {
         schemaVersion: 'marketplace.pack-production-evaluate/v1',
-        cliVersion: '2.13.1',
+        cliVersion: '2.13.2',
         cliSha256: CLI_SHA,
         attempts: [{ scenarioId: 'spreadsheet-audit', generationId: GENERATION_ID, status: 'completed' }],
         reports: [{ scenarioId: 'spreadsheet-audit', generationId: GENERATION_ID }],

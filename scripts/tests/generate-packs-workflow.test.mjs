@@ -269,7 +269,7 @@ test('evaluate runs on a disposable VM with a user-separated job-local inference
   assert.match(evaluate, /SKILLSTORE_AGENT_SANDBOX_RUNTIME_ROOT=\/opt\/pack-evaluator\/runtime/);
   assert.match(
     evaluate,
-    /--unshare-all\s+--share-net\s+--disable-userns\s+--cap-drop ALL/,
+    /--unshare-all\s+--share-net\s+--unshare-user\s+--disable-userns\s+--cap-drop ALL/,
   );
   assert.match(evaluate, /! test -r "\/proc\/\$PROXY_PID\/environ"/);
   assert.doesNotMatch(evaluate, /PATH=\/opt\/pack-evaluator\/runtime\/bin:\/opt\/pack-evaluator\/bin/);
@@ -292,7 +292,7 @@ test('extracted evaluator preflight is valid bounded bash', () => {
   assert.match(EVALUATOR_PREFLIGHT, /--tmpfs \//);
   assert.match(
     EVALUATOR_PREFLIGHT,
-    /--unshare-all\s+--share-net\s+--disable-userns\s+--cap-drop ALL/,
+    /--unshare-all\s+--share-net\s+--unshare-user\s+--disable-userns\s+--cap-drop ALL/,
   );
   assert.match(EVALUATOR_PREFLIGHT, /--tmpfs \/run/);
   assert.match(EVALUATOR_PREFLIGHT, /--ro-bind \/opt\/pack-evaluator\/runtime \/opt\/pack-evaluator\/runtime/);
@@ -467,7 +467,7 @@ test('planning uses a read-only API and admits at most one artifact scenario', (
   assert.match(finalize, /if: needs\.plan\.outputs\.has_scenarios == 'true'/);
   assert.match(WORKFLOW, /group: generate-pack-production-v4/);
   assert.match(WORKFLOW, /cron: '17 19 \* \* 1,3,5'/);
-  assert.match(WORKFLOW, /PACK_PRODUCTION_CLI_VERSION: '2\.13\.1'/);
+  assert.match(WORKFLOW, /PACK_PRODUCTION_CLI_VERSION: '2\.13\.2'/);
   assert.doesNotMatch(WORKFLOW, /2\.12\.0|RELEASE BLOCKER/);
   assert.equal((WORKFLOW.match(/require-checksum: 'true'/g) ?? []).length, 1);
   assert.match(plan, /actions\/create-github-app-token@v3/);
@@ -556,8 +556,8 @@ test('production content is nonce-bound and never dispatches the legacy translat
   assert.doesNotMatch(GENERATE_CONTENT, /Dispatch translation after content is complete/);
   assert.doesNotMatch(GENERATE_CONTENT, /event_type:\"translate-packs\"/);
   assert.match(GENERATE_CONTENT, /if \[ -n "\$GENERATION_ID" \]; then/);
-  assert.match(GENERATE_CONTENT, /version: '2\.13\.1'/);
-  assert.match(GENERATE_CONTENT, /minimum-version: '2\.13\.1'/);
+  assert.match(GENERATE_CONTENT, /version: '2\.13\.2'/);
+  assert.match(GENERATE_CONTENT, /minimum-version: '2\.13\.2'/);
   assert.match(GENERATE_CONTENT, /bindingDigest/);
   assert.match(GENERATE_CONTENT, /usageGuideMarker/);
   assert.match(GENERATE_CONTENT, /github\.event\.client_payload\.contentDispatchNonce/);

@@ -54,7 +54,7 @@ test('root helper keeps the global restriction and loads only the scoped profile
 test('real probe matches the executor namespace contract and verifies its closure', () => {
   assert.match(
     HELPER,
-    /--unshare-all\s+\\\n\s+--share-net\s+\\\n\s+--disable-userns\s+\\\n\s+--cap-drop ALL/,
+    /--unshare-all\s+\\\n\s+--share-net\s+\\\n\s+--unshare-user\s+\\\n\s+--disable-userns\s+\\\n\s+--cap-drop ALL/,
   );
   for (const required of ['--tmpfs /', '--proc /proc', '--dev /dev', '--tmpfs /run']) {
     assert.match(HELPER, new RegExp(required.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
