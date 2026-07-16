@@ -496,12 +496,30 @@ jobs:
             git archive --format=tar "$commit" -- "${paths[@]}" | tar -xf - -C "$root"
           done < <(jq -c '.groups[]' "$RUNNER_TEMP/boundary/boundary.json")
 
+      - name: Prepare audited CLI TLS trust
+        run: |
+          set -euo pipefail
+          bundle=/etc/ssl/certs/ca-certificates.crt
+          if command -v update-ca-certificates >/dev/null 2>&1; then
+            if command -v sudo >/dev/null 2>&1; then
+              sudo update-ca-certificates
+            else
+              update-ca-certificates
+            fi
+          fi
+          test -s "$bundle" || { echo '::error::runner CA bundle is unavailable'; exit 1; }
+          status=$(curl -sS -o /dev/null -w '%{http_code}' https://skillstore.io/api/cache/invalidate)
+          test "$status" = 405 || { echo "::error::cache TLS probe returned HTTP $status"; exit 1; }
+
       - name: Execute frozen legacy cohort with four bounded workers
         env:
           PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
           CACHE_INVALIDATE_SECRET: ${{ secrets.CACHE_INVALIDATE_SECRET }}
           SKILLSTORE_SITE_URL: https://skillstore.io
+          NODE_EXTRA_CA_CERTS: /etc/ssl/certs/ca-certificates.crt
+          SSL_CERT_FILE: /etc/ssl/certs/ca-certificates.crt
+          NODE_OPTIONS: --use-openssl-ca
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/execution-groups"
