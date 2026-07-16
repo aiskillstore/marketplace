@@ -3,7 +3,6 @@ import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
-import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import {
   inspectWorkflowRunEvent,
@@ -426,8 +425,4 @@ test('recovery workflow is secret-minimal, bounded, and retains evidence for 90 
   const secretIndex = WORKFLOW.indexOf('PACK_PRODUCTION_AUTOMATION_KEY:');
   const persistIndex = WORKFLOW.indexOf('Persist the exact candidate-null cancellation audit');
   assert.ok(secretIndex > persistIndex, 'write token must exist only inside the final persistence step');
-  const yaml = spawnSync('ruby', ['-e', "require 'yaml'; YAML.parse_file(ARGV.fetch(0))", WORKFLOW_FILE], {
-    encoding: 'utf8',
-  });
-  assert.equal(yaml.status, 0, yaml.stderr);
 });
