@@ -14,6 +14,59 @@ function sha256(value) {
   return createHash('sha256').update(value).digest('hex');
 }
 
+function safeDiagnosticToken(value, maximumLength = 128) {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  if (!trimmed || trimmed.length > maximumLength) return null;
+  return /^[A-Za-z0-9_.:/\[\]-]+$/.test(trimmed) ? trimmed : null;
+}
+
+function classifyErrorMessage(message) {
+  if (typeof message !== 'string' || !message.trim()) return 'other';
+  const normalized = message.toLowerCase();
+  if (
+    /(?:unknown|unsupported|invalid|unavailable|not found|does not exist)[\s\S]{0,80}(?:model|lane)/.test(normalized)
+    || /(?:model|lane)[\s\S]{0,80}(?:unknown|unsupported|invalid|unavailable|not found|does not exist|not allowed)/.test(normalized)
+    || /no (?:available )?(?:model|lane|route|endpoint)/.test(normalized)
+  ) return 'unknown_model_or_lane';
+  if (
+    /(?:unknown|unsupported|unrecognized|invalid)[\s\S]{0,80}(?:parameter|param|field)/.test(normalized)
+    || /(?:parameter|param|field)[\s\S]{0,80}(?:unknown|unsupported|unrecognized|not supported|not allowed)/.test(normalized)
+  ) return 'unsupported_parameter';
+  if (/unauthori[sz]ed|authentication|invalid api key|api key is invalid|credential|forbidden/.test(normalized)) {
+    return 'authentication_failed';
+  }
+  if (/context (?:length|window)|maximum context|too many tokens|token limit|input is too long/.test(normalized)) {
+    return 'context_length_exceeded';
+  }
+  if (/malformed|invalid json|request body|could not parse|failed to parse|schema validation/.test(normalized)) {
+    return 'malformed_request';
+  }
+  return 'other';
+}
+
+function sanitizedErrorDiagnostics(body) {
+  let payload;
+  try {
+    payload = JSON.parse(body.toString('utf8'));
+  } catch {
+    return {};
+  }
+  const error = payload?.error && typeof payload.error === 'object' ? payload.error : payload;
+  const message = typeof error?.message === 'string'
+    ? error.message
+    : typeof payload?.message === 'string'
+      ? payload.message
+      : null;
+  return {
+    errorType: safeDiagnosticToken(error?.type),
+    errorCode: safeDiagnosticToken(error?.code),
+    errorParam: safeDiagnosticToken(error?.param),
+    errorCategory: classifyErrorMessage(message),
+    errorMessageSha256: message ? sha256(message) : null,
+  };
+}
+
 async function boundedBody(response) {
   if (!response.body) return Buffer.alloc(0);
   const reader = response.body.getReader();
@@ -192,6 +245,7 @@ async function runOneContract({ contract, proxyUrl, token, fetchImpl, timeoutMs 
     responseSha256: responseBody.length > 0 ? sha256(responseBody) : null,
     eventCount,
     protocol,
+    ...(response && !response.ok ? sanitizedErrorDiagnostics(responseBody) : {}),
     transportErrorType: transportError?.name ?? null,
     transportErrorMessageSha256: transportError instanceof Error ? sha256(transportError.message) : null,
   };
@@ -214,7 +268,6 @@ export async function runContractSmoke({
   for (const contract of CONTRACTS) {
     const result = await runOneContract({ contract, proxyUrl, token, fetchImpl, timeoutMs });
     contracts.push(result);
-    if (result.outcome !== 'passed') break;
   }
   const failed = contracts.find((contract) => contract.outcome !== 'passed');
   const diagnostics = {

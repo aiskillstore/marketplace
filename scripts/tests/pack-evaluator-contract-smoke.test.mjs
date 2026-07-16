@@ -64,7 +64,7 @@ test('contract smoke makes one bounded request for Messages and Responses before
   assert.doesNotMatch(persisted, /PACK_EVALUATOR_READY|job-local-secret|Reply with exactly/);
 });
 
-test('contract smoke fails closed after one exact HTTP error without persisting its body', async () => {
+test('contract smoke still sends exactly two probes after an HTTP error without persisting its body', async () => {
   const directory = mkdtempSync(join(tmpdir(), 'pack-contract-smoke-error-'));
   const diagnosticsFile = join(directory, 'contract-smoke.json');
   let calls = 0;
@@ -80,8 +80,10 @@ test('contract smoke fails closed after one exact HTTP error without persisting 
     }),
     /contract=claude_messages outcome=http_failed status=422/,
   );
-  assert.equal(calls, 1);
+  assert.equal(calls, 2);
   const persisted = readFileSync(diagnosticsFile, 'utf8');
   assert.match(persisted, /"status": 422/);
+  assert.match(persisted, /"errorCategory": "other"/);
+  assert.match(persisted, /"errorMessageSha256": "[a-f0-9]{64}"/);
   assert.doesNotMatch(persisted, /private upstream detail|job-local-secret/);
 });

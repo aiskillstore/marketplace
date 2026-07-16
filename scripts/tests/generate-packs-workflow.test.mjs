@@ -31,12 +31,33 @@ function section(start, end) {
 }
 
 test('production workflow has separate Plan, secret-free Evaluate, Persist, and production Readback jobs', () => {
+  assert.match(WORKFLOW, /  contract_smoke_only:/);
   assert.match(WORKFLOW, /  plan:/);
   assert.match(WORKFLOW, /  evaluate:/);
   assert.match(WORKFLOW, /  persist:/);
   assert.match(WORKFLOW, /  enrich_publish_readback:/);
   assert.doesNotMatch(WORKFLOW, /  production_slo:/);
   assert.match(WORKFLOW, /permissions:\n  contents: read/);
+});
+
+test('manual smoke-only dispatch cannot enter Queue, generation, or persistence', () => {
+  assert.match(WORKFLOW, /smoke_only:\n\s+description: 'Run exactly the Messages and Responses contract probes; never plan, generate, or persist'\n\s+type: boolean\n\s+default: false/);
+  const smoke = section('  contract_smoke_only:', '  plan:');
+  const plan = section('  plan:', '  evaluate:');
+  assert.match(smoke, /if: github\.event_name == 'workflow_dispatch' && inputs\.smoke_only == true/);
+  assert.match(smoke, /runs-on: ubuntu-latest/);
+  assert.match(smoke, /PACK_EVALUATOR_HELM_API_KEY: \$\{\{ secrets\.PACK_EVALUATOR_HELM_API_KEY \}\}/);
+  assert.match(smoke, /PACK_EVALUATOR_PROXY_URL=https:\/\/helm\.easymeta\.au/);
+  assert.match(smoke, /pack-evaluator-contract-smoke\.mjs/);
+  assert.match(smoke, /Upload sanitized contract diagnostics/);
+  assert.doesNotMatch(
+    smoke,
+    /SKILLSTORE_API_URL|PACK_PRODUCTION_(?:PLANNER|AUTOMATION)_KEY|SUPABASE|APP_PRIVATE_KEY|skillstore-cli|api\/automation\/packs\/production|pack-production\.mjs|generate-content/
+  );
+  assert.match(plan, /if: github\.event_name == 'schedule' \|\| inputs\.smoke_only != true/);
+  assert.match(section('  evaluate:', '  persist:'), /needs: plan/);
+  assert.match(section('  persist:', '  enrich_publish_readback:'), /needs: \[plan, evaluate\]/);
+  assert.match(section('  enrich_publish_readback:'), /needs: \[plan, persist\]/);
 });
 
 test('evaluate job cannot interpolate production write credentials', () => {

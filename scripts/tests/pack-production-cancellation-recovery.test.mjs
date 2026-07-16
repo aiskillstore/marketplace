@@ -426,7 +426,7 @@ test('recovery workflow is secret-minimal, bounded, and retains evidence for 90 
   const secretIndex = WORKFLOW.indexOf('PACK_PRODUCTION_AUTOMATION_KEY:');
   const persistIndex = WORKFLOW.indexOf('Persist the exact candidate-null cancellation audit');
   assert.ok(secretIndex > persistIndex, 'write token must exist only inside the final persistence step');
-  const yaml = spawnSync('python3', ['-c', 'import sys,yaml; yaml.safe_load(open(sys.argv[1]))', WORKFLOW_FILE], {
+  const yaml = spawnSync('ruby', ['-e', "require 'yaml'; YAML.parse_file(ARGV.fetch(0))", WORKFLOW_FILE], {
     encoding: 'utf8',
   });
   assert.equal(yaml.status, 0, yaml.stderr);
