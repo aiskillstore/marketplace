@@ -103,9 +103,15 @@ test('hosted proof is pinned, secret-free, and invokes the production helper', (
   assert.match(HOSTED_CI, /timeout-minutes: 10/);
   assert.match(HOSTED_CI, /permissions:\n  contents: read/);
   assert.match(HOSTED_CI, /persist-credentials: false/);
-  assert.match(HOSTED_CI, /apt-get install --yes --no-install-recommends apparmor bubblewrap util-linux/);
+  assert.match(HOSTED_CI, /apt-get install --yes --no-install-recommends apparmor bubblewrap iptables util-linux/);
+  assert.match(HOSTED_CI, /@anthropic-ai\/claude-code@2\.1\.210/);
+  assert.match(HOSTED_CI, /@openai\/codex@0\.139\.0/);
   assert.match(HOSTED_CI, /useradd --create-home --home-dir \/home\/packeval/);
   assert.match(HOSTED_CI, /\/opt\/pack-evaluator\/runtime\/bin\/node/);
   assert.match(HOSTED_CI, /scripts\/configure-pack-evaluator-bwrap\.sh/);
+  assert.match(HOSTED_CI, /scripts\/pack-evaluator-preflight-mock\.mjs/);
+  assert.match(HOSTED_CI, /scripts\/pack-evaluator-preflight\.sh/);
+  assert.match(HOSTED_CI, /\.claude\.outcome == "passed"/);
+  assert.match(HOSTED_CI, /\.codex\.outcome == "passed"/);
   assert.doesNotMatch(HOSTED_CI, /secrets\.|pull_request_target|self-hosted/);
 });

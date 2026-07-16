@@ -360,7 +360,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install --yes --no-install-recommends \
-            apparmor bubblewrap ffmpeg poppler-utils ripgrep util-linux
+            apparmor bubblewrap ffmpeg iptables poppler-utils ripgrep util-linux
           sudo install -d -o root -g root -m 0755 \
             /opt/pack-evaluator \
             /opt/pack-evaluator/runtime
@@ -463,6 +463,35 @@ jobs:
           sudo env \
             PACK_EVALUATOR_OUTER_WORKSPACE="$GITHUB_WORKSPACE" \
             "$GITHUB_WORKSPACE/marketplace-evaluate/scripts/configure-pack-evaluator-bwrap.sh"
+
+      - name: Restrict and prove evaluator egress before secrets
+        run: |
+          set -euo pipefail
+          sudo "$GITHUB_WORKSPACE/marketplace-evaluate/scripts/configure-pack-evaluator-egress.sh"
+          IPV4_REJECT_BEFORE=$(sudo iptables -w 5 -L PACK_EVALUATOR_EGRESS -v -n -x \
+            | awk '$3 == "REJECT" {print $1}')
+          IPV6_REJECT_BEFORE=$(sudo ip6tables -w 5 -L PACK_EVALUATOR_EGRESS -v -n -x \
+            | awk '$3 == "REJECT" {print $1}')
+          test -n "$IPV4_REJECT_BEFORE"
+          test -n "$IPV6_REJECT_BEFORE"
+          sudo -u packeval env -i PATH=/usr/bin:/bin bash -ceu '
+            for blocked in \
+              http://1.1.1.1 \
+              http://169.254.169.254/latest/meta-data/ \
+              http://127.0.0.1:18764 \
+              http://[::1]:18765; do
+              if curl --noproxy "*" --connect-timeout 1 --max-time 2 "$blocked" >/dev/null 2>&1; then
+                echo "Evaluator egress unexpectedly reached a blocked target" >&2
+                exit 1
+              fi
+            done
+          '
+          IPV4_REJECT_AFTER=$(sudo iptables -w 5 -L PACK_EVALUATOR_EGRESS -v -n -x \
+            | awk '$3 == "REJECT" {print $1}')
+          IPV6_REJECT_AFTER=$(sudo ip6tables -w 5 -L PACK_EVALUATOR_EGRESS -v -n -x \
+            | awk '$3 == "REJECT" {print $1}')
+          test "$IPV4_REJECT_AFTER" -gt "$IPV4_REJECT_BEFORE"
+          test "$IPV6_REJECT_AFTER" -gt "$IPV6_REJECT_BEFORE"
 
       # The real Helm credential exists only in this runner-owned shell and the
       # separate packproxy process. Agent commands run as a different, non-sudo
@@ -733,7 +762,7 @@ jobs:
             if [ "$PREFLIGHT_RC" -ne 0 ]; then
               PREFLIGHT_DIAGNOSTICS="$GITHUB_WORKSPACE/pack-diagnostics/agent-preflight-diagnostics.json"
               DIAGNOSTIC_SHA256=$(sha256sum "$PREFLIGHT_DIAGNOSTICS" | awk '{print $1}')
-              PREFLIGHT_CLASS=$(jq -r '
+              PREFLIGHT_REASON=$(jq -r '
                 [.claude.errorClass, .codex.errorClass]
                 | if index("deterministic_http") then "deterministic_http"
                   elif index("timeout") then "timeout"
@@ -746,16 +775,15 @@ jobs:
               ' "$PREFLIGHT_DIAGNOSTICS")
               jq -n \
                 --arg stage agent_preflight \
-                --arg reason "$PREFLIGHT_CLASS" \
+                --arg reason "$PREFLIGHT_REASON" \
                 --arg status "$PREFLIGHT_STATUS" \
-                --arg errorCategory "$PREFLIGHT_CLASS" \
                 --arg diagnosticSha256 "$DIAGNOSTIC_SHA256" \
                 '{
                   schemaVersion: "marketplace.pack-production-infrastructure-failure/v1",
                   stage: $stage,
                   reason: $reason,
                   status: (if $status == "" then null else ($status | tonumber) end),
-                  errorCategory: $errorCategory,
+                  errorCategory: null,
                   diagnosticSha256: $diagnosticSha256
                 }' > "$INFRASTRUCTURE_FAILURE_FILE"
             fi

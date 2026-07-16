@@ -53,6 +53,7 @@ readonly -a AGENT_BWRAP=(
   --setenv CI true
   --setenv NO_COLOR 1
   --setenv NO_PROXY 127.0.0.1,localhost
+  --chdir /home/packeval
 )
 
 CLAUDE_STDOUT=$(mktemp)
@@ -65,27 +66,34 @@ cleanup_files() {
 trap cleanup_files EXIT
 
 classify_error() {
-  local file="$1"
-  local exit_code="$2"
-  local fatal_http_status="${3:-}"
-  local retryable_http_status="${4:-}"
-  if [ -n "$fatal_http_status" ]; then
+  local stdout_file="$1"
+  local stderr_file="$2"
+  local outcome="$3"
+  local exit_code="$4"
+  local fatal_http_status="${5:-}"
+  local retryable_http_status="${6:-}"
+  if [ "$outcome" = "passed" ]; then
+    printf 'none\n'
+  elif [ -n "$fatal_http_status" ]; then
     printf 'deterministic_http\n'
   elif [ -n "$retryable_http_status" ]; then
     printf 'retryable_http\n'
-  elif grep -Eqi 'permission denied|read-only file system|unable to open.*database|failed to.*(state|log|session)' "$file"; then
+  elif grep -Eqi 'permission denied|read-only file system|unable to open.*database|failed to.*(state|log|session)' \
+    "$stdout_file" "$stderr_file"; then
     printf 'state_storage\n'
-  elif grep -Eqi '401|403|unauthoriz|authentication|api key' "$file"; then
+  elif grep -Eqi '401|403|unauthoriz|authentication|api key|not logged in|please run /login' \
+    "$stdout_file" "$stderr_file"; then
     printf 'authentication\n'
-  elif grep -Eqi '404|model.*not found|unsupported model' "$file"; then
+  elif grep -Eqi '404|model.*not found|unsupported model' "$stdout_file" "$stderr_file"; then
     printf 'model_route\n'
-  elif grep -Eqi 'unknown argument|unexpected argument|usage:' "$file"; then
+  elif grep -Eqi 'unknown argument|unexpected argument|usage:' "$stdout_file" "$stderr_file"; then
     printf 'cli_arguments\n'
-  elif [ "$exit_code" -eq 124 ] || grep -Eqi 'timed out|timeout' "$file"; then
+  elif [ "$exit_code" -eq 124 ] || grep -Eqi 'timed out|timeout' "$stdout_file" "$stderr_file"; then
     printf 'timeout\n'
-  elif grep -Eqi 'error sending request|failed to send request|connection (reset|refused|closed|aborted)|transport.*(closed|error)|unexpected (eof|end of file)|temporary failure in name resolution|dns.*temporary|tls.*(handshake|temporary)|http[^0-9]*(408|429|502|503|504)|status( code)?[^0-9]*(408|429|502|503|504)' "$file"; then
+  elif grep -Eqi 'error sending request|failed to send request|connection (reset|refused|closed|aborted)|transport.*(closed|error)|unexpected (eof|end of file)|temporary failure in name resolution|dns.*temporary|tls.*(handshake|temporary)|http[^0-9]*(408|429|502|503|504)|status( code)?[^0-9]*(408|429|502|503|504)' \
+    "$stdout_file" "$stderr_file"; then
     printf 'upstream_transport\n'
-  elif [ -s "$file" ] || [ "$exit_code" -ne 0 ]; then
+  elif [ -s "$stdout_file" ] || [ -s "$stderr_file" ] || [ "$exit_code" -ne 0 ]; then
     printf 'unknown\n'
   else
     printf 'none\n'
@@ -222,7 +230,8 @@ for ATTEMPT in 1 2; do
   STDOUT_SHA256=$(sha256sum "$CLAUDE_STDOUT" | awk '{print $1}')
   STDERR_SHA256=$(sha256sum "$CLAUDE_STDERR" | awk '{print $1}')
   CLAUDE_ERROR_CLASS=$(classify_error \
-    "$CLAUDE_STDERR" "$CLAUDE_EXIT_CODE" "$CLAUDE_FATAL_HTTP_STATUS" "$CLAUDE_RETRYABLE_HTTP_STATUS")
+    "$CLAUDE_STDOUT" "$CLAUDE_STDERR" "$CLAUDE_OUTCOME" "$CLAUDE_EXIT_CODE" \
+    "$CLAUDE_FATAL_HTTP_STATUS" "$CLAUDE_RETRYABLE_HTTP_STATUS")
   CLAUDE_ATTEMPTS=$(jq -c \
     --argjson attempt "$ATTEMPT" \
     --arg outcome "$CLAUDE_OUTCOME" \
@@ -313,7 +322,8 @@ if [ "$CLAUDE_OUTCOME" = "passed" ]; then
     STDOUT_SHA256=$(sha256sum "$CODEX_STDOUT" | awk '{print $1}')
     STDERR_SHA256=$(sha256sum "$CODEX_STDERR" | awk '{print $1}')
     CODEX_ERROR_CLASS=$(classify_error \
-      "$CODEX_STDERR" "$CODEX_EXIT_CODE" "$CODEX_FATAL_HTTP_STATUS" "$CODEX_RETRYABLE_HTTP_STATUS")
+      "$CODEX_STDOUT" "$CODEX_STDERR" "$CODEX_OUTCOME" "$CODEX_EXIT_CODE" \
+      "$CODEX_FATAL_HTTP_STATUS" "$CODEX_RETRYABLE_HTTP_STATUS")
     CODEX_ATTEMPTS=$(jq -c \
       --argjson attempt "$ATTEMPT" \
       --arg outcome "$CODEX_OUTCOME" \
