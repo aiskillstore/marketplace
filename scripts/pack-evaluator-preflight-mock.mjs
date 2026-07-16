@@ -234,7 +234,9 @@ export function createPackEvaluatorPreflightMock({
     fail('PACK_EVALUATOR_LOCAL_TOKEN must be at least 32 characters');
   }
   let requestNumber = 0;
-  let messagesRequestNumber = 0;
+  let bootstrapMessagesRequestSeen = false;
+  let skillToolRequestSeen = false;
+  let skillToolResultsSeen = false;
   return createServer(async (request, response) => {
     const path = new URL(request.url || '/', 'http://127.0.0.1').pathname;
     if (!sameToken(requestToken(request), localToken)) {
@@ -286,32 +288,56 @@ export function createPackEvaluatorPreflightMock({
       return;
     }
     if (path === '/v1/messages') {
-      messagesRequestNumber += 1;
       if (preflightSkillIds.length > 0) {
-        if (messagesRequestNumber === 1 && !hasSkillTool(parsed.value)) {
-          onActivity({ ...activity, status: 400, toolNames: safeToolNames(parsed.value) });
-          json(response, 400, { error: 'Skill tool is required by Pack preflight' });
+        if (!skillToolRequestSeen && !hasSkillTool(parsed.value)) {
+          if (bootstrapMessagesRequestSeen) {
+            onActivity({ ...activity, status: 400, protocolStage: 'bootstrap_budget' });
+            json(response, 400, { error: 'Pack preflight exceeded the Messages bootstrap budget' });
+            return;
+          }
+          // Claude Code 2.1.210 issues one tool-less Messages bootstrap call
+          // with a clean HOME before it loads project Skills. A successful
+          // bootstrap is not proof: the preflight closure still requires the
+          // later ordered Skill tool-use/results and runner-owned trace.
+          bootstrapMessagesRequestSeen = true;
+          onActivity({
+            ...activity,
+            protocolStage: 'bootstrap',
+            toolNames: safeToolNames(parsed.value),
+          });
+          if (parsed.value.stream === true) sse(response, messagesEvents(model || 'sonnet'));
+          else json(response, 200, messageObject(model || 'sonnet', [], 'end_turn'));
           return;
         }
-        if (messagesRequestNumber === 2 && !hasExactToolResults(parsed.value, preflightSkillIds.length)) {
-          onActivity({ ...activity, status: 400 });
+        if (!skillToolRequestSeen) {
+          skillToolRequestSeen = true;
+          onActivity({ ...activity, protocolStage: 'skill_request' });
+          if (parsed.value.stream === true) {
+            sse(response, messagesToolUseEvents(model || 'sonnet', preflightSkillIds));
+          } else {
+            json(response, 400, { error: 'Pack preflight requires streaming Skill tool use' });
+          }
+          return;
+        }
+        if (!skillToolResultsSeen && !hasExactToolResults(parsed.value, preflightSkillIds.length)) {
+          onActivity({ ...activity, status: 400, protocolStage: 'tool_results' });
           json(response, 400, { error: 'Pack preflight tool results were incomplete' });
           return;
         }
-        if (messagesRequestNumber > 2) {
-          onActivity({ ...activity, status: 400 });
+        if (skillToolResultsSeen) {
+          onActivity({ ...activity, status: 400, protocolStage: 'complete' });
           json(response, 400, { error: 'Pack preflight exceeded the Messages request budget' });
           return;
         }
+        skillToolResultsSeen = true;
+        onActivity({ ...activity, protocolStage: 'tool_results' });
+        if (parsed.value.stream === true) sse(response, messagesEvents(model || 'sonnet'));
+        else json(response, 200, messageObject(model || 'sonnet', [{ type: 'text', text: READY_TEXT }], 'end_turn'));
+        return;
       }
       onActivity(activity);
       if (parsed.value.stream === true) {
-        sse(
-          response,
-          preflightSkillIds.length > 0 && messagesRequestNumber === 1
-            ? messagesToolUseEvents(model || 'sonnet', preflightSkillIds)
-            : messagesEvents(model || 'sonnet'),
-        );
+        sse(response, messagesEvents(model || 'sonnet'));
       } else {
         json(response, 200, messageObject(model || 'sonnet', [{ type: 'text', text: READY_TEXT }], 'end_turn'));
       }

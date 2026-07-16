@@ -191,7 +191,7 @@ test('Pack preflight mock requires two ordered Skill results before returning th
   }
 });
 
-test('Pack preflight rejection retains only bounded safe tool names', async () => {
+test('Pack preflight permits one bounded bootstrap without advancing the Skill protocol', async () => {
   const rejectedActivities = [];
   const packServer = createPackEvaluatorPreflightMock({
     localToken: LOCAL_TOKEN,
@@ -202,7 +202,7 @@ test('Pack preflight rejection retains only bounded safe tool names', async () =
   await once(packServer, 'listening');
   const url = `http://127.0.0.1:${packServer.address().port}`;
   try {
-    const response = await fetch(`${url}/v1/messages`, {
+    const bootstrap = await fetch(`${url}/v1/messages`, {
       method: 'POST',
       headers: {
         authorization: `Bearer ${LOCAL_TOKEN}`,
@@ -220,11 +220,69 @@ test('Pack preflight rejection retains only bounded safe tool names', async () =
         messages: [{ role: 'user', content: 'private Pack task' }],
       }),
     });
-    assert.equal(response.status, 400);
+    assert.equal(bootstrap.status, 200);
+    assert.match(await bootstrap.text(), /message_stop/);
+    assert.equal(rejectedActivities.at(-1)?.protocolStage, 'bootstrap');
     assert.deepEqual(rejectedActivities.at(-1)?.toolNames, ['Read', 'mcp__safe.tool-1']);
+
+    const skillRequest = await fetch(`${url}/v1/messages`, {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${LOCAL_TOKEN}`,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'sonnet',
+        stream: true,
+        max_tokens: 16384,
+        tools: [{ name: 'Skill' }],
+        messages: [{ role: 'user', content: 'private Pack task' }],
+      }),
+    });
+    assert.equal(skillRequest.status, 200);
+    assert.match(await skillRequest.text(), /toolu_pack_preflight_2/);
+
+    const toolResults = await fetch(`${url}/v1/messages`, {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${LOCAL_TOKEN}`,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'sonnet',
+        stream: true,
+        max_tokens: 16384,
+        tools: [{ name: 'Skill' }],
+        messages: [{
+          role: 'user',
+          content: [
+            { type: 'tool_result', tool_use_id: 'toolu_pack_preflight_1', content: 'private result' },
+            { type: 'tool_result', tool_use_id: 'toolu_pack_preflight_2', content: 'private result' },
+          ],
+        }],
+      }),
+    });
+    assert.equal(toolResults.status, 200);
+    assert.match(await toolResults.text(), /PACK_EVALUATOR_READY/);
+
+    const overBudget = await fetch(`${url}/v1/messages`, {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${LOCAL_TOKEN}`,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'sonnet',
+        stream: true,
+        max_tokens: 16384,
+        tools: [{ name: 'Skill' }],
+        messages: [],
+      }),
+    });
+    assert.equal(overBudget.status, 400);
     assert.doesNotMatch(
       JSON.stringify(rejectedActivities),
-      /private Pack task|sensitive schema|unsafe tool name|local-preflight-token/,
+      /private Pack task|private result|sensitive schema|unsafe tool name|local-preflight-token|PACK_EVALUATOR_READY/,
     );
   } finally {
     await new Promise((resolve) => packServer.close(resolve));
