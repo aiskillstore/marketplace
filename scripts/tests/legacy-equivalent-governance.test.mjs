@@ -513,7 +513,21 @@ test('freezes and verifies one exact dry-run boundary', () => {
       marketplace_commit_sha: COMMIT,
       source_path: fixture.row.path,
     }];
+    const resumableSourceEvidence = structuredClone(fixture.sourceEvidence);
+    resumableSourceEvidence.skills[0].public_eligibility_audit_id = DERIVED_AUDIT_ID;
     const resumed = verifyLegacyGovernanceBoundary({
+      boundary: fixture.boundary,
+      plan: fixture.plan,
+      classification: fixture.classification,
+      frozenInventory: fixture.preInventory,
+      currentInventory: resumable,
+      frozenSourceEvidence: fixture.sourceEvidence,
+      currentSourceEvidence: resumableSourceEvidence,
+      paths: fixture.files,
+      expectedRunId: '12345',
+    });
+    assert.equal(resumed.resumableCount, 1);
+    assert.throws(() => verifyLegacyGovernanceBoundary({
       boundary: fixture.boundary,
       plan: fixture.plan,
       classification: fixture.classification,
@@ -523,8 +537,20 @@ test('freezes and verifies one exact dry-run boundary', () => {
       currentSourceEvidence: fixture.sourceEvidence,
       paths: fixture.files,
       expectedRunId: '12345',
-    });
-    assert.equal(resumed.resumableCount, 1);
+    }), /Skill metadata or source audit changed/);
+    const resumableMetadataDrift = structuredClone(resumableSourceEvidence);
+    resumableMetadataDrift.skills[0].description = 'changed after governance';
+    assert.throws(() => verifyLegacyGovernanceBoundary({
+      boundary: fixture.boundary,
+      plan: fixture.plan,
+      classification: fixture.classification,
+      frozenInventory: fixture.preInventory,
+      currentInventory: resumable,
+      frozenSourceEvidence: fixture.sourceEvidence,
+      currentSourceEvidence: resumableMetadataDrift,
+      paths: fixture.files,
+      expectedRunId: '12345',
+    }), /Skill metadata or source audit changed/);
     const changedAudit = structuredClone(fixture.sourceEvidence);
     changedAudit.audits[0].summary = 'changed after dry-run';
     assert.throws(() => verifyLegacyGovernanceBoundary({
