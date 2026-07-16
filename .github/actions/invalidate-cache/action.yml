@@ -51,6 +51,9 @@ outputs:
   failed_count:
     description: 'Number of cache items that failed invalidation'
     value: ${{ steps.invalidate.outputs.failed_count }}
+  list_version_bumped:
+    description: 'Whether every applicable successful batch proved a list-generation bump'
+    value: ${{ steps.invalidate.outputs.list_version_bumped }}
 
 runs:
   using: composite
@@ -107,6 +110,7 @@ runs:
           echo "total_count=0" >> "$GITHUB_OUTPUT"
           echo "success_count=0" >> "$GITHUB_OUTPUT"
           echo "failed_count=0" >> "$GITHUB_OUTPUT"
+          echo "list_version_bumped=false" >> "$GITHUB_OUTPUT"
           if [ "$FAIL_ON_ERROR" = "true" ]; then
             echo "::error::Cache invalidation secret is empty"
             exit 1
@@ -143,6 +147,7 @@ runs:
           echo "No items to invalidate"
           echo "success_count=0" >> "$GITHUB_OUTPUT"
           echo "failed_count=0" >> "$GITHUB_OUTPUT"
+          echo "list_version_bumped=false" >> "$GITHUB_OUTPUT"
           exit 0
         fi
 
@@ -194,6 +199,7 @@ runs:
                 and (.invalidated.total | type == "number")
                 and (.invalidated.api | type == "number")
                 and (.invalidated.artifacts | type == "number")
+                and ($type == "releases" or .invalidated.listVersionBumped == true)
                 and ($invalidateArtifacts or .invalidated.artifacts == 0)
                 and ($invalidateDependentPacks or ((.closure.dependentPacks.all // []) | length) == 0)' \
               "$response_file" >/dev/null; then
@@ -348,6 +354,11 @@ runs:
         echo "✅ Complete: $SUCCESS succeeded, $FAILED failed"
         echo "success_count=$SUCCESS" >> "$GITHUB_OUTPUT"
         echo "failed_count=$FAILED" >> "$GITHUB_OUTPUT"
+        if [ "$CONTENT_TYPE" = "releases" ]; then
+          echo "list_version_bumped=false" >> "$GITHUB_OUTPUT"
+        else
+          echo "list_version_bumped=true" >> "$GITHUB_OUTPUT"
+        fi
 
         if [ "$INTERNAL_FAILURE" -gt 0 ]; then
           echo "::error::Cache invalidation workers did not produce trustworthy completion evidence"

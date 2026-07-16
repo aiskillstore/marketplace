@@ -297,12 +297,16 @@ function firstReadCanClose(read) {
 export async function verifyCacheReadback({
   attempts = 3,
   concurrency = 8,
+  expectedCacheVersion,
   fetchImpl = fetch,
   siteUrl = 'https://skillstore.io',
   expectedScores,
   timeoutMs = 30_000,
 }) {
   if (!Array.isArray(expectedScores)) fail('expected score evidence must be an array');
+  if (expectedCacheVersion !== undefined && !/^v[1-9][0-9]*$/.test(expectedCacheVersion)) {
+    fail('expected cache version must have the form vN');
+  }
   const normalized = normalizeSlugs(expectedScores.map((item) => item?.slug));
   if (normalized.length !== expectedScores.length) fail('expected score evidence contains duplicate slugs');
   const expectedBySlug = new Map(expectedScores.map((item) => [item.slug, item]));
@@ -316,6 +320,14 @@ export async function verifyCacheReadback({
       try {
         const first = await readSkill(fetchImpl, siteUrl, slug, timeoutMs);
         const second = await readSkill(fetchImpl, siteUrl, slug, timeoutMs);
+        if (
+          expectedCacheVersion !== undefined &&
+          (first.version !== expectedCacheVersion || second.version !== expectedCacheVersion)
+        ) {
+          fail(
+            `${slug} cache version was ${first.version}/${second.version}; expected ${expectedCacheVersion}`
+          );
+        }
         if (!firstReadCanClose(first)) {
           fail(`${slug} first read was ${first.cache || 'missing'}+${first.write || 'missing'}`);
         }
@@ -450,6 +462,7 @@ async function main() {
     const evidence = await verifyCacheReadback({
       attempts: positiveInteger(readOption(args, '--attempts', { fallback: '3' }), 'attempts', 5),
       concurrency: positiveInteger(readOption(args, '--concurrency', { fallback: '8' }), 'concurrency', 16),
+      expectedCacheVersion: readOption(args, '--expected-cache-version'),
       siteUrl: readOption(args, '--site-url', { fallback: 'https://skillstore.io' }),
       expectedScores,
       timeoutMs: positiveInteger(readOption(args, '--timeout-ms', { fallback: '30000' }), 'timeout-ms', 120_000),
