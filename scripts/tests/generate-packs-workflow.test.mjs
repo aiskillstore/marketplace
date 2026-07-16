@@ -1,5 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -7,6 +8,8 @@ import { fileURLToPath } from 'node:url';
 const TEST_DIR = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(TEST_DIR, '..', '..');
 const WORKFLOW = readFileSync(join(REPO_ROOT, '.github/workflows/generate-packs.yml'), 'utf8');
+const EVALUATOR_PREFLIGHT_PATH = join(REPO_ROOT, 'scripts/pack-evaluator-preflight.sh');
+const EVALUATOR_PREFLIGHT = readFileSync(EVALUATOR_PREFLIGHT_PATH, 'utf8');
 const DOWNLOAD_ACTION = readFileSync(join(REPO_ROOT, '.github/actions/download-skillstore-cli/action.yml'), 'utf8');
 const EVALUATOR_PROXY = readFileSync(join(REPO_ROOT, 'scripts/pack-evaluator-proxy.mjs'), 'utf8');
 const GENERATE_CONTENT = readFileSync(join(REPO_ROOT, '.github/workflows/generate-content.yml'), 'utf8');
@@ -42,7 +45,9 @@ test('evaluate job cannot interpolate production write credentials', () => {
 });
 
 test('evaluate runs on a disposable VM with a user-separated job-local inference proxy', () => {
-  const evaluate = section('  evaluate:', '  persist:');
+  const evaluateWorkflow = section('  evaluate:', '  persist:');
+  const evaluate = `${evaluateWorkflow}\n${EVALUATOR_PREFLIGHT}`;
+  assert.match(evaluateWorkflow, /scripts\/pack-evaluator-preflight\.sh/);
   assert.match(evaluate, /runs-on: ubuntu-latest/);
   assert.match(evaluate, /@anthropic-ai\/claude-code@2\.1\.210/);
   assert.match(evaluate, /@openai\/codex@0\.139\.0/);
@@ -121,22 +126,22 @@ test('evaluate runs on a disposable VM with a user-separated job-local inference
   assert.match(evaluate, /--ephemeral/);
   assert.match(evaluate, /--color never/);
   assert.match(evaluate, /-m gpt-5\.5/);
-  assert.match(evaluate, /CLAUDE_PREFLIGHT_OUTCOME=command_failed/);
-  assert.match(evaluate, /CODEX_PREFLIGHT_OUTCOME=command_failed/);
-  assert.match(evaluate, /for CODEX_PREFLIGHT_ATTEMPT in 1 2/);
-  assert.match(evaluate, /CODEX_PREFLIGHT_ERROR_CLASS.*upstream_transport/s);
-  assert.match(evaluate, /CODEX_PREFLIGHT_ATTEMPT" -eq 2/);
-  assert.match(evaluate, /cleanup_preflight_processes\(\)/);
-  assert.match(evaluate, /PREFLIGHT_RETRY_CLEANUP_OUTCOME=passed/);
+  assert.match(evaluate, /CLAUDE_OUTCOME=command_failed/);
+  assert.match(evaluate, /CODEX_OUTCOME=command_failed/);
+  assert.match(evaluate, /for ATTEMPT in 1 2/);
+  assert.match(evaluate, /CODEX_ERROR_CLASS.*upstream_transport/s);
+  assert.match(evaluate, /ATTEMPT" -eq 2/);
+  assert.match(evaluate, /cleanup_processes\(\)/);
+  assert.match(evaluate, /RETRY_CLEANUP_OUTCOME=passed/);
   assert.match(evaluate, /sleep 5/);
   assert.match(evaluate, /attempts: \$codexAttempts/);
   assert.match(evaluate, /durationMs: \$durationMs/);
   assert.doesNotMatch(evaluate, /connect\|connection\|transport\|request/);
   assert.match(evaluate, /SKILLSTORE_AGENTS=codex,claude/);
   assert.match(evaluate, /agent-preflight-diagnostics\.json/);
-  assert.match(evaluate, /CLAUDE_PREFLIGHT_OUTCOME=invalid_response/);
-  assert.match(evaluate, /CODEX_PREFLIGHT_OUTCOME=invalid_response/);
-  assert.match(evaluate, /classify_preflight_error\(\)/);
+  assert.match(evaluate, /CLAUDE_OUTCOME=invalid_response/);
+  assert.match(evaluate, /CODEX_OUTCOME=invalid_response/);
+  assert.match(evaluate, /classify_error\(\)/);
   assert.match(evaluate, /state_storage/);
   assert.match(evaluate, /authentication/);
   assert.match(evaluate, /model_route/);
@@ -146,9 +151,9 @@ test('evaluate runs on a disposable VM with a user-separated job-local inference
   assert.match(evaluate, /claude:\s*\{/);
   assert.match(evaluate, /codex:\s*\{/);
   assert.match(evaluate, /cleanup:\s*\{[\s\S]*outcome: \$cleanupOutcome,[\s\S]*retryOutcome: \$retryCleanupOutcome/);
-  assert.match(evaluate, /PREFLIGHT_CLEANUP_OUTCOME=failed/);
-  assert.match(evaluate, /PREFLIGHT_CLEANUP_OUTCOME=probe_failed/);
-  assert.match(evaluate, /PREFLIGHT_CLEANUP_RC/);
+  assert.match(evaluate, /CLEANUP_OUTCOME=failed/);
+  assert.match(evaluate, /CLEANUP_OUTCOME=probe_failed/);
+  assert.match(evaluate, /CLEANUP_RC/);
   assert.match(evaluate, /tr -d '\\r\\n'/);
   assert.doesNotMatch(evaluate, /SKILLSTORE_AGENTS: \$\{\{ vars\.SKILLSTORE_AGENTS \}\}/);
   assert.doesNotMatch(evaluate, /sed -E .*Bearer|proxy\.log|proxy-failure\.log/);
@@ -164,9 +169,9 @@ test('evaluate runs on a disposable VM with a user-separated job-local inference
   assert.match(evaluate, /find "\$GITHUB_WORKSPACE\/pack-harvest" -type d -exec chmod 0700/);
   assert.match(evaluate, /find "\$GITHUB_WORKSPACE\/pack-harvest" -type f -exec chmod 0600/);
   assert.match(evaluate, /find "\$GITHUB_WORKSPACE\/pack-harvest" ! -type f ! -type d/);
-  const preflightIndex = evaluate.indexOf('if ! sudo -u packeval env -i');
-  const relaxedErrorIndex = evaluate.indexOf('set +e', preflightIndex);
-  const evaluatorIndex = evaluate.indexOf('sudo env -i', relaxedErrorIndex);
+  const preflightIndex = evaluateWorkflow.indexOf('scripts/pack-evaluator-preflight.sh');
+  const relaxedErrorIndex = evaluateWorkflow.indexOf('set +e', preflightIndex);
+  const evaluatorIndex = evaluateWorkflow.indexOf('sudo env -i', relaxedErrorIndex);
   assert.ok(preflightIndex >= 0);
   assert.ok(relaxedErrorIndex > preflightIndex);
   assert.ok(evaluatorIndex > relaxedErrorIndex);
@@ -176,6 +181,13 @@ test('evaluate runs on a disposable VM with a user-separated job-local inference
   assert.match(evaluate, /prlimit --nproc=256:256 --as=6442450944:6442450944/);
   assert.match(EVALUATOR_PROXY, /evaluator proxy request budget exhausted/);
   assert.match(EVALUATOR_PROXY, /evaluator proxy token has expired/);
+});
+
+test('extracted evaluator preflight is valid bounded bash', () => {
+  const result = spawnSync('bash', ['-n', EVALUATOR_PREFLIGHT_PATH], { encoding: 'utf8' });
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(EVALUATOR_PREFLIGHT, /for ATTEMPT in 1 2/);
+  assert.match(EVALUATOR_PREFLIGHT, /PACK_DIAGNOSTICS_DIR\/agent-preflight-diagnostics\.json/);
 });
 
 test('evaluate emits bounded progress and checkpoints cancellation-safe evidence', () => {
