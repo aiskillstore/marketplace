@@ -190,3 +190,43 @@ test('Pack preflight mock requires two ordered Skill results before returning th
     await new Promise((resolve) => packServer.close(resolve));
   }
 });
+
+test('Pack preflight rejection retains only bounded safe tool names', async () => {
+  const rejectedActivities = [];
+  const packServer = createPackEvaluatorPreflightMock({
+    localToken: LOCAL_TOKEN,
+    preflightSkillIds: ['pack-executor-preflight-a', 'pack-executor-preflight-b'],
+    onActivity: (activity) => rejectedActivities.push(activity),
+  });
+  packServer.listen(0, '127.0.0.1');
+  await once(packServer, 'listening');
+  const url = `http://127.0.0.1:${packServer.address().port}`;
+  try {
+    const response = await fetch(`${url}/v1/messages`, {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${LOCAL_TOKEN}`,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'sonnet',
+        stream: true,
+        max_tokens: 16384,
+        tools: [
+          { name: 'Read' },
+          { name: 'mcp__safe.tool-1' },
+          { name: 'unsafe tool name', input_schema: { private: 'sensitive schema' } },
+        ],
+        messages: [{ role: 'user', content: 'private Pack task' }],
+      }),
+    });
+    assert.equal(response.status, 400);
+    assert.deepEqual(rejectedActivities.at(-1)?.toolNames, ['Read', 'mcp__safe.tool-1']);
+    assert.doesNotMatch(
+      JSON.stringify(rejectedActivities),
+      /private Pack task|sensitive schema|unsafe tool name|local-preflight-token/,
+    );
+  } finally {
+    await new Promise((resolve) => packServer.close(resolve));
+  }
+});

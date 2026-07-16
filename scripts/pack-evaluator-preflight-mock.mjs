@@ -142,6 +142,14 @@ function hasSkillTool(value) {
   return Array.isArray(value.tools) && value.tools.some((tool) => tool?.name === 'Skill');
 }
 
+function safeToolNames(value) {
+  if (!Array.isArray(value.tools)) return [];
+  return value.tools
+    .map((tool) => tool?.name)
+    .filter((name) => typeof name === 'string' && /^[A-Za-z0-9_.:-]{1,96}$/.test(name))
+    .slice(0, 64);
+}
+
 function hasExactToolResults(value, expectedCount) {
   if (!Array.isArray(value.messages) || value.messages.length === 0) return false;
   const last = value.messages.at(-1);
@@ -281,7 +289,7 @@ export function createPackEvaluatorPreflightMock({
       messagesRequestNumber += 1;
       if (preflightSkillIds.length > 0) {
         if (messagesRequestNumber === 1 && !hasSkillTool(parsed.value)) {
-          onActivity({ ...activity, status: 400 });
+          onActivity({ ...activity, status: 400, toolNames: safeToolNames(parsed.value) });
           json(response, 400, { error: 'Skill tool is required by Pack preflight' });
           return;
         }
