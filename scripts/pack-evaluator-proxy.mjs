@@ -212,13 +212,26 @@ export function createPackEvaluatorProxy({
       requestsStarted += 1;
       activeRequests += 1;
       recordActivity({ phase: 'started', requestNumber: requestsStarted });
+      const requestNumber = requestsStarted;
+      const upstreamController = new AbortController();
+      const upstreamTimeout = setTimeout(() => upstreamController.abort(), timeoutMs);
+      const abortUpstream = () => {
+        if (!response.writableEnded) upstreamController.abort();
+      };
+      request.once('aborted', abortUpstream);
+      response.once('close', abortUpstream);
       try {
         const upstream = await fetchImpl(target, {
           method: 'POST',
           headers: upstreamHeaders(request, upstreamKey),
           body,
           redirect: 'error',
-          signal: AbortSignal.timeout(timeoutMs),
+          signal: upstreamController.signal,
+        });
+        recordActivity({
+          phase: 'response',
+          requestNumber,
+          statusClass: Math.floor(upstream.status / 100) * 100,
         });
         response.writeHead(upstream.status, responseHeaders(upstream));
         if (!upstream.body) {
@@ -235,10 +248,14 @@ export function createPackEvaluatorProxy({
         }
         response.end();
       } finally {
+        clearTimeout(upstreamTimeout);
+        request.off('aborted', abortUpstream);
+        response.off('close', abortUpstream);
         activeRequests -= 1;
-        recordActivity({ phase: 'completed', requestNumber: requestsStarted });
+        recordActivity({ phase: 'completed', requestNumber });
       }
     } catch (error) {
+      if (response.destroyed || response.writableEnded) return;
       const status = Number.isSafeInteger(error?.status) ? error.status : 502;
       json(response, status, { error: error instanceof Error ? error.message : 'proxy request failed' });
     }
@@ -259,7 +276,11 @@ export async function startPackEvaluatorProxy(environment = process.env) {
     ttlMs: environment.PACK_EVALUATOR_TTL_MS,
     requestTimeoutMs: environment.PACK_EVALUATOR_REQUEST_TIMEOUT_MS,
     onActivity: environment.PACK_EVALUATOR_ACTIVITY_FILE
-      ? () => appendFileSync(environment.PACK_EVALUATOR_ACTIVITY_FILE, `${Date.now()}\n`, { mode: 0o600 })
+      ? (activity) => appendFileSync(
+        environment.PACK_EVALUATOR_ACTIVITY_FILE,
+        `${JSON.stringify({ at: Date.now(), ...activity })}\n`,
+        { mode: 0o600 },
+      )
       : undefined,
   });
   await new Promise((resolve, reject) => {

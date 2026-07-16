@@ -118,11 +118,13 @@ test('evaluate runs on a disposable VM with a user-separated job-local inference
   assert.match(evaluate, /PACK_EVALUATOR_MAX_CONCURRENT=4/);
   assert.match(evaluate, /PACK_EVALUATOR_MAX_OUTPUT_TOKENS=65536/);
   assert.match(evaluate, /PACK_EVALUATOR_ACTIVITY_FILE="\$PROXY_ACTIVITY"/);
+  assert.match(evaluate, /PACK_EVALUATOR_ACTIVITY_FILE="\$PROXY_ACTIVITY"[\s\\]+bash .*pack-evaluator-preflight\.sh/);
   assert.match(evaluate, /sudo rm -f "\$PROXY_ACTIVITY"/);
   assert.match(evaluate, /Pack evaluator proxy did not become healthy within 30 seconds/);
   assert.match(evaluate, /proxy-diagnostics\.json/);
   assert.match(evaluate, /Reply with exactly PACK_EVALUATOR_READY and nothing else/);
-  assert.match(evaluate, /timeout --signal=TERM --kill-after=5s 60s/);
+  assert.match(evaluate, /readonly PREFLIGHT_TIMEOUT_SECONDS=180/);
+  assert.match(evaluate, /timeout --signal=TERM --kill-after=5s "\$\{PREFLIGHT_TIMEOUT_SECONDS\}s"/);
   assert.match(evaluate, /\/opt\/pack-evaluator\/runtime\/bin\/claude/);
   assert.match(evaluate, /--permission-mode bypassPermissions/);
   assert.match(evaluate, /--model sonnet/);
@@ -168,6 +170,10 @@ test('evaluate runs on a disposable VM with a user-separated job-local inference
   assert.match(evaluate, /evaluator-failure\.txt/);
   assert.match(evaluate, /pkill -TERM -u packeval/);
   assert.match(evaluate, /pkill -KILL -u packeval/);
+  assert.match(evaluate, /pkill -TERM -u packproxy -f pack-evaluator-proxy\.mjs/);
+  assert.match(evaluate, /pkill -KILL -u packproxy -f pack-evaluator-proxy\.mjs/);
+  assert.match(evaluate, /pgrep -u packproxy -f pack-evaluator-proxy\.mjs/);
+  assert.match(evaluate, /proxy-termination-failure\.txt/);
   assert.match(evaluate, /EVALUATOR_PROCESSES_STOPPED=true/);
   assert.match(evaluate, /process-termination-failure\.txt/);
   assert.match(evaluate, /RESULT_BYTES=.*du -sb \/opt\/pack-evaluator\/results/);
@@ -189,6 +195,7 @@ test('evaluate runs on a disposable VM with a user-separated job-local inference
   assert.match(evaluate, /prlimit --nproc=256:256 --as=6442450944:6442450944/);
   assert.match(EVALUATOR_PROXY, /evaluator proxy request budget exhausted/);
   assert.match(EVALUATOR_PROXY, /evaluator proxy token has expired/);
+  assert.match(EVALUATOR_PROXY, /response\.once\('close', abortUpstream\)/);
 });
 
 test('extracted evaluator preflight is valid bounded bash', () => {
@@ -203,6 +210,7 @@ test('extracted evaluator preflight is valid bounded bash', () => {
   assert.match(EVALUATOR_PREFLIGHT, /exitCode: \$exitCode/);
   assert.doesNotMatch(EVALUATOR_PREFLIGHT, /if ! printf '%s\\n' 'Reply with exactly PACK_EVALUATOR_READY/);
   assert.match(EVALUATOR_PREFLIGHT, /PACK_DIAGNOSTICS_DIR\/agent-preflight-diagnostics\.json/);
+  assert.match(EVALUATOR_PREFLIGHT, /PACK_DIAGNOSTICS_DIR\/proxy-activity\.ndjson/);
 });
 
 test('evaluator preflight retries only bounded transient or unknown command failures', () => {
@@ -306,6 +314,7 @@ test('evaluate emits bounded progress and checkpoints cancellation-safe evidence
 
 test('planning is bounded to three artifact scenarios and CLI release is immutable', () => {
   const plan = section('  plan:', '  evaluate:');
+  assert.match(plan, /permission-contents: read/);
   assert.match(plan, /scenario-queue --limit 3/);
   assert.match(plan, /requiredArtifacts \| length >= 1/);
   assert.match(plan, /\(\.scenarios \| length\) > 0 or \.source == "signals"/);

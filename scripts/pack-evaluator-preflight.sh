@@ -3,6 +3,7 @@ set -euo pipefail
 
 : "${PACK_EVALUATOR_PROXY_TOKEN:?PACK_EVALUATOR_PROXY_TOKEN is required}"
 : "${PACK_DIAGNOSTICS_DIR:?PACK_DIAGNOSTICS_DIR is required}"
+readonly PREFLIGHT_TIMEOUT_SECONDS=180
 
 CLAUDE_STDOUT=$(mktemp)
 CLAUDE_STDERR=$(mktemp)
@@ -94,7 +95,7 @@ for ATTEMPT in 1 2; do
       ANTHROPIC_BASE_URL=http://127.0.0.1:18765 \
       ANTHROPIC_AUTH_TOKEN="$PACK_EVALUATOR_PROXY_TOKEN" \
       NO_PROXY=127.0.0.1,localhost \
-      timeout --signal=TERM --kill-after=5s 60s \
+      timeout --signal=TERM --kill-after=5s "${PREFLIGHT_TIMEOUT_SECONDS}s" \
       /opt/pack-evaluator/runtime/bin/claude \
         --print \
         --output-format text \
@@ -161,9 +162,9 @@ CODEX_ERROR_CLASS=none
 CODEX_EXIT_CODE=-1
 CODEX_ATTEMPTS='[]'
 if [ "$CLAUDE_OUTCOME" = "passed" ]; then
-  # Retry only one narrowly classified transport failure or an explicit
-  # timeout. Permission, auth, routing, CLI, response-shape, and unknown
-  # failures stay fail-closed.
+  # Retry one transport, timeout, or otherwise-unclassified command failure.
+  # Permission, auth, routing, CLI-argument, state, and response-shape failures
+  # stay fail-closed on the first attempt; every second failure stops.
   for ATTEMPT in 1 2; do
     : > "$CODEX_STDOUT"
     : > "$CODEX_STDERR"
@@ -179,7 +180,7 @@ if [ "$CLAUDE_OUTCOME" = "passed" ]; then
         NO_COLOR=1 \
         PACK_EVALUATOR_PROXY_TOKEN="$PACK_EVALUATOR_PROXY_TOKEN" \
         NO_PROXY=127.0.0.1,localhost \
-        timeout --signal=TERM --kill-after=5s 60s \
+        timeout --signal=TERM --kill-after=5s "${PREFLIGHT_TIMEOUT_SECONDS}s" \
         /opt/pack-evaluator/runtime/bin/codex \
           exec \
           --skip-git-repo-check \
@@ -311,6 +312,15 @@ jq -n \
       retryOutcome: $retryCleanupOutcome
     }
   }' > "$PACK_DIAGNOSTICS_DIR/agent-preflight-diagnostics.json"
+
+if [ -n "${PACK_EVALUATOR_ACTIVITY_FILE:-}" ] && \
+   sudo test -f "$PACK_EVALUATOR_ACTIVITY_FILE"; then
+  sudo cp "$PACK_EVALUATOR_ACTIVITY_FILE" \
+    "$PACK_DIAGNOSTICS_DIR/proxy-activity.ndjson"
+  sudo chown "$(id -u):$(id -g)" \
+    "$PACK_DIAGNOSTICS_DIR/proxy-activity.ndjson"
+  chmod 0600 "$PACK_DIAGNOSTICS_DIR/proxy-activity.ndjson"
+fi
 
 if [ "$CLAUDE_OUTCOME" != "passed" ] || \
    [ "$CODEX_OUTCOME" != "passed" ] || \

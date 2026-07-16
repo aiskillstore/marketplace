@@ -42,6 +42,7 @@ jobs:
           client-id: ${{ vars.APP_CLIENT_ID }}
           private-key: ${{ secrets.APP_PRIVATE_KEY }}
           repositories: marketplace,skillstore
+          permission-contents: read
 
       - name: Prepare isolated checkout
         run: rm -rf "$GITHUB_WORKSPACE/marketplace-plan" "$GITHUB_WORKSPACE/pack-plan" "$GITHUB_WORKSPACE/pack-cli"
@@ -380,7 +381,20 @@ jobs:
               echo 'packeval processes survived TERM and KILL' \
                 > "$GITHUB_WORKSPACE/pack-diagnostics/process-termination-failure.txt"
             fi
-            sudo pkill -u packproxy -f pack-evaluator-proxy.mjs 2>/dev/null || true
+            sudo pkill -TERM -u packproxy -f pack-evaluator-proxy.mjs 2>/dev/null || true
+            for _ in $(seq 1 10); do
+              if ! sudo pgrep -u packproxy -f pack-evaluator-proxy.mjs >/dev/null 2>&1; then
+                break
+              fi
+              sleep 0.1
+            done
+            sudo pkill -KILL -u packproxy -f pack-evaluator-proxy.mjs 2>/dev/null || true
+            sleep 0.1
+            if sudo pgrep -u packproxy -f pack-evaluator-proxy.mjs >/dev/null 2>&1; then
+              echo 'packproxy processes survived TERM and KILL' \
+                > "$GITHUB_WORKSPACE/pack-diagnostics/proxy-termination-failure.txt"
+              if [ "$exit_code" -eq 0 ]; then exit_code=1; fi
+            fi
             rm -f "$PROXY_LOG"
             sudo rm -f "$PROXY_ACTIVITY"
             return "$exit_code"
@@ -482,6 +496,7 @@ jobs:
 
           PACK_EVALUATOR_PROXY_TOKEN="$LOCAL_TOKEN" \
           PACK_DIAGNOSTICS_DIR="$GITHUB_WORKSPACE/pack-diagnostics" \
+          PACK_EVALUATOR_ACTIVITY_FILE="$PROXY_ACTIVITY" \
           bash "$GITHUB_WORKSPACE/marketplace-evaluate/scripts/pack-evaluator-preflight.sh"
           PACKEVAL_UID=$(id -u packeval)
           PACKEVAL_GID=$(id -g packeval)
