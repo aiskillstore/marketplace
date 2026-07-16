@@ -634,7 +634,7 @@ export function verifyLegacyGovernanceBoundary({
       || !UUID_RE.test(String(current.public_eligibility_audit_id || ''))
       || current.public_eligibility_audit_id === selected.publicEligibilityAuditId
       || !sameTimestamp(current.published_at, selected.publishedAt)
-      || !sameTimestamp(current.updated_at, selected.updatedAt)
+      || !timestampDoesNotRegress(selected.updatedAt, current.updated_at)
       || artifact?.id !== current.current_artifact_version_id
       || artifact?.artifact_revision !== 1
       || artifact?.content_hash !== repair.packagedContentHash
@@ -677,6 +677,12 @@ function sameTimestamp(left, right) {
   return Number.isFinite(Date.parse(left))
     && Number.isFinite(Date.parse(right))
     && Date.parse(left) === Date.parse(right);
+}
+
+function timestampDoesNotRegress(before, after) {
+  return Number.isFinite(Date.parse(before))
+    && Number.isFinite(Date.parse(after))
+    && Date.parse(after) >= Date.parse(before);
 }
 
 export function verifyLegacyGovernanceExecution({

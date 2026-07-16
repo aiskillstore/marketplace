@@ -495,6 +495,7 @@ test('freezes and verifies one exact dry-run boundary', () => {
       artifact_revision: 1,
       current_artifact_version_id: ARTIFACT_ID,
       public_eligibility_audit_id: DERIVED_AUDIT_ID,
+      updated_at: '2026-07-16T01:34:36.244Z',
     };
     resumable.artifacts = [{
       id: ARTIFACT_ID,
@@ -529,6 +530,19 @@ test('freezes and verifies one exact dry-run boundary', () => {
       expectedRunId: '12345',
     });
     assert.equal(resumed.resumableCount, 1);
+    const resumableTimestampRegression = structuredClone(resumable);
+    resumableTimestampRegression.rows[0].updated_at = '2025-12-31T00:00:00.000Z';
+    assert.throws(() => verifyLegacyGovernanceBoundary({
+      boundary: fixture.boundary,
+      plan: fixture.plan,
+      classification: fixture.classification,
+      frozenInventory: fixture.preInventory,
+      currentInventory: resumableTimestampRegression,
+      frozenSourceEvidence: fixture.sourceEvidence,
+      currentSourceEvidence: resumableSourceEvidence,
+      paths: fixture.files,
+      expectedRunId: '12345',
+    }), /production state changed incompatibly/);
     assert.throws(() => verifyLegacyGovernanceBoundary({
       boundary: fixture.boundary,
       plan: fixture.plan,
