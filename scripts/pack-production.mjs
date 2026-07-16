@@ -11,7 +11,6 @@ import { fileURLToPath } from 'node:url';
 const CLI_SCHEMA = 'pack-generation-evaluation/v2';
 const API_SCHEMA = 'skillstore.pack-evaluation/v4';
 const STATUS_SCHEMA = 'skillstore.pack-production-status/v1';
-const READBACK_SCHEMA = 'skillstore.pack-production-readback/v1';
 const SLO_SCHEMA = 'marketplace.pack-production-slo/v1';
 const VERIFICATION_SCHEMA = 'marketplace.pack-production-evaluation-verification/v1';
 const INFRASTRUCTURE_FAILURE_SCHEMA = 'marketplace.pack-production-infrastructure-failure/v1';
@@ -2503,6 +2502,20 @@ function wait(milliseconds) {
   return new Promise((resolveWait) => setTimeout(resolveWait, milliseconds));
 }
 
+export function buildHardDisabledReviewPendingResult(selected, autoPublishRequested) {
+  if (!selected?.generationId || !selected?.pack?.id || !selected?.pack?.slug) {
+    fail('Hard-disabled automatic publication requires an exact selected generation and Pack');
+  }
+  return {
+    outcome: 'review_pending',
+    generationId: selected.generationId,
+    pack: selected.pack,
+    reason: 'automatic publish was disabled for this run',
+    autoPublishRequested: autoPublishRequested === true,
+    publicationMode: 'manual_only',
+  };
+}
+
 async function finalize(args) {
   const resultsDir = resolve(required(args, 'results-dir'));
   const persisted = await readJson(resolve(resultsDir, 'persist-summary.json'));
@@ -2581,78 +2594,11 @@ async function finalize(args) {
     translationStatus: 'succeeded',
     error: null,
   });
-  const autoPublishEnabled = (args['auto-publish'] ?? 'true') === 'true';
-  if (!autoPublishEnabled || !selected.autoPublishEligible || selected.comparisonOf) {
-    const result = {
-      outcome: 'review_pending',
-      generationId,
-      pack: selected.pack,
-      reason: selected.comparisonOf
-        ? 'comparison candidates require human review'
-        : !autoPublishEnabled
-          ? 'automatic publish was disabled for this run'
-          : 'candidate did not meet the automatic publish gate',
-    };
-    await writeJson(resolve(resultsDir, 'final-result.json'), result);
-    process.stdout.write(`${JSON.stringify(result)}\n`);
-    return;
-  }
-
-  const publish = await apiRequest(
-    `${base}/api/automation/packs/${encodeURIComponent(selected.pack.slug)}/publish`,
-    token,
-    { method: 'POST', body: JSON.stringify({ generationId }) },
-  );
-  const publicSlug = publish?.data?.slug;
-  if (!publicSlug) fail('Publish response did not include the public slug');
-  const expectedPublicPack = buildPublicReadbackExpectation(persisted, selected, publicSlug);
-
-  let publicPack = null;
-  let readbackMismatches = [];
-  for (let attemptNumber = 1; attemptNumber <= 10; attemptNumber += 1) {
-    try {
-      const readback = await readExactPublicPack(base, expectedPublicPack);
-      publicPack = readback.pack;
-      readbackMismatches = readback.mismatches;
-      if (publicPack) break;
-    } catch (cause) {
-      // Production cache/readback may lag; retry within the bounded window.
-      readbackMismatches = [cause instanceof Error ? cause.message : String(cause)];
-    }
-    if (attemptNumber < 10) await wait(30_000);
-  }
-  const checkedAt = new Date().toISOString();
-  if (!publicPack) {
-    const readbackError = `exact public Pack readback failed: ${readbackMismatches.join('; ') || 'no matching Pack returned'}`;
-    await apiRequest(`${base}/api/automation/packs/production/${generationId}`, token, {
-      method: 'POST',
-      body: JSON.stringify({
-        schemaVersion: READBACK_SCHEMA,
-        status: 'failed',
-        packSlug: publicSlug,
-        checkedAt,
-        error: readbackError,
-      }),
-    }).catch(() => {});
-    fail(`Published pack ${publicSlug} failed production readback: ${readbackError}`);
-  }
-
-  await apiRequest(`${base}/api/automation/packs/production/${generationId}`, token, {
-    method: 'POST',
-    body: JSON.stringify({
-      schemaVersion: READBACK_SCHEMA,
-      status: 'succeeded',
-      packSlug: publicSlug,
-      checkedAt,
-      error: null,
-    }),
-  });
-  const result = {
-    outcome: 'published',
-    generationId,
-    pack: { id: publicPack.id, slug: publicSlug, skillCount: publicPack.skills.length },
-    readbackPassed: true,
-  };
+  // Automatic publication is hard-disabled in code. A true request is retained
+  // as audit evidence but cannot cross the review_pending boundary; the only v4
+  // publisher is the Environment-protected generation-bound manual workflow.
+  const autoPublishRequested = (args['auto-publish'] ?? 'false') === 'true';
+  const result = buildHardDisabledReviewPendingResult(selected, autoPublishRequested);
   await writeJson(resolve(resultsDir, 'final-result.json'), result);
   process.stdout.write(`${JSON.stringify(result)}\n`);
 }

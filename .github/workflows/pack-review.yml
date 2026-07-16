@@ -29,6 +29,13 @@ jobs:
               console.log(`Not a recognized command: ${comment.substring(0, 50)}`);
               return;
             }
+            // Usage guides can contain an immutable Pack-production DAG marker.
+            // The legacy callback cannot prove or preserve that binding, so it
+            // may never accept an inline guide replacement for any Pack.
+            if (comment.startsWith('/approve') && /(?:^|\s)--guide(?:\s|=)/.test(comment)) {
+              core.setFailed('/approve --guide is disabled; immutable usage guides must use a binding-aware API');
+              return;
+            }
 
             const { data: perm } = await github.rest.repos.getCollaboratorPermissionLevel({
               owner: context.repo.owner,
@@ -41,6 +48,14 @@ jobs:
             }
 
             const issueBody = context.payload.issue.body;
+            const isPackProductionV4 = /Pack Production Generation|Generation ID|skillstore\.pack-evaluation\/v4/i.test(issueBody);
+            if (
+              isPackProductionV4
+              && ['/generate', '/approve', '/regenerate'].some((command) => comment.startsWith(command))
+            ) {
+              core.setFailed('Pack Production v4 can only be published by the generation-bound production workflow');
+              return;
+            }
 
             // Extract pack ID from issue body. Tolerate legacy Plugin ID rows
             // from issues opened before the product rename.
@@ -59,12 +74,10 @@ jobs:
               payload = { packId };
             } else if (comment.startsWith('/approve')) {
               event = 'approve';
-              // Parse optional modifications
-              const guideMatch = comment.match(/--guide\s+"([^"]+)"/);
               payload = {
                 packId,
                 approvedBy: context.actor,
-                modifiedGuide: guideMatch ? guideMatch[1] : null
+                modifiedGuide: null
               };
             } else if (comment.startsWith('/regenerate')) {
               event = 'regenerate';

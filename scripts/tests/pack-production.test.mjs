@@ -21,6 +21,7 @@ import { fileURLToPath } from 'node:url';
 import {
   allocateScenarioBudgetMs,
   buildApiEvaluation,
+  buildHardDisabledReviewPendingResult,
   buildInfrastructureCliReport,
   buildPublicReadbackExpectation,
   buildSafeCliEvidence,
@@ -43,6 +44,22 @@ import {
 const PACK_PRODUCTION = fileURLToPath(new URL('../pack-production.mjs', import.meta.url));
 const PACK_PRODUCTION_URL = new URL('../pack-production.mjs', import.meta.url).href;
 const V4_GOLDEN = fileURLToPath(new URL('./fixtures/pack-production-evaluation-v4.golden.json', import.meta.url));
+
+test('automatic publication is hard-disabled even when explicitly requested', () => {
+  const selected = {
+    generationId: 'a43f792e-92ac-4b9d-b0fe-eafe4855d3a0',
+    pack: { id: 'pack-123', slug: 'staging-pack' },
+  };
+  assert.deepEqual(buildHardDisabledReviewPendingResult(selected, true), {
+    outcome: 'review_pending',
+    generationId: selected.generationId,
+    pack: selected.pack,
+    reason: 'automatic publish was disabled for this run',
+    autoPublishRequested: true,
+    publicationMode: 'manual_only',
+  });
+  assert.equal(buildHardDisabledReviewPendingResult(selected, false).autoPublishRequested, false);
+});
 
 export function cliReport() {
   const summary = {
