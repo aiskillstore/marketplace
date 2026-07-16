@@ -1,0 +1,178 @@
+name: Recover Cancelled Pack Production
+
+on:
+  workflow_run:
+    workflows: [Generate Pack]
+    types: [completed]
+    branches: [main]
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: pack-production-cancellation-recovery-${{ github.event.workflow_run.id }}-${{ github.event.workflow_run.run_attempt }}
+  cancel-in-progress: false
+
+jobs:
+  recover:
+    name: Persist a provable candidate-null cancellation audit
+    if: >-
+      github.event.workflow_run.conclusion == 'cancelled' &&
+      (github.event.workflow_run.event == 'schedule' || github.event.workflow_run.event == 'workflow_dispatch')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout only the trusted recovery runtime
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.sha }}
+          sparse-checkout: |
+            scripts/pack-production-cancellation-recovery.mjs
+            scripts/pack-production.mjs
+          sparse-checkout-cone-mode: false
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Validate and freeze the workflow_run event
+        id: source
+        run: |
+          set -euo pipefail
+          ROOT="$RUNNER_TEMP/pack-production-cancellation-recovery"
+          mkdir -p "$ROOT/source" "$ROOT/plan" "$ROOT/diagnostics" "$ROOT/result"
+          node scripts/pack-production-cancellation-recovery.mjs inspect \
+            --event "$GITHUB_EVENT_PATH" \
+            --output "$ROOT/source/source-run.json"
+          RUN_ID=$(jq -r '.runId' "$ROOT/source/source-run.json")
+          RUN_ATTEMPT=$(jq -r '.runAttempt' "$ROOT/source/source-run.json")
+          SOURCE_SHA=$(jq -r '.commitSha' "$ROOT/source/source-run.json")
+          echo "run_id=$RUN_ID" >> "$GITHUB_OUTPUT"
+          echo "run_attempt=$RUN_ATTEMPT" >> "$GITHUB_OUTPUT"
+          echo "source_sha=$SOURCE_SHA" >> "$GITHUB_OUTPUT"
+
+      - name: Freeze bounded GitHub provenance for the exact source attempt
+        id: metadata
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ steps.source.outputs.run_id }}
+          RUN_ATTEMPT: ${{ steps.source.outputs.run_attempt }}
+          SOURCE_SHA: ${{ steps.source.outputs.source_sha }}
+        run: |
+          set -euo pipefail
+          ROOT="$RUNNER_TEMP/pack-production-cancellation-recovery/source"
+          gh api \
+            "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID/attempts/$RUN_ATTEMPT" \
+            > "$ROOT/source-attempt.json"
+          gh api \
+            "repos/$GITHUB_REPOSITORY/actions/workflows/generate-packs.yml" \
+            > "$ROOT/expected-workflow.json"
+          gh api \
+            "repos/$GITHUB_REPOSITORY/compare/$SOURCE_SHA...$GITHUB_SHA" \
+            > "$ROOT/source-comparison.json"
+          gh api \
+            -H 'Accept: application/vnd.github.raw+json' \
+            "repos/$GITHUB_REPOSITORY/contents/.github/workflows/generate-packs.yml?ref=$SOURCE_SHA" \
+            > "$ROOT/source-workflow.yml"
+          # One page is an intentional hard bound. The helper rejects total_count
+          # above 100 instead of silently omitting an artifact from the decision.
+          gh api \
+            "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID/artifacts?per_page=100" \
+            > "$ROOT/artifact-index.json"
+
+      - name: Download the immutable source plan
+        id: plan_artifact
+        continue-on-error: true
+        uses: actions/download-artifact@v6
+        with:
+          name: pack-production-plan
+          path: ${{ runner.temp }}/pack-production-cancellation-recovery/plan
+          github-token: ${{ github.token }}
+          run-id: ${{ steps.source.outputs.run_id }}
+
+      - name: Download bounded cancellation diagnostics when present
+        id: diagnostics_artifact
+        continue-on-error: true
+        uses: actions/download-artifact@v6
+        with:
+          name: pack-production-diagnostics
+          path: ${{ runner.temp }}/pack-production-cancellation-recovery/diagnostics
+          github-token: ${{ github.token }}
+          run-id: ${{ steps.source.outputs.run_id }}
+
+      - name: Prepare only a fully bound sanitized candidate-null record
+        id: prepare
+        if: always() && steps.source.outcome == 'success' && steps.metadata.outcome == 'success'
+        run: |
+          set -euo pipefail
+          ROOT="$RUNNER_TEMP/pack-production-cancellation-recovery"
+          node scripts/pack-production-cancellation-recovery.mjs prepare \
+            --source-run "$ROOT/source/source-run.json" \
+            --source-attempt "$ROOT/source/source-attempt.json" \
+            --expected-workflow "$ROOT/source/expected-workflow.json" \
+            --comparison "$ROOT/source/source-comparison.json" \
+            --source-workflow "$ROOT/source/source-workflow.yml" \
+            --artifact-index "$ROOT/source/artifact-index.json" \
+            --plan-dir "$ROOT/plan" \
+            --diagnostics-dir "$ROOT/diagnostics" \
+            --output-dir "$ROOT/result"
+          OUTCOME=$(jq -r '.outcome' "$ROOT/result/recovery-result.json")
+          REASON=$(jq -r '.reason' "$ROOT/result/recovery-result.json")
+          echo "outcome=$OUTCOME" >> "$GITHUB_OUTPUT"
+          echo "reason=$REASON" >> "$GITHUB_OUTPUT"
+          if [ "$OUTCOME" = 'unrecoverable' ]; then
+            echo "::warning::Cancelled Pack run is not safely recoverable: $REASON"
+          fi
+
+      # This is the only write-capable step. It has no checkout token, evaluator
+      # credential, Helm credential, Supabase credential, or content-generation
+      # secret. The helper permits one fixed candidate-null POST and verifies that
+      # the response created no Pack and dispatched no enrichment.
+      - name: Persist the exact candidate-null cancellation audit
+        if: steps.prepare.outputs.outcome == 'candidate_null_prepared'
+        env:
+          SKILLSTORE_API_URL: ${{ secrets.SKILLSTORE_API_URL }}
+          PACK_PRODUCTION_AUTOMATION_KEY: ${{ secrets.PACK_PRODUCTION_AUTOMATION_KEY }}
+        run: |
+          set -euo pipefail
+          ROOT="$RUNNER_TEMP/pack-production-cancellation-recovery/result"
+          node scripts/pack-production-cancellation-recovery.mjs persist \
+            --result "$ROOT/recovery-result.json" \
+            --evaluation "$ROOT/candidate-null.evaluation.json" \
+            --api-url "$SKILLSTORE_API_URL" \
+            --token "$PACK_PRODUCTION_AUTOMATION_KEY" \
+            --output "$ROOT/persist-result.json"
+
+      - name: Summarize the bounded recovery decision
+        if: always() && steps.prepare.outcome == 'success'
+        env:
+          OUTCOME: ${{ steps.prepare.outputs.outcome }}
+          REASON: ${{ steps.prepare.outputs.reason }}
+          SOURCE_RUN_ID: ${{ steps.source.outputs.run_id }}
+          SOURCE_RUN_ATTEMPT: ${{ steps.source.outputs.run_attempt }}
+        run: |
+          {
+            echo '## Cancelled Pack Production Recovery'
+            echo ''
+            echo "- Source run: $SOURCE_RUN_ID (attempt $SOURCE_RUN_ATTEMPT)"
+            echo "- Decision: $OUTCOME"
+            echo "- Reason: $REASON"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload immutable recovery evidence
+        if: always() && steps.source.outcome == 'success'
+        uses: actions/upload-artifact@v6
+        with:
+          name: pack-production-cancellation-recovery-${{ steps.source.outputs.run_id }}-${{ steps.source.outputs.run_attempt }}
+          # Never re-upload source evaluator stdout, stderr, run logs, or raw
+          # checkpoints. The result contains only fixed fields plus hashes that
+          # bind back to the immutable 90-day source artifacts.
+          path: |
+            ${{ runner.temp }}/pack-production-cancellation-recovery/source/source-run.json
+            ${{ runner.temp }}/pack-production-cancellation-recovery/source/source-attempt.json
+            ${{ runner.temp }}/pack-production-cancellation-recovery/source/expected-workflow.json
+            ${{ runner.temp }}/pack-production-cancellation-recovery/source/source-comparison.json
+            ${{ runner.temp }}/pack-production-cancellation-recovery/source/source-workflow.yml
+            ${{ runner.temp }}/pack-production-cancellation-recovery/source/artifact-index.json
+            ${{ runner.temp }}/pack-production-cancellation-recovery/result/
+          if-no-files-found: error
+          retention-days: 90

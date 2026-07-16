@@ -2,13 +2,10 @@ name: Generate Pack
 
 on:
   schedule:
-    - cron: '17 19 * * *'
+    # 03:17 Asia/Shanghai every Tuesday, Thursday, and Saturday.
+    - cron: '17 19 * * 1,3,5'
   workflow_dispatch:
     inputs:
-      scenario:
-        description: 'Optional exact production scenario id/slug; blank uses the dynamic queue'
-        type: string
-        required: false
       auto_publish:
         description: 'Request auto-publish; repository rollout gate must also be enabled'
         type: boolean
@@ -18,12 +15,13 @@ permissions:
   contents: read
 
 concurrency:
-  group: generate-pack-production-v3
+  group: generate-pack-production-v4
   cancel-in-progress: false
 
 env:
-  # Immutable release required by the v3 evaluator/API contract. Bump only
-  # together with a Skillstore CLI release and its checksums.txt asset.
+  # RELEASE BLOCKER: 2.12.0 cannot emit the complete v4 evidence contract and
+  # therefore cannot reach Persist. Bump to 2.13.0 only after the Skillstore
+  # release and checksums.txt asset exist; the fail-closed tests assert this.
   PACK_PRODUCTION_CLI_VERSION: '2.12.0'
 
 jobs:
@@ -82,30 +80,50 @@ jobs:
             '{version: $version, sha256: $sha256}' \
             > "$GITHUB_WORKSPACE/pack-plan/cli-identity.json"
 
-      - name: Select up to three scenarios
+      - name: Select at most one admitted scenario through the read-only API
         id: queue
         env:
-          CLI: ${{ steps.cli.outputs.cli-path }}
-          SCENARIO: ${{ inputs.scenario }}
-          PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          SKILLSTORE_API_URL: ${{ secrets.SKILLSTORE_API_URL }}
+          PACK_PRODUCTION_PLANNER_KEY: ${{ secrets.PACK_PRODUCTION_PLANNER_KEY }}
         working-directory: marketplace-plan
         run: |
+          set -euo pipefail
           mkdir -p "$GITHUB_WORKSPACE/pack-plan"
-          ARGS=(pack scenario-queue --limit 3 --lookback-days 30 --cooldown-days 7 --json)
-          if [ -n "$SCENARIO" ]; then
-            ARGS+=(--scenario "$SCENARIO")
-          fi
-          "$CLI" "${ARGS[@]}" > "$GITHUB_WORKSPACE/pack-plan/plan.json"
+          API_BASE=${SKILLSTORE_API_URL%/}
+          case "$API_BASE" in
+            https://*) ;;
+            *) echo '::error::SKILLSTORE_API_URL must use HTTPS'; exit 1 ;;
+          esac
+          RESPONSE=$(mktemp)
+          trap 'rm -f "$RESPONSE"' EXIT
+          printf 'header = "Authorization: Bearer %s"\nheader = "Accept: application/json"\n' \
+            "$PACK_PRODUCTION_PLANNER_KEY" | \
+            curl --config - --fail --silent --show-error --max-time 30 --retry 0 \
+              --get "$API_BASE/api/automation/packs/production/queue" \
+              --data-urlencode 'limit=1' \
+              --data-urlencode 'lookbackDays=30' \
+              --data-urlencode 'cooldownDays=7' \
+              --output "$RESPONSE"
+          jq -e '.data' "$RESPONSE" > "$GITHUB_WORKSPACE/pack-plan/plan.json"
           jq -e '
             .schemaVersion == "pack-production-queue/v1" and
-            (.scenarios | type == "array" and length <= 3) and
-            ((.scenarios | length) > 0 or .source == "signals") and
-            (all(.scenarios[]; (.capabilitySlots | length >= 1) and (.requiredArtifacts | length >= 1)))
+            (.scenarios | type == "array" and length <= 1) and
+            ((.source == "signals" and (.scenarios | length) == 1) or
+             (.source == "no-op" and (.scenarios | length) == 0)) and
+            (all(.scenarios[];
+              (.capabilitySlots | length >= 1 and length <= 4) and
+              (.requiredArtifacts | length >= 1)
+            ))
           ' "$GITHUB_WORKSPACE/pack-plan/plan.json"
           SCENARIO_COUNT=$(jq -r '.scenarios | length' "$GITHUB_WORKSPACE/pack-plan/plan.json")
           echo "scenario_count=$SCENARIO_COUNT" >> "$GITHUB_OUTPUT"
           if [ "$SCENARIO_COUNT" -eq 0 ]; then
+            jq -e '
+              .source == "no-op" and
+              (.scenarios | length) == 0 and
+              (has("generationId") | not) and
+              (has("workflowBinding") | not)
+            ' "$GITHUB_WORKSPACE/pack-plan/plan.json" >/dev/null
             echo "has_scenarios=false" >> "$GITHUB_OUTPUT"
             jq \
               --arg runId "${{ github.run_id }}" \
@@ -129,9 +147,48 @@ jobs:
             }' "$GITHUB_WORKSPACE/pack-plan/plan.json" > "$GITHUB_WORKSPACE/pack-plan/no-op.json"
             echo "No eligible scenario is due; recording an audited no-op." >> "$GITHUB_STEP_SUMMARY"
           else
+            GENERATION_ID=$(node -e "process.stdout.write(require('node:crypto').randomUUID())")
+            BOUND_PLAN=$(mktemp "$GITHUB_WORKSPACE/pack-plan/.plan.XXXXXX")
+            jq \
+              --arg generationId "$GENERATION_ID" \
+              --arg repository "$GITHUB_REPOSITORY" \
+              --arg workflow "Generate Pack" \
+              --arg runId "$GITHUB_RUN_ID" \
+              --argjson runAttempt "$GITHUB_RUN_ATTEMPT" \
+              --arg commitSha "$GITHUB_SHA" \
+              '.scenarios[0].generationId = $generationId |
+               .workflowBinding = {
+                 repository: $repository,
+                 workflow: $workflow,
+                 runId: $runId,
+                 runAttempt: $runAttempt,
+                 commitSha: $commitSha,
+                 scenarioId: .scenarios[0].id
+               }' \
+              "$GITHUB_WORKSPACE/pack-plan/plan.json" > "$BOUND_PLAN"
+            jq -e \
+              --arg generationId "$GENERATION_ID" \
+              --arg repository "$GITHUB_REPOSITORY" \
+              --arg runId "$GITHUB_RUN_ID" \
+              --argjson runAttempt "$GITHUB_RUN_ATTEMPT" \
+              --arg commitSha "$GITHUB_SHA" \
+              '.source == "signals" and
+               (.scenarios | length) == 1 and
+               .scenarios[0].generationId == $generationId and
+               ($generationId | test("^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"; "i")) and
+               .workflowBinding == {
+                 repository: $repository,
+                 workflow: "Generate Pack",
+                 runId: $runId,
+                 runAttempt: $runAttempt,
+                 commitSha: $commitSha,
+                 scenarioId: .scenarios[0].id
+               }' "$BOUND_PLAN" >/dev/null
+            chmod 0600 "$BOUND_PLAN"
+            mv -f "$BOUND_PLAN" "$GITHUB_WORKSPACE/pack-plan/plan.json"
             echo "has_scenarios=true" >> "$GITHUB_OUTPUT"
           fi
-          jq '{source, scenarios: [.scenarios[] | {id, version, queueScore, reasons}]}' \
+          jq '{source, scenarios: [.scenarios[] | {id, version, queueScore, reasons, generationId}]}' \
             "$GITHUB_WORKSPACE/pack-plan/plan.json" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload immutable plan
@@ -189,10 +246,77 @@ jobs:
           VERSION=$(pack-production-cli/skillstore-cli-linux-x64 --version | grep -Eo '[0-9]+([.][0-9]+){2}' | head -n1)
           test "$VERSION" = "$PACK_PRODUCTION_CLI_VERSION"
 
+      - name: Reject plans outside the bounded evaluation budget
+        run: |
+          set -euo pipefail
+          mkdir -p "$GITHUB_WORKSPACE/pack-diagnostics"
+          SLOT_COUNT=$(jq '[.scenarios[].capabilitySlots | length] | add' pack-production-input/plan.json)
+          MAX_CANDIDATES=2
+          MAX_PACK_SKILLS=4
+          HIDDEN_VARIANTS=3
+          MAX_BEST_SINGLE_COMPETITORS=$((SLOT_COUNT * MAX_CANDIDATES))
+          CONTRACT_PROBES=2
+          MAX_CLI_PREFLIGHT_REQUESTS=4
+          # The deterministic treatment floor is not a safe operating ceiling:
+          # real file/browser work can require additional tool-result turns.
+          # Reserve a bounded 64-request envelope and let the proxy enforce the
+          # absolute 256-request stop.
+          TOOL_LOOP_HEADROOM=64
+          PROXY_REQUEST_BUDGET=256
+          # Upper-bound actual proxy wire requests for one scenario. Every
+          # executor/Judge request is counted, plus one Claude follow-up for
+          # each installed Skill that must emit runtime invocation evidence.
+          # Both CLI preflights may receive one bounded retry. Candidate dedupe
+          # and parallel Skill tool calls can only lower this bound.
+          ESTIMATED_REQUESTS=$((
+            CONTRACT_PROBES +
+            MAX_CLI_PREFLIGHT_REQUESTS +
+            3 * SLOT_COUNT * MAX_CANDIDATES +
+            3 +
+            HIDDEN_VARIANTS * (MAX_PACK_SKILLS + 2) +
+            2 * HIDDEN_VARIANTS +
+            3 * HIDDEN_VARIANTS * MAX_BEST_SINGLE_COMPETITORS +
+            HIDDEN_VARIANTS * MAX_PACK_SKILLS * (MAX_PACK_SKILLS + 1)
+          ))
+          jq -n \
+            --argjson slotCount "$SLOT_COUNT" \
+            --argjson maxCandidates "$MAX_CANDIDATES" \
+            --argjson maxPackSkills "$MAX_PACK_SKILLS" \
+            --argjson maxBestSingleCompetitors "$MAX_BEST_SINGLE_COMPETITORS" \
+            --argjson variants "$HIDDEN_VARIANTS" \
+            --argjson contractProbes "$CONTRACT_PROBES" \
+            --argjson maxCliPreflightRequests "$MAX_CLI_PREFLIGHT_REQUESTS" \
+            --argjson toolLoopHeadroom "$TOOL_LOOP_HEADROOM" \
+            --argjson estimatedRequests "$ESTIMATED_REQUESTS" \
+            --argjson reservedRequests "$((ESTIMATED_REQUESTS + TOOL_LOOP_HEADROOM))" \
+            --argjson requestBudget "$PROXY_REQUEST_BUDGET" \
+            '{
+              schemaVersion: "marketplace.pack-evaluation-budget/v1",
+              slotCount: $slotCount,
+              maxCandidates: $maxCandidates,
+              maxPackSkills: $maxPackSkills,
+              maxBestSingleCompetitors: $maxBestSingleCompetitors,
+              variants: $variants,
+              contractProbes: $contractProbes,
+              maxCliPreflightRequests: $maxCliPreflightRequests,
+              skillToolFollowupsIncluded: true,
+              toolLoopHeadroom: $toolLoopHeadroom,
+              estimatedRequests: $estimatedRequests,
+              reservedRequests: $reservedRequests,
+              requestBudget: $requestBudget,
+              admitted: ($slotCount >= 1 and $slotCount <= 4 and $reservedRequests <= $requestBudget)
+            }' > "$GITHUB_WORKSPACE/pack-diagnostics/evaluation-budget.json"
+          if [ "$SLOT_COUNT" -lt 1 ] || [ "$SLOT_COUNT" -gt 4 ] || \
+             [ "$((ESTIMATED_REQUESTS + TOOL_LOOP_HEADROOM))" -gt "$PROXY_REQUEST_BUDGET" ]; then
+            echo "::error::Evaluation plan exceeds bounded budget: slots=$SLOT_COUNT reserved=$((ESTIMATED_REQUESTS + TOOL_LOOP_HEADROOM))/$PROXY_REQUEST_BUDGET"
+            exit 1
+          fi
+          jq . "$GITHUB_WORKSPACE/pack-diagnostics/evaluation-budget.json" >> "$GITHUB_STEP_SUMMARY"
+
       - name: Install evaluator runtimes before secrets are available
         run: |
           sudo apt-get update
-          sudo apt-get install --yes --no-install-recommends ffmpeg poppler-utils ripgrep
+          sudo apt-get install --yes --no-install-recommends bubblewrap ffmpeg poppler-utils ripgrep
           sudo install -d -o root -g root -m 0755 \
             /opt/pack-evaluator \
             /opt/pack-evaluator/runtime
@@ -205,6 +329,11 @@ jobs:
           command -v pdfinfo
           command -v pdftotext
           command -v rg
+          test "$(command -v bwrap)" = /usr/bin/bwrap
+          /usr/bin/bwrap --version
+          test "$(command -v google-chrome)" = /usr/bin/google-chrome
+          test -x /usr/bin/google-chrome
+          /usr/bin/google-chrome --version
           test "$(/opt/pack-evaluator/runtime/bin/claude --version | awk '{print $1}')" = '2.1.210'
           test "$(/opt/pack-evaluator/runtime/bin/codex --version | awk '{print $2}')" = '0.139.0'
 
@@ -223,9 +352,13 @@ jobs:
             /opt/pack-evaluator/input
           sudo install -o root -g root -m 0555 "$CLI" /opt/pack-evaluator/bin/skillstore-cli
           sudo install -o root -g root -m 0555 "$NODE_SOURCE" /opt/pack-evaluator/bin/node
+          sudo install -o root -g root -m 0555 "$NODE_SOURCE" /opt/pack-evaluator/runtime/bin/node
           sudo install -o root -g root -m 0555 \
             "$GITHUB_WORKSPACE/marketplace-evaluate/scripts/pack-evaluator-proxy.mjs" \
             /opt/pack-evaluator/lib/pack-evaluator-proxy.mjs
+          sudo install -o root -g root -m 0555 \
+            "$GITHUB_WORKSPACE/marketplace-evaluate/scripts/pack-evaluator-contract-smoke.mjs" \
+            /opt/pack-evaluator/lib/pack-evaluator-contract-smoke.mjs
           sudo install -o root -g root -m 0555 \
             "$GITHUB_WORKSPACE/marketplace-evaluate/scripts/pack-production.mjs" \
             /opt/pack-evaluator/lib/pack-production.mjs
@@ -245,6 +378,8 @@ jobs:
             "$(sha256sum /opt/pack-evaluator/bin/skillstore-cli | awk '{print $1}')"
           test "$(sha256sum "$NODE_SOURCE" | awk '{print $1}')" = \
             "$(sha256sum /opt/pack-evaluator/bin/node | awk '{print $1}')"
+          test "$(sha256sum "$NODE_SOURCE" | awk '{print $1}')" = \
+            "$(sha256sum /opt/pack-evaluator/runtime/bin/node | awk '{print $1}')"
           sudo chown -R root:root \
             "$GITHUB_WORKSPACE/marketplace-evaluate" \
             "$GITHUB_WORKSPACE/pack-production-input"
@@ -281,7 +416,7 @@ jobs:
       # The real Helm credential exists only in this runner-owned shell and the
       # separate packproxy process. Agent commands run as a different, non-sudo
       # user with an empty environment and receive only a localhost-scoped token.
-      - name: Evaluate queue until one candidate is ready
+      - name: Evaluate the single admitted scenario
         env:
           PACK_EVALUATOR_HELM_API_KEY: ${{ secrets.PACK_EVALUATOR_HELM_API_KEY }}
         run: |
@@ -419,7 +554,7 @@ jobs:
             PACK_EVALUATOR_ALLOWED_MODELS=claude-sonnet-4.6,claude-sonnet-4-6,claude-sonnet-5,sonnet,gpt-5.5 \
             PACK_EVALUATOR_MAX_REQUESTS=256 \
             PACK_EVALUATOR_MAX_CONCURRENT=4 \
-            PACK_EVALUATOR_MAX_OUTPUT_TOKENS=65536 \
+            PACK_EVALUATOR_MAX_OUTPUT_TOKENS=16384 \
             PACK_EVALUATOR_TTL_MS=14400000 \
             PACK_EVALUATOR_REQUEST_TIMEOUT_MS=600000 \
             PACK_EVALUATOR_ACTIVITY_FILE="$PROXY_ACTIVITY" \
@@ -494,10 +629,133 @@ jobs:
             exit 1
           fi
 
+          # Match the Skillstore agent sandbox contract before any model CLI
+          # is allowed to run. The fresh PID namespace must hide the proxy's
+          # parent process, and the empty mount root must not expose evaluator
+          # orchestration code, immutable inputs, results, or the checkout.
+          sudo -u packeval env -i \
+            /usr/bin/bwrap \
+              --die-with-parent \
+              --new-session \
+              --unshare-pid \
+              --unshare-ipc \
+              --unshare-uts \
+              --tmpfs / \
+              --proc /proc \
+              --dev /dev \
+              --dir /opt \
+              --dir /opt/pack-evaluator \
+              --ro-bind /opt/pack-evaluator/runtime /opt/pack-evaluator/runtime \
+              --dir /usr \
+              --ro-bind /usr /usr \
+              --symlink usr/bin /bin \
+              --symlink usr/lib /lib \
+              --symlink usr/lib64 /lib64 \
+              --dir /home \
+              --dir /home/packeval \
+              --bind /home/packeval /home/packeval \
+              --dir /tmp \
+              --bind /home/packeval/tmp /tmp \
+              --setenv HOME /home/packeval \
+              --setenv TMPDIR /tmp \
+              --setenv PATH /opt/pack-evaluator/runtime/bin:/usr/bin:/bin \
+              --setenv PROXY_PID "$PROXY_PID" \
+              --setenv OUTER_WORKSPACE "$GITHUB_WORKSPACE" \
+              /usr/bin/bash -c '
+                set -euo pipefail
+                test -x /opt/pack-evaluator/runtime/bin/node
+                ! test -e /opt/pack-evaluator/bin
+                ! test -e /opt/pack-evaluator/lib
+                ! test -e /opt/pack-evaluator/input
+                ! test -e /opt/pack-evaluator/results
+                ! test -e "$OUTER_WORKSPACE"
+                ! test -e "/proc/$PROXY_PID"
+              '
+
+          # Two single-request contract probes (Messages and Responses) prove
+          # the Helm key/model/route contract before any expensive agent run.
+          INFRASTRUCTURE_FAILURE_FILE="$GITHUB_WORKSPACE/pack-diagnostics/infrastructure-failure.json"
+          INFRASTRUCTURE_ARGS=()
+          CONTRACT_DIAGNOSTICS="$GITHUB_WORKSPACE/pack-diagnostics/contract-smoke.json"
+          set +e
           PACK_EVALUATOR_PROXY_TOKEN="$LOCAL_TOKEN" \
-          PACK_DIAGNOSTICS_DIR="$GITHUB_WORKSPACE/pack-diagnostics" \
-          PACK_EVALUATOR_ACTIVITY_FILE="$PROXY_ACTIVITY" \
-          bash "$GITHUB_WORKSPACE/marketplace-evaluate/scripts/pack-evaluator-preflight.sh"
+          PACK_EVALUATOR_PROXY_URL=http://127.0.0.1:18765 \
+          PACK_EVALUATOR_CONTRACT_TIMEOUT_MS=30000 \
+          PACK_EVALUATOR_CONTRACT_DIAGNOSTICS_FILE="$CONTRACT_DIAGNOSTICS" \
+          "$NODE_BIN" /opt/pack-evaluator/lib/pack-evaluator-contract-smoke.mjs
+          CONTRACT_RC=$?
+          set -e
+
+          if [ "$CONTRACT_RC" -ne 0 ]; then
+            DIAGNOSTIC_SHA256=$(sha256sum "$CONTRACT_DIAGNOSTICS" | awk '{print $1}')
+            CONTRACT_STATUS=$(jq -r '[.contracts[] | select(.outcome != "passed")][0].status // empty' "$CONTRACT_DIAGNOSTICS")
+            CONTRACT_REASON=contract_failed
+            if [ -n "$CONTRACT_STATUS" ] && [ "$CONTRACT_STATUS" -ge 400 ] && \
+               [ "$CONTRACT_STATUS" -lt 500 ] && [ "$CONTRACT_STATUS" -ne 408 ] && \
+               [ "$CONTRACT_STATUS" -ne 425 ] && [ "$CONTRACT_STATUS" -ne 429 ]; then
+              CONTRACT_REASON=deterministic_http
+            elif jq -e '[.contracts[] | select(.outcome == "transport_failed" and .transportErrorType == "AbortError")] | length > 0' \
+              "$CONTRACT_DIAGNOSTICS" >/dev/null; then
+              CONTRACT_REASON=timeout
+            fi
+            jq -n \
+              --arg stage contract_smoke \
+              --arg reason "$CONTRACT_REASON" \
+              --arg status "$CONTRACT_STATUS" \
+              --arg path "$(jq -r '[.contracts[] | select(.outcome != "passed")][0].path // empty' "$CONTRACT_DIAGNOSTICS")" \
+              --arg model "$(jq -r '[.contracts[] | select(.outcome != "passed")][0].model // empty' "$CONTRACT_DIAGNOSTICS")" \
+              --arg diagnosticSha256 "$DIAGNOSTIC_SHA256" \
+              '{
+                schemaVersion: "marketplace.pack-production-infrastructure-failure/v1",
+                stage: $stage,
+                reason: $reason,
+                status: (if $status == "" then null else ($status | tonumber) end),
+                path: (if $path == "" then null else $path end),
+                model: (if $model == "" then null else $model end),
+                diagnosticSha256: $diagnosticSha256
+              }' > "$INFRASTRUCTURE_FAILURE_FILE"
+          else
+            set +e
+            PACK_EVALUATOR_PROXY_TOKEN="$LOCAL_TOKEN" \
+            PACK_DIAGNOSTICS_DIR="$GITHUB_WORKSPACE/pack-diagnostics" \
+            PACK_EVALUATOR_ACTIVITY_FILE="$PROXY_ACTIVITY" \
+            bash "$GITHUB_WORKSPACE/marketplace-evaluate/scripts/pack-evaluator-preflight.sh"
+            PREFLIGHT_RC=$?
+            set -e
+            if [ "$PREFLIGHT_RC" -ne 0 ]; then
+              PREFLIGHT_DIAGNOSTICS="$GITHUB_WORKSPACE/pack-diagnostics/agent-preflight-diagnostics.json"
+              DIAGNOSTIC_SHA256=$(sha256sum "$PREFLIGHT_DIAGNOSTICS" | awk '{print $1}')
+              PREFLIGHT_CLASS=$(jq -r '
+                [.claude.errorClass, .codex.errorClass]
+                | if index("deterministic_http") then "deterministic_http"
+                  elif index("timeout") then "timeout"
+                  else "preflight_failed" end
+              ' "$PREFLIGHT_DIAGNOSTICS")
+              PREFLIGHT_STATUS=$(jq -r '
+                [.claude.attempts[], .codex.attempts[]]
+                | map(.fatalHttpStatus // .retryableHttpStatus)
+                | map(select(. != null)) | last // empty
+              ' "$PREFLIGHT_DIAGNOSTICS")
+              jq -n \
+                --arg stage agent_preflight \
+                --arg reason "$PREFLIGHT_CLASS" \
+                --arg status "$PREFLIGHT_STATUS" \
+                --arg errorCategory "$PREFLIGHT_CLASS" \
+                --arg diagnosticSha256 "$DIAGNOSTIC_SHA256" \
+                '{
+                  schemaVersion: "marketplace.pack-production-infrastructure-failure/v1",
+                  stage: $stage,
+                  reason: $reason,
+                  status: (if $status == "" then null else ($status | tonumber) end),
+                  errorCategory: $errorCategory,
+                  diagnosticSha256: $diagnosticSha256
+                }' > "$INFRASTRUCTURE_FAILURE_FILE"
+            fi
+          fi
+
+          if [ -f "$INFRASTRUCTURE_FAILURE_FILE" ]; then
+            INFRASTRUCTURE_ARGS+=(--infrastructure-failure-file "$INFRASTRUCTURE_FAILURE_FILE")
+          fi
           PACKEVAL_UID=$(id -u packeval)
           PACKEVAL_GID=$(id -g packeval)
           checkpoint_loop &
@@ -506,7 +764,7 @@ jobs:
           # Claude executes installed Skills; Codex independently judges artifact evidence.
           # Explicit model targeting keeps the two roles separate rather than cross-falling back.
           setsid sudo env -i \
-            PATH=/opt/pack-evaluator/runtime/bin:/opt/pack-evaluator/bin:/usr/bin:/bin \
+            PATH=/opt/pack-evaluator/runtime/bin:/usr/bin:/bin \
             HOME=/home/packeval \
             CODEX_HOME=/opt/pack-evaluator/codex-home \
             TMPDIR=/home/packeval/tmp \
@@ -514,7 +772,10 @@ jobs:
             NO_COLOR=1 \
             SKILLSTORE_AGENTS=codex,claude \
             SKILLSTORE_AGENT_ENV_MODE=strict \
-            SKILLSTORE_AGENT_ENV_ALLOWLIST=CODEX_HOME,PACK_EVALUATOR_PROXY_TOKEN,ANTHROPIC_BASE_URL,ANTHROPIC_AUTH_TOKEN,NO_PROXY \
+            SKILLSTORE_AGENT_ENV_ALLOWLIST=CODEX_HOME,PACK_EVALUATOR_PROXY_TOKEN,PACK_EVALUATOR_CHROMIUM_PATH,ANTHROPIC_BASE_URL,ANTHROPIC_AUTH_TOKEN,NO_PROXY,SKILLSTORE_AGENT_SANDBOX_MODE,SKILLSTORE_AGENT_SANDBOX_RUNTIME_ROOT \
+            SKILLSTORE_AGENT_SANDBOX_MODE=bwrap \
+            SKILLSTORE_AGENT_SANDBOX_RUNTIME_ROOT=/opt/pack-evaluator/runtime \
+            PACK_EVALUATOR_CHROMIUM_PATH=/usr/bin/google-chrome \
             PACK_EVALUATOR_PROXY_TOKEN="$LOCAL_TOKEN" \
             ANTHROPIC_BASE_URL=http://127.0.0.1:18765 \
             ANTHROPIC_AUTH_TOKEN="$LOCAL_TOKEN" \
@@ -536,7 +797,7 @@ jobs:
             --commit-sha "${{ github.sha }}" \
             --model sonnet \
             --judge-model gpt-5.5 \
-            --max-candidates 4 \
+            --max-candidates 2 \
             --pick 4 \
             --runs 1 \
             --final-runs 3 \
@@ -550,6 +811,7 @@ jobs:
             --minimum-fallback-ms 2700000 \
             --scenario-idle-timeout-ms 1200000 \
             --proxy-activity-file "$PROXY_ACTIVITY" \
+            "${INFRASTRUCTURE_ARGS[@]}" \
             > "$GITHUB_WORKSPACE/pack-diagnostics/evaluate-command.json" &
           EVALUATOR_PID=$!
           wait "$EVALUATOR_PID"
@@ -605,7 +867,7 @@ jobs:
             EVALUATOR_RC=1
           fi
           if [ "$EVALUATOR_RC" -eq 0 ]; then
-            if ! env -i PATH=/opt/pack-evaluator/runtime/bin:/opt/pack-evaluator/bin:/usr/bin:/bin \
+            if ! env -i PATH=/opt/pack-evaluator/runtime/bin:/usr/bin:/bin \
               "$NODE_BIN" /opt/pack-evaluator/lib/pack-production.mjs verify \
               --plan /opt/pack-evaluator/input/plan.json \
               --results-dir "$GITHUB_WORKSPACE/pack-harvest" \
@@ -637,8 +899,28 @@ jobs:
               cp "$GITHUB_WORKSPACE/pack-harvest/$name" "$GITHUB_WORKSPACE/pack-diagnostics/$name"
             fi
           done
-          find "$GITHUB_WORKSPACE/pack-harvest" -maxdepth 1 -type f -name '*.run.log' \
-            -exec cp {} "$GITHUB_WORKSPACE/pack-diagnostics/" \;
+          RUN_LOG_RECORDS=$(mktemp "$RUNNER_TEMP/pack-run-log-summaries.XXXXXX")
+          : > "$RUN_LOG_RECORDS"
+          while IFS= read -r -d '' run_log; do
+            log_basename=$(basename "$run_log")
+            log_bytes=$(wc -c < "$run_log")
+            log_sha256=$(sha256sum "$run_log" | awk '{print $1}')
+            jq -cn \
+              --arg basename "$log_basename" \
+              --argjson bytes "$log_bytes" \
+              --arg sha256 "$log_sha256" \
+              '{basename: $basename, bytes: $bytes, sha256: $sha256}' \
+              >> "$RUN_LOG_RECORDS"
+            rm -f "$run_log"
+          done < <(find "$GITHUB_WORKSPACE/pack-harvest" -maxdepth 1 -type f -name '*.run.log' -print0 | sort -z)
+          if find "$GITHUB_WORKSPACE/pack-harvest" -maxdepth 1 -type f -name '*.run.log' -print -quit | grep -q .; then
+            echo '::error::Raw evaluator run logs survived bounded summarization'
+            exit 1
+          fi
+          jq -s \
+            '{schemaVersion: "marketplace.pack-production-run-log-summaries/v1", count: length, logs: .}' \
+            "$RUN_LOG_RECORDS" > "$GITHUB_WORKSPACE/pack-diagnostics/run-log-summaries.json"
+          rm -f "$RUN_LOG_RECORDS"
           find "$GITHUB_WORKSPACE/pack-diagnostics" -type f -exec chmod 0600 {} +
           PROXY_BYTES=$(wc -c < "$PROXY_LOG")
           PROXY_SHA256=$(sha256sum "$PROXY_LOG" | awk '{print $1}')
@@ -753,7 +1035,8 @@ jobs:
             --token "$PACK_PRODUCTION_AUTOMATION_KEY" \
             --auto-publish "$AUTO_PUBLISH" \
             --max-wait-seconds 1800 \
-            --poll-seconds 30 \
+            --poll-seconds 60 \
+            --max-poll-seconds 180 \
             > "$GITHUB_WORKSPACE/pack-results/finalize-command.json"
           jq . "$GITHUB_WORKSPACE/pack-results/final-result.json" >> "$GITHUB_STEP_SUMMARY"
 
@@ -763,76 +1046,5 @@ jobs:
         with:
           name: pack-production-final
           path: pack-results/
-          if-no-files-found: error
-          retention-days: 90
-
-  production_slo:
-    name: Report rolling seven-day production SLO
-    needs: [plan, evaluate, persist, enrich_publish_readback]
-    if: always()
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - name: Checkout SLO reporter only
-        uses: actions/checkout@v5
-        with:
-          path: marketplace-slo
-          ref: ${{ github.sha }}
-          sparse-checkout: scripts/pack-production.mjs
-          sparse-checkout-cone-mode: false
-          persist-credentials: false
-
-      - name: Download audited plan or no-op evidence
-        if: needs.plan.result == 'success'
-        uses: actions/download-artifact@v6
-        with:
-          name: pack-production-plan
-          path: pack-plan
-
-      - name: Query and report rolling seven-day SLO
-        env:
-          SKILLSTORE_API_URL: ${{ secrets.SKILLSTORE_API_URL }}
-          PACK_PRODUCTION_AUTOMATION_KEY: ${{ secrets.PACK_PRODUCTION_AUTOMATION_KEY }}
-          PLAN_RESULT: ${{ needs.plan.result }}
-          EVALUATE_RESULT: ${{ needs.evaluate.result }}
-          PERSIST_RESULT: ${{ needs.persist.result }}
-          FINALIZE_RESULT: ${{ needs.enrich_publish_readback.result }}
-          HAS_SCENARIOS: ${{ needs.plan.outputs.has_scenarios }}
-          SCENARIO_COUNT: ${{ needs.plan.outputs.scenario_count }}
-        run: |
-          mkdir -p "$GITHUB_WORKSPACE/pack-slo"
-          node marketplace-slo/scripts/pack-production.mjs slo \
-            --results-dir "$GITHUB_WORKSPACE/pack-slo" \
-            --api-url "$SKILLSTORE_API_URL" \
-            --token "$PACK_PRODUCTION_AUTOMATION_KEY" \
-            > "$GITHUB_WORKSPACE/pack-slo/slo-command.json"
-
-          SLO="$GITHUB_WORKSPACE/pack-slo/slo-result.json"
-          PASSED=$(jq -r '.met' "$SLO")
-          ACTUAL=$(jq -r '.publishedReadbackPassed' "$SLO")
-          TARGET=$(jq -r '.target' "$SLO")
-          {
-            echo "## Rolling 7-Day Pack Production SLO"
-            echo ""
-            echo "- Published + readback passed: $ACTUAL/$TARGET"
-            echo "- Plan: $PLAN_RESULT ($SCENARIO_COUNT scenarios)"
-            echo "- Evaluate: $EVALUATE_RESULT"
-            echo "- Persist: $PERSIST_RESULT"
-            echo "- Finalize: $FINALIZE_RESULT"
-          } >> "$GITHUB_STEP_SUMMARY"
-          if [ "$PASSED" != "true" ]; then
-            echo "::error::Rolling 7-day Pack production SLO is below target: $ACTUAL/$TARGET"
-            echo "- Failure: SLO is below target; quality gates remain unchanged." >> "$GITHUB_STEP_SUMMARY"
-            exit 1
-          fi
-
-      - name: Upload terminal SLO and no-op evidence
-        if: always()
-        uses: actions/upload-artifact@v6
-        with:
-          name: pack-production-slo
-          path: |
-            pack-slo/
-            pack-plan/no-op.json
           if-no-files-found: error
           retention-days: 90

@@ -1,0 +1,61 @@
+name: Pack Production SLO
+
+on:
+  schedule:
+    - cron: '47 20 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pack-production-slo
+  cancel-in-progress: true
+
+jobs:
+  report:
+    name: Observe rolling seven-day Pack production
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout the read-only SLO reporter
+        uses: actions/checkout@v5
+        with:
+          path: marketplace-slo
+          ref: ${{ github.sha }}
+          sparse-checkout: scripts/pack-production.mjs
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+
+      - name: Query SLO without production write credentials
+        env:
+          SKILLSTORE_API_URL: ${{ secrets.SKILLSTORE_API_URL }}
+          PACK_PRODUCTION_PLANNER_KEY: ${{ secrets.PACK_PRODUCTION_PLANNER_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$GITHUB_WORKSPACE/pack-slo"
+          node marketplace-slo/scripts/pack-production.mjs slo \
+            --results-dir "$GITHUB_WORKSPACE/pack-slo" \
+            --api-url "$SKILLSTORE_API_URL" \
+            --token "$PACK_PRODUCTION_PLANNER_KEY" \
+            > "$GITHUB_WORKSPACE/pack-slo/slo-command.json"
+          SLO="$GITHUB_WORKSPACE/pack-slo/slo-result.json"
+          ACTUAL=$(jq -r '.publishedReadbackPassed' "$SLO")
+          TARGET=$(jq -r '.target' "$SLO")
+          {
+            echo '## Rolling 7-Day Pack Production SLO'
+            echo ''
+            echo "- Published + readback passed: $ACTUAL/$TARGET"
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$(jq -r '.met' "$SLO")" != 'true' ]; then
+            echo "::warning::Rolling 7-day Pack production SLO is below target: $ACTUAL/$TARGET"
+          fi
+
+      - name: Upload independent SLO evidence
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: pack-production-slo
+          path: pack-slo/
+          if-no-files-found: warn
+          retention-days: 90

@@ -4,6 +4,53 @@ set -euo pipefail
 : "${PACK_EVALUATOR_PROXY_TOKEN:?PACK_EVALUATOR_PROXY_TOKEN is required}"
 : "${PACK_DIAGNOSTICS_DIR:?PACK_DIAGNOSTICS_DIR is required}"
 readonly PREFLIGHT_TIMEOUT_SECONDS=180
+readonly BWRAP=/usr/bin/bwrap
+[ -x "$BWRAP" ] || { echo 'bubblewrap is required for evaluator preflight' >&2; exit 1; }
+
+# Empty-root, fresh-PID sandbox for the two real CLI preflights. It deliberately
+# mounts the agent runtime and writable identity state but none of the evaluator
+# CLI/orchestrator/input/results trees or the GitHub workspace.
+readonly -a AGENT_BWRAP=(
+  "$BWRAP"
+  --die-with-parent
+  --new-session
+  --unshare-pid
+  --unshare-ipc
+  --unshare-uts
+  --tmpfs /
+  --proc /proc
+  --dev /dev
+  --dir /opt
+  --dir /opt/pack-evaluator
+  --ro-bind /opt/pack-evaluator/runtime /opt/pack-evaluator/runtime
+  --dir /opt/pack-evaluator/codex-home
+  --bind /opt/pack-evaluator/codex-home /opt/pack-evaluator/codex-home
+  --dir /usr
+  --ro-bind /usr /usr
+  --symlink usr/bin /bin
+  --symlink usr/lib /lib
+  --symlink usr/lib64 /lib64
+  --dir /etc
+  --ro-bind /etc/ssl /etc/ssl
+  --ro-bind /etc/ca-certificates /etc/ca-certificates
+  --ro-bind /etc/resolv.conf /etc/resolv.conf
+  --ro-bind /etc/hosts /etc/hosts
+  --ro-bind /etc/nsswitch.conf /etc/nsswitch.conf
+  --ro-bind /etc/passwd /etc/passwd
+  --ro-bind /etc/group /etc/group
+  --dir /home
+  --dir /home/packeval
+  --bind /home/packeval /home/packeval
+  --dir /tmp
+  --bind /home/packeval/tmp /tmp
+  --setenv HOME /home/packeval
+  --setenv CODEX_HOME /opt/pack-evaluator/codex-home
+  --setenv TMPDIR /tmp
+  --setenv PATH /opt/pack-evaluator/runtime/bin:/usr/bin:/bin
+  --setenv CI true
+  --setenv NO_COLOR 1
+  --setenv NO_PROXY 127.0.0.1,localhost
+)
 
 CLAUDE_STDOUT=$(mktemp)
 CLAUDE_STDERR=$(mktemp)
@@ -17,7 +64,13 @@ trap cleanup_files EXIT
 classify_error() {
   local file="$1"
   local exit_code="$2"
-  if grep -Eqi 'permission denied|read-only file system|unable to open.*database|failed to.*(state|log|session)' "$file"; then
+  local fatal_http_status="${3:-}"
+  local retryable_http_status="${4:-}"
+  if [ -n "$fatal_http_status" ]; then
+    printf 'deterministic_http\n'
+  elif [ -n "$retryable_http_status" ]; then
+    printf 'retryable_http\n'
+  elif grep -Eqi 'permission denied|read-only file system|unable to open.*database|failed to.*(state|log|session)' "$file"; then
     printf 'state_storage\n'
   elif grep -Eqi '401|403|unauthoriz|authentication|api key' "$file"; then
     printf 'authentication\n'
@@ -36,10 +89,9 @@ classify_error() {
   fi
 }
 
-# A preflight is read-only, isolated, and capped at two attempts. Retry one
-# otherwise-unclassified command failure because upstream/CLI failures do not
-# always expose a stable error string. Known auth, routing, argument, and state
-# failures remain fail-closed on the first attempt.
+# A preflight is read-only, isolated, and capped at two attempts. Only an exact
+# 408/425/429/5xx response receives one retry. Every other 4xx and failures with
+# no exact upstream status fail closed on the first attempt.
 should_retry_preflight() {
   local outcome="$1"
   local error_class="$2"
@@ -48,9 +100,57 @@ should_retry_preflight() {
     return 1
   fi
   case "$error_class" in
-    upstream_transport|timeout|unknown) return 0 ;;
+    retryable_http) return 0 ;;
     *) return 1 ;;
   esac
+}
+
+activity_start_line() {
+  if [ -z "${PACK_EVALUATOR_ACTIVITY_FILE:-}" ] || \
+     ! sudo test -f "$PACK_EVALUATOR_ACTIVITY_FILE"; then
+    printf '1\n'
+    return
+  fi
+  local lines
+  lines=$(sudo wc -l "$PACK_EVALUATOR_ACTIVITY_FILE" | awk '{print $1}')
+  printf '%s\n' "$((lines + 1))"
+}
+
+monitor_preflight_http() {
+  local command_pid="$1"
+  local start_line="$2"
+  local observed
+  HTTP_FATAL_STATUS=''
+  HTTP_RETRYABLE_STATUS=''
+  while true; do
+    if [ -n "${PACK_EVALUATOR_ACTIVITY_FILE:-}" ] && \
+       sudo test -f "$PACK_EVALUATOR_ACTIVITY_FILE"; then
+      observed=$(sudo tail -n "+$start_line" "$PACK_EVALUATOR_ACTIVITY_FILE" 2>/dev/null | jq -cs '
+        [ .[] | select(.phase == "response") | .status | select(type == "number") ] as $statuses |
+        {
+          fatal: ([$statuses[] | select(. >= 400 and . < 500 and . != 408 and . != 425 and . != 429)] | first // null),
+          retryable: ([$statuses[] | select(. == 408 or . == 425 or . == 429 or . >= 500)] | last // null)
+        }
+      ' 2>/dev/null || printf '{"fatal":null,"retryable":null}')
+      HTTP_FATAL_STATUS=$(jq -r '.fatal // empty' <<< "$observed")
+      HTTP_RETRYABLE_STATUS=$(jq -r '.retryable // empty' <<< "$observed")
+      if [ -n "$HTTP_FATAL_STATUS" ]; then
+        sudo pkill -TERM -u packeval 2>/dev/null || true
+        for _ in $(seq 1 20); do
+          if ! kill -0 "$command_pid" 2>/dev/null; then
+            break
+          fi
+          sleep 0.1
+        done
+        sudo pkill -KILL -u packeval 2>/dev/null || true
+        break
+      fi
+    fi
+    if ! kill -0 "$command_pid" 2>/dev/null; then
+      break
+    fi
+    sleep 0.2
+  done
 }
 
 cleanup_processes() {
@@ -83,28 +183,28 @@ for ATTEMPT in 1 2; do
   : > "$CLAUDE_STDOUT"
   : > "$CLAUDE_STDERR"
   STARTED_MS=$(date +%s%3N)
+  ACTIVITY_START_LINE=$(activity_start_line)
   set +e
   printf '%s\n' 'Reply with exactly PACK_EVALUATOR_READY and nothing else.' | \
     sudo -u packeval env -i \
-      PATH=/opt/pack-evaluator/runtime/bin:/opt/pack-evaluator/bin:/usr/bin:/bin \
-      HOME=/home/packeval \
-      CODEX_HOME=/opt/pack-evaluator/codex-home \
-      TMPDIR=/home/packeval/tmp \
-      CI=true \
-      NO_COLOR=1 \
-      ANTHROPIC_BASE_URL=http://127.0.0.1:18765 \
-      ANTHROPIC_AUTH_TOKEN="$PACK_EVALUATOR_PROXY_TOKEN" \
-      NO_PROXY=127.0.0.1,localhost \
-      timeout --signal=TERM --kill-after=5s "${PREFLIGHT_TIMEOUT_SECONDS}s" \
-      /opt/pack-evaluator/runtime/bin/claude \
+      /usr/bin/timeout --signal=TERM --kill-after=5s "${PREFLIGHT_TIMEOUT_SECONDS}s" \
+      "${AGENT_BWRAP[@]}" \
+        --setenv ANTHROPIC_BASE_URL http://127.0.0.1:18765 \
+        --setenv ANTHROPIC_AUTH_TOKEN "$PACK_EVALUATOR_PROXY_TOKEN" \
+        /opt/pack-evaluator/runtime/bin/claude \
         --print \
         --output-format text \
         --permission-mode bypassPermissions \
         --model sonnet \
         - \
       > "$CLAUDE_STDOUT" \
-      2> "$CLAUDE_STDERR"
+      2> "$CLAUDE_STDERR" &
+  CLAUDE_COMMAND_PID=$!
+  monitor_preflight_http "$CLAUDE_COMMAND_PID" "$ACTIVITY_START_LINE"
+  wait "$CLAUDE_COMMAND_PID"
   CLAUDE_EXIT_CODE=$?
+  CLAUDE_FATAL_HTTP_STATUS="$HTTP_FATAL_STATUS"
+  CLAUDE_RETRYABLE_HTTP_STATUS="$HTTP_RETRYABLE_STATUS"
   set -e
   if [ "$CLAUDE_EXIT_CODE" -ne 0 ]; then
     CLAUDE_OUTCOME=command_failed
@@ -118,7 +218,8 @@ for ATTEMPT in 1 2; do
   STDERR_BYTES=$(wc -c < "$CLAUDE_STDERR")
   STDOUT_SHA256=$(sha256sum "$CLAUDE_STDOUT" | awk '{print $1}')
   STDERR_SHA256=$(sha256sum "$CLAUDE_STDERR" | awk '{print $1}')
-  CLAUDE_ERROR_CLASS=$(classify_error "$CLAUDE_STDERR" "$CLAUDE_EXIT_CODE")
+  CLAUDE_ERROR_CLASS=$(classify_error \
+    "$CLAUDE_STDERR" "$CLAUDE_EXIT_CODE" "$CLAUDE_FATAL_HTTP_STATUS" "$CLAUDE_RETRYABLE_HTTP_STATUS")
   CLAUDE_ATTEMPTS=$(jq -c \
     --argjson attempt "$ATTEMPT" \
     --arg outcome "$CLAUDE_OUTCOME" \
@@ -129,6 +230,8 @@ for ATTEMPT in 1 2; do
     --argjson stderrBytes "$STDERR_BYTES" \
     --arg stdoutSha256 "$STDOUT_SHA256" \
     --arg stderrSha256 "$STDERR_SHA256" \
+    --arg fatalHttpStatus "$CLAUDE_FATAL_HTTP_STATUS" \
+    --arg retryableHttpStatus "$CLAUDE_RETRYABLE_HTTP_STATUS" \
     '. + [{
       attempt: $attempt,
       outcome: $outcome,
@@ -138,7 +241,9 @@ for ATTEMPT in 1 2; do
       stdoutBytes: $stdoutBytes,
       stderrBytes: $stderrBytes,
       stdoutSha256: $stdoutSha256,
-      stderrSha256: $stderrSha256
+      stderrSha256: $stderrSha256,
+      fatalHttpStatus: (if $fatalHttpStatus == "" then null else ($fatalHttpStatus | tonumber) end),
+      retryableHttpStatus: (if $retryableHttpStatus == "" then null else ($retryableHttpStatus | tonumber) end)
     }]' <<< "$CLAUDE_ATTEMPTS")
   if ! should_retry_preflight \
     "$CLAUDE_OUTCOME" "$CLAUDE_ERROR_CLASS" "$ATTEMPT"; then
@@ -162,26 +267,19 @@ CODEX_ERROR_CLASS=none
 CODEX_EXIT_CODE=-1
 CODEX_ATTEMPTS='[]'
 if [ "$CLAUDE_OUTCOME" = "passed" ]; then
-  # Retry one transport, timeout, or otherwise-unclassified command failure.
-  # Permission, auth, routing, CLI-argument, state, and response-shape failures
-  # stay fail-closed on the first attempt; every second failure stops.
+  # Only an exact 408/425/429/5xx response receives one bounded retry.
   for ATTEMPT in 1 2; do
     : > "$CODEX_STDOUT"
     : > "$CODEX_STDERR"
     STARTED_MS=$(date +%s%3N)
+    ACTIVITY_START_LINE=$(activity_start_line)
     set +e
     printf '%s\n' 'Reply with exactly PACK_EVALUATOR_READY and nothing else.' | \
       sudo -u packeval env -i \
-        PATH=/opt/pack-evaluator/runtime/bin:/opt/pack-evaluator/bin:/usr/bin:/bin \
-        HOME=/home/packeval \
-        CODEX_HOME=/opt/pack-evaluator/codex-home \
-        TMPDIR=/home/packeval/tmp \
-        CI=true \
-        NO_COLOR=1 \
-        PACK_EVALUATOR_PROXY_TOKEN="$PACK_EVALUATOR_PROXY_TOKEN" \
-        NO_PROXY=127.0.0.1,localhost \
-        timeout --signal=TERM --kill-after=5s "${PREFLIGHT_TIMEOUT_SECONDS}s" \
-        /opt/pack-evaluator/runtime/bin/codex \
+        /usr/bin/timeout --signal=TERM --kill-after=5s "${PREFLIGHT_TIMEOUT_SECONDS}s" \
+        "${AGENT_BWRAP[@]}" \
+          --setenv PACK_EVALUATOR_PROXY_TOKEN "$PACK_EVALUATOR_PROXY_TOKEN" \
+          /opt/pack-evaluator/runtime/bin/codex \
           exec \
           --skip-git-repo-check \
           --sandbox read-only \
@@ -191,8 +289,13 @@ if [ "$CLAUDE_OUTCOME" = "passed" ]; then
           -m gpt-5.5 \
           - \
         > "$CODEX_STDOUT" \
-        2> "$CODEX_STDERR"
+        2> "$CODEX_STDERR" &
+    CODEX_COMMAND_PID=$!
+    monitor_preflight_http "$CODEX_COMMAND_PID" "$ACTIVITY_START_LINE"
+    wait "$CODEX_COMMAND_PID"
     CODEX_EXIT_CODE=$?
+    CODEX_FATAL_HTTP_STATUS="$HTTP_FATAL_STATUS"
+    CODEX_RETRYABLE_HTTP_STATUS="$HTTP_RETRYABLE_STATUS"
     set -e
     if [ "$CODEX_EXIT_CODE" -ne 0 ]; then
       CODEX_OUTCOME=command_failed
@@ -206,7 +309,8 @@ if [ "$CLAUDE_OUTCOME" = "passed" ]; then
     STDERR_BYTES=$(wc -c < "$CODEX_STDERR")
     STDOUT_SHA256=$(sha256sum "$CODEX_STDOUT" | awk '{print $1}')
     STDERR_SHA256=$(sha256sum "$CODEX_STDERR" | awk '{print $1}')
-    CODEX_ERROR_CLASS=$(classify_error "$CODEX_STDERR" "$CODEX_EXIT_CODE")
+    CODEX_ERROR_CLASS=$(classify_error \
+      "$CODEX_STDERR" "$CODEX_EXIT_CODE" "$CODEX_FATAL_HTTP_STATUS" "$CODEX_RETRYABLE_HTTP_STATUS")
     CODEX_ATTEMPTS=$(jq -c \
       --argjson attempt "$ATTEMPT" \
       --arg outcome "$CODEX_OUTCOME" \
@@ -217,6 +321,8 @@ if [ "$CLAUDE_OUTCOME" = "passed" ]; then
       --argjson stderrBytes "$STDERR_BYTES" \
       --arg stdoutSha256 "$STDOUT_SHA256" \
       --arg stderrSha256 "$STDERR_SHA256" \
+      --arg fatalHttpStatus "$CODEX_FATAL_HTTP_STATUS" \
+      --arg retryableHttpStatus "$CODEX_RETRYABLE_HTTP_STATUS" \
       '. + [{
         attempt: $attempt,
         outcome: $outcome,
@@ -226,7 +332,9 @@ if [ "$CLAUDE_OUTCOME" = "passed" ]; then
         stdoutBytes: $stdoutBytes,
         stderrBytes: $stderrBytes,
         stdoutSha256: $stdoutSha256,
-        stderrSha256: $stderrSha256
+        stderrSha256: $stderrSha256,
+        fatalHttpStatus: (if $fatalHttpStatus == "" then null else ($fatalHttpStatus | tonumber) end),
+        retryableHttpStatus: (if $retryableHttpStatus == "" then null else ($retryableHttpStatus | tonumber) end)
       }]' <<< "$CODEX_ATTEMPTS")
     if ! should_retry_preflight \
       "$CODEX_OUTCOME" "$CODEX_ERROR_CLASS" "$ATTEMPT"; then

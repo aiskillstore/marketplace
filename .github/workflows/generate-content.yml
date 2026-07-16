@@ -38,27 +38,40 @@ jobs:
         id: cli
         uses: ./.github/actions/download-skillstore-cli
         with:
-          version: '2.9.0'
-          minimum-version: '2.9.0'
+          # RELEASE BLOCKER: production generation remains fail-closed on
+          # 2.12.0 until the binding-aware 2.13.0 CLI is published and pinned.
+          version: '2.12.0'
+          minimum-version: '2.12.0'
           require-checksum: 'true'
           token: ${{ steps.app-token.outputs.token }}
           cache-dir: /home/runner/_work/_cache/skillstore-cli
 
       - name: Generate content
+        id: generate
         env:
           CLI: ${{ steps.cli.outputs.cli-path }}
           SLUG: ${{ github.event.client_payload.slug }}
           ISSUE: ${{ github.event.client_payload.issueNumber }}
           COVER_ONLY: ${{ github.event.client_payload.coverOnly || 'false' }}
           GUIDE_ONLY: ${{ github.event.client_payload.guideOnly || 'false' }}
+          GENERATION_ID: ${{ github.event.client_payload.generationId }}
+          CONTENT_DISPATCH_NONCE: ${{ github.event.client_payload.contentDispatchNonce }}
+          BINDING_DIGEST: ${{ github.event.client_payload.bindingDigest }}
+          USAGE_GUIDE_MARKER: ${{ github.event.client_payload.usageGuideMarker }}
           # CLI reads these names; map from the repo's existing secrets
           PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
           HELM_API_KEY: ${{ secrets.HELM_API_KEY }}
           CACHE_INVALIDATE_SECRET: ${{ secrets.CACHE_INVALIDATE_SECRET }}
+          # Binding-aware CLI 2.13 uses this narrow Automation endpoint only
+          # when GENERATION_ID is present. It must not direct-write a generated
+          # production guide with the service-role client.
+          SKILLSTORE_API_URL: ${{ secrets.SKILLSTORE_API_URL }}
+          PACK_PRODUCTION_AUTOMATION_KEY: ${{ secrets.PACK_PRODUCTION_AUTOMATION_KEY }}
           # lets the CLI post the finished content back onto the review issue
           GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
+          set -euo pipefail
           FLAGS=()
           if [ "$COVER_ONLY" = "true" ]; then
             FLAGS+=(--cover-only)
@@ -66,17 +79,80 @@ jobs:
           if [ "$GUIDE_ONLY" = "true" ]; then
             FLAGS+=(--guide-only)
           fi
+          if [ -n "$GENERATION_ID" ]; then
+            [[ "$GENERATION_ID" =~ ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89aAbB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$ ]] || {
+              echo '::error::Invalid production generationId'; exit 1;
+            }
+            [[ "$CONTENT_DISPATCH_NONCE" =~ ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89aAbB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$ ]] || {
+              echo '::error::Missing or invalid production contentDispatchNonce'; exit 1;
+            }
+            [[ "$BINDING_DIGEST" =~ ^[0-9a-f]{64}$ ]] || {
+              echo '::error::Missing or invalid production bindingDigest'; exit 1;
+            }
+            [ "$USAGE_GUIDE_MARKER" = "<!-- skillstore-execution-binding:$BINDING_DIGEST -->" ] || {
+              echo '::error::Usage-guide marker does not bind the production DAG'; exit 1;
+            }
+            FLAGS+=(
+              --generation-id "$GENERATION_ID"
+              --content-dispatch-nonce "$CONTENT_DISPATCH_NONCE"
+              --execution-binding-digest "$BINDING_DIGEST"
+              --usage-guide-marker "$USAGE_GUIDE_MARKER"
+            )
+          fi
           "$CLI" pack generate-content --slug "$SLUG" --issue "$ISSUE" "${FLAGS[@]}"
 
-      - name: Dispatch translation after content is complete
-        if: github.event.client_payload.generationId != ''
+      - name: Mark failed or cancelled production enrichment
+        if: ${{ (failure() || cancelled()) && github.event.client_payload.generationId != '' }}
         env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
-          SLUG: ${{ github.event.client_payload.slug }}
+          SKILLSTORE_API_URL: ${{ secrets.SKILLSTORE_API_URL }}
+          PACK_PRODUCTION_AUTOMATION_KEY: ${{ secrets.PACK_PRODUCTION_AUTOMATION_KEY }}
           GENERATION_ID: ${{ github.event.client_payload.generationId }}
+          CONTENT_DISPATCH_NONCE: ${{ github.event.client_payload.contentDispatchNonce }}
         run: |
+          set -euo pipefail
+          [[ "$GENERATION_ID" =~ ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89aAbB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$ ]] || {
+            echo '::error::Cannot mark enrichment failure: invalid generationId'
+            exit 1
+          }
+          [[ "$CONTENT_DISPATCH_NONCE" =~ ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89aAbB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$ ]] || {
+            echo '::error::Cannot mark enrichment failure: invalid contentDispatchNonce'
+            exit 1
+          }
+          API_BASE=${SKILLSTORE_API_URL%/}
+          case "$API_BASE" in
+            https://*) ;;
+            *) echo '::error::SKILLSTORE_API_URL must use HTTPS'; exit 1 ;;
+          esac
+          RESPONSE=$(mktemp)
+          BODY=$(mktemp)
+          trap 'rm -f "$RESPONSE" "$BODY"' EXIT
           jq -n \
-            --arg slug "$SLUG" \
-            --arg generationId "$GENERATION_ID" \
-            '{event_type:"translate-packs",client_payload:{pack_slugs:$slug,source_generation_id:$generationId,cli_version:"2.9.0"}}' \
-            | gh api --method POST repos/aiskillstore/marketplace/dispatches --input -
+            --arg contentDispatchNonce "$CONTENT_DISPATCH_NONCE" '{
+            schemaVersion: "skillstore.pack-production-status/v1",
+            outcome: "enrichment_failed",
+            contentDispatchNonce: $contentDispatchNonce,
+            contentStatus: "failed",
+            translationStatus: null,
+            error: "Generate Pack Content workflow failed or was cancelled"
+          }' > "$BODY"
+          printf 'header = "Authorization: Bearer %s"\nheader = "Accept: application/json"\nheader = "Content-Type: application/json"\n' \
+            "$PACK_PRODUCTION_AUTOMATION_KEY" | \
+            timeout --signal=TERM --kill-after=2s 20s \
+              curl --config - --fail --silent --show-error --max-time 15 --retry 0 \
+                --request PATCH \
+                --data-binary "@$BODY" \
+                --output "$RESPONSE" \
+                "$API_BASE/api/automation/packs/production/$GENERATION_ID"
+          jq -e \
+            --arg generationId "${GENERATION_ID,,}" \
+            '.data.generation_id | ascii_downcase == $generationId' \
+            "$RESPONSE" >/dev/null
+          jq -e \
+            --arg contentDispatchNonce "${CONTENT_DISPATCH_NONCE,,}" '
+            if (.data.content_dispatch_nonce | ascii_downcase) == $contentDispatchNonce then
+              .data.outcome == "enrichment_failed" and
+              .data.content_dispatch_status == "failed"
+            else
+              true
+            end
+          ' "$RESPONSE" >/dev/null

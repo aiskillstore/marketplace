@@ -2,7 +2,10 @@ import { after, before, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer, request as httpRequest } from 'node:http';
 import { once } from 'node:events';
-import { createPackEvaluatorProxy } from '../pack-evaluator-proxy.mjs';
+import {
+  classifyUpstreamErrorMessage,
+  createPackEvaluatorProxy,
+} from '../pack-evaluator-proxy.mjs';
 
 const LOCAL_TOKEN = 'local-token-that-is-longer-than-thirty-two-bytes';
 const UPSTREAM_KEY = 'upstream-secret-that-must-never-be-forwarded-back';
@@ -89,7 +92,128 @@ test('replaces local credentials with the bounded upstream credential', async ()
     activities.slice(-3).map((activity) => activity.phase),
     ['started', 'response', 'completed']
   );
-  assert.equal(activities.at(-2).statusClass, 200);
+  assert.deepEqual(
+    {
+      path: activities.at(-2).path,
+      model: activities.at(-2).model,
+      requestBytes: activities.at(-2).requestBytes,
+      stream: activities.at(-2).stream,
+      status: activities.at(-2).status,
+    },
+    {
+      path: '/v1/responses',
+      model: 'gpt-5.5',
+      requestBytes: Buffer.byteLength(JSON.stringify({ model: 'gpt-5.5', input: 'ok' })),
+      stream: false,
+      status: 200,
+    },
+  );
+});
+
+test('records exact redacted upstream error diagnostics without response text or credentials', async () => {
+  const redactedActivities = [];
+  const secretMessage = 'invalid routing secret must not be persisted';
+  let upstreamCalls = 0;
+  const rejectingProxy = createPackEvaluatorProxy({
+    localToken: LOCAL_TOKEN,
+    upstreamKey: UPSTREAM_KEY,
+    upstreamBaseUrl: upstreamUrl,
+    fetchImpl: async () => {
+      upstreamCalls += 1;
+      return new Response(JSON.stringify({
+        error: {
+          type: 'invalid_request_error',
+          code: 'model_not_allowed',
+          param: 'model',
+          message: secretMessage,
+        },
+      }), {
+        status: 422,
+        headers: {
+          'content-type': 'application/json',
+          'x-request-id': 'req_123-safe',
+        },
+      });
+    },
+    onActivity: (activity) => redactedActivities.push(activity),
+  });
+  rejectingProxy.listen(0, '127.0.0.1');
+  await once(rejectingProxy, 'listening');
+  const url = `http://127.0.0.1:${rejectingProxy.address().port}`;
+  const body = JSON.stringify({
+    model: 'sonnet',
+    max_tokens: 16,
+    stream: true,
+    messages: [{ role: 'user', content: 'sensitive prompt must not be logged' }],
+  });
+  const response = await fetch(`${url}/v1/messages?unlogged=query`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${LOCAL_TOKEN}`,
+      'content-type': 'application/json',
+    },
+    body,
+  });
+  assert.equal(response.status, 422);
+  const activity = redactedActivities.find((entry) => entry.phase === 'response');
+  assert.deepEqual({
+    path: activity.path,
+    model: activity.model,
+    requestBytes: activity.requestBytes,
+    stream: activity.stream,
+    status: activity.status,
+    errorType: activity.errorType,
+    errorCode: activity.errorCode,
+    errorParam: activity.errorParam,
+    errorCategory: activity.errorCategory,
+    traceHeaders: activity.traceHeaders,
+  }, {
+    path: '/v1/messages',
+    model: 'sonnet',
+    requestBytes: Buffer.byteLength(body),
+    stream: true,
+    status: 422,
+    errorType: 'invalid_request_error',
+    errorCode: 'model_not_allowed',
+    errorParam: 'model',
+    errorCategory: 'other',
+    traceHeaders: { 'x-request-id': 'req_123-safe' },
+  });
+  assert.match(activity.errorMessageSha256, /^[a-f0-9]{64}$/);
+  const serialized = JSON.stringify(redactedActivities);
+  assert.doesNotMatch(serialized, /invalid routing secret|sensitive prompt|local-token|upstream-secret|unlogged=query/);
+  const circuitResponse = await fetch(`${url}/v1/messages`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${LOCAL_TOKEN}`,
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({ model: 'sonnet', max_tokens: 16, messages: [] }),
+  });
+  assert.equal(circuitResponse.status, 424);
+  assert.equal(upstreamCalls, 1, 'a deterministic 4xx must open the circuit before another upstream call');
+  assert.ok(redactedActivities.some((entry) => (
+    entry.phase === 'circuit_open' && entry.status === 422 && entry.originalRequestNumber === 1
+  )));
+  await new Promise((resolve) => rejectingProxy.close(resolve));
+});
+
+test('classifies upstream 400 causes into a fixed enum without retaining raw text', () => {
+  const cases = [
+    ['Model claude-x is unknown on lane paid-secret-token', 'unknown_model_or_lane'],
+    ['Parameter reasoning_effort is not supported for this route', 'unsupported_parameter'],
+    ['Authentication failed for api key private-token', 'authentication_failed'],
+    ['Maximum context length exceeded by sensitive prompt', 'context_length_exceeded'],
+    ['Malformed request body: invalid JSON after private-token', 'malformed_request'],
+    ['opaque private-token routing failure', 'other'],
+  ];
+  const categories = cases.map(([message, expected]) => {
+    const category = classifyUpstreamErrorMessage(message);
+    assert.equal(category, expected);
+    return category;
+  });
+  const serialized = JSON.stringify(categories);
+  assert.doesNotMatch(serialized, /private-token|sensitive prompt|reasoning_effort|claude-x/);
 });
 
 test('rejects models and token requests outside the evaluator budget', async () => {
