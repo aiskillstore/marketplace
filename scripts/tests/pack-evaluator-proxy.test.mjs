@@ -1,6 +1,6 @@
 import { after, before, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createServer } from 'node:http';
+import { createServer, request as httpRequest } from 'node:http';
 import { once } from 'node:events';
 import { createPackEvaluatorProxy } from '../pack-evaluator-proxy.mjs';
 
@@ -85,7 +85,11 @@ test('replaces local credentials with the bounded upstream credential', async ()
   assert.match(observed.body, /gpt-5\.5/);
   assert.equal(response.headers.has('set-cookie'), false);
   assert.equal(JSON.parse(observed.body).max_output_tokens, 65536);
-  assert.deepEqual(activities.slice(-2).map((activity) => activity.phase), ['started', 'completed']);
+  assert.deepEqual(
+    activities.slice(-3).map((activity) => activity.phase),
+    ['started', 'response', 'completed']
+  );
+  assert.equal(activities.at(-2).statusClass, 200);
 });
 
 test('rejects models and token requests outside the evaluator budget', async () => {
@@ -143,4 +147,43 @@ test('enforces request, concurrency, and TTL limits', async () => {
   });
   assert.equal(expired.status, 403);
   await new Promise((resolve) => limited.close(resolve));
+});
+
+test('aborts an in-flight upstream request when the evaluator disconnects', async () => {
+  let markStarted;
+  let markAborted;
+  const started = new Promise((resolve) => { markStarted = resolve; });
+  const aborted = new Promise((resolve) => { markAborted = resolve; });
+  const hangingFetch = (_url, init) => new Promise((_resolve, reject) => {
+    markStarted();
+    init.signal.addEventListener('abort', () => {
+      markAborted();
+      reject(new Error('aborted by downstream disconnect'));
+    }, { once: true });
+  });
+  const abortingProxy = createPackEvaluatorProxy({
+    localToken: LOCAL_TOKEN,
+    upstreamKey: UPSTREAM_KEY,
+    upstreamBaseUrl: upstreamUrl,
+    fetchImpl: hangingFetch,
+    requestTimeoutMs: 60_000,
+  });
+  abortingProxy.listen(0, '127.0.0.1');
+  await once(abortingProxy, 'listening');
+  const request = httpRequest({
+    host: '127.0.0.1',
+    port: abortingProxy.address().port,
+    path: '/v1/responses',
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${LOCAL_TOKEN}`,
+      'content-type': 'application/json',
+    },
+  });
+  request.on('error', () => {});
+  request.end(JSON.stringify({ model: 'gpt-5.5', input: 'hang' }));
+  await started;
+  request.destroy();
+  await aborted;
+  await new Promise((resolve) => abortingProxy.close(resolve));
 });
