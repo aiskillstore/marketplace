@@ -655,6 +655,8 @@ test('verifies artifact, derived audit, score, Pack, and attestation execution e
       }],
     };
     postInventory.packs[0].updated_at = '2026-07-15T00:00:00.000Z';
+    const postSourceEvidence = structuredClone(fixture.sourceEvidence);
+    postSourceEvidence.skills[0].public_eligibility_audit_id = DERIVED_AUDIT_ID;
     const readback = {
       skills: [{
         ...fixture.sourceEvidence.skills[0],
@@ -698,10 +700,9 @@ test('verifies artifact, derived audit, score, Pack, and attestation execution e
       postInventory,
       readback,
       frozenSourceEvidence: fixture.sourceEvidence,
-      postSourceEvidence: structuredClone(fixture.sourceEvidence),
+      postSourceEvidence,
     });
     assert.equal(verified.executedCount, 1);
-    postInventory.packs[0].updated_at = '2026-07-15T00:00:01.000Z';
     assert.throws(() => verifyLegacyGovernanceExecution({
       boundary: fixture.boundary,
       plan: fixture.plan,
@@ -713,7 +714,47 @@ test('verifies artifact, derived audit, score, Pack, and attestation execution e
       readback,
       frozenSourceEvidence: fixture.sourceEvidence,
       postSourceEvidence: structuredClone(fixture.sourceEvidence),
-    }), /Pack state changed during governance execution/);
+    }), /Skill metadata or source audit changed/);
+    const changedPostMetadata = structuredClone(postSourceEvidence);
+    changedPostMetadata.skills[0].description = 'changed during execution';
+    assert.throws(() => verifyLegacyGovernanceExecution({
+      boundary: fixture.boundary,
+      plan: fixture.plan,
+      classification: fixture.classification,
+      executionResults,
+      frozenInventory: fixture.preInventory,
+      currentInventory,
+      postInventory,
+      readback,
+      frozenSourceEvidence: fixture.sourceEvidence,
+      postSourceEvidence: changedPostMetadata,
+    }), /Skill metadata or source audit changed/);
+    postInventory.packs[0].updated_at = '2026-07-15T00:00:01.000Z';
+    assert.equal(verifyLegacyGovernanceExecution({
+      boundary: fixture.boundary,
+      plan: fixture.plan,
+      classification: fixture.classification,
+      executionResults,
+      frozenInventory: fixture.preInventory,
+      currentInventory,
+      postInventory,
+      readback,
+      frozenSourceEvidence: fixture.sourceEvidence,
+      postSourceEvidence,
+    }).executedCount, 1);
+    postInventory.packs[0].updated_at = '2026-07-14T00:00:00.000Z';
+    assert.throws(() => verifyLegacyGovernanceExecution({
+      boundary: fixture.boundary,
+      plan: fixture.plan,
+      classification: fixture.classification,
+      executionResults,
+      frozenInventory: fixture.preInventory,
+      currentInventory,
+      postInventory,
+      readback,
+      frozenSourceEvidence: fixture.sourceEvidence,
+      postSourceEvidence,
+    }), /Pack updated_at regressed/);
     postInventory.packs[0].updated_at = '2026-07-15T00:00:00.000Z';
     readback.scoreSnapshots[0].score_subject.auditId = SOURCE_AUDIT_ID;
     assert.throws(() => verifyLegacyGovernanceExecution({
@@ -726,7 +767,7 @@ test('verifies artifact, derived audit, score, Pack, and attestation execution e
       postInventory,
       readback,
       frozenSourceEvidence: fixture.sourceEvidence,
-      postSourceEvidence: structuredClone(fixture.sourceEvidence),
+      postSourceEvidence,
     }), /production readback mismatch/);
     readback.scoreSnapshots[0].score_subject.auditId = DERIVED_AUDIT_ID;
     readback.audits[0].summary = 'changed during execution';
@@ -740,10 +781,10 @@ test('verifies artifact, derived audit, score, Pack, and attestation execution e
       postInventory,
       readback,
       frozenSourceEvidence: fixture.sourceEvidence,
-      postSourceEvidence: structuredClone(fixture.sourceEvidence),
+      postSourceEvidence,
     }), /production readback mismatch/);
 
-    const changedPostEvidence = structuredClone(fixture.sourceEvidence);
+    const changedPostEvidence = structuredClone(postSourceEvidence);
     changedPostEvidence.audits[0].summary = 'changed during execution';
     assert.throws(() => verifyLegacyGovernanceExecution({
       boundary: fixture.boundary,
@@ -759,7 +800,7 @@ test('verifies artifact, derived audit, score, Pack, and attestation execution e
       },
       frozenSourceEvidence: fixture.sourceEvidence,
       postSourceEvidence: changedPostEvidence,
-    }), /source audit changed during governance execution/);
+    }), /Skill metadata or source audit changed/);
   } finally {
     rmSync(fixture.directory, { recursive: true, force: true });
   }

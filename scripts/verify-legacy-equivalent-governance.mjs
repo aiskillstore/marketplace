@@ -99,17 +99,6 @@ function canonicalPackTopology(inventory) {
   return canonicalJson({ packMemberships, packs });
 }
 
-function canonicalPackState(inventory) {
-  const packMemberships = [...(inventory?.packMemberships || [])]
-    .sort((left, right) => `${left.skill_id}:${left.pack_id}`.localeCompare(
-      `${right.skill_id}:${right.pack_id}`,
-      'en-US'
-    ));
-  const packs = [...(inventory?.packs || [])]
-    .sort((left, right) => String(left.id).localeCompare(String(right.id), 'en-US'));
-  return canonicalJson({ packMemberships, packs });
-}
-
 function assertPackUpdatedAtDoesNotRegress(beforeInventory, afterInventory, context) {
   const before = asMap(beforeInventory?.packs || [], 'id', `${context} prior Packs`);
   const after = asMap(afterInventory?.packs || [], 'id', `${context} current Packs`);
@@ -697,9 +686,6 @@ export function verifyLegacyGovernanceExecution({
   frozenSourceEvidence,
   postSourceEvidence,
 }) {
-  if (canonicalSourceEvidence(frozenSourceEvidence) !== canonicalSourceEvidence(postSourceEvidence)) {
-    fail('Skill metadata or source audit changed during governance execution');
-  }
   assertQualificationMatchesEvidence(classification, frozenSourceEvidence);
   const groups = legacyGroups(plan, classification);
   if (!Array.isArray(executionResults) || executionResults.length !== groups.length) {
@@ -726,6 +712,12 @@ export function verifyLegacyGovernanceExecution({
   const attestations = readback.attestations || [];
   const legacyRows = governableLegacyRows(classification);
   const legacySlugs = new Set(legacyRows.map((row) => row.slug));
+  assertSourceEvidenceUnchangedOrResumable({
+    frozenSourceEvidence,
+    currentSourceEvidence: postSourceEvidence,
+    currentSkills: postSkills,
+    resumableSkillIds: new Set(legacyRows.map((row) => row.id)),
+  });
   const rawLegacy = asMap(classification.cohorts.legacy_algorithm_equivalent, 'slug', 'legacy cohort');
   const sourceAuditUnproven = classification.governance.unproven.map((decision) => rawLegacy.get(decision.slug));
 
@@ -740,9 +732,11 @@ export function verifyLegacyGovernanceExecution({
     currentInventory,
     'dependent Pack state before governance'
   );
-  if (canonicalPackState(currentInventory) !== canonicalPackState(postInventory)) {
-    fail('dependent Pack state changed during governance execution');
-  }
+  assertPackUpdatedAtDoesNotRegress(
+    currentInventory,
+    postInventory,
+    'dependent Pack state during governance execution'
+  );
 
   for (const frozen of classification.cohorts.exact.concat(
     classification.cohorts.actual_or_unproven_drift,
