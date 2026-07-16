@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import { dirname, resolve } from 'node:path';
@@ -322,6 +323,7 @@ test('manual recovery is file-backed, fixed-CLI, bounded, and red on any remaini
   assert.match(RECOVERY, /group: production-skill-score-writes/);
   assert.match(RECOVERY, /--concurrency "\$\{\{ inputs\.score_concurrency \}\}"/);
   assert.match(RECOVERY, /Invalidate selected score API entries/);
+  assert.match(RECOVERY, /batch-size: '30'\n\s+concurrency: \$\{\{ needs\.plan\.outputs\.scope == 'approved-catalog-cache' && '4' \|\| '1' \}\}/);
   assert.match(RECOVERY, /Require complete score and cache recovery/);
   assert.match(RECOVERY, /freeze-score-evidence/);
   assert.match(RECOVERY, /before-score-evidence\.json/);
@@ -359,4 +361,20 @@ test('shared invalidation action preserves score-only closure flags and validate
   assert.match(INVALIDATE_ACTION, /Cache invalidation response violated the requested closure contract/);
   assert.match(INVALIDATE_ACTION, /--max-time 90/);
   assert.match(INVALIDATE_ACTION, /local max_attempts=4/);
+  assert.match(INVALIDATE_ACTION, /concurrency:[\s\S]*default: '1'/);
+  assert.match(INVALIDATE_ACTION, /concurrency must be an integer between 1 and 4/);
+  assert.match(INVALIDATE_ACTION, /wave_start\+=BATCH_CONCURRENCY/);
+  assert.match(INVALIDATE_ACTION, /worker exited without complete evidence/);
+  assert.match(INVALIDATE_ACTION, /produced inconsistent completion evidence/);
+  assert.match(INVALIDATE_ACTION, /for \(\(BATCH_NUM=1; BATCH_NUM<=BATCHES; BATCH_NUM\+\+\)\)/);
+  assert.match(INVALIDATE_ACTION, /workers did not produce trustworthy completion evidence/);
+
+  const runBlock = INVALIDATE_ACTION.match(/\n      run: \|\n([\s\S]+)$/);
+  assert.ok(runBlock, 'composite action must contain its Bash run block');
+  const shell = runBlock[1]
+    .split('\n')
+    .map((line) => line.startsWith('        ') ? line.slice(8) : line)
+    .join('\n');
+  const syntax = spawnSync('bash', ['-n'], { encoding: 'utf8', input: shell });
+  assert.equal(syntax.status, 0, syntax.stderr);
 });

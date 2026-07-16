@@ -24,6 +24,10 @@ inputs:
     description: 'Batch size for API calls'
     required: false
     default: '30'
+  concurrency:
+    description: 'Maximum concurrent cache invalidation batches (1-4)'
+    required: false
+    default: '1'
   invalidate-artifacts:
     description: 'Whether immutable ZIP/install artifact keys must also be deleted'
     required: false
@@ -58,6 +62,7 @@ runs:
         CACHE_SECRET: ${{ inputs.secret }}
         SITE_URL: ${{ inputs['site-url'] }}
         BATCH_SIZE: ${{ inputs['batch-size'] }}
+        BATCH_CONCURRENCY: ${{ inputs.concurrency }}
         CONTENT_TYPE: ${{ inputs.type }}
         SLUGS_STR: ${{ inputs.slugs }}
         SLUGS_FILE: ${{ inputs['slugs-file'] }}
@@ -90,6 +95,11 @@ runs:
 
         if ! [[ "$BATCH_SIZE" =~ ^[0-9]+$ ]] || [ "$BATCH_SIZE" -lt 1 ]; then
           echo "::error::batch-size must be a positive integer"
+          exit 1
+        fi
+
+        if ! [[ "$BATCH_CONCURRENCY" =~ ^[1-4]$ ]]; then
+          echo "::error::concurrency must be an integer between 1 and 4"
           exit 1
         fi
 
@@ -226,37 +236,124 @@ runs:
         BATCHES=$(( (TOTAL + BATCH_SIZE - 1) / BATCH_SIZE ))
         echo "Invalidating $TOTAL $CONTENT_TYPE in $BATCHES batch(es)..."
 
-        SUCCESS=0
-        FAILED=0
-        FAILED_FILE="$(mktemp)"
+        WORK_DIR="$(mktemp -d)"
+        trap 'rm -rf "$WORK_DIR" "$ITEMS_FILE"' EXIT
 
-        for ((i=0; i<TOTAL; i+=BATCH_SIZE)); do
-          BATCH=("${SLUGS[@]:i:BATCH_SIZE}")
-          BATCH_NUM=$(( i / BATCH_SIZE + 1 ))
+        run_batch() {
+          local batch_num="$1"
+          local batch_file="$2"
+          local result_file="$3"
+          local failed_file="$4"
+          local batch_success=0
+          local batch_failed=0
+          local batch_slugs=()
 
-          echo "  Batch $BATCH_NUM/$BATCHES (${#BATCH[@]} items)..."
+          mapfile -t batch_slugs < "$batch_file"
+          echo "  Batch $batch_num/$BATCHES (${#batch_slugs[@]} items)..."
 
-          if invalidate_batch "${BATCH[@]}"; then
+          if invalidate_batch "${batch_slugs[@]}"; then
             echo "    ✓"
-            SUCCESS=$((SUCCESS + ${#BATCH[@]}))
+            batch_success=${#batch_slugs[@]}
           else
             echo "    Batch failed after retries; falling back to single-item invalidation"
-            for slug in "${BATCH[@]}"; do
+            for slug in "${batch_slugs[@]}"; do
               if invalidate_batch "$slug"; then
                 echo "      ✓ $slug"
-                SUCCESS=$((SUCCESS + 1))
+                batch_success=$((batch_success + 1))
               else
                 echo "      ✗ $slug"
-                echo "$slug" >> "$FAILED_FILE"
-                FAILED=$((FAILED + 1))
+                printf '%s\n' "$slug" >> "$failed_file"
+                batch_failed=$((batch_failed + 1))
               fi
             done
           fi
+
+          printf '%s\t%s\n' "$batch_success" "$batch_failed" > "$result_file"
+        }
+
+        # Launch fixed-size waves. Each batch owns its evidence files, and the
+        # parent aggregates them later in batch order so logs and counts remain
+        # deterministic even though HTTP requests overlap.
+        for ((wave_start=0; wave_start<BATCHES; wave_start+=BATCH_CONCURRENCY)); do
+          PIDS=()
+          BATCH_NUMBERS=()
+          for ((slot=0; slot<BATCH_CONCURRENCY; slot++)); do
+            BATCH_NUM=$((wave_start + slot + 1))
+            if [ "$BATCH_NUM" -gt "$BATCHES" ]; then
+              break
+            fi
+
+            OFFSET=$(( (BATCH_NUM - 1) * BATCH_SIZE ))
+            BATCH=("${SLUGS[@]:OFFSET:BATCH_SIZE}")
+            printf '%s\n' "${BATCH[@]}" > "$WORK_DIR/batch-$BATCH_NUM.slugs"
+            : > "$WORK_DIR/batch-$BATCH_NUM.failed"
+
+            run_batch \
+              "$BATCH_NUM" \
+              "$WORK_DIR/batch-$BATCH_NUM.slugs" \
+              "$WORK_DIR/batch-$BATCH_NUM.result" \
+              "$WORK_DIR/batch-$BATCH_NUM.failed" \
+              > "$WORK_DIR/batch-$BATCH_NUM.log" 2>&1 &
+            PIDS+=("$!")
+            BATCH_NUMBERS+=("$BATCH_NUM")
+          done
+
+          for ((slot=0; slot<${#PIDS[@]}; slot++)); do
+            if ! wait "${PIDS[$slot]}"; then
+              : > "$WORK_DIR/batch-${BATCH_NUMBERS[$slot]}.worker-failed"
+            fi
+          done
+        done
+
+        SUCCESS=0
+        FAILED=0
+        INTERNAL_FAILURE=0
+        FAILED_FILE="$WORK_DIR/failed-slugs.txt"
+        : > "$FAILED_FILE"
+
+        for ((BATCH_NUM=1; BATCH_NUM<=BATCHES; BATCH_NUM++)); do
+          BATCH_FILE="$WORK_DIR/batch-$BATCH_NUM.slugs"
+          RESULT_FILE="$WORK_DIR/batch-$BATCH_NUM.result"
+          JOB_FAILED_FILE="$WORK_DIR/batch-$BATCH_NUM.failed"
+          cat "$WORK_DIR/batch-$BATCH_NUM.log"
+          mapfile -t BATCH < "$BATCH_FILE"
+
+          if [ -f "$WORK_DIR/batch-$BATCH_NUM.worker-failed" ] || \
+             [ ! -s "$RESULT_FILE" ]; then
+            echo "::error::Batch $BATCH_NUM worker exited without complete evidence"
+            printf '%s\n' "${BATCH[@]}" >> "$FAILED_FILE"
+            FAILED=$((FAILED + ${#BATCH[@]}))
+            INTERNAL_FAILURE=1
+            continue
+          fi
+
+          IFS=$'\t' read -r BATCH_SUCCESS BATCH_FAILED < "$RESULT_FILE"
+          RECORDED_FAILED=$(sed '/^$/d' "$JOB_FAILED_FILE" | wc -l | tr -d ' ')
+          if ! [[ "$BATCH_SUCCESS" =~ ^[0-9]+$ ]] || \
+             ! [[ "$BATCH_FAILED" =~ ^[0-9]+$ ]] || \
+             [ $((BATCH_SUCCESS + BATCH_FAILED)) -ne "${#BATCH[@]}" ] || \
+             [ "$RECORDED_FAILED" -ne "$BATCH_FAILED" ]; then
+            echo "::error::Batch $BATCH_NUM produced inconsistent completion evidence"
+            printf '%s\n' "${BATCH[@]}" >> "$FAILED_FILE"
+            FAILED=$((FAILED + ${#BATCH[@]}))
+            INTERNAL_FAILURE=1
+            continue
+          fi
+
+          cat "$JOB_FAILED_FILE" >> "$FAILED_FILE"
+          SUCCESS=$((SUCCESS + BATCH_SUCCESS))
+          FAILED=$((FAILED + BATCH_FAILED))
         done
 
         echo "✅ Complete: $SUCCESS succeeded, $FAILED failed"
         echo "success_count=$SUCCESS" >> "$GITHUB_OUTPUT"
         echo "failed_count=$FAILED" >> "$GITHUB_OUTPUT"
+
+        if [ "$INTERNAL_FAILURE" -gt 0 ]; then
+          echo "::error::Cache invalidation workers did not produce trustworthy completion evidence"
+          sed -n '1,200p' "$FAILED_FILE"
+          exit 1
+        fi
 
         if [ "$FAILED" -gt 0 ]; then
           if [ "$FAIL_ON_ERROR" = "true" ]; then
