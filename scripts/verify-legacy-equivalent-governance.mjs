@@ -44,6 +44,47 @@ export function canonicalSourceEvidence(value) {
   });
 }
 
+function assertSourceEvidenceUnchangedOrResumable({
+  frozenSourceEvidence,
+  currentSourceEvidence,
+  currentSkills,
+  resumableSkillIds,
+}) {
+  if (canonicalSourceEvidence({ ...frozenSourceEvidence, skills: [] })
+    !== canonicalSourceEvidence({ ...currentSourceEvidence, skills: [] })) {
+    fail('Skill metadata or source audit changed after the frozen dry-run boundary');
+  }
+  const frozenMetadata = asMap(frozenSourceEvidence.skills, 'id', 'frozen Skill metadata');
+  const currentMetadata = asMap(currentSourceEvidence.skills, 'id', 'current Skill metadata');
+  if (frozenMetadata.size !== currentMetadata.size) {
+    fail('Skill metadata or source audit changed after the frozen dry-run boundary');
+  }
+  for (const [skillId, frozen] of frozenMetadata) {
+    const current = currentMetadata.get(skillId);
+    const currentInventory = currentSkills.get(frozen.slug);
+    if (canonicalJson(frozen) === canonicalJson(current)) {
+      if (
+        resumableSkillIds.has(skillId)
+        && current?.public_eligibility_audit_id !== currentInventory?.public_eligibility_audit_id
+      ) {
+        fail('Skill metadata or source audit changed after the frozen dry-run boundary');
+      }
+      continue;
+    }
+    if (
+      !current
+      || !resumableSkillIds.has(skillId)
+      || current.public_eligibility_audit_id !== currentInventory?.public_eligibility_audit_id
+      || canonicalJson(frozen) !== canonicalJson({
+        ...current,
+        public_eligibility_audit_id: frozen.public_eligibility_audit_id,
+      })
+    ) {
+      fail('Skill metadata or source audit changed after the frozen dry-run boundary');
+    }
+  }
+}
+
 function canonicalPackTopology(inventory) {
   const packMemberships = [...(inventory?.packMemberships || [])]
     .sort((left, right) => `${left.skill_id}:${left.pack_id}`.localeCompare(
@@ -546,9 +587,6 @@ export function verifyLegacyGovernanceBoundary({
   if (canonicalJson(boundary.groups) !== canonicalJson(expectedGroups)) {
     fail('downloaded boundary groups do not match plan/classification');
   }
-  if (canonicalSourceEvidence(frozenSourceEvidence) !== canonicalSourceEvidence(currentSourceEvidence)) {
-    fail('Skill metadata or source audit changed after the frozen dry-run boundary');
-  }
   assertQualificationMatchesEvidence(classification, frozenSourceEvidence);
   const frozenSkills = asMap(frozenInventory.rows, 'slug', 'frozen Skills');
   const currentSkills = asMap(currentInventory.rows, 'slug', 'current Skills');
@@ -568,6 +606,7 @@ export function verifyLegacyGovernanceBoundary({
     'production state after the frozen dry-run boundary'
   );
   let resumableCount = 0;
+  const resumableSkillIds = new Set();
   for (const selected of plan.selected) {
     const before = frozenSkills.get(selected.slug);
     const current = currentSkills.get(selected.slug);
@@ -610,10 +649,17 @@ export function verifyLegacyGovernanceBoundary({
       fail(`production state changed incompatibly for ${selected.slug}`);
     }
     resumableCount++;
+    resumableSkillIds.add(selected.id);
   }
   if (artifacts.size !== resumableCount || observations.size !== resumableCount) {
     fail('resumable artifact/observation scope contains unexpected rows');
   }
+  assertSourceEvidenceUnchangedOrResumable({
+    frozenSourceEvidence,
+    currentSourceEvidence,
+    currentSkills,
+    resumableSkillIds,
+  });
   return {
     schemaVersion: 1,
     status: 'execution_preflight_verified',
