@@ -136,8 +136,9 @@ test('evaluate runs on a disposable VM with a user-separated job-local inference
   assert.match(evaluate, /CLAUDE_OUTCOME=command_failed/);
   assert.match(evaluate, /CODEX_OUTCOME=command_failed/);
   assert.match(evaluate, /for ATTEMPT in 1 2/);
-  assert.match(evaluate, /CODEX_ERROR_CLASS.*upstream_transport/s);
-  assert.match(evaluate, /ATTEMPT" -eq 2/);
+  assert.match(evaluate, /should_retry_preflight[\s\\]+"\$CODEX_OUTCOME" "\$CODEX_ERROR_CLASS" "\$ATTEMPT"/);
+  assert.match(EVALUATOR_PREFLIGHT, /upstream_transport\|timeout\|unknown/);
+  assert.match(EVALUATOR_PREFLIGHT, /\[ "\$attempt" -ge 2 \]/);
   assert.match(evaluate, /cleanup_processes\(\)/);
   assert.match(evaluate, /RETRY_CLEANUP_OUTCOME=passed/);
   assert.match(evaluate, /sleep 5/);
@@ -202,6 +203,48 @@ test('extracted evaluator preflight is valid bounded bash', () => {
   assert.match(EVALUATOR_PREFLIGHT, /exitCode: \$exitCode/);
   assert.doesNotMatch(EVALUATOR_PREFLIGHT, /if ! printf '%s\\n' 'Reply with exactly PACK_EVALUATOR_READY/);
   assert.match(EVALUATOR_PREFLIGHT, /PACK_DIAGNOSTICS_DIR\/agent-preflight-diagnostics\.json/);
+});
+
+test('evaluator preflight retries only bounded transient or unknown command failures', () => {
+  const start = EVALUATOR_PREFLIGHT.indexOf('should_retry_preflight() {');
+  const end = EVALUATOR_PREFLIGHT.indexOf('\n}\n', start);
+  assert.ok(start >= 0 && end > start, 'retry policy function must be extractable');
+  const policy = EVALUATOR_PREFLIGHT.slice(start, end + 3);
+
+  for (const errorClass of ['upstream_transport', 'timeout', 'unknown']) {
+    const result = spawnSync(
+      'bash',
+      ['-c', `${policy}\nshould_retry_preflight "$1" "$2" "$3"`, 'policy', 'command_failed', errorClass, '1'],
+      { encoding: 'utf8' }
+    );
+    assert.equal(result.status, 0, `${errorClass} should receive one retry`);
+  }
+  for (const errorClass of ['authentication', 'model_route', 'cli_arguments', 'state_storage']) {
+    const result = spawnSync(
+      'bash',
+      ['-c', `${policy}\nshould_retry_preflight "$1" "$2" "$3"`, 'policy', 'command_failed', errorClass, '1'],
+      { encoding: 'utf8' }
+    );
+    assert.equal(result.status, 1, `${errorClass} must fail closed without retry`);
+  }
+  assert.equal(
+    spawnSync(
+      'bash',
+      ['-c', `${policy}\nshould_retry_preflight "$1" "$2" "$3"`, 'policy', 'command_failed', 'unknown', '2'],
+      { encoding: 'utf8' }
+    ).status,
+    1,
+    'the second unknown failure must stop'
+  );
+  assert.equal(
+    spawnSync(
+      'bash',
+      ['-c', `${policy}\nshould_retry_preflight "$1" "$2" "$3"`, 'policy', 'invalid_response', 'unknown', '1'],
+      { encoding: 'utf8' }
+    ).status,
+    1,
+    'invalid responses must not be retried'
+  );
 });
 
 test('evaluate emits bounded progress and checkpoints cancellation-safe evidence', () => {

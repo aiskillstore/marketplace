@@ -35,6 +35,23 @@ classify_error() {
   fi
 }
 
+# A preflight is read-only, isolated, and capped at two attempts. Retry one
+# otherwise-unclassified command failure because upstream/CLI failures do not
+# always expose a stable error string. Known auth, routing, argument, and state
+# failures remain fail-closed on the first attempt.
+should_retry_preflight() {
+  local outcome="$1"
+  local error_class="$2"
+  local attempt="$3"
+  if [ "$outcome" != "command_failed" ] || [ "$attempt" -ge 2 ]; then
+    return 1
+  fi
+  case "$error_class" in
+    upstream_transport|timeout|unknown) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
 cleanup_processes() {
   local probe_rc
   sudo pkill -TERM -u packeval 2>/dev/null || true
@@ -122,11 +139,8 @@ for ATTEMPT in 1 2; do
       stdoutSha256: $stdoutSha256,
       stderrSha256: $stderrSha256
     }]' <<< "$CLAUDE_ATTEMPTS")
-  if [ "$CLAUDE_OUTCOME" = "passed" ] || \
-     [ "$CLAUDE_OUTCOME" != "command_failed" ] || \
-     { [ "$CLAUDE_ERROR_CLASS" != "upstream_transport" ] && \
-       [ "$CLAUDE_ERROR_CLASS" != "timeout" ]; } || \
-     [ "$ATTEMPT" -eq 2 ]; then
+  if ! should_retry_preflight \
+    "$CLAUDE_OUTCOME" "$CLAUDE_ERROR_CLASS" "$ATTEMPT"; then
     break
   fi
   if cleanup_processes; then
@@ -213,11 +227,8 @@ if [ "$CLAUDE_OUTCOME" = "passed" ]; then
         stdoutSha256: $stdoutSha256,
         stderrSha256: $stderrSha256
       }]' <<< "$CODEX_ATTEMPTS")
-    if [ "$CODEX_OUTCOME" = "passed" ] || \
-       [ "$CODEX_OUTCOME" != "command_failed" ] || \
-       { [ "$CODEX_ERROR_CLASS" != "upstream_transport" ] && \
-         [ "$CODEX_ERROR_CLASS" != "timeout" ]; } || \
-       [ "$ATTEMPT" -eq 2 ]; then
+    if ! should_retry_preflight \
+      "$CODEX_OUTCOME" "$CODEX_ERROR_CLASS" "$ATTEMPT"; then
       break
     fi
     if cleanup_processes; then
