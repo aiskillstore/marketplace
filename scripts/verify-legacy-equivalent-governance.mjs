@@ -5,10 +5,12 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-const CLI_VERSION = '2.11.2';
+const CLI_VERSION = '2.11.4';
 const EXECUTABLE_BOUNDARY_CLI_SHA256 = new Map([
   ['2.11.1', '9aa6a6e15d249e52bed690049974d8312f3257c205025823a68d249cc5cc8367'],
   ['2.11.2', 'c596ca3b6d27875fdcd231bfb889899f08ea8ae95217def7bf46de2aa3722b81'],
+  ['2.11.3', 'af5d2718c527d5228ce356182e1a80b9efba065b0a794888a79215666344b201'],
+  ['2.11.4', '236c0d3f5091d6cf15d3fa90a247706ab2419f7cfb672554fc5336f0f4212394'],
 ]);
 const MAX_BATCH_SIZE = 500;
 const SHA256_RE = /^[0-9a-f]{64}$/;

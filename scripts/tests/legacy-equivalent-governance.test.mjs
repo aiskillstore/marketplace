@@ -229,8 +229,8 @@ function createBoundaryFixture() {
       runId: '12345',
       repository: 'aiskillstore/marketplace',
       workflowCommit: 'f'.repeat(40),
-      cliVersion: '2.11.2',
-      cliSha256: 'c596ca3b6d27875fdcd231bfb889899f08ea8ae95217def7bf46de2aa3722b81',
+      cliVersion: '2.11.4',
+      cliSha256: '236c0d3f5091d6cf15d3fa90a247706ab2419f7cfb672554fc5336f0f4212394',
     },
   });
   return { ...values, directory, files, boundary };
@@ -386,24 +386,26 @@ test('freezes and verifies one exact dry-run boundary', () => {
       expectedRunId: '12345',
     });
     assert.equal(verified.status, 'execution_preflight_verified');
-    const priorCliBoundary = {
-      ...fixture.boundary,
-      cliVersion: '2.11.1',
-      cliSha256: '9aa6a6e15d249e52bed690049974d8312f3257c205025823a68d249cc5cc8367',
-    };
-    assert.equal(verifyLegacyGovernanceBoundary({
-      boundary: priorCliBoundary,
-      plan: fixture.plan,
-      classification: fixture.classification,
-      frozenInventory: fixture.preInventory,
-      currentInventory: structuredClone(fixture.preInventory),
-      frozenSourceEvidence: fixture.sourceEvidence,
-      currentSourceEvidence: structuredClone(fixture.sourceEvidence),
-      paths: fixture.files,
-      expectedRunId: '12345',
-    }).status, 'execution_preflight_verified');
+    const priorCliBoundaries = [
+      ['2.11.1', '9aa6a6e15d249e52bed690049974d8312f3257c205025823a68d249cc5cc8367'],
+      ['2.11.2', 'c596ca3b6d27875fdcd231bfb889899f08ea8ae95217def7bf46de2aa3722b81'],
+      ['2.11.3', 'af5d2718c527d5228ce356182e1a80b9efba065b0a794888a79215666344b201'],
+    ];
+    for (const [cliVersion, cliSha256] of priorCliBoundaries) {
+      assert.equal(verifyLegacyGovernanceBoundary({
+        boundary: { ...fixture.boundary, cliVersion, cliSha256 },
+        plan: fixture.plan,
+        classification: fixture.classification,
+        frozenInventory: fixture.preInventory,
+        currentInventory: structuredClone(fixture.preInventory),
+        frozenSourceEvidence: fixture.sourceEvidence,
+        currentSourceEvidence: structuredClone(fixture.sourceEvidence),
+        paths: fixture.files,
+        expectedRunId: '12345',
+      }).status, 'execution_preflight_verified');
+    }
     assert.throws(() => verifyLegacyGovernanceBoundary({
-      boundary: { ...priorCliBoundary, cliVersion: '2.11.0' },
+      boundary: { ...fixture.boundary, cliVersion: '2.11.0' },
       plan: fixture.plan,
       classification: fixture.classification,
       frozenInventory: fixture.preInventory,
@@ -822,8 +824,8 @@ test('workflow is two-phase, exactly pinned, bounded, and never executes ordinar
     resolve(import.meta.dirname, '../../.github/workflows/backfill-artifact-versions.yml'),
     'utf8'
   );
-  assert.match(workflow, /default: '2\.11\.2'/);
-  assert.match(workflow, /test "\$CLI_VERSION" = '2\.11\.2'/);
+  assert.match(workflow, /default: '2\.11\.4'/);
+  assert.match(workflow, /test "\$CLI_VERSION" = '2\.11\.4'/);
   assert.doesNotMatch(workflow, /version:\s*(latest|'latest'|"latest")/);
   assert.match(workflow, /batch_size must be between 1 and 500/);
   assert.match(workflow, /dry_run_id/);
@@ -835,15 +837,18 @@ test('workflow is two-phase, exactly pinned, bounded, and never executes ordinar
   assert.match(workflow, /sha256sum --check SHA256SUMS/);
   assert.match(workflow, /boundary or execution CLI binary differs from its audited release/);
   assert.match(workflow, /2\.11\.1\) boundary_audited='9aa6a6e15d249e52bed690049974d8312f3257c205025823a68d249cc5cc8367'/);
+  assert.match(workflow, /2\.11\.2\) boundary_audited='c596ca3b6d27875fdcd231bfb889899f08ea8ae95217def7bf46de2aa3722b81'/);
+  assert.match(workflow, /2\.11\.3\) boundary_audited='af5d2718c527d5228ce356182e1a80b9efba065b0a794888a79215666344b201'/);
   assert.match(workflow, /test "\$boundary_actual" = "\$boundary_audited" && test "\$actual" = "\$execution_audited"/);
-  assert.ok((workflow.match(/c596ca3b6d27875fdcd231bfb889899f08ea8ae95217def7bf46de2aa3722b81/g) || []).length >= 2);
+  assert.ok((workflow.match(/236c0d3f5091d6cf15d3fa90a247706ab2419f7cfb672554fc5336f0f4212394/g) || []).length >= 2);
+  assert.equal((workflow.match(/require-checksum: 'true'/g) || []).length, 2);
   assert.match(workflow, /--phase execute-preflight/);
   assert.match(workflow, /--current-inventory "\$RUNNER_TEMP\/current-inventory\.json"/);
   assert.match(workflow, /\$\{\{ runner\.temp \}\}\/current-inventory\.json/);
   assert.match(workflow, /--phase qualify/);
   assert.match(workflow, /skill govern-legacy-equivalent/);
-  assert.match(workflow, /cache batches of at most ten/);
-  assert.match(workflow, /--concurrency 1/);
+  assert.match(workflow, /four bounded workers/);
+  assert.equal((workflow.match(/--concurrency 4/g) || []).length, 2);
   assert.match(workflow, /execute-boundary:[\s\S]{0,160}group: production-skill-score-writes/);
   assert.match(workflow, /legacy-equivalent-boundary-/);
   assert.match(workflow, /legacy-equivalent-execution-/);
@@ -874,7 +879,7 @@ test('workflow is two-phase, exactly pinned, bounded, and never executes ordinar
   assert.match(governanceCalls[0], /--legacy-previous-report-root "\$RUNNER_TEMP\/legacy-previous-reports\/batch-\$index\/\$commit"/);
   assert.match(governanceCalls[1], /--legacy-previous-report-root "\$RUNNER_TEMP\/current-legacy-previous-reports\/batch-\$index\/\$commit"/);
   const recomputeIndex = workflow.indexOf('Recompute and match frozen first-parent report evidence');
-  const executeIndex = workflow.indexOf('Execute frozen legacy cohort serially');
+  const executeIndex = workflow.indexOf('Execute frozen legacy cohort with four bounded workers');
   assert(recomputeIndex > 0 && recomputeIndex < executeIndex);
   assert.match(ordinaryWorkflow, /\.exactBatches\[\]/);
   assert.match(ordinaryWorkflow, /CLI_VERSION" != "2\.3\.1"/);

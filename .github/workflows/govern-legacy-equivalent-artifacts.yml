@@ -15,7 +15,7 @@ on:
         description: 'Exact audited skillstore-cli version'
         type: string
         required: true
-        default: '2.11.2'
+        default: '2.11.4'
       batch_size:
         description: 'Maximum Skills classified by a new dry-run boundary (1-500)'
         type: number
@@ -86,7 +86,7 @@ jobs:
           DRY_RUN_ID: ${{ inputs.dry_run_id }}
         run: |
           set -euo pipefail
-          test "$CLI_VERSION" = '2.11.2' || { echo '::error::workflow is pinned to skillstore-cli 2.11.2'; exit 1; }
+          test "$CLI_VERSION" = '2.11.4' || { echo '::error::workflow is pinned to skillstore-cli 2.11.4'; exit 1; }
           test "$GITHUB_REF_NAME" = 'main' || { echo '::error::frozen boundaries may only be created from main'; exit 1; }
           [[ "$BATCH_SIZE" =~ ^[0-9]+$ ]] && [ "$BATCH_SIZE" -ge 1 ] && [ "$BATCH_SIZE" -le 500 ] || {
             echo '::error::batch_size must be between 1 and 500'; exit 1;
@@ -145,14 +145,15 @@ jobs:
         uses: ./.github/actions/download-skillstore-cli
         with:
           token: ${{ steps.app-token.outputs.token }}
-          version: '2.11.2'
-          minimum-version: '2.11.2'
+          version: '2.11.4'
+          minimum-version: '2.11.4'
+          require-checksum: 'true'
           cache-dir: /home/runner/_work/_cache/skillstore-cli
 
       - name: Verify audited binding-aware CLI binary identity
         run: |
           set -euo pipefail
-          expected='c596ca3b6d27875fdcd231bfb889899f08ea8ae95217def7bf46de2aa3722b81'
+          expected='236c0d3f5091d6cf15d3fa90a247706ab2419f7cfb672554fc5336f0f4212394'
           actual=$(sha256sum "$GITHUB_WORKSPACE/skillstore-cli" | awk '{print $1}')
           test "$actual" = "$expected" || {
             echo '::error::binding-aware CLI binary does not match the audited linux-x64 digest'; exit 1;
@@ -255,7 +256,7 @@ jobs:
               --classification "$RUNNER_TEMP/classification.json" \
               --root "$RUNNER_TEMP/materialized/batch-$index/$commit" \
               --legacy-previous-report-root "$RUNNER_TEMP/legacy-previous-reports/batch-$index/$commit" \
-              --slugs "$slugs" --dry-run --concurrency 1 --result-file "$result"
+              --slugs "$slugs" --dry-run --concurrency 4 --result-file "$result"
             jq -n -c --argjson batchIndex "$index" --arg marketplaceCommit "$commit" \
               --argjson selectedCount "$count" --argjson slugs "$(jq -c .slugs <<< "$group")" \
               --slurpfile result "$result" \
@@ -294,7 +295,7 @@ jobs:
             --source-evidence "$boundary/source-evidence.json" \
             --previous-report-manifest "$boundary/legacy-previous-report-manifest.json" \
             --run-id "$GITHUB_RUN_ID" --repository "$GITHUB_REPOSITORY" \
-            --workflow-commit "$GITHUB_SHA" --cli-version '2.11.2' \
+            --workflow-commit "$GITHUB_SHA" --cli-version '2.11.4' \
             --cli-sha256 "$(sha256sum "$GITHUB_WORKSPACE/skillstore-cli" | awk '{print $1}')" \
             --output "$boundary/boundary.json"
           (cd "$boundary" && sha256sum plan.json classification.json pre-inventory.json governance-dry-run.json source-evidence.json legacy-previous-report-manifest.json boundary.json > SHA256SUMS)
@@ -315,7 +316,7 @@ jobs:
           {
             echo '## Legacy-equivalent frozen boundary'
             echo "- Run ID: \`$GITHUB_RUN_ID\`"
-            echo "- CLI: \`2.11.2\`"
+            echo "- CLI: \`2.11.4\`"
             echo "- Selected: \`${{ steps.plan.outputs.selected_count }}\` (maximum 500)"
             echo "- Scan end: \`${{ steps.plan.outputs.last_selected }}\`"
             echo "- Hash-equivalent: \`$(jq -r .governance.hashEquivalentCount "$RUNNER_TEMP/classification.json")\`; governable: \`$(jq -r .governance.eligibleCount "$RUNNER_TEMP/classification.json")\`; source-audit unproven: \`$(jq -r .governance.unprovenCount "$RUNNER_TEMP/classification.json")\`"
@@ -373,7 +374,7 @@ jobs:
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
           git sparse-checkout disable
           git reset --hard HEAD
-          test "$CLI_VERSION" = '2.11.2' || { echo '::error::workflow is pinned to skillstore-cli 2.11.2'; exit 1; }
+          test "$CLI_VERSION" = '2.11.4' || { echo '::error::workflow is pinned to skillstore-cli 2.11.4'; exit 1; }
           test "$GITHUB_REF_NAME" = 'main' || { echo '::error::execute may only run from main'; exit 1; }
           [[ "$DRY_RUN_ID" =~ ^[1-9][0-9]*$ ]] || { echo '::error::execute requires a numeric dry_run_id'; exit 1; }
           [ -z "$START_AFTER$END_AT" ] || { echo '::error::execute uses only its frozen boundary'; exit 1; }
@@ -460,19 +461,22 @@ jobs:
         uses: ./.github/actions/download-skillstore-cli
         with:
           token: ${{ steps.app-token.outputs.token }}
-          version: '2.11.2'
-          minimum-version: '2.11.2'
+          version: '2.11.4'
+          minimum-version: '2.11.4'
+          require-checksum: 'true'
           cache-dir: /home/runner/_work/_cache/skillstore-cli
 
       - name: Verify frozen CLI binary identity
         run: |
           set -euo pipefail
-          execution_audited='c596ca3b6d27875fdcd231bfb889899f08ea8ae95217def7bf46de2aa3722b81'
+          execution_audited='236c0d3f5091d6cf15d3fa90a247706ab2419f7cfb672554fc5336f0f4212394'
           boundary_version=$(jq -r .cliVersion "$RUNNER_TEMP/boundary/boundary.json")
           boundary_actual=$(jq -r .cliSha256 "$RUNNER_TEMP/boundary/boundary.json")
           case "$boundary_version" in
             2.11.1) boundary_audited='9aa6a6e15d249e52bed690049974d8312f3257c205025823a68d249cc5cc8367' ;;
-            2.11.2) boundary_audited="$execution_audited" ;;
+            2.11.2) boundary_audited='c596ca3b6d27875fdcd231bfb889899f08ea8ae95217def7bf46de2aa3722b81' ;;
+            2.11.3) boundary_audited='af5d2718c527d5228ce356182e1a80b9efba065b0a794888a79215666344b201' ;;
+            2.11.4) boundary_audited="$execution_audited" ;;
             *) echo '::error::frozen boundary CLI version is not executable'; exit 1 ;;
           esac
           actual=$(sha256sum "$GITHUB_WORKSPACE/skillstore-cli" | awk '{print $1}')
@@ -492,7 +496,7 @@ jobs:
             git archive --format=tar "$commit" -- "${paths[@]}" | tar -xf - -C "$root"
           done < <(jq -c '.groups[]' "$RUNNER_TEMP/boundary/boundary.json")
 
-      - name: Execute frozen legacy cohort serially with cache batches of at most ten
+      - name: Execute frozen legacy cohort with four bounded workers
         env:
           PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
@@ -512,7 +516,7 @@ jobs:
               --classification "$RUNNER_TEMP/boundary/classification.json" \
               --root "$RUNNER_TEMP/materialized/batch-$index/$commit" \
               --legacy-previous-report-root "$RUNNER_TEMP/current-legacy-previous-reports/batch-$index/$commit" \
-              --slugs "$slugs" --concurrency 1 --result-file "$result"
+              --slugs "$slugs" --concurrency 4 --result-file "$result"
             jq -n -c --argjson batchIndex "$index" --arg marketplaceCommit "$commit" \
               --argjson selectedCount "$count" --argjson slugs "$(jq -c .slugs <<< "$group")" \
               --slurpfile result "$result" \
@@ -589,8 +593,8 @@ jobs:
           {
             echo '## Legacy-equivalent execution verified'
             echo "- Frozen boundary run: \`${{ inputs.dry_run_id }}\`"
-            echo '- CLI: `2.11.2`'
+            echo '- CLI: `2.11.4`'
             echo "- Executed: \`$(jq -r .executedCount "$RUNNER_TEMP/execution-verification.json")\`"
             echo '- Artifact, observation, derived audit, score binding, Pack timestamps, and no-attestation invariants passed.'
-            echo '- Cache authorization was preflighted before writes; API and artifact invalidation was bounded to groups of ten.'
+            echo '- Cache authorization was preflighted before writes; four workers execute independently budgeted cache plans and stop scheduling on failure.'
           } >> "$GITHUB_STEP_SUMMARY"
