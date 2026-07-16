@@ -346,7 +346,7 @@ test('evaluator preflight rejects a non-positive Claude output-token cap before 
     encoding: 'utf8',
     env: {
       PATH: process.env.PATH,
-      PACK_PRODUCTION_CLI_VERSION: '2.14.1',
+      PACK_PRODUCTION_CLI_VERSION: '2.14.2',
       PACK_EVALUATOR_PROXY_TOKEN: 'local-token-that-is-longer-than-thirty-two-bytes',
       PACK_DIAGNOSTICS_DIR: '/tmp',
       PACK_EVALUATOR_MAX_OUTPUT_TOKENS: '0',
@@ -700,7 +700,7 @@ test('planning uses a read-only API and admits at most one artifact scenario', (
   assert.match(finalize, /if: needs\.plan\.outputs\.has_scenarios == 'true'/);
   assert.match(WORKFLOW, /group: generate-pack-production-v4/);
   assert.match(WORKFLOW, /cron: '17 19 \* \* 1,3,5'/);
-  assert.match(WORKFLOW, /PACK_PRODUCTION_CLI_VERSION: '2\.14\.1'/);
+  assert.match(WORKFLOW, /PACK_PRODUCTION_CLI_VERSION: '2\.14\.2'/);
   assert.doesNotMatch(WORKFLOW, /2\.12\.0|RELEASE BLOCKER/);
   assert.equal((WORKFLOW.match(/require-checksum: 'true'/g) ?? []).length, 1);
   assert.match(plan, /actions\/create-github-app-token@v3/);
@@ -795,8 +795,8 @@ test('production content is nonce-bound and never dispatches the legacy translat
   assert.doesNotMatch(GENERATE_CONTENT, /Dispatch translation after content is complete/);
   assert.doesNotMatch(GENERATE_CONTENT, /event_type:\"translate-packs\"/);
   assert.match(GENERATE_CONTENT, /if \[ -n "\$GENERATION_ID" \]; then/);
-  assert.match(GENERATE_CONTENT, /version: '2\.14\.1'/);
-  assert.match(GENERATE_CONTENT, /minimum-version: '2\.14\.1'/);
+  assert.match(GENERATE_CONTENT, /version: '2\.14\.2'/);
+  assert.match(GENERATE_CONTENT, /minimum-version: '2\.14\.2'/);
   assert.match(GENERATE_CONTENT, /bindingDigest/);
   assert.match(GENERATE_CONTENT, /usageGuideMarker/);
   assert.match(GENERATE_CONTENT, /github\.event\.client_payload\.contentDispatchNonce/);
