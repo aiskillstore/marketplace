@@ -4,10 +4,14 @@ import { createHash } from 'node:crypto';
 import { spawn, spawnSync } from 'node:child_process';
 import { once } from 'node:events';
 import {
+  accessSync,
+  constants,
   chmodSync,
   existsSync,
+  mkdirSync,
   mkdtempSync,
   readFileSync,
+  statSync,
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -21,6 +25,7 @@ import {
   canonicalJson,
   isSafeEvaluatorProgressLine,
   normalizeEvaluatorProgressLine,
+  prepareScenarioRuntime,
   readExactPublicPack,
   runEvaluatorProcess,
   validatePublicPackReadback,
@@ -179,6 +184,34 @@ function runVerification(fixture) {
 
 test('canonical JSON is stable across object key order', () => {
   assert.equal(canonicalJson({ z: 1, a: { y: 2, x: 3 } }), canonicalJson({ a: { x: 3, y: 2 }, z: 1 }));
+});
+
+test('isolated scenario Codex home permits ephemeral state without weakening config', async (t) => {
+  if (typeof process.getuid !== 'function' || typeof process.getgid !== 'function') {
+    t.skip('POSIX ownership is required');
+    return;
+  }
+  const directory = mkdtempSync(join(tmpdir(), 'pack-production-runtime-'));
+  const sourceCodexHome = join(directory, 'source-codex-home');
+  const runtimeRoot = join(directory, 'generations');
+  mkdirSync(sourceCodexHome, { recursive: true });
+  writeFileSync(join(sourceCodexHome, 'config.toml'), 'model_provider = "fixture"\n');
+
+  const runtime = await prepareScenarioRuntime(
+    runtimeRoot,
+    'a43f792e-92ac-4b9d-b0fe-eafe4855d3a0',
+    process.getuid(),
+    process.getgid(),
+    { CODEX_HOME: sourceCodexHome },
+  );
+  const codexHome = runtime.env.CODEX_HOME;
+  assert.equal(statSync(codexHome).mode & 0o7777, 0o1777);
+  assert.doesNotThrow(() => accessSync(codexHome, constants.W_OK));
+  assert.equal(statSync(join(codexHome, 'config.toml')).mode & 0o777, 0o444);
+  assert.equal(statSync(join(codexHome, 'log')).mode & 0o777, 0o700);
+  assert.equal(statSync(join(codexHome, 'sessions')).mode & 0o777, 0o700);
+  assert.equal(statSync(join(codexHome, 'log')).uid, process.getuid());
+  assert.equal(statSync(join(codexHome, 'sessions')).uid, process.getuid());
 });
 
 test('async evaluator streams only allowlisted progress and persists heartbeat evidence', async () => {

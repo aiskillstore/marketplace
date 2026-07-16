@@ -142,7 +142,7 @@ function terminateEvaluatorProcesses(uid) {
   if (remaining.status === 0) fail(`Evaluator uid ${userId} still has live processes`);
 }
 
-async function prepareScenarioRuntime(runtimeRoot, generationId, uid, gid, baseEnv) {
+export async function prepareScenarioRuntime(runtimeRoot, generationId, uid, gid, baseEnv) {
   const scenarioRoot = resolve(runtimeRoot, generationId);
   const home = resolve(scenarioRoot, 'home');
   const tmp = resolve(scenarioRoot, 'tmp');
@@ -159,7 +159,10 @@ async function prepareScenarioRuntime(runtimeRoot, generationId, uid, gid, baseE
   await Promise.all([
     mkdir(home, { recursive: true, mode: 0o700 }),
     mkdir(tmp, { recursive: true, mode: 0o700 }),
-    mkdir(codexHome, { recursive: true, mode: 0o555 }),
+    // Codex 0.139 creates ephemeral state directly under CODEX_HOME. Keep the
+    // directory root-owned and sticky so the evaluator can create only its own
+    // state while the immutable root-owned config remains non-replaceable.
+    mkdir(codexHome, { recursive: true, mode: 0o1777 }),
     mkdir(codexLog, { recursive: true, mode: 0o700 }),
     mkdir(codexSessions, { recursive: true, mode: 0o700 }),
   ]);
@@ -172,7 +175,7 @@ async function prepareScenarioRuntime(runtimeRoot, generationId, uid, gid, baseE
   await Promise.all([
     chmod(home, 0o700),
     chmod(tmp, 0o700),
-    chmod(codexHome, 0o555),
+    chmod(codexHome, 0o1777),
     chmod(codexLog, 0o700),
     chmod(codexSessions, 0o700),
   ]);
