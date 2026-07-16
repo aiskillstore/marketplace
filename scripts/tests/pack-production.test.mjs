@@ -28,11 +28,13 @@ import {
   buildSloResult,
   canonicalJson,
   deterministicHttpFailureFromActivity,
+  exactExecutorPreflightClosure,
   isSafeEvaluatorProgressLine,
   normalizeEvaluatorProgressLine,
   normalizeInfrastructureFailure,
   planTrustedPersistence,
   prepareScenarioRuntime,
+  projectExecutorPreflightEvidence,
   readExactPublicPack,
   runEvaluatorProcess,
   validateCandidateNullPersistResponse,
@@ -558,6 +560,242 @@ test('safe CLI evidence hard-caps error digests per category and in total', () =
   assert.equal(evidence.counts.errorDigestsTruncated, true);
   assert.ok(evidence.errorEvidence.every((entry) => entry.truncated));
   assert.doesNotMatch(JSON.stringify(evidence), /secret-/);
+});
+
+test('safe CLI evidence retains only bounded failed Agent process metadata', () => {
+  const report = cliReport();
+  report.slotEvaluations = [{
+    agentExecutionEvidence: [{
+      phase: 'run',
+      run: 1,
+      succeeded: false,
+      privateInvocation: 'private prompt',
+      attempts: [{
+        schemaVersion: 'skillstore.agent-execution-evidence/v1',
+        agent: 'claude',
+        attempt: 1,
+        sandboxed: true,
+        outcome: 'failed',
+        failureCategory: 'spawn_error',
+        spawnErrorCode: 'EAGAIN',
+        exitCode: null,
+        signal: null,
+        durationMs: 42,
+        stdoutBytes: 0,
+        stderrBytes: 0,
+        stdoutSha256: 'a'.repeat(64),
+        stderrSha256: 'b'.repeat(64),
+        rawStderr: 'secret child path',
+      }],
+    }],
+    errors: [],
+  }];
+
+  const evidence = buildSafeCliEvidence(report, context).agentExecutionEvidence;
+  assert.deepEqual(evidence, {
+    schemaVersion: 'marketplace.pack-production-agent-execution-evidence/v1',
+    invocations: 1,
+    attempts: 1,
+    failedInvocations: 1,
+    failedAttempts: 1,
+    recoveredFailedAttempts: 0,
+    capturedFailures: 1,
+    truncated: false,
+    failures: [{
+      phase: 'run',
+      run: 1,
+      recovered: false,
+      agent: 'claude',
+      attempt: 1,
+      sandboxed: true,
+      outcome: 'failed',
+      failureCategory: 'spawn_error',
+      spawnErrorCode: 'EAGAIN',
+      exitCode: null,
+      signal: null,
+      durationMs: 42,
+      stdoutBytes: 0,
+      stderrBytes: 0,
+      stdoutSha256: 'a'.repeat(64),
+      stderrSha256: 'b'.repeat(64),
+    }],
+  });
+  assert.doesNotMatch(JSON.stringify(evidence), /private|secret|rawStderr/);
+});
+
+test('safe CLI evidence retains a failed attempt recovered by a later retry', () => {
+  const report = cliReport();
+  const attempt = (number, outcome, category, code) => ({
+    schemaVersion: 'skillstore.agent-execution-evidence/v1',
+    agent: 'claude',
+    attempt: number,
+    sandboxed: true,
+    outcome,
+    failureCategory: category,
+    spawnErrorCode: code,
+    exitCode: outcome === 'succeeded' ? 0 : null,
+    signal: null,
+    durationMs: 10,
+    stdoutBytes: outcome === 'succeeded' ? 5 : 0,
+    stderrBytes: 0,
+    stdoutSha256: 'a'.repeat(64),
+    stderrSha256: 'b'.repeat(64),
+  });
+  report.slotEvaluations = [{
+    agentExecutionEvidence: [{
+      phase: 'run',
+      run: 1,
+      succeeded: true,
+      attempts: [
+        attempt(1, 'failed', 'spawn_error', 'EAGAIN'),
+        attempt(2, 'succeeded', 'none', null),
+      ],
+    }],
+    errors: [],
+  }];
+
+  const evidence = buildSafeCliEvidence(report, context).agentExecutionEvidence;
+  assert.equal(evidence.failedInvocations, 0);
+  assert.equal(evidence.failedAttempts, 1);
+  assert.equal(evidence.recoveredFailedAttempts, 1);
+  const { schemaVersion: _schemaVersion, ...failedAttempt } = attempt(
+    1,
+    'failed',
+    'spawn_error',
+    'EAGAIN',
+  );
+  assert.deepEqual(evidence.failures[0], {
+    phase: 'run',
+    run: 1,
+    recovered: true,
+    ...failedAttempt,
+  });
+});
+
+test('Agent evidence traversal fails before descending past its depth budget', () => {
+  const report = cliReport();
+  let nested = {};
+  for (let depth = 0; depth < 40; depth += 1) nested = { nested };
+  report.extra = nested;
+  assert.throws(
+    () => buildSafeCliEvidence(report, context),
+    /traversal depth budget/,
+  );
+});
+
+test('executor preflight preserves the validated attempt schema for the shell projector', () => {
+  const bindings = [
+    { canonicalId: 'pack-executor-preflight-a', contentHash: '1'.repeat(64), version: '1.0.0' },
+    { canonicalId: 'pack-executor-preflight-b', contentHash: '2'.repeat(64), version: '1.0.0' },
+  ];
+  const attempt = (agent) => ({
+    schemaVersion: 'skillstore.agent-execution-evidence/v1',
+    agent,
+    attempt: 1,
+    sandboxed: true,
+    outcome: 'succeeded',
+    failureCategory: 'none',
+    spawnErrorCode: null,
+    exitCode: 0,
+    signal: null,
+    durationMs: 10,
+    stdoutBytes: 5,
+    stderrBytes: 0,
+    stdoutSha256: 'a'.repeat(64),
+    stderrSha256: 'b'.repeat(64),
+  });
+  const report = {
+    schemaVersion: 'skillstore.pack-executor-preflight/v1',
+    outcome: 'passed',
+    bindings,
+    verification: {
+      passed: true,
+      runs: 1,
+      medianScore: 10,
+      taskCompletedRate: 1,
+      verdictCount: 1,
+      errorCount: 0,
+      usedSkill: true,
+      usedSkills: bindings.map((binding) => binding.canonicalId),
+      taskCompleted: true,
+      envBlocked: false,
+      score: 10,
+    },
+    runnerUsageTraces: [{
+      schemaVersion: 'skillstore.runner-skill-trace/v1',
+      agent: 'claude',
+      source: 'claude-stream-json-v1',
+      deterministic: true,
+      events: bindings.map((binding, index) => ({ sequence: index + 1, ...binding })),
+    }],
+    agentExecutionEvidence: [
+      { phase: 'run', run: 1, succeeded: true, attempts: [attempt('claude')] },
+      { phase: 'judge', run: 1, succeeded: true, attempts: [attempt('codex')] },
+    ],
+  };
+  const closure = exactExecutorPreflightClosure(report, bindings);
+
+  assert.deepEqual(
+    closure.agentExecutionEvidence.map((invocation) => invocation.attempts[0].schemaVersion),
+    [
+      'skillstore.agent-execution-evidence/v1',
+      'skillstore.agent-execution-evidence/v1',
+    ],
+  );
+  assert.deepEqual(closure.runnerTraceEvidence, {
+    schemaVersion: 'marketplace.pack-executor-trace-evidence/v1',
+    deterministic: true,
+    traceCount: 1,
+    eventCount: 2,
+    bindingDigest: createHash('sha256').update(canonicalJson(bindings)).digest('hex'),
+  });
+
+  const wrongJudge = structuredClone(report);
+  wrongJudge.verification.usedSkills = [bindings[0].canonicalId];
+  assert.equal(exactExecutorPreflightClosure(wrongJudge, bindings), null);
+
+  const wrongTrace = structuredClone(report);
+  wrongTrace.runnerUsageTraces[0].events[1].contentHash = 'f'.repeat(64);
+  assert.equal(exactExecutorPreflightClosure(wrongTrace, bindings), null);
+});
+
+test('executor preflight retains bounded failed Agent evidence outside the pass closure', () => {
+  const report = {
+    errors: ['private failure text'],
+    verdicts: [],
+    agentExecutionEvidence: [{
+      phase: 'run',
+      run: 1,
+      succeeded: false,
+      privateInvocation: 'private prompt',
+      attempts: [{
+        schemaVersion: 'skillstore.agent-execution-evidence/v1',
+        agent: 'claude',
+        attempt: 1,
+        sandboxed: true,
+        outcome: 'failed',
+        failureCategory: 'spawn_error',
+        spawnErrorCode: 'EAGAIN',
+        exitCode: null,
+        signal: null,
+        durationMs: 10,
+        stdoutBytes: 0,
+        stderrBytes: 0,
+        stdoutSha256: 'a'.repeat(64),
+        stderrSha256: 'b'.repeat(64),
+        rawStderr: 'private process detail',
+      }],
+    }],
+  };
+
+  assert.equal(exactExecutorPreflightClosure(report, [
+    { canonicalId: 'pack-executor-preflight-a', contentHash: '1'.repeat(64), version: '1.0.0' },
+    { canonicalId: 'pack-executor-preflight-b', contentHash: '2'.repeat(64), version: '1.0.0' },
+  ]), null);
+  const evidence = projectExecutorPreflightEvidence(report);
+  assert.equal(evidence[0].attempts[0].spawnErrorCode, 'EAGAIN');
+  assert.equal(evidence[0].attempts[0].schemaVersion, 'skillstore.agent-execution-evidence/v1');
+  assert.doesNotMatch(JSON.stringify(evidence), /private|rawStderr|errors|verdicts/);
 });
 
 test('isolated scenario Codex home permits ephemeral state without weakening config', async (t) => {

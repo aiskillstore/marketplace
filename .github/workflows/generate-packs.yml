@@ -25,7 +25,7 @@ concurrency:
 env:
   # Production v4 requires the immutable binding-aware release and verifies its
   # checksums.txt asset before the binary crosses into the evaluator boundary.
-  PACK_PRODUCTION_CLI_VERSION: '2.13.2'
+  PACK_PRODUCTION_CLI_VERSION: '2.14.2'
   # One cap feeds the local proxy and every Claude CLI process.
   PACK_EVALUATOR_MAX_OUTPUT_TOKENS: '16384'
 
@@ -758,6 +758,8 @@ jobs:
             PACK_EVALUATOR_PROXY_TOKEN="$LOCAL_TOKEN" \
             PACK_DIAGNOSTICS_DIR="$GITHUB_WORKSPACE/pack-diagnostics" \
             PACK_EVALUATOR_ACTIVITY_FILE="$PROXY_ACTIVITY" \
+            PACK_EVALUATOR_MARKETPLACE_COMMIT_SHA="$GITHUB_SHA" \
+            PACK_EVALUATOR_CLI_SHA256="$(jq -r '.sha256' "$GITHUB_WORKSPACE/pack-production-input/cli-identity.json")" \
             bash "$GITHUB_WORKSPACE/marketplace-evaluate/scripts/pack-evaluator-preflight.sh"
             PREFLIGHT_RC=$?
             set -e
@@ -765,16 +767,12 @@ jobs:
               PREFLIGHT_DIAGNOSTICS="$GITHUB_WORKSPACE/pack-diagnostics/agent-preflight-diagnostics.json"
               DIAGNOSTIC_SHA256=$(sha256sum "$PREFLIGHT_DIAGNOSTICS" | awk '{print $1}')
               PREFLIGHT_REASON=$(jq -r '
-                [.claude.errorClass, .codex.errorClass]
-                | if index("deterministic_http") then "deterministic_http"
-                  elif index("timeout") then "timeout"
-                  else "preflight_failed" end
+                if .errorClass == "deterministic_http" then "deterministic_http"
+                elif .errorClass == "timeout" then "timeout"
+                else "preflight_failed" end
               ' "$PREFLIGHT_DIAGNOSTICS")
-              PREFLIGHT_STATUS=$(jq -r '
-                [.claude.attempts[], .codex.attempts[]]
-                | map(.fatalHttpStatus // .retryableHttpStatus)
-                | map(select(. != null)) | last // empty
-              ' "$PREFLIGHT_DIAGNOSTICS")
+              PREFLIGHT_STATUS=$(jq -r '.http.fatalStatus // .http.retryableStatus // empty' \
+                "$PREFLIGHT_DIAGNOSTICS")
               PREFLIGHT_ERROR_CATEGORY=$(sudo jq -rs '
                 [
                   .[]

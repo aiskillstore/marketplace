@@ -62,7 +62,47 @@ test('requires the job-local token even for health checks', async () => {
     headers: { Authorization: `Bearer ${LOCAL_TOKEN}` },
   });
   assert.equal(response.status, 200);
-  assert.equal(activities.length, activityCount, 'unauthenticated probes must not emit fatal activity');
+  assert.deepEqual(activities.slice(activityCount), [
+    {
+      phase: 'response',
+      requestNumber: 1,
+      path: 'not_allowed',
+      status: 401,
+      errorCategory: 'authentication_failed',
+    },
+    {
+      phase: 'response',
+      requestNumber: 2,
+      path: '/v1/messages',
+      status: 401,
+      errorCategory: 'authentication_failed',
+    },
+  ]);
+  assert.doesNotMatch(JSON.stringify(activities.slice(activityCount)), /local-token|authorization/i);
+});
+
+test('bounds unauthenticated activity diagnostics independently of request budget', async () => {
+  const rejected = [];
+  const boundedProxy = createPackEvaluatorProxy({
+    localToken: LOCAL_TOKEN,
+    upstreamKey: UPSTREAM_KEY,
+    upstreamBaseUrl: upstreamUrl,
+    onActivity: (activity) => rejected.push(activity),
+  });
+  boundedProxy.listen(0, '127.0.0.1');
+  await once(boundedProxy, 'listening');
+  const url = `http://127.0.0.1:${boundedProxy.address().port}`;
+  try {
+    for (let index = 0; index < 12; index += 1) {
+      assert.equal((await fetch(`${url}/v1/responses`)).status, 401);
+    }
+    assert.equal(rejected.length, 8);
+    assert.ok(rejected.every((entry) =>
+      entry.status === 401 && entry.errorCategory === 'authentication_failed'
+    ));
+  } finally {
+    await new Promise((resolve) => boundedProxy.close(resolve));
+  }
 });
 
 test('allows only the explicit inference endpoint allowlist', async () => {

@@ -17,6 +17,7 @@ const INFRASTRUCTURE_FAILURE_SCHEMA = 'marketplace.pack-production-infrastructur
 const CLI_EVIDENCE_SCHEMA = 'marketplace.pack-production-cli-evidence/v1';
 const CLI_ERROR_DIGESTS_PER_CATEGORY = 16;
 const CLI_ERROR_DIGESTS_TOTAL = 64;
+const CLI_AGENT_FAILURE_EVIDENCE_LIMIT = 64;
 const CLI_ERROR_ITEMS_PER_ARRAY = 256;
 const CLI_ERROR_ITEM_LIMIT_BYTES = 4096;
 const CANDIDATE_TECHNICAL_ERROR_CODES = Object.freeze({
@@ -31,6 +32,8 @@ const KNOWN_CLI_EXIT = new Map([
   ['infrastructure_failed', 30],
 ]);
 const EVALUATOR_OUTPUT_LIMIT_BYTES = 16 * 1024 * 1024;
+const EXECUTOR_PREFLIGHT_CLI_SCHEMA = 'skillstore.pack-executor-preflight/v1';
+const EXECUTOR_PREFLIGHT_TRACE_SCHEMA = 'marketplace.pack-executor-trace-evidence/v1';
 const EXPECTED_REPOSITORY = 'aiskillstore/marketplace';
 const EXPECTED_WORKFLOW = 'Generate Pack';
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -1238,6 +1241,153 @@ function collectErrorStrings(value, captureRoot = false, result = [], path = 'CL
   return result;
 }
 
+const AGENT_FAILURE_CATEGORIES = new Set([
+  'none',
+  'spawn_spec',
+  'spawn_error',
+  'timeout',
+  'signal',
+  'sandbox_runtime',
+  'state_storage',
+  'authentication',
+  'model_route',
+  'cli_arguments',
+  'upstream_transport',
+  'trace_protocol',
+  'nonzero_exit',
+  'empty_output',
+]);
+const AGENT_SPAWN_ERROR_CODES = new Set([
+  'EACCES', 'EAGAIN', 'EMFILE', 'ENFILE', 'ENOENT', 'ENOMEM', 'EPERM', 'OTHER',
+]);
+
+function boundedAgentExecutionAttempt(value, path) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    fail(`${path} must be an Agent execution evidence object`);
+  }
+  if (
+    value.schemaVersion !== 'skillstore.agent-execution-evidence/v1'
+    || !['claude', 'codex', 'gemini'].includes(value.agent)
+    || !Number.isSafeInteger(value.attempt) || value.attempt < 1 || value.attempt > 3
+    || typeof value.sandboxed !== 'boolean'
+    || !['succeeded', 'failed'].includes(value.outcome)
+    || !AGENT_FAILURE_CATEGORIES.has(value.failureCategory)
+    || (value.spawnErrorCode !== null && !AGENT_SPAWN_ERROR_CODES.has(value.spawnErrorCode))
+    || (value.exitCode !== null && (!Number.isSafeInteger(value.exitCode) || value.exitCode < 0 || value.exitCode > 255))
+    || (value.signal !== null && (typeof value.signal !== 'string' || !/^SIG[A-Z0-9]{1,12}$/.test(value.signal)))
+    || !Number.isSafeInteger(value.durationMs) || value.durationMs < 0 || value.durationMs > 1_200_000
+    || !Number.isSafeInteger(value.stdoutBytes) || value.stdoutBytes < 0 || value.stdoutBytes > EVALUATOR_OUTPUT_LIMIT_BYTES
+    || !Number.isSafeInteger(value.stderrBytes) || value.stderrBytes < 0 || value.stderrBytes > EVALUATOR_OUTPUT_LIMIT_BYTES
+    || typeof value.stdoutSha256 !== 'string' || !/^[0-9a-f]{64}$/.test(value.stdoutSha256)
+    || typeof value.stderrSha256 !== 'string' || !/^[0-9a-f]{64}$/.test(value.stderrSha256)
+  ) {
+    fail(`${path} is not bounded Agent execution evidence`);
+  }
+  return {
+    agent: value.agent,
+    attempt: value.attempt,
+    sandboxed: value.sandboxed,
+    outcome: value.outcome,
+    failureCategory: value.failureCategory,
+    spawnErrorCode: value.spawnErrorCode,
+    exitCode: value.exitCode,
+    signal: value.signal,
+    durationMs: value.durationMs,
+    stdoutBytes: value.stdoutBytes,
+    stderrBytes: value.stderrBytes,
+    stdoutSha256: value.stdoutSha256,
+    stderrSha256: value.stderrSha256,
+  };
+}
+
+function collectAgentExecutionInvocations(value, result = [], path = 'CLI report') {
+  const stack = [{ value, path, depth: 0 }];
+  let visitedNodes = 0;
+  while (stack.length > 0) {
+    const current = stack.pop();
+    visitedNodes += 1;
+    if (visitedNodes > 250_000) fail('CLI report exceeds the Agent evidence traversal node budget');
+    if (current.depth > 32) fail('CLI report exceeds the Agent evidence traversal depth budget');
+    if (Array.isArray(current.value)) {
+      if (current.value.length > 10_000) fail(`${current.path} exceeds the traversal container budget`);
+      for (let index = current.value.length - 1; index >= 0; index -= 1) {
+        stack.push({
+          value: current.value[index],
+          path: `${current.path}[${index}]`,
+          depth: current.depth + 1,
+        });
+      }
+      continue;
+    }
+    if (!current.value || typeof current.value !== 'object') continue;
+    const entries = Object.entries(current.value);
+    if (entries.length > 512) fail(`${current.path} exceeds the traversal object-key budget`);
+    for (let index = entries.length - 1; index >= 0; index -= 1) {
+      const [key, item] = entries[index];
+      if (key !== 'agentExecutionEvidence') {
+        stack.push({
+          value: item,
+          path: `${current.path}.${key}`,
+          depth: current.depth + 1,
+        });
+        continue;
+      }
+      const evidencePath = `${current.path}.${key}`;
+      if (!Array.isArray(item) || item.length > 20) {
+        fail(`${evidencePath} must be a bounded Agent invocation array`);
+      }
+      item.forEach((invocation, invocationIndex) => {
+        const invocationPath = `${evidencePath}[${invocationIndex}]`;
+        if (
+          !invocation || typeof invocation !== 'object' || Array.isArray(invocation)
+          || !['run', 'judge'].includes(invocation.phase)
+          || !Number.isSafeInteger(invocation.run) || invocation.run < 1 || invocation.run > 10
+          || typeof invocation.succeeded !== 'boolean'
+          || !Array.isArray(invocation.attempts) || invocation.attempts.length > 9
+        ) {
+          fail(`${invocationPath} must be bounded Agent invocation evidence`);
+        }
+        result.push({
+          phase: invocation.phase,
+          run: invocation.run,
+          succeeded: invocation.succeeded,
+          attempts: invocation.attempts.map((attempt, attemptIndex) =>
+            boundedAgentExecutionAttempt(attempt, `${invocationPath}.attempts[${attemptIndex}]`)
+          ),
+        });
+        if (result.length > 512) fail('CLI report exceeds the bounded Agent invocation count');
+      });
+    }
+  }
+  return result;
+}
+
+function safeAgentExecutionEvidence(raw) {
+  const invocations = collectAgentExecutionInvocations(raw);
+  const failedInvocations = invocations.filter((invocation) => !invocation.succeeded);
+  const failedAttempts = invocations.flatMap((invocation) =>
+    invocation.attempts
+      .filter((attempt) => attempt.outcome === 'failed')
+      .map((attempt) => ({
+        phase: invocation.phase,
+        run: invocation.run,
+        recovered: invocation.succeeded,
+        ...attempt,
+      }))
+  );
+  return {
+    schemaVersion: 'marketplace.pack-production-agent-execution-evidence/v1',
+    invocations: invocations.length,
+    attempts: invocations.reduce((count, invocation) => count + invocation.attempts.length, 0),
+    failedInvocations: failedInvocations.length,
+    failedAttempts: failedAttempts.length,
+    recoveredFailedAttempts: failedAttempts.filter((attempt) => attempt.recovered).length,
+    capturedFailures: Math.min(failedAttempts.length, CLI_AGENT_FAILURE_EVIDENCE_LIMIT),
+    truncated: failedAttempts.length > CLI_AGENT_FAILURE_EVIDENCE_LIMIT,
+    failures: failedAttempts.slice(0, CLI_AGENT_FAILURE_EVIDENCE_LIMIT),
+  };
+}
+
 function isoInstant(value, name) {
   if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(value)) {
     fail(`${name} is not a canonical UTC instant`);
@@ -1309,6 +1459,7 @@ export function buildSafeCliEvidence(raw, context) {
       errorDigestsTruncated: capturedErrorDigests < totalErrors,
     },
     errorEvidence: categories,
+    agentExecutionEvidence: safeAgentExecutionEvidence(raw),
     infrastructureFailure: safeInfrastructureEvidence(raw.infrastructureFailure),
   };
 }
@@ -1351,6 +1502,17 @@ export function buildInfrastructureApiEvaluation({
       errorDigestsTruncated: false,
     },
     errorEvidence: [],
+    agentExecutionEvidence: {
+      schemaVersion: 'marketplace.pack-production-agent-execution-evidence/v1',
+      invocations: 0,
+      attempts: 0,
+      failedInvocations: 0,
+      failedAttempts: 0,
+      recoveredFailedAttempts: 0,
+      capturedFailures: 0,
+      truncated: false,
+      failures: [],
+    },
     infrastructureFailure: safeInfrastructureEvidence(normalizedFailure),
   };
   const unsigned = {
@@ -1656,6 +1818,263 @@ export function validateImmutableProductionPlan(plan, args) {
     || binding.scenarioId !== scenario.id
   ) fail('Immutable plan workflow binding differs from this workflow invocation');
   return scenario;
+}
+
+function safeSpawnErrorCode(value) {
+  if (typeof value !== 'string' || value.length === 0) return null;
+  return AGENT_SPAWN_ERROR_CODES.has(value) ? value : 'OTHER';
+}
+
+export function projectExecutorPreflightEvidence(raw) {
+  return collectAgentExecutionInvocations(raw).map((invocation) => ({
+    ...invocation,
+    attempts: invocation.attempts.map((attempt) => ({
+      schemaVersion: 'skillstore.agent-execution-evidence/v1',
+      ...attempt,
+    })),
+  }));
+}
+
+function exactExecutorPreflightTraceEvidence(raw, expectedBindings) {
+  if (
+    raw?.schemaVersion !== EXECUTOR_PREFLIGHT_CLI_SCHEMA
+    || raw.outcome !== 'passed'
+    || canonicalJson(raw.bindings) !== canonicalJson(expectedBindings)
+    || raw.verification?.passed !== true
+    || raw.verification?.runs !== 1
+    || raw.verification?.verdictCount !== 1
+    || raw.verification?.errorCount !== 0
+    || raw.verification?.usedSkill !== true
+    || canonicalJson(raw.verification?.usedSkills) !== canonicalJson(
+      expectedBindings.map((binding) => binding.canonicalId)
+    )
+    || raw.verification?.taskCompleted !== true
+    || raw.verification?.envBlocked !== false
+    || !Number.isInteger(raw.verification?.score)
+    || raw.verification.score < 1
+    || raw.verification.score > 10
+    || !Array.isArray(raw.runnerUsageTraces)
+    || raw.runnerUsageTraces.length !== 1
+  ) return null;
+  const trace = raw.runnerUsageTraces[0];
+  if (
+    trace?.schemaVersion !== 'skillstore.runner-skill-trace/v1'
+    || trace.agent !== 'claude'
+    || trace.source !== 'claude-stream-json-v1'
+    || trace.deterministic !== true
+    || !Array.isArray(trace.events)
+    || trace.events.length !== expectedBindings.length
+  ) return null;
+  for (let index = 0; index < expectedBindings.length; index += 1) {
+    const event = trace.events[index];
+    const binding = expectedBindings[index];
+    if (
+      event?.sequence !== index + 1
+      || event.canonicalId !== binding.canonicalId
+      || event.contentHash !== binding.contentHash
+      || event.version !== binding.version
+    ) return null;
+  }
+  return {
+    schemaVersion: EXECUTOR_PREFLIGHT_TRACE_SCHEMA,
+    deterministic: true,
+    traceCount: 1,
+    eventCount: expectedBindings.length,
+    bindingDigest: sha256(canonicalJson(expectedBindings)),
+  };
+}
+
+function exactExecutorPreflightClosureFromEvidence(raw, invocations, expectedBindings) {
+  if (
+    !raw || typeof raw !== 'object' || Array.isArray(raw)
+  ) return null;
+  const runnerTraceEvidence = exactExecutorPreflightTraceEvidence(raw, expectedBindings);
+  if (!runnerTraceEvidence) return null;
+  if (invocations.length !== 2) return null;
+  const expected = [
+    { phase: 'run', agent: 'claude' },
+    { phase: 'judge', agent: 'codex' },
+  ];
+  for (let index = 0; index < expected.length; index += 1) {
+    const invocation = invocations[index];
+    const attempt = invocation?.attempts?.[0];
+    if (
+      invocation.phase !== expected[index].phase
+      || invocation.run !== 1
+      || invocation.succeeded !== true
+      || invocation.attempts.length !== 1
+      || attempt.agent !== expected[index].agent
+      || attempt.attempt !== 1
+      || attempt.sandboxed !== true
+      || attempt.outcome !== 'succeeded'
+      || attempt.failureCategory !== 'none'
+      || attempt.spawnErrorCode !== null
+      || attempt.exitCode !== 0
+      || attempt.signal !== null
+    ) return null;
+  }
+  return { agentExecutionEvidence: invocations, runnerTraceEvidence };
+}
+
+export function exactExecutorPreflightClosure(raw, expectedBindings) {
+  if (!Array.isArray(expectedBindings) || expectedBindings.length !== 2) return null;
+  const evidence = projectExecutorPreflightEvidence(raw);
+  return exactExecutorPreflightClosureFromEvidence(raw, evidence, expectedBindings);
+}
+
+export async function executorPreflight(args) {
+  const cli = resolve(required(args, 'cli'));
+  const expectedCliVersion = required(args, 'expected-cli-version');
+  if (cliVersion(cli) !== expectedCliVersion) fail('Executor preflight CLI version mismatch');
+  const skillDirectories = [
+    resolve(required(args, 'skill-a')),
+    resolve(required(args, 'skill-b')),
+  ];
+  if (skillDirectories[0] === skillDirectories[1]) fail('Executor preflight Skills must be distinct');
+  const expectedBindings = await Promise.all([
+    { canonicalId: 'pack-executor-preflight-a', directory: skillDirectories[0] },
+    { canonicalId: 'pack-executor-preflight-b', directory: skillDirectories[1] },
+  ].map(async ({ canonicalId, directory }) => ({
+    canonicalId,
+    contentHash: await sha256File(resolve(directory, 'SKILL.md')),
+    version: '1.0.0',
+  })));
+  const resultsDir = resolve(required(args, 'results-dir'));
+  const runtimeRoot = resolve(required(args, 'evaluator-runtime-root'));
+  const generationId = required(args, 'generation-id');
+  if (!UUID_RE.test(generationId)) fail('--generation-id must be a UUID');
+  const uid = positiveInteger(required(args, 'evaluator-uid'), 'evaluator-uid');
+  const gid = positiveInteger(required(args, 'evaluator-gid'), 'evaluator-gid');
+  const timeoutMs = positiveInteger(args['timeout-ms'], 'timeout-ms', 360_000);
+  const idleTimeoutMs = positiveInteger(args['idle-timeout-ms'], 'idle-timeout-ms', 240_000);
+  const agentTimeoutMs = positiveInteger(args['agent-timeout-ms'], 'agent-timeout-ms', 180_000);
+  const proxyActivityFile = args['proxy-activity-file']
+    ? resolve(args['proxy-activity-file'])
+    : null;
+  await mkdir(resultsDir, { recursive: true, mode: 0o700 });
+  const stdoutFile = resolve(resultsDir, 'executor-preflight.raw.json');
+  const stderrFile = resolve(resultsDir, 'executor-preflight.run.log');
+  const progressFile = resolve(resultsDir, 'executor-preflight.progress.ndjson');
+  const baseEnv = { ...process.env, SKILLSTORE_AGENT_ENV_MODE: 'strict' };
+  const startedAt = Date.now();
+  let runtime = null;
+  let processResult = null;
+  let processErrorCode = null;
+  let raw = null;
+  let closure = null;
+  let agentExecutionEvidence = [];
+  let cleanupOutcome = 'not_run';
+  try {
+    terminateEvaluatorProcesses(uid);
+    runtime = await prepareScenarioRuntime(runtimeRoot, generationId, uid, gid, baseEnv);
+    const manifestFile = resolve(runtime.cwd, 'pack-executor-preflight-manifest.json');
+    await writeFile(manifestFile, `${JSON.stringify({
+      schemaVersion: 'skillstore.pack-executor-preflight-manifest/v1',
+      task: args.task ?? [
+        'Invoke Skill pack-executor-preflight-a first and Skill pack-executor-preflight-b second.',
+        'After both Skills load successfully, reply with exactly PACK_EVALUATOR_READY and nothing else.',
+      ].join(' '),
+      skills: expectedBindings.map((binding, index) => ({
+        directory: skillDirectories[index],
+        ...binding,
+      })),
+    })}\n`, { mode: 0o444 });
+    await chmod(manifestFile, 0o444);
+    processResult = await runEvaluatorProcess(cli, [
+      'pack', 'executor-preflight',
+      '--manifest', manifestFile,
+      '--model', args.model ?? 'sonnet',
+      '--judge-model', args['judge-model'] ?? 'gpt-5.5',
+      '--agent-timeout-ms', String(agentTimeoutMs),
+      '--agent-max-retries', '1',
+    ], {
+      cwd: runtime.cwd,
+      env: runtime.env,
+      uid,
+      gid,
+      stdoutFile,
+      stderrFile,
+      progressFile,
+      label: 'executor-preflight',
+      generationId,
+      timeoutMs,
+      idleTimeoutMs,
+      heartbeatMs: 30_000,
+      ...(proxyActivityFile ? { externalActivityFile: proxyActivityFile } : {}),
+      onProgress: () => {},
+    });
+    try {
+      raw = JSON.parse(await readFile(stdoutFile, 'utf8'));
+      agentExecutionEvidence = projectExecutorPreflightEvidence(raw);
+      closure = exactExecutorPreflightClosureFromEvidence(
+        raw,
+        agentExecutionEvidence,
+        expectedBindings,
+      );
+    } catch {
+      raw = null;
+      closure = null;
+      agentExecutionEvidence = [];
+    }
+  } catch (error) {
+    processErrorCode = safeSpawnErrorCode(error?.code);
+  } finally {
+    try {
+      terminateEvaluatorProcesses(uid);
+      cleanupOutcome = 'passed';
+    } catch {
+      cleanupOutcome = 'failed';
+    }
+  }
+
+  const firstFailedAttempt = agentExecutionEvidence
+    .flatMap((invocation) => invocation.attempts)
+    .find((attempt) => attempt.outcome === 'failed') ?? null;
+  let errorClass = 'none';
+  if (processResult?.deterministicHttpFailure) errorClass = 'deterministic_http';
+  else if (processResult?.timedOut) errorClass = 'timeout';
+  else if (processResult?.stalled) errorClass = 'stalled';
+  else if (processResult?.outputExceeded) errorClass = 'output_limit';
+  else if (processErrorCode) errorClass = 'spawn_error';
+  else if (firstFailedAttempt) errorClass = firstFailedAttempt.failureCategory;
+  else if (!closure || !processResult || processResult.status !== 0 || processResult.signal !== null) {
+    errorClass = 'invalid_report';
+  } else if (cleanupOutcome !== 'passed') errorClass = 'cleanup_failed';
+
+  const outcome = errorClass === 'none' ? 'passed' : 'command_failed';
+  const stdoutEvidence = await readFile(stdoutFile).catch(() => Buffer.alloc(0));
+  const stderrEvidence = await readFile(stderrFile).catch(() => Buffer.alloc(0));
+  const summary = {
+    schemaVersion: 'marketplace.pack-executor-preflight/v1',
+    mode: 'pack-production-node-uid-nested-bwrap',
+    outcome,
+    errorClass,
+    outerExecution: {
+      spawnErrorCode: processErrorCode,
+      exitCode: processResult?.status ?? null,
+      signal: processResult?.signal ?? null,
+      timedOut: processResult?.timedOut ?? false,
+      stalled: processResult?.stalled ?? false,
+      outputExceeded: processResult?.outputExceeded ?? false,
+      durationMs: Date.now() - startedAt,
+      stdoutBytes: stdoutEvidence.length,
+      stderrBytes: stderrEvidence.length,
+      stdoutSha256: sha256(stdoutEvidence),
+      stderrSha256: sha256(stderrEvidence),
+    },
+    agentExecutionEvidence,
+    runnerTraceEvidence: closure?.runnerTraceEvidence ?? null,
+    verdictCount: Number.isSafeInteger(raw?.verification?.verdictCount)
+      ? raw.verification.verdictCount
+      : 0,
+    errorCount: Number.isSafeInteger(raw?.verification?.errorCount)
+      ? raw.verification.errorCount
+      : null,
+    cleanup: { outcome: cleanupOutcome },
+  };
+  process.stdout.write(`${JSON.stringify(summary)}\n`);
+  if (outcome !== 'passed') process.exitCode = 1;
+  return summary;
 }
 
 async function evaluate(args) {
@@ -2619,6 +3038,8 @@ async function reportSlo(args) {
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   switch (args.command) {
+    case 'executor-preflight':
+      return executorPreflight(args);
     case 'evaluate':
       return evaluate(args);
     case 'verify':
@@ -2630,7 +3051,7 @@ async function main() {
     case 'slo':
       return reportSlo(args);
     default:
-      fail('Usage: pack-production.mjs <evaluate|verify|persist|finalize|slo> [options]');
+      fail('Usage: pack-production.mjs <executor-preflight|evaluate|verify|persist|finalize|slo> [options]');
   }
 }
 
