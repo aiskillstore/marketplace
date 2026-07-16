@@ -863,6 +863,11 @@ test('workflow is two-phase, exactly pinned, bounded, and never executes ordinar
   assert.match(workflow, /skill govern-legacy-equivalent/);
   assert.match(workflow, /four bounded workers/);
   assert.equal((workflow.match(/--concurrency 4/g) || []).length, 2);
+  assert.match(workflow, /Prepare audited CLI TLS trust/);
+  assert.match(workflow, /status=\$\(curl -sS -o \/dev\/null -w '%\{http_code\}' https:\/\/skillstore\.io\/api\/cache\/invalidate\)/);
+  assert.match(workflow, /NODE_EXTRA_CA_CERTS: \/etc\/ssl\/certs\/ca-certificates\.crt/);
+  assert.match(workflow, /SSL_CERT_FILE: \/etc\/ssl\/certs\/ca-certificates\.crt/);
+  assert.match(workflow, /NODE_OPTIONS: --use-openssl-ca/);
   assert.match(workflow, /execute-boundary:[\s\S]{0,160}group: production-skill-score-writes/);
   assert.match(workflow, /legacy-equivalent-boundary-/);
   assert.match(workflow, /legacy-equivalent-execution-/);
