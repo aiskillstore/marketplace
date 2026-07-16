@@ -194,6 +194,13 @@ test('extracted evaluator preflight is valid bounded bash', () => {
   const result = spawnSync('bash', ['-n', EVALUATOR_PREFLIGHT_PATH], { encoding: 'utf8' });
   assert.equal(result.status, 0, result.stderr);
   assert.match(EVALUATOR_PREFLIGHT, /for ATTEMPT in 1 2/);
+  assert.match(EVALUATOR_PREFLIGHT, /CLAUDE_EXIT_CODE=\$\?/);
+  assert.match(EVALUATOR_PREFLIGHT, /CODEX_EXIT_CODE=\$\?/);
+  assert.match(EVALUATOR_PREFLIGHT, /"\$exit_code" -eq 124/);
+  assert.match(EVALUATOR_PREFLIGHT, /CLAUDE_ATTEMPTS=/);
+  assert.match(EVALUATOR_PREFLIGHT, /--argjson claudeAttempts/);
+  assert.match(EVALUATOR_PREFLIGHT, /exitCode: \$exitCode/);
+  assert.doesNotMatch(EVALUATOR_PREFLIGHT, /if ! printf '%s\\n' 'Reply with exactly PACK_EVALUATOR_READY/);
   assert.match(EVALUATOR_PREFLIGHT, /PACK_DIAGNOSTICS_DIR\/agent-preflight-diagnostics\.json/);
 });
 
