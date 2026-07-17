@@ -1,3 +1,8 @@
+---
+name: skills-proficiency-mapper
+description: Maps curriculum skills to CEFR, Bloom’s Taxonomy, and DigComp levels using measurable indicators and prerequisite-aware progression.
+---
+
 # Skills Proficiency Mapper Skill v3.0 (Reasoning-Activated)
 
 **Version**: 3.0.0 (Strengthened from v2.0 2/4 → 4/4)

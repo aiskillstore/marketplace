@@ -1,5 +1,5 @@
 ---
-name: React Native Mobile Development
+name: react-native-mobile-development
 description: Build and manage React Native/Expo mobile apps including project setup, development workflows, and platform-specific guidance. Use when working on mobile app development, configuration, or running apps.
 allowed-tools: Bash, Read, Write, Edit, Grep, Glob
 ---
