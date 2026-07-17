@@ -68,6 +68,7 @@ jobs:
           set -euo pipefail
           plan="$RUNNER_TEMP/score-cache-recovery-plan"
           mkdir -p "$plan"
+          source_identity='null'
 
           require_source_ancestor() {
             local source_sha="$1"
@@ -91,6 +92,7 @@ jobs:
                and .status == "completed" and (.headSha | test("^[0-9a-f]{40}$"))' \
               <<< "$run_json" >/dev/null
             require_source_ancestor "$(jq -r .headSha <<< "$run_json")"
+            source_identity=$(jq -c . <<< "$run_json")
             printf '%s\n' "$run_json" > "$plan/source-run.json"
             gh run view "$SOURCE_RUN_ID" --repo "$GITHUB_REPOSITORY" --log > "$plan/source-run.log"
             args=(extract-run-log --log "$plan/source-run.log" --output "$plan/requested-slugs.txt")
@@ -111,6 +113,7 @@ jobs:
                and .event == "workflow_dispatch" and (.headSha | test("^[0-9a-f]{40}$"))' \
               <<< "$run_json" >/dev/null
             require_source_ancestor "$(jq -r .headSha <<< "$run_json")"
+            source_identity=$(jq -c . <<< "$run_json")
             printf '%s\n' "$run_json" > "$plan/source-run.json"
             source_result="$RUNNER_TEMP/source-recovery-result"
             gh run download "$SOURCE_RUN_ID" --repo "$GITHUB_REPOSITORY" \
@@ -140,9 +143,17 @@ jobs:
 
           slug_count=$(sed '/^$/d' "$plan/requested-slugs.txt" | sort -u | wc -l | tr -d ' ')
           test "$slug_count" -gt 0
+          slug_sha256=$(awk 'NF' "$plan/requested-slugs.txt" | sort -u | sha256sum | awk '{print $1}')
           jq -n --arg scope "$SCOPE" --arg sourceRunId "$SOURCE_RUN_ID" \
-            --argjson slugCount "$slug_count" --arg workflowCommit "$GITHUB_SHA" \
-            '{schemaVersion:1,scope:$scope,sourceRunId:$sourceRunId,slugCount:$slugCount,workflowCommit:$workflowCommit}' \
+            --argjson slugCount "$slug_count" --arg slugSha256 "$slug_sha256" \
+            --arg workflowCommit "$GITHUB_SHA" --arg repository "$GITHUB_REPOSITORY" \
+            --arg runId "$GITHUB_RUN_ID" --argjson runAttempt "$GITHUB_RUN_ATTEMPT" \
+            --arg eventName "$GITHUB_EVENT_NAME" --arg workflowName "$GITHUB_WORKFLOW" \
+            --argjson sourceIdentity "$source_identity" \
+            '{schemaVersion:2,scope:$scope,sourceRunId:$sourceRunId,sourceIdentity:$sourceIdentity,
+              slugCount:$slugCount,slugSha256:$slugSha256,workflowCommit:$workflowCommit,
+              workflowIdentity:{repository:$repository,runId:$runId,runAttempt:$runAttempt,
+                headSha:$workflowCommit,eventName:$eventName,workflowName:$workflowName}}' \
             > "$plan/metadata.json"
           (cd "$plan" && find . -maxdepth 1 -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS)
           echo "scope=$SCOPE" >> "$GITHUB_OUTPUT"
@@ -342,6 +353,34 @@ jobs:
           echo "slug_count=$count" >> "$GITHUB_OUTPUT"
           echo "invalidation_count=$invalidation_count" >> "$GITHUB_OUTPUT"
 
+      - name: Prove readback budget before any cache write
+        id: readback_budget
+        run: |
+          node scripts/score-cache-closure.mjs prove-readback-budget \
+            --slug-count "${{ steps.selected.outputs.slug_count }}" \
+            --attempts 2 \
+            --build-attempts 2 \
+            --concurrency 16 \
+            --timeout-ms 5000 \
+            --build-retry-delay-ms 15000 \
+            --qps 8 \
+            --output "$RUNNER_TEMP/readback-budget.json"
+
+      - name: Freeze list generation before invalidation
+        id: list_generation_before
+        run: |
+          node scripts/score-cache-closure.mjs probe-list-generation \
+            --output "$RUNNER_TEMP/list-generation-before.json" \
+            --site-url https://skillstore.io \
+            --timeout-ms 5000 \
+            --max-body-bytes 1048576 \
+            --workflow-repository "$GITHUB_REPOSITORY" \
+            --workflow-run-id "$GITHUB_RUN_ID" \
+            --workflow-run-attempt "$GITHUB_RUN_ATTEMPT" \
+            --workflow-head-sha "$GITHUB_SHA" \
+            --workflow-event-name "$GITHUB_EVENT_NAME" \
+            --workflow-name "$GITHUB_WORKFLOW"
+
       - name: Invalidate selected score API entries
         id: invalidate
         uses: ./.github/actions/invalidate-cache
@@ -370,19 +409,46 @@ jobs:
           test "$FAILED" -eq 0
           test "$LIST_VERSION_BUMPED" = true
 
+      - name: Freeze list generation after invalidation
+        id: list_generation_after
+        run: |
+          pinned_build=$(jq -er .build "$RUNNER_TEMP/list-generation-before.json")
+          node scripts/score-cache-closure.mjs probe-list-generation \
+            --output "$RUNNER_TEMP/list-generation-after.json" \
+            --site-url https://skillstore.io \
+            --expected-build "$pinned_build" \
+            --timeout-ms 5000 \
+            --max-body-bytes 1048576 \
+            --workflow-repository "$GITHUB_REPOSITORY" \
+            --workflow-run-id "$GITHUB_RUN_ID" \
+            --workflow-run-attempt "$GITHUB_RUN_ATTEMPT" \
+            --workflow-head-sha "$GITHUB_SHA" \
+            --workflow-event-name "$GITHUB_EVENT_NAME" \
+            --workflow-name "$GITHUB_WORKFLOW"
+
       - name: Verify every production cache readback
         id: readback
         run: |
+          pinned_build=$(jq -er .build "$RUNNER_TEMP/list-generation-after.json")
           node scripts/score-cache-closure.mjs readback \
             --expected-score-evidence "$RUNNER_TEMP/cache-closure-expected-score-evidence.json" \
             --evidence "$RUNNER_TEMP/cache-readback.json" \
             --site-url https://skillstore.io \
+            --expected-build "$pinned_build" \
             --expected-cache-version v6 \
             --concurrency 16 \
-            --attempts 3 \
-            --build-attempts 3 \
+            --attempts 2 \
+            --build-attempts 2 \
             --build-retry-delay-ms 15000 \
-            --timeout-ms 30000
+            --timeout-ms 5000 \
+            --max-body-bytes 1048576 \
+            --qps 8 \
+            --workflow-repository "$GITHUB_REPOSITORY" \
+            --workflow-run-id "$GITHUB_RUN_ID" \
+            --workflow-run-attempt "$GITHUB_RUN_ATTEMPT" \
+            --workflow-head-sha "$GITHUB_SHA" \
+            --workflow-event-name "$GITHUB_EVENT_NAME" \
+            --workflow-name "$GITHUB_WORKFLOW"
 
       - name: Finalize score and cache closure state
         id: finalizer
@@ -404,25 +470,54 @@ jobs:
           cp "$RUNNER_TEMP/cache-invalidation-slugs.txt" "$evidence/invalidation-slugs.txt" 2>/dev/null || true
           cp "$RUNNER_TEMP/cache-closure-expected-score-evidence.json" "$evidence/expected-score-evidence.json" 2>/dev/null || true
           cp "$RUNNER_TEMP/cache-readback.json" "$evidence/cache-readback.json" 2>/dev/null || true
-          cp "$RUNNER_TEMP/score-cache-recovery-result/before-score-evidence.json" "$evidence/before-score-evidence.json" 2>/dev/null || true
-          cp "$RUNNER_TEMP/score-cache-recovery-result/run-boundary.txt" "$evidence/run-boundary.txt" 2>/dev/null || true
-          cp "$RUNNER_TEMP/score-cache-recovery-result/score-write-evidence.json" "$evidence/score-write-evidence.json" 2>/dev/null || true
+          cp "$RUNNER_TEMP/readback-budget.json" "$evidence/readback-budget.json" 2>/dev/null || printf '{}\n' > "$evidence/readback-budget.json"
+          cp "$RUNNER_TEMP/list-generation-before.json" "$evidence/list-generation-before.json" 2>/dev/null || printf '{}\n' > "$evidence/list-generation-before.json"
+          cp "$RUNNER_TEMP/list-generation-after.json" "$evidence/list-generation-after.json" 2>/dev/null || printf '{}\n' > "$evidence/list-generation-after.json"
+          cp -R "$RUNNER_TEMP/score-cache-recovery-plan" "$evidence/plan" 2>/dev/null || true
+          cp -R "$RUNNER_TEMP/score-cache-recovery-result" "$evidence/score-result" 2>/dev/null || true
+
+          exact_slugs=$(jq -Rsc 'split("\n") | map(select(length > 0)) | sort | unique' \
+            "$RUNNER_TEMP/cache-invalidation-slugs.txt")
+          slug_sha256=$(awk 'NF' "$RUNNER_TEMP/cache-invalidation-slugs.txt" | sort -u | sha256sum | awk '{print $1}')
+          jq -n --argjson exactSlugs "$exact_slugs" --arg slugSha256 "$slug_sha256" \
+            --arg expected "$INVALIDATION_EXPECTED" --arg total "$INVALIDATION_TOTAL" \
+            --arg succeeded "$INVALIDATION_SUCCEEDED" --arg failed "$INVALIDATION_FAILED" \
+            --arg bumped "$LIST_VERSION_BUMPED" \
+            --slurpfile before "$evidence/list-generation-before.json" \
+            --slurpfile after "$evidence/list-generation-after.json" \
+            --arg repository "$GITHUB_REPOSITORY" --arg runId "$GITHUB_RUN_ID" \
+            --argjson runAttempt "$GITHUB_RUN_ATTEMPT" --arg headSha "$GITHUB_SHA" \
+            --arg eventName "$GITHUB_EVENT_NAME" --arg workflowName "$GITHUB_WORKFLOW" \
+            '{schemaVersion:2,type:"skills",exactSlugs:$exactSlugs,slugSha256:$slugSha256,
+              expectedCount:($expected|tonumber?),totalCount:($total|tonumber?),
+              successCount:($succeeded|tonumber?),failedCount:($failed|tonumber?),
+              listVersionBumped:($bumped == "true"),
+              contract:{invalidateArtifacts:false,invalidateDependentPacks:false,failOnError:true},
+              before:$before[0],after:$after[0],
+              workflowIdentity:{repository:$repository,runId:$runId,runAttempt:$runAttempt,
+                headSha:$headSha,eventName:$eventName,workflowName:$workflowName}}' \
+            > "$evidence/invalidation-evidence.json"
 
           score_args=()
-          score_metadata="$RUNNER_TEMP/score-cache-recovery-result/metadata.json"
-          if [ -f "$score_metadata" ]; then
-            score_args+=(--score-metadata "$score_metadata")
+          score_result="$RUNNER_TEMP/score-cache-recovery-result"
+          if [ -f "$score_result/metadata.json" ]; then
+            score_args+=(--result-dir "$score_result")
           fi
           node scripts/score-cache-closure.mjs finalize-closure \
             --scope "$SCOPE" \
-            --planned-slug-count "$PLANNED_SLUG_COUNT" \
-            --selected-slug-count "$SELECTED_SLUG_COUNT" \
-            --invalidation-expected-count "$INVALIDATION_EXPECTED" \
-            --invalidation-total-count "$INVALIDATION_TOTAL" \
-            --invalidation-success-count "$INVALIDATION_SUCCEEDED" \
-            --invalidation-failed-count "$INVALIDATION_FAILED" \
-            --list-version-bumped "$LIST_VERSION_BUMPED" \
+            --plan-dir "$RUNNER_TEMP/score-cache-recovery-plan" \
+            --selected-slugs "$RUNNER_TEMP/cache-closure-slugs.txt" \
+            --invalidation-slugs "$RUNNER_TEMP/cache-invalidation-slugs.txt" \
+            --expected-score-evidence "$RUNNER_TEMP/cache-closure-expected-score-evidence.json" \
+            --invalidation-evidence "$evidence/invalidation-evidence.json" \
+            --preflight-budget "$RUNNER_TEMP/readback-budget.json" \
             --readback "$RUNNER_TEMP/cache-readback.json" \
+            --workflow-repository "$GITHUB_REPOSITORY" \
+            --workflow-run-id "$GITHUB_RUN_ID" \
+            --workflow-run-attempt "$GITHUB_RUN_ATTEMPT" \
+            --workflow-head-sha "$GITHUB_SHA" \
+            --workflow-event-name "$GITHUB_EVENT_NAME" \
+            --workflow-name "$GITHUB_WORKFLOW" \
             --output "$evidence/final-summary.json" \
             "${score_args[@]}"
           jq '{
@@ -434,6 +529,7 @@ jobs:
             invalidation: .invalidation.status,
             readback: .readback.status
           }' "$evidence/final-summary.json" > "$evidence/summary.json"
+          (cd "$evidence" && find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS)
 
       - name: Upload closure evidence
         if: always()

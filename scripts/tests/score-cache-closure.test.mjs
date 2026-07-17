@@ -1,11 +1,13 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { test } from 'node:test';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+
+import * as closure from '../score-cache-closure.mjs';
 
 import {
   fetchApprovedCatalog,
@@ -176,10 +178,13 @@ test('rejects an unchanged future timestamp caused by runner and database clock 
   }), /did not prove a causal score write/);
 });
 
+const BUILD_A = `${'a'.repeat(40)}.deploy-a`;
+const BUILD_B = `${'b'.repeat(40)}.deploy-b`;
+
 function cachedResponse(slug, {
-  build = 'build-a', cache, calculatedAt = '2026-07-15T12:00:00+00:00', key = `key-${slug}`,
-  qualityScore = 88, qualityTier = 'silver', version = 'v5', write,
-}) {
+  build = BUILD_A, cache, calculatedAt = '2026-07-15T12:00:00+00:00', key = `key-${slug}`,
+  qualityScore = 88, qualityTier = 'silver', version = 'v6', write,
+} = {}) {
   return new Response(JSON.stringify({
     data: { slug, qualityScore, qualityTier, qualityBreakdown: { calculatedAt } },
   }), {
@@ -195,332 +200,478 @@ function cachedResponse(slug, {
   });
 }
 
-test('production readback requires a closed first read and a stable HIT+SKIPPED second read', async () => {
-  const calls = new Map();
-  const evidence = await verifyCacheReadback({
-    expectedScores: ['alpha', 'beta'].map((slug) => ({
-      slug,
-      qualityScore: 88,
-      qualityTier: 'silver',
-      calculatedAt: '2026-07-15T12:00:00+00:00',
-      snapshotId: '11111111-1111-4111-8111-111111111111',
-    })),
-    attempts: 1,
-    concurrency: 2,
-    expectedCacheVersion: 'v6',
-    fetchImpl: async (url) => {
-      const slug = String(url).split('/').at(-1);
-      const count = (calls.get(slug) || 0) + 1;
-      calls.set(slug, count);
-      return cachedResponse(slug, count === 1
-        ? { cache: 'MISS', version: 'v6', write: 'STORED' }
-        : { cache: 'HIT', version: 'v6', write: 'SKIPPED' });
+function versionResponse(build = BUILD_A, bodyBuild = build, headers = {}) {
+  return new Response(JSON.stringify({ version: bodyBuild }), {
+    status: 200,
+    headers: {
+      'content-type': 'application/json',
+      'x-skillstore-build': build,
+      ...headers,
     },
   });
-  assert.equal(evidence.failures.length, 0);
-  assert.equal(evidence.slugCount, 2);
-  assert.deepEqual(evidence.builds, ['build-a']);
-  assert.deepEqual(Object.fromEntries(calls), { alpha: 2, beta: 2 });
-});
+}
 
-test('readback retries a whole idempotent GET pass after a production build transition without mixing evidence', async () => {
-  const builds = ['build-a', 'build-a', 'build-b', 'build-b', 'build-b', 'build-b', 'build-b', 'build-b'];
-  let call = 0;
-  const evidence = await verifyCacheReadback({
-    expectedScores: ['alpha', 'beta'].map((slug) => ({
-      slug,
-      qualityScore: 88,
-      qualityTier: 'silver',
-      calculatedAt: '2026-07-15T12:00:00+00:00',
-      snapshotId: '11111111-1111-4111-8111-111111111111',
-    })),
-    attempts: 1,
-    buildAttempts: 2,
-    buildRetryDelayMs: 1,
-    concurrency: 1,
-    fetchImpl: async (url) => {
-      const slug = String(url).split('/').at(-1);
-      return cachedResponse(slug, {
-        build: builds[call++],
-        cache: 'HIT',
-        version: 'v6',
-        write: 'SKIPPED',
-      });
-    },
-    sleepImpl: async () => {},
-  });
-  assert.equal(evidence.status, 'complete');
-  assert.equal(evidence.acceptedBuild, 'build-b');
-  assert.equal(evidence.buildAttemptCount, 2);
-  assert.deepEqual(evidence.builds, ['build-b']);
-  assert.ok(evidence.results.every((result) => (
-    result.first.build === 'build-b' && result.second.build === 'build-b'
-  )));
-});
+function expectedScores(slugs = ['alpha']) {
+  return slugs.map((slug) => ({
+    slug,
+    qualityScore: 88,
+    qualityTier: 'silver',
+    calculatedAt: '2026-07-15T12:00:00+00:00',
+    snapshotId: '11111111-1111-4111-8111-111111111111',
+  }));
+}
 
-test('readback retries a single-slug pair on build change before comparing build-specific data', async () => {
-  const reads = [
-    { build: 'build-a', key: 'key-old', qualityScore: 87, version: 'v5' },
-    { build: 'build-b', key: 'key-new', qualityScore: 88, version: 'v6' },
-    { build: 'build-b', key: 'key-new', qualityScore: 88, version: 'v6' },
-    { build: 'build-b', key: 'key-new', qualityScore: 88, version: 'v6' },
+function scriptedFetch(responses, calls = []) {
+  return async (url, init) => {
+    calls.push({ url: String(url), init });
+    assert.ok(responses.length > 0, `unexpected request ${url}`);
+    const next = responses.shift();
+    return typeof next === 'function' ? next(url, init) : next;
+  };
+}
+
+function stableReadPair(slug = 'alpha', build = BUILD_A) {
+  return [
+    cachedResponse(slug, { build, cache: 'MISS', write: 'STORED' }),
+    cachedResponse(slug, { build, cache: 'HIT', write: 'SKIPPED' }),
   ];
-  let call = 0;
+}
+
+test('production readback brackets pinned detail GETs with exact no-cache build probes', async () => {
+  const calls = [];
   const evidence = await verifyCacheReadback({
-    expectedScores: [{
-      slug: 'alpha', qualityScore: 88, qualityTier: 'silver',
-      calculatedAt: '2026-07-15T12:00:00+00:00', snapshotId: '11111111-1111-4111-8111-111111111111',
-    }],
+    expectedScores: expectedScores(),
     attempts: 1,
-    buildAttempts: 2,
-    buildRetryDelayMs: 1,
+    buildAttempts: 1,
     concurrency: 1,
-    fetchImpl: async () => cachedResponse('alpha', {
-      ...reads[call++], cache: 'HIT', write: 'SKIPPED',
-    }),
-    sleepImpl: async () => {},
+    fetchImpl: scriptedFetch([
+      versionResponse(),
+      ...stableReadPair(),
+      versionResponse(),
+    ], calls),
   });
   assert.equal(evidence.status, 'complete');
-  assert.equal(evidence.acceptedBuild, 'build-b');
-  assert.equal(evidence.buildAttemptCount, 2);
-  assert.equal(evidence.results.length, 1);
+  assert.equal(evidence.acceptedBuild, BUILD_A);
+  assert.deepEqual(calls.map((call) => new URL(call.url).pathname), [
+    '/_app/version.json', '/api/skills/alpha', '/api/skills/alpha', '/_app/version.json',
+  ]);
+  assert.equal(calls[0].init.headers['Cache-Control'], 'no-cache');
+  assert.equal(calls[3].init.headers['Cache-Control'], 'no-cache');
+  for (const detail of calls.slice(1, 3)) {
+    assert.equal(new URL(detail.url).searchParams.get('__skillstore_build'), BUILD_A);
+  }
+  assert.equal(evidence.results[0].first.score.qualityScore, 88);
+  assert.equal(evidence.results[0].second.cache, 'HIT');
 });
 
-test('readback retries a deployment-invalid pass even when it also contains HTTP 500', async () => {
+test('garbage, multi-value, missing, and body/header-mismatched build probes fail closed', async () => {
+  for (const response of [
+    versionResponse('garbage'),
+    versionResponse(`${BUILD_A}, ${BUILD_B}`),
+    new Response(JSON.stringify({ version: BUILD_A }), { status: 200 }),
+    versionResponse(BUILD_A, BUILD_B),
+  ]) {
+    const evidence = await verifyCacheReadback({
+      expectedScores: expectedScores(), attempts: 1, buildAttempts: 1, concurrency: 1,
+      fetchImpl: scriptedFetch([response]),
+    });
+    assert.equal(evidence.status, 'failed');
+    assert.equal(evidence.acceptedBuild, null);
+    assert.equal(evidence.results.length, 0);
+    assert.match(evidence.failures[0].code, /build_identity|build_probe/);
+  }
+});
+
+test('A to B on HTTP 500 taints the pass and A recovery cannot wash it out', async () => {
   const responses = [
-    new Response('temporary', { status: 500 }),
-    cachedResponse('beta', { build: 'build-a', cache: 'HIT', version: 'v6', write: 'SKIPPED' }),
-    cachedResponse('beta', { build: 'build-b', cache: 'HIT', version: 'v6', write: 'SKIPPED' }),
-    cachedResponse('alpha', { build: 'build-b', cache: 'HIT', version: 'v6', write: 'SKIPPED' }),
-    cachedResponse('alpha', { build: 'build-b', cache: 'HIT', version: 'v6', write: 'SKIPPED' }),
-    cachedResponse('beta', { build: 'build-b', cache: 'HIT', version: 'v6', write: 'SKIPPED' }),
-    cachedResponse('beta', { build: 'build-b', cache: 'HIT', version: 'v6', write: 'SKIPPED' }),
+    versionResponse(BUILD_A),
+    new Response('temporary', { status: 500, headers: { 'x-skillstore-build': BUILD_B } }),
+    versionResponse(BUILD_A),
+    ...stableReadPair('alpha', BUILD_A),
+    versionResponse(BUILD_A),
   ];
-  let call = 0;
   const evidence = await verifyCacheReadback({
-    expectedScores: ['alpha', 'beta'].map((slug) => ({
-      slug,
-      qualityScore: 88,
-      qualityTier: 'silver',
-      calculatedAt: '2026-07-15T12:00:00+00:00',
-      snapshotId: '11111111-1111-4111-8111-111111111111',
-    })),
-    attempts: 1,
-    buildAttempts: 2,
-    buildRetryDelayMs: 1,
-    concurrency: 1,
-    fetchImpl: async () => responses[call++],
-    sleepImpl: async () => {},
+    expectedScores: expectedScores(), attempts: 2, buildAttempts: 2,
+    buildRetryDelayMs: 0, concurrency: 1, sleepImpl: async () => {},
+    fetchImpl: scriptedFetch(responses),
   });
   assert.equal(evidence.status, 'complete');
-  assert.equal(evidence.acceptedBuild, 'build-b');
+  assert.equal(evidence.acceptedBuild, BUILD_A);
   assert.equal(evidence.buildAttemptCount, 2);
-  assert.equal(evidence.results.length, 2);
-  assert.equal(evidence.retryableReadFailures, 1);
+  assert.deepEqual(evidence.buildPasses[0].failureCodes, ['build_transition']);
+  assert.equal(evidence.buildPasses[0].builds.includes(BUILD_B), true);
+  assert.equal(evidence.rejectedPassDiagnostics.length, 1);
+  assert.equal(evidence.retryableReadFailures, 0);
 });
 
-test('readback returns an actionable non-destructive blocker when deployment never stabilizes', async () => {
-  const builds = ['build-a', 'build-b', 'build-a', 'build-b'];
-  let call = 0;
+test('429/503 retries honor bounded Retry-After with jitter inside the pinned build', async () => {
+  const delays = [];
   const evidence = await verifyCacheReadback({
-    expectedScores: [{
-      slug: 'alpha', qualityScore: 88, qualityTier: 'silver',
-      calculatedAt: '2026-07-15T12:00:00+00:00', snapshotId: '11111111-1111-4111-8111-111111111111',
-    }],
-    attempts: 1,
-    buildAttempts: 2,
-    buildRetryDelayMs: 1,
-    concurrency: 1,
-    fetchImpl: async () => cachedResponse('alpha', {
-      build: builds[call++], cache: 'HIT', version: 'v6', write: 'SKIPPED',
-    }),
+    expectedScores: expectedScores(), attempts: 2, buildAttempts: 1, concurrency: 1,
+    randomImpl: () => 0,
+    sleepImpl: async (delay) => { delays.push(delay); },
+    fetchImpl: scriptedFetch([
+      versionResponse(BUILD_A),
+      new Response('busy', {
+        status: 503,
+        headers: { 'retry-after': '120', 'x-skillstore-build': BUILD_A },
+      }),
+      ...stableReadPair('alpha', BUILD_A),
+      versionResponse(BUILD_A),
+    ]),
+  });
+  assert.equal(evidence.status, 'complete');
+  assert.deepEqual(delays, [500]);
+  assert.equal(evidence.retryableReadFailures, 1);
+  assert.equal(evidence.requestBudget.retriesUsed, 1);
+});
+
+test('a single-slug retry crossing builds taints the entire pass', async () => {
+  const evidence = await verifyCacheReadback({
+    expectedScores: expectedScores(), attempts: 2, buildAttempts: 1, concurrency: 1,
     sleepImpl: async () => {},
+    fetchImpl: scriptedFetch([
+      versionResponse(BUILD_A),
+      new Response('temporary', { status: 503, headers: { 'x-skillstore-build': BUILD_A } }),
+      cachedResponse('alpha', { build: BUILD_B, cache: 'HIT', write: 'SKIPPED' }),
+    ]),
   });
   assert.equal(evidence.status, 'blocked_deployment_change');
   assert.equal(evidence.acceptedBuild, null);
   assert.equal(evidence.results.length, 0);
-  assert.equal(evidence.buildAttemptCount, 2);
-  assert.deepEqual(evidence.buildPasses.map((pass) => pass.failureCodes), [
-    ['build_transition'],
-    ['build_transition'],
+  assert.deepEqual(evidence.buildPasses[0].failureCodes, ['build_transition']);
+});
+
+test('a transition aborts concurrent workers instead of scanning the remaining scope', async () => {
+  let calls = 0;
+  let cancelled = 0;
+  const hanging = () => new Response(new ReadableStream({
+    start(controller) {
+      controller.enqueue(new TextEncoder().encode('{"data":'));
+    },
+    cancel() { cancelled += 1; },
+  }), { status: 200, headers: { 'x-skillstore-build': BUILD_A } });
+  const evidence = await Promise.race([
+    verifyCacheReadback({
+      expectedScores: expectedScores(['alpha', 'beta', 'charlie', 'delta']),
+      attempts: 1, buildAttempts: 1, concurrency: 2, timeoutMs: 100,
+      fetchImpl: async (url) => {
+        calls += 1;
+        const pathname = new URL(url).pathname;
+        if (pathname === '/_app/version.json') return versionResponse(BUILD_A);
+        if (pathname.endsWith('/alpha')) {
+          return new Response('transition', { status: 500, headers: { 'x-skillstore-build': BUILD_B } });
+        }
+        return hanging();
+      },
+    }),
+    new Promise((resolve) => setTimeout(() => resolve('external-timeout'), 250)),
   ]);
+  assert.notEqual(evidence, 'external-timeout');
+  assert.equal(evidence.status, 'blocked_deployment_change');
+  assert.ok(calls < 1 + (4 * 2), `transition did not bound calls: ${calls}`);
+  assert.ok(cancelled >= 1, 'in-flight body must be cancelled on transition');
 });
 
-test('readback bounds transient HTTP 500 retries to idempotent GETs and keeps persistent 500 red', async () => {
-  let transientCalls = 0;
-  const recovered = await verifyCacheReadback({
-    expectedScores: [{
-      slug: 'alpha', qualityScore: 88, qualityTier: 'silver',
-      calculatedAt: '2026-07-15T12:00:00+00:00', snapshotId: '11111111-1111-4111-8111-111111111111',
-    }],
-    attempts: 2,
-    buildAttempts: 1,
-    concurrency: 1,
-    fetchImpl: async (_url, init) => {
-      assert.equal(init.method, 'GET');
-      transientCalls += 1;
-      if (transientCalls === 1) return new Response('temporary', { status: 500 });
-      return cachedResponse('alpha', { build: 'build-b', cache: 'HIT', version: 'v6', write: 'SKIPPED' });
-    },
-    sleepImpl: async () => {},
+test('whole-response timeout remains active after headers and cancels a hanging body', async () => {
+  let cancelled = 0;
+  const hanging = new Response(new ReadableStream({
+    start(controller) { controller.enqueue(new TextEncoder().encode('{"data":')); },
+    cancel() { cancelled += 1; },
+  }), {
+    status: 200,
+    headers: { 'content-type': 'application/json', 'x-skillstore-build': BUILD_A },
   });
-  assert.equal(recovered.status, 'complete');
-  assert.equal(recovered.retryableReadFailures, 1);
-  assert.equal(transientCalls, 3);
-
-  let persistentCalls = 0;
-  const failed = await verifyCacheReadback({
-    expectedScores: [{
-      slug: 'alpha', qualityScore: 88, qualityTier: 'silver',
-      calculatedAt: '2026-07-15T12:00:00+00:00', snapshotId: '11111111-1111-4111-8111-111111111111',
-    }],
-    attempts: 2,
-    buildAttempts: 1,
-    concurrency: 1,
-    fetchImpl: async (_url, init) => {
-      assert.equal(init.method, 'GET');
-      persistentCalls += 1;
-      return new Response('still broken', { status: 500 });
-    },
-    sleepImpl: async () => {},
-  });
-  assert.equal(failed.status, 'failed');
-  assert.equal(failed.acceptedBuild, null);
-  assert.equal(failed.results.length, 0);
-  assert.equal(failed.failures[0].code, 'http_5xx');
-  assert.equal(persistentCalls, 2);
+  const outcome = await Promise.race([
+    verifyCacheReadback({
+      expectedScores: expectedScores(), attempts: 1, buildAttempts: 1,
+      concurrency: 1, timeoutMs: 20,
+      fetchImpl: scriptedFetch([versionResponse(), hanging]),
+    }),
+    new Promise((resolve) => setTimeout(() => resolve('external-timeout'), 200)),
+  ]);
+  assert.notEqual(outcome, 'external-timeout');
+  assert.equal(outcome.status, 'failed');
+  assert.equal(outcome.failures[0].code, 'read_timeout');
+  assert.ok(cancelled >= 1);
 });
 
-test('readback rejects a stable cache generation that is not the required version', async () => {
+test('detail and non-2xx bodies have hard byte bounds and are cancelled when exceeded', async () => {
+  let cancelled = 0;
+  const oversized = new Response(new ReadableStream({
+    start(controller) { controller.enqueue(new Uint8Array(2048)); },
+    cancel() { cancelled += 1; },
+  }), {
+    status: 200,
+    headers: { 'content-type': 'application/json', 'x-skillstore-build': BUILD_A },
+  });
   const evidence = await verifyCacheReadback({
-    expectedScores: [{
-      slug: 'alpha', qualityScore: 88, qualityTier: 'silver',
-      calculatedAt: '2026-07-15T12:00:00+00:00', snapshotId: '11111111-1111-4111-8111-111111111111',
-    }],
-    attempts: 1,
-    concurrency: 1,
+    expectedScores: expectedScores(), attempts: 1, buildAttempts: 1,
+    concurrency: 1, maxBodyBytes: 1024,
+    fetchImpl: scriptedFetch([versionResponse(), oversized]),
+  });
+  assert.equal(evidence.status, 'failed');
+  assert.equal(evidence.failures[0].code, 'response_too_large');
+  assert.ok(cancelled >= 1);
+
+  let errorCancelled = 0;
+  const oversizedError = new Response(new ReadableStream({
+    start(controller) { controller.enqueue(new Uint8Array(70 * 1024)); },
+    cancel() { errorCancelled += 1; },
+  }), { status: 503, headers: { 'x-skillstore-build': BUILD_A } });
+  const non2xx = await verifyCacheReadback({
+    expectedScores: expectedScores(), attempts: 1, buildAttempts: 1, concurrency: 1,
+    fetchImpl: scriptedFetch([versionResponse(), oversizedError]),
+  });
+  assert.equal(non2xx.status, 'failed');
+  assert.equal(non2xx.failures[0].code, 'response_too_large');
+  assert.ok(errorCancelled >= 1, 'oversized non-2xx body must be cancelled');
+});
+
+test('list generation probe is bounded, build-pinned, and records exact cache generation identity', async () => {
+  const calls = [];
+  const list = new Response(JSON.stringify({ data: [{ slug: 'alpha' }] }), {
+    status: 200,
+    headers: {
+      'x-skillstore-build': BUILD_A,
+      'x-kv-cache': 'MISS',
+      'x-kv-key': 'skills-list',
+      'x-kv-version': 'generation-1',
+      'x-kv-write': 'STORED',
+    },
+  });
+  const identity = await closure.probeListGeneration({
+    fetchImpl: scriptedFetch([versionResponse(), list, versionResponse()], calls),
+    siteUrl: 'https://skillstore.io',
+    timeoutMs: 100,
+  });
+  assert.deepEqual(identity, {
+    schemaVersion: 1,
+    build: BUILD_A,
+    cache: 'MISS',
+    key: 'skills-list',
+    version: 'generation-1',
+    write: 'STORED',
+    requestsUsed: 3,
+  });
+  assert.equal(new URL(calls[1].url).searchParams.get('__skillstore_build'), BUILD_A);
+  assert.equal(calls[0].init.headers['Cache-Control'], 'no-cache');
+  assert.equal(calls[2].init.headers['Cache-Control'], 'no-cache');
+});
+
+test('stable cache semantics remain strict inside one accepted build', async () => {
+  const wrongVersion = await verifyCacheReadback({
+    expectedScores: expectedScores(), attempts: 1, buildAttempts: 1, concurrency: 1,
     expectedCacheVersion: 'v6',
-    fetchImpl: async () => cachedResponse('alpha', {
-      cache: 'HIT', version: 'v5', write: 'SKIPPED',
-    }),
+    fetchImpl: scriptedFetch([
+      versionResponse(),
+      cachedResponse('alpha', { cache: 'HIT', version: 'v5', write: 'SKIPPED' }),
+      cachedResponse('alpha', { cache: 'HIT', version: 'v5', write: 'SKIPPED' }),
+      versionResponse(),
+    ]),
   });
-  assert.equal(evidence.failures.length, 1);
-  assert.match(evidence.failures[0].error, /cache version was v5\/v5; expected v6/);
+  assert.equal(wrongVersion.status, 'failed');
+  assert.equal(wrongVersion.failures[0].code, 'cache_version_mismatch');
+
+  const staleScore = await verifyCacheReadback({
+    expectedScores: expectedScores(), attempts: 1, buildAttempts: 1, concurrency: 1,
+    fetchImpl: scriptedFetch([
+      versionResponse(),
+      cachedResponse('alpha', { cache: 'HIT', qualityScore: 87, write: 'SKIPPED' }),
+      cachedResponse('alpha', { cache: 'HIT', qualityScore: 87, write: 'SKIPPED' }),
+      versionResponse(),
+    ]),
+  });
+  assert.equal(staleScore.status, 'failed');
+  assert.equal(staleScore.failures[0].code, 'score_mismatch');
 });
 
-test('readback records unstable cache identity as a failure', async () => {
-  let count = 0;
-  const evidence = await verifyCacheReadback({
-    expectedScores: [{
-      slug: 'alpha', qualityScore: 88, qualityTier: 'silver',
-      calculatedAt: '2026-07-15T12:00:00+00:00', snapshotId: '11111111-1111-4111-8111-111111111111',
-    }],
-    attempts: 1,
-    concurrency: 1,
-    fetchImpl: async () => {
-      count += 1;
-      return cachedResponse('alpha', count === 1
-        ? { cache: 'MISS', write: 'STORED', version: 'v5' }
-        : { cache: 'HIT', write: 'SKIPPED', version: 'v6' });
-    },
+test('5295-scope retry-amplified readback budget is deterministic and below the 360-minute job', async () => {
+  const budget = closure.calculateReadbackBudget({
+    slugCount: 5295,
+    readsPerSlug: 2,
+    attempts: 2,
+    buildAttempts: 2,
+    concurrency: 16,
+    requestTimeoutMs: 5_000,
+    retryDelayMaxMs: 1_000,
+    buildRetryDelayMs: 15_000,
+    qps: 8,
+    probeRequestsPerPass: 2,
+    finalizerReserveMs: 20 * 60_000,
   });
-  assert.equal(evidence.failures.length, 1);
-  assert.match(evidence.failures[0].error, /changed version/);
+  assert.equal(budget.requestLimit, 42_364);
+  assert.equal(budget.retryLimit, 21_180);
+  assert.ok(budget.worstCaseReadbackMs < 340 * 60_000, JSON.stringify(budget));
+  assert.ok(budget.worstCaseTotalMs < 360 * 60_000, JSON.stringify(budget));
+
+  const amplified = closure.calculateReadbackBudget({
+    ...budget.parameters,
+    attempts: 3,
+    requestTimeoutMs: 30_000,
+  });
+  assert.ok(amplified.worstCaseTotalMs >= 360 * 60_000);
 });
 
-test('readback accepts a correct cache entry warmed after invalidation but before verification', async () => {
-  const evidence = await verifyCacheReadback({
-    expectedScores: [{
-      slug: 'alpha', qualityScore: 88, qualityTier: 'silver',
-      calculatedAt: '2026-07-15T12:00:00+00:00', snapshotId: '11111111-1111-4111-8111-111111111111',
-    }],
-    attempts: 1,
-    concurrency: 1,
-    fetchImpl: async () => cachedResponse('alpha', { cache: 'HIT', write: 'SKIPPED' }),
-  });
-  assert.equal(evidence.failures.length, 0);
-  assert.equal(evidence.results[0].first.cache, 'HIT');
-});
+const TEST_HEAD = 'c'.repeat(40);
+const SOURCE_HEAD = 'd'.repeat(40);
+const WORKFLOW_IDENTITY = {
+  repository: 'aiskillstore/marketplace',
+  runId: '123456789',
+  runAttempt: 1,
+  headSha: TEST_HEAD,
+  eventName: 'workflow_dispatch',
+  workflowName: 'Recover Score and Cache Closure',
+};
 
-test('readback rejects a stale HIT that disagrees with frozen DB score evidence', async () => {
-  const evidence = await verifyCacheReadback({
-    expectedScores: [{
-      slug: 'alpha', qualityScore: 88, qualityTier: 'silver',
-      calculatedAt: '2026-07-15T12:00:00+00:00', snapshotId: '11111111-1111-4111-8111-111111111111',
-    }],
-    attempts: 1,
-    concurrency: 1,
-    fetchImpl: async () => cachedResponse('alpha', {
-      cache: 'HIT', qualityScore: 87, write: 'SKIPPED',
-    }),
-  });
-  assert.equal(evidence.failures.length, 1);
-  assert.match(evidence.failures[0].error, /API score identity does not match frozen DB evidence/);
-});
+function slugDigest(slugs) {
+  return createHash('sha256').update(`${[...slugs].sort().join('\n')}\n`).digest('hex');
+}
 
-test('readback rejects a freshly stored cache body that disagrees with frozen DB score evidence', async () => {
-  let count = 0;
-  const evidence = await verifyCacheReadback({
-    expectedScores: [{
-      slug: 'alpha', qualityScore: 88, qualityTier: 'silver',
-      calculatedAt: '2026-07-15T12:00:00+00:00', snapshotId: '11111111-1111-4111-8111-111111111111',
-    }],
-    attempts: 1,
-    concurrency: 1,
-    fetchImpl: async () => {
-      count += 1;
-      return cachedResponse('alpha', {
-        cache: count === 1 ? 'MISS' : 'HIT',
-        qualityScore: 87,
-        write: count === 1 ? 'STORED' : 'SKIPPED',
-      });
-    },
-  });
-  assert.equal(evidence.failures.length, 1);
-  assert.match(evidence.failures[0].error, /API score identity does not match frozen DB evidence/);
-});
+function scoreRows(slugs) {
+  return slugs.map((slug, index) => ({
+    slug,
+    qualityScore: 80 + index,
+    qualityTier: 'silver',
+    calculatedAt: `2026-07-15T12:00:0${index}.000Z`,
+    snapshotId: `${index + 1}1111111-1111-4111-8111-111111111111`,
+  }));
+}
 
 function completedReadback(slugCount = 2) {
   const slugs = Array.from({ length: slugCount }, (_, index) => `slug-${index + 1}`);
+  const scores = scoreRows(slugs);
   return {
-    acceptedBuild: 'build-b',
+    acceptedBuild: BUILD_B,
     buildAttemptCount: 1,
-    buildPasses: [{ attempt: 1, builds: ['build-b'], failureCodes: [] }],
-    builds: ['build-b'],
+    buildPasses: [{ attempt: 1, builds: [BUILD_B], failureCodes: [], status: 'accepted' }],
+    builds: [BUILD_B],
     failures: [],
-    results: slugs.map((slug) => ({
+    rejectedPassDiagnostics: [],
+    results: slugs.map((slug, index) => ({
       slug,
-      first: { build: 'build-b' },
-      second: { build: 'build-b' },
+      first: {
+        build: BUILD_B, cache: 'MISS', key: `skill:${slug}`, version: 'v6', write: 'STORED',
+        score: {
+          qualityScore: scores[index].qualityScore,
+          qualityTier: scores[index].qualityTier,
+          calculatedAt: scores[index].calculatedAt,
+        },
+      },
+      second: {
+        build: BUILD_B, cache: 'HIT', key: `skill:${slug}`, version: 'v6', write: 'SKIPPED',
+        score: {
+          qualityScore: scores[index].qualityScore,
+          qualityTier: scores[index].qualityTier,
+          calculatedAt: scores[index].calculatedAt,
+        },
+      },
     })),
     retryableReadFailures: 0,
     schemaVersion: 1,
     slugCount,
-    slugSha256: createHash('sha256').update(`${slugs.join('\n')}\n`).digest('hex'),
+    slugSha256: slugDigest(slugs),
+    expectedBuild: BUILD_B,
+    expectedCacheVersion: 'v6',
+    expectedScoreSha256: createHash('sha256').update(JSON.stringify(scores)).digest('hex'),
+    workflowIdentity: { ...WORKFLOW_IDENTITY },
+    budget: closure.calculateReadbackBudget({
+      slugCount, readsPerSlug: 2, attempts: 2, buildAttempts: 2, concurrency: 16,
+      requestTimeoutMs: 5_000, retryDelayMaxMs: 1_000, buildRetryDelayMs: 15_000,
+      qps: 8, probeRequestsPerPass: 2, finalizerReserveMs: 20 * 60_000,
+    }),
+    requestBudget: { requestLimit: 20, requestsUsed: 6, retryLimit: 8, retriesUsed: 0, qps: 8 },
     status: 'complete',
   };
 }
 
 function completedClosureInput() {
+  const slugs = ['slug-1', 'slug-2'];
+  const scores = scoreRows(slugs);
+  const before = scores.map((score, index) => ({
+    ...score,
+    calculatedAt: `2026-07-15T11:59:0${index}.000Z`,
+    snapshotId: `${index + 5}1111111-1111-4111-8111-111111111111`,
+  }));
   return {
     scope: 'source-run-failures',
     plannedSlugCount: 2,
     selectedSlugCount: 2,
+    workflowIdentity: { ...WORKFLOW_IDENTITY },
+    planManifestVerified: true,
+    plan: {
+      metadata: {
+        schemaVersion: 2,
+        scope: 'source-run-failures',
+        sourceRunId: '987654321',
+        slugCount: 2,
+        slugSha256: slugDigest(slugs),
+        workflowIdentity: { ...WORKFLOW_IDENTITY },
+        sourceIdentity: {
+          databaseId: 987654321,
+          displayTitle: 'Recalculate Skill Scores',
+          status: 'completed',
+          conclusion: 'failure',
+          headSha: SOURCE_HEAD,
+          event: 'workflow_dispatch',
+        },
+      },
+      plannedSlugs: slugs,
+    },
+    selectedSlugs: slugs,
+    invalidationSlugs: slugs,
+    expectedScoreEvidence: { schemaVersion: 1, scores },
+    beforeScoreEvidence: { schemaVersion: 1, scores: before },
+    scoreWriteEvidence: {
+      schemaVersion: 1,
+      provenCount: 2,
+      runBoundary: '2026-07-15T12:00:00.000Z',
+      transitions: slugs.map((slug, index) => ({
+        slug,
+        beforeSnapshotId: before[index].snapshotId,
+        afterSnapshotId: scores[index].snapshotId,
+        beforeCalculatedAt: before[index].calculatedAt,
+        afterCalculatedAt: scores[index].calculatedAt,
+        snapshotChanged: true,
+        calculatedAtAdvanced: true,
+      })),
+    },
     score: {
       schemaVersion: 1,
       requestedCount: 2,
       successfulCount: 2,
       failedCount: 0,
       causallyProvenCount: 2,
+      runBoundary: '2026-07-15T12:00:00.000Z',
+      wrapperExit: 0,
     },
     invalidation: {
+      schemaVersion: 2,
+      type: 'skills',
+      exactSlugs: slugs,
+      slugSha256: slugDigest(slugs),
       expectedCount: 2,
       totalCount: 2,
       successCount: 2,
       failedCount: 0,
       listVersionBumped: true,
+      contract: {
+        invalidateArtifacts: false,
+        invalidateDependentPacks: false,
+        failOnError: true,
+      },
+      before: {
+        build: BUILD_B, key: 'skills-list:generation-1', version: 'generation-1',
+        workflowIdentity: { ...WORKFLOW_IDENTITY },
+      },
+      after: {
+        build: BUILD_B, key: 'skills-list:generation-2', version: 'generation-2',
+        workflowIdentity: { ...WORKFLOW_IDENTITY },
+      },
+      workflowIdentity: { ...WORKFLOW_IDENTITY },
     },
     readback: completedReadback(),
+    preflightBudget: completedReadback().budget,
   };
 }
 
@@ -533,57 +684,113 @@ test('finalizer closes score, invalidation, and one-build readback deterministic
   assert.equal(first.score.status, 'complete');
   assert.equal(first.invalidation.status, 'complete');
   assert.equal(first.readback.status, 'complete');
-  assert.equal(first.readback.acceptedBuild, 'build-b');
+  assert.equal(first.readback.acceptedBuild, BUILD_B);
   assert.equal(first.finalizerStatus, 'complete');
 
-  const approvedCatalog = finalizeClosure({
-    ...input,
-    scope: 'approved-catalog-cache',
-    score: null,
-    invalidation: {
-      expectedCount: 1,
-      totalCount: 1,
-      successCount: 1,
-      failedCount: 0,
-      listVersionBumped: true,
-    },
-  });
+  const approvedInput = completedClosureInput();
+  approvedInput.scope = 'approved-catalog-cache';
+  approvedInput.plan.metadata.scope = 'approved-catalog-cache';
+  approvedInput.plan.metadata.sourceRunId = '';
+  approvedInput.plan.metadata.sourceIdentity = null;
+  approvedInput.score = null;
+  approvedInput.beforeScoreEvidence = null;
+  approvedInput.scoreWriteEvidence = null;
+  approvedInput.invalidationSlugs = ['slug-1'];
+  approvedInput.invalidation.exactSlugs = ['slug-1'];
+  approvedInput.invalidation.slugSha256 = slugDigest(['slug-1']);
+  approvedInput.invalidation.expectedCount = 1;
+  approvedInput.invalidation.totalCount = 1;
+  approvedInput.invalidation.successCount = 1;
+  const approvedCatalog = finalizeClosure(approvedInput);
   assert.equal(approvedCatalog.status, 'complete');
   assert.equal(approvedCatalog.score.status, 'not_required');
 });
 
-test('finalizer CLI can replay the same local evidence without production writes', () => {
+test('finalizer rejects old workflow artifacts, inconsistent slugs, forged build, and skeleton readback', () => {
+  const oldArtifact = completedClosureInput();
+  oldArtifact.readback.workflowIdentity.runId = '111111111';
+  assert.notEqual(finalizeClosure(oldArtifact).status, 'complete');
+
+  const inconsistentSlugs = completedClosureInput();
+  inconsistentSlugs.invalidationSlugs = ['other-slug'];
+  inconsistentSlugs.invalidation.exactSlugs = ['other-slug'];
+  inconsistentSlugs.invalidation.slugSha256 = slugDigest(['other-slug']);
+  assert.notEqual(finalizeClosure(inconsistentSlugs).status, 'complete');
+
+  const forgedBuild = completedClosureInput();
+  forgedBuild.readback.acceptedBuild = 'forged-build';
+  forgedBuild.readback.builds = ['forged-build'];
+  forgedBuild.readback.buildPasses[0].builds = ['forged-build'];
+  for (const result of forgedBuild.readback.results) {
+    result.first.build = 'forged-build';
+    result.second.build = 'forged-build';
+  }
+  assert.notEqual(finalizeClosure(forgedBuild).status, 'complete');
+
+  const skeleton = completedClosureInput();
+  skeleton.readback.results = skeleton.readback.results.map(({ slug }) => ({
+    slug, first: { build: BUILD_B }, second: { build: BUILD_B },
+  }));
+  assert.notEqual(finalizeClosure(skeleton).status, 'complete');
+});
+
+test('finalizer CLI verifies manifests and atomically replays the same complete local evidence', () => {
   const directory = mkdtempSync(join(tmpdir(), 'score-cache-finalizer-'));
   try {
+    const input = completedClosureInput();
+    const planDir = join(directory, 'plan');
+    const resultDir = join(directory, 'result');
+    mkdirSync(planDir);
+    mkdirSync(resultDir);
+    const writeJson = (path, value) => writeFileSync(path, `${JSON.stringify(value, null, 2)}\n`);
+    const writeManifest = (path, names) => writeFileSync(
+      join(path, 'SHA256SUMS'),
+      `${names.sort().map((name) => `${createHash('sha256').update(readFileSync(join(path, name))).digest('hex')}  ${name}`).join('\n')}\n`,
+    );
+    writeJson(join(planDir, 'metadata.json'), input.plan.metadata);
+    writeFileSync(join(planDir, 'requested-slugs.txt'), `${input.plan.plannedSlugs.join('\n')}\n`);
+    writeManifest(planDir, ['metadata.json', 'requested-slugs.txt']);
+    writeJson(join(resultDir, 'metadata.json'), input.score);
+    writeJson(join(resultDir, 'before-score-evidence.json'), input.beforeScoreEvidence);
+    writeJson(join(resultDir, 'score-write-evidence.json'), input.scoreWriteEvidence);
+    writeManifest(resultDir, ['metadata.json', 'before-score-evidence.json', 'score-write-evidence.json']);
+
+    const selectedPath = join(directory, 'selected.txt');
+    const invalidationSlugsPath = join(directory, 'invalidation.txt');
+    const expectedPath = join(directory, 'expected.json');
+    const invalidationPath = join(directory, 'invalidation.json');
+    const budgetPath = join(directory, 'budget.json');
     const readbackPath = join(directory, 'readback.json');
-    const scorePath = join(directory, 'score.json');
     const outputPath = join(directory, 'final.json');
     const replayPath = join(directory, 'final-replay.json');
-    writeFileSync(readbackPath, JSON.stringify(completedReadback()));
-    writeFileSync(scorePath, JSON.stringify(completedClosureInput().score));
+    writeFileSync(selectedPath, `${input.selectedSlugs.join('\n')}\n`);
+    writeFileSync(invalidationSlugsPath, `${input.invalidationSlugs.join('\n')}\n`);
+    writeJson(expectedPath, input.expectedScoreEvidence);
+    writeJson(invalidationPath, input.invalidation);
+    writeJson(budgetPath, input.preflightBudget);
+    writeJson(readbackPath, input.readback);
+    const identityArgs = [
+      '--workflow-repository', WORKFLOW_IDENTITY.repository,
+      '--workflow-run-id', WORKFLOW_IDENTITY.runId,
+      '--workflow-run-attempt', String(WORKFLOW_IDENTITY.runAttempt),
+      '--workflow-head-sha', WORKFLOW_IDENTITY.headSha,
+      '--workflow-event-name', WORKFLOW_IDENTITY.eventName,
+      '--workflow-name', WORKFLOW_IDENTITY.workflowName,
+    ];
     const args = [
-      resolve(ROOT, 'scripts/score-cache-closure.mjs'),
-      'finalize-closure',
-      '--scope', 'source-run-failures',
-      '--planned-slug-count', '2',
-      '--selected-slug-count', '2',
-      '--invalidation-expected-count', '2',
-      '--invalidation-total-count', '2',
-      '--invalidation-success-count', '2',
-      '--invalidation-failed-count', '0',
-      '--list-version-bumped', 'true',
-      '--readback', readbackPath,
-      '--score-metadata', scorePath,
+      resolve(ROOT, 'scripts/score-cache-closure.mjs'), 'finalize-closure',
+      '--scope', 'source-run-failures', '--plan-dir', planDir, '--result-dir', resultDir,
+      '--selected-slugs', selectedPath, '--invalidation-slugs', invalidationSlugsPath,
+      '--expected-score-evidence', expectedPath, '--invalidation-evidence', invalidationPath,
+      '--preflight-budget', budgetPath, '--readback', readbackPath, ...identityArgs,
     ];
     const first = spawnSync(process.execPath, [...args, '--output', outputPath], { encoding: 'utf8' });
     assert.equal(first.status, 0, first.stderr);
     const replay = spawnSync(process.execPath, [...args, '--output', replayPath], { encoding: 'utf8' });
     assert.equal(replay.status, 0, replay.stderr);
-    assert.deepEqual(
-      JSON.parse(readFileSync(replayPath, 'utf8')),
-      JSON.parse(readFileSync(outputPath, 'utf8')),
-    );
+    assert.deepEqual(JSON.parse(readFileSync(replayPath, 'utf8')), JSON.parse(readFileSync(outputPath, 'utf8')));
     assert.equal(JSON.parse(readFileSync(outputPath, 'utf8')).status, 'complete');
+    assert.equal([...resolve(directory).matchAll(/\.tmp/g)].length, 0);
   } finally {
     rmSync(directory, { force: true, recursive: true });
   }
@@ -637,9 +844,15 @@ test('finalizer keeps score, invalidation, HTTP failure, and deployment transiti
     readback: {
       ...completedReadback(),
       acceptedBuild: null,
-      buildPasses: [{ attempt: 1, builds: [], failureCodes: ['build_transition'] }],
+      buildPasses: [{
+        attempt: 1,
+        builds: [BUILD_A, BUILD_B],
+        failureCodes: ['build_transition'],
+        status: 'rejected',
+      }],
       builds: [],
       failures: [{ slug: '*', code: 'build_transition', error: 'deployment changed' }],
+      rejectedPassDiagnostics: [{ attempt: 1, failures: [{ code: 'build_transition' }], retries: 0 }],
       results: [],
       status: 'blocked_deployment_change',
     },
@@ -703,12 +916,35 @@ test('manual recovery is file-backed, fixed-CLI, bounded, and red on any remaini
   assert.match(RECOVERY, /batch-size: '30'\n\s+concurrency: \$\{\{ needs\.plan\.outputs\.scope == 'approved-catalog-cache' && '4' \|\| '1' \}\}/);
   assert.match(RECOVERY, /--expected-cache-version v6/);
   assert.match(RECOVERY, /--concurrency 16/);
-  assert.match(RECOVERY, /--build-attempts 3/);
+  assert.match(RECOVERY, /--attempts 2/);
+  assert.match(RECOVERY, /--build-attempts 2/);
   assert.match(RECOVERY, /--build-retry-delay-ms 15000/);
+  assert.match(RECOVERY, /--timeout-ms 5000/);
+  assert.match(RECOVERY, /--max-body-bytes 1048576/);
+  assert.match(RECOVERY, /--qps 8/);
+  assert.match(RECOVERY, /Prove readback budget before any cache write/);
+  assert.match(RECOVERY, /prove-readback-budget/);
+  assert.ok(
+    RECOVERY.indexOf('Prove readback budget before any cache write')
+      < RECOVERY.indexOf('Invalidate selected score API entries'),
+  );
+  assert.match(RECOVERY, /Freeze list generation before invalidation/);
+  assert.match(RECOVERY, /Freeze list generation after invalidation/);
+  assert.match(RECOVERY, /probe-list-generation/);
+  assert.match(RECOVERY, /--expected-build "\$pinned_build"/);
+  assert.match(RECOVERY, /workflowIdentity:\{repository:\$repository,runId:\$runId/);
   assert.match(RECOVERY, /name: Finalize score and cache closure state\n\s+id: finalizer\n\s+if: always\(\)/);
   assert.match(RECOVERY, /score-cache-closure\.mjs finalize-closure/);
+  assert.match(RECOVERY, /--plan-dir "\$RUNNER_TEMP\/score-cache-recovery-plan"/);
+  assert.match(RECOVERY, /--selected-slugs "\$RUNNER_TEMP\/cache-closure-slugs\.txt"/);
+  assert.match(RECOVERY, /--invalidation-slugs "\$RUNNER_TEMP\/cache-invalidation-slugs\.txt"/);
+  assert.match(RECOVERY, /--invalidation-evidence "\$evidence\/invalidation-evidence\.json"/);
+  assert.match(RECOVERY, /--preflight-budget "\$RUNNER_TEMP\/readback-budget\.json"/);
   assert.match(RECOVERY, /--readback "\$RUNNER_TEMP\/cache-readback\.json"/);
+  assert.match(RECOVERY, /--workflow-run-id "\$GITHUB_RUN_ID"/);
+  assert.match(RECOVERY, /--workflow-head-sha "\$GITHUB_SHA"/);
   assert.match(RECOVERY, /--output "\$evidence\/final-summary\.json"/);
+  assert.match(RECOVERY, /find \. -type f ! -name SHA256SUMS/);
   assert.match(RECOVERY, /blocked_deployment_change/);
   assert.match(RECOVERY, /\.finalizerStatus == "complete"/);
   assert.match(RECOVERY, /Require complete score and cache recovery/);
@@ -718,7 +954,7 @@ test('manual recovery is file-backed, fixed-CLI, bounded, and red on any remaini
   assert.match(RECOVERY, /causallyProvenCount/);
   assert.match(RECOVERY, /test "\$proven_count" -eq "\$successful_count"/);
   assert.match(RECOVERY, /--expected-score-evidence/);
-  assert.match(RECOVERY, /score_args\+=\(--score-metadata "\$score_metadata"\)/);
+  assert.match(RECOVERY, /score_args\+=\(--result-dir "\$score_result"\)/);
   assert.match(RECOVERY, /remainingScoreFailures: \(\(\.score\.failedCount \/\/ 0\) \| tostring\)/);
   assert.doesNotMatch(RECOVERY, /workflow run|repository_dispatch/);
 });
