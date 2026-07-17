@@ -1,6 +1,25 @@
 # Testing Concurrent Code
 
-Best practices for testing Swift Concurrency with Swift Testing (recommended) and XCTest.
+Use this when:
+
+- You are writing async tests.
+- A test is flaky because of task scheduling or actor isolation.
+- You need to replace XCTest waiting APIs or verify deallocation.
+
+Skip this file if:
+
+- You mainly need production ownership guidance. Use `actors.md`, `tasks.md`, or `memory-management.md`.
+
+Jump to:
+
+- Swift Testing (Recommended)
+- Awaiting Async Callbacks
+- Setup and Teardown
+- Handling Flaky Tests
+- Swift Concurrency Extras
+- XCTest Patterns (Legacy)
+- Memory Management Tests
+- Testing Checklist
 
 ## Recommendation: Use Swift Testing
 
@@ -542,6 +561,14 @@ struct SetupTrait: TestTrait, TestScoping {
 **Cause**: Test not marked with required actor.
 
 **Solution**: Add `@MainActor` or appropriate actor to test.
+
+## Common Mistakes Agents Make
+
+- **Flaky intermediate-state assertions**: Asserting `isLoading == true` immediately after creating a `Task` is a race condition — the task may not have started yet. Use `withMainSerialExecutor` + `Task.yield()` to control scheduling before asserting intermediate state.
+- **Using `Task.sleep` as a synchronization primitive** in tests instead of deterministic scheduling.
+- **Asserting intermediate state without controlling scheduling**: Always use `withMainSerialExecutor` when you need to observe state between task creation and completion. Note: `withMainSerialExecutor` does not work with parallel test execution — mark the suite `@Suite(.serialized)`.
+- **Reaching into isolated internals** instead of testing public behavior.
+- **Keeping both Swift Testing and XCTest versions** of the same example unless they teach different migration paths.
 
 ## Testing Checklist
 

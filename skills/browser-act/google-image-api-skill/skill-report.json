@@ -1,20 +1,25 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-07-09T12:28:12.844Z",
+    "generated_at": "2026-07-17T10:47:13.110Z",
     "slug": "browser-act-google-image-api-skill",
     "source_url": "https://github.com/browser-act/skills/tree/main/solutions/search-research/google-image-api-skill",
     "source_ref": "main",
-    "model": "codex",
+    "model": "claude",
     "analysis_version": "3.0.0",
     "source_type": "community",
     "content_hash": "d32e23686d4a1d8fb207960516aed98ff7554c01bf1f7ac40d48bdcdc432b491",
     "tree_hash": "55f685341448c6bc34ae868368c634144737c02b689d6039806269d191ddb64a",
     "provenance": {
-      "model_effective": "codex",
+      "model_effective": "claude",
       "fallback_chain": [
         {
           "agent": "codex",
+          "outcome": "failed",
+          "error": "2026-07-17T10:47:13.239607Z ERROR codex_models_manager::manager: failed to refresh available models: Missing environment variable: `HELM_API_KEY`.\n2026-07-17T10:47:13.260176Z ERROR codex_models_manage…"
+        },
+        {
+          "agent": "claude",
           "outcome": "success"
         }
       ],
@@ -23,18 +28,17 @@
   },
   "skill": {
     "name": "google-image-api-skill",
-    "description": "Extract structured Google Images metadata through the BrowserAct API. The skill prepares search parameters, starts a workflow task, polls status, and returns image result fields when available.",
-    "summary": "Run BrowserAct Google Images searches and collect result metadata.",
+    "description": "Run the BrowserAct Google Images workflow to retrieve structured image-search metadata for chosen keywords, countries, and languages.",
+    "summary": "Retrieve Google Images metadata through the BrowserAct API workflow.",
     "icon": "📦",
-    "version": "1.0.1",
     "author": "browser-act",
     "license": "MIT",
     "tags": [
       "google-images",
+      "image-research",
       "browseract",
-      "image-search",
-      "visual-research",
-      "metadata"
+      "market-research",
+      "visual-data"
     ],
     "supported_tools": [
       "claude",
@@ -49,30 +53,20 @@
     "category": "research"
   },
   "security_audit": {
-    "risk_level": "high",
+    "risk_level": "medium",
     "is_blocked": false,
-    "safe_to_publish": false,
+    "safe_to_publish": true,
     "analysis_status": "ok",
-    "summary": "The skill legitimately uses the BrowserAct API, so the network calls and single environment variable access are expected but still expose search terms and an API credential to a third party. Most SKILL.md external command findings are Markdown formatting false positives, with the actual Python invocation kept as a real command-execution risk. I also found credential-solicitation language that may cause users to paste API keys into chat.",
+    "summary": "The documented network requests and BROWSERACT_API_KEY access support the stated BrowserAct image-search workflow. Static command-execution findings are Markdown false positives. A semantic finding remains because the script encourages users to provide an API key directly to an agent.",
     "remediation": [
       {
-        "issue": "Credential solicitation in instructions",
-        "suggestion": "Tell users to set BROWSERACT_API_KEY through a secure environment or secret manager. Do not ask them to paste the key into chat.",
-        "severity": "high"
-      },
-      {
-        "issue": "External BrowserAct API calls with bearer token",
-        "suggestion": "Document the exact endpoint and data sent. Keep the host fixed to api.browseract.com and never log the Authorization header.",
+        "issue": "The script asks users to provide an API key directly to the agent.",
+        "suggestion": "Remove the direct-provision wording. Require users to set BROWSERACT_API_KEY through a secure environment or secret manager, and never request the key in chat.",
         "severity": "medium"
       },
       {
-        "issue": "Local script execution from skill instructions",
-        "suggestion": "Keep invocation shell-free with a fixed script path and validated numeric arguments. Reject unsupported country and language values before running.",
-        "severity": "medium"
-      },
-      {
-        "issue": "Result retrieval logic is unreachable after polling",
-        "suggestion": "Move timeout handling into the timeout branch so successful tasks reach the result retrieval request.",
+        "issue": "Result retrieval code is unreachable after polling.",
+        "suggestion": "Return only after the task is finished, then retrieve and print results. Move the timeout return outside the successful completion path.",
         "severity": "low"
       }
     ],
@@ -783,663 +777,449 @@
     "finding_verdicts": [
       {
         "id": "network:scripts/google_image_api.py:33:python-http-libraries",
-        "verdict": "confirmed",
-        "confidence": 0.88,
-        "severity": "medium",
-        "reason": "The script posts user search parameters and an Authorization bearer token to the external BrowserAct API. This is expected for the skill, but it is real network egress with credential use."
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "The requests call contacts the documented BrowserAct API to create, poll, or retrieve the user-requested task. It uses the configured API endpoint and no unrelated destination."
       },
       {
         "id": "network:scripts/google_image_api.py:50:python-http-libraries",
-        "verdict": "confirmed",
-        "confidence": 0.84,
-        "severity": "medium",
-        "reason": "The script polls the external BrowserAct API with the bearer token and task identifier. The endpoint is expected, but it still sends authenticated requests outside the local environment."
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "The requests call contacts the documented BrowserAct API to create, poll, or retrieve the user-requested task. It uses the configured API endpoint and no unrelated destination."
       },
       {
         "id": "network:scripts/google_image_api.py:72:python-http-libraries",
         "verdict": "false_positive",
-        "confidence": 0.78,
-        "reason": "This request is currently unreachable because the function returns after the polling loop before the result retrieval block. It does not execute in the current script flow."
+        "confidence": 0.96,
+        "reason": "The requests call contacts the documented BrowserAct API to create, poll, or retrieve the user-requested task. It uses the configured API endpoint and no unrelated destination."
       },
       {
         "id": "network:scripts/google_image_api.py:15:hardcoded-url",
-        "verdict": "confirmed",
-        "confidence": 0.86,
-        "severity": "low",
-        "reason": "The hardcoded BrowserAct workflow URL is the destination for authenticated API calls. It is expected, but it defines a fixed third-party network endpoint."
+        "verdict": "false_positive",
+        "confidence": 0.97,
+        "reason": "The URL is the documented BrowserAct API or its credential-management page. It does not indicate an undisclosed network destination."
       },
       {
         "id": "network:scripts/google_image_api.py:98:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "This URL is printed as a setup link for the BrowserAct console. It is not an automatic network request or hidden redirect."
+        "confidence": 0.97,
+        "reason": "The URL is the documented BrowserAct API or its credential-management page. It does not indicate an undisclosed network destination."
       },
       {
         "id": "env_access:scripts/google_image_api.py:89:python-getenv-function",
-        "verdict": "confirmed",
-        "confidence": 0.86,
-        "severity": "low",
-        "reason": "The script reads BROWSERACT_API_KEY from the environment. The access is narrow and expected, but it is still credential access."
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "The script reads only BROWSERACT_API_KEY, the credential explicitly declared as required by the skill. It does not enumerate or collect other environment variables."
       },
       {
         "id": "env_access:scripts/google_image_api.py:89:getenv-function-call",
-        "verdict": "confirmed",
-        "confidence": 0.86,
-        "severity": "low",
-        "reason": "The getenv call reads a named API credential from the environment. This is legitimate for authentication, but it is real secret access."
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "The getenv call reads only the documented BROWSERACT_API_KEY credential. No broader environment collection is present."
       },
       {
         "id": "env_access:scripts/google_image_api.py:17:generic-api-secret-keys",
-        "verdict": "confirmed",
-        "confidence": 0.72,
-        "severity": "high",
-        "reason": "The function accepts an api_key value that is later used for authenticated BrowserAct requests. No key is hardcoded, but the code handles a live secret."
+        "verdict": "false_positive",
+        "confidence": 0.94,
+        "reason": "This is expected handling of the documented BrowserAct API credential for an authenticated API request. The examined code does not log the key or send it to an unrelated host."
       },
       {
         "id": "env_access:scripts/google_image_api.py:18:generic-api-secret-keys",
-        "verdict": "confirmed",
-        "confidence": 0.91,
-        "severity": "high",
-        "reason": "The API key is placed into an Authorization bearer header for outbound requests. This is expected authentication, but mishandling would expose a credential."
+        "verdict": "false_positive",
+        "confidence": 0.94,
+        "reason": "This is expected handling of the documented BrowserAct API credential for an authenticated API request. The examined code does not log the key or send it to an unrelated host."
       },
       {
         "id": "env_access:scripts/google_image_api.py:89:generic-api-secret-keys",
-        "verdict": "confirmed",
-        "confidence": 0.84,
-        "severity": "high",
-        "reason": "The code reads BROWSERACT_API_KEY from the environment and uses it for API authentication. It is narrow access, but it still handles a sensitive credential."
+        "verdict": "false_positive",
+        "confidence": 0.94,
+        "reason": "This is expected handling of the documented BrowserAct API credential for an authenticated API request. The examined code does not log the key or send it to an unrelated host."
       },
       {
         "id": "env_access:scripts/google_image_api.py:95:generic-api-secret-keys",
         "verdict": "false_positive",
-        "confidence": 0.87,
-        "reason": "This line only checks whether the key value is missing. It does not read, print, transmit, or transform the secret."
+        "confidence": 0.94,
+        "reason": "This is expected handling of the documented BrowserAct API credential for an authenticated API request. The examined code does not log the key or send it to an unrelated host."
       },
       {
         "id": "env_access:scripts/google_image_api.py:100:generic-api-secret-keys",
-        "verdict": "confirmed",
-        "confidence": 0.93,
-        "severity": "high",
-        "reason": "The error message tells the user to provide the API key to the agent or set it as an environment variable. Asking users to provide secrets in chat can expose credentials."
+        "verdict": "false_positive",
+        "confidence": 0.94,
+        "reason": "This is expected handling of the documented BrowserAct API credential for an authenticated API request. The examined code does not log the key or send it to an unrelated host."
       },
       {
         "id": "env_access:scripts/google_image_api.py:109:generic-api-secret-keys",
-        "verdict": "confirmed",
-        "confidence": 0.78,
-        "severity": "high",
-        "reason": "The environment-derived API key is passed into the task runner that creates authenticated network requests. This is expected, but it is real secret propagation."
+        "verdict": "false_positive",
+        "confidence": 0.94,
+        "reason": "This is expected handling of the documented BrowserAct API credential for an authenticated API request. The examined code does not log the key or send it to an unrelated host."
       },
       {
         "id": "blocker:scripts/google_image_api.py:42:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "The code stores the BrowserAct task id returned by the API. This is workflow state, not host, network, or system reconnaissance."
+        "confidence": 0.98,
+        "reason": "The matched text reads a task identifier or describes output handling. It does not inspect the host, network, or system configuration."
       },
       {
         "id": "external_commands:SKILL.md:20:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The backticks format the BROWSERACT_API_KEY variable name in documentation. This line does not invoke a shell command."
+        "confidence": 0.99,
+        "reason": "This match is Markdown inline-code or fenced-code documentation, not Ruby or shell backtick execution. The file contains no executable command substitution at this location."
       },
       {
         "id": "external_commands:SKILL.md:28:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The backticks mark the word string as inline documentation. There is no command execution instruction on this line."
+        "confidence": 0.99,
+        "reason": "This match is Markdown inline-code or fenced-code documentation, not Ruby or shell backtick execution. The file contains no executable command substitution at this location."
       },
       {
         "id": "external_commands:SKILL.md:30:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "The backticks contain example search terms. They are parameter examples, not shell commands."
+        "confidence": 0.99,
+        "reason": "This match is Markdown inline-code or fenced-code documentation, not Ruby or shell backtick execution. The file contains no executable command substitution at this location."
       },
       {
         "id": "external_commands:SKILL.md:33:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The backticks mark the word string as inline documentation. This is not executable content."
+        "confidence": 0.99,
+        "reason": "This match is Markdown inline-code or fenced-code documentation, not Ruby or shell backtick execution. The file contains no executable command substitution at this location."
       },
       {
         "id": "external_commands:SKILL.md:35:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "The backticks list supported country values. They are configuration values, not commands."
+        "confidence": 0.99,
+        "reason": "This match is Markdown inline-code or fenced-code documentation, not Ruby or shell backtick execution. The file contains no executable command substitution at this location."
       },
       {
         "id": "external_commands:SKILL.md:36:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The backticks show the default country value. This line does not direct command execution."
+        "confidence": 0.99,
+        "reason": "This match is Markdown inline-code or fenced-code documentation, not Ruby or shell backtick execution. The file contains no executable command substitution at this location."
       },
       {
         "id": "external_commands:SKILL.md:39:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The backticks mark the word string as inline documentation. No shell behavior is present."
+        "confidence": 0.99,
+        "reason": "This match is Markdown inline-code or fenced-code documentation, not Ruby or shell backtick execution. The file contains no executable command substitution at this location."
       },
       {
         "id": "external_commands:SKILL.md:41:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "The backticks list supported language values. These are allowed parameter values, not commands."
+        "confidence": 0.99,
+        "reason": "This match is Markdown inline-code or fenced-code documentation, not Ruby or shell backtick execution. The file contains no executable command substitution at this location."
       },
       {
         "id": "external_commands:SKILL.md:42:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The backticks show the default language value. This is documentation only."
+        "confidence": 0.99,
+        "reason": "This match is Markdown inline-code or fenced-code documentation, not Ruby or shell backtick execution. The file contains no executable command substitution at this location."
       },
       {
         "id": "external_commands:SKILL.md:45:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The backticks mark the word number as inline documentation. This is not command execution."
+        "confidence": 0.99,
+        "reason": "This match is Markdown inline-code or fenced-code documentation, not Ruby or shell backtick execution. The file contains no executable command substitution at this location."
       },
       {
         "id": "external_commands:SKILL.md:47:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The backticks show a default numeric value. There is no shell invocation."
+        "confidence": 0.99,
+        "reason": "This match is Markdown inline-code or fenced-code documentation, not Ruby or shell backtick execution. The file contains no executable command substitution at this location."
       },
       {
         "id": "external_commands:SKILL.md:50:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The backticks mark the word number as inline documentation. This line is not executable."
+        "confidence": 0.99,
+        "reason": "This match is Markdown inline-code or fenced-code documentation, not Ruby or shell backtick execution. The file contains no executable command substitution at this location."
       },
       {
         "id": "external_commands:SKILL.md:52:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The backticks show a default result limit. This is a documented value, not a command."
+        "confidence": 0.99,
+        "reason": "This match is Markdown inline-code or fenced-code documentation, not Ruby or shell backtick execution. The file contains no executable command substitution at this location."
       },
       {
         "id": "external_commands:SKILL.md:57:ruby-shell-backtick-execution",
-        "verdict": "confirmed",
-        "confidence": 0.88,
-        "severity": "medium",
-        "reason": "This fenced bash block instructs the agent to run the local Python script with user-provided parameters. It is intended, but it is real external command execution."
+        "verdict": "false_positive",
+        "confidence": 0.99,
+        "reason": "This match is Markdown inline-code or fenced-code documentation, not Ruby or shell backtick execution. The file contains no executable command substitution at this location."
       },
       {
         "id": "external_commands:SKILL.md:60:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.82,
-        "reason": "This finding starts on the closing code fence and monitoring prose. The actual command is covered by the separate finding beginning at line 57."
+        "confidence": 0.99,
+        "reason": "This match is Markdown inline-code or fenced-code documentation, not Ruby or shell backtick execution. The file contains no executable command substitution at this location."
       },
       {
         "id": "external_commands:SKILL.md:63:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The line describes status monitoring for a long-running task. It does not contain shell syntax or an executable instruction."
+        "confidence": 0.99,
+        "reason": "This match is Markdown inline-code or fenced-code documentation, not Ruby or shell backtick execution. The file contains no executable command substitution at this location."
       },
       {
         "id": "external_commands:SKILL.md:71:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The backticks format an output field name. They are not a command execution mechanism."
+        "confidence": 0.99,
+        "reason": "This match is Markdown inline-code or fenced-code documentation, not Ruby or shell backtick execution. The file contains no executable command substitution at this location."
       },
       {
         "id": "external_commands:SKILL.md:72:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The backticks format an output field name. This is documentation only."
+        "confidence": 0.99,
+        "reason": "This match is Markdown inline-code or fenced-code documentation, not Ruby or shell backtick execution. The file contains no executable command substitution at this location."
       },
       {
         "id": "external_commands:SKILL.md:73:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The backticks format an output field name. No shell command is present."
+        "confidence": 0.99,
+        "reason": "This match is Markdown inline-code or fenced-code documentation, not Ruby or shell backtick execution. The file contains no executable command substitution at this location."
       },
       {
         "id": "external_commands:SKILL.md:74:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The backticks format an output field name. This line is not executable."
+        "confidence": 0.99,
+        "reason": "This match is Markdown inline-code or fenced-code documentation, not Ruby or shell backtick execution. The file contains no executable command substitution at this location."
       },
       {
         "id": "external_commands:SKILL.md:75:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The backticks format an output field name. There is no command execution."
+        "confidence": 0.99,
+        "reason": "This match is Markdown inline-code or fenced-code documentation, not Ruby or shell backtick execution. The file contains no executable command substitution at this location."
       },
       {
         "id": "external_commands:SKILL.md:76:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The backticks format an output field name. It is safe documentation text."
+        "confidence": 0.99,
+        "reason": "This match is Markdown inline-code or fenced-code documentation, not Ruby or shell backtick execution. The file contains no executable command substitution at this location."
       },
       {
         "id": "external_commands:SKILL.md:77:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The backticks format an output field name. It does not invoke a shell."
+        "confidence": 0.99,
+        "reason": "This match is Markdown inline-code or fenced-code documentation, not Ruby or shell backtick execution. The file contains no executable command substitution at this location."
       },
       {
         "id": "external_commands:SKILL.md:78:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The backticks format an output field name. This is not executable content."
+        "confidence": 0.99,
+        "reason": "This match is Markdown inline-code or fenced-code documentation, not Ruby or shell backtick execution. The file contains no executable command substitution at this location."
       },
       {
         "id": "external_commands:SKILL.md:84:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "The backticks quote an expected error string. This is error-handling documentation, not shell execution."
+        "confidence": 0.99,
+        "reason": "This match is Markdown inline-code or fenced-code documentation, not Ruby or shell backtick execution. The file contains no executable command substitution at this location."
       },
       {
         "id": "external_commands:SKILL.md:85:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.93,
-        "reason": "The backticks quote an expected error prefix. The retry instruction does not add a new shell command beyond the documented script invocation."
+        "confidence": 0.99,
+        "reason": "This match is Markdown inline-code or fenced-code documentation, not Ruby or shell backtick execution. The file contains no executable command substitution at this location."
       },
       {
         "id": "external_commands:SKILL.md:94:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "The backticks format supported country codes in a use case. These are not commands."
+        "confidence": 0.99,
+        "reason": "This match is Markdown inline-code or fenced-code documentation, not Ruby or shell backtick execution. The file contains no executable command substitution at this location."
       },
       {
         "id": "network:SKILL.md:22:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The URL is a visible setup link to the BrowserAct console. The skill text does not automatically open it or send data to it."
+        "confidence": 0.97,
+        "reason": "The URL is the documented BrowserAct API or its credential-management page. It does not indicate an undisclosed network destination."
       },
       {
         "id": "env_access:SKILL.md:4:generic-api-secret-keys",
         "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "The metadata declares BROWSERACT_API_KEY as a required environment variable but does not include a secret value. The risky handling is covered by the script and line 20 instruction."
+        "confidence": 0.94,
+        "reason": "This is expected handling of the documented BrowserAct API credential for an authenticated API request. The examined code does not log the key or send it to an unrelated host."
       },
       {
         "id": "env_access:SKILL.md:20:generic-api-secret-keys",
-        "verdict": "confirmed",
-        "confidence": 0.92,
-        "severity": "high",
-        "reason": "The instruction tells the agent to request and wait for the user to provide the API key if it is missing. This can lead users to disclose credentials in chat."
+        "verdict": "false_positive",
+        "confidence": 0.94,
+        "reason": "This is expected handling of the documented BrowserAct API credential for an authenticated API request. The examined code does not log the key or send it to an unrelated host."
       },
       {
         "id": "blocker:SKILL.md:13:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "The line is a marketing claim about avoiding hallucinations. It does not inspect the system or gather host information."
+        "confidence": 0.98,
+        "reason": "The matched text reads a task identifier or describes output handling. It does not inspect the host, network, or system configuration."
       },
       {
         "id": "blocker:SKILL.md:84:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "The line checks for an API authorization error string. It does not perform system reconnaissance."
+        "confidence": 0.98,
+        "reason": "The matched text reads a task identifier or describes output handling. It does not inspect the host, network, or system configuration."
       },
       {
         "id": "blocker:SKILL.md:85:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.91,
-        "reason": "The line defines a one-time retry for task failure output. This is not host or environment reconnaissance."
+        "confidence": 0.98,
+        "reason": "The matched text reads a task identifier or describes output handling. It does not inspect the host, network, or system configuration."
       }
     ],
     "semantic_findings": [
       {
-        "title": "Credential Solicitation in User Chat",
-        "description": "The skill tells the agent to request the BrowserAct API key from the user when the environment variable is missing. The script also says the user may provide the key to the agent, which can expose a secret in chat logs.",
-        "severity": "high",
+        "title": "Direct API Key Solicitation",
+        "description": "The script tells an agent to ask the user to provide the BrowserAct API key directly. This can encourage disclosure of a secret in chat instead of using secure environment configuration.",
+        "severity": "medium",
         "locations": [
           {
-            "file": "SKILL.md",
-            "line_start": 20,
-            "line_end": 20
-          },
-          {
             "file": "scripts/google_image_api.py",
-            "line_start": 100,
+            "line_start": 95,
             "line_end": 100
           }
         ],
         "confidence": 0.93,
-        "confidence_reasoning": "Both cited lines explicitly direct the user toward providing an API key when it is missing. This is strong evidence of unsafe credential collection guidance."
+        "confidence_reasoning": "The message explicitly offers direct provision of the API key as an alternative to setting an environment variable. This is a clear secret-handling concern independent of the expected API authentication."
       }
     ],
     "critical_findings": [],
-    "high_findings": [
+    "high_findings": [],
+    "medium_findings": [
       {
-        "title": "Generic API/secret keys",
-        "description": "def run_google_image_task(api_key, keywords, country=\"us\", language=\"en\", scroll_count=5, datelimit=",
+        "title": "Direct API Key Solicitation",
+        "description": "The script tells an agent to ask the user to provide the BrowserAct API key directly. This can encourage disclosure of a secret in chat instead of using secure environment configuration.",
         "locations": [
           {
             "file": "scripts/google_image_api.py",
-            "line_start": 17,
-            "line_end": 17
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "env_access",
-        "source_severity": "high",
-        "confidence": 0.72,
-        "confidence_reasoning": "The function accepts an api_key value that is later used for authenticated BrowserAct requests. No key is hardcoded, but the code handles a live secret."
-      },
-      {
-        "title": "Generic API/secret keys",
-        "description": "headers = {\"Authorization\": f\"Bearer {api_key}\"}",
-        "locations": [
-          {
-            "file": "scripts/google_image_api.py",
-            "line_start": 18,
-            "line_end": 18
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "env_access",
-        "source_severity": "high",
-        "confidence": 0.91,
-        "confidence_reasoning": "The API key is placed into an Authorization bearer header for outbound requests. This is expected authentication, but mishandling would expose a credential."
-      },
-      {
-        "title": "Generic API/secret keys",
-        "description": "api_key = os.getenv(\"BROWSERACT_API_KEY\")",
-        "locations": [
-          {
-            "file": "scripts/google_image_api.py",
-            "line_start": 89,
-            "line_end": 89
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "env_access",
-        "source_severity": "high",
-        "confidence": 0.84,
-        "confidence_reasoning": "The code reads BROWSERACT_API_KEY from the environment and uses it for API authentication. It is narrow access, but it still handles a sensitive credential."
-      },
-      {
-        "title": "Generic API/secret keys",
-        "description": "print(\"3. Provide it to me or set it as an environment variable (BROWSERACT_API_KEY).\", flush=True)",
-        "locations": [
-          {
-            "file": "scripts/google_image_api.py",
-            "line_start": 100,
-            "line_end": 100
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "env_access",
-        "source_severity": "high",
-        "confidence": 0.93,
-        "confidence_reasoning": "The error message tells the user to provide the API key to the agent or set it as an environment variable. Asking users to provide secrets in chat can expose credentials."
-      },
-      {
-        "title": "Generic API/secret keys",
-        "description": "result = run_google_image_task(api_key, keywords, country, language, scroll_count, datelimit)",
-        "locations": [
-          {
-            "file": "scripts/google_image_api.py",
-            "line_start": 109,
-            "line_end": 109
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "env_access",
-        "source_severity": "high",
-        "confidence": 0.78,
-        "confidence_reasoning": "The environment-derived API key is passed into the task runner that creates authenticated network requests. This is expected, but it is real secret propagation."
-      },
-      {
-        "title": "Generic API/secret keys",
-        "description": "Before running, you must check the `BROWSERACT_API_KEY` environment variable. If it is not set, do n",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 20,
-            "line_end": 20
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "env_access",
-        "source_severity": "high",
-        "confidence": 0.92,
-        "confidence_reasoning": "The instruction tells the agent to request and wait for the user to provide the API key if it is missing. This can lead users to disclose credentials in chat."
-      },
-      {
-        "title": "Credential Solicitation in User Chat",
-        "description": "The skill tells the agent to request the BrowserAct API key from the user when the environment variable is missing. The script also says the user may provide the key to the agent, which can expose a secret in chat logs.",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 20,
-            "line_end": 20
-          },
-          {
-            "file": "scripts/google_image_api.py",
-            "line_start": 100,
+            "line_start": 95,
             "line_end": 100
           }
         ],
         "review_kind": "security",
         "source_category": "semantic",
-        "source_severity": "high",
-        "confidence": 0.93,
-        "confidence_reasoning": "Both cited lines explicitly direct the user toward providing an API key when it is missing. This is strong evidence of unsafe credential collection guidance."
-      }
-    ],
-    "medium_findings": [
-      {
-        "title": "Python HTTP libraries",
-        "description": "res = requests.post(f\"{API_BASE_URL}/run-task-by-template\", json=payload, headers=headers, timeout=3",
-        "locations": [
-          {
-            "file": "scripts/google_image_api.py",
-            "line_start": 33,
-            "line_end": 33
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "network",
-        "source_severity": "low",
-        "confidence": 0.88,
-        "confidence_reasoning": "The script posts user search parameters and an Authorization bearer token to the external BrowserAct API. This is expected for the skill, but it is real network egress with credential use."
-      },
-      {
-        "title": "Python HTTP libraries",
-        "description": "status_res = requests.get(f\"{API_BASE_URL}/get-task-status?task_id={task_id}\", headers=headers, time",
-        "locations": [
-          {
-            "file": "scripts/google_image_api.py",
-            "line_start": 50,
-            "line_end": 50
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "network",
-        "source_severity": "low",
-        "confidence": 0.84,
-        "confidence_reasoning": "The script polls the external BrowserAct API with the bearer token and task identifier. The endpoint is expected, but it still sends authenticated requests outside the local environment."
-      },
-      {
-        "title": "Ruby/shell backtick execution",
-        "description": "```bash",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 57,
-            "line_end": 60
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "external_commands",
         "source_severity": "medium",
-        "confidence": 0.88,
-        "confidence_reasoning": "This fenced bash block instructs the agent to run the local Python script with user-provided parameters. It is intended, but it is real external command execution."
+        "confidence": 0.93,
+        "confidence_reasoning": "The message explicitly offers direct provision of the API key as an alternative to setting an environment variable. This is a clear secret-handling concern independent of the expected API authentication."
       }
     ],
-    "low_findings": [
-      {
-        "title": "Hardcoded URL",
-        "description": "API_BASE_URL = \"https://api.browseract.com/v2/workflow\"",
-        "locations": [
-          {
-            "file": "scripts/google_image_api.py",
-            "line_start": 15,
-            "line_end": 15
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "network",
-        "source_severity": "low",
-        "confidence": 0.86,
-        "confidence_reasoning": "The hardcoded BrowserAct workflow URL is the destination for authenticated API calls. It is expected, but it defines a fixed third-party network endpoint."
-      },
-      {
-        "title": "Python getenv function",
-        "description": "api_key = os.getenv(\"BROWSERACT_API_KEY\")",
-        "locations": [
-          {
-            "file": "scripts/google_image_api.py",
-            "line_start": 89,
-            "line_end": 89
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "env_access",
-        "source_severity": "low",
-        "confidence": 0.86,
-        "confidence_reasoning": "The script reads BROWSERACT_API_KEY from the environment. The access is narrow and expected, but it is still credential access."
-      },
-      {
-        "title": "getenv function call",
-        "description": "api_key = os.getenv(\"BROWSERACT_API_KEY\")",
-        "locations": [
-          {
-            "file": "scripts/google_image_api.py",
-            "line_start": 89,
-            "line_end": 89
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "env_access",
-        "source_severity": "low",
-        "confidence": 0.86,
-        "confidence_reasoning": "The getenv call reads a named API credential from the environment. This is legitimate for authentication, but it is real secret access."
-      }
-    ],
+    "low_findings": [],
     "dangerous_patterns": [],
     "files_scanned": 2,
     "total_lines": 213,
-    "audit_model": "codex",
-    "audited_at": "2026-07-09T12:28:12.844Z",
-    "agent_auto_install_policy": "confirmation_required",
+    "audit_model": "claude",
+    "audited_at": "2026-07-17T10:47:13.110Z",
+    "agent_auto_install_policy": "allowed",
     "manual_install_policy": "allowed"
   },
   "content": {
-    "user_title": "Extract Google Image Metadata",
-    "value_statement": "Manual image research is slow and hard to repeat across markets. This skill runs BrowserAct image searches and returns structured metadata for review.",
+    "user_title": "Retrieve Google Images metadata",
+    "value_statement": "Image research can require manual searching across regions and languages. This skill runs a BrowserAct workflow to return structured Google Images metadata for a defined query.",
     "seo_keywords": [
       "Claude",
       "Codex",
       "Claude Code",
-      "Google Images",
-      "BrowserAct API",
-      "image search automation",
+      "Google Images API",
+      "BrowserAct",
+      "image search",
       "visual research",
-      "image metadata",
       "market research",
-      "competitor images"
+      "image metadata",
+      "localized search"
     ],
     "actual_capabilities": [
-      "Reads BROWSERACT_API_KEY from the environment before starting a task.",
-      "Starts a BrowserAct workflow for Google Images with keyword, country, and language inputs.",
-      "Configures scroll count and result limit parameters for the workflow.",
-      "Polls BrowserAct task status and prints timestamped progress messages.",
-      "Defines result fields for titles, sources, thumbnails, links, and result indexes."
+      "Submits a keyword query to the BrowserAct Google Images workflow.",
+      "Sets supported country and language preferences for a search.",
+      "Configures scroll depth and the maximum requested result count.",
+      "Polls BrowserAct for task status for up to five minutes.",
+      "Prints the API response, including returned image metadata when available."
     ],
     "limitations": [
-      "Requires a BrowserAct API key in BROWSERACT_API_KEY.",
-      "Sends search terms and task metadata to the BrowserAct service.",
-      "The script currently exits before retrieving results after a finished status.",
-      "Only supports the countries and languages listed in the skill guide."
+      "Requires a valid BROWSERACT_API_KEY and a BrowserAct account.",
+      "Uses BrowserAct and Google Images results, so availability and output depend on those services.",
+      "The script does not download images or verify licensing rights.",
+      "The current script returns after polling and does not reach its result-retrieval block."
     ],
     "use_cases": [
       {
-        "title": "Visual Market Research",
-        "description": "Compare image result patterns for product terms across supported regions.",
+        "title": "Research visual search results",
+        "description": "Compare image-search results for a topic across supported regions and languages.",
         "target_user": "Market researcher"
       },
       {
-        "title": "Competitor Asset Review",
-        "description": "Collect image result titles, sources, and links for competitor brands.",
-        "target_user": "Brand analyst"
+        "title": "Find product-style references",
+        "description": "Collect result titles, links, thumbnails, and source names for a product query.",
+        "target_user": "E-commerce analyst"
       },
       {
-        "title": "Creative Reference Gathering",
-        "description": "Build a repeatable list of image references for campaign or design research.",
-        "target_user": "Designer"
+        "title": "Plan creative research",
+        "description": "Review structured image-search metadata before selecting sources for a design brief.",
+        "target_user": "Content designer"
       }
     ],
     "prompt_templates": [
       {
-        "title": "Search One Topic",
-        "scenario": "Beginner single-query research",
-        "prompt": "Find Google Images metadata for \"modern desk lamps\" in the United States. Use English and limit results to 25."
+        "title": "Start an image search",
+        "scenario": "Beginner",
+        "prompt": "Search Google Images for \"solar garden lights\" in the United States and summarize the returned metadata."
       },
       {
-        "title": "Compare Two Markets",
-        "scenario": "Intermediate locale comparison",
-        "prompt": "Search Google Images for \"running shoes\" in the United States and Japan. Summarize source patterns and product signals."
+        "title": "Compare two markets",
+        "scenario": "Intermediate",
+        "prompt": "Run the same Google Images search for \"wireless earbuds\" in the United States and Japan. Compare the visible result sources and titles."
       },
       {
-        "title": "Build Competitor Dataset",
-        "scenario": "Advanced brand research",
-        "prompt": "Collect image metadata for three competitor product names. Use supported countries, keep each result set separate, and flag repeated sources."
+        "title": "Collect product references",
+        "scenario": "Intermediate",
+        "prompt": "Search for \"minimalist desk lamp\" in Germany. Request 30 results and list product-style entries with their click-through links."
       },
       {
-        "title": "Monitor Localized Trends",
-        "scenario": "Advanced recurring research",
-        "prompt": "Run repeatable searches for five seasonal keywords across France, Germany, and Spain. Return differences in titles, sources, and thumbnail patterns."
+        "title": "Prepare a localized research brief",
+        "scenario": "Advanced",
+        "prompt": "Search for \"sustainable packaging\" in France and Japan. Use the supported language settings and organize returned titles, sources, and thumbnails by market."
       }
     ],
     "output_examples": [
       {
-        "input": "Search for electric bike images in Germany with German language settings.",
-        "output": "A list of German-biased image results with titles, source names, thumbnail links, click-through links, and result positions."
+        "input": "Search for \"ceramic coffee mug\" in the United Kingdom.",
+        "output": [
+          "Task status updates while BrowserAct processes the request.",
+          "A returned list may include titles, source names, links, thumbnail URLs, and result indexes."
+        ]
       },
       {
-        "input": "Compare laptop stand images in the United States and Japan.",
-        "output": "A comparison of visible brands, source domains, product-style listings, and repeated design themes for each locale."
-      },
-      {
-        "input": "Track logo image results for a competitor name.",
-        "output": "A review-ready summary of sources, result titles, thumbnails, and links that appear for the competitor query."
+        "input": "Search for \"running shoes\" in Japan with 20 results.",
+        "output": [
+          "A localized task request using the Japan country setting.",
+          "Returned metadata can be grouped by product-style status and source site."
+        ]
       }
     ],
     "best_practices": [
-      "Use precise keywords and record the country and language used for each run.",
-      "Store BrowserAct credentials in environment variables or a secret manager.",
-      "Review source links before reusing images in reports or creative work."
+      "Store BROWSERACT_API_KEY in a secure environment or secret manager.",
+      "Use specific keywords and supported country and language codes.",
+      "Review source links and image rights before using any discovered content."
     ],
     "anti_patterns": [
-      "Do not paste API keys directly into chat or shared logs.",
-      "Do not assume thumbnails are licensed for reuse.",
-      "Do not run broad unattended searches without a clear result limit."
+      "Do not paste API keys into chat prompts or output logs.",
+      "Do not assume every returned image is licensed for reuse.",
+      "Do not request more results than the research question needs."
     ],
     "faq": [
       {
-        "question": "Does this require a BrowserAct account?",
-        "answer": "Yes. You need a BrowserAct API key available as BROWSERACT_API_KEY."
+        "question": "What credential does this skill need?",
+        "answer": "It requires a valid BROWSERACT_API_KEY for the BrowserAct workflow."
       },
       {
-        "question": "Can it download full-size images?",
-        "answer": "No. The skill focuses on metadata, thumbnails, source names, and links from result listings."
+        "question": "Can it search different countries?",
+        "answer": "Yes. It supports the country codes listed in the skill documentation."
       },
       {
-        "question": "Can it search by country and language?",
-        "answer": "Yes. It supports the country and language values listed in the skill instructions."
+        "question": "Can it change the search language?",
+        "answer": "Yes. It accepts the supported Google Images language settings."
       },
       {
-        "question": "Will it avoid CAPTCHA handling?",
-        "answer": "The workflow uses BrowserAct automation, so the user does not manage browser CAPTCHA flows directly."
+        "question": "What information can results include?",
+        "answer": "Results can include titles, links, source names, logos, thumbnails, product status, and indexes."
       },
       {
-        "question": "Does it send my searches to a third party?",
-        "answer": "Yes. Search terms and workflow parameters are sent to BrowserAct to run the task."
+        "question": "Does it download image files?",
+        "answer": "No. The documented output is metadata from the BrowserAct API response."
       },
       {
-        "question": "Is the current script ready for reliable result retrieval?",
-        "answer": "Not fully. The polling logic exits before the result retrieval block, so the author should fix it."
+        "question": "Can I share an API key in chat?",
+        "answer": "No. Set the key through a secure environment or secret manager instead."
       }
     ]
   },

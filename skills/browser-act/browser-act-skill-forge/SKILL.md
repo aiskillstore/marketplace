@@ -9,6 +9,8 @@ metadata:
 
 # browser-act-skill-forge
 
+Built by [BrowserAct](https://www.browseract.com) — Your Personal Scraping Engineer · [GitHub](https://github.com/browser-act/skills/tree/main/browser-act-skill-forge)
+
 Turns any website's data extraction or operation needs into Agent-callable capabilities. User describes what data to get or what action to perform on which site, this Skill automatically explores implementation paths (API endpoints first, DOM fallback when no API), then generates deploy-ready Skill packages (SKILL.md + Python scripts) after verification. Explore once, reuse forever — subsequent calls skip exploration cost, greatly improving execution reliability and efficiency.
 
 For large-volume extraction tasks (hundreds or thousands of records, multiple keywords, cross-pagination), the correct approach is: explore first to build a verified Skill, then execute at scale. Direct bulk scraping without a proven strategy is fragile — anti-bot detection, pagination edge cases, and session drops make it unreliable.

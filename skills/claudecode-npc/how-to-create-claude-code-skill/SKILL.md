@@ -10,7 +10,7 @@ Skills的文件结构有以下几种组织方式：
 每个Skill都需要一个SKILL.md文件，包含YAML前置元数据1：
 
 ---
-name: Your Skill Name
+name: how-to-create-claude-code-skill
 description: Brief description of what this Skill does and when to use it
 ---
 

@@ -22,7 +22,7 @@ General-purpose AI assistant for coding help, debugging, and architecture design
 mcp__plugin__copilot__ask-copilot(
   prompt="string",           // Required: The question or task for Copilot
   context="string",          // Optional: Additional context
-  model="string",            // Optional: Specific model to use (default: claude-sonnet-4.5)
+  model="string",            // Optional: Specific model to use (default: claude-sonnet-4.6)
   allowAllTools=true/false   // Optional: Allow Copilot to use all available tools
 )
 ```
@@ -110,27 +110,31 @@ mcp__plugin__copilot__copilot-session_history(
 
 Choose from available models based on task complexity:
 
-### claude-sonnet-4.5 (default)
+### claude-sonnet-4.6 (default)
 - Best for: System design, architecture decisions, code review, performance optimization
 - Balance of capability and speed
 
-### claude-opus-4.5
-- Best for: Complex problems requiring strict execution
-- Highest reasoning capability
+### claude-opus-4.7
+- Best for: Complex problems requiring highest reasoning on eligible plans
+- Optional higher-tier model, not the default
 
 ### claude-haiku-4.5
 - Best for: Quick syntax queries, simple logic questions, API usage
 - Fastest response
 
-### gemini-3-pro-preview
-- Best for: Flutter, Angular, GCP, Firebase, Google Cloud development
-- Google ecosystem specialization
+### gpt-5.4
+- Best for: Broad code generation, debugging, and architecture tradeoff analysis
+- Strong general-purpose GPT option
+
+### gpt-5.3-codex
+- Best for: Codex-style code generation workflows available in the current CLI picker
+- Useful when you want a GPT coding-focused alternative to GPT-5.4
 
 ### gpt-5-mini (unlimited usage)
 - Best for: Concept explanations, general technical questions, documentation queries
 - No usage limits for Pro+ subscribers
 
-### gpt-5.1-codex / gpt-5.1-codex-max
+### gpt-5.2-codex
 - Best for: Complex algorithms, system refactoring, large feature development
 - Advanced code generation
 
@@ -144,7 +148,7 @@ Choose from available models based on task complexity:
 ```javascript
 mcp__plugin__copilot__ask-copilot(
   prompt="Implement a REST API endpoint for user authentication with JWT",
-  model="claude-sonnet-4.5",
+  model="claude-sonnet-4.6",
   allowAllTools=true
 )
 ```
@@ -214,4 +218,4 @@ If MCP server is unavailable:
 - Usage counts towards Copilot API limits
 
 ## Keywords
-copilot, mcp, ai, code review, debugging, testing, refactoring, github copilot, claude, gpt, gemini
+copilot, mcp, ai, code review, debugging, testing, refactoring, github copilot, claude, gpt

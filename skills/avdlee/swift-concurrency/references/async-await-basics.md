@@ -1,6 +1,23 @@
 # Async/Await Basics
 
-Core patterns and best practices for async/await in Swift.
+Use this when:
+
+- You are starting fresh with async/await and need foundational patterns.
+- You are converting callback-based code to async/await.
+- You need to understand execution order and the sync-to-async bridge.
+
+Skip this file if:
+
+- You need parallel execution with task groups or `async let`. Use `tasks.md`.
+- You need stream-based async iteration. Use `async-sequences.md`.
+
+Jump to:
+
+- Function Declaration
+- Execution Order
+- Parallel Execution with async let
+- URLSession with Async/Await
+- Migration Strategy
 
 ## Function Declaration
 

@@ -1,6 +1,13 @@
 # Glossary
 
-Concise definitions of key Swift Concurrency terms used throughout this skill.
+Use this when:
+
+- You need a quick definition of a Swift Concurrency term.
+- You encounter unfamiliar terminology in other reference files.
+
+Skip this file if:
+
+- You need implementation patterns, not definitions. Use the relevant reference file instead.
 
 ## Actor isolation
 
@@ -45,6 +52,7 @@ An opt-out to prevent “sending” non-Sendable values across isolation while s
 ## @concurrent (Swift 6.2+ behavior)
 
 An attribute used to explicitly opt a nonisolated async function into concurrent execution (i.e., not inheriting the caller’s actor). It is used during migration when enabling `NonisolatedNonsendingByDefault`.
+Also valid on `Task { @concurrent in ... }` to opt the task body out of the enclosing actor's isolation; pick this when the task's synchronous prefix (everything before the first `await`) does not need the main actor.
 
 ## @preconcurrency
 
@@ -54,4 +62,75 @@ An annotation used to suppress Sendable-related diagnostics from a module that p
 
 Mechanisms that model ownership transfer so certain non-Sendable values can be moved between regions safely. The `sending` keyword enforces that a value is no longer used after transfer.
 
+## AsyncSequence
+
+A protocol for types that provide asynchronous, sequential iteration over elements. Conforms to the `for await` loop pattern. Use for streaming data where elements arrive over time.
+
+## AsyncStream
+
+A concrete implementation of `AsyncSequence` that bridges callback-based or delegate-based APIs to async/await. Provides `yield()` to emit values and `finish()` to complete the stream.
+
+## Continuation
+
+A mechanism to bridge callback-based APIs to async/await. `withCheckedContinuation` and `withCheckedThrowingContinuation` provide safe bridging with runtime checks. `withUnsafeContinuation` variants skip checks for performance-critical code.
+
+## Task Local
+
+Task-scoped storage that propagates values through the task hierarchy automatically. Declared with `@TaskLocal` and accessed via the wrapper's static property. Child tasks inherit parent task locals.
+
+## Cooperative thread pool
+
+Swift's threading model where tasks run on a limited pool of threads managed by the runtime. Tasks yield cooperatively at suspension points, allowing other tasks to run. Avoid blocking operations that would starve the pool.
+
+## Executor
+
+The scheduling mechanism that determines where and when actor code runs. `MainActor` uses the main thread executor. Custom actors use the default executor unless a custom executor is specified.
+
+## Structured concurrency
+
+A pattern where child tasks have a well-defined relationship to parent tasks. Child tasks must complete before the parent scope exits. Provides automatic cancellation propagation and prevents orphaned tasks. Implemented via `async let` and `TaskGroup`.
+
+## Isolation domain
+
+A boundary that protects mutable state from concurrent access. Each actor instance defines its own isolation domain. The `@MainActor` global actor defines a shared isolation domain for UI work. Code must cross isolation boundaries explicitly via `await`.
+
+## Task priority
+
+A hint to the runtime about the relative importance of a task. Priorities include `.high`, `.medium`, `.low`, `.userInitiated`, `.utility`, and `.background`. Higher priority tasks are scheduled before lower priority ones. Priority can escalate when a high-priority task awaits a low-priority one.
+
+## Cancellation
+
+A cooperative mechanism to signal that a task should stop. Check `Task.isCancelled` or call `Task.checkCancellation()` (throws) in long-running work. Cancellation propagates to child tasks in structured concurrency.
+
+## Debounce
+
+Wait for a period of inactivity before emitting a value. Used to reduce API calls for rapid inputs like search fields. Implemented as `debounce(for:tolerance:clock:)` in AsyncAlgorithms.
+
+## Throttle
+
+Emit at most one value per time interval, discarding intermediate values. Used to prevent excessive calls from repeated actions like button taps. Implemented as `throttle(for:clock:reducing:)` in AsyncAlgorithms.
+
+## Merge (AsyncAlgorithms)
+
+Combine multiple asynchronous sequences into one, emitting values as they arrive from any source. Order is interleaved based on emission timing. Stable operator.
+
+## CombineLatest (AsyncAlgorithms)
+
+Combine multiple asynchronous sequences, emitting a tuple whenever any source emits a new value. Always uses the latest value from each sequence. Stable operator.
+
+## Zip (AsyncAlgorithms)
+
+Combine multiple asynchronous sequences by pairing elements in order. Waits for all sequences to emit before producing a tuple. Stable operator.
+
+## AsyncChannel
+
+An AsyncSequence with backpressure sending semantics. Allows multiple producers to send values safely to multiple consumers with flow control. Stable operator.
+
+## AsyncThrowingChannel
+
+Like AsyncChannel but can emit errors through the stream. Stable operator.
+
+## AsyncTimerSequence
+
+An AsyncSequence that emits a value at regular intervals. Replaces timer-based publishers and manual sleep loops. Stable operator.
 

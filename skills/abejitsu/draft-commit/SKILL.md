@@ -1,7 +1,6 @@
 ---
 name: draft-commit
-description: Draft clear commit messages from staged Git changes with configurable tone and format.
-license: MIT
+description: Draft clear commit messages from staged Git changes without creating a commit.
 ---
 
 # Draft a Commit

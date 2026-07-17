@@ -1,300 +1,183 @@
-# Context Tools for Claude Code
+<p align="center">
+  <img src="docs/social.png" alt="context daddy" width="640">
+</p>
 
-[![CI](https://github.com/ChipFlow/claude-context-tools/actions/workflows/ci.yml/badge.svg)](https://github.com/ChipFlow/claude-context-tools/actions/workflows/ci.yml)
+<p align="center">
+  <a href="https://github.com/ChipFlow/context-daddy/actions/workflows/ci.yml"><img src="https://github.com/ChipFlow/context-daddy/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://chipflow.github.io/context-daddy/"><img src="https://github.com/ChipFlow/context-daddy/actions/workflows/pages.yml/badge.svg" alt="Docs"></a>
+</p>
 
-A Claude Code plugin that helps Claude maintain context awareness in large codebases through automatic project mapping, duplicate detection, and learning retention.
+**[Documentation](https://chipflow.github.io/context-daddy/)** · **[Changelog](CHANGELOG.md)**
+
+## What
+
+Context Daddy is a sophisticated code understanding plugin for Claude Code that fundamentally changes how AI assistants explore and comprehend large codebases. By combining tree-sitter parsing, intelligent caching, and a custom MCP (Model Context Protocol) server, we're creating a system that can quickly generate semantic maps of entire repositories and provide fast, targeted code retrieval without overwhelming context windows. The project now includes narrative documentation tools that capture the evolving "tribal knowledge" of codebases - the stories, gotchas, and hard-won insights that traditional documentation misses.
+
+Built in tools include:
+- **Fast symbol search** - 10-100x faster than grep via MCP tools
+- **Living narratives** - Capture the "why", not just the "what"
+- **Tribal knowledge** - Dragons, gotchas, and hard-won insights that survive context compaction
+
+## Why
+
+Understanding code isn't just about parsing syntax. It's about the *stories* - "here be dragons", "we did X because Y", "this is WTF but it works". That knowledge lives in people's heads and gets lost.
+
+**context daddy** captures both: fast code exploration AND the narrative that makes codebases actually understandable.
+
+## Quick Start
+
+```bash
+# Install
+claude plugin marketplace add chipflow/context-daddy
+claude plugin install context-daddy
+
+# Verify MCP tools work
+claude mcp list  # Should show: repo-map: ✓ Connected
+
+# Generate a narrative for your project
+cd /path/to/your-project
+/context-daddy:story
+```
+
+Or load directly without installing:
+```bash
+claude --plugin-dir /path/to/context-daddy
+```
 
 ## Features
 
-### Project Manifest
-Automatically detects and tracks:
-- Programming languages in your project
-- Build system and commands (npm, uv, pdm, cargo, cmake, meson, go)
-- Entry points and main scripts
-- Git activity summary
+### 🔍 Fast Symbol Search
 
-### Repository Map with Duplicate Detection
-Generates a comprehensive map of your codebase:
-- **Multi-language support**: Python, C++, and Rust
-- Extracts all classes, functions, and methods with their signatures
-- Detects potentially similar classes that may have overlapping responsibilities
-- Identifies similar functions that could be candidates for consolidation
-- Analyzes documentation coverage to highlight gaps
-- **Incremental caching**: Only re-parses changed files (mtime + content hash)
-- **Parallel parsing**: Uses multiple CPU cores for large codebases
-- **Background execution**: Repo map builds asynchronously on session start
-
-### Learnings System
-Helps Claude remember important discoveries:
-- Project-specific learnings in `.claude/learnings.md`
-- Global learnings in `~/.claude/learnings.md`
-- Prompted to save learnings before context compaction
-
-## What's New in v0.8.0
-
-### 🏗️ Multiprocess Architecture
-- MCP server spawns indexing subprocess (no longer thread-based)
-- Watchdog can kill hung processes with resource limits (4GB memory, 20 min CPU)
-- MCP server stays responsive even during indexing
-
-### 📂 Dynamic Directory Support
-- **Switch between projects without restarting!**
-- MCP tools automatically adapt to current working directory
-- Each project maintains its own index
-- Tools "just work" wherever you are
-
-### 🔒 Simplified Concurrency
-- Rely on SQLite WAL mode + transactions (removed custom file locking)
-- Multiple MCP servers can safely coexist
-- Clean, robust concurrent access
-
-### 📊 Comprehensive Logging
-- Rotating logs in `.claude/logs/repo-map-server.log`
-- Track tool usage, indexing events, resource limits
-- Debug issues and understand usage patterns
-
-[See full changelog](CHANGELOG.md)
-
-## Installation
-
-### Option 1: Install from GitHub (recommended)
-
-First, add the repository as a plugin marketplace:
-
-```bash
-claude plugin marketplace add chipflow/claude-context-tools
+```
+search_symbols("*Handler")         → Find all handler classes
+get_symbol_content("AuthService")  → Full source with docstrings
+get_file_symbols("src/api.py")     → Everything in a file
+list_files("*.py")                 → Find files by pattern
 ```
 
-Then install the plugin:
+Pre-built SQLite index with FTS5. Claude explores your codebase without drowning in context.
+
+### 📖 Living Narratives
+
+Not changelogs. **Stories**:
+
+- **Summary** - What and why
+- **Current Foci** - What we're working on now
+- **How It Works** - Architecture in plain language
+- **The Story So Far** - How we got here
+- **Dragons & Gotchas** - Warnings for future-us
+- **Open Questions** - Things we're still figuring out
 
 ```bash
-claude plugin install context-tools
+/context-daddy:story    # Bootstrap from git history
+/context-daddy:refresh  # Revise after sessions
 ```
 
-### Option 2: Install from local directory (for development)
+Written in "we" voice. Opinionated. Updated after context compaction.
 
-```bash
-git clone https://github.com/chipflow/claude-context-tools.git
-claude plugin marketplace add ./claude-context-tools
-claude plugin install context-tools
+### 🎯 Cross-Session Goals
+
+Track multi-session objectives that persist across sessions and projects:
+
+```
+/context-daddy:goal-new    → Guided goal creation with plan steps
+/context-daddy:goal-done   → Complete current step, advance to next
+/context-daddy:goal-focus  → Set which step you're working on
+/context-daddy:goal        → List, switch, or archive goals
 ```
 
-### Option 3: Load directly without installing
+Goals have human-readable slugs and step IDs. The active goal and focused step appear automatically in every session's context.
 
-For testing or one-off use:
+### 🧠 Learnings
 
-```bash
-claude --plugin-dir ./claude-context-tools
-```
+Hard-won insights that persist:
+- `.claude/learnings.md` - Project-specific
+- `~/.claude/learnings.md` - Global
+- Prompted to save before compaction
 
-### Verify MCP Server is Loaded
+## Commands
 
-After installing the plugin, **restart Claude Code**. The MCP server should auto-configure from the plugin manifest.
-
-Verify the repo-map server is running:
-```bash
-claude mcp list
-# Should show: repo-map: ... - ✓ Connected
-```
-
-Or in a Claude Code session, run `/mcp` to see available MCP servers.
-
-**Troubleshooting**: If the server doesn't load, check that `uv` is installed and accessible in your PATH.
-
-## Requirements
-
-- [uv](https://docs.astral.sh/uv/) - Python package manager (for running scripts)
-- Python 3.10+
+| Command | Purpose |
+|---------|---------|
+| `/context-daddy:story` | Bootstrap narrative from git |
+| `/context-daddy:refresh` | Update narrative after a session |
+| `/context-daddy:readme` | Generate README from narrative |
+| `/context-daddy:map` | Regenerate repo map |
+| `/context-daddy:scan` | Regenerate project manifest |
+| `/context-daddy:status` | Indexing status |
+| `/context-daddy:learn` | Manage learnings |
+| `/context-daddy:goal-new` | Create a new goal |
+| `/context-daddy:goal` | Manage goals |
+| `/context-daddy:goal-done` | Complete current step |
+| `/context-daddy:goal-focus` | Set focused step |
+| `/context-daddy:help` | MCP tools guide |
 
 ## How It Works
 
-### Hooks
+**Three components:**
+1. **Tree-sitter indexing** → Semantic symbols from Python, C++, Rust
+2. **SQLite + FTS5** → Fast retrieval and search
+3. **MCP server** → Tools Claude can query
 
-The plugin registers two hooks:
+**Multiprocess design:** Indexing runs in isolated subprocesses (4GB memory, 20 min CPU limit, watchdog). MCP server stays responsive.
 
-1. **SessionStart**: When you start a Claude Code session, the plugin:
-   - Generates/refreshes the project manifest
-   - Displays a summary of project context
-   - Shows count of available learnings
+**Hooks:** SessionStart loads context, Stop hook guides reorientation after compaction.
 
-2. **PreCompact**: Before context compaction, the plugin:
-   - Regenerates the project manifest
-   - Updates the repository map
-   - Reminds you to save important discoveries
-
-### MCP Tools (Fast Symbol Lookup)
-
-Once the MCP server is configured, Claude has access to these fast symbol search tools:
-
-- `search_symbols` - Find functions/classes/methods by glob pattern (e.g., `get_*`, `*Handler`)
-- `get_file_symbols` - List all symbols defined in a specific file
-- `get_symbol_content` - Get full source code of a symbol by exact name
-- `reindex_repo_map` - Trigger manual reindex if files changed
-- `repo_map_status` - Check indexing status and staleness
-
-These tools use a pre-built SQLite index, making them **much faster than Grep** for finding code symbols.
-
-### Slash Commands
-
-- `/context-tools:mcp-help` - **Guide for using MCP tools effectively** - Shows when to use MCP tools vs grep with real-world examples
-- `/context-tools:repo-map` - Regenerate the repository map
-- `/context-tools:manifest` - Regenerate the project manifest
-- `/context-tools:learnings` - View and manage project learnings
-- `/context-tools:status` - Check repo map indexing status
-
-## Configuration
-
-### Repo Map Options
-
-The repo map generator supports command-line options:
-
-```bash
-# Use 75% of CPU cores for parsing (default: 50%)
-uv run scripts/generate-repo-map.py /path/to/project --workers=75
-```
-
-### Supported Languages
-
-| Language | Extensions | Parser |
-|----------|------------|--------|
-| Python | `.py` | Built-in AST |
-| C++ | `.cpp`, `.cc`, `.cxx`, `.hpp`, `.h`, `.hxx` | tree-sitter-cpp |
-| Rust | `.rs` | tree-sitter-rust |
-
-## Generated Files
-
-The plugin creates files in your project's `.claude/` directory:
-
+**Generated files:**
 ```
 .claude/
-├── project-manifest.json   # Build system, languages, entry points
-├── repo-map.md             # Code structure with similarity analysis
-├── repo-map.db             # SQLite database for fast symbol lookups (MCP server)
-├── repo-map-cache.json     # Symbol cache for incremental updates
-└── learnings.md            # Project-specific learnings
+├── narrative.md           # Project story
+├── project-manifest.json  # Build system, languages
+├── repo-map.db            # Symbol index
+├── learnings.md           # Your insights
+├── active-goals.json      # Goal index for this project
+├── .current-goal          # Active goal reference
+└── logs/
+    ├── repo-map-server.log
+    └── goals-server.log
+~/.claude/goals/           # Goal files (global)
 ```
 
-## Example Output
+## Requirements
 
-### Repository Map
+- [uv](https://docs.astral.sh/uv/) for Python
+- Python 3.10+
+- `ANTHROPIC_API_KEY` for narrative generation
 
-```markdown
-## Documentation Coverage
+---
 
-- **Classes**: 15/18 (83% documented)
-- **Functions**: 42/50 (84% documented)
+## The Journey
 
-## ⚠️ Potentially Similar Classes
+We started simple: parse code with tree-sitter, generate repo maps. Then reality hit.
 
-- **ConfigLoader** (src/config/loader.py)
-  ↔ **SettingsLoader** (src/settings/loader.py)
-  Reason: similar names (80%), similar docstrings (72%)
+**Memory explosion.** Large codebases broke everything. We moved to incremental caching and parallel parsing with resource limits.
 
-## Code Structure
+**Static maps weren't enough.** Claude needed fast, targeted access. We built an MCP server - a live query interface, not just generated docs.
 
-### src/models/user.py
+**Process management nightmares.** Zombie processes, resource leaks, conflicts. Multiple iterations before landing on isolated subprocesses with watchdog monitoring.
 
-**class User**
-  A user account in the system.
-  - create(name: str, email: str) -> User
-      Create a new user account.
-  - update(self, **kwargs)
-      Update user attributes.
-```
+**User experience matters.** Database versioning for seamless upgrades. Simpler hook patterns. Progressive feedback during indexing.
 
-### Project Manifest
+**The philosophical shift.** We realized understanding codebases isn't just parsing - it's capturing stories, decisions, and hard-won insights. Traditional docs capture what code does; narratives capture why it exists.
 
-```json
-{
-  "project_name": "my-project",
-  "languages": ["python", "typescript"],
-  "build_system": {
-    "type": "uv",
-    "commands": {
-      "install": "uv sync",
-      "build": "uv run build",
-      "test": "uv run pytest"
-    }
-  },
-  "entry_points": ["src/main.py", "src/cli.py"]
-}
-```
+Throughout: balancing comprehensive understanding against context overload. That tension shapes everything.
 
-## Best Practices
+## Known Dragons 🐉
 
-### Recording Learnings
+**Hooks are fragile.** Autodiscovery doesn't always match expectations. We've been bitten in CI.
 
-When you discover something important during a session, ask Claude to record it:
+**SQLite WAL helps but isn't magic.** We moved away from heavy locking after deadlocks.
 
-> "Add a learning about the database connection pooling optimization we just discovered"
+**Tree-sitter memory spikes.** Subprocess isolation is our safety net.
 
-Claude will add an entry to `.claude/learnings.md`:
+**MCP lifecycle is underdocumented.** We've reverse-engineered start/stop behavior.
 
-```markdown
-## Database: Connection pooling optimization
+## Open Questions
 
-**Context**: High-traffic API endpoints with PostgreSQL
-**Discovery**: Default pool size of 5 was causing connection exhaustion
-**Solution/Pattern**: Increase pool size to 20, add 30s timeout, implement retry with exponential backoff
-```
-
-### Addressing Duplicate Detection
-
-When the repo map shows similar classes or functions:
-1. Review the flagged pairs to determine if they're truly duplicates
-2. If they serve different purposes, improve their docstrings to clarify intent
-3. If they're duplicates, consolidate them into a single implementation
-
-## Development
-
-### Running Tests Locally
-
-```bash
-# Validate JSON configs
-python3 -c "import json; json.load(open('.claude-plugin/plugin.json'))"
-python3 -c "import json; json.load(open('hooks/hooks.json'))"
-
-# Check bash script syntax
-bash -n scripts/session-start.sh
-bash -n scripts/precompact.sh
-
-# Test repo map generation
-mkdir -p /tmp/test-project
-echo 'def hello(): pass' > /tmp/test-project/main.py
-uv run scripts/generate-repo-map.py /tmp/test-project
-```
-
-### Adding Language Support
-
-To add support for a new language:
-
-1. Add the tree-sitter grammar to dependencies in `generate-repo-map.py`
-2. Create an `extract_symbols_from_<lang>()` function
-3. Add file discovery in `find_<lang>_files()`
-4. Update `parse_file_worker()` to handle the new language
-5. Add tests in the CI workflow
-
-## Uninstalling
-
-To completely remove the plugin:
-
-1. **Remove the MCP server:**
-```bash
-claude mcp remove repo-map
-```
-
-2. **Uninstall the plugin:**
-```bash
-claude plugin uninstall context-tools
-```
-
-3. **Clean up generated files** (optional - per project):
-```bash
-rm -rf .claude/repo-map.* .claude/project-manifest.json
-```
-
-Note: `.claude/learnings.md` contains your project insights - consider backing it up before deleting.
-
+- FTS5 search is underutilized - what's the right UX?
+- Are 'learnings' needed with new claude memory capability?
+- Can we make better use of new claude memory?
+- 
 ## License
 
 MIT

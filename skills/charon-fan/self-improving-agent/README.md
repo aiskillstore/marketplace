@@ -1,23 +1,25 @@
 # Self-Improving Agent
 
-A universal self-improvement system that learns from ALL skill experiences and continuously updates the codebase.
+A self-improvement system that captures learning artifacts from skill experiences and proposes validated updates.
 
 ## Overview
 
-This agent learns from **every skill interaction** to achieve true lifelong learning. It implements a complete feedback loop with multi-memory architecture, self-correction, and evolution markers.
+This agent captures reusable evidence from skill interactions. It implements a feedback loop with memory artifacts, self-correction proposals, and evolution markers. Durable skill or code changes still require validation or explicit approval.
 
 ## Key Features
 
 - **Multi-Memory Architecture**: Semantic + Episodic + Working memory
-- **Universal Learning**: Learns from ALL skills, not just PRDs
+- **Evidence-Gated Learning**: Captures reusable lessons from skill workflows
 - **Pattern Extraction**: Converts experiences into reusable patterns
 - **Self-Correction**: Fixes skill guidance when errors occur
 - **Self-Validation**: Periodically verifies skill accuracy
-- **Automatic Updates**: Updates related skills based on learned patterns
+- **Proposal Artifacts**: Writes proposed updates before durable skill changes
 - **Confidence Tracking**: Measures pattern reliability over time
 - **Human-in-the-Loop**: Collects feedback to validate improvements
 
 ## Memory System
+
+Current Claude Code hook integration writes to:
 
 ```
 ~/.claude/memory/
@@ -31,15 +33,15 @@ This agent learns from **every skill interaction** to achieve true lifelong lear
 ```
 Any Skill Completes
         ↓
-Extract Experience → Identify Patterns → Update Skills → Consolidate Memory
+Extract Experience → Identify Patterns → Write Proposals → Consolidate Memory
         ↓                     ↓                  ↓              ↓
-   What happened?    What can we reuse?   Which skills?    Track metrics
+   What happened?    What can we reuse?   Which proposals? Track metrics
 ```
 
 ## Installation
 
 ```bash
-ln -s ~/path/to/agent-playbook/skills/self-improving-agent ~/.claude/skills/self-improving-agent
+apb skills add ./skills/self-improving-agent --scope global --target all --link
 ```
 
 ## Hooks (Optional)
@@ -79,8 +81,8 @@ Wire hooks to capture errors and session-end signals:
 
 ## Triggering
 
-### Automatic
-After ANY skill completes:
+### Host-Supported Follow-up
+When the host runtime supports hook follow-ups, this skill can be recorded or run after high-signal workflows such as:
 - prd-planner
 - code-reviewer
 - debugger
@@ -103,19 +105,19 @@ Skill: debugger
 Situation: Form submission doesn't refresh data
 Root Cause: Empty callback function
 Pattern: Always verify callbacks have implementations
-Confidence: 0.95 → Updates: debugger, prd-implementation-precheck
+Confidence: 0.95 → Proposals: debugger, prd-implementation-precheck
 ```
 
 ### Skill Update
 ```markdown
-## Auto-Update (2025-01-11)
+## Proposed Update (2025-01-11)
 
 ### Pattern Added
 **Callback Verification**: Always verify that callback functions
 passed as props are not empty and actually execute logic.
 
 **Source**: Episode ep-2025-01-11-003 (3 occurrences)
-**Action**: Added to debugger checklist
+**Action**: Propose adding to debugger checklist
 ```
 
 ## Research Basis

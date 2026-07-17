@@ -1,6 +1,26 @@
 # Migration to Swift 6 and Strict Concurrency
 
-A practical guide to migrating existing Swift codebases to Swift 6's strict concurrency model, including strategies, habits, tooling, and common patterns.
+Use this when:
+
+- You are moving an existing codebase toward Swift 6 or stricter concurrency checking.
+- Compiler diagnostics depend on language mode, default isolation, or upcoming features.
+- You need the smallest safe migration sequence instead of a full architectural rewrite.
+
+Skip this file if:
+
+- You already know the exact diagnostic and only need a local fix. Start from `actors.md`, `sendable.md`, or `threading.md`.
+- You are looking for debounce, stream composition, or FRP operator replacements. Use `async-algorithms.md`.
+
+Jump to:
+
+- Project Settings
+- Six Migration Habits
+- Step-by-Step Migration
+- Migration Tooling
+- Rewriting Closures to Async/Await
+- Migrating from Combine/RxSwift
+- Concurrency-Safe Notifications (iOS 26+)
+- Anti-Patterns
 
 ---
 
@@ -582,6 +602,361 @@ Task { [weak self] in
 
 ---
 
+## When to Use AsyncAlgorithms
+
+When migrating from Combine or RxSwift, you have multiple options for handling asynchronous patterns:
+
+### Use AsyncAlgorithms for:
+
+- **Time-based operations**: debounce, throttle, timers
+- **Combining multiple async sequences**: merge, combineLatest, zip
+- **Multi-consumer scenarios**: AsyncChannel for backpressure
+- **Complex operator chains**: FRP-like patterns in Swift Concurrency
+- **Specific operators**: removeDuplicates, chunks, adjacentPairs, compacted
+
+### Use Standard Library for:
+
+- **Bridging callbacks**: AsyncStream is sufficient
+- **Simple iteration**: for await in sequence
+- **Single-value operations**: async/await
+- **Basic transformations**: map, filter, contains
+
+### Use SwiftUI for:
+
+- **UI observation**: @Observable macro
+- **State management**: @State, @Published properties
+- **User interactions**: onChange, onReceive modifiers
+
+> **See**: [async-algorithms.md](async-algorithms.md) for detailed AsyncAlgorithms usage examples.
+
+---
+
+## Real-World Migration Examples
+
+### Example: ArticleSearcher with AsyncAlgorithms
+
+**Before: Manual Debouncing**
+
+```swift
+final class ArticleSearcher {
+    @MainActor private(set) var results: [Article] = []
+    private var currentSearchTask: Task<Void, Never>?
+
+    func search(_ query: String) {
+        currentSearchTask?.cancel()
+
+        currentSearchTask = Task {
+            do {
+                try await Task.sleep(for: .milliseconds(500))
+                await MainActor.run {
+                    self.results = []
+                }
+                self.results = await APIClient.searchArticles(query)
+            } catch {
+                // Search was cancelled
+            }
+        }
+    }
+}
+
+// SwiftUI integration
+struct SearchView: View {
+    @State private var searchQuery = ""
+    @State private var searcher = ArticleSearcher()
+
+    var body: some View {
+        List(searcher.results) { result in
+            Text(result.title)
+        }
+        .searchable(text: $searchQuery)
+        .onChange(of: searchQuery) { _, newValue in
+            searcher.search(newValue)
+        }
+    }
+}
+```
+
+**After: AsyncAlgorithms Debounce**
+
+```swift
+import AsyncAlgorithms
+
+@Observable
+final class ArticleSearcher {
+    @MainActor private(set) var results: [Article] = []
+    private var searchQueryContinuation: AsyncStream<String>.Continuation?
+
+    private lazy var searchQueryStream: AsyncStream<String> = {
+        AsyncStream { continuation in
+            searchQueryContinuation = continuation
+        }
+    }()
+
+    func search(_ query: String) {
+        searchQueryContinuation?.yield(query)
+    }
+
+    func startDebouncedSearch() {
+        Task { @MainActor in
+            for await query in searchQueryStream.debounce(for: .milliseconds(500)) {
+                self.results = []
+                self.results = await APIClient.searchArticles(query)
+            }
+        }
+    }
+}
+
+// SwiftUI integration
+struct SearchView: View {
+    @State private var searchQuery = ""
+    @State private var searcher = ArticleSearcher()
+
+    var body: some View {
+        List(searcher.results) { result in
+            Text(result.title)
+        }
+        .searchable(text: $searchQuery)
+        .onChange(of: searchQuery) { _, newValue in
+            searcher.search(newValue)
+        }
+        .onAppear {
+            searcher.startDebouncedSearch()
+        }
+    }
+}
+```
+
+**Benefits of using AsyncAlgorithms**:
+- Automatic cancellation when new values arrive
+- Backpressure handling (producer respects consumer pace)
+- Cleaner code than manual Task.sleep management
+- No need to track and cancel tasks manually
+
+### Example: Notification Stream Migration
+
+**Before: Combine Publisher**
+
+```swift
+import Combine
+
+final class NotificationObserver: ObservableObject {
+    @Published private(set) var notifications: [AppNotification] = []
+    private var cancellables = Set<AnyCancellable>()
+
+    init() {
+        NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)
+            .compactMap { notification in
+                notification.object as? AppNotification
+            }
+            .receive(on: DispatchQueue.main)
+            .assign(to: &$notifications)
+    }
+}
+```
+
+**After: Standard Library Notifications**
+
+```swift
+@Observable
+final class NotificationObserver {
+    @MainActor private(set) var notifications: [AppNotification] = []
+
+    func startObserving() {
+        Task {
+            for await notification in NotificationCenter.default.notifications(named: UIApplication.didBecomeActiveNotification) {
+                if let appNotification = notification.object as? AppNotification {
+                    notifications.append(appNotification)
+                }
+            }
+        }
+    }
+}
+```
+
+**When to use each approach**:
+- Use `notifications(named:)` for standard system notifications
+- Use `AsyncChannel` for custom multi-consumer notification scenarios
+- Use `@Observable` + SwiftUI for UI state updates
+
+### Example: Multi-Source Data Loading
+
+**Before: Combine Merge**
+
+```swift
+import Combine
+
+final class MultiSourceLoader: ObservableObject {
+    @Published private(set) var items: [Item] = []
+    private var cancellables = Set<AnyCancellable>()
+
+    func loadFromAllSources() {
+        let source1 = APIClient.fetchItems(from: .source1)
+        let source2 = APIClient.fetchItems(from: .source2)
+        let source3 = APIClient.fetchItems(from: .source3)
+
+        Publishers.Merge3(source1, source2, source3)
+            .flatMap { items in
+                Just(items)
+                    .delay(for: .seconds(0.1), scheduler: DispatchQueue.main)
+            }
+            .scan([]) { accumulated, new in
+                accumulated + new
+            }
+            .receive(on: DispatchQueue.main)
+            .assign(to: &$items)
+            .store(in: &cancellables)
+    }
+}
+```
+
+**After: AsyncAlgorithms Merge + TaskGroup**
+
+```swift
+import AsyncAlgorithms
+
+@Observable
+final class MultiSourceLoader {
+    @MainActor private(set) var items: [Item] = []
+
+    func loadFromAllSources() async {
+        let sources = [
+            APIClient.fetchItems(from: .source1),
+            APIClient.fetchItems(from: .source2),
+            APIClient.fetchItems(from: .source3)
+        ]
+
+        Task { @MainActor in
+            for await stream in sources.map { $0.values }.merge() {
+                for await newItems in stream {
+                    self.items.append(contentsOf: newItems)
+                }
+            }
+        }
+    }
+
+    // Alternative: Using TaskGroup for parallel execution
+    func loadFromAllSourcesParallel() async {
+        await withTaskGroup(of: [Item].self) { group in
+            group.addTask {
+                await APIClient.fetchItems(from: .source1)
+            }
+            group.addTask {
+                await APIClient.fetchItems(from: .source2)
+            }
+            group.addTask {
+                await APIClient.fetchItems(from: .source3)
+            }
+
+            for await newItems in group {
+                await MainActor.run {
+                    self.items.append(contentsOf: newItems)
+                }
+            }
+        }
+    }
+}
+```
+
+**Key differences**:
+- Combine `merge()` combines publishers; AsyncAlgorithms `merge()` combines sequences
+- For parallel execution, use `TaskGroup` instead of `flatMap`
+- State updates can use `@MainActor` instead of `.receive(on:)`
+
+---
+
+## Anti-Patterns to Avoid
+
+### ❌ Don't Use Task.sleep for Debouncing
+
+```swift
+// ❌ Bad: Manual debouncing without backpressure
+func search(_ query: String) {
+    Task {
+        try? await Task.sleep(for: .milliseconds(500))
+        await performSearch(query)
+    }
+}
+```
+
+**Problem**: Every keystroke spawns a new task. If user types fast, multiple tasks execute simultaneously after 500ms, causing out-of-order results and wasted API calls.
+
+**Solution**: Use `debounce()` from AsyncAlgorithms for automatic backpressure and cancellation.
+
+### ❌ Don't Manually Combine Values
+
+```swift
+// ❌ Bad: Manual combination without operator
+actor FormValidator {
+    private var currentUsername: String = ""
+    private var currentEmail: String = ""
+    private var currentPassword: String = ""
+
+    func updateUsername(_ username: String) {
+        currentUsername = username
+        checkForm()
+    }
+
+    func updateEmail(_ email: String) {
+        currentEmail = email
+        checkForm()
+    }
+
+    func updatePassword(_ password: String) {
+        currentPassword = password
+        checkForm()
+    }
+
+    private func checkForm() {
+        let state = validate(
+            username: currentUsername,
+            email: currentEmail,
+            password: currentPassword
+        )
+        // Update UI or emit validation state
+    }
+}
+```
+
+**Problems**:
+- More state management
+- Boilerplate code for each field
+- Harder to add new fields
+- No stream composition benefits
+
+**Solution**: Use `combineLatest()` for cleaner, composable validation.
+
+### ❌ Don't Share Streams Without AsyncChannel
+
+```swift
+// ❌ Bad: Multiple consumers sharing same stream
+let stream = AsyncStream<Int> { continuation in
+    for i in 1...10 {
+        continuation.yield(i)
+    }
+    continuation.finish()
+}
+
+Task {
+    for await value in stream {
+        print("Consumer 1: \(value)")
+    }
+}
+
+Task {
+    for await value in stream {
+        print("Consumer 2: \(value)")
+    }
+}
+```
+
+**Problem**: Values are split between consumers unpredictably. Each value goes to only one consumer.
+
+**Solution**: Use `AsyncChannel` for true multi-consumer scenarios with backpressure.
+
+---
+
+---
+
 ## Concurrency-Safe Notifications (iOS 26+)
 
 Swift 6.2 introduces **typed, thread-safe notifications**.
@@ -700,6 +1075,14 @@ This is the "concurrency rabbit hole":
 > **Course Deep Dive**: This topic is covered in detail in [Lesson 12.11: Frequently Asked Questions (FAQ) around Swift 6 Migrations](https://www.swiftconcurrencycourse.com?utm_source=github&utm_medium=agent-skill&utm_campaign=lesson-reference)
 
 ---
+
+## Common Mistakes Agents Make
+
+- **Blanket `@MainActor`**: Do not slap `@MainActor` on everything to silence errors. Ask whether the code truly needs main-actor isolation.
+- **Mixing migration with unrelated refactors**: Focus solely on concurrency changes. Architectural improvements belong in separate PRs.
+- **Using `@unchecked Sendable` as a first response**: Prefer immutable value types or actors. Reserve escape hatches for documented, temporary exceptions.
+- **Giving pre-Swift 6.2 execution advice without checking the active feature set**: `nonisolated async` behavior depends on whether `NonisolatedNonsendingByDefault` is enabled.
+- **Using Approachable Concurrency without migrating feature-by-feature first**: Enable individual upcoming features before the full bundle to understand each change's impact.
 
 ## Summary
 

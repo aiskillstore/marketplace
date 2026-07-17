@@ -1,7 +1,6 @@
 ---
 name: quality-gates
-description: Guide agents through task complexity checks, requirement validation, blocked-state handling, and evidence-based completion gates.
-license: MIT
+description: Assess task complexity, validate requirements, and apply quality gates before implementation begins.
 ---
 
 # Quality Gates Skill

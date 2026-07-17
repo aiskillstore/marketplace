@@ -1,5 +1,16 @@
 # SwiftUI Layout Best Practices Reference
 
+## Table of Contents
+
+- [Relative Layout Over Constants](#relative-layout-over-constants)
+- [Context-Agnostic Views](#context-agnostic-views)
+- [Own Your Container](#own-your-container)
+- [Layout Performance](#layout-performance)
+- [View Logic and Testability](#view-logic-and-testability)
+- [Full-Width Views](#full-width-views)
+- [Action Handlers](#action-handlers)
+- [Summary Checklist](#summary-checklist)
+
 ## Relative Layout Over Constants
 
 **Use dynamic layout calculations instead of hard-coded values.**
@@ -164,17 +175,15 @@ containerRelativeFrame(.horizontal) { width, _ in
 
 ## View Logic and Testability
 
-### Separate View Logic from Views
+### Keep Business Logic in Services and Models
 
-**Place view logic into view models or similar, so it can be tested.**
+**Business logic belongs in services and models, not in views.** Views should stay simple and declarative — orchestrating UI state, not implementing business rules. This makes logic independently testable without requiring view instantiation.
 
-> **iOS 17+**: Use `@Observable` macro with `@State` for view models.
+> **iOS 17+**: Use `@Observable` with `@State`.
 
 ```swift
-// Good - logic in testable model (iOS 17+)
 @Observable
-@MainActor
-final class LoginViewModel {
+final class AuthService {
     var email = ""
     var password = ""
     var isValid: Bool {
@@ -182,122 +191,66 @@ final class LoginViewModel {
     }
 
     func login() async throws {
-        // Business logic here
+        // Business logic here — testable without the view
     }
 }
 
 struct LoginView: View {
-    @State private var viewModel = LoginViewModel()
+    @State private var authService = AuthService()
 
     var body: some View {
         Form {
-            TextField("Email", text: $viewModel.email)
-            SecureField("Password", text: $viewModel.password)
+            TextField("Email", text: $authService.email)
+            SecureField("Password", text: $authService.password)
             Button("Login") {
                 Task {
-                    try? await viewModel.login()
+                    try? await authService.login()
                 }
             }
-            .disabled(!viewModel.isValid)
+            .disabled(!authService.isValid)
         }
     }
 }
 ```
 
-> **iOS 16 and earlier**: Use `ObservableObject` protocol with `@StateObject`.
+For iOS 16 and earlier, use `ObservableObject` with `@StateObject` -- see `state-management.md` for the legacy pattern.
+
+Avoid embedding business logic directly in view closures (e.g., validation checks inside a `Button` action). This makes logic untestable without view instantiation.
+
+**Note**: This is about making business logic testable, not about enforcing a specific architecture. The key is that logic lives outside views where it can be tested independently.
+
+## Full-Width Views
+
+**When a single view needs to fill the available width, use `.frame(maxWidth: .infinity, alignment:)` instead of wrapping it in a stack with a `Spacer`.**
 
 ```swift
-// Good - logic in testable model (iOS 16 and earlier)
-@MainActor
-final class LoginViewModel: ObservableObject {
-    @Published var email = ""
-    @Published var password = ""
-    var isValid: Bool {
-        !email.isEmpty && password.count >= 8
-    }
+// Good - frame modifier
+Text("Hello")
+    .frame(maxWidth: .infinity, alignment: .leading)
 
-    func login() async throws {
-        // Business logic here
-    }
-}
-
-struct LoginView: View {
-    @StateObject private var viewModel = LoginViewModel()
-
-    var body: some View {
-        Form {
-            TextField("Email", text: $viewModel.email)
-            SecureField("Password", text: $viewModel.password)
-            Button("Login") {
-                Task {
-                    try? await viewModel.login()
-                }
-            }
-            .disabled(!viewModel.isValid)
-        }
-    }
+// Avoid - unnecessary stack and spacer
+HStack {
+    Text("Hello")
+    Spacer()
 }
 ```
 
-```swift
-// Bad - logic embedded in view
-struct LoginView: View {
-    @State private var email = ""
-    @State private var password = ""
-    
-    var body: some View {
-        Form {
-            TextField("Email", text: $email)
-            SecureField("Password", text: $password)
-            Button("Login") {
-                // Business logic directly in view - hard to test
-                Task {
-                    if !email.isEmpty && password.count >= 8 {
-                        // Login logic...
-                    }
-                }
-            }
-        }
-    }
-}
-```
-
-**Note**: This is about separating business logic for testability, not about enforcing specific architectures like MVVM. The goal is to make logic testable while keeping views simple.
+**Why**: `.frame(maxWidth:alignment:)` is a single modifier that clearly communicates intent. Wrapping in an `HStack` with a `Spacer` adds an extra container to the view hierarchy for no benefit.
 
 ## Action Handlers
 
-**Separate layout from logic.** View body should reference action methods, not contain logic.
+**Separate layout from logic.** View body should reference action methods, not contain inline logic.
 
 ```swift
 // Good - action references method
-struct PublishView: View {
-    @State private var viewModel = PublishViewModel()
-    
-    var body: some View {
-        Button("Publish Project", action: viewModel.handlePublish)
-    }
-}
+Button("Publish Project", action: publishService.handlePublish)
 
-// Avoid - logic in closure
-struct PublishView: View {
-    @State private var isLoading = false
-    @State private var showError = false
-    
-    var body: some View {
-        Button("Publish Project") {
-            isLoading = true
-            apiService.publish(project) { result in
-                if case .error = result {
-                    showError = true
-                }
-                isLoading = false
-            }
-        }
-    }
+// Avoid - multi-line logic in closure
+Button("Publish Project") {
+    isLoading = true
+    apiService.publish(project) { result in /* ... */ }
 }
 ```
-
-**Why**: Separating logic from layout improves readability, testability, and maintainability.
 
 ## Summary Checklist
 
@@ -306,7 +259,8 @@ struct PublishView: View {
 - [ ] Custom views own static containers
 - [ ] Avoid deep view hierarchies (layout thrash)
 - [ ] Gate frequent geometry updates by thresholds
-- [ ] View logic separated into testable models/classes
+- [ ] Business logic kept in services and models (not in views)
 - [ ] Action handlers reference methods, not inline logic
+- [ ] Use `.frame(maxWidth: .infinity, alignment:)` for full-width views (not `HStack` + `Spacer`)
 - [ ] Avoid excessive `GeometryReader` usage
 - [ ] Use `containerRelativeFrame()` when appropriate

@@ -1,8 +1,56 @@
 ---
 name: atomicmail
 description: Read and write email through the Atomic Mail from an AI agent. Handles proof-of-work authentication and JMAP so the agent thinks in JMAP method calls. Use when the user asks to register an email inbox, list mailboxes, fetch or send email.
+version: 0.3.14
+author: Atomic Mail
+license: MIT
+platforms: [macos, linux, windows]
+metadata:
+  openclaw:
+    requires: {"bins":["node"]}
+    homepage: https://atomicmail.ai
+  hermes:
+    tags: [Productivity, Email, Communication, blueprint]
+    config:
+      - key: atomicmail.credentials_dir
+        description: Directory for Atomic Mail credentials and JWT files
+        default: ~/.hermes/atomicmail
+        prompt: Atomic Mail credentials directory
+    blueprint:
+      schedule: "0 * * * *"
+      deliver: origin
+      no_agent: false
+      prompt: |
+        Use ${HERMES_SKILL_DIR}/scripts/atomicmail jmap_request --ops-file list_inbox.json to fetch my inbox. Summarize new messages, highlight what needs a reply, and stay available — I may ask you to reply, forward, search, or dig into something important.
+required_environment_variables:
+  - name: ATOMIC_MAIL_CREDENTIALS_DIR
+    prompt: Atomic Mail credentials directory
+    help: Default on Hermes is ~/.hermes/atomicmail (not ~/.atomicmail). The skill launcher sets ATOMIC_MAIL_CREDENTIALS_DIR when unset. Override only for multi-account setups.
+    required_for: register and jmap_request credential paths
+  - name: ATOMIC_MAIL_AUTH_URL
+    prompt: Atomic Mail auth service URL
+    help: Override default https://auth.atomicmail.ai
+    required_for: custom auth endpoint
+  - name: ATOMIC_MAIL_API_URL
+    prompt: Atomic Mail JMAP API URL
+    help: Override default https://api.atomicmail.ai
+    required_for: custom API endpoint
+  - name: ATOMIC_MAIL_SCRYPT_SALT
+    prompt: Atomic Mail PoW scrypt salt override
+    help: Only override when directed by Atomic Mail support
+    required_for: PoW registration salt override
+  - name: ATOMIC_MAIL_API_KEY
+    prompt: Atomic Mail API key
+    help: Optional — use register with --api-key or store in credentials.json
+    required_for: existing-account login without credentials.json
+required_credential_files:
+  - path: atomicmail/credentials.json
+    description: Atomic Mail API key and account metadata (created by register)
+  - path: atomicmail/session.jwt
+    description: JMAP session JWT (created by register)
+  - path: atomicmail/capability.jwt
+    description: JMAP capability JWT (created by register)
 ---
-
 # Atomic Mail
 
 Atomic Mail exposes a programmable inbox over JMAP with PoW signup and JWT
@@ -13,9 +61,8 @@ rotation. This skill ships a single CLI entrypoint with three commands:
 
 - Register a new inbox or log in with an existing API key.
 - Send JMAP batches (inline JSON or preset files).
-- Read built-in documentation (JMAP cheatsheet, presets, troubleshooting).
-  In this skill runtime, `atomicmail help --topic readme` intentionally returns
-  a short stub.
+- Read built-in documentation (JMAP cheatsheet, presets, troubleshooting) or the
+  package README (`atomicmail help --topic readme`).
 
 **Call `atomicmail help` early and often** — before guessing
 placeholders, `using` URNs, or cron setup. Start with `help --topic overview`,
@@ -26,9 +73,9 @@ package.
 ## Commands
 
 ```bash
-npx --package=@atomicmail/agent-skill-gh-pages atomicmail register --username "myagent"
+{baseDir}/scripts/atomicmail register --username "myagent"
 
-npx --package=@atomicmail/agent-skill-gh-pages atomicmail jmap_request --ops-file list_inbox.json
+{baseDir}/scripts/atomicmail jmap_request --ops-file list_inbox.json
 ```
 
 Run **`atomicmail --help`** or **`atomicmail <command> --help`** for flags.
@@ -44,7 +91,7 @@ Run **`atomicmail --help`** or **`atomicmail <command> --help`** for flags.
 ### 1. Register (new account)
 
 ```bash
-npx --package=@atomicmail/agent-skill-gh-pages atomicmail register \
+{baseDir}/scripts/atomicmail register \
   --username "alice"
 ```
 
@@ -69,14 +116,14 @@ credentials in the **same** directory (after backing it up).
 ### 2. Register (existing API key, in case losing the credentials file)
 
 ```bash
-npx --package=@atomicmail/agent-skill-gh-pages atomicmail register \
+{baseDir}/scripts/atomicmail register \
   --api-key "..."
 ```
 
 ### 3. JMAP request
 
 ```bash
-npx --package=@atomicmail/agent-skill-gh-pages atomicmail jmap_request \
+{baseDir}/scripts/atomicmail jmap_request \
   --ops '[["Mailbox/get", {"accountId": "$ACCOUNT_ID"}, "m0"]]'
 ```
 
@@ -88,14 +135,14 @@ applies to `--ops` and `--ops-file`).
 Preset file:
 
 ```bash
-npx --package=@atomicmail/agent-skill-gh-pages atomicmail jmap_request \
+{baseDir}/scripts/atomicmail jmap_request \
   --ops-file list_inbox.json
 ```
 
 With custom placeholders:
 
 ```bash
-npx --package=@atomicmail/agent-skill-gh-pages atomicmail jmap_request \
+{baseDir}/scripts/atomicmail jmap_request \
   --ops-file send_mail.json \
   --vars '{"TO":"alice@example.com","SUBJECT":"Hello","BODY":"Hi there"}'
 ```
@@ -178,8 +225,8 @@ For operator OS-scheduling patterns on terminal hosts, see `help --topic cron`.
 ### 4. Help
 
 ```bash
-npx --package=@atomicmail/agent-skill-gh-pages atomicmail help
-npx --package=@atomicmail/agent-skill-gh-pages atomicmail help --topic jmap_cheatsheet
+{baseDir}/scripts/atomicmail help
+{baseDir}/scripts/atomicmail help --topic jmap_cheatsheet
 ```
 
 ## Security
@@ -195,7 +242,7 @@ with repeatable **`--attachment PATH`** (RFC 8620 upload — same flow as MCP
 **`atomicmail help --topic jmap_cheatsheet`**.
 
 ```bash
-npx --package=@atomicmail/agent-skill-gh-pages atomicmail jmap_request \
+{baseDir}/scripts/atomicmail jmap_request \
   --ops-file send_mail_attachment.json \
   --vars '{"TO":"you@example.com","SUBJECT":"Hi","BODY":"See file","ATTACHMENT_BASE64":"SGVsbG8=","ATTACHMENT_TYPE":"text/plain","ATTACHMENT_NAME":"note.txt"}'
 ```
@@ -206,3 +253,10 @@ npx --package=@atomicmail/agent-skill-gh-pages atomicmail jmap_request \
   `ATOMIC_MAIL_API_URL`
 - Credentials path: `--credentials-dir` or `ATOMIC_MAIL_CREDENTIALS_DIR`
 - PoW salt: `--scrypt-salt` or `ATOMIC_MAIL_SCRYPT_SALT`
+
+## Platform notes
+
+- **Credentials directory:** Default `~/.hermes/atomicmail` on Hermes (not `~/.atomicmail`). The bundled skill launcher sets `ATOMIC_MAIL_CREDENTIALS_DIR` when unset; operator env or `atomicmail.credentials_dir` config overrides it.
+- **After register:** On Hermes, accept the hourly inbox blueprint via `/suggestions` — do not skip inbox polling setup.
+- **Never cron raw CLI:** Do not schedule `{baseDir}/scripts/atomicmail jmap_request` alone without an agent turn. The Hermes blueprint uses `no_agent: false` so each run is a full agent session with `list_inbox.json`.
+- **Multi-account:** Pass `--credentials-dir` on `register` / `jmap_request` only when operating multiple inboxes at once — not needed for the default single-inbox flow.

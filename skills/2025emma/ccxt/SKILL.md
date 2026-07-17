@@ -1,6 +1,6 @@
 ---
 name: ccxt
-description: CCXT cryptocurrency trading library for exchange APIs, market data, order management, and trading automation across 150+ exchanges.
+description: CCXT cryptocurrency trading library. Use for cryptocurrency exchange APIs, trading, market data, order management, and crypto trading automation across 150+ exchanges. Supports JavaScript/Python/PHP.
 ---
 
 # Ccxt Skill

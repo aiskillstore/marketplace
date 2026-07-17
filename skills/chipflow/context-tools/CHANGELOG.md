@@ -5,6 +5,271 @@ All notable changes to the context-tools plugin will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.16.0] - 2026-03-05
+
+### Added
+- **`save_session_context` MCP tool** - Claude can now save session insights (foci, learnings, dragons, narrative updates, open/resolved questions) directly to narrative.md and learnings.md before context compaction
+- **Direct context preservation** - PreCompact hook now instructs Claude to call `save_session_context` instead of spawning a background `claude -p` process, eliminating orphan process issues and 30-90s latency
+- **Concurrent write safety** - Lockfile with PID-based stale detection prevents corruption when multiple sessions write to the same narrative/learnings files
+- **Git-based update trigger** - After saving, drops `.update-narrative-trigger` file; MCP server picks it up on next tool call and spawns `update-context.sh` in background (owned by MCP server, not hook process group)
+
+### Changed
+- PreCompact hook no longer spawns `update-context.sh` directly — context saving is immediate via MCP tool
+
+## [0.15.6] - 2026-03-05
+
+### Fixed
+- **Auto-continue after plan completion** - Strengthened behavioral guidance so Claude calls `goal_update_step` immediately after finishing a plan's implementation, instead of stopping to report to the user
+
+## [0.15.5] - 2026-03-05
+
+### Fixed
+- **Auto-continue after plan approval** - ExitPlanMode hook now injects via `additionalContext` (not `systemMessage`) and directs Claude to start executing immediately
+
+## [0.15.4] - 2026-03-04
+
+### Fixed
+- **Stronger auto-continue after step completion** - When `goal_update_step` marks a step done, the hook now injects the full next-step context via `additionalContext` (not just a soft `systemMessage` nudge), with an explicit "ACTION REQUIRED: Continue immediately" directive
+
+## [0.15.3] - 2026-03-04
+
+### Added
+- **Plan-to-goal intercept** - PreToolUse hook on EnterPlanMode nudges Claude to create a goal first when no active goal exists, keeping plans scoped to individual steps
+
+## [0.15.1] - 2026-03-04
+
+### Fixed
+- **Process guardian** - New background watcher kills MCP servers and indexers when parent Claude session exits (prevents orphaned processes from accumulating across sessions)
+- **Orphan cleanup on start** - Session start now detects and kills context-daddy processes reparented to init (ppid=1)
+- **SessionEnd cleanup** - `on-exit.sh` now also kills `update-context.sh` background agents
+
+## [0.15.0] - 2026-03-04
+
+### Added
+- **Context injection tracking** - All hooks wrapped by `hook-runner.sh` which logs output sizes to `~/.claude/logs/context-injection.tsv`
+- **Collation script** - `uv run scripts/collate-injections.py` summarizes injection sizes by hook, session, and project
+- Supports `--detail`, `--by-session`, `--since 24h`, and `--tail N` options
+
+## [0.14.6] - 2026-03-02
+
+### Added
+- **Plan-to-goal capture** - PostToolUse hook on ExitPlanMode detects approved plan steps and nudges Claude to add them as goal steps, ensuring plan work persists across sessions
+
+## [0.14.5] - 2026-03-02
+
+### Added
+- **Step reordering/removal instructions** - Goal skill and context helper now explain how to rearrange or delete plan steps by editing the goal file directly
+
+## [0.14.4] - 2026-03-01
+
+### Fixed
+- **MCP permissions auto-installed** - No longer requires user consent prompt; wildcard allow rules added automatically on session start
+- **Goal-driven workflow guidance** - Context injection tells Claude to use goals instead of plans for multi-step tasks, and to auto-continue after completing a step
+- **PostToolUse nudge** - After completing a goal step, Claude is prompted to continue to the next one
+
+## [0.14.3] - 2026-03-01
+
+### Added
+- **StatusLine with goal tracking** - Auto-installs a status bar showing model, context %, cost, and active goal (slug + focused step)
+- Respects existing statusLine config - if one exists, injects guidance for Claude to help integrate goal tracking
+- StatusLine script updated silently on plugin updates
+
+## [0.14.2] - 2026-03-01
+
+### Fixed
+- **Goal context not showing on session resume** - f-string dict access broken inside single-quoted bash heredoc; switched to `.get()` with temp variables
+
+## [0.14.1] - 2026-03-01
+
+### Added
+- **Goals MCP server** - 11 tools for goal management via MCP (no Bash noise)
+  - `goal_create`, `goal_list`, `goal_show`, `goal_switch`, `goal_unset`
+  - `goal_focus`, `goal_update_step`, `goal_add_learning`, `goal_add_step`
+  - `goal_link_project`, `goal_archive`
+- **Step IDs** - Human-readable IDs auto-generated from step descriptions (e.g., `[fix-review]`)
+- **Goal slugs** - Human-readable aliases auto-generated from titles (e.g., `goal-tracking-functionality`)
+- **Step focus** - `/context-daddy:goal-focus` skill to set which step you're working on
+- **Project-scoped context** - Session startup shows active goal, focused step, filtered activity, and recent learnings
+- **PostToolUse hook** - Transient status update after goal changes
+- **Storage format v2** - Goals have slugs, steps have IDs, `.current-goal` format is `UUID:step-id`
+- **Migration** - `goals.py migrate` upgrades v1 goals to v2 in-place
+- **24 goal tests** - Comprehensive test coverage including focus, context, slugs, migration, backwards compat
+
+### Fixed
+- Empty plan section rebuild (regex now matches 0+ steps)
+- `goal_context` IndexError on malformed objectives
+- Stale `.current-goal` when all steps completed
+- Shell injection in goal-context-helper.sh (paths via env vars)
+- Substring match for duplicate project detection
+
+## [0.14.0] - 2026-03-01
+
+### Added
+- **Cross-session goal tracking** - Track multi-session objectives that persist across sessions and projects
+  - Goals stored globally in `~/.claude/goals/`
+  - Per-project index in `.claude/active-goals.json`
+  - Active goal shown in session startup, post-compaction, and subagent context
+  - Commits auto-tracked in goal's Recent Activity
+- **Goal skill commands** - `/context-daddy:goal`, `/context-daddy:goal-new`, `/context-daddy:goal-done`
+
+## [0.9.6] - 2026-01-16
+
+### Added
+- **Plugin configuration validation tests** - Comprehensive testing to prevent configuration bugs
+  - `tests/test_plugin_config.py` - 7 static validation tests
+    - Validates plugin.json has all required fields (including `hooks`)
+    - Verifies hooks.json structure and referenced scripts exist
+    - Checks version format and marketplace.json consistency
+  - `.github/workflows/test-hooks.yml` - E2E hook execution test
+    - Actually loads plugin into Claude Code
+    - Tests SessionStart, PreCompact, and Stop hooks
+    - Verifies hooks fire and create expected side effects
+  - Added to CI pipeline - runs on every push
+  - **Would have caught v0.9.4 bug** - missing `hooks` field now fails CI
+
+### Changed
+- CI now runs comprehensive plugin validation after JSON syntax checks
+
+## [0.9.5] - 2026-01-16
+
+### Fixed
+- **CRITICAL: Stop hook not loading** - Added missing `hooks` field to plugin.json
+  - Stop hook (post-compaction reorientation) wasn't being registered
+  - All hooks were silently ignored since v0.9.0
+  - Now properly references `hooks/hooks.json` in plugin manifest
+
+## [0.9.4] - 2026-01-16
+
+### Added
+- **Database versioning** - Added `DB_VERSION = 1` constant for future schema migrations
+  - Stored in metadata table as `db_version`
+  - Enables safe schema changes and version checking in the future
+
+### Changed
+- **Removed plugin version cleanup** - No longer deletes old plugin versions at session start
+  - Previous cleanup broke concurrent Claude sessions using different plugin versions
+  - Prevents conflicts when multiple sessions run in the same project directory
+  - Users can manually clean up old versions if needed
+
+## [0.9.3] - 2026-01-16
+
+### Changed
+- **Learnings reminder in Stop hook** - Moved learnings update reminder to post-compaction block
+  - Stop hook now prompts to update learnings.md BEFORE restoring context
+  - More effective than precompact reminder (which gets lost during compaction)
+  - Claude sees reminder right when being forced to restore context
+
+## [0.9.2] - 2026-01-14
+
+### Fixed
+- **Progress percentage bug** - Fixed 5800% indexing progress display
+  - generate-repo-map.py now includes `files_to_parse` in final "complete" status
+  - session-start.sh falls back to `files_total` instead of defaulting to 1
+  - Prevents divide-by-one error when `files_to_parse` is missing
+
+## [0.9.1] - 2026-01-09
+
+### Added
+- **Markdown navigation tools** - Navigate large markdown documentation files efficiently
+  - `md_outline(file_path)` - Get hierarchical heading structure (table of contents)
+  - `md_get_section(file_path, heading)` - Extract content under specific heading
+  - `md_list_tables(file_path)` - List all tables with headers and context
+  - `md_get_table(file_path, index)` - Get full table content by index
+  - `md_list_figures(file_path)` - List all images/figures with alt text and paths
+  - All return clean markdown format for easy reading
+
+### Use Cases
+- Navigate large CLAUDE.md, learnings.md, or API documentation
+- Extract specific sections without reading entire files
+- Find and compare benchmark tables
+- Locate images and diagrams
+- Pairs perfectly with post-compaction reorientation (fetch specific sections)
+
+### Examples
+```markdown
+## md_outline(".claude/learnings.md")
+- Project Learnings (line 1)
+  - OSDI Python Bindings (line 3)
+  - JAX Circuit Evaluation (line 15)
+    - Performance Optimization (line 20)
+
+## md_list_tables("docs/benchmarks.md")
+1. Line 23: | Test Case | Time (ms) | Memory (MB) |
+2. Line 45: | Framework | Score |
+
+## md_list_figures("README.md")
+1. Line 46: Architecture Diagram -> ./images/arch.png
+```
+
+## [0.9.0] - 2026-01-09
+
+### Changed
+- **BREAKING: Switched to Stop hook pattern for post-compaction reorientation** - Much more effective!
+  - Inspired by [context-forge](https://github.com/webdevtodayjason/claude-hooks) approach
+  - Stop hook **BLOCKS Claude** until context is restored (vs passive injection in v0.8.14)
+  - Returns `{"decision": "block", "reason": "Instructions..."}` to force action
+  - Makes Claude **actively read files** instead of passively receiving injected content
+  - 5-minute window for detecting recent compaction
+
+### How It Works Now
+1. **PreCompact**: Creates `.claude/needs-reorientation` marker file
+2. **Compaction happens** (Claude Code does this)
+3. **Claude finishes response** → Stop hook fires
+4. **Stop hook detects marker** (if <5 min old) → **BLOCKS Claude**
+5. **Claude must read** CLAUDE.md, learnings.md, and query MCP tools to restore context
+6. Marker removed (one-time per compaction)
+
+### Why This Is Better
+- ✅ **Blocks Claude** - Can't continue without reading files (vs passive prompt injection)
+- ✅ **Active restoration** - Claude reads and processes files (more effective than passive text)
+- ✅ **Uses existing files** - CLAUDE.md, learnings.md (no generated content needed)
+- ✅ **Proven pattern** - Based on context-forge's successful implementation
+- ✅ **5-minute window** - Prevents stale marker triggering
+
+### Removed
+- UserPromptSubmit hook approach (replaced with Stop hook)
+- `post-compact-reorient.sh` (replaced with `stop-reorient.sh`)
+
+## [0.8.15] - 2026-01-09
+
+### Changed
+- **All MCP tools now return markdown instead of JSON** - Major improvement for Claude readability
+  - `search_symbols()` - Returns formatted list with `**Name** (kind) - path:line` and docstrings
+  - `get_file_symbols()` - Returns organized symbol list with signatures and docs
+  - `get_symbol_content()` - Returns formatted markdown with syntax-highlighted code blocks
+  - `list_files()` - Returns grouped file list organized by directory
+  - Clean, scannable format with headers, bullet points, and inline code
+  - Error messages now use emoji (❌) for quick visual scanning
+
+### Benefits
+- ✅ Much easier for Claude to read and understand
+- ✅ Natural markdown format instead of raw JSON structures
+- ✅ Syntax highlighting in code blocks
+- ✅ Hierarchical organization (headings, grouped content)
+- ✅ Inline documentation and docstrings included where available
+
+## [0.8.14] - 2026-01-09
+
+### Added
+- **Post-compaction reorientation system** - Automatically restores context after `/compact`
+  - PreCompact hook creates `.claude/needs-reorientation` flag
+  - UserPromptSubmit hook detects flag and prepends reorientation context to first prompt after compaction
+  - Context includes: MCP tools reminder, project structure, key components, recent learnings
+  - All formatted in clean, scannable markdown
+  - Flag automatically removed after first use
+- **Enhanced learnings reminder** - Added "Solution approaches discussed and agreed with user" to precompact message
+
+### Changed
+- **Improved reorientation format** - Switched from raw SQL/JSON output to clean markdown
+  - Section headings: `## MCP Tools Available`, `## Project Structure`, etc.
+  - Inline code formatting with backticks
+  - File locations shown as `path:line`
+  - Natural, hierarchical structure for quick scanning
+
+### Fixed
+- **Context loss after compaction** - Claude no longer forgets major implementations (like OSDI Python bindings) after `/compact`
+- **MCP tools reminder after compaction** - Claude receives fresh reminder to use MCP tools instead of Search/Grep
+
 ## [0.8.13] - 2026-01-09
 
 ### Changed

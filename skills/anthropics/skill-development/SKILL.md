@@ -163,7 +163,7 @@ Also, delete any example files and directories not needed for the skill. Create 
 
 ```yaml
 ---
-name: Skill Name
+name: skill-development
 description: This skill should be used when the user asks to "specific phrase 1", "specific phrase 2", "specific phrase 3". Include exact phrases users would say that should trigger this skill. Be concrete and specific.
 version: 0.1.0
 ---

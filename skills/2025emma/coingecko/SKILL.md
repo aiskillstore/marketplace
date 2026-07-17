@@ -1,7 +1,6 @@
 ---
 name: coingecko
-description: CoinGecko API documentation for cryptocurrency market data, authentication, endpoints, SDK use, and MCP setup.
-license: MIT
+description: CoinGecko API documentation - cryptocurrency market data API, price feeds, market cap, volume, historical data. Use when integrating CoinGecko API, building crypto price trackers, or accessing cryptocurrency market data.
 ---
 
 # Coingecko Skill
