@@ -1,5 +1,5 @@
 ---
-name: context-tools
+name: context-daddy
 description: Context management tools for Claude Code - provides intelligent codebase mapping with Python, Rust, and C++ parsing, duplicate detection, and MCP-powered symbol queries. Use this skill when working with large codebases that need automated indexing and context management.
 ---
 
@@ -45,9 +45,9 @@ Am I searching for code symbols (functions, classes, enums, structs, types)?
 - Cross-file text pattern searches
 
 **Tool availability check:**
-Before attempting to use MCP tools (mcp__plugin_context-tools_repo-map__*), check if `.claude/repo-map.db` exists:
+Before attempting to use MCP tools (mcp__plugin_context-daddy_repo-map__*), check if `.claude/repo-map.db` exists:
 - If YES: Try the MCP tool. If it fails (not available), use sqlite3 fallback.
-- If NO: The project hasn't been indexed yet. Either wait for indexing or run `/context-tools:repo-map` to generate it.
+- If NO: The project hasn't been indexed yet. Either wait for indexing or run `/context-daddy:repo-map` to generate it.
 
 **Fallback order:**
 1. Try MCP tool first
@@ -66,7 +66,7 @@ Problems: Slow, error-prone pattern matching, gets interrupted on large codebase
 
 **Efficient approach** (DO THIS):
 ```
-mcp__plugin_context-tools_repo-map__search_symbols
+mcp__plugin_context-daddy_repo-map__search_symbols
 pattern: "setup_*"
 ```
 Result: Instant list of all `setup_model`, `setup_instance`, etc. with locations and signatures.
@@ -80,13 +80,13 @@ find . -name "*.py" -exec grep -l "class.*Config" {} \;
 
 **Efficient approach** (DO THIS):
 ```
-mcp__plugin_context-tools_repo-map__search_symbols
+mcp__plugin_context-daddy_repo-map__search_symbols
 pattern: "*Config*"
 kind: "class"
 ```
 Then get the source:
 ```
-mcp__plugin_context-tools_repo-map__get_symbol_content
+mcp__plugin_context-daddy_repo-map__get_symbol_content
 name: "ConfigLoader"
 ```
 
@@ -99,7 +99,7 @@ grep "^def " src/utils.py
 
 **Efficient approach** (DO THIS):
 ```
-mcp__plugin_context-tools_repo-map__get_file_symbols
+mcp__plugin_context-daddy_repo-map__get_file_symbols
 file: "src/utils.py"
 ```
 Result: Complete list of all functions/classes with signatures and docstrings.
@@ -117,10 +117,10 @@ Problems: Multiple searches, manual parsing, easy to miss correct variant.
 
 **Efficient approach** (DO THIS):
 ```
-mcp__plugin_context-tools_repo-map__search_symbols
+mcp__plugin_context-daddy_repo-map__search_symbols
 pattern: "InstructionData"
 
-mcp__plugin_context-tools_repo-map__get_symbol_content
+mcp__plugin_context-daddy_repo-map__get_symbol_content
 name: "InstructionData"
 ```
 Result: Complete enum with all variants visible, including `PhiNode(_)`.
@@ -129,11 +129,11 @@ Result: Complete enum with all variants visible, including `PhiNode(_)`.
 
 **IMPORTANT**: If the user has just installed this plugin:
 
-> "I see you've installed the context-tools plugin. The MCP server should auto-configure on restart. After restarting Claude Code, run `/mcp` to verify the `repo-map` server is loaded.
+> "I see you've installed the context-daddy plugin. The MCP server should auto-configure on restart. After restarting Claude Code, run `/mcp` to verify the `repo-map` server is loaded.
 >
-> If it doesn't load automatically, let me know and I can help troubleshoot using `/context-tools:setup-mcp`."
+> If it doesn't load automatically, let me know and I can help troubleshoot using `/context-daddy:setup-mcp`."
 
-The MCP server auto-configures from the plugin manifest. Only if auto-config fails should you run `/context-tools:setup-mcp` for troubleshooting.
+The MCP server auto-configures from the plugin manifest. Only if auto-config fails should you run `/context-daddy:setup-mcp` for troubleshooting.
 
 ## Included Components
 
@@ -180,25 +180,25 @@ Keys:
 - **Behavior**: Most tools wait for completion, repo_map_status does not (use to check progress)
 
 **Available MCP Tools:**
-- `mcp__plugin_context-tools_repo-map__search_symbols` - Search symbols by pattern (supports glob wildcards)
+- `mcp__plugin_context-daddy_repo-map__search_symbols` - Search symbols by pattern (supports glob wildcards)
   - Returns: name, kind, signature, file_path, line_number, docstring, parent
   - **AUTO-WAIT**: If indexing is in progress, automatically waits up to 60s for completion
-- `mcp__plugin_context-tools_repo-map__get_file_symbols` - Get all symbols in a specific file
+- `mcp__plugin_context-daddy_repo-map__get_file_symbols` - Get all symbols in a specific file
   - Returns: All symbols with full metadata
   - **AUTO-WAIT**: If indexing is in progress, automatically waits up to 60s for completion
-- `mcp__plugin_context-tools_repo-map__get_symbol_content` - Get full source code of a symbol by exact name
+- `mcp__plugin_context-daddy_repo-map__get_symbol_content` - Get full source code of a symbol by exact name
   - Returns: symbol metadata + content (source code text) + location
   - **AUTO-WAIT**: If indexing is in progress, automatically waits up to 60s for completion
-- `mcp__plugin_context-tools_repo-map__list_files` - List all indexed files, optionally filtered by glob pattern
+- `mcp__plugin_context-daddy_repo-map__list_files` - List all indexed files, optionally filtered by glob pattern
   - Returns: list of file paths matching pattern (e.g., "*.va", "*psp103*", "**/devices/*")
   - **MUCH faster than find/ls** - queries pre-built index instead of filesystem traversal
   - **AUTO-WAIT**: If indexing is in progress, automatically waits up to 60s for completion
-- `mcp__plugin_context-tools_repo-map__reindex_repo_map` - Trigger manual reindex
+- `mcp__plugin_context-daddy_repo-map__reindex_repo_map` - Trigger manual reindex
   - Does NOT auto-wait (use to force reindex)
-- `mcp__plugin_context-tools_repo-map__repo_map_status` - Check indexing status and staleness
+- `mcp__plugin_context-daddy_repo-map__repo_map_status` - Check indexing status and staleness
   - Returns: index_status (idle/indexing/completed/failed), symbol_count, last_indexed, indexing_duration_seconds
   - Does NOT auto-wait (use to check status)
-- `mcp__plugin_context-tools_repo-map__wait_for_index` - Explicitly wait for indexing to complete
+- `mcp__plugin_context-daddy_repo-map__wait_for_index` - Explicitly wait for indexing to complete
   - Takes: timeout_seconds (default: 60)
   - Returns: success (bool), message (str)
   - Use when you want to wait longer than the default 60s auto-wait timeout
@@ -215,10 +215,10 @@ sqlite3 .claude/repo-map.db "SELECT * FROM symbols WHERE name = 'function_name'"
 ```
 
 ### Slash Commands
-- `/context-tools:repo-map` - Regenerate repository map
-- `/context-tools:manifest` - Refresh project manifest
-- `/context-tools:learnings` - Manage project learnings
-- `/context-tools:status` - Show plugin status
+- `/context-daddy:repo-map` - Regenerate repository map
+- `/context-daddy:manifest` - Refresh project manifest
+- `/context-daddy:learnings` - Manage project learnings
+- `/context-daddy:status` - Show plugin status
 
 ## Language Support
 

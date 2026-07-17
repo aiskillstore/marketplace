@@ -23,7 +23,7 @@
 - 美团热敏打印机默认端口通常为 `9100`
 - Web 管理后台依赖 `flask` 和 `apscheduler`
 
-双击启动脚本会自动检查并安装 Web 依赖；如果手动安装，可执行：
+启动入口会自动检查并安装 Web 依赖；如果手动安装，可执行：
 
 ```bash
 python3 -m pip install flask apscheduler
@@ -40,20 +40,20 @@ Windows 环境可将 `python3` 替换为 `python`。
 macOS：
 
 ```bash
-bash scripts/start.command
+python3 scripts/start_web_admin.py
 ```
 
 Windows：
 
 ```bat
-scripts\start.bat
+python scripts\start_web_admin.py
 ```
 
 也可以直接运行后端：
 
 ```bash
 cd scripts
-python3 web_admin.py
+python3 start_web_admin.py
 ```
 
 启动后访问：
@@ -62,7 +62,7 @@ python3 web_admin.py
 http://localhost:5000
 ```
 
-如果 `5000` 端口被占用，程序会自动切换到：
+如果 `5000` 端口被占用，程序会自动选择 `5001` 起的可用端口，例如：
 
 ```text
 http://localhost:5001
@@ -106,6 +106,18 @@ python3 scripts/print_to_printer.py --name 后厨 --title "通知" --content "�
 
 本项目根目录已经包含 `SKILL.md`，可以作为一个本地 AI 技能接入 QClaw 或 WorkBuddy。接入后，AI 可以根据自然语言自动调用本项目脚本，完成打印、配置查询、连通性检测、打开 Web 后台等操作。
 
+### 直接发给 QClaw / WorkBuddy 的安装指令
+
+可以直接把下面这段话发给 QClaw、WorkBuddy 等小龙虾，让它自动完成 SkillHub 检查、安装和初始化：
+
+```text
+请先检查是否已安装 SkillHub 商店，若未安装，请根据 https://skillhub.cn/install/skillhub.md 安装 SkillHub 商店，然后安装 meituan-printer 技能。
+
+若已安装，则直接安装 meituan-printer 技能。
+
+安装 meituan-printer 技能后，初始化配置，并启动管理后台。
+```
+
 ### 接入前准备
 
 先确认本地命令可用：
@@ -118,13 +130,13 @@ python3 scripts/check_printer.py --ip 192.168.3.172 --port 9100
 如果还没有配置打印机，建议先启动 Web 后台并添加打印机：
 
 ```bash
-bash scripts/start.command
+python3 scripts/start_web_admin.py
 ```
 
 Windows 使用：
 
 ```bat
-scripts\start.bat
+python scripts\start_web_admin.py
 ```
 
 ### 通过 QClaw 接入
@@ -265,8 +277,7 @@ meituan-printer/
     ├── platform_utils.py
     ├── print_to_printer.py
     ├── printer_types.json
-    ├── start.bat
-    ├── start.command
+    ├── start_web_admin.py
     ├── tasks.json
     ├── web_admin.py
     └── templates/
@@ -318,8 +329,8 @@ scripts/config.json
 
 | 现象 | 可能原因 | 处理方式 |
 | --- | --- | --- |
-| Web 后台打不开 | 服务未启动或端口变化 | 重新运行启动脚本，并查看终端输出的访问地址 |
-| `localhost:5000` 无法访问 | 5000 被占用 | 尝试访问 `http://localhost:5001` |
+| Web 后台打不开 | 服务未启动或端口变化 | 重新运行 `python3 scripts/start_web_admin.py`，并查看终端输出的访问地址 |
+| `localhost:5000` 无法访问 | 5000 被占用 | 查看终端输出，访问自动选择的 `5001` 起可用端口 |
 | 打印连接超时 | 打印机离线、IP 错误或不在同一局域网 | 检查电源、网络和 IP 地址 |
 | 连接被拒绝 | 端口错误或打印服务未就绪 | 确认端口为 `9100`，重启打印机后再试 |
 | 找不到别名 | 尚未配置或别名输入不一致 | 运行 `python3 scripts/print_to_printer.py --list` 查看 |

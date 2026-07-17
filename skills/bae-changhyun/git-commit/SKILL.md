@@ -134,12 +134,14 @@ Format: `emoji type(scope): subject`
 | 📸 | Snapshots |
 | ⚗️ | Experiments |
 
-## Commit Scope (Logical Atomicity)
+## Commit Scope (Task/Request Unit)
 
-**MUST FOLLOW:** Do not commit per file. Commit per **feature unit**.
+**MUST FOLLOW:** Default to **one commit per task/request**, not per file and not per work unit.
 
-- **Principle:** If you modified `main.py`, `utils.py`, `config.yaml` to develop Feature A, these 3 files **MUST be in a single commit**.
-- **Reason:** When reverting to a specific commit, that feature should work completely.
+- **Principle:** When the user asks for one thing, the result is normally **one commit**, even if it touched many files or went through several internal steps. If you modified `main.py`, `utils.py`, `config.yaml` to deliver the request, these **MUST be in a single commit**.
+- **Combine when in doubt.** A clean log of a few meaningful commits beats many micro-commits.
+- **Split only for genuinely unrelated concerns** (e.g. an unrelated bugfix landed alongside the feature) — and even then aim for 2–3 commits max, never one-per-file.
+- **Reason:** When reverting to a specific commit, that delivered request should work completely.
 
 **❌ Bad Example** (파일별로 분리 커밋 - 기능 단위가 아님)
 ```bash
@@ -258,26 +260,21 @@ EOF
 
 ## Commit Split Guidelines
 
-When analyzing diffs, consider splitting commits based on:
+**Default is NOT to split.** One task/request → one commit (see "Commit Scope" above). Do **not** split by change-type, file-pattern, or "easier to review" — that produces over-splitting (20+ commits/day) and is explicitly discouraged.
 
-| Criteria | Description |
-|----------|-------------|
-| **Different concerns** | Changes to unrelated parts of codebase |
-| **Change types** | Feature vs bug fix vs refactoring |
-| **File patterns** | Source code vs documentation vs config |
-| **Logical grouping** | Changes easier to review separately |
-| **Size** | Very large changes that benefit from granularity |
+Split into a SEPARATE commit **only** when genuinely **unrelated concerns** ended up mixed in one batch — e.g. an unrelated bugfix or dependency bump landed alongside the requested feature. Even then aim for **2–3 commits max**, never one-per-file and never one-per-change-type.
 
-**Split Example:**
+**Example — keep together (DON'T over-split):** a feature plus its docs, types, tests, and the lint fixes it required are **all one commit** — they deliver a single request.
+
 ```
-1st: ✨ feat: add new solc version type definitions
-2nd: 📝 docs: update documentation for new solc version
-3rd: 🔧 chore: update package.json dependencies
-4th: 🏷️ feat: add type definitions for new API endpoints
-5th: 🧵 feat: improve worker thread concurrency handling
-6th: 🚨 fix: resolve linting issues in new code
-7th: ✅ test: add unit tests for new solc version features
-8th: 🔒️ fix: update dependencies for security vulnerabilities
+✨ feat(solc): add new solc version support with types, docs, and tests
+```
+
+Only carve out a second commit if something truly unrelated rode along:
+
+```
+1st: ✨ feat(solc): add new solc version support with types, docs, and tests
+2nd: 🔒️ fix(deps): patch unrelated security vulnerability in lockfile
 ```
 
 ## Pre-Commit Checklist
@@ -309,11 +306,31 @@ Before creating a commit, ask yourself:
 ♿️ feat: improve form accessibility for screen readers
 ```
 
+## Language Rule
+
+**MUST FOLLOW:** The commit message language should match the repository's existing commit history.
+
+Before writing a commit message:
+1. Run `git log --oneline -5` to check recent commit messages
+2. Use the same language as the existing commits
+3. If commits are in Korean, write in Korean. If in English, write in English.
+
+```bash
+# Check recent commit language
+git log --oneline -5
+```
+
+**Examples:**
+- If recent commits are `"✨ feat: 로그인 기능 추가"` → Write in Korean
+- If recent commits are `"✨ feat: add login feature"` → Write in English
+
 ## Important Rules
 
+- **ALWAYS** check recent commit history to determine commit message language
 - **ALWAYS** check project conventions (CLAUDE.md) before committing
 - **ALWAYS** review staged changes before committing
-- **ALWAYS** commit per feature unit, not per file
+- **ALWAYS** commit per task/request (one commit), not per file or per change-type; combine when in doubt
+- **ALWAYS** set local git email by remote host before committing: GitLab/`gcsc.co.kr` → `chbae@gcsc.co.kr`, `github.com` → `chbae624@gmail.com` (only if it doesn't already match)
 - **ALWAYS** write result-oriented messages (final changes only)
 - **ALWAYS** use imperative mood in subject ("add", not "added")
 - **ALWAYS** include appropriate emoji at the start

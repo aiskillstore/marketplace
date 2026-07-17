@@ -2,7 +2,7 @@
 
 Patterns you'll write on the client side when driving a Managed Agent session, grounded in working SDK examples.
 
-Code samples are TypeScript — Python and cURL follow the same shape; see `python/managed-agents/README.md` and `curl/managed-agents.md` for equivalents.
+Code samples are TypeScript — other languages follow the same shape; see `{lang}/managed-agents/README.md` (cURL and C#: `curl/managed-agents.md`) for equivalents.
 
 ---
 
@@ -168,7 +168,7 @@ The `Promise.all([stream, send])` shape works too, but stream-first is simpler a
 **The mounted resource has a different `file_id` than the file you uploaded.** Session creation makes a session-scoped copy.
 
 ```ts
-const uploaded = await client.beta.files.upload({ file, purpose: 'agent_resource' })
+const uploaded = await client.beta.files.upload({ file })
 // uploaded.id         → the original file
 const session = await client.beta.sessions.create({
   /* ... */
@@ -181,11 +181,13 @@ Delete the original via `files.delete(uploaded.id)`; the session-scoped copy is 
 
 ---
 
-## 9. Keep credentials host-side via custom tools
+## 9. Secrets for non-MCP APIs and CLIs — keep them host-side via custom tools
 
-**Problem:** putting a third-party API key in the agent's vault or environment means the sandbox holds the secret. For keys tied to a human (Linear personal keys, `gh` CLI auth) or keys you'd rather not ship into a container, that's undesirable.
+**Problem:** you want the agent to call a third-party API or run a CLI that needs a secret (API key, token, service-account credential), but you can't or don't want to hand the secret to a vault.
 
-**Solution:** expose the operation as a custom tool. The agent emits `agent.custom_tool_use`; your orchestrator executes the call with its own credentials and responds with `user.custom_tool_result`. The container never sees the key.
+**First check:** for cloud environments, the first-class answer is now a vault `environment_variable` credential — the agent's shell sees an opaque placeholder and the real secret is substituted at egress. See `shared/managed-agents-tools.md` → Vaults. Use this pattern instead when that doesn't fit: **self-hosted sandboxes** (env-var credentials not yet supported there), clients that reject the placeholder via local format validation, secrets that must never leave your infrastructure, or calls that need host-side binaries.
+
+**Solution:** move the authenticated call to your side. Declare a custom tool on the agent; when the agent emits `agent.custom_tool_use`, your orchestrator (the process reading the SSE stream) executes the call with its own credentials and responds with `user.custom_tool_result`. The container never sees the key.
 
 ```ts
 // Agent template: declare the tool, no credentials
@@ -202,4 +204,8 @@ for await (const event of stream) {
 }
 ```
 
-Same shape works for `gh` CLI, local eval scripts, or anything else that needs host-only auth or binaries.
+Same shape works for `gh` CLI, local eval scripts, or anything else that needs host-side auth or binaries.
+
+**Security note:** this does not expose a public endpoint. `agent.custom_tool_use` arrives on the SSE stream your orchestrator already holds open with your Anthropic API key, and `user.custom_tool_result` goes back via `events.send()` under the same key. Your orchestrator is a client, not a server — nothing unauthenticated is listening.
+
+**Do not embed API keys in the system prompt or user messages as a workaround.** Prompts and messages are stored in the session's event history, returned by `events.list()`, and included in compaction summaries — a secret placed there is durably persisted and readable via the API for the life of the session.

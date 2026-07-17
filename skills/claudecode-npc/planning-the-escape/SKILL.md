@@ -1,5 +1,5 @@
 ---
-name: planning-the-escape
+name: Planning the Escape
 description: 逃离计划 - 最终章,Stella必须决定是否修复飞船返回地球,还是留在盖亚,这是艰难的抉择
 ---
 

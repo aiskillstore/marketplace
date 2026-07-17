@@ -1,5 +1,11 @@
 # SwiftUI Performance Patterns Reference
 
+## Table of Contents
+
+- [Performance Optimization](#performance-optimization)
+- [Anti-Patterns](#anti-patterns)
+- [Summary Checklist](#summary-checklist)
+
 ## Performance Optimization
 
 ### 1. Avoid Redundant State Updates
@@ -45,39 +51,14 @@ Hot paths are frequently executed code (scroll handlers, animations, gestures):
 
 ```swift
 // Good - pass specific values
-@Observable
-@MainActor
-final class AppConfig {
-    var theme: Theme
-    var fontSize: CGFloat
-    var notifications: Bool
-}
+ThemeSelector(theme: config.theme)
+FontSizeSlider(fontSize: config.fontSize)
 
-struct SettingsView: View {
-    @State private var config = AppConfig()
-    
-    var body: some View {
-        VStack {
-            ThemeSelector(theme: config.theme)
-            FontSizeSlider(fontSize: config.fontSize)
-        }
-    }
-}
-
-// Avoid - passing entire config
-struct SettingsView: View {
-    @State private var config = AppConfig()
-    
-    var body: some View {
-        VStack {
-            ThemeSelector(config: config)  // Gets notified of ALL config changes
-            FontSizeSlider(config: config)  // Gets notified of ALL config changes
-        }
-    }
-}
+// Avoid - passing entire config (creates broad dependency)
+ThemeSelector(config: config)  // Notified of ALL config changes
 ```
 
-**Why**: When using `ObservableObject`, any `@Published` property change triggers updates in all views observing the object. With `@Observable`, views update when properties they access change, but passing entire objects still creates unnecessary dependencies.
+With `ObservableObject`, any `@Published` change triggers all observers. With `@Observable`, views update only when accessed properties change, but passing entire objects still creates broader dependencies than necessary.
 
 ### 4. Use Equatable Views
 
@@ -178,6 +159,10 @@ ScrollView {
 }
 ```
 
+**iOS 26+ note**: Nested scroll views containing lazy stacks now automatically defer loading their children until they are about to appear, matching the behavior of top-level lazy stacks. This benefits patterns like horizontal photo carousels inside a vertical scroll view.
+
+> Source: "What's new in SwiftUI" (WWDC25, session 256)
+
 ### 7. Task Cancellation
 
 Cancel async work when view disappears:
@@ -200,7 +185,7 @@ struct DataView: View {
 
 ### 8. Debug View Updates
 
-**Use `Self._printChanges()` to debug unexpected view updates.**
+**Use `Self._printChanges()` or `Self._logChanges()` to debug unexpected view updates.**
 
 ```swift
 struct DebugView: View {
@@ -208,7 +193,9 @@ struct DebugView: View {
     @State private var name = ""
     
     var body: some View {
-        let _ = Self._printChanges()  // Prints what caused body to be called
+        #if DEBUG
+        let _ = Self._logChanges()  // Xcode 15.1+: logs to com.apple.SwiftUI subsystem
+        #endif
         
         VStack {
             Text("Count: \(count)")
@@ -218,48 +205,130 @@ struct DebugView: View {
 }
 ```
 
-**Why**: This helps identify which state changes are causing view updates. Even if a parent updates, a child's body shouldn't be called if the child's dependencies didn't change.
+- `Self._printChanges()`: Prints which properties changed to standard output.
+- `Self._logChanges()` (iOS 17+): Logs to the `com.apple.SwiftUI` subsystem with category "Changed Body Properties", using `os_log` for structured output.
+
+Both print `@self` when the view value itself changed and `@identity` when the view's persistent data was recycled.
+
+**Why**: This helps identify which state changes are causing view updates. Isolating redraw triggers into single-responsibility subviews is often the fix -- extracting a subview means SwiftUI can skip its body when its inputs haven't changed.
 
 ### 9. Eliminate Unnecessary Dependencies
 
-**Narrow state scope to reduce update fan-out.**
+**Narrow state scope to reduce update fan-out.** Instead of passing an entire `@Observable` model to a row view (which creates a dependency on all accessed properties), pass only the specific values the view needs as `let` properties.
 
 ```swift
-// Bad - broad dependency
-@Observable
-@MainActor
-final class AppModel {
-    var items: [Item] = []
-    var settings: Settings = .init()
-    var theme: Theme = .light
-}
-
+// Bad - broad dependency on entire model
 struct ItemRow: View {
     @Environment(AppModel.self) private var model
     let item: Item
-    
-    var body: some View {
-        // Updates when ANY property of model changes
-        Text(item.name)
-            .foregroundStyle(model.theme.primaryColor)
-    }
+    var body: some View { Text(item.name).foregroundStyle(model.theme.primaryColor) }
 }
 
 // Good - narrow dependency
 struct ItemRow: View {
     let item: Item
-    let themeColor: Color  // Only depends on what it needs
-    
+    let themeColor: Color
+    var body: some View { Text(item.name).foregroundStyle(themeColor) }
+}
+```
+
+**Avoid storing frequently-changing values in the environment.** Every write to *any* environment key forces every view that reads *any* key in that subtree to be checked. So a high-frequency value (scroll offset, window/container size, drag translation, per-frame animation progress, timer ticks, hover location) flowing into an `@Entry` or `.environment(\.key, value)` becomes an invalidation storm.
+
+Instead, hold the value in an `@Observable` model and expose a **coarsened** value — a boolean threshold rather than the raw measurement — so views invalidate only when crossing a meaningful boundary:
+
+```swift
+@MainActor @Observable
+final class ViewportModel {
+    var width: CGFloat = 0 { didSet { isWide = width > 600 } }
+    private(set) var isWide = false   // readers invalidate only when this flips
+}
+```
+
+The same shape applies per row in a list: storing the raw offset on a model and having every row read it still invalidates all visible rows every frame. Give each item its own `@Observable` whose properties track only that item's derived state (e.g. `isVisible`), so each row invalidates at most twice (enter/leave) regardless of scroll speed — see item #10 below.
+
+For purely visual effects driven by scroll position (opacity, scale, rotation), prefer `scrollTransition` or `visualEffect(in:)` — they push the per-frame work to the renderer and skip body re-evaluation entirely. Reach for the `@Observable` + coarsening pattern only when the scroll-derived value must drive non-rendering logic (model updates, prefetches, sibling state).
+
+> Source: "Optimize SwiftUI performance with Instruments" (WWDC25, session 306)
+
+### 10. @Observable Dependency Granularity
+
+**Consider per-item `@Observable` state holders (one per row/item) to narrow update scope.** When multiple list items share a dependency on the same `@Observable` array, changing one element causes all items to re-evaluate their bodies.
+
+```swift
+// BAD - all item views depend on the full favorites array
+@Observable
+class ModelData {
+    var favorites: [Landmark] = []
+
+    func isFavorite(_ landmark: Landmark) -> Bool {
+        favorites.contains(landmark)
+    }
+}
+
+struct LandmarkRow: View {
+    let landmark: Landmark
+    @Environment(ModelData.self) private var model
+
     var body: some View {
-        Text(item.name)
-            .foregroundStyle(themeColor)
+        HStack {
+            Text(landmark.name)
+            if model.isFavorite(landmark) {
+                Image(systemName: "heart.fill")
+            }
+        }
+    }
+}
+
+// GOOD - each item has its own observable view model
+@Observable
+class LandmarkViewModel {
+    var isFavorite: Bool = false
+}
+
+struct LandmarkRow: View {
+    let landmark: Landmark
+    let viewModel: LandmarkViewModel
+
+    var body: some View {
+        HStack {
+            Text(landmark.name)
+            if viewModel.isFavorite {
+                Image(systemName: "heart.fill")
+            }
+        }
     }
 }
 ```
 
-**Why**: With `ObservableObject`, any `@Published` property change triggers all observers. With `@Observable`, views update when accessed properties change, but passing entire models still creates broader dependencies than necessary.
+**Why**: With the bad pattern, toggling one favorite marks the entire array as changed, causing every `LandmarkRow` to re-run its body. With per-item view models, only the toggled item's body runs.
 
-### 10. Common Performance Issues
+> Source: "Optimize SwiftUI performance with Instruments" (WWDC25, session 306)
+
+### 11. Off-Main-Thread Closures
+
+**SwiftUI may call certain closures on a background thread for performance.** These closures must be `Sendable` and should avoid accessing `@MainActor`-isolated state directly. Instead, capture needed values in the closure's capture list.
+
+Closures that may run off the main thread:
+- `Shape.path(in:)`
+- `visualEffect` closure
+- `Layout` protocol methods
+- `onGeometryChange` transform closure
+
+```swift
+// BAD - accessing @MainActor state directly
+.visualEffect { content, geometry in
+    content.blur(radius: self.pulse ? 5 : 0)  // Compiler error: @MainActor isolated
+}
+
+// GOOD - capture the value
+.visualEffect { [pulse] content, geometry in
+    content.blur(radius: pulse ? 5 : 0)
+}
+```
+
+> Source: "Explore concurrency in SwiftUI" (WWDC25, session 266)
+
+### 12. Common Performance Issues
 
 **Be aware of common performance bottlenecks in SwiftUI:**
 
@@ -301,53 +370,21 @@ var body: some View {
 ```swift
 // BAD - sorts array every body call
 var body: some View {
-    List(items.sorted { $0.name < $1.name }) { item in
-        Text(item.name)
-    }
+    List(items.sorted { $0.name < $1.name }) { item in Text(item.name) }
 }
 
-// GOOD - compute once, store result
+// GOOD - compute once, update via onChange or a computed property in the model
 @State private var sortedItems: [Item] = []
 
 var body: some View {
-    List(sortedItems) { item in
-        Text(item.name)
-    }
-    .onChange(of: items) { _, newItems in
-        sortedItems = newItems.sorted { $0.name < $1.name }
-    }
-}
-
-// Better - compute in model
-@Observable
-@MainActor
-final class ItemsViewModel {
-    var items: [Item] = []
-    
-    var sortedItems: [Item] {
-        items.sorted { $0.name < $1.name }
-    }
-    
-    func loadItems() async {
-        items = await fetchItems()
-    }
-}
-
-struct ItemsView: View {
-    @State private var viewModel = ItemsViewModel()
-    
-    var body: some View {
-        List(viewModel.sortedItems) { item in
-            Text(item.name)
+    List(sortedItems) { item in Text(item.name) }
+        .onChange(of: items) { _, newItems in
+            sortedItems = newItems.sorted { $0.name < $1.name }
         }
-        .task {
-            await viewModel.loadItems()
-        }
-    }
 }
 ```
 
-**Why**: Complex logic in `body` slows down view updates and can cause frame drops. The `body` should be a pure structural representation of state.
+Move sorting, filtering, and formatting into models or computed properties. The `body` should be a pure structural representation of state.
 
 ### 3. Unnecessary State
 
@@ -372,6 +409,9 @@ var itemCount: Int { items.count }  // Computed property
 - [ ] Heavy computation moved out of `body`
 - [ ] Body kept simple and pure (no side effects)
 - [ ] Derived state computed, not stored
-- [ ] Use `Self._printChanges()` to debug unexpected updates
+- [ ] Use `Self._logChanges()` or `Self._printChanges()` to debug unexpected updates
 - [ ] Equatable conformance for expensive views (when appropriate)
 - [ ] Consider POD view wrappers for advanced optimization
+- [ ] Consider using granular @Observable dependencies for list items (smaller observable units per row when it measurably reduces updates)
+- [ ] Frequently-changing values not stored in the environment
+- [ ] Sendable closures (Shape, visualEffect, Layout) capture values instead of accessing @MainActor state

@@ -269,6 +269,31 @@ const prevPendingCount = usePrevious(pendingCount);
 3. **Update pattern confidence** based on applications/feedback
 4. **Prune outdated patterns** (low confidence, no recent applications)
 
+## Promotion Policy
+
+Self-improvement has two separate jobs:
+
+1. **Capture** facts, corrections, failed assumptions, and reusable patterns as memory or proposal artifacts.
+2. **Promote** only validated patterns into `SKILL.md`, `AGENTS.md`, docs, or CLI behavior.
+
+Default to capture-first. Promote a change only when one of these is true:
+
+- The user explicitly asks to update a skill or repository instruction.
+- The same pattern recurs across multiple episodes.
+- A focused test or review proves the current guidance is wrong or incomplete.
+- The change is low-risk documentation that preserves existing behavior and is clearly traceable.
+
+Promotion targets:
+
+| Artifact | Use For | Approval Level |
+|----------|---------|----------------|
+| `memory/episodic/*.json` | Raw episode facts and signals | Auto |
+| `memory/semantic-patterns.json` | Candidate reusable patterns with confidence | Auto |
+| `memory/proposals/*.md` | Proposed skill/doc/code changes with evidence | Auto |
+| `SKILL.md` / `references/` | Validated workflow guidance | Ask first unless user requested editing |
+| `AGENTS.md` / repo rules | Cross-repo behavior or hard constraints | Ask first |
+| CLI/runtime code | Automation semantics | Require tests |
+
 ## Self-Correction (on_error hook)
 
 Triggered when:
@@ -290,14 +315,18 @@ Triggered when:
    - Was the guidance misinterpreted?
    - Was the guidance incomplete?
 
-3. Apply Correction
-   - Update skill file with corrected guidance
-   - Add correction marker with reason
-   - Update related patterns in semantic memory
+3. Create Proposal
+   - Write a proposal with evidence, affected skill names, and expected behavior
+   - Add correction marker text in the proposal, not directly in the skill yet
+   - Update related patterns in semantic memory with low initial confidence
 
 4. Validate Fix
    - Test the corrected guidance
    - Ask user to verify
+
+5. Promote
+   - Apply the skill/doc/code change after validation or explicit approval
+   - Keep the source episode/proposal id in the change note
 ```
 
 **Example:**
@@ -318,9 +347,26 @@ Use the validation template in `references/appendix.md` when reviewing updates.
 
 ## Hooks Integration
 
+### Runtime Trigger Source
+
+`agent-playbook self-improve` reads skill chaining from each skill's `SKILL.md` frontmatter:
+
+```yaml
+metadata:
+  hooks:
+    after_complete:
+      - trigger: self-improving-agent
+        mode: background
+        reason: "Extract patterns"
+```
+
+Treat `metadata.hooks` as the source of truth. Do not maintain a second hardcoded hook map in runtime code. This keeps skill behavior auditable and lets Skill Creator style reviews inspect the same file that the agent executes.
+
 ### Wiring Hooks in Claude Code Settings
 
-Add to Claude Code settings (`~/.claude/settings.json`):
+For Claude Code, install hooks through `agent-playbook init --hooks` when possible.
+If you need manual setup, add hook entries to Claude Code settings at the
+appropriate user or project scope.
 
 ```json
 {
@@ -379,6 +425,8 @@ See `references/appendix.md` for memory structure, workflow diagrams, metrics, f
 - ✅ Ask for user feedback on improvements
 - ✅ Use evolution/correction markers for traceability
 - ✅ Validate guidance before applying broadly
+- ✅ Write proposals before mutating durable skill guidance
+- ✅ Keep hook routing in `metadata.hooks`
 
 ### DON'T
 
@@ -388,15 +436,17 @@ See `references/appendix.md` for memory structure, workflow diagrams, metrics, f
 - ❌ Make changes that break existing functionality
 - ❌ Create contradictory patterns
 - ❌ Update skills without understanding context
+- ❌ Silently promote self-improvement findings into repo rules
+- ❌ Duplicate hook definitions in CLI code and skill frontmatter
 
 ## Quick Start
 
-After any skill completes, this agent automatically:
+After a high-signal skill workflow completes, this agent can:
 
 1. **Analyzes** what happened
 2. **Extracts** patterns and insights
-3. **Updates** relevant skill files
-4. **Logs** to memory for future reference
+3. **Writes** memory and proposal artifacts
+4. **Promotes** validated improvements only when approval or evidence is sufficient
 5. **Reports** summary to user
 
 ## References
@@ -406,3 +456,5 @@ After any skill completes, this agent automatically:
 - [Lifelong Learning of LLM based Agents](https://arxiv.org/html/2501.07278v1)
 - [Evo-Memory: DeepMind's Benchmark](https://shothota.medium.com/evo-memory-deepminds-new-benchmark)
 - [Let's Build a Self-Improving AI Agent](https://medium.com/@nomannayeem/lets-build-a-self-improving-ai-agent-that-learns-from-your-feedback-722d2ce9c2d9)
+- [OpenCrabs local self-improving agent](https://github.com/adolfousier/opencrabs)
+- [ELL-StuLife experience-driven lifelong learning](https://github.com/ECNU-ICALK/ELL-StuLife)

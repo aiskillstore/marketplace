@@ -1,6 +1,25 @@
 # Memory Management
 
-Preventing retain cycles and managing object lifetimes in Swift Concurrency.
+Use this when:
+
+- A task or async sequence is keeping objects alive longer than expected.
+- You suspect a retain cycle between a task and its owner.
+- You need to verify deallocation behavior or use `isolated deinit`.
+
+Skip this file if:
+
+- You mainly need to protect mutable state from races. Use `actors.md`.
+- You are debugging slow async code. Use `performance.md`.
+
+Jump to:
+
+- Core Concepts (Task Capture)
+- Retain Cycles
+- One-Way Retention
+- Async Sequences and Retention
+- Isolated Deinit (Swift 6.2+)
+- Detection and Testing
+- Common Patterns
 
 ## Core Concepts
 
@@ -520,6 +539,14 @@ actor Timer {
     }
 }
 ```
+
+## Common Mistakes Agents Make
+
+- **Forgetting `[weak self]` in stored tasks**: When `self` owns the task and the task captures `self`, a retain cycle prevents deallocation.
+- **Strong capture in infinite `AsyncSequence` loops**: `for await` over an infinite sequence with a strong `self` capture keeps the object alive forever.
+- **Not cancelling stored tasks on cleanup**: If the task outlives its owner, it retains captured objects indefinitely.
+- **Assuming `isolated deinit` breaks retain cycles**: `isolated deinit` runs cleanup on the correct actor, but if a cycle prevents `deinit` from being called at all, the cleanup never executes.
+- **Using `try?` in loops with `Task.sleep`**: `try?` can swallow `CancellationError`, causing the loop to continue running after cancellation. Always check `Task.isCancelled` explicitly.
 
 ## Debugging Checklist
 

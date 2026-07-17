@@ -1,5 +1,5 @@
 ---
-name: how-to-create-claude-code-skill
+name: How to Create Claude Code Skill
 description: A guide to creating Claude Code Skills.
 ---
 

@@ -1,6 +1,26 @@
 # Async Sequences and Streams
 
-Patterns for iterating over values that arrive over time.
+Use this when:
+
+- You need to iterate over values that arrive over time.
+- You are bridging callback-based or delegate-based APIs to async/await.
+- You need to choose between `AsyncSequence`, `AsyncStream`, or a regular async method.
+
+Skip this file if:
+
+- You need time-based operators like debounce, throttle, or merge. Use `async-algorithms.md`.
+- You are choosing between `Task`, `async let`, or task groups. Use `tasks.md`.
+
+Jump to:
+
+- AsyncSequence Protocol
+- AsyncStream / AsyncThrowingStream
+- Bridging Callbacks and Delegates
+- Stream Lifecycle and Cleanup
+- Buffer Policies
+- Standard Library Integration
+- Limitations
+- When to Use AsyncAlgorithms
 
 ## AsyncSequence
 
@@ -486,6 +506,41 @@ for await value in stream {
 - Polling or repeated async operations
 - Most common use case
 
+---
+
+## When to Use AsyncAlgorithms vs Standard Library
+
+### Use AsyncAlgorithms when:
+
+- **Time-based operations** need debounce/throttle/timer
+- **Combining multiple async sequences** (merge, combineLatest, zip)
+- **Multi-consumer scenarios** require backpressure (AsyncChannel)
+- **Complex operator chains** that Combine would handle naturally
+- **Need specific operators** not in standard library
+
+### Use Standard Library when:
+
+- **Bridging callback APIs** → AsyncStream
+- **Simple iteration** → for await in sequence
+- **Single-value operations** → async/await
+- **Basic transformations** → map/filter/contains
+
+### Quick Decision Table
+
+| Need | Solution |
+|------|----------|
+| Debounce search input | ✅ AsyncAlgorithms.debounce() |
+| Throttle button clicks | ✅ AsyncAlgorithms.throttle() |
+| Merge independent streams | ✅ AsyncAlgorithms.merge() |
+| Combine dependent values | ✅ AsyncAlgorithms.combineLatest() or async let |
+| Pair values from two sources | ✅ AsyncAlgorithms.zip() |
+| Bridge callback API | AsyncStream |
+| Multi-consumer with backpressure | ✅ AsyncChannel |
+| Periodic timer | ✅ AsyncTimerSequence |
+| Simple async iteration | for await in... |
+
+> **See**: [async-algorithms.md](async-algorithms.md) for detailed usage examples with real-world patterns.
+
 ### Use regular async methods when:
 
 - Single value returned
@@ -628,6 +683,26 @@ for await value in stream {
     try? await Task.sleep(for: .seconds(1))
 }
 ```
+
+## Common Mistakes Agents Make
+
+```swift
+// ❌ Values after finish() are silently dropped
+continuation.finish()
+continuation.yield(1) // Never received
+
+// ❌ Stream never terminates (forgot finish)
+AsyncStream { continuation in
+    continuation.yield(1)
+    // Missing: continuation.finish()
+}
+
+// ❌ Wrapping a single-value API in a stream — use a regular async function instead
+func fetchUser() -> AsyncStream<User> { ... } // Overkill for one result
+```
+
+- **Sharing a single `AsyncStream` between multiple consumers**: Values split unpredictably. There is no built-in broadcast; use `AsyncChannel` for point-to-point multi-consumer patterns.
+- **Forgetting `onTermination`** when bridging delegate or observer APIs, causing resources to leak.
 
 ## Further Learning
 

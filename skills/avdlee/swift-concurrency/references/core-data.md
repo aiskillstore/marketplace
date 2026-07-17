@@ -1,6 +1,26 @@
 # Core Data and Swift Concurrency
 
-Thread-safe patterns for using Core Data with Swift Concurrency.
+Use this when:
+
+- You need to use Core Data with async/await or actors.
+- `NSManagedObject` instances are crossing context or actor boundaries.
+- You are resolving default `@MainActor` isolation conflicts with generated NSManagedObject subclasses.
+
+Skip this file if:
+
+- The issue is general actor isolation, not Core Data specific. Use `actors.md`.
+- You need general Sendable guidance. Use `sendable.md`.
+
+Jump to:
+
+- Core Principles
+- Data Access Objects (DAO) Pattern
+- Working Without DAOs (NSManagedObjectID)
+- Bridging Closures to Async
+- Custom Actor Executor (Advanced)
+- Default MainActor Isolation
+- SwiftUI Integration
+- Common Mistakes
 
 ## Core Principles
 
@@ -524,6 +544,13 @@ func save() async {
     backgroundContext.save() // ❌ Not on context's thread
 }
 ```
+
+## Common Mistakes Agents Make
+
+- **Passing `NSManagedObject` instances across actors**: Always transfer `NSManagedObjectID` or a Sendable value snapshot instead.
+- **Using `@unchecked Sendable` on `NSManagedObject`**: This does not make it thread-safe. The object is still bound to its context's queue.
+- **Skipping `perform { }`**: All background context access must go through `perform` or `performAndWait`.
+- **Accessing `viewContext` from a background task**: The view context belongs to the main actor; access it only from `@MainActor`-isolated code.
 
 ## Further Learning
 

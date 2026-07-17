@@ -1,4 +1,13 @@
-# SwiftUI Sheet and Navigation Patterns Reference
+# SwiftUI Sheet, Navigation & Inspector Patterns Reference
+
+## Table of Contents
+
+- [Sheet Patterns](#sheet-patterns)
+- [Navigation Patterns](#navigation-patterns)
+- [Multi-Column Navigation with NavigationSplitView](#multi-column-navigation-with-navigationsplitview)
+- [Inspector](#inspector)
+- [Presentation Modifiers](#presentation-modifiers)
+- [Summary Checklist](#summary-checklist)
 
 ## Sheet Patterns
 
@@ -44,78 +53,68 @@ var body: some View {
 
 ### Sheets Own Their Actions
 
-**Sheets should handle their own dismiss and actions internally.**
+**Sheets should handle their own dismiss and actions internally** using `@Environment(\.dismiss)`. Avoid passing `onSave`/`onCancel` closures from the parent -- it creates callback prop-drilling and reduces reusability.
 
 ```swift
-// Good - sheet owns its actions
 struct EditItemSheet: View {
     @Environment(\.dismiss) private var dismiss
-    @Environment(DataStore.self) private var store
-    
     let item: Item
     @State private var name: String
-    @State private var isSaving = false
-    
+
     init(item: Item) {
         self.item = item
         _name = State(initialValue: item.name)
     }
-    
+
     var body: some View {
         NavigationStack {
-            Form {
-                TextField("Name", text: $name)
-            }
-            .navigationTitle("Edit Item")
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") {
-                        dismiss()
-                    }
+            Form { TextField("Name", text: $name) }
+                .navigationTitle("Edit Item")
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                    ToolbarItem(placement: .confirmationAction) { Button("Save") { /* save and dismiss */ } }
                 }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button(isSaving ? "Saving..." : "Save") {
-                        Task { await save() }
-                    }
-                    .disabled(isSaving || name.isEmpty)
-                }
-            }
-        }
-    }
-    
-    private func save() async {
-        isSaving = true
-        await store.updateItem(item, name: name)
-        dismiss()
-    }
-}
-
-// Avoid - parent manages sheet actions via closures
-struct ParentView: View {
-    @State private var selectedItem: Item?
-    
-    var body: some View {
-        List(items) { item in
-            Button(item.name) {
-                selectedItem = item
-            }
-        }
-        .sheet(item: $selectedItem) { item in
-            EditItemSheet(
-                item: item,
-                onSave: { newName in
-                    // Parent handles save
-                },
-                onCancel: {
-                    selectedItem = nil
-                }
-            )
         }
     }
 }
 ```
 
-**Why**: Sheets that own their actions are more reusable and don't require callback prop-drilling.
+### Enum-Based Sheet Management
+
+When presenting multiple different sheets, use an `Identifiable` enum with `.sheet(item:)` instead of multiple boolean state properties:
+
+```swift
+struct ArticlesView: View {
+    enum Sheet: Identifiable {
+        case add, edit(Article), categories
+        var id: String {
+            switch self {
+            case .add: "add"
+            case .edit(let a): "edit-\(a.id)"
+            case .categories: "categories"
+            }
+        }
+    }
+
+    @State private var presentedSheet: Sheet?
+
+    var body: some View {
+        List { /* ... */ }
+            .toolbar {
+                Button("Add") { presentedSheet = .add }
+            }
+            .sheet(item: $presentedSheet) { sheet in
+                switch sheet {
+                case .add: AddArticleView()
+                case .edit(let article): EditArticleView(article: article)
+                case .categories: CategoriesView()
+                }
+            }
+    }
+}
+```
+
+**Why**: A single `@State` property and one `.sheet(item:)` modifier replaces N boolean properties and N sheet modifiers, improving readability and preventing only-one-sheet-at-a-time conflicts.
 
 ## Navigation Patterns
 
@@ -175,32 +174,139 @@ enum DetailRoute: Hashable {
 }
 ```
 
-### Navigation with State Restoration
+## Multi-Column Navigation with NavigationSplitView
+
+### Two-Column Layout
+
+Use `NavigationSplitView` for sidebar-driven navigation. Available on iOS 16+, macOS 13+, tvOS 16+, watchOS 9+.
 
 ```swift
 struct ContentView: View {
-    @State private var navigationPath = NavigationPath()
-    
+    @State private var selectedItem: Item.ID?
+
     var body: some View {
-        NavigationStack(path: $navigationPath) {
-            RootView()
-                .navigationDestination(for: Route.self) { route in
-                    destinationView(for: route)
-                }
-        }
-    }
-    
-    @ViewBuilder
-    private func destinationView(for route: Route) -> some View {
-        switch route {
-        case .profile:
-            ProfileView()
-        case .settings:
-            SettingsView()
+        NavigationSplitView {
+            List(items, selection: $selectedItem) { item in
+                Text(item.name)
+            }
+            .navigationTitle("Items")
+        } detail: {
+            if let selectedItem, let item = items.first(where: { $0.id == selectedItem }) {
+                ItemDetailView(item: item)
+            } else {
+                ContentUnavailableView("Select an Item", systemImage: "doc")
+            }
         }
     }
 }
 ```
+
+### Three-Column Layout
+
+```swift
+struct ContentView: View {
+    @State private var departmentId: Department.ID?
+    @State private var employeeIds = Set<Employee.ID>()
+
+    var body: some View {
+        NavigationSplitView {
+            List(model.departments, selection: $departmentId) { dept in
+                Text(dept.name)
+            }
+        } content: {
+            if let department = model.department(id: departmentId) {
+                List(department.employees, selection: $employeeIds) { emp in
+                    Text(emp.name)
+                }
+            } else {
+                Text("Select a department")
+            }
+        } detail: {
+            EmployeeDetails(for: employeeIds)
+        }
+    }
+}
+```
+
+### Configuration
+
+- **Column visibility**: `NavigationSplitView(columnVisibility: $visibility)` with `NavigationSplitViewVisibility` (`.detailOnly`, `.doubleColumn`, `.all`)
+- **Column widths**: `.navigationSplitViewColumnWidth(min:ideal:max:)` on each column
+- **Compact column**: `NavigationSplitView(preferredCompactColumn: $column)` to control which column shows on narrow devices
+- **Style**: `.navigationSplitViewStyle(.balanced)` or `.prominentDetail` (default)
+
+### Platform Behavior
+
+| Platform | Behavior |
+|----------|----------|
+| **macOS** | Columns always visible side-by-side; sidebar has translucent material; variable-width column resizing by dragging |
+| **iPadOS (regular)** | Sidebar can overlay or push detail; supports column visibility toggle via toolbar button |
+| **iOS / iPadOS (compact)** | Collapses into a single `NavigationStack`; sidebar items show disclosure chevrons; back button navigates between columns |
+| **iPhone (all sizes)** | Always collapsed into a stack; sidebar appears as the root list; selections push detail onto the stack |
+| **watchOS / tvOS** | Collapses into a single stack |
+
+## Inspector
+
+> **Availability:** iOS 17.0+, macOS 14.0+
+
+A trailing-edge panel for supplementary information.
+
+On wider size classes (macOS, iPad landscape), it appears as a **trailing column**. On compact size classes (iPhone), it **adapts to a sheet** automatically.
+
+### Basic Inspector
+
+```swift
+struct ShapeEditor: View {
+    @State private var showInspector = false
+
+    var body: some View {
+        MyEditorView()
+            .inspector(isPresented: $showInspector) {
+                InspectorContent()
+            }
+            .toolbar {
+                ToolbarItem {
+                    Button {
+                        showInspector.toggle()
+                    } label: {
+                        Label("Inspector", systemImage: "info.circle")
+                    }
+                }
+            }
+    }
+}
+```
+
+### Inspector with Column Width
+
+```swift
+MyEditorView()
+    .inspector(isPresented: $showInspector) {
+        InspectorContent()
+            .inspectorColumnWidth(min: 200, ideal: 250, max: 400)
+    }
+```
+
+### Inspector with Fixed Width
+
+```swift
+MyEditorView()
+    .inspector(isPresented: $showInspector) {
+        InspectorContent()
+            .inspectorColumnWidth(300)
+    }
+```
+
+### Platform Behavior
+
+| Platform | Behavior |
+|----------|----------|
+| **macOS** | Trailing-edge sidebar panel; resizable by dragging edge; integrates with window toolbar |
+| **iPadOS (regular)** | Trailing column alongside content; toggleable via toolbar button |
+| **iOS / iPadOS (compact)** | Adapts to a sheet presentation; swipe-to-dismiss supported |
+| **iPhone (all sizes)** | Always presented as a sheet (no trailing column); dismiss via swipe or button |
+
+> **Tip:** Use `InspectorCommands` in your app's `.commands` to include the default inspector toggle keyboard shortcut.
 
 ## Presentation Modifiers
 
@@ -239,46 +345,7 @@ struct ContentView: View {
 }
 ```
 
-### Alert with Actions
-
-```swift
-struct ContentView: View {
-    @State private var showAlert = false
-    
-    var body: some View {
-        Button("Show Alert") {
-            showAlert = true
-        }
-        .alert("Delete Item?", isPresented: $showAlert) {
-            Button("Delete", role: .destructive) {
-                deleteItem()
-            }
-            Button("Cancel", role: .cancel) { }
-        } message: {
-            Text("This action cannot be undone.")
-        }
-    }
-}
-```
-
-### Confirmation Dialog
-
-```swift
-struct ContentView: View {
-    @State private var showDialog = false
-    
-    var body: some View {
-        Button("Show Options") {
-            showDialog = true
-        }
-        .confirmationDialog("Choose an option", isPresented: $showDialog) {
-            Button("Option 1") { handleOption1() }
-            Button("Option 2") { handleOption2() }
-            Button("Cancel", role: .cancel) { }
-        }
-    }
-}
-```
+For `alert` and `confirmationDialog` API patterns, see `latest-apis.md`.
 
 ## Summary Checklist
 
@@ -286,7 +353,11 @@ struct ContentView: View {
 - [ ] Sheets own their actions and dismiss internally
 - [ ] Use `NavigationStack` with `navigationDestination(for:)` for type-safe navigation
 - [ ] Use `NavigationPath` for programmatic navigation
+- [ ] Use `NavigationSplitView` for sidebar-driven multi-column layouts
+- [ ] Use `Inspector` for trailing-edge supplementary panels
+- [ ] Set column widths with `navigationSplitViewColumnWidth(min:ideal:max:)` or `inspectorColumnWidth(min:ideal:max:)`
 - [ ] Use appropriate presentation modifiers (sheet, fullScreenCover, popover)
 - [ ] Alerts and confirmation dialogs use modern API with actions
 - [ ] Avoid passing dismiss/save callbacks to sheets
+- [ ] Use enum-based `Identifiable` type with `.sheet(item:)` when presenting multiple sheets
 - [ ] Navigation state can be saved/restored when needed

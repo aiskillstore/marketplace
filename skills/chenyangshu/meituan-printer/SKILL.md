@@ -21,12 +21,11 @@ description: >
 
 用户可通过浏览器管理所有打印机、定时任务和打印模板，无需终端操作。
 
-**启动方式（三种）：**
-1. **双击启动脚本**：macOS 双击 `scripts/start.command`，Windows 双击 `scripts/start.bat`
-2. **对话启动**：直接告诉 AI "启动打印机管理界面"或"打开 web 后台"，AI 会帮你启动
-3. **终端命令**：`cd scripts && python3 web_admin.py`（macOS）或 `python web_admin.py`（Windows）
+**启动方式：**
+1. **对话启动**：直接告诉 AI "启动打印机管理界面"或"打开 web 后台"，AI 会帮你启动
+2. **终端命令**：macOS/Linux 执行 `python3 scripts/start_web_admin.py`，Windows 执行 `python scripts\start_web_admin.py`
 
-启动后访问 `http://localhost:5000`（如果 5000 被占用则自动使用 5001）。
+启动后访问终端输出的地址，默认 `http://localhost:5000`；如果端口被占用，会自动选择 `5001` 起的可用端口。
 
 **功能：**
 - 打印机管理：添加/编辑/删除打印机、连通性测试、类型自定义
@@ -51,8 +50,7 @@ meituan-printer/
 │   ├── check_printer.py              # 连通性检测工具（非交互式）
 │   ├── web_admin.py                  # Web 管理界面后端（Flask + APScheduler）
 │   ├── platform_utils.py             # 跨平台工具层（macOS/Windows 兼容）
-│   ├── start.command                 # macOS 启动脚本
-│   ├── start.bat                     # Windows 启动脚本
+│   ├── start_web_admin.py            # 跨平台 Web 后台启动入口
 │   ├── config.json                   # 打印机配置
 │   ├── tasks.json                    # 定时任务配置
 │   └── templates/
@@ -211,12 +209,12 @@ python3 scripts/print_to_printer.py --name <别名> --title "<标题>" --content
 
 ### 启动方式
 
-**macOS**：双击 `scripts/start.command` 或终端执行 `bash scripts/start.command`
-**Windows**：双击 `scripts/start.bat` 或 CMD 执行 `scripts/start.bat`
+**macOS/Linux**：`python3 scripts/start_web_admin.py`
+**Windows**：`python scripts\start_web_admin.py`
 
-启动脚本会自动检测 Python 环境、安装依赖（flask, apscheduler），然后启动 Web 服务。
+启动入口会自动检测 Python 环境、安装依赖（flask, apscheduler），然后启动 Web 服务。
 
-访问地址：`http://localhost:5000`（如果 5000 被占用则自动使用 5001）
+访问地址：终端输出的 `http://localhost:<端口>`，默认 `5000`；如果端口被占用，会自动选择 `5001` 起的可用端口。
 
 ### 功能模块
 

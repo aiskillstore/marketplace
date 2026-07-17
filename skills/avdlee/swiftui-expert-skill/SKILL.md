@@ -1,263 +1,171 @@
 ---
 name: swiftui-expert-skill
-description: Write, review, or improve SwiftUI code following best practices for state management, view composition, performance, modern APIs, Swift concurrency, and iOS 26+ Liquid Glass adoption. Use when building new SwiftUI features, refactoring existing views, reviewing code quality, or adopting modern SwiftUI patterns.
+description: Use when writing, reviewing, or refactoring SwiftUI code for iOS or macOS, including state management and `@Observable` data flow, view composition and invalidation/performance, lists and `ForEach` identity, environment usage, localization, animations, Liquid Glass adoption, migrating soft-deprecated APIs, or Instruments `.trace` capture/analysis for hangs, hitches, CPU hotspots, or
+  excessive view updates.
 ---
 
 # SwiftUI Expert Skill
 
-## Overview
-Use this skill to build, review, or improve SwiftUI features with correct state management, modern API usage, Swift concurrency best practices, optimal view composition, and iOS 26+ Liquid Glass styling. Prioritize native APIs, Apple design guidance, and performance-conscious patterns. This skill focuses on facts and best practices without enforcing specific architectural patterns.
+## Operating Rules
 
-## Workflow Decision Tree
+- Consult `references/latest-apis.md` at the start of every task to avoid deprecated APIs
+- Prefer native SwiftUI APIs over UIKit/AppKit bridging unless bridging is necessary
+- Focus on correctness and performance; do not enforce specific architectures (MVVM, VIPER, etc.)
+- Encourage separating business logic from views for testability without mandating how
+- Follow Apple's Human Interface Guidelines and API design patterns
+- Only adopt Liquid Glass when explicitly requested by the user (see `references/liquid-glass.md`)
+- Present performance optimizations as suggestions, not requirements
+- Use `#available` gating with sensible fallbacks for version-specific APIs
 
-### 1) Review existing SwiftUI code
-- Check property wrapper usage against the selection guide (see `references/state-management.md`)
-- Verify modern API usage (see `references/modern-apis.md`)
-- Verify view composition follows extraction rules (see `references/view-structure.md`)
-- Check performance patterns are applied (see `references/performance-patterns.md`)
-- Verify list patterns use stable identity (see `references/list-patterns.md`)
-- Inspect Liquid Glass usage for correctness and consistency (see `references/liquid-glass.md`)
-- Validate iOS 26+ availability handling with sensible fallbacks
+## Task Workflow
 
-### 2) Improve existing SwiftUI code
-- Audit state management for correct wrapper selection (prefer `@Observable` over `ObservableObject`)
-- Replace deprecated APIs with modern equivalents (see `references/modern-apis.md`)
-- Extract complex views into separate subviews (see `references/view-structure.md`)
-- Refactor hot paths to minimize redundant state updates (see `references/performance-patterns.md`)
-- Ensure ForEach uses stable identity (see `references/list-patterns.md`)
-- Suggest image downsampling when `UIImage(data:)` is used (as optional optimization, see `references/image-optimization.md`)
-- Adopt Liquid Glass only when explicitly requested by the user
+### Review existing SwiftUI code
+- Read the code under review and identify which topics apply
+- Flag deprecated APIs (compare against `references/latest-apis.md`)
+- Run the Topic Router below for each relevant topic
+- Validate `#available` gating and fallback paths for iOS 26+ features
 
-### 3) Implement new SwiftUI feature
-- Design data flow first: identify owned vs injected state (see `references/state-management.md`)
-- Use modern APIs (no deprecated modifiers or patterns, see `references/modern-apis.md`)
-- Use `@Observable` for shared state (with `@MainActor` if not using default actor isolation)
-- Structure views for optimal diffing (extract subviews early, keep views small, see `references/view-structure.md`)
-- Separate business logic into testable models (see `references/layout-best-practices.md`)
-- Apply glass effects after layout/appearance modifiers (see `references/liquid-glass.md`)
-- Gate iOS 26+ features with `#available` and provide fallbacks
+### Improve existing SwiftUI code
+- Audit current implementation against the Topic Router topics
+- Replace deprecated APIs with modern equivalents from `references/latest-apis.md`
+- Refactor hot paths to reduce unnecessary state updates
+- Extract complex view bodies into separate subviews
+- Suggest image downsampling when `UIImage(data:)` is encountered (optional optimization, see `references/image-optimization.md`)
 
-## Core Guidelines
+### Implement new SwiftUI feature
+- Design data flow first: identify owned vs injected state
+- Structure views for optimal diffing (extract subviews early)
+- Apply correct animation patterns (implicit vs explicit, transitions)
+- Use `Button` for all tappable elements; add accessibility grouping and labels
+- Gate version-specific APIs with `#available` and provide fallbacks
 
-### State Management
-- **Always prefer `@Observable` over `ObservableObject`** for new code
-- **Mark `@Observable` classes with `@MainActor`** unless using default actor isolation
-- **Always mark `@State` and `@StateObject` as `private`** (makes dependencies clear)
-- **Never declare passed values as `@State` or `@StateObject`** (they only accept initial values)
-- Use `@State` with `@Observable` classes (not `@StateObject`)
-- `@Binding` only when child needs to **modify** parent state
-- `@Bindable` for injected `@Observable` objects needing bindings
-- Use `let` for read-only values; `var` + `.onChange()` for reactive reads
-- Legacy: `@StateObject` for owned `ObservableObject`; `@ObservedObject` for injected
-- Nested `ObservableObject` doesn't work (pass nested objects directly); `@Observable` handles nesting fine
+### Record a new Instruments trace
+Trigger when the user asks to "record a trace", "profile the app", "capture a session", etc. Full reference: `references/trace-recording.md`.
 
-### Modern APIs
-- Use `foregroundStyle()` instead of `foregroundColor()`
-- Use `clipShape(.rect(cornerRadius:))` instead of `cornerRadius()`
-- Use `Tab` API instead of `tabItem()`
-- Use `Button` instead of `onTapGesture()` (unless need location/count)
-- Use `NavigationStack` instead of `NavigationView`
-- Use `navigationDestination(for:)` for type-safe navigation
-- Use two-parameter or no-parameter `onChange()` variant
-- Use `ImageRenderer` for rendering SwiftUI views
-- Use `.sheet(item:)` instead of `.sheet(isPresented:)` for model-based content
-- Sheets should own their actions and call `dismiss()` internally
-- Use `ScrollViewReader` for programmatic scrolling with stable IDs
-- Avoid `UIScreen.main.bounds` for sizing
-- Avoid `GeometryReader` when alternatives exist (e.g., `containerRelativeFrame()`)
+1. **Confirm target** — attach to a running app, launch an app, or record all processes? If the user didn't say, ask. List connected devices when useful:
+   ```bash
+   python3 "${SKILL_DIR}/scripts/record_trace.py" --list-devices
+   ```
+2. **Pick a template based on target kind** — the `SwiftUI` template populates the SwiftUI lane on any **real device**: a physical iOS/iPadOS device **or the host Mac**. The only exception is the **iOS Simulator**, where the SwiftUI lane comes back empty — switch to `--template "Time Profiler"` in that case (still gives Time Profiler + Hangs + Animation Hitches). Always check `--list-devices`: `simulators` kind → `Time Profiler`; `devices` kind (real devices and the host Mac) → default `SwiftUI`. Full decision table in `references/trace-recording.md`.
+3. **Start the recording**. For agent-driven sessions where the user says "I'll tell you when I'm done", start in the background and use a stop-file:
+   ```bash
+   python3 "${SKILL_DIR}/scripts/record_trace.py" \
+       --device "<name|udid>" --attach "<AppName>" \
+       --stop-file /tmp/stop-trace --output ~/Desktop/session.trace
+   ```
+   For interactive sessions, just tell the user to press Ctrl+C when done.
+4. **Signal stop** — when the user says they've finished exercising the app, `touch /tmp/stop-trace`. The script cleanly SIGINTs xctrace and waits up to 60s for finalisation.
+5. **Analyse** the resulting trace (flow into the "Trace-driven improvement" workflow below).
 
-### Swift Best Practices
-- Use modern Text formatting (`.format` parameters, not `String(format:)`)
-- Use `localizedStandardContains()` for user-input filtering (not `contains()`)
-- Prefer static member lookup (`.blue` vs `Color.blue`)
-- Use `.task` modifier for automatic cancellation of async work
-- Use `.task(id:)` for value-dependent tasks
+### Trace-driven improvement (Instruments `.trace` provided)
+Trigger whenever the user's request references a `.trace` file. A target SwiftUI source file is **optional** — if given, cite specific lines; if not, recommend where to look based on view names and symbols the trace already reveals.
 
-### View Composition
-- **Prefer modifiers over conditional views** for state changes (maintains view identity)
-- Extract complex views into separate subviews for better readability and performance
-- Keep views small for optimal performance
-- Keep view `body` simple and pure (no side effects or complex logic)
-- Use `@ViewBuilder` functions only for small, simple sections
-- Prefer `@ViewBuilder let content: Content` over closure-based content properties
-- Separate business logic into testable models (not about enforcing architectures)
-- Action handlers should reference methods, not contain inline logic
-- Use relative layout over hard-coded constants
-- Views should work in any context (don't assume screen size or presentation style)
+Full reference: `references/trace-analysis.md`. Summary of the composition pattern:
 
-### Performance
-- Pass only needed values to views (avoid large "config" or "context" objects)
-- Eliminate unnecessary dependencies to reduce update fan-out
-- Check for value changes before assigning state in hot paths
-- Avoid redundant state updates in `onReceive`, `onChange`, scroll handlers
-- Minimize work in frequently executed code paths
-- Use `LazyVStack`/`LazyHStack` for large lists
-- Use stable identity for `ForEach` (never `.indices` for dynamic content)
-- Ensure constant number of views per `ForEach` element
-- Avoid inline filtering in `ForEach` (prefilter and cache)
-- Avoid `AnyView` in list rows
-- Consider POD views for fast diffing (or wrap expensive views in POD parents)
-- Suggest image downsampling when `UIImage(data:)` is encountered (as optional optimization)
-- Avoid layout thrash (deep hierarchies, excessive `GeometryReader`)
-- Gate frequent geometry updates by thresholds
-- Use `Self._printChanges()` to debug unexpected view updates
+1. **Scope the analysis.** Ask yourself: does the user want the whole trace, or a slice?
+   - "focus on X / after X / between X and Y / during X" → **resolve to a window first** (see step 2).
+   - No scoping cue → analyse the whole trace.
+2. **Resolve a window (only if the user scoped).** The parser exposes two discovery modes:
+   ```bash
+   # Find a log that marks the start/end of the region of interest:
+   python3 "${SKILL_DIR}/scripts/analyze_trace.py" --trace <path> \
+       --list-logs --log-message-contains "loaded feed" --log-limit 5
+   # Or list os_signpost intervals (paired begin/end), filterable by name:
+   python3 "${SKILL_DIR}/scripts/analyze_trace.py" --trace <path> \
+       --list-signposts --signpost-name-contains "ImageDecode"
+   ```
+   Both modes accept `--window START_MS:END_MS` to scope discovery. Pick the `time_ms` (for logs) or `start_ms`/`end_ms` (for signposts) that match the user's description. Build a window like `--window 10400:11700`.
+3. **Run the main analysis** (with or without `--window`):
+   ```bash
+   python3 "${SKILL_DIR}/scripts/analyze_trace.py" --trace <path> \
+       --json-only --top 10 [--window START_MS:END_MS]
+   ```
+4. **Interpret with `references/trace-analysis.md`** — key diagnostics:
+   - `main_running_coverage_pct` inside each correlation (<25% = blocked; ≥75% = CPU-bound).
+   - `swiftui-causes.top_sources` reveals *why* updates keep happening — high-edge-count sources like `UserDefaultObserver.send()` or wide `EnvironmentWriter` entries are structural invalidation bugs. Fixing one often collapses many downstream hot views.
+5. **When a specific view shows as expensive, ask who's invalidating it.** Use `--fanin-for "<view name>"` to get the ranked list of source nodes driving the updates.
+6. **Optionally ground in source.** If the user pointed at a file, read it and match view names / user-code symbols against identifiers there. If not, recommend which files to open based on the view names SwiftUI reported.
+7. **Return a prioritised plan.** Cite evidence (coverage %, hot symbol, overlapping view, log timestamp, cause-graph edges) and route each recommendation to a Topic Router reference.
+8. Only edit code if the user asked for edits.
 
-### Liquid Glass (iOS 26+)
-**Only adopt when explicitly requested by the user.**
-- Use native `glassEffect`, `GlassEffectContainer`, and glass button styles
-- Wrap multiple glass elements in `GlassEffectContainer`
-- Apply `.glassEffect()` after layout and visual modifiers
-- Use `.interactive()` only for tappable/focusable elements
-- Use `glassEffectID` with `@Namespace` for morphing transitions
+### Topic Router
 
-## Quick Reference
+Consult the reference file for each topic relevant to the current task:
 
-### Property Wrapper Selection (Modern)
-| Wrapper | Use When |
-|---------|----------|
-| `@State` | Internal view state (must be `private`), or owned `@Observable` class |
-| `@Binding` | Child modifies parent's state |
-| `@Bindable` | Injected `@Observable` needing bindings |
-| `let` | Read-only value from parent |
-| `var` | Read-only value watched via `.onChange()` |
+| Topic | Reference |
+|-------|-----------|
+| State management | `references/state-management.md` |
+| View composition | `references/view-structure.md` |
+| Performance | `references/performance-patterns.md` |
+| Lists and ForEach | `references/list-patterns.md` |
+| Layout | `references/layout-best-practices.md` |
+| Sheets and navigation | `references/sheet-navigation-patterns.md` |
+| ScrollView | `references/scroll-patterns.md` |
+| Focus management | `references/focus-patterns.md` |
+| Animations (basics) | `references/animation-basics.md` |
+| Animations (transitions) | `references/animation-transitions.md` |
+| Animations (advanced) | `references/animation-advanced.md` |
+| Accessibility | `references/accessibility-patterns.md` |
+| Swift Charts | `references/charts.md` |
+| Charts accessibility | `references/charts-accessibility.md` |
+| Image optimization | `references/image-optimization.md` |
+| Liquid Glass (iOS 26+) | `references/liquid-glass.md` |
+| macOS scenes | `references/macos-scenes.md` |
+| macOS window styling | `references/macos-window-styling.md` |
+| macOS views | `references/macos-views.md` |
+| Text patterns | `references/text-patterns.md` |
+| Localization | `references/localization.md` |
+| Deprecated API lookup | `references/latest-apis.md` |
+| Handling soft-deprecated APIs | `references/soft-deprecation.md` |
+| Previews | `references/previews.md` |
+| Instruments trace analysis | `references/trace-analysis.md` |
+| Instruments trace recording | `references/trace-recording.md` |
 
-**Legacy (Pre-iOS 17):**
-| Wrapper | Use When |
-|---------|----------|
-| `@StateObject` | View owns an `ObservableObject` (use `@State` with `@Observable` instead) |
-| `@ObservedObject` | View receives an `ObservableObject` |
+## Correctness Checklist
 
-### Modern API Replacements
-| Deprecated | Modern Alternative |
-|------------|-------------------|
-| `foregroundColor()` | `foregroundStyle()` |
-| `cornerRadius()` | `clipShape(.rect(cornerRadius:))` |
-| `tabItem()` | `Tab` API |
-| `onTapGesture()` | `Button` (unless need location/count) |
-| `NavigationView` | `NavigationStack` |
-| `onChange(of:) { value in }` | `onChange(of:) { old, new in }` or `onChange(of:) { }` |
-| `fontWeight(.bold)` | `bold()` |
-| `GeometryReader` | `containerRelativeFrame()` or `visualEffect()` |
-| `showsIndicators: false` | `.scrollIndicators(.hidden)` |
-| `String(format: "%.2f", value)` | `Text(value, format: .number.precision(.fractionLength(2)))` |
-| `string.contains(search)` | `string.localizedStandardContains(search)` (for user input) |
+These are hard rules -- violations are always bugs:
 
-### Liquid Glass Patterns
-```swift
-// Basic glass effect with fallback
-if #available(iOS 26, *) {
-    content
-        .padding()
-        .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 16))
-} else {
-    content
-        .padding()
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16))
-}
-
-// Grouped glass elements
-GlassEffectContainer(spacing: 24) {
-    HStack(spacing: 24) {
-        GlassButton1()
-        GlassButton2()
-    }
-}
-
-// Glass buttons
-Button("Confirm") { }
-    .buttonStyle(.glassProminent)
-```
-
-## Review Checklist
-
-### State Management
-- [ ] Using `@Observable` instead of `ObservableObject` for new code
-- [ ] `@Observable` classes marked with `@MainActor` (if needed)
-- [ ] Using `@State` with `@Observable` classes (not `@StateObject`)
-- [ ] `@State` and `@StateObject` properties are `private`
-- [ ] Passed values NOT declared as `@State` or `@StateObject`
-- [ ] `@Binding` only where child modifies parent state
-- [ ] `@Bindable` for injected `@Observable` needing bindings
-- [ ] Nested `ObservableObject` avoided (or passed directly to child views)
-
-### Modern APIs (see `references/modern-apis.md`)
-- [ ] Using `foregroundStyle()` instead of `foregroundColor()`
-- [ ] Using `clipShape(.rect(cornerRadius:))` instead of `cornerRadius()`
-- [ ] Using `Tab` API instead of `tabItem()`
-- [ ] Using `Button` instead of `onTapGesture()` (unless need location/count)
-- [ ] Using `NavigationStack` instead of `NavigationView`
-- [ ] Avoiding `UIScreen.main.bounds`
-- [ ] Using alternatives to `GeometryReader` when possible
-- [ ] Button images include text labels for accessibility
-
-### Sheets & Navigation (see `references/sheet-navigation-patterns.md`)
-- [ ] Using `.sheet(item:)` for model-based sheets
-- [ ] Sheets own their actions and dismiss internally
-- [ ] Using `navigationDestination(for:)` for type-safe navigation
-
-### ScrollView (see `references/scroll-patterns.md`)
-- [ ] Using `ScrollViewReader` with stable IDs for programmatic scrolling
-- [ ] Using `.scrollIndicators(.hidden)` instead of initializer parameter
-
-### Text & Formatting (see `references/text-formatting.md`)
-- [ ] Using modern Text formatting (not `String(format:)`)
-- [ ] Using `localizedStandardContains()` for search filtering
-
-### View Structure (see `references/view-structure.md`)
-- [ ] Using modifiers instead of conditionals for state changes
-- [ ] Complex views extracted to separate subviews
-- [ ] Views kept small for performance
-- [ ] Container views use `@ViewBuilder let content: Content`
-
-### Performance (see `references/performance-patterns.md`)
-- [ ] View `body` kept simple and pure (no side effects)
-- [ ] Passing only needed values (not large config objects)
-- [ ] Eliminating unnecessary dependencies
-- [ ] State updates check for value changes before assigning
-- [ ] Hot paths minimize state updates
-- [ ] No object creation in `body`
-- [ ] Heavy computation moved out of `body`
-
-### List Patterns (see `references/list-patterns.md`)
-- [ ] ForEach uses stable identity (not `.indices`)
-- [ ] Constant number of views per ForEach element
-- [ ] No inline filtering in ForEach
-- [ ] No `AnyView` in list rows
-
-### Layout (see `references/layout-best-practices.md`)
-- [ ] Avoiding layout thrash (deep hierarchies, excessive GeometryReader)
-- [ ] Gating frequent geometry updates by thresholds
-- [ ] Business logic separated into testable models
-- [ ] Action handlers reference methods (not inline logic)
-- [ ] Using relative layout (not hard-coded constants)
-- [ ] Views work in any context (context-agnostic)
-
-### Liquid Glass (iOS 26+)
-- [ ] `#available(iOS 26, *)` with fallback for Liquid Glass
-- [ ] Multiple glass views wrapped in `GlassEffectContainer`
-- [ ] `.glassEffect()` applied after layout/appearance modifiers
-- [ ] `.interactive()` only on user-interactable elements
-- [ ] Shapes and tints consistent across related elements
+- [ ] `@State` properties are `private`
+- [ ] `@Binding` only where a child modifies parent state
+- [ ] Passed values never declared as `@State` or `@StateObject` (they ignore updates)
+- [ ] `@StateObject` for view-owned objects; `@ObservedObject` for injected
+- [ ] iOS 17+: `@State` with `@Observable`; `@Bindable` for injected observables needing bindings
+- [ ] `ForEach` uses stable identity (never `.indices`/`\.offset`; id outlives the view and isn't derived from mutable content)
+- [ ] Constant number of views per `ForEach` element; `List` rows are unary
+- [ ] No closures stored in custom `@Environment`/`@FocusedValue` keys
+- [ ] Custom `@Entry` default values are stable (no `Model()`/`Date()`/`UUID()` expressions)
+- [ ] `.animation(_:value:)` always includes the `value` parameter
+- [ ] `@FocusState` properties are `private`
+- [ ] No redundant `@FocusState` writes inside tap gesture handlers on `.focusable()` views
+- [ ] iOS 26+ APIs gated with `#available` and fallback provided
+- [ ] `import Charts` present in files using chart types
+- [ ] Previews use self-contained mock data; no dependency on live services or network
 
 ## References
-- `references/state-management.md` - Property wrappers and data flow (prefer `@Observable`)
-- `references/view-structure.md` - View composition, extraction, and container patterns
-- `references/performance-patterns.md` - Performance optimization techniques and anti-patterns
-- `references/list-patterns.md` - ForEach identity, stability, and list best practices
-- `references/layout-best-practices.md` - Layout patterns, context-agnostic views, and testability
-- `references/modern-apis.md` - Modern API usage and deprecated replacements
-- `references/sheet-navigation-patterns.md` - Sheet presentation and navigation patterns
-- `references/scroll-patterns.md` - ScrollView patterns and programmatic scrolling
-- `references/text-formatting.md` - Modern text formatting and string operations
-- `references/image-optimization.md` - AsyncImage, image downsampling, and optimization
-- `references/liquid-glass.md` - iOS 26+ Liquid Glass API
 
-## Philosophy
-
-This skill focuses on **facts and best practices**, not architectural opinions:
-- We don't enforce specific architectures (e.g., MVVM, VIPER)
-- We do encourage separating business logic for testability
-- We prioritize modern APIs over deprecated ones
-- We emphasize thread safety with `@MainActor` and `@Observable`
-- We optimize for performance and maintainability
-- We follow Apple's Human Interface Guidelines and API design patterns
+- `references/latest-apis.md` -- **Read first for every task.** Deprecated-to-modern API transitions (iOS 15+ through iOS 26+)
+- `references/state-management.md` -- Property wrappers, data flow, `@Observable` migration
+- `references/view-structure.md` -- View extraction, container patterns, `@ViewBuilder`
+- `references/performance-patterns.md` -- Hot-path optimization, update control, `_logChanges()`
+- `references/list-patterns.md` -- ForEach identity, Table (iOS 16+), inline filtering pitfalls
+- `references/layout-best-practices.md` -- Layout patterns, GeometryReader alternatives
+- `references/accessibility-patterns.md` -- VoiceOver, Dynamic Type, grouping, traits
+- `references/animation-basics.md` -- Implicit/explicit animations, timing, performance
+- `references/animation-transitions.md` -- View transitions, `matchedGeometryEffect`, `Animatable`
+- `references/animation-advanced.md` -- Phase/keyframe animations (iOS 17+), `@Animatable` macro (iOS 26+)
+- `references/charts.md` -- Swift Charts marks, axes, selection, styling, Chart3D (iOS 26+)
+- `references/charts-accessibility.md` -- Charts VoiceOver, Audio Graph, fallback strategies
+- `references/sheet-navigation-patterns.md` -- Sheets, NavigationSplitView, Inspector
+- `references/scroll-patterns.md` -- ScrollViewReader, programmatic scrolling
+- `references/focus-patterns.md` -- Focus state, focusable views, focused values, default focus, common pitfalls
+- `references/image-optimization.md` -- AsyncImage, downsampling, caching
+- `references/liquid-glass.md` -- iOS 26+ Liquid Glass effects and fallback patterns
+- `references/macos-scenes.md` -- Settings, MenuBarExtra, WindowGroup, multi-window
+- `references/macos-window-styling.md` -- Toolbar styles, window sizing, Commands
+- `references/macos-views.md` -- HSplitView, Table, PasteButton, AppKit interop
+- `references/previews.md` -- `#Preview` macro, `@Previewable` (iOS 18+), preview traits, mock data patterns for self-contained previews
+- `references/text-patterns.md` -- Text initializer selection, verbatim vs localized
+- `references/localization.md` -- String Catalogs, `#bundle` for packages, `LocalizedStringResource`, locale-aware formatting, RTL layout, translator comments
+- `references/soft-deprecation.md` -- How to behave with soft-deprecated APIs (when to migrate, scoping rule, don't migrate during unrelated edits)
+- `references/trace-analysis.md` -- Parse Instruments `.trace` files via `scripts/analyze_trace.py`; interpret main-thread coverage, high-severity SwiftUI updates, hitch narratives, and map findings back to source files
+- `references/trace-recording.md` -- Record a new trace via `scripts/record_trace.py`: attach to a running app, launch one fresh, or capture a manually-stopped session; supports stop-file for agent-driven flows
