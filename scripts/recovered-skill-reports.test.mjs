@@ -10,9 +10,9 @@ import {
   calculateCanonicalSkillHashes,
   verifyRecoveredSkillReport,
   verifyRecoveredSkillReports,
-} from '../verify-recovered-skill-reports.mjs';
+} from './verify-recovered-skill-reports.mjs';
 
-const REPOSITORY_ROOT = resolve(import.meta.dirname, '../..');
+const REPOSITORY_ROOT = resolve(import.meta.dirname, '..');
 
 test('ten recovered reports match canonical slugs, source URLs, paths, and exact bytes', () => {
   const results = verifyRecoveredSkillReports(REPOSITORY_ROOT);
