@@ -120,7 +120,9 @@ test('workflow is two-phase, CLI-pinned, resumable, and closes P0 channels', () 
   assert.equal((workflow.match(/git reset --hard HEAD/g) || []).length, 2);
   assert.equal((workflow.match(/test "\$\(git rev-parse HEAD\)" = "\$GITHUB_SHA"/g) || []).length, 2);
   assert.match(workflow, /fresh_canonical_audit_execution_complete/);
+  assert.equal((workflow.match(/include-hidden-files: true/g) || []).length, 2);
   assert.match(workflow, /name: fresh-canonical-audit-boundary-\$\{\{ github\.run_id \}\}[\s\S]*?include-hidden-files: true/);
+  assert.match(workflow, /name: fresh-canonical-audit-execution-\$\{\{ github\.run_id \}\}[\s\S]*?include-hidden-files: true/);
   assert.match(workflow, /productionSmokeCompleted:true/);
   assert.match(workflow, /pre-inventory\.json/);
   assert.match(workflow, /skill govern-fresh-canonical-audit/);
