@@ -136,14 +136,28 @@ jobs:
           gh run download "$PREVIOUS_EXECUTE_RUN_ID" --repo "$GITHUB_REPOSITORY" \
             --name "fresh-canonical-audit-execution-$PREVIOUS_EXECUTE_RUN_ID" \
             --dir "$RUNNER_TEMP/previous-execution"
-          (cd "$RUNNER_TEMP/previous-execution/boundary" && sha256sum --check SHA256SUMS)
-          cmp "$RUNNER_TEMP/previous-boundary/SHA256SUMS" \
-            "$RUNNER_TEMP/previous-execution/boundary/SHA256SUMS"
+          execution_boundary="$RUNNER_TEMP/previous-execution/boundary"
+          cmp "$RUNNER_TEMP/previous-boundary/SHA256SUMS" "$execution_boundary/SHA256SUMS"
+          execute_head_sha=$(jq -r .headSha <<< "$execute_json")
+          legacy_hidden_pattern='  \./runtime/\.github/(actions/download-skillstore-cli/action\.yml|workflows/govern-fresh-canonical-audits\.yml)$'
+          if [ "$PREVIOUS_EXECUTE_RUN_ID" = '29619841184' ] \
+            && [ "$execute_head_sha" = '09cce5e8dac464d8e5f1d0a10446110bd95a9e3f' ]; then
+            # This one successful execution predates include-hidden-files on the
+            # execution artifact. The original dry-run boundary above is still
+            # fully authenticated, and its identical checksum manifest seals the
+            # two omitted runtime files. Validate every re-uploaded visible byte.
+            test "$(grep -Ec "$legacy_hidden_pattern" "$execution_boundary/SHA256SUMS")" = 2
+            test ! -e "$execution_boundary/runtime/.github/actions/download-skillstore-cli/action.yml"
+            test ! -e "$execution_boundary/runtime/.github/workflows/govern-fresh-canonical-audits.yml"
+            (cd "$execution_boundary" && grep -Ev "$legacy_hidden_pattern" SHA256SUMS | sha256sum --check -)
+          else
+            (cd "$execution_boundary" && sha256sum --check SHA256SUMS)
+          fi
           (cd "$RUNNER_TEMP/previous-execution/execution-proof" && sha256sum --check SHA256SUMS)
           proof="$RUNNER_TEMP/previous-execution/execution-proof/proof.json"
           jq -e --arg executeRunId "$PREVIOUS_EXECUTE_RUN_ID" \
             --arg dryRunId "$PREVIOUS_BOUNDARY_RUN_ID" --arg lastSelected "$START_AFTER" \
-            --arg executeHeadSha "$(jq -r .headSha <<< "$execute_json")" \
+            --arg executeHeadSha "$execute_head_sha" \
             '.status=="fresh_canonical_audit_execution_complete" and .executeRunId==$executeRunId and .dryRunId==$dryRunId and .lastSelected==$lastSelected and .workflowCommit==$executeHeadSha and .scoreFinalized==true and .timestampFinalized==true and .cacheClosureCompleted==true and .packClosureCompleted==true and .productionSmokeCompleted==true' \
             "$proof" >/dev/null
           test "$(jq -r .cohortSha256 "$proof")" = "$(jq -r .cohortSha256 "$RUNNER_TEMP/previous-boundary/metadata.json")"
