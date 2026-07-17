@@ -5,6 +5,8 @@ set -euo pipefail
 : "${PACK_DIAGNOSTICS_DIR:?PACK_DIAGNOSTICS_DIR is required}"
 : "${PACK_EVALUATOR_MAX_OUTPUT_TOKENS:?PACK_EVALUATOR_MAX_OUTPUT_TOKENS is required}"
 : "${PACK_PRODUCTION_CLI_VERSION:?PACK_PRODUCTION_CLI_VERSION is required}"
+: "${PACK_EVALUATOR_RUNNER_MODEL:?PACK_EVALUATOR_RUNNER_MODEL is required}"
+: "${PACK_EVALUATOR_JUDGE_MODEL:?PACK_EVALUATOR_JUDGE_MODEL is required}"
 if ! [[ "$PACK_EVALUATOR_MAX_OUTPUT_TOKENS" =~ ^[1-9][0-9]*$ ]]; then
   echo 'PACK_EVALUATOR_MAX_OUTPUT_TOKENS must be a positive integer' >&2
   exit 1
@@ -360,8 +362,8 @@ for ATTEMPT in 1 2; do
     --evaluator-uid "$(id -u packeval)" \
     --evaluator-gid "$(id -g packeval)" \
     --task "$PREFLIGHT_TASK" \
-    --model sonnet \
-    --judge-model gpt-5.5 \
+    --model "$PACK_EVALUATOR_RUNNER_MODEL" \
+    --judge-model "$PACK_EVALUATOR_JUDGE_MODEL" \
     --agent-timeout-ms "$AGENT_TIMEOUT_MS" \
     --timeout-ms 360000 \
     --idle-timeout-ms 240000 \

@@ -23,9 +23,11 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  # Production v4 requires the immutable binding-aware release and verifies its
-  # checksums.txt asset before the binary crosses into the evaluator boundary.
+  # Production v4 requires immutable CLI and model bindings. The release
+  # checksums.txt asset is verified before the binary crosses the boundary.
   PACK_PRODUCTION_CLI_VERSION: '2.14.2'
+  PACK_EVALUATOR_RUNNER_MODEL: 'claude-sonnet-5'
+  PACK_EVALUATOR_JUDGE_MODEL: 'gpt-5.5'
   # One cap feeds the local proxy and every Claude CLI process.
   PACK_EVALUATOR_MAX_OUTPUT_TOKENS: '16384'
 
@@ -193,6 +195,9 @@ jobs:
             echo "No eligible scenario is due; recording an audited no-op." >> "$GITHUB_STEP_SUMMARY"
           else
             GENERATION_ID=$(node -e "process.stdout.write(require('node:crypto').randomUUID())")
+            PLAN_PATH="$GITHUB_WORKSPACE/pack-plan/plan.json"
+            PLAN_SNAPSHOT_SHA=$(node --input-type=module -e 'import { readFileSync } from "node:fs"; import { immutablePlanSnapshotSha256 } from "./marketplace-plan/scripts/pack-production.mjs"; const plan = JSON.parse(readFileSync(process.argv[1], "utf8")); plan.scenarios[0].generationId = process.argv[2]; delete plan.workflowBinding; process.stdout.write(immutablePlanSnapshotSha256(plan));' "$PLAN_PATH" "$GENERATION_ID")
+            test "$PLAN_SNAPSHOT_SHA" = "$(printf %s "$PLAN_SNAPSHOT_SHA" | grep -E '^[0-9a-f]{64}$')"
             BOUND_PLAN=$(mktemp "$GITHUB_WORKSPACE/pack-plan/.plan.XXXXXX")
             jq \
               --arg generationId "$GENERATION_ID" \
@@ -201,6 +206,7 @@ jobs:
               --arg runId "$GITHUB_RUN_ID" \
               --argjson runAttempt "$GITHUB_RUN_ATTEMPT" \
               --arg commitSha "$GITHUB_SHA" \
+              --arg planSnapshotSha256 "$PLAN_SNAPSHOT_SHA" \
               '.scenarios[0].generationId = $generationId |
                .workflowBinding = {
                  repository: $repository,
@@ -208,15 +214,17 @@ jobs:
                  runId: $runId,
                  runAttempt: $runAttempt,
                  commitSha: $commitSha,
-                 scenarioId: .scenarios[0].id
+                 scenarioId: .scenarios[0].id,
+                 planSnapshotSha256: $planSnapshotSha256
                }' \
-              "$GITHUB_WORKSPACE/pack-plan/plan.json" > "$BOUND_PLAN"
+              "$PLAN_PATH" > "$BOUND_PLAN"
             jq -e \
               --arg generationId "$GENERATION_ID" \
               --arg repository "$GITHUB_REPOSITORY" \
               --arg runId "$GITHUB_RUN_ID" \
               --argjson runAttempt "$GITHUB_RUN_ATTEMPT" \
               --arg commitSha "$GITHUB_SHA" \
+              --arg planSnapshotSha256 "$PLAN_SNAPSHOT_SHA" \
               '.source == "signals" and
                (.scenarios | length) == 1 and
                .scenarios[0].generationId == $generationId and
@@ -227,7 +235,8 @@ jobs:
                  runId: $runId,
                  runAttempt: $runAttempt,
                  commitSha: $commitSha,
-                 scenarioId: .scenarios[0].id
+                 scenarioId: .scenarios[0].id,
+                 planSnapshotSha256: $planSnapshotSha256
                }' "$BOUND_PLAN" >/dev/null
             chmod 0600 "$BOUND_PLAN"
             mv -f "$BOUND_PLAN" "$GITHUB_WORKSPACE/pack-plan/plan.json"
@@ -860,8 +869,8 @@ jobs:
             --run-id "${{ github.run_id }}" \
             --run-attempt "${{ github.run_attempt }}" \
             --commit-sha "${{ github.sha }}" \
-            --model sonnet \
-            --judge-model gpt-5.5 \
+            --model "$PACK_EVALUATOR_RUNNER_MODEL" \
+            --judge-model "$PACK_EVALUATOR_JUDGE_MODEL" \
             --max-candidates 2 \
             --pick 4 \
             --runs 1 \
@@ -941,8 +950,8 @@ jobs:
               --run-id "${{ github.run_id }}" \
               --run-attempt "${{ github.run_attempt }}" \
               --commit-sha "${{ github.sha }}" \
-              --model sonnet \
-              --judge-model gpt-5.5 \
+              --model "$PACK_EVALUATOR_RUNNER_MODEL" \
+              --judge-model "$PACK_EVALUATOR_JUDGE_MODEL" \
               > "$GITHUB_WORKSPACE/pack-diagnostics/verification-command.json"; then
               echo 'trusted evaluation closure verification failed' \
                 > "$GITHUB_WORKSPACE/pack-diagnostics/verification-failure.txt"

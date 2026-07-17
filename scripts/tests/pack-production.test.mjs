@@ -320,10 +320,13 @@ export const context = {
 };
 
 function immutableProductionPlan(scenario, generationId = context.generationId) {
-  return {
+  const plan = {
     schemaVersion: 'pack-production-queue/v1',
     source: 'signals',
     scenarios: [{ ...scenario, generationId }],
+  };
+  return {
+    ...plan,
     workflowBinding: {
       repository: 'aiskillstore/marketplace',
       workflow: 'Generate Pack',
@@ -331,6 +334,7 @@ function immutableProductionPlan(scenario, generationId = context.generationId) 
       runAttempt: context.runAttempt,
       commitSha: context.commitSha,
       scenarioId: scenario.id,
+      planSnapshotSha256: createHash('sha256').update(canonicalJson(plan)).digest('hex'),
     },
   };
 }
@@ -425,6 +429,20 @@ test('immutable production plan binds one generation id to the exact workflow in
       workflowBinding: { ...plan.workflowBinding, injected: true },
     }, workflowArgs),
     /unexpected fields/,
+  );
+  assert.throws(
+    () => validateImmutableProductionPlan({
+      ...plan,
+      workflowBinding: { ...plan.workflowBinding, planSnapshotSha256: undefined },
+    }, workflowArgs),
+    /snapshot SHA-256 is invalid/,
+  );
+  assert.throws(
+    () => validateImmutableProductionPlan({
+      ...plan,
+      scenarios: [{ ...plan.scenarios[0], task: 'live drift after snapshot' }],
+    }, workflowArgs),
+    /snapshot SHA-256 differs/,
   );
 });
 

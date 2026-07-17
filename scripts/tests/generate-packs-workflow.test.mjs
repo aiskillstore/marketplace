@@ -198,6 +198,8 @@ test('evaluate runs on a disposable VM with a user-separated job-local inference
   assert.match(CONTRACT_SMOKE, /path: '\/v1\/responses'/);
   assert.match(CONTRACT_SMOKE, /max_tokens: 16/);
   assert.match(CONTRACT_SMOKE, /max_output_tokens: 16/);
+  assert.match(WORKFLOW, /PACK_EVALUATOR_RUNNER_MODEL: 'claude-sonnet-5'/);
+  assert.match(WORKFLOW, /PACK_EVALUATOR_JUDGE_MODEL: 'gpt-5\.5'/);
   assert.match(CONTRACT_SMOKE, /model: 'claude-sonnet-5'/);
   assert.equal((CONTRACT_SMOKE.match(/stream: true/g) ?? []).length, 2);
   assert.match(CONTRACT_SMOKE, /content_block_delta/);
@@ -211,8 +213,9 @@ test('evaluate runs on a disposable VM with a user-separated job-local inference
   assert.match(evaluate, /--evaluator-runtime-root "\$RUNTIME_ROOT"/);
   assert.match(evaluate, /--evaluator-uid "\$\(id -u packeval\)"/);
   assert.match(evaluate, /--evaluator-gid "\$\(id -g packeval\)"/);
-  assert.match(evaluate, /--model sonnet/);
-  assert.match(evaluate, /--judge-model gpt-5\.5/);
+  assert.match(evaluate, /--model "\$PACK_EVALUATOR_RUNNER_MODEL"/);
+  assert.match(evaluate, /--judge-model "\$PACK_EVALUATOR_JUDGE_MODEL"/);
+  assert.doesNotMatch(evaluate, /--model sonnet/);
   assert.match(evaluate, /--agent-timeout-ms "\$AGENT_TIMEOUT_MS"/);
   assert.match(evaluate, /--agent-max-retries 1/);
   assert.match(evaluate, /PREFLIGHT_OUTCOME=command_failed/);
@@ -330,6 +333,8 @@ test('extracted evaluator preflight is valid bounded bash', () => {
   assert.match(EVALUATOR_PREFLIGHT, /"\$NODE" "\$ORCHESTRATOR" executor-preflight/);
   assert.match(EVALUATOR_PREFLIGHT, /--skill-a "\$PREFLIGHT_SKILL_A"/);
   assert.match(EVALUATOR_PREFLIGHT, /--skill-b "\$PREFLIGHT_SKILL_B"/);
+  assert.match(EVALUATOR_PREFLIGHT, /--model "\$PACK_EVALUATOR_RUNNER_MODEL"/);
+  assert.match(EVALUATOR_PREFLIGHT, /--judge-model "\$PACK_EVALUATOR_JUDGE_MODEL"/);
   assert.match(EVALUATOR_PREFLIGHT, /safe_runner_trace_evidence\(\)/);
   assert.match(EVALUATOR_PREFLIGHT, /proofBinding:/);
   assert.match(EVALUATOR_PREFLIGHT, /SKILLSTORE_AGENT_ENV_MODE=strict/);
@@ -347,6 +352,8 @@ test('evaluator preflight rejects a non-positive Claude output-token cap before 
     env: {
       PATH: process.env.PATH,
       PACK_PRODUCTION_CLI_VERSION: '2.14.2',
+      PACK_EVALUATOR_RUNNER_MODEL: 'claude-sonnet-5',
+      PACK_EVALUATOR_JUDGE_MODEL: 'gpt-5.5',
       PACK_EVALUATOR_PROXY_TOKEN: 'local-token-that-is-longer-than-thirty-two-bytes',
       PACK_DIAGNOSTICS_DIR: '/tmp',
       PACK_EVALUATOR_MAX_OUTPUT_TOKENS: '0',
@@ -618,8 +625,9 @@ test('evaluate emits bounded progress and checkpoints cancellation-safe evidence
   assert.match(evaluate, /sudo ps -o stat= -g "\$EVALUATOR_PID"/);
   assert.match(evaluate, /sudo kill -TERM -- "-\$EVALUATOR_PID"/);
   assert.doesNotMatch(evaluate, /pgrep -f '\/opt\/pack-evaluator\/lib\/pack-production\.mjs evaluate'/);
-  assert.match(evaluate, /--model sonnet/);
-  assert.match(evaluate, /--judge-model gpt-5\.5/);
+  assert.match(evaluate, /--model "\$PACK_EVALUATOR_RUNNER_MODEL"/);
+  assert.match(evaluate, /--judge-model "\$PACK_EVALUATOR_JUDGE_MODEL"/);
+  assert.doesNotMatch(evaluate, /--model sonnet/);
   assert.match(evaluate, /--max-candidates 2/);
   assert.match(evaluate, /--agent-timeout-ms 360000/);
   assert.match(evaluate, /--agent-max-retries 1/);
@@ -677,6 +685,8 @@ test('planning uses a read-only API and admits at most one artifact scenario', (
   assert.match(plan, /workflow: "Generate Pack"/);
   assert.match(plan, /runAttempt: \$runAttempt/);
   assert.match(plan, /scenarioId: \.scenarios\[0\]\.id/);
+  assert.match(plan, /immutablePlanSnapshotSha256/);
+  assert.match(plan, /planSnapshotSha256: \$planSnapshotSha256/);
   assert.match(plan, /\(has\("generationId"\) \| not\)/);
   assert.match(plan, /\(has\("workflowBinding"\) \| not\)/);
   const allocationIndex = plan.indexOf('.scenarios[0].generationId = $generationId');
@@ -692,6 +702,7 @@ test('planning uses a read-only API and admits at most one artifact scenario', (
   assert.doesNotMatch(PACK_PRODUCTION, /randomUUID/);
   assert.match(PACK_PRODUCTION, /const generationId = scenario\.generationId/);
   assert.match(PACK_PRODUCTION, /Evaluate summary generation id differs from the immutable plan/);
+  assert.match(PACK_PRODUCTION, /Immutable plan snapshot SHA-256 differs from its bound input snapshot/);
   const evaluate = section('  evaluate:', '  persist:');
   const persist = section('  persist:', '  enrich_publish_readback:');
   const finalize = section('  enrich_publish_readback:');

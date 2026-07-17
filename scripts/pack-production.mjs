@@ -1791,6 +1791,11 @@ function exactObjectKeys(value, expected) {
     && canonicalJson(Object.keys(value).sort()) === canonicalJson([...expected].sort());
 }
 
+export function immutablePlanSnapshotSha256(plan) {
+  const { workflowBinding: _workflowBinding, ...snapshot } = plan ?? {};
+  return sha256(canonicalJson(snapshot));
+}
+
 export function validateImmutableProductionPlan(plan, args) {
   if (plan?.schemaVersion !== 'pack-production-queue/v1') {
     fail(`Unsupported plan schema: ${plan?.schemaVersion}`);
@@ -1804,8 +1809,14 @@ export function validateImmutableProductionPlan(plan, args) {
     fail(`Immutable plan generation id is invalid for ${scenario.id}`);
   }
   const binding = plan.workflowBinding;
-  const bindingKeys = ['repository', 'workflow', 'runId', 'runAttempt', 'commitSha', 'scenarioId'];
+  const bindingKeys = ['repository', 'workflow', 'runId', 'runAttempt', 'commitSha', 'scenarioId', 'planSnapshotSha256'];
   if (!exactObjectKeys(binding, bindingKeys)) fail('Immutable plan workflow binding has unexpected fields');
+  if (!/^[0-9a-f]{64}$/.test(binding.planSnapshotSha256 || '')) {
+    fail('Immutable plan snapshot SHA-256 is invalid');
+  }
+  if (binding.planSnapshotSha256 !== immutablePlanSnapshotSha256(plan)) {
+    fail('Immutable plan snapshot SHA-256 differs from its bound input snapshot');
+  }
   const runId = required(args, 'run-id');
   const runAttempt = positiveInteger(args['run-attempt'], 'run-attempt', 1);
   const commitSha = required(args, 'commit-sha');
