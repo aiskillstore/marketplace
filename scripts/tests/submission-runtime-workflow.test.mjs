@@ -18,6 +18,7 @@ const reusable = readFileSync('.github/workflows/reusable-process-skills.yml', '
 const caller = readFileSync('.github/workflows/process-submission.yml', 'utf8');
 const runtimeFiles = [
   'schemas/skill-report.schema.json',
+  'governance/submission-slug-aliases.json',
   '.github/actions/download-skillstore-cli/action.yml',
   '.github/workflows/reusable-process-skills.yml',
   'scripts/resolve-submission-source.mjs',
@@ -86,6 +87,7 @@ function createFixture() {
 
   const files = {
     'schemas/skill-report.schema.json': '{"type":"object"}\n',
+    'governance/submission-slug-aliases.json': '{"schemaVersion":1,"aliases":[]}\n',
     '.github/actions/download-skillstore-cli/action.yml': 'name: fixture action\n',
     '.github/workflows/reusable-process-skills.yml': 'name: fixture workflow\n',
     'scripts/resolve-submission-source.mjs': 'export const source = true;\n',
@@ -195,6 +197,8 @@ test('all submission entrypoints and the aggregation import closure are immutabl
   assert.match(reusable, /node "\$GITHUB_WORKSPACE\/scripts\/submission-shard-contract\.mjs"/);
   assert.match(reusable, /node "\$GITHUB_WORKSPACE\/scripts\/aggregate-submission-shards\.mjs"/);
   assert.match(reusable, /require-checksum: true/);
+  assert.match(reusable, /minimum-version: 2\.14\.3/);
+  assert.match(reusable, /--slug-aliases-file "\$GITHUB_WORKSPACE\/governance\/submission-slug-aliases\.json"/);
   assert.match(
     readFileSync('scripts/aggregate-submission-shards.mjs', 'utf8'),
     /from '\.\/resolve-approved-submission\.mjs'/,
