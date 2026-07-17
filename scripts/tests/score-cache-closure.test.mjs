@@ -498,12 +498,23 @@ test('5295-scope retry-amplified readback budget is deterministic and below the 
     buildRetryDelayMs: 15_000,
     qps: 8,
     probeRequestsPerPass: 2,
-    finalizerReserveMs: 20 * 60_000,
+    invalidationCount: 1,
+    invalidationBatchSize: 200,
+    invalidationTimeoutMs: 60_000,
+    workflowReserveMs: 20 * 60_000,
   });
   assert.equal(budget.requestLimit, 42_364);
   assert.equal(budget.retryLimit, 21_180);
+  assert.equal(budget.invalidationBatches, 1);
+  assert.equal(budget.invalidationWorstCaseMs, 60_000);
   assert.ok(budget.worstCaseReadbackMs < 340 * 60_000, JSON.stringify(budget));
   assert.ok(budget.worstCaseTotalMs < 360 * 60_000, JSON.stringify(budget));
+
+  const fullInvalidation = closure.calculateReadbackBudget({
+    ...budget.parameters,
+    invalidationCount: 5295,
+  });
+  assert.ok(fullInvalidation.worstCaseTotalMs >= 360 * 60_000);
 
   const amplified = closure.calculateReadbackBudget({
     ...budget.parameters,
@@ -538,7 +549,7 @@ function scoreRows(slugs) {
   }));
 }
 
-function completedReadback(slugCount = 2) {
+function completedReadback(slugCount = 2, invalidationCount = slugCount) {
   const slugs = Array.from({ length: slugCount }, (_, index) => `slug-${index + 1}`);
   const scores = scoreRows(slugs);
   return {
@@ -578,7 +589,9 @@ function completedReadback(slugCount = 2) {
     budget: closure.calculateReadbackBudget({
       slugCount, readsPerSlug: 2, attempts: 2, buildAttempts: 2, concurrency: 16,
       requestTimeoutMs: 5_000, retryDelayMaxMs: 1_000, buildRetryDelayMs: 15_000,
-      qps: 8, probeRequestsPerPass: 2, finalizerReserveMs: 20 * 60_000,
+      qps: 8, probeRequestsPerPass: 2, invalidationCount,
+      invalidationBatchSize: 200, invalidationTimeoutMs: 60_000,
+      workflowReserveMs: 20 * 60_000,
     }),
     requestBudget: { requestLimit: 20, requestsUsed: 6, retryLimit: 8, retriesUsed: 0, qps: 8 },
     status: 'complete',
@@ -701,6 +714,8 @@ test('finalizer closes score, invalidation, and one-build readback deterministic
   approvedInput.invalidation.expectedCount = 1;
   approvedInput.invalidation.totalCount = 1;
   approvedInput.invalidation.successCount = 1;
+  approvedInput.readback = completedReadback(2, 1);
+  approvedInput.preflightBudget = approvedInput.readback.budget;
   const approvedCatalog = finalizeClosure(approvedInput);
   assert.equal(approvedCatalog.status, 'complete');
   assert.equal(approvedCatalog.score.status, 'not_required');
@@ -924,6 +939,7 @@ test('manual recovery is file-backed, fixed-CLI, bounded, and red on any remaini
   assert.match(RECOVERY, /--qps 8/);
   assert.match(RECOVERY, /Prove readback budget before any cache write/);
   assert.match(RECOVERY, /prove-readback-budget/);
+  assert.match(RECOVERY, /--invalidation-count "\$\{\{ steps\.selected\.outputs\.invalidation_count \}\}"/);
   assert.ok(
     RECOVERY.indexOf('Prove readback budget before any cache write')
       < RECOVERY.indexOf('Invalidate selected score API entries'),

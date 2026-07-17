@@ -289,11 +289,15 @@ export function calculateReadbackBudget({
   buildRetryDelayMs = 15_000,
   qps = 8,
   probeRequestsPerPass = 2,
-  finalizerReserveMs = 20 * 60_000,
+  invalidationCount = 1,
+  invalidationBatchSize = 200,
+  invalidationTimeoutMs = 60_000,
+  workflowReserveMs = 20 * 60_000,
 }) {
   for (const [name, value] of Object.entries({
     slugCount, readsPerSlug, attempts, buildAttempts, concurrency,
-    requestTimeoutMs, qps, probeRequestsPerPass,
+    requestTimeoutMs, qps, probeRequestsPerPass, invalidationCount,
+    invalidationBatchSize, invalidationTimeoutMs, workflowReserveMs,
   })) {
     if (!Number.isFinite(value) || value <= 0) fail(`${name} must be positive`);
   }
@@ -314,10 +318,13 @@ export function calculateReadbackBudget({
   const worstCaseReadbackMs = Math.ceil(
     timeoutWavesMs + retryWavesMs + qpsIssuanceMs + probeTimeoutMs + interPassDelayMs,
   );
+  const invalidationBatches = Math.ceil(invalidationCount / invalidationBatchSize);
+  const invalidationWorstCaseMs = invalidationBatches * invalidationTimeoutMs;
   return {
     parameters: {
       slugCount, readsPerSlug, attempts, buildAttempts, concurrency, requestTimeoutMs,
-      retryDelayMaxMs, buildRetryDelayMs, qps, probeRequestsPerPass, finalizerReserveMs,
+      retryDelayMaxMs, buildRetryDelayMs, qps, probeRequestsPerPass,
+      invalidationCount, invalidationBatchSize, invalidationTimeoutMs, workflowReserveMs,
     },
     waves,
     detailRequests,
@@ -329,8 +336,11 @@ export function calculateReadbackBudget({
     qpsIssuanceMs: Math.ceil(qpsIssuanceMs),
     probeTimeoutMs,
     interPassDelayMs,
+    invalidationBatches,
+    invalidationWorstCaseMs,
+    workflowReserveMs,
     worstCaseReadbackMs,
-    worstCaseTotalMs: worstCaseReadbackMs + finalizerReserveMs,
+    worstCaseTotalMs: worstCaseReadbackMs + invalidationWorstCaseMs + workflowReserveMs,
   };
 }
 
@@ -625,7 +635,10 @@ export async function verifyCacheReadback({
     slugCount: normalized.length, attempts, buildAttempts, concurrency,
     requestTimeoutMs: timeoutMs, retryDelayMaxMs: 1_000,
     buildRetryDelayMs, qps, readsPerSlug: 2, probeRequestsPerPass: 2,
-    finalizerReserveMs: 20 * 60_000,
+    invalidationCount: 1,
+    invalidationBatchSize: 200,
+    invalidationTimeoutMs: 60_000,
+    workflowReserveMs: 20 * 60_000,
   });
   const effectiveRequestLimit = requestLimit ?? budget.requestLimit;
   const effectiveRetryLimit = retryLimit ?? budget.retryLimit;
@@ -1064,6 +1077,7 @@ export function finalizeClosure(input) {
       || !recomputedBudget || !sameJson(readback.budget, recomputedBudget)
       || !sameJson(input.preflightBudget, recomputedBudget)
       || recomputedBudget.parameters.slugCount !== selected.length
+      || recomputedBudget.parameters.invalidationCount !== invalidationSlugs.length
       || recomputedBudget.requestLimit !== budget.requestLimit
       || recomputedBudget.retryLimit !== budget.retryLimit
       || recomputedBudget.worstCaseTotalMs >= 360 * 60_000) {
@@ -1305,6 +1319,11 @@ async function main() {
     return;
   }
   if (command === 'prove-readback-budget') {
+    const invalidationCount = positiveInteger(
+      readOption(args, '--invalidation-count', { required: true }),
+      'invalidation-count',
+      10_000,
+    );
     const budget = calculateReadbackBudget({
       slugCount: positiveInteger(readOption(args, '--slug-count', { required: true }), 'slug-count', 10_000),
       readsPerSlug: 2,
@@ -1316,7 +1335,10 @@ async function main() {
       buildRetryDelayMs: nonnegativeInteger(readOption(args, '--build-retry-delay-ms', { fallback: '15000' }), 'build-retry-delay-ms', 120_000),
       qps: positiveInteger(readOption(args, '--qps', { fallback: '8' }), 'qps', 16),
       probeRequestsPerPass: 2,
-      finalizerReserveMs: 20 * 60_000,
+      invalidationCount,
+      invalidationBatchSize: 200,
+      invalidationTimeoutMs: 60_000,
+      workflowReserveMs: 20 * 60_000,
     });
     atomicWriteJson(readOption(args, '--output', { required: true }), budget);
     if (budget.worstCaseTotalMs >= 360 * 60_000) {
@@ -1395,6 +1417,11 @@ async function main() {
     const timeoutMs = positiveInteger(readOption(args, '--timeout-ms', { fallback: '5000' }), 'timeout-ms', 5_000);
     const qps = positiveInteger(readOption(args, '--qps', { fallback: '8' }), 'qps', 16);
     const buildRetryDelayMs = nonnegativeInteger(readOption(args, '--build-retry-delay-ms', { fallback: '15000' }), 'build-retry-delay-ms', 120_000);
+    const invalidationCount = positiveInteger(
+      readOption(args, '--invalidation-count', { required: true }),
+      'invalidation-count',
+      10_000,
+    );
     const expectedBuild = readOption(args, '--expected-build', { required: true });
     if (!validBuildToken(expectedBuild)) fail('expected build is invalid');
     const expectedCacheVersion = readOption(args, '--expected-cache-version', { required: true });
@@ -1402,7 +1429,11 @@ async function main() {
     const budget = calculateReadbackBudget({
       slugCount: slugs.length, readsPerSlug: 2, attempts, buildAttempts, concurrency,
       requestTimeoutMs: timeoutMs, retryDelayMaxMs: 1_000, buildRetryDelayMs, qps,
-      probeRequestsPerPass: 2, finalizerReserveMs: 20 * 60_000,
+      probeRequestsPerPass: 2,
+      invalidationCount,
+      invalidationBatchSize: 200,
+      invalidationTimeoutMs: 60_000,
+      workflowReserveMs: 20 * 60_000,
     });
     if (budget.worstCaseTotalMs >= 360 * 60_000) {
       fail(`readback worst-case budget ${budget.worstCaseTotalMs}ms exceeds the 360-minute job`);
