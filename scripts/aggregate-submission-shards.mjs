@@ -92,8 +92,23 @@ function assertSameIntegerSet(actual, expected, label) {
   }
 }
 
+let tarSupportsEscapeQuoting;
+
+function tarListingArgs(archive) {
+  if (tarSupportsEscapeQuoting === undefined) {
+    const help = spawnSync('tar', ['--help'], { encoding: 'utf8' });
+    tarSupportsEscapeQuoting = help.status === 0 && help.stdout.includes('--quoting-style');
+  }
+  return tarSupportsEscapeQuoting
+    ? ['--quoting-style=escape', '-tzf', archive]
+    : ['-tzf', archive];
+}
+
 function validateTarEntries(archive) {
-  const listed = spawnSync('tar', ['-tzf', archive], { encoding: 'utf8' });
+  const listed = spawnSync('tar', tarListingArgs(archive), {
+    encoding: 'utf8',
+    env: { ...process.env, LANG: 'C.UTF-8', LC_ALL: 'C.UTF-8' },
+  });
   if (listed.status !== 0) fail(`cannot list ${basename(archive)}: ${listed.stderr.trim()}`);
   const entries = listed.stdout.split(/\r?\n/).filter(Boolean);
   if (entries.length === 0) fail(`${basename(archive)} is empty`);

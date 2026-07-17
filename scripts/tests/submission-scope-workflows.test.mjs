@@ -12,6 +12,7 @@ import {
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { test } from 'node:test';
+import { gzipSync } from 'node:zlib';
 import { calculateCanonicalTreeHash } from '../resolve-approved-submission.mjs';
 
 const reusable = readFileSync('.github/workflows/reusable-process-skills.yml', 'utf8');
@@ -39,12 +40,17 @@ function runNode(script, args, options = {}) {
   });
 }
 
-function writePendingSkill(root, slug) {
+function writePendingSkill(root, slug, extraFiles = []) {
   const pendingDir = `pending/${slug}`;
   const absoluteDir = join(root, pendingDir);
   mkdirSync(absoluteDir, { recursive: true });
   const skillBytes = `---\nname: ${slug}\ndescription: fixture\n---\n`;
   writeFileSync(join(absoluteDir, 'SKILL.md'), skillBytes);
+  for (const [relativePath, content] of extraFiles) {
+    const destination = join(absoluteDir, relativePath);
+    mkdirSync(dirname(destination), { recursive: true });
+    writeFileSync(destination, content);
+  }
   const contentHash = createHash('sha256').update(skillBytes).digest('hex');
   const treeHash = calculateCanonicalTreeHash(root, pendingDir);
   writeFileSync(join(absoluteDir, 'skill-report.json'), `${JSON.stringify({
@@ -109,11 +115,12 @@ function createShardArchive(artifactsDir, {
   slugs = manifest?.succeeded ?? [],
   nested = '',
   omitManifest = false,
+  extraFiles = {},
 }) {
   const fixtureRoot = mkdtempSync(join(tmpdir(), 'submission-archive-root-'));
   try {
     mkdirSync(join(fixtureRoot, 'pending'), { recursive: true });
-    for (const slug of slugs) writePendingSkill(fixtureRoot, slug);
+    for (const slug of slugs) writePendingSkill(fixtureRoot, slug, extraFiles[slug] ?? []);
     if (!omitManifest) {
       writeFileSync(join(fixtureRoot, 'shard-manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`);
     }
@@ -128,6 +135,27 @@ function createShardArchive(artifactsDir, {
   } finally {
     rmSync(fixtureRoot, { recursive: true, force: true });
   }
+}
+
+function createRawEntryArchive(artifactsDir, entryName) {
+  const name = Buffer.from(entryName, 'utf8');
+  assert.ok(name.length > 0 && name.length <= 100, 'raw tar fixture name must fit in the header');
+  const header = Buffer.alloc(512);
+  name.copy(header, 0);
+  Buffer.from('0000644\0').copy(header, 100);
+  Buffer.from('0000000\0').copy(header, 108);
+  Buffer.from('0000000\0').copy(header, 116);
+  Buffer.from('00000000000\0').copy(header, 124);
+  Buffer.from('00000000000\0').copy(header, 136);
+  header.fill(0x20, 148, 156);
+  header[156] = '0'.charCodeAt(0);
+  Buffer.from('ustar\0').copy(header, 257);
+  Buffer.from('00').copy(header, 263);
+  const checksum = header.reduce((sum, byte) => sum + byte, 0);
+  Buffer.from(`${checksum.toString(8).padStart(6, '0')}\0 `).copy(header, 148);
+  const archive = join(artifactsDir, 'process-shard-1-0.tar.gz');
+  writeFileSync(archive, gzipSync(Buffer.concat([header, Buffer.alloc(1024)])));
+  return archive;
 }
 
 function runAggregate(root, matrix, expectedCount = matrix.include.length) {
@@ -277,6 +305,36 @@ test('aggregation accepts root and nested archives only when manifests and pendi
   assert.deepEqual(plan.skills.map(({ pendingDir }) => pendingDir), ['pending/alpha', 'pending/beta']);
   assert.equal(JSON.parse(readFileSync(aggregate.summary, 'utf8')).status, 'has_results');
 }));
+
+test('aggregation preserves printable UTF-8 archive paths without weakening path validation', () => withTempDirectory((root) => {
+  const artifacts = join(root, 'artifacts');
+  mkdirSync(artifacts);
+  createShardArchive(artifacts, {
+    rawIndex: '0',
+    manifest: successfulManifest(0, ['alpha']),
+    slugs: ['alpha'],
+    extraFiles: { alpha: [['references/水电与渗漏问题.md', 'fixture\n']] },
+  });
+  const aggregate = runAggregate(root, { include: [{ shard: 0, slugs: 'alpha' }] });
+  assert.equal(aggregate.result.status, 0, aggregate.result.stderr);
+  assert.equal(readFileSync(join(aggregate.mergedResults, 'pending/alpha/references/水电与渗漏问题.md'), 'utf8'), 'fixture\n');
+}));
+
+for (const entryName of [
+  '/absolute.md',
+  '../traversal.md',
+  'pending/alpha/back\\slash.md',
+  'pending/alpha/control\ncharacter.md',
+]) {
+  test(`aggregation rejects unsafe raw archive path ${JSON.stringify(entryName)}`, () => withTempDirectory((root) => {
+    const artifacts = join(root, 'artifacts');
+    mkdirSync(artifacts);
+    createRawEntryArchive(artifacts, entryName);
+    const aggregate = runAggregate(root, { include: [{ shard: 0, slugs: 'alpha' }] });
+    assert.notEqual(aggregate.result.status, 0, `${entryName} unexpectedly passed`);
+    assert.match(aggregate.result.stderr, /contains unsafe path/);
+  }));
+}
 
 test('legal no-op requires an explicit successful no_skills_planned manifest', () => withTempDirectory((root) => {
   const artifacts = join(root, 'artifacts');
