@@ -9,6 +9,7 @@ const SHA256_RE = /^[0-9a-f]{64}$/;
 const COMMIT_RE = /^[0-9a-f]{40}$/;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const MAX_BATCH_SIZE = 10;
+const AUDIT_SCHEMA_PATH = 'schemas/skill-report.schema.json';
 
 function fail(message) { throw new Error(message); }
 function git(root, args) {
@@ -89,6 +90,9 @@ export function prepareFreshCanonicalAuditBatch({
     git(repositoryRoot, ['cat-file', '-e', `${row.marketplaceCommit}:${row.path}/SKILL.md`]);
     git(repositoryRoot, ['cat-file', '-e', `${row.marketplaceCommit}:${row.path}/skill-report.json`]);
   }
+  for (const commit of new Set(selected.map((row) => row.marketplaceCommit))) {
+    git(repositoryRoot, ['cat-file', '-e', `${commit}:${AUDIT_SCHEMA_PATH}`]);
+  }
   const grouped = new Map();
   for (const row of selected) {
     if (!grouped.has(row.marketplaceCommit)) grouped.set(row.marketplaceCommit, []);
@@ -99,7 +103,7 @@ export function prepareFreshCanonicalAuditBatch({
     .map(([marketplaceCommit, group]) => ({
       marketplaceCommit,
       count: group.length,
-      paths: group.map((row) => row.path),
+      paths: [AUDIT_SCHEMA_PATH, ...group.map((row) => row.path)],
       slugs: group.map((row) => row.slug),
     }));
   return {
