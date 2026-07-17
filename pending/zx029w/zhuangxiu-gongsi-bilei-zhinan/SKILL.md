@@ -1,5 +1,5 @@
 ---
-name: 装修公司避雷指南
+name: zhuangxiu-gongsi-bilei-zhinan
 identifier: zhuangxiu-gongsi-bilei
 slug: zhuangxiu-gongsi-bilei
 version: 1.0.1
