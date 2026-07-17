@@ -14,6 +14,7 @@ on:
       - "scripts/detect-changed-skills.mjs"
       - "scripts/resolve-manual-skills.mjs"
       - "scripts/materialize-changed-skills.mjs"
+      - "scripts/rebind-skill-report-hashes.mjs"
       - "scripts/verify-recovered-skill-reports.mjs"
       - "scripts/recovered-skill-reports.test.mjs"
       - "scripts/tests/**"
@@ -33,6 +34,7 @@ on:
       - "scripts/detect-changed-skills.mjs"
       - "scripts/resolve-manual-skills.mjs"
       - "scripts/materialize-changed-skills.mjs"
+      - "scripts/rebind-skill-report-hashes.mjs"
       - "scripts/verify-recovered-skill-reports.mjs"
       - "scripts/recovered-skill-reports.test.mjs"
       - "scripts/tests/**"
@@ -99,6 +101,9 @@ jobs:
 
           cd "$WORK_DIR"
 
+          AUTO_FIX_BASE_SHA=$(git rev-parse HEAD)
+          echo "AUTO_FIX_BASE_SHA=$AUTO_FIX_BASE_SHA" >> "$GITHUB_ENV"
+
           # Configure git for potential commits
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
@@ -127,6 +132,8 @@ jobs:
             scripts/tests/detect-changed-skills.test.mjs \
             scripts/tests/resolve-manual-skills.test.mjs \
             scripts/tests/materialize-changed-skills.test.mjs \
+            scripts/tests/rebind-skill-report-hashes.test.mjs \
+            scripts/tests/validate-marketplace-autofix.test.mjs \
             scripts/recovered-skill-reports.test.mjs
 
       # Download CLI once at start - used by both SKILL.md and skill-report.json auto-fix steps
@@ -310,6 +317,26 @@ jobs:
 
           echo "::notice::SKILL.md auto-fix completed. Re-validating..."
 
+      - name: Rebind reports to auto-fixed SKILL.md artifacts
+        if: steps.validate-skill-md.outcome == 'failure' && env.AUTO_FIX_ENABLED == 'true'
+        working-directory: ${{ env.WORK_DIR }}
+        run: |
+          set -euo pipefail
+          CHANGED_SKILLS="$RUNNER_TEMP/auto-fixed-skill-paths-${{ github.run_id }}.bin"
+          git diff --name-only -z --diff-filter=ACMRT HEAD -- \
+            'skills/**/SKILL.md' 'pending/**/SKILL.md' > "$CHANGED_SKILLS"
+          if [ ! -s "$CHANGED_SKILLS" ]; then
+            if ! git diff --quiet --diff-filter=D HEAD -- 'skills/**/SKILL.md' 'pending/**/SKILL.md'; then
+              echo "::notice::Auto-fix only deleted invalid SKILL.md artifacts; no surviving report hashes to rebind"
+              exit 0
+            fi
+            echo "::error::SKILL.md auto-fix reported success without a changed SKILL.md artifact"
+            exit 1
+          fi
+          node scripts/rebind-skill-report-hashes.mjs \
+            --repo-root "$PWD" \
+            --skill-paths-file "$CHANGED_SKILLS"
+
       - name: Re-validate SKILL.md after auto-fix
         if: steps.validate-skill-md.outcome == 'failure' && env.AUTO_FIX_ENABLED == 'true'
         id: revalidate-skill-md
@@ -386,13 +413,9 @@ jobs:
             console.log('All SKILL.md files are now valid after auto-fix');
           "
 
-      - name: Create PR for SKILL.md fixes
+      - name: Commit auto-fixed SKILL.md artifacts locally
         if: steps.validate-skill-md.outcome == 'failure' && env.AUTO_FIX_ENABLED == 'true' && steps.revalidate-skill-md.outcome == 'success'
         working-directory: ${{ env.WORK_DIR }}
-        env:
-          APP_TOKEN: ${{ steps.app-token.outputs.token }}
-          REPOSITORY: ${{ github.repository }}
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
           set -euo pipefail
 
@@ -403,14 +426,6 @@ jobs:
             echo "No changes to commit"
             exit 0
           fi
-
-          # Configure git remote URL with authentication token
-          echo "🔑 Configuring git authentication..."
-          git remote set-url origin "https://x-access-token:${APP_TOKEN}@github.com/${REPOSITORY}.git"
-
-          # Create a new branch for the fixes
-          BRANCH_NAME="fix/skill-md-validation-$(date +%Y%m%d-%H%M%S)"
-          git checkout -b "$BRANCH_NAME"
 
           # Stage all changes (modifications and deletions)
           git add -A
@@ -438,47 +453,7 @@ jobs:
           Co-Authored-By: Claude <noreply@anthropic.com>"
 
           git commit -m "$COMMIT_MSG"
-
-          # Push the branch
-          git push origin "$BRANCH_NAME"
-
-          # Build PR title
-          PR_TITLE="fix: Auto-fix SKILL.md validation errors"
-          [ "$MODIFIED_COUNT" -gt 0 ] && PR_TITLE="$PR_TITLE ($MODIFIED_COUNT fixed"
-          [ "$DELETED_COUNT" -gt 0 ] && [ "$MODIFIED_COUNT" -gt 0 ] && PR_TITLE="$PR_TITLE, $DELETED_COUNT deleted)"
-          [ "$DELETED_COUNT" -gt 0 ] && [ "$MODIFIED_COUNT" -eq 0 ] && PR_TITLE="$PR_TITLE ($DELETED_COUNT deleted)"
-          [ "$MODIFIED_COUNT" -gt 0 ] && [ "$DELETED_COUNT" -eq 0 ] && PR_TITLE="$PR_TITLE)"
-
-          # Create PR
-          PR_URL=$(gh pr create \
-            --title "$PR_TITLE" \
-            --body "## Summary
-
-          AI-powered auto-fix for SKILL.md validation errors.
-
-          | Metric | Value |
-          |--------|-------|
-          | Files Fixed | $MODIFIED_COUNT |
-          | Empty Skills Deleted | $DELETED_COUNT |
-          | Triggered By | ${{ github.event_name }} |
-
-          ### Fixes Applied
-          - Added missing YAML frontmatter
-          - Fixed \`name\` field format (lowercase alphanumeric with hyphens)
-          - Added missing \`description\` field
-          - Truncated overly long descriptions
-          - **Deleted empty skill directories** (unfixable)
-
-          ### After Merge
-          The \`sync-to-supabase.yml\` workflow will automatically update the database.
-
-          ---
-          *Automated fix by validate-marketplace.yml*" \
-            --base main \
-            --head "$BRANCH_NAME")
-
-          echo "::notice::Created PR for SKILL.md fixes: $PR_URL"
-          echo "🔗 PR Created: $PR_URL"
+          echo "::notice::Staged SKILL.md and bound report fixes in a local commit; publishing waits for all validation repairs"
 
       - name: Fail if SKILL.md errors remain
         if: steps.validate-skill-md.outcome == 'failure' && (env.AUTO_FIX_ENABLED != 'true' || steps.revalidate-skill-md.outcome == 'failure')
@@ -650,12 +625,9 @@ jobs:
             exit 1
           fi
 
-      - name: Commit auto-fixed skill-report.json files
+      - name: Commit auto-fixed skill-report.json files locally
         if: steps.validate-skill-reports.outcome == 'failure' && env.AUTO_FIX_ENABLED == 'true' && steps.revalidate.outcome == 'success'
         working-directory: ${{ env.WORK_DIR }}
-        env:
-          APP_TOKEN: ${{ steps.app-token.outputs.token }}
-          REPOSITORY: ${{ github.repository }}
         run: |
           set -euo pipefail
 
@@ -667,10 +639,6 @@ jobs:
             exit 0
           fi
 
-          # Configure git remote URL with authentication token
-          echo "🔑 Configuring git authentication..."
-          git remote set-url origin "https://x-access-token:${APP_TOKEN}@github.com/${REPOSITORY}.git"
-
           # Stage all changes
           git add -A
 
@@ -680,21 +648,7 @@ jobs:
           AI-powered fix applied by GitHub Actions workflow.
 
           Co-Authored-By: Claude <noreply@anthropic.com>"
-
-          # Push with retry for race conditions
-          for i in 1 2 3; do
-            if git push origin "$BRANCH"; then
-              echo "::notice::Successfully committed and pushed auto-fixed skill-report.json files"
-              break
-            fi
-            echo "Push failed, pulling and retrying ($i/3)..."
-            git pull --rebase origin "$BRANCH" || {
-              git rebase --abort 2>/dev/null || true
-              git reset --hard "origin/$BRANCH"
-              git cherry-pick HEAD@{1} || true
-            }
-            sleep 2
-          done
+          echo "::notice::Committed report repairs locally; publishing waits for the final validation gate"
 
       - name: Add summary
         if: always()
@@ -709,7 +663,11 @@ jobs:
           elif [ "${{ steps.revalidate-skill-md.outcome }}" == "success" ]; then
             echo "🔧 SKILL.md validation errors were automatically fixed by AI" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
-            echo "A PR has been created with the fixes. Please review and merge." >> $GITHUB_STEP_SUMMARY
+            if [ "${{ github.event_name }}" = "pull_request" ]; then
+              echo "Validated fixes were pushed back to the original same-repository PR head." >> $GITHUB_STEP_SUMMARY
+            else
+              echo "A dedicated repair PR was created for the validated fixes." >> $GITHUB_STEP_SUMMARY
+            fi
           else
             echo "❌ SKILL.md validation failed" >> $GITHUB_STEP_SUMMARY
             if [ "${{ env.AUTO_FIX_ENABLED }}" == "true" ]; then
@@ -744,6 +702,62 @@ jobs:
         run: |
           echo "::error::skill-report.json validation failed"
           exit 1
+
+      - name: Publish validated auto-fixes
+        if: success() && env.AUTO_FIX_ENABLED == 'true' && (steps.revalidate-skill-md.outcome == 'success' || steps.revalidate.outcome == 'success')
+        working-directory: ${{ env.WORK_DIR }}
+        env:
+          APP_TOKEN: ${{ steps.app-token.outputs.token }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          EVENT_NAME: ${{ github.event_name }}
+          HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
+          HEAD_REF: ${{ github.head_ref }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          git diff --quiet
+          git diff --cached --quiet
+          git merge-base --is-ancestor "$AUTO_FIX_BASE_SHA" HEAD
+          test "$(git rev-parse HEAD)" != "$AUTO_FIX_BASE_SHA" || {
+            echo "::error::Auto-fix completed without a final repair commit"
+            exit 1
+          }
+
+          git remote set-url origin "https://x-access-token:${APP_TOKEN}@github.com/${REPOSITORY}.git"
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            test "$HEAD_REPOSITORY" = "$REPOSITORY" || {
+              echo "::error::Refusing to write auto-fixes to fork pull request $HEAD_REPOSITORY"
+              exit 1
+            }
+            test "$HEAD_REF" = "$BRANCH" || {
+              echo "::error::Pull request head branch changed during validation"
+              exit 1
+            }
+            git check-ref-format --branch "$BRANCH" >/dev/null
+            [[ "$BRANCH" =~ ^[A-Za-z0-9][A-Za-z0-9._/-]*$ ]] \
+              && [[ "$BRANCH" != *..* ]] \
+              && [[ "$BRANCH" != *//* ]] \
+              && [[ "$BRANCH" != */ ]] || {
+              echo "::error::Refusing unsafe pull request head branch $BRANCH"
+              exit 1
+            }
+            REMOTE_SHA=$(git ls-remote origin "refs/heads/$BRANCH" | awk 'NR == 1 {print $1}')
+            test "$REMOTE_SHA" = "$AUTO_FIX_BASE_SHA" || {
+              echo "::error::Pull request head advanced during auto-fix: expected $AUTO_FIX_BASE_SHA, found ${REMOTE_SHA:-missing}"
+              exit 1
+            }
+            git push origin "HEAD:refs/heads/$BRANCH"
+            echo "::notice::Published validated auto-fixes to original PR head $BRANCH"
+          else
+            FIX_BRANCH="fix/validated-marketplace-artifacts-${{ github.run_id }}"
+            git push origin "HEAD:refs/heads/$FIX_BRANCH"
+            gh pr create \
+              --base main \
+              --head "$FIX_BRANCH" \
+              --title "fix: validate Marketplace artifacts" \
+              --body "Automated SKILL.md and skill-report.json repairs from workflow run ${{ github.run_id }}."
+          fi
 
       - name: Cleanup temporary workspace
         if: always()
