@@ -22,6 +22,7 @@ const ADMISSION_WORKFLOW = readFileSync(
 const SLO_WORKFLOW = readFileSync(join(REPO_ROOT, '.github/workflows/pack-production-slo.yml'), 'utf8');
 const GENERATE_CONTENT = readFileSync(join(REPO_ROOT, '.github/workflows/generate-content.yml'), 'utf8');
 const TRANSLATE_PACKS = readFileSync(join(REPO_ROOT, '.github/workflows/translate-packs.yml'), 'utf8');
+const TRANSLATE_SKILLS = readFileSync(join(REPO_ROOT, '.github/workflows/translate-skills.yml'), 'utf8');
 
 function section(start, end) {
   const startIndex = WORKFLOW.indexOf(start);
@@ -346,7 +347,7 @@ test('evaluator preflight rejects a non-positive Claude output-token cap before 
     encoding: 'utf8',
     env: {
       PATH: process.env.PATH,
-      PACK_PRODUCTION_CLI_VERSION: '2.14.2',
+      PACK_PRODUCTION_CLI_VERSION: '2.14.6',
       PACK_EVALUATOR_PROXY_TOKEN: 'local-token-that-is-longer-than-thirty-two-bytes',
       PACK_DIAGNOSTICS_DIR: '/tmp',
       PACK_EVALUATOR_MAX_OUTPUT_TOKENS: '0',
@@ -700,7 +701,7 @@ test('planning uses a read-only API and admits at most one artifact scenario', (
   assert.match(finalize, /if: needs\.plan\.outputs\.has_scenarios == 'true'/);
   assert.match(WORKFLOW, /group: generate-pack-production-v4/);
   assert.match(WORKFLOW, /cron: '17 19 \* \* 1,3,5'/);
-  assert.match(WORKFLOW, /PACK_PRODUCTION_CLI_VERSION: '2\.14\.2'/);
+  assert.match(WORKFLOW, /PACK_PRODUCTION_CLI_VERSION: '2\.14\.6'/);
   assert.doesNotMatch(WORKFLOW, /2\.12\.0|RELEASE BLOCKER/);
   assert.equal((WORKFLOW.match(/require-checksum: 'true'/g) ?? []).length, 1);
   assert.match(plan, /actions\/create-github-app-token@v3/);
@@ -821,4 +822,15 @@ test('production content is nonce-bound and never dispatches the legacy translat
   assert.match(TRANSLATE_PACKS, /github\.event\.client_payload\.cli_version/);
   assert.match(TRANSLATE_PACKS, /require-checksum: \$\{\{ github\.event\.client_payload\.source_generation_id/);
   assert.match(TRANSLATE_PACKS, /SKILLSTORE_AGENT_ENV_MODE: strict/);
+  assert.equal(
+    (TRANSLATE_PACKS.match(/SKILLSTORE_TRANSLATION_CODEX_API_KEY: \$\{\{ secrets\.SKILLSTORE_TRANSLATION_CODEX_API_KEY \}\}/g) ?? []).length,
+    1,
+  );
+  assert.equal(
+    (TRANSLATE_SKILLS.match(/SKILLSTORE_TRANSLATION_CODEX_API_KEY: \$\{\{ secrets\.SKILLSTORE_TRANSLATION_CODEX_API_KEY \}\}/g) ?? []).length,
+    2,
+  );
+  assert.equal((TRANSLATE_SKILLS.match(/SKILLSTORE_AGENT_ENV_MODE: strict/g) ?? []).length, 2);
+  assert.doesNotMatch(TRANSLATE_PACKS, /HELM_API_KEY:\s*\$\{\{ secrets\.HELM_API_KEY \}\}/);
+  assert.doesNotMatch(TRANSLATE_SKILLS, /HELM_API_KEY:\s*\$\{\{ secrets\.HELM_API_KEY \}\}/);
 });
