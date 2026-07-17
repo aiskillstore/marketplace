@@ -23,12 +23,17 @@ const FAKE_CURL = `#!/usr/bin/env bash
 set -u
 
 count_file="$FAKE_CURL_LOG_DIR/count"
+count_lock="$FAKE_CURL_LOG_DIR/count.lock"
+while ! mkdir "$count_lock" 2>/dev/null; do
+  :
+done
 count=0
 if [ -f "$count_file" ]; then
   count=$(cat "$count_file")
 fi
 count=$((count + 1))
 printf '%s' "$count" > "$count_file"
+rmdir "$count_lock"
 
 response_file=""
 payload_arg=""
@@ -160,6 +165,7 @@ function runInvalidator({
   fallbackMaxAttempts = 2,
   fallbackRetryBaseSeconds = 1,
   fallbackCurlMaxTime = 9,
+  fallbackConcurrency = 1,
   results = 'http:200',
   contentType = 'skills',
   mktempFails = false,
@@ -200,6 +206,7 @@ function runInvalidator({
       FALLBACK_MAX_ATTEMPTS: String(fallbackMaxAttempts),
       FALLBACK_RETRY_BASE_SECONDS: String(fallbackRetryBaseSeconds),
       FALLBACK_CURL_MAX_TIME: String(fallbackCurlMaxTime),
+      FALLBACK_CONCURRENCY: String(fallbackConcurrency),
       CURL_CONNECT_TIMEOUT: '1',
       CURL_MAX_TIME: '2',
       GITHUB_OUTPUT: githubOutput,
@@ -317,8 +324,8 @@ test('temporary workspace failure fails closed before making an HTTP request', (
   assert.match(result.stderr, /Failed to create temporary workspace/);
 });
 
-test('retryable curl transport failures retry the same idempotent batch', () => {
-  for (const exitCode of [5, 6, 7, 16, 18, 28, 35, 52, 55, 56, 92]) {
+test('retryable non-timeout curl transport failures retry the same idempotent batch', () => {
+  for (const exitCode of [5, 6, 7, 16, 18, 35, 52, 55, 56, 92]) {
     const { result, payloads, sleeps } = runInvalidator({
       slugs: 'alpha,beta',
       results: `transport:${exitCode},http:200`,
@@ -468,7 +475,88 @@ test('status 000 with curl exit 28 uses transport retries within the finite budg
   assert.equal(payloads.length, 3);
   assert.ok(payloads.every((payload) => JSON.stringify(payload) === JSON.stringify(payloads[0])));
   assert.deepEqual(sleeps, ['1', '2']);
-  assert.match(result.stderr, /Transient curl transport failure \(exit 28\)/);
+  assert.match(result.stderr, /Transient curl timeout \(exit 28\)/);
+});
+
+test('a multi-item timeout skips batch retries and latches item fallback for later batches', () => {
+  const { result, payloads, sleeps, outputs } = runInvalidator({
+    slugs: 'alpha,beta,gamma,delta,epsilon,zeta',
+    batchSize: 2,
+    maxAttempts: 3,
+    fallbackConcurrency: 1,
+    results: 'transport:28,http:200',
+  });
+
+  assert.equal(result.status, 0, `STDOUT:\n${result.stdout}\nSTDERR:\n${result.stderr}`);
+  assert.deepEqual(payloads.map((payload) => payload.slugs), [
+    ['alpha', 'beta'],
+    ['alpha'],
+    ['beta'],
+    ['gamma'],
+    ['delta'],
+    ['epsilon'],
+    ['zeta'],
+  ]);
+  assert.deepEqual(sleeps, []);
+  assert.match(result.stderr, /without another batch retry/);
+  assert.equal(
+    (result.stderr.match(/Skipping multi-item request/g) || []).length,
+    2,
+  );
+  assert.deepEqual(outputs, {
+    total_count: 6,
+    success_count: 6,
+    failed_count: 0,
+  });
+});
+
+test('parallel item fallback preserves one completion result for every requested item', () => {
+  const { result, payloads, outputs } = runInvalidator({
+    slugs: 'alpha,beta,gamma,delta',
+    batchSize: 4,
+    fallbackConcurrency: 2,
+    results: 'transport:28,http:200',
+  });
+
+  assert.equal(result.status, 0, `STDOUT:\n${result.stdout}\nSTDERR:\n${result.stderr}`);
+  assert.deepEqual(payloads[0].slugs, ['alpha', 'beta', 'gamma', 'delta']);
+  assert.deepEqual(
+    payloads.slice(1).map((payload) => payload.slugs[0]).sort(),
+    ['alpha', 'beta', 'delta', 'gamma'],
+  );
+  assert.equal((result.stdout.match(/completed for item:/g) || []).length, 4);
+  assert.deepEqual(outputs, {
+    total_count: 4,
+    success_count: 4,
+    failed_count: 0,
+  });
+  assert.equal(outputs.total_count, outputs.success_count + outputs.failed_count);
+});
+
+test('the 78-item timeout shape completes through one batch probe and item evidence only', () => {
+  const slugs = Array.from({ length: 78 }, (_, index) => `sync-item-${index}`);
+  const { result, payloads, sleeps, outputs } = runInvalidator({
+    slugs: slugs.join(','),
+    batchSize: 10,
+    fallbackConcurrency: 2,
+    results: 'transport:28,http:200',
+  });
+
+  assert.equal(result.status, 0, `STDOUT:\n${result.stdout}\nSTDERR:\n${result.stderr}`);
+  assert.equal(payloads.length, 79);
+  assert.deepEqual(payloads[0].slugs, slugs.slice(0, 10));
+  assert.ok(payloads.slice(1).every((payload) => payload.slugs.length === 1));
+  assert.deepEqual(
+    payloads.slice(1).map((payload) => payload.slugs[0]).sort(),
+    [...slugs].sort(),
+  );
+  assert.deepEqual(sleeps, []);
+  assert.equal((result.stdout.match(/completed for item:/g) || []).length, 78);
+  assert.deepEqual(outputs, {
+    total_count: 78,
+    success_count: 78,
+    failed_count: 0,
+  });
 });
 
 test('non-transient curl failures fail closed without retrying the failed batch', () => {
@@ -588,8 +676,12 @@ test('sync workflow uses an artifact-backed bounded invalidator and preserves do
   assert.match(invalidationJob, /BATCH_SIZE: ['"]10['"]/);
   assert.match(invalidationJob, /CONTENT_TYPE: skills/);
   assert.match(invalidationJob, /CURL_MAX_TIME: ['"]30['"]/);
+  assert.match(invalidationJob, /FALLBACK_CONCURRENCY: ['"]2['"]/);
+  assert.match(invalidationJob, /FALLBACK_CURL_MAX_TIME: ['"]30['"]/);
+  assert.match(invalidationJob, /FALLBACK_MAX_ATTEMPTS: ['"]2['"]/);
   assert.match(invalidationJob, /MAX_ATTEMPTS: ['"]3['"]/);
   assert.match(invalidationJob, /MAX_ITEMS: ['"]100['"]/);
+  assert.match(invalidationJob, /MAX_RUNTIME_SECONDS: ['"]1200['"]/);
   assert.match(invalidationJob, /run: \.\/scripts\/invalidate-cache\.sh/);
   assert.doesNotMatch(invalidationJob, /uses: \.\/\.github\/actions\/invalidate-cache/);
   assert.doesNotMatch(invalidationJob, /curl .*api\/cache\/invalidate/);
@@ -623,14 +715,24 @@ test('each cache invalidation shard has a hard runtime deadline below its own ti
     MAX_ATTEMPTS: readInteger('MAX_ATTEMPTS'),
     CURL_MAX_TIME: readInteger('CURL_MAX_TIME'),
     RETRY_BASE_SECONDS: readInteger('RETRY_BASE_SECONDS'),
+    FALLBACK_CONCURRENCY: readInteger('FALLBACK_CONCURRENCY'),
+    FALLBACK_MAX_ATTEMPTS: readInteger('FALLBACK_MAX_ATTEMPTS'),
+    FALLBACK_CURL_MAX_TIME: readInteger('FALLBACK_CURL_MAX_TIME'),
+    FALLBACK_RETRY_BASE_SECONDS: readInteger('FALLBACK_RETRY_BASE_SECONDS'),
     MAX_ITEMS: readInteger('MAX_ITEMS'),
+    MAX_RUNTIME_SECONDS: readInteger('MAX_RUNTIME_SECONDS'),
   };
   const expectedSettings = {
     BATCH_SIZE: 10,
     MAX_ATTEMPTS: 3,
     CURL_MAX_TIME: 30,
     RETRY_BASE_SECONDS: 5,
+    FALLBACK_CONCURRENCY: 2,
+    FALLBACK_MAX_ATTEMPTS: 2,
+    FALLBACK_CURL_MAX_TIME: 30,
+    FALLBACK_RETRY_BASE_SECONDS: 2,
     MAX_ITEMS: 100,
+    MAX_RUNTIME_SECONDS: 1200,
   };
   const violations = [];
 
@@ -648,26 +750,15 @@ test('each cache invalidation shard has a hard runtime deadline below its own ti
   }
   assert.deepEqual(violations, []);
 
-  const maxBatches = Math.ceil(settings.MAX_ITEMS / settings.BATCH_SIZE);
-  const retrySleepSeconds = settings.RETRY_BASE_SECONDS
-    * ((settings.MAX_ATTEMPTS - 1) * settings.MAX_ATTEMPTS / 2);
-  const worstSecondsPerBatch = settings.MAX_ATTEMPTS * settings.CURL_MAX_TIME
-    + retrySleepSeconds;
-  const worstCaseSeconds = maxBatches * worstSecondsPerBatch;
-
-  assert.equal(maxBatches, 10);
-  assert.equal(worstSecondsPerBatch, 105);
-  assert.equal(worstCaseSeconds, 1050);
-  assert.ok(worstCaseSeconds < timeoutMinutes * 60);
-
   const runtimeMatch = invalidator.match(
     /^MAX_RUNTIME_SECONDS="\$\{MAX_RUNTIME_SECONDS:-([0-9]+)\}"$/m,
   );
   assert.ok(runtimeMatch, 'invalidator must declare a fixed default runtime deadline');
   const maxRuntimeSeconds = Number(runtimeMatch[1]);
-  assert.ok(maxRuntimeSeconds <= 1200);
+  assert.equal(maxRuntimeSeconds, settings.MAX_RUNTIME_SECONDS);
   assert.ok(
-    maxRuntimeSeconds <= timeoutMinutes * 60 - 60,
-    'script deadline must leave at least one minute for setup and teardown',
+    maxRuntimeSeconds <= timeoutMinutes * 60 - 300,
+    'script deadline must leave five minutes for setup and teardown',
   );
+  assert.equal(3 * settings.FALLBACK_CONCURRENCY, 6, 'matrix-wide fallback pressure must stay capped');
 });
