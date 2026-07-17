@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
 	extractSkillZip: vi.fn(),
 	linkSkillToDirectory: vi.fn(),
 	addToLock: vi.fn(),
+	getLockEntry: vi.fn(),
 	reportSkillInstall: vi.fn(),
 }));
 
@@ -39,7 +40,7 @@ vi.mock('../src/lib/plugin-verify.js', () => ({
 
 vi.mock('../src/lib/plugin-api.js', () => ({
 	fetchManifest: vi.fn(),
-	reportInstallation: vi.fn(),
+	reportPackInstallation: vi.fn(),
 	reportSkillInstall: mocks.reportSkillInstall,
 	PluginApiError: class PluginApiError extends Error {},
 }));
@@ -76,6 +77,7 @@ vi.mock('../src/lib/installer.js', () => ({
 
 vi.mock('../src/lib/skill-lock.js', () => ({
 	addToLock: mocks.addToLock,
+	getLockEntry: mocks.getLockEntry,
 }));
 
 import installCommand from '../src/commands/install.js';
@@ -112,6 +114,7 @@ describe('install command', () => {
 			symlinkFailed: false,
 		});
 		mocks.addToLock.mockResolvedValue(undefined);
+		mocks.getLockEntry.mockResolvedValue(undefined);
 		mocks.reportSkillInstall.mockResolvedValue(undefined);
 	});
 

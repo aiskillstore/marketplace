@@ -1,4 +1,5 @@
 import type { PluginConfig } from './plugin-config.js';
+import type { PackInstallReport } from './pack-install-truth.js';
 import {
 	getManifestUrl,
 	getInstallUrl,
@@ -338,6 +339,24 @@ export async function reportInstallation(
 	pluginSlug: string,
 	method: 'npm' | 'manual' | 'cli' = 'cli'
 ): Promise<InstallReportResponse> {
+	return postInstallation(config, pluginSlug, { method }, config.timeout);
+}
+
+/** Report the final durable result of one CLI Pack install attempt. */
+export async function reportPackInstallation(
+	config: PluginConfig,
+	pluginSlug: string,
+	report: PackInstallReport
+): Promise<InstallReportResponse> {
+	return postInstallation(config, pluginSlug, report, Math.min(config.timeout, 5000));
+}
+
+async function postInstallation(
+	config: PluginConfig,
+	pluginSlug: string,
+	body: { method: 'npm' | 'manual' | 'cli' } | PackInstallReport,
+	timeout: number
+): Promise<InstallReportResponse> {
 	const url = getInstallUrl(config, pluginSlug);
 
 	const response = await fetch(url, {
@@ -346,8 +365,8 @@ export async function reportInstallation(
 			'Content-Type': 'application/json',
 			Accept: 'application/json',
 		},
-		body: JSON.stringify({ method }),
-		signal: AbortSignal.timeout(config.timeout),
+		body: JSON.stringify(body),
+		signal: AbortSignal.timeout(timeout),
 	});
 
 	// Accept both success and rate-limited responses

@@ -4,6 +4,7 @@ import {
 	fetchPluginInfo,
 	fetchPluginList,
 	reportInstallation,
+	reportPackInstallation,
 	downloadSkill,
 	downloadSkillFile,
 	reportSkillTelemetry,
@@ -17,6 +18,7 @@ import {
 	type TelemetryEvent,
 } from '../src/lib/plugin-api.js';
 import { getPluginConfig, type PluginConfig } from '../src/lib/plugin-config.js';
+import type { PackInstallReport } from '../src/lib/pack-install-truth.js';
 
 // Mock global fetch
 const mockFetch = vi.fn();
@@ -414,37 +416,72 @@ describe('plugin-api', () => {
 	});
 
 	describe('reportInstallation', () => {
-		it('should report installation with default method', async () => {
-			mockFetch.mockResolvedValueOnce({
-				ok: true,
-				json: () => Promise.resolve({ success: true, installationId: 'inst-123' }),
-			});
-
-			const result = await reportInstallation(config, 'test-plugin');
-
-			expect(mockFetch).toHaveBeenCalledWith(
-				'https://api.test.com/packs/test-plugin/install',
-				expect.objectContaining({
-					method: 'POST',
-					body: JSON.stringify({ method: 'cli' }),
-				})
-			);
-			expect(result.success).toBe(true);
-		});
-
-		it('should report installation with custom method', async () => {
+		it('preserves the legacy SDK reporting contract', async () => {
 			mockFetch.mockResolvedValueOnce({
 				ok: true,
 				json: () => Promise.resolve({ success: true }),
 			});
 
-			await reportInstallation(config, 'test-plugin', 'npm');
+			await reportInstallation(config, 'test-plugin', 'manual');
+
+			expect(mockFetch).toHaveBeenCalledWith(
+				'https://api.test.com/packs/test-plugin/install',
+				expect.objectContaining({ body: JSON.stringify({ method: 'manual' }) })
+			);
+		});
+	});
+
+	describe('reportPackInstallation', () => {
+		const completeReport: PackInstallReport = {
+			method: 'cli',
+			attemptId: '11111111-1111-4111-8111-111111111111',
+			anonymousClientId: '22222222-2222-4222-8222-222222222222',
+			status: 'complete',
+			expectedSkillCount: 2,
+			installedSkillCount: 2,
+			failedSkillCount: 0,
+			cliVersion: '0.1.10',
+			osPlatform: 'linux',
+			targetAgents: ['codex'],
+			readbackPassed: true,
+		};
+
+		it('should report the complete CLI installation truth payload', async () => {
+			mockFetch.mockResolvedValueOnce({
+				ok: true,
+				json: () => Promise.resolve({ success: true, installationId: 'inst-123' }),
+			});
+
+			const result = await reportPackInstallation(config, 'test-plugin', completeReport);
+
+			expect(mockFetch).toHaveBeenCalledWith(
+				'https://api.test.com/packs/test-plugin/install',
+				expect.objectContaining({
+					method: 'POST',
+					body: JSON.stringify(completeReport),
+				})
+			);
+			expect(result.success).toBe(true);
+		});
+
+		it.each(['partial', 'error'] as const)('should preserve a %s outcome', async (status) => {
+			mockFetch.mockResolvedValueOnce({
+				ok: true,
+				json: () => Promise.resolve({ success: true }),
+			});
+
+			const report: PackInstallReport = {
+				...completeReport,
+				status,
+				installedSkillCount: status === 'partial' ? 1 : 0,
+				failedSkillCount: status === 'partial' ? 1 : 2,
+				readbackPassed: false,
+			};
+			await reportPackInstallation(config, 'test-plugin', report);
 
 			expect(mockFetch).toHaveBeenCalledWith(
 				expect.any(String),
-				expect.objectContaining({
-					body: JSON.stringify({ method: 'npm' }),
-				})
+					expect.objectContaining({ body: JSON.stringify(report) })
 			);
 		});
 
@@ -459,7 +496,7 @@ describe('plugin-api', () => {
 				json: () => Promise.resolve(response),
 			});
 
-			const result = await reportInstallation(config, 'test-plugin');
+			const result = await reportPackInstallation(config, 'test-plugin', completeReport);
 
 			expect(result.duplicate).toBe(true);
 		});

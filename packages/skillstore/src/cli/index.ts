@@ -1,11 +1,12 @@
 #!/usr/bin/env node
 
 import { defineCommand, runMain } from 'citty';
+import { CLI_VERSION } from '../lib/version.js';
 
 const main = defineCommand({
 	meta: {
 		name: 'skillstore',
-		version: '0.1.9',
+		version: CLI_VERSION,
 		description: 'Skillstore CLI - Manage AI skills for Claude, Codex, and Claude Code',
 	},
 	subCommands: {

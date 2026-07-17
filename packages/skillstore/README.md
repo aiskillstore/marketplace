@@ -174,9 +174,16 @@ import {
 |----------|-------------|
 | `SKILLSTORE_API_URL` | Custom API base URL (default: `https://skillstore.io/api`) |
 | `SKILLSTORE_VERIFY_KEY` | Override built-in manifest verification key (optional) |
+| `SKILLSTORE_TELEMETRY_DISABLED=1` | Disable installation telemetry and anonymous client ID storage |
+| `DO_NOT_TRACK=1` | Standard opt-out; also disables installation telemetry and ID storage |
 | `DEBUG` | Enable debug logging |
 
 > **Note**: Manifest signature verification is enabled by default using a built-in key. You don't need to configure anything for verification to work.
+
+Pack installation reports use a random UUID stored under the user's config
+directory. The identifier is not derived from the device, username, paths, or
+other personal data. Reporting is best-effort and never changes the install
+command's exit status.
 
 ## Directory Structure
 
