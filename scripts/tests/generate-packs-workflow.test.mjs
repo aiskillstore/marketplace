@@ -244,10 +244,12 @@ test('evaluate runs on a disposable VM with a user-separated job-local inference
     assert.match(evaluate, new RegExp(`"${category}"`));
   }
   assert.match(evaluate, /--arg errorCategory "\$PREFLIGHT_ERROR_CATEGORY"/);
+  assert.match(evaluate, /--argjson auxiliaryRejectedCount "\$PREFLIGHT_AUXILIARY_REJECTED_COUNT"/);
   assert.match(
     evaluate,
     /errorCategory: \(if \$errorCategory == "" then null else \$errorCategory end\)/,
   );
+  assert.match(evaluate, /auxiliaryRejectedCount: \$auxiliaryRejectedCount/);
   assert.doesNotMatch(evaluate, /--arg errorCategory "\$PREFLIGHT_REASON"/);
   assert.match(evaluate, /safe_execution_evidence\(\)/);
   assert.match(evaluate, /state_storage/);
@@ -357,6 +359,51 @@ test('evaluator preflight rejects a non-positive Claude output-token cap before 
   assert.match(result.stderr, /PACK_EVALUATOR_MAX_OUTPUT_TOKENS must be a positive integer/);
 });
 
+test('preflight HTTP monitoring separates inference failures from auxiliary rejections', () => {
+  const start = EVALUATOR_PREFLIGHT.indexOf('summarize_preflight_http_activity() {');
+  const end = EVALUATOR_PREFLIGHT.indexOf('\n}\n', start);
+  assert.ok(start >= 0 && end > start, 'HTTP activity summarizer must be extractable');
+  const summarizer = EVALUATOR_PREFLIGHT.slice(start, end + 3);
+  const summarize = (activities) => spawnSync(
+    'bash',
+    ['-c', `${summarizer}\nsummarize_preflight_http_activity`],
+    {
+      encoding: 'utf8',
+      input: `${activities.map((activity) => JSON.stringify(activity)).join('\n')}\n`,
+    },
+  );
+
+  const auxiliaryOnly = summarize([
+    { phase: 'response', path: '/v1/messages', status: 200 },
+    { phase: 'response', path: '/v1/responses', status: 200 },
+    { phase: 'response', path: 'not_allowed', status: 401, errorCategory: 'authentication_failed' },
+    { phase: 'response', path: '/v1/messages/count_tokens', status: 503 },
+    { phase: 'response', path: '/v1/responses/compact', status: 403 },
+  ]);
+  assert.equal(auxiliaryOnly.status, 0, auxiliaryOnly.stderr);
+  assert.deepEqual(JSON.parse(auxiliaryOnly.stdout), {
+    messages200: 1,
+    responses200: 1,
+    inferenceFatalStatus: null,
+    inferenceRetryableStatus: null,
+    auxiliaryRejectedCount: 1,
+  });
+
+  const inferenceFailures = summarize([
+    { phase: 'response', path: '/v1/messages', status: 401 },
+    { phase: 'response', path: '/v1/responses', status: 503 },
+    { phase: 'response', path: 'not_allowed', status: 403 },
+  ]);
+  assert.equal(inferenceFailures.status, 0, inferenceFailures.stderr);
+  assert.deepEqual(JSON.parse(inferenceFailures.stdout), {
+    messages200: 0,
+    responses200: 0,
+    inferenceFatalStatus: 401,
+    inferenceRetryableStatus: 503,
+    auxiliaryRejectedCount: 1,
+  });
+});
+
 test('preflight infrastructure evidence selects the last fatal response before category allowlisting', () => {
   const prefix = "PREFLIGHT_ERROR_CATEGORY=$(sudo jq -rs '\n";
   const suffix = "\n              ' \"$PROXY_ACTIVITY\" 2>/dev/null || true)";
@@ -372,16 +419,18 @@ test('preflight infrastructure evidence selects the last fatal response before c
   });
 
   const allowed = extract([
-    { phase: 'response', status: 403, errorCategory: 'model_not_allowed' },
-    { phase: 'response', status: 400, errorCategory: 'invalid_output_token_limit' },
-    { phase: 'response', status: 503, errorCategory: 'other' },
+    { phase: 'response', path: 'not_allowed', status: 401, errorCategory: 'authentication_failed' },
+    { phase: 'response', path: '/v1/responses', status: 403, errorCategory: 'model_not_allowed' },
+    { phase: 'response', path: '/v1/messages', status: 400, errorCategory: 'invalid_output_token_limit' },
+    { phase: 'response', path: '/v1/responses', status: 503, errorCategory: 'other' },
   ]);
   assert.equal(allowed.status, 0, allowed.stderr);
   assert.equal(allowed.stdout.trim(), 'invalid_output_token_limit');
 
   const rejected = extract([
-    { phase: 'response', status: 403, errorCategory: 'model_not_allowed' },
-    { phase: 'response', status: 400, errorCategory: 'attacker_supplied_category' },
+    { phase: 'response', path: 'not_allowed', status: 401, errorCategory: 'authentication_failed' },
+    { phase: 'response', path: '/v1/responses', status: 403, errorCategory: 'model_not_allowed' },
+    { phase: 'response', path: '/v1/messages', status: 400, errorCategory: 'attacker_supplied_category' },
   ]);
   assert.equal(rejected.status, 0, rejected.stderr);
   assert.equal(rejected.stdout, '');

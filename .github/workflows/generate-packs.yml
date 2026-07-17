@@ -771,13 +771,16 @@ jobs:
                 elif .errorClass == "timeout" then "timeout"
                 else "preflight_failed" end
               ' "$PREFLIGHT_DIAGNOSTICS")
-              PREFLIGHT_STATUS=$(jq -r '.http.fatalStatus // .http.retryableStatus // empty' \
+              PREFLIGHT_STATUS=$(jq -r '.http.inferenceFatalStatus // .http.inferenceRetryableStatus // empty' \
+                "$PREFLIGHT_DIAGNOSTICS")
+              PREFLIGHT_AUXILIARY_REJECTED_COUNT=$(jq -r '.http.auxiliaryRejectedCount // 0' \
                 "$PREFLIGHT_DIAGNOSTICS")
               PREFLIGHT_ERROR_CATEGORY=$(sudo jq -rs '
                 [
                   .[]
                   | select(
                       .phase == "response"
+                      and (.path == "/v1/messages" or .path == "/v1/responses")
                       and (.status | type) == "number"
                       and .status >= 400 and .status < 500
                       and (.status != 408 and .status != 425 and .status != 429)
@@ -805,6 +808,7 @@ jobs:
                 --arg reason "$PREFLIGHT_REASON" \
                 --arg status "$PREFLIGHT_STATUS" \
                 --arg errorCategory "$PREFLIGHT_ERROR_CATEGORY" \
+                --argjson auxiliaryRejectedCount "$PREFLIGHT_AUXILIARY_REJECTED_COUNT" \
                 --arg diagnosticSha256 "$DIAGNOSTIC_SHA256" \
                 '{
                   schemaVersion: "marketplace.pack-production-infrastructure-failure/v1",
@@ -812,6 +816,7 @@ jobs:
                   reason: $reason,
                   status: (if $status == "" then null else ($status | tonumber) end),
                   errorCategory: (if $errorCategory == "" then null else $errorCategory end),
+                  auxiliaryRejectedCount: $auxiliaryRejectedCount,
                   diagnosticSha256: $diagnosticSha256
                 }' > "$INFRASTRUCTURE_FAILURE_FILE"
             fi
