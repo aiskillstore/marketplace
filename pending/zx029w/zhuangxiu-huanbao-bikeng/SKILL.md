@@ -133,3 +133,5 @@ trigger:
 | 为什么大品牌也超标 | 污染认知与真相.md |
 | 装修完多久能住 | 污染认知与真相.md |
 | 装修污染严重超标怎么办 | 污染认知与真相.md |
+
+<!-- Marketplace provenance: source=https://github.com/zx029w/zhuangxiu-skills/tree/main/装修环保避坑 ref=main@193635b0d16d8ce06b7ddc2bf6e2a2404ec751a8 reviewed-pr=#2604 recovery=freeze-complete-artifact -->
