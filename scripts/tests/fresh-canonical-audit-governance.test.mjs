@@ -104,6 +104,9 @@ test('workflow is two-phase, CLI-pinned, resumable, and closes P0 channels', () 
   assert.equal((workflow.match(/ecfaa49aa72d24b8ea6322c7dae24d4bbe9df174a5d009cc56d7d2a89e7ae05a/g) || []).length, 2);
   assert.match(workflow, /\[\[ "\$audited" =~ \^\[0-9a-f\]\{64\}\$ \]\]/);
   assert.match(workflow, /skill audit/);
+  assert.match(workflow, /cd "\$RUNNER_TEMP\/materialized\/\$commit"/);
+  assert.match(workflow, /skill audit skills --slugs "\$slugs"/);
+  assert.doesNotMatch(workflow, /skill audit \\\n\s+"\$RUNNER_TEMP\/materialized\/\$commit\/skills"/);
   assert.match(workflow, /fresh-run-manifest-file/);
   assert.match(workflow, /fresh-audit-run\.json/);
   assert.match(workflow, /previous_boundary_run_id/);
