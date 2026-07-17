@@ -12,8 +12,10 @@ function fixture() {
   execFileSync('git', ['-C', root, 'config', 'user.email', 'test@example.com']);
   execFileSync('git', ['-C', root, 'config', 'user.name', 'Test']);
   mkdirSync(join(root, 'skills', 'owner', 'skill'), { recursive: true });
+  mkdirSync(join(root, 'schemas'), { recursive: true });
   writeFileSync(join(root, 'skills', 'owner', 'skill', 'SKILL.md'), '---\nname: skill\n---\n');
   writeFileSync(join(root, 'skills', 'owner', 'skill', 'skill-report.json'), '{}\n');
+  writeFileSync(join(root, 'schemas', 'skill-report.schema.json'), '{}\n');
   execFileSync('git', ['-C', root, 'add', '.']);
   execFileSync('git', ['-C', root, 'commit', '-qm', 'fixture']);
   const commit = execFileSync('git', ['-C', root, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
@@ -48,6 +50,7 @@ test('prepares a bounded commit-addressed fresh audit batch', () => {
   });
   assert.equal(result.count, 1);
   assert.equal(result.groups[0].marketplaceCommit, row.marketplaceCommit);
+  assert.deepEqual(result.groups[0].paths, ['schemas/skill-report.schema.json', row.path]);
   assert.equal(result.remaining, 0);
 });
 
