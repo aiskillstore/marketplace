@@ -201,6 +201,33 @@ test('all submission entrypoints and the aggregation import closure are immutabl
   );
 });
 
+test('clone step accepts repository-root false and explicit-path true without weakening type validation', () => {
+  const clone = extractRunBlock(reusable, 'Clone source repository');
+  const explicitPathFilter = [
+    'if (.explicitPath | type) == "boolean" then',
+    '.explicitPath',
+    'else',
+    'error("explicitPath must be a boolean")',
+    'end',
+  ].join('\n');
+
+  assert.match(clone, /EXPLICIT_PATH=\$\(jq -r '/);
+  assert.doesNotMatch(clone, /EXPLICIT_PATH=\$\(jq -er '/);
+
+  for (const [explicitPath, expected] of [[false, 'false'], [true, 'true']]) {
+    const result = run('jq', ['-r', explicitPathFilter], {
+      input: JSON.stringify({ explicitPath }),
+    });
+    assert.equal(result.stdout.trim(), expected);
+  }
+
+  const invalid = run('jq', ['-r', explicitPathFilter], {
+    input: JSON.stringify({ explicitPath: 'false' }),
+    allowFailure: true,
+  });
+  assert.notEqual(invalid.status, 0);
+});
+
 test('repository dispatch caller preserves reusable failure and callback status contracts', () => {
   assert.match(caller, /notify:\n\s+needs: process-skills\n\s+if: always\(\) && github\.event_name == 'repository_dispatch'/);
   assert.match(caller, /name: Notify skillstore - PR created\n\s+if: needs\.process-skills\.outputs\.pr_url/);
