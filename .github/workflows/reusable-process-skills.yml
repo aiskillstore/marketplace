@@ -473,7 +473,8 @@ jobs:
           mkdir -p "$RESULT_DIR/pending"
           test -f "$LOG_FILE" || : > "$LOG_FILE"
           printf '%s\n' "$PLANNED_SLUGS" > "$RESULT_DIR/planned-slugs.csv"
-          tar -C "$RESULT_DIR" -czf "$RESULT_DIR/shard-results.tar.gz" \
+          SHARD_ARCHIVE_NAME="process-shard-${{ github.run_attempt }}-${{ matrix.shard }}.tar.gz"
+          tar -C "$RESULT_DIR" -czf "$RESULT_DIR/$SHARD_ARCHIVE_NAME" \
             pending "$(basename "$LOG_FILE")" planned-slugs.csv
 
       - name: Upload shard results
@@ -481,7 +482,7 @@ jobs:
         uses: actions/upload-artifact@v6
         with:
           name: process-shard-${{ github.run_attempt }}-${{ matrix.shard }}
-          path: /tmp/submission-shard-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}/shard-results.tar.gz
+          path: /tmp/submission-shard-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}/process-shard-${{ github.run_attempt }}-${{ matrix.shard }}.tar.gz
           if-no-files-found: error
           retention-days: 1
 
@@ -541,6 +542,11 @@ jobs:
           }
           trap cleanup EXIT
 
+          if [ "${{ needs.process.result }}" != "success" ]; then
+            echo "::error::Shard processing did not complete successfully; refusing to aggregate"
+            exit 1
+          fi
+
           echo "📦 Cloning fresh repository to $WORK_DIR..."
           git clone --depth 1 "https://x-access-token:${APP_TOKEN}@github.com/${REPOSITORY}.git" "$WORK_DIR"
           cd "$WORK_DIR"
@@ -554,29 +560,33 @@ jobs:
           MERGED_RESULTS="${ARTIFACTS_DIR}.merged"
           mkdir -p "$MERGED_RESULTS"
           : > "$PLAN_ITEMS"
-          mapfile -t SHARD_DIRS < <(find "$ARTIFACTS_DIR" -mindepth 1 -maxdepth 1 -type d \
-            -name 'process-shard-${{ github.run_attempt }}-*' | sort)
-          test "${#SHARD_DIRS[@]}" -eq "${{ needs.discover-and-plan.outputs.shard_count }}" || {
-            echo "::error::Downloaded ${#SHARD_DIRS[@]}/${{ needs.discover-and-plan.outputs.shard_count }} shard artifact(s)"
+          mapfile -t SHARD_ARCHIVES < <(find "$ARTIFACTS_DIR" -type f \
+            -name 'process-shard-${{ github.run_attempt }}-*.tar.gz' | sort)
+          test "${#SHARD_ARCHIVES[@]}" -eq "${{ needs.discover-and-plan.outputs.shard_count }}" || {
+            echo "::error::Downloaded ${#SHARD_ARCHIVES[@]}/${{ needs.discover-and-plan.outputs.shard_count }} shard archive(s)"
             exit 1
           }
-          for shard_dir in "${SHARD_DIRS[@]}"; do
-            test -d "$shard_dir" || continue
-            SHARD_ARCHIVE="$shard_dir/shard-results.tar.gz"
-            SHARD_ROOT="$shard_dir/extracted"
-            test -f "$SHARD_ARCHIVE"
+          declare -A SEEN_SHARD_INDICES=()
+          for SHARD_ARCHIVE in "${SHARD_ARCHIVES[@]}"; do
+            SHARD_ARCHIVE_NAME="$(basename "$SHARD_ARCHIVE")"
+            SHARD_INDEX="${SHARD_ARCHIVE_NAME#process-shard-${{ github.run_attempt }}-}"
+            SHARD_INDEX="${SHARD_INDEX%.tar.gz}"
+            if [[ ! "$SHARD_INDEX" =~ ^[0-9]+$ ]] || [ -n "${SEEN_SHARD_INDICES[$SHARD_INDEX]+x}" ]; then
+              echo "::error::Missing or duplicate shard artifact index: $SHARD_ARCHIVE_NAME"
+              exit 1
+            fi
+            SEEN_SHARD_INDICES[$SHARD_INDEX]=1
+            SHARD_ROOT="${SHARD_ARCHIVE%.tar.gz}.extracted"
             mkdir -p "$SHARD_ROOT"
             tar -xzf "$SHARD_ARCHIVE" -C "$SHARD_ROOT" --no-same-owner
-            SHARD_INDEX="${shard_dir##*-}"
-            [[ "$SHARD_INDEX" =~ ^[0-9]+$ ]]
             EXPECTED_SLUGS=$(jq -er --argjson shard "$SHARD_INDEX" \
               '.include[] | select(.shard == $shard) | .slugs' <<< "$SHARD_MATRIX")
             test "$(cat "$SHARD_ROOT/planned-slugs.csv")" = "$EXPECTED_SLUGS" || {
               echo "::error::Shard $SHARD_INDEX planned slug evidence does not match the workflow matrix"
               exit 1
             }
-            SHARD_FILES="${shard_dir}.files.txt"
-            SHARD_PLAN="${shard_dir}.approval-plan.json"
+            SHARD_FILES="${SHARD_ARCHIVE}.files.txt"
+            SHARD_PLAN="${SHARD_ARCHIVE}.approval-plan.json"
             find "$SHARD_ROOT/pending" \( -type f -o -type l \) -print 2>/dev/null \
               | sed "s|^$SHARD_ROOT/||" > "$SHARD_FILES"
             if [ ! -s "$SHARD_FILES" ]; then
@@ -662,7 +672,7 @@ jobs:
           PROCESSED_SKILLS="${PROCESSED_SKILLS#,}"
 
           TOTAL_ERRORS=0
-          for log in "$ARTIFACTS_DIR"/process-shard-${{ github.run_attempt }}-*/extracted/process-output-*.log; do
+          for log in "$ARTIFACTS_DIR"/process-shard-${{ github.run_attempt }}-*.tar.gz.extracted/process-output-*.log; do
             if [ -f "$log" ]; then
               ERR_COUNT=$(grep -c "❌ error" "$log" 2>/dev/null) || ERR_COUNT=0
               TOTAL_ERRORS=$((TOTAL_ERRORS + ERR_COUNT))
