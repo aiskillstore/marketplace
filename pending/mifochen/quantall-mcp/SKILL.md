@@ -1,5 +1,5 @@
 ---
-name: QuantAll-mcp
+name: quantall-mcp
 description: >
   QuantAll（全A解析）MCP —— 股市全市场向量化并行计算引擎，
   支持5000+股票因子计算、策略回测、因子IC分析及GPU多维可视化。13个工具。
