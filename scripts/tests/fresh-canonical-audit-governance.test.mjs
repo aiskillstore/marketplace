@@ -108,6 +108,11 @@ test('workflow is two-phase, CLI-pinned, resumable, and closes P0 channels', () 
   assert.match(workflow, /fresh-audit-run\.json/);
   assert.match(workflow, /previous_boundary_run_id/);
   assert.match(workflow, /previous_execute_run_id/);
+  assert.equal((workflow.match(/sparse-checkout: ''/g) || []).length, 2);
+  assert.equal((workflow.match(/sparse-checkout-cone-mode: false/g) || []).length, 2);
+  assert.equal((workflow.match(/git sparse-checkout disable/g) || []).length, 2);
+  assert.equal((workflow.match(/git reset --hard HEAD/g) || []).length, 2);
+  assert.equal((workflow.match(/test "\$\(git rev-parse HEAD\)" = "\$GITHUB_SHA"/g) || []).length, 2);
   assert.match(workflow, /fresh_canonical_audit_execution_complete/);
   assert.match(workflow, /productionSmokeCompleted:true/);
   assert.match(workflow, /pre-inventory\.json/);
