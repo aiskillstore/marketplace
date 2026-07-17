@@ -9,9 +9,10 @@ MAX_ATTEMPTS="${MAX_ATTEMPTS:-3}"
 RETRY_BASE_SECONDS="${RETRY_BASE_SECONDS:-5}"
 CURL_CONNECT_TIMEOUT="${CURL_CONNECT_TIMEOUT:-10}"
 CURL_MAX_TIME="${CURL_MAX_TIME:-30}"
-FALLBACK_MAX_ATTEMPTS="${FALLBACK_MAX_ATTEMPTS:-4}"
-FALLBACK_RETRY_BASE_SECONDS="${FALLBACK_RETRY_BASE_SECONDS:-5}"
-FALLBACK_CURL_MAX_TIME="${FALLBACK_CURL_MAX_TIME:-90}"
+FALLBACK_MAX_ATTEMPTS="${FALLBACK_MAX_ATTEMPTS:-2}"
+FALLBACK_RETRY_BASE_SECONDS="${FALLBACK_RETRY_BASE_SECONDS:-2}"
+FALLBACK_CURL_MAX_TIME="${FALLBACK_CURL_MAX_TIME:-30}"
+FALLBACK_CONCURRENCY="${FALLBACK_CONCURRENCY:-2}"
 MAX_RUNTIME_SECONDS="${MAX_RUNTIME_SECONDS:-1200}"
 CONTENT_TYPE="${CONTENT_TYPE:-}"
 SLUGS_STR="${SLUGS_STR:-}"
@@ -110,6 +111,13 @@ if ! [[ "$FALLBACK_MAX_ATTEMPTS" =~ ^[0-9]+$ ]] ||
   [ "$FALLBACK_MAX_ATTEMPTS" -lt 1 ] ||
   [ "$FALLBACK_MAX_ATTEMPTS" -gt 10 ]; then
   echo "::error::FALLBACK_MAX_ATTEMPTS must be between 1 and 10" >&2
+  exit 1
+fi
+
+if ! [[ "$FALLBACK_CONCURRENCY" =~ ^[0-9]+$ ]] ||
+  [ "$FALLBACK_CONCURRENCY" -lt 1 ] ||
+  [ "$FALLBACK_CONCURRENCY" -gt 4 ]; then
+  echo "::error::FALLBACK_CONCURRENCY must be between 1 and 4" >&2
   exit 1
 fi
 
@@ -241,7 +249,11 @@ request_batch_once() {
       echo "    Cache invalidation response violated the requested contract" >&2
       return 76
       ;;
-    408|429|5[0-9][0-9])
+    408)
+      echo "    Transient HTTP $status timeout" >&2
+      return 78
+      ;;
+    429|5[0-9][0-9])
       echo "    Transient HTTP $status" >&2
       return 75
       ;;
@@ -258,7 +270,11 @@ request_batch_once() {
     ''|000)
       if [ "$curl_exit" -ne 0 ]; then
         case "$curl_exit" in
-          5|6|7|16|18|28|35|52|55|56|92)
+          28)
+            echo "    Transient curl timeout (exit $curl_exit)" >&2
+            return 78
+            ;;
+          5|6|7|16|18|35|52|55|56|92)
             echo "    Transient curl transport failure (exit $curl_exit)" >&2
             return 75
             ;;
@@ -289,6 +305,7 @@ invalidate_batch() {
   local max_attempts="$3"
   local retry_base_seconds="$4"
   local max_time="$5"
+  local stop_on_timeout="${6:-false}"
   local attempt
   local delay
   local request_status
@@ -305,6 +322,14 @@ invalidate_batch() {
 
     if [ "$request_status" -eq 0 ]; then
       return 0
+    fi
+
+    if [ "$request_status" -eq 78 ]; then
+      if [ "$stop_on_timeout" = "true" ]; then
+        echo "    Multi-item timeout will use the item-level fallback without another batch retry" >&2
+        return 78
+      fi
+      request_status=75
     fi
 
     if [ "$request_status" -ne 75 ]; then
@@ -347,6 +372,105 @@ SUCCESS_ITEMS_FILE="$WORK_DIR/success-items"
 record_success() {
   printf '%s\n' "$1" >> "$SUCCESS_ITEMS_FILE"
   SUCCESS=$((SUCCESS + 1))
+  echo "::notice::Cache invalidation completed for item: $1"
+}
+
+FALLBACK_PIDS=()
+FALLBACK_SLUGS=()
+FALLBACK_MARKERS=()
+
+wait_fallback_wave() {
+  local index
+  local marker
+  local pid
+  local slug
+
+  for index in "${!FALLBACK_PIDS[@]}"; do
+    pid="${FALLBACK_PIDS[$index]}"
+    slug="${FALLBACK_SLUGS[$index]}"
+    marker="${FALLBACK_MARKERS[$index]}"
+
+    # The marker, not a background exit status, is the completion evidence.
+    # wait remains inside a conditional so set -e cannot hide later failures.
+    if wait "$pid"; then
+      :
+    fi
+
+    if [ -f "$marker" ] && [ "$(cat "$marker")" = "success" ]; then
+      record_success "$slug"
+    else
+      echo "::error::Cache invalidation failed for item: $slug" >&2
+    fi
+  done
+
+  FALLBACK_PIDS=()
+  FALLBACK_SLUGS=()
+  FALLBACK_MARKERS=()
+}
+
+run_fallback_item() {
+  local body_file="$1"
+  local request_label="$2"
+  local marker="$3"
+
+  if invalidate_batch \
+    "$body_file" \
+    "$request_label" \
+    "$FALLBACK_MAX_ATTEMPTS" \
+    "$FALLBACK_RETRY_BASE_SECONDS" \
+    "$FALLBACK_CURL_MAX_TIME" \
+    false; then
+    printf 'success\n' > "$marker"
+    return 0
+  fi
+
+  printf 'failed\n' > "$marker"
+  return 1
+}
+
+fallback_batch_items() {
+  local batch_number="$1"
+  shift
+  local batch=("$@")
+  local body_file
+  local index
+  local marker
+  local remaining
+  local request_label
+  local slug
+
+  echo "::warning::Using ${#batch[@]} item-level fallback request(s), concurrency=$FALLBACK_CONCURRENCY" >&2
+  for index in "${!batch[@]}"; do
+    slug="${batch[$index]}"
+    body_file="$WORK_DIR/body-$batch_number-fallback-$index.json"
+    marker="$WORK_DIR/result-$batch_number-fallback-$index"
+    request_label="batch-$batch_number-fallback-$index"
+
+    if ! create_body "$body_file" "$slug"; then
+      return 1
+    fi
+
+    remaining=$(remaining_seconds)
+    if [ "$remaining" -lt 1 ]; then
+      printf 'failed\n' > "$marker"
+      echo "::error::No runtime budget remains for item: $slug" >&2
+      continue
+    fi
+
+    echo "    Fallback $((index + 1))/${#batch[@]}: $slug"
+    run_fallback_item "$body_file" "$request_label" "$marker" &
+    FALLBACK_PIDS+=("$!")
+    FALLBACK_SLUGS+=("$slug")
+    FALLBACK_MARKERS+=("$marker")
+
+    if [ "${#FALLBACK_PIDS[@]}" -ge "$FALLBACK_CONCURRENCY" ]; then
+      wait_fallback_wave
+    fi
+  done
+
+  if [ "${#FALLBACK_PIDS[@]}" -gt 0 ]; then
+    wait_fallback_wave
+  fi
 }
 
 finish_invalidation() {
@@ -378,6 +502,8 @@ BATCHES=$(((TOTAL + BATCH_SIZE - 1) / BATCH_SIZE))
 
 echo "Invalidating $TOTAL $CONTENT_TYPE item(s) in $BATCHES batch(es)"
 
+BATCH_TIMEOUT_DEGRADED=false
+
 for ((offset = 0; offset < TOTAL; offset += BATCH_SIZE)); do
   BATCH=("${SLUGS[@]:offset:BATCH_SIZE}")
   BATCH_NUMBER=$((offset / BATCH_SIZE + 1))
@@ -389,46 +515,40 @@ for ((offset = 0; offset < TOTAL; offset += BATCH_SIZE)); do
   fi
 
   echo "  Batch $BATCH_NUMBER/$BATCHES (${#BATCH[@]} items)"
-  if invalidate_batch \
-    "$BODY_FILE" \
-    "batch-$BATCH_NUMBER" \
-    "$MAX_ATTEMPTS" \
-    "$RETRY_BASE_SECONDS" \
-    "$CURL_MAX_TIME"; then
-    for slug in "${BATCH[@]}"; do
-      record_success "$slug"
-    done
-    continue
+  if [ "$BATCH_TIMEOUT_DEGRADED" = "true" ] && [ "${#BATCH[@]}" -gt 1 ]; then
+    echo "::warning::Skipping multi-item request for batch $BATCH_NUMBER/$BATCHES after an earlier batch timeout" >&2
+    batch_status=78
   else
-    batch_status=$?
+    if invalidate_batch \
+      "$BODY_FILE" \
+      "batch-$BATCH_NUMBER" \
+      "$MAX_ATTEMPTS" \
+      "$RETRY_BASE_SECONDS" \
+      "$CURL_MAX_TIME" \
+      "$([ "${#BATCH[@]}" -gt 1 ] && printf true || printf false)"; then
+      for slug in "${BATCH[@]}"; do
+        record_success "$slug"
+      done
+      continue
+    else
+      batch_status=$?
+    fi
   fi
-  if { [ "$batch_status" -ne 75 ] && [ "$batch_status" -ne 76 ]; } ||
+
+  if [ "$batch_status" -eq 78 ] && [ "${#BATCH[@]}" -gt 1 ]; then
+    BATCH_TIMEOUT_DEGRADED=true
+  fi
+
+  if { [ "$batch_status" -ne 75 ] && [ "$batch_status" -ne 76 ] && [ "$batch_status" -ne 78 ]; } ||
     [ "${#BATCH[@]}" -eq 1 ]; then
     echo "::error::Cache invalidation batch $BATCH_NUMBER/$BATCHES failed without a safe fallback" >&2
     continue
   fi
 
-  echo "::warning::Batch $BATCH_NUMBER/$BATCHES failed; falling back to ${#BATCH[@]} single-item request(s)" >&2
-  for index in "${!BATCH[@]}"; do
-    slug="${BATCH[$index]}"
-    FALLBACK_BODY_FILE="$WORK_DIR/body-$BATCH_NUMBER-fallback-$index.json"
-    if ! create_body "$FALLBACK_BODY_FILE" "$slug"; then
-      finish_invalidation || true
-      exit 1
-    fi
-
-    echo "    Fallback $((index + 1))/${#BATCH[@]}: $slug"
-    if invalidate_batch \
-      "$FALLBACK_BODY_FILE" \
-      "batch-$BATCH_NUMBER-fallback-$index" \
-      "$FALLBACK_MAX_ATTEMPTS" \
-      "$FALLBACK_RETRY_BASE_SECONDS" \
-      "$FALLBACK_CURL_MAX_TIME"; then
-      record_success "$slug"
-      continue
-    fi
-
-  done
+  if ! fallback_batch_items "$BATCH_NUMBER" "${BATCH[@]}"; then
+    finish_invalidation || true
+    exit 1
+  fi
 done
 
 if ! finish_invalidation; then

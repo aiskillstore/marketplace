@@ -51,6 +51,9 @@ test('workflow matrix is artifact-backed, id-only, bounded, and max-parallel 3',
   assert.match(shardJob, /--shard-id "\$\{\{ matrix\.shard \}\}"/);
   assert.match(shardJob, /SLUGS_FILE: .*cache-invalidation-shard\.txt/);
   assert.match(shardJob, /MAX_ITEMS: ['"]100['"]/);
+  assert.match(shardJob, /FALLBACK_CONCURRENCY: ['"]2['"]/);
+  assert.match(shardJob, /FALLBACK_MAX_ATTEMPTS: ['"]2['"]/);
+  assert.match(shardJob, /MAX_RUNTIME_SECONDS: ['"]1200['"]/);
   assert.doesNotMatch(shardJob, /needs\.sync\.outputs\.synced_slugs/);
 });
 
