@@ -99,6 +99,65 @@ jobs:
       branch: ${{ steps.clone.outputs.branch }}
       github_url: ${{ steps.discover.outputs.github_url }}
     steps:
+      - name: Clear inherited discovery checkout
+        run: |
+          set -euo pipefail
+          EXPECTED_WORKSPACE="${RUNNER_WORKSPACE:?}/${GITHUB_REPOSITORY#*/}"
+          if [ "${GITHUB_WORKSPACE:?}" != "$EXPECTED_WORKSPACE" ]; then
+            echo "::error::Refusing to clear unexpected workspace: $GITHUB_WORKSPACE"
+            exit 1
+          fi
+          cd "${RUNNER_TEMP:?}"
+          if git -C "$GITHUB_WORKSPACE" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+            git -C "$GITHUB_WORKSPACE" sparse-checkout disable >/dev/null 2>&1 || true
+            git -C "$GITHUB_WORKSPACE" config --local --unset-all core.sparseCheckout >/dev/null 2>&1 || true
+            git -C "$GITHUB_WORKSPACE" config --worktree --unset-all core.sparseCheckout >/dev/null 2>&1 || true
+          fi
+          find "$GITHUB_WORKSPACE" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
+          test -z "$(find "$GITHUB_WORKSPACE" -mindepth 1 -maxdepth 1 -print -quit)"
+
+      - name: Checkout immutable discovery runtime
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.workflow_sha }}
+          fetch-depth: 1
+          clean: true
+          persist-credentials: false
+
+      - name: Verify immutable discovery runtime
+        env:
+          EXPECTED_WORKFLOW_SHA: ${{ github.workflow_sha }}
+        run: |
+          set -euo pipefail
+          REQUIRED_RUNTIME_FILES=(
+            "schemas/skill-report.schema.json"
+            ".github/actions/download-skillstore-cli/action.yml"
+            ".github/workflows/reusable-process-skills.yml"
+            "scripts/resolve-submission-source.mjs"
+            "scripts/discover-submission-skills.mjs"
+            "scripts/process-submission-shard.mjs"
+            "scripts/submission-shard-contract.mjs"
+            "scripts/aggregate-submission-shards.mjs"
+            "scripts/resolve-approved-submission.mjs"
+          )
+          test "$(git rev-parse HEAD)" = "$EXPECTED_WORKFLOW_SHA"
+          test "$(git config --bool core.sparseCheckout 2>/dev/null || echo false)" != "true"
+          test ! -f "$(git rev-parse --git-path info/sparse-checkout)"
+          if git ls-files -v -- "${REQUIRED_RUNTIME_FILES[@]}" | awk '$1 ~ /^S/ { found=1 } END { exit !found }'; then
+            echo "::error::Immutable discovery runtime contains skip-worktree files"
+            exit 1
+          fi
+          for file in "${REQUIRED_RUNTIME_FILES[@]}"; do
+            test -f "$GITHUB_WORKSPACE/$file" && test ! -L "$GITHUB_WORKSPACE/$file" || {
+              echo "::error::Required runtime file is missing or not a regular file: $file"
+              exit 1
+            }
+            test "$(git hash-object -- "$GITHUB_WORKSPACE/$file")" = "$(git rev-parse "$EXPECTED_WORKFLOW_SHA:$file")" || {
+              echo "::error::Runtime file does not match workflow head: $file"
+              exit 1
+            }
+          done
+
       - name: Notify skillstore - Processing started
         if: inputs.is_manual_approval == false
         run: |
@@ -119,150 +178,60 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          set -euo pipefail
           URL="${{ inputs.github_url }}"
-          URL="${URL%.git}"
+          REPOSITORY_ID=$(node "$GITHUB_WORKSPACE/scripts/resolve-submission-source.mjs" \
+            --github-url "$URL" --repository-only)
+          OWNER_REPO=$(jq -er '"\(.owner)/\(.repo)"' <<< "$REPOSITORY_ID")
+          DEFAULT_REF=$(gh api "repos/$OWNER_REPO" --jq '.default_branch')
+          REFS_FILE="${RUNNER_TEMP:?}/submission-refs-${{ github.run_id }}-${{ github.run_attempt }}.txt"
+          git ls-remote --heads --tags "https://github.com/$OWNER_REPO.git" > "$REFS_FILE"
+          RESOLVED=$(node "$GITHUB_WORKSPACE/scripts/resolve-submission-source.mjs" \
+            --github-url "$URL" \
+            --default-ref "$DEFAULT_REF" \
+            --refs-file "$REFS_FILE")
+          rm -f "$REFS_FILE"
 
-          # Validate GitHub URL format
-          if [[ ! "$URL" =~ ^https://github\.com/[a-zA-Z0-9_-]+/[a-zA-Z0-9._-]+(/.*)?$ ]]; then
-            echo "::error::Invalid GitHub URL format: $URL"
+          OWNER=$(jq -er '.owner' <<< "$RESOLVED")
+          REPO=$(jq -er '.repo' <<< "$RESOLVED")
+          REF=$(jq -er '.ref' <<< "$RESOLVED")
+          REF_SHA=$(jq -er '.refSha' <<< "$RESOLVED")
+          SKILL_PATH=$(jq -er '.skillPath' <<< "$RESOLVED")
+          EXPLICIT_PATH=$(jq -er '.explicitPath' <<< "$RESOLVED")
+          NORMALIZED_URL=$(jq -er '.normalizedUrl' <<< "$RESOLVED")
+          SOURCE_DIR="${RUNNER_TEMP:?}/submission-source-${{ github.run_id }}-${{ github.run_attempt }}"
+          rm -rf "$SOURCE_DIR"
+          git clone --depth 1 --branch "$REF" "https://github.com/$OWNER/$REPO.git" "$SOURCE_DIR"
+          test "$(git -C "$SOURCE_DIR" rev-parse HEAD)" = "$REF_SHA" || {
+            echo "::error::Resolved source ref moved during clone: $REF"
             exit 1
-          fi
+          }
 
-          if [[ "$URL" =~ github\.com[:/]([^/]+)/([^/]+) ]]; then
-            OWNER="${BASH_REMATCH[1]}"
-            REPO="${BASH_REMATCH[2]}"
-          else
-            echo "::error::Invalid GitHub URL: $URL"
-            exit 1
-          fi
-
-          echo "owner=$OWNER" >> $GITHUB_OUTPUT
-          echo "repo=$REPO" >> $GITHUB_OUTPUT
-
-          # Extract skillPath from URL (e.g., /tree/master/.claude/skills/clojure-review)
-          SKILL_PATH=""
-          if [[ "$URL" =~ /tree/[^/]+/(.+)$ ]]; then
-            SKILL_PATH="${BASH_REMATCH[1]}"
-
-            # Validate skill path - prevent path traversal attacks
-            if [[ "$SKILL_PATH" =~ \.\. ]]; then
-              echo "::error::Invalid skill path (contains '..'): $SKILL_PATH"
-              exit 1
-            fi
-            if [[ "$SKILL_PATH" =~ ^/ ]]; then
-              echo "::error::Invalid skill path (absolute path not allowed): $SKILL_PATH"
-              exit 1
-            fi
-
-            echo "📍 Skill path specified: $SKILL_PATH"
-          fi
-          echo "skill_path=$SKILL_PATH" >> $GITHUB_OUTPUT
-
-          BRANCH=$(gh api "repos/$OWNER/$REPO" --jq '.default_branch')
-          echo "branch=$BRANCH" >> $GITHUB_OUTPUT
-
-          SOURCE_DIR="/tmp/source-repo-${{ github.run_id }}"
-          git clone --depth 1 --branch "$BRANCH" "https://github.com/$OWNER/$REPO.git" "$SOURCE_DIR"
-
-          echo "source_dir=$SOURCE_DIR" >> $GITHUB_OUTPUT
-          echo "📦 Cloned $OWNER/$REPO (branch: $BRANCH)"
+          echo "owner=$OWNER" >> "$GITHUB_OUTPUT"
+          echo "repo=$REPO" >> "$GITHUB_OUTPUT"
+          echo "branch=$REF" >> "$GITHUB_OUTPUT"
+          echo "skill_path=$SKILL_PATH" >> "$GITHUB_OUTPUT"
+          echo "explicit_path=$EXPLICIT_PATH" >> "$GITHUB_OUTPUT"
+          echo "normalized_url=$NORMALIZED_URL" >> "$GITHUB_OUTPUT"
+          echo "source_dir=$SOURCE_DIR" >> "$GITHUB_OUTPUT"
+          echo "📦 Cloned $OWNER/$REPO at immutable $REF ($REF_SHA)"
 
       - name: Discover skills (fast - no AI)
         id: discover
         env:
           SKILL_PATH: ${{ steps.clone.outputs.skill_path }}
-          OWNER: ${{ steps.clone.outputs.owner }}
-          REPO: ${{ steps.clone.outputs.repo }}
-          BRANCH: ${{ steps.clone.outputs.branch }}
-          ORIGINAL_URL: ${{ inputs.github_url }}
         run: |
+          set -euo pipefail
           SOURCE_DIR="${{ steps.clone.outputs.source_dir }}"
-          CORRECTED_URL=""  # Only set when FALLBACK occurs
-
-          # If skill_path is specified, only search within that path
-          if [ -n "$SKILL_PATH" ]; then
-            SEARCH_DIR="$SOURCE_DIR/$SKILL_PATH"
-            echo "📍 Searching within: $SKILL_PATH"
-
-            # FALLBACK: If specified path doesn't exist OR has no SKILL.md,
-            # search entire repo for matching folder name
-            if [ ! -d "$SEARCH_DIR" ] || [ -z "$(find "$SEARCH_DIR" -name "SKILL.md" -type f 2>/dev/null | head -1)" ]; then
-              FOLDER_NAME=$(basename "$SKILL_PATH")
-              echo "⚠️ No SKILL.md found at $SKILL_PATH, searching for folder '$FOLDER_NAME' in repository..."
-
-              # Find all directories matching the folder name that contain SKILL.md
-              FOUND_PATH=""
-              while IFS= read -r skill_md; do
-                SKILL_DIR=$(dirname "$skill_md")
-                DIR_NAME=$(basename "$SKILL_DIR")
-                if [ "$DIR_NAME" = "$FOLDER_NAME" ]; then
-                  FOUND_PATH="$SKILL_DIR"
-                  break
-                fi
-              done < <(find "$SOURCE_DIR" -name "SKILL.md" -type f ! -path "*/node_modules/*" ! -path "*/.git/*" 2>/dev/null)
-
-              # FALLBACK 2: If folder name match failed, try matching SKILL.md name field
-              if [ -z "$FOUND_PATH" ]; then
-                echo "⚠️ Folder name match failed, searching by SKILL.md name field '$FOLDER_NAME'..."
-
-                while IFS= read -r skill_md; do
-                  SKILL_NAME=$(grep -E '^name:' "$skill_md" 2>/dev/null | head -1 | sed 's/name:[[:space:]]*//')
-                  if [ "$SKILL_NAME" = "$FOLDER_NAME" ]; then
-                    FOUND_PATH=$(dirname "$skill_md")
-                    echo "✅ Found skill by name field: $SKILL_NAME"
-                    break
-                  fi
-                done < <(find "$SOURCE_DIR" -name "SKILL.md" -type f ! -path "*/node_modules/*" ! -path "*/.git/*" 2>/dev/null)
-              fi
-
-              if [ -n "$FOUND_PATH" ]; then
-                RELATIVE_PATH="${FOUND_PATH#$SOURCE_DIR/}"
-                echo "✅ Found skill at: $RELATIVE_PATH"
-                SEARCH_DIR="$FOUND_PATH"
-                # FALLBACK: Correct the URL to point to the discovered path
-                CORRECTED_URL="https://github.com/$OWNER/$REPO/tree/$BRANCH/$RELATIVE_PATH"
-                echo "🔄 Corrected URL: $CORRECTED_URL"
-              else
-                echo "❌ Could not find folder '$FOLDER_NAME' with SKILL.md in repository"
-                SEARCH_DIR="$SOURCE_DIR/$SKILL_PATH"  # Keep original (will find 0)
-              fi
-            fi
-          else
-            SEARCH_DIR="$SOURCE_DIR"
-            echo "🔍 Searching entire repository"
-          fi
-
-          # Output github_url: use corrected if FALLBACK occurred, otherwise original
-          if [ -n "$CORRECTED_URL" ]; then
-            echo "github_url=$CORRECTED_URL" >> $GITHUB_OUTPUT
-          else
-            echo "github_url=$ORIGINAL_URL" >> $GITHUB_OUTPUT
-          fi
-
-          SKILLS_JSON="["
-          FIRST=true
-
-          while IFS= read -r skill_md; do
-            SKILL_DIR=$(dirname "$skill_md")
-
-            SLUG=$(grep -E '^name:' "$skill_md" 2>/dev/null | head -1 | sed 's/name:[[:space:]]*//' | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g' | sed 's/^-*//;s/-*$//' | sed 's/--*/-/g')
-            [ -z "$SLUG" ] && SLUG=$(basename "$SKILL_DIR" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g' | sed 's/^-*//;s/-*$//')
-
-            if [ "$FIRST" = true ]; then
-              FIRST=false
-            else
-              SKILLS_JSON+=","
-            fi
-            SKILLS_JSON+="\"$SLUG\""
-          done < <(find "$SEARCH_DIR" -name "SKILL.md" -type f ! -path "*/node_modules/*" ! -path "*/.git/*" ! -path "*/.venv/*" ! -path "*/venv/*" 2>/dev/null | sort)
-
-          SKILLS_JSON+="]"
-
-          SKILL_COUNT=$(echo "$SKILLS_JSON" | jq 'length')
-
-          echo "skills_json=$SKILLS_JSON" >> $GITHUB_OUTPUT
-          echo "skill_count=$SKILL_COUNT" >> $GITHUB_OUTPUT
-
+          DISCOVERY=$(node "$GITHUB_WORKSPACE/scripts/discover-submission-skills.mjs" \
+            --source-dir "$SOURCE_DIR" \
+            --skill-path "$SKILL_PATH" \
+            --explicit-path "${{ steps.clone.outputs.explicit_path }}")
+          SKILLS_JSON=$(jq -cer '[.skills[].slug]' <<< "$DISCOVERY")
+          SKILL_COUNT=$(jq -er '.skills | length' <<< "$DISCOVERY")
+          echo "github_url=${{ steps.clone.outputs.normalized_url }}" >> "$GITHUB_OUTPUT"
+          echo "skills_json=$SKILLS_JSON" >> "$GITHUB_OUTPUT"
+          echo "skill_count=$SKILL_COUNT" >> "$GITHUB_OUTPUT"
           echo "📊 Discovered $SKILL_COUNT skill(s)"
 
       - name: Plan processing strategy
@@ -270,12 +239,17 @@ jobs:
         env:
           SKILL_COUNT: ${{ steps.discover.outputs.skill_count }}
           SKILLS_JSON: ${{ steps.discover.outputs.skills_json }}
+          EXPLICIT_PATH: ${{ steps.clone.outputs.explicit_path }}
         run: |
           COUNT=$SKILL_COUNT
           THRESHOLD=${{ env.SHARD_THRESHOLD }}
           MAX_SHARDS=${{ env.MAX_SHARDS }}
 
           if [ "$COUNT" -eq 0 ]; then
+            if [ "$EXPLICIT_PATH" = "true" ]; then
+              echo "::error::Explicit GitHub skill path resolved to zero skills"
+              exit 1
+            fi
             echo "No skills found; planning one explicit no-op shard"
             echo 'matrix={"include":[{"shard":0,"slugs":""}]}' >> $GITHUB_OUTPUT
             echo "is_sharded=false" >> $GITHUB_OUTPUT
@@ -330,7 +304,7 @@ jobs:
 
       - name: Cleanup source
         if: always()
-        run: rm -rf /tmp/source-repo-${{ github.run_id }}
+        run: rm -rf "${{ steps.clone.outputs.source_dir }}"
 
   # ============================================================
   # JOB 2: PROCESS (Parallel Matrix)
@@ -355,10 +329,82 @@ jobs:
           private-key: ${{ secrets.APP_PRIVATE_KEY }}
           repositories: marketplace,skillstore
 
+      - name: Clear inherited marketplace checkout
+        run: |
+          set -euo pipefail
+
+          EXPECTED_WORKSPACE="${RUNNER_WORKSPACE:?}/${GITHUB_REPOSITORY#*/}"
+          if [ "${GITHUB_WORKSPACE:?}" != "$EXPECTED_WORKSPACE" ]; then
+            echo "::error::Refusing to clear unexpected workspace: $GITHUB_WORKSPACE"
+            exit 1
+          fi
+
+          cd "${RUNNER_TEMP:?}"
+          if git -C "$GITHUB_WORKSPACE" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+            git -C "$GITHUB_WORKSPACE" sparse-checkout disable >/dev/null 2>&1 || true
+            git -C "$GITHUB_WORKSPACE" config --local --unset-all core.sparseCheckout >/dev/null 2>&1 || true
+            git -C "$GITHUB_WORKSPACE" config --worktree --unset-all core.sparseCheckout >/dev/null 2>&1 || true
+          fi
+          find "$GITHUB_WORKSPACE" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
+          test -z "$(find "$GITHUB_WORKSPACE" -mindepth 1 -maxdepth 1 -print -quit)"
+
       - name: Checkout marketplace
         uses: actions/checkout@v5
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
+          ref: ${{ github.workflow_sha }}
+          fetch-depth: 1
+          clean: true
+          persist-credentials: false
+
+      - name: Verify immutable processing runtime
+        env:
+          EXPECTED_WORKFLOW_SHA: ${{ github.workflow_sha }}
+        run: |
+          set -euo pipefail
+
+          ACTUAL_HEAD=$(git rev-parse HEAD)
+          if [ "$ACTUAL_HEAD" != "$EXPECTED_WORKFLOW_SHA" ]; then
+            echo "::error::Marketplace checkout mismatch: expected $EXPECTED_WORKFLOW_SHA, got $ACTUAL_HEAD"
+            exit 1
+          fi
+
+          if [ "$(git config --bool core.sparseCheckout 2>/dev/null || echo false)" = "true" ]; then
+            echo "::error::Marketplace checkout is still sparse"
+            exit 1
+          fi
+          test ! -f "$(git rev-parse --git-path info/sparse-checkout)" || {
+            echo "::error::Inherited sparse-checkout definition is still present"
+            exit 1
+          }
+
+          REQUIRED_RUNTIME_FILES=(
+            "schemas/skill-report.schema.json"
+            ".github/actions/download-skillstore-cli/action.yml"
+            ".github/workflows/reusable-process-skills.yml"
+            "scripts/resolve-submission-source.mjs"
+            "scripts/discover-submission-skills.mjs"
+            "scripts/process-submission-shard.mjs"
+            "scripts/submission-shard-contract.mjs"
+            "scripts/aggregate-submission-shards.mjs"
+            "scripts/resolve-approved-submission.mjs"
+          )
+          if git ls-files -v -- "${REQUIRED_RUNTIME_FILES[@]}" | awk '$1 ~ /^S/ { found=1 } END { exit !found }'; then
+            echo "::error::Immutable processing runtime contains skip-worktree files"
+            exit 1
+          fi
+          for file in "${REQUIRED_RUNTIME_FILES[@]}"; do
+            test -f "$GITHUB_WORKSPACE/$file" && test ! -L "$GITHUB_WORKSPACE/$file" || {
+              echo "::error::Required processing runtime file is missing or not a regular file: $file"
+              exit 1
+            }
+            EXPECTED_BLOB=$(git rev-parse "$EXPECTED_WORKFLOW_SHA:$file")
+            ACTUAL_BLOB=$(git hash-object -- "$GITHUB_WORKSPACE/$file")
+            if [ "$ACTUAL_BLOB" != "$EXPECTED_BLOB" ]; then
+              echo "::error::Processing runtime file does not match workflow head: $file"
+              exit 1
+            fi
+          done
 
       - name: Download Skillstore CLI
         if: matrix.slugs != ''
@@ -367,6 +413,7 @@ jobs:
           version: ${{ inputs.cli_version }}
           token: ${{ steps.app-token.outputs.token }}
           cache-dir: /home/runner/_work/_cache/skillstore-cli
+          require-checksum: true
 
       - name: Process shard ${{ matrix.shard }}
         id: process
@@ -380,7 +427,7 @@ jobs:
         run: |
           set -euo pipefail
           RESULT_DIR="/tmp/submission-shard-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}"
-          node scripts/process-submission-shard.mjs \
+          node "$GITHUB_WORKSPACE/scripts/process-submission-shard.mjs" \
             --cli "$GITHUB_WORKSPACE/skillstore-cli" \
             --github-url "${{ needs.discover-and-plan.outputs.github_url }}" \
             --slugs "$SLUGS" \
@@ -425,7 +472,7 @@ jobs:
         run: |
           set -euo pipefail
           RESULT_DIR="/tmp/submission-shard-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}"
-          node scripts/submission-shard-contract.mjs \
+          node "$GITHUB_WORKSPACE/scripts/submission-shard-contract.mjs" \
             --manifest "$RESULT_DIR/shard-manifest.json" \
             --expected-index "${{ matrix.shard }}" \
             --expected-slugs "$PLANNED_SLUGS" \
@@ -456,6 +503,65 @@ jobs:
       outcome: ${{ steps.create_pr.outputs.outcome }}
       outcome_reason: ${{ steps.create_pr.outputs.outcome_reason }}
     steps:
+      - name: Clear inherited aggregation checkout
+        run: |
+          set -euo pipefail
+          EXPECTED_WORKSPACE="${RUNNER_WORKSPACE:?}/${GITHUB_REPOSITORY#*/}"
+          if [ "${GITHUB_WORKSPACE:?}" != "$EXPECTED_WORKSPACE" ]; then
+            echo "::error::Refusing to clear unexpected workspace: $GITHUB_WORKSPACE"
+            exit 1
+          fi
+          cd "${RUNNER_TEMP:?}"
+          if git -C "$GITHUB_WORKSPACE" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+            git -C "$GITHUB_WORKSPACE" sparse-checkout disable >/dev/null 2>&1 || true
+            git -C "$GITHUB_WORKSPACE" config --local --unset-all core.sparseCheckout >/dev/null 2>&1 || true
+            git -C "$GITHUB_WORKSPACE" config --worktree --unset-all core.sparseCheckout >/dev/null 2>&1 || true
+          fi
+          find "$GITHUB_WORKSPACE" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
+          test -z "$(find "$GITHUB_WORKSPACE" -mindepth 1 -maxdepth 1 -print -quit)"
+
+      - name: Checkout immutable aggregation runtime
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.workflow_sha }}
+          fetch-depth: 1
+          clean: true
+          persist-credentials: false
+
+      - name: Verify immutable aggregation runtime
+        env:
+          EXPECTED_WORKFLOW_SHA: ${{ github.workflow_sha }}
+        run: |
+          set -euo pipefail
+          REQUIRED_RUNTIME_FILES=(
+            "schemas/skill-report.schema.json"
+            ".github/actions/download-skillstore-cli/action.yml"
+            ".github/workflows/reusable-process-skills.yml"
+            "scripts/resolve-submission-source.mjs"
+            "scripts/discover-submission-skills.mjs"
+            "scripts/process-submission-shard.mjs"
+            "scripts/submission-shard-contract.mjs"
+            "scripts/aggregate-submission-shards.mjs"
+            "scripts/resolve-approved-submission.mjs"
+          )
+          test "$(git rev-parse HEAD)" = "$EXPECTED_WORKFLOW_SHA"
+          test "$(git config --bool core.sparseCheckout 2>/dev/null || echo false)" != "true"
+          test ! -f "$(git rev-parse --git-path info/sparse-checkout)"
+          if git ls-files -v -- "${REQUIRED_RUNTIME_FILES[@]}" | awk '$1 ~ /^S/ { found=1 } END { exit !found }'; then
+            echo "::error::Immutable aggregation runtime contains skip-worktree files"
+            exit 1
+          fi
+          for file in "${REQUIRED_RUNTIME_FILES[@]}"; do
+            test -f "$GITHUB_WORKSPACE/$file" && test ! -L "$GITHUB_WORKSPACE/$file" || {
+              echo "::error::Required runtime file is missing or not a regular file: $file"
+              exit 1
+            }
+            test "$(git hash-object -- "$GITHUB_WORKSPACE/$file")" = "$(git rev-parse "$EXPECTED_WORKFLOW_SHA:$file")" || {
+              echo "::error::Runtime file does not match workflow head: $file"
+              exit 1
+            }
+          done
+
       - name: Generate GitHub App Token
         id: app-token
         uses: actions/create-github-app-token@v3
@@ -468,7 +574,7 @@ jobs:
         with:
           pattern: process-shard-${{ github.run_attempt }}-*
           merge-multiple: false
-          path: /tmp/submission-artifacts-${{ github.run_id }}
+          path: ${{ runner.temp }}/submission-artifacts-${{ github.run_id }}-${{ github.run_attempt }}
 
       - name: Merge results and create PR
         id: create_pr
@@ -480,8 +586,8 @@ jobs:
         run: |
           set -euo pipefail
 
-          WORK_DIR="/tmp/marketplace-${{ github.run_id }}"
-          ARTIFACTS_DIR="/tmp/submission-artifacts-${{ github.run_id }}"
+          WORK_DIR="${RUNNER_TEMP:?}/marketplace-${{ github.run_id }}-${{ github.run_attempt }}"
+          ARTIFACTS_DIR="${RUNNER_TEMP:?}/submission-artifacts-${{ github.run_id }}-${{ github.run_attempt }}"
 
           cleanup() {
             echo "🧹 Cleaning up temp directories..."
@@ -506,7 +612,7 @@ jobs:
           APPROVAL_PLAN="${ARTIFACTS_DIR}.approval-plan.json"
           AGGREGATION_SUMMARY="${ARTIFACTS_DIR}.summary.json"
           MERGED_RESULTS="${ARTIFACTS_DIR}.merged"
-          node scripts/aggregate-submission-shards.mjs \
+          node "$GITHUB_WORKSPACE/scripts/aggregate-submission-shards.mjs" \
             --artifacts-dir "$ARTIFACTS_DIR" \
             --run-attempt "${{ github.run_attempt }}" \
             --matrix-json "$SHARD_MATRIX" \
