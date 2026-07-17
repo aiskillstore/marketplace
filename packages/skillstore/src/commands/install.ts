@@ -1,7 +1,7 @@
 import { defineCommand } from 'citty';
 import { access } from 'node:fs/promises';
 import { getPluginConfig } from '../lib/plugin-config.js';
-import { fetchManifest, reportInstallation, reportSkillInstall, PluginApiError } from '../lib/plugin-api.js';
+import { fetchManifest, reportPackInstallation, reportSkillInstall, PluginApiError } from '../lib/plugin-api.js';
 import {
 	fetchSkillManifest,
 	downloadSkillZip,
@@ -17,6 +17,11 @@ import { CANONICAL_SKILLS_DIR } from '../lib/agents.js';
 import { extractSkillZip, getCanonicalSkillPath, linkSkillToDirectory } from '../lib/installer.js';
 import { addToLock, getLockEntry } from '../lib/skill-lock.js';
 import { lockVerifiedPackMembers } from '../lib/pack-lock.js';
+import {
+	createPackInstallReporter,
+	derivePackInstallOutcome,
+	readbackPackInstall,
+} from '../lib/pack-install-truth.js';
 
 /**
  * Normalize skill/plugin slug
@@ -262,6 +267,10 @@ async function installPlugin(
 		dryRun,
 	});
 	const targetConfig = getPluginConfig({ installDir: dir });
+	const installTruth = dryRun ? null : await createPackInstallReporter(
+		(report) => reportPackInstallation(config, slug, report)
+	);
+	let expectedSkillCount = 0;
 
 	logger.info(`Installing plugin: @${slug}`);
 	logger.info(`Canonical directory: ${CANONICAL_SKILLS_DIR}`);
@@ -275,6 +284,7 @@ async function installPlugin(
 		// Step 1: Fetch manifest
 		logger.startSpinner('Fetching plugin manifest...');
 		const manifest = await fetchManifest(config, slug);
+		expectedSkillCount = manifest.skills.length;
 		logger.spinnerSuccess(`Fetched manifest for "${manifest.plugin.name}"`);
 
 		// Step 2: Verify manifest
@@ -285,7 +295,7 @@ async function installPlugin(
 			if (!verifyResult.valid) {
 				logger.spinnerError('Manifest verification failed');
 				logger.error(verifyResult.error || 'Unknown verification error');
-				process.exit(1);
+				throw new Error(verifyResult.error || 'Manifest verification failed');
 			}
 
 			if (verifyResult.error) {
@@ -327,6 +337,7 @@ async function installPlugin(
 				for (const result of failedLinks) {
 					logger.error(result.error || `Failed to link ${result.path}`);
 				}
+				await installTruth?.report(derivePackInstallOutcome(expectedSkillCount, 0, false));
 				process.exit(1);
 			}
 			logger.spinnerSuccess(`Linked ${linkResults.length} skill${linkResults.length > 1 ? 's' : ''}`);
@@ -336,19 +347,8 @@ async function installPlugin(
 			}
 		}
 
-		// Step 6: Report installation (non-blocking)
-		if (!dryRun && downloadResult.success > 0) {
-			try {
-				const reportResult = await reportInstallation(config, slug, 'cli');
-				if (reportResult.duplicate) {
-					logger.debug('Installation already recorded');
-				} else if (reportResult.success) {
-					logger.debug('Installation reported successfully');
-				}
-			} catch {
-				logger.debug('Failed to report installation (non-critical)');
-			}
-
+		// Step 6: Report per-skill telemetry independently of Pack truth.
+		if (!dryRun && installTruth && downloadResult.success > 0) {
 			// Report telemetry for each successfully installed skill
 			const successfulSkills = downloadResult.results.filter(
 				(r) => r.success && !r.skipped
@@ -363,9 +363,26 @@ async function installPlugin(
 			}
 		}
 
+		let installOutcome = derivePackInstallOutcome(expectedSkillCount, 0, false);
+		if (!dryRun && downloadResult.failed === 0) {
+			const readback = await readbackPackInstall(manifest.skills, [targetConfig.installDir]);
+			installOutcome = derivePackInstallOutcome(
+				expectedSkillCount,
+				readback.installedSkillCount,
+				readback.readbackPassed
+			);
+			if (readback.failedSkillSlugs.length > 0) {
+				logger.warn(`Install readback failed for: ${readback.failedSkillSlugs.join(', ')}`);
+			}
+		}
+		if (!dryRun) {
+			const reported = await installTruth?.report(installOutcome);
+			if (reported === false) logger.debug('Failed to report installation truth (non-critical)');
+		}
+
 		// Final status
-		if (downloadResult.failed > 0) {
-			logger.warn(`Installation completed with ${downloadResult.failed} failures`);
+		if (!dryRun && installOutcome.status !== 'complete') {
+			logger.warn(`Installation did not complete: ${installOutcome.failedSkillCount} member failure${installOutcome.failedSkillCount === 1 ? '' : 's'}`);
 			process.exit(1);
 		} else if (dryRun) {
 			logger.success('Dry run complete - no files were written');
@@ -374,6 +391,7 @@ async function installPlugin(
 		}
 	} catch (err) {
 		logger.stopSpinner();
+		await installTruth?.report(derivePackInstallOutcome(expectedSkillCount, 0, false));
 
 		if (err instanceof PluginApiError) {
 			if (err.statusCode === 404) {

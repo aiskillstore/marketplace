@@ -12,6 +12,7 @@ export {
 	downloadSkill,
 	downloadSkillFile,
 	reportInstallation,
+	reportPackInstallation,
 	PluginApiError,
 	type PluginManifest,
 	type ManifestSkill,
@@ -22,6 +23,13 @@ export {
 	type PluginListResponse,
 	type InstallReportResponse,
 } from './lib/plugin-api.js';
+
+export type {
+	PackInstallStatus,
+	InstallOsPlatform,
+	PackInstallOutcome,
+	PackInstallReport,
+} from './lib/pack-install-truth.js';
 
 // Re-export skill API for programmatic usage
 export {

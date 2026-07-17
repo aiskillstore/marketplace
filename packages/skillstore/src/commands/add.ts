@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { getPluginConfig } from '../lib/plugin-config.js';
 import {
 	fetchManifest,
-	reportInstallation,
+	reportPackInstallation,
 	reportSkillInstall,
 	PluginApiError,
 } from '../lib/plugin-api.js';
@@ -28,6 +28,11 @@ import {
 } from '../lib/agents.js';
 import { addToLock, getLockEntry } from '../lib/skill-lock.js';
 import { lockVerifiedPackMembers } from '../lib/pack-lock.js';
+import {
+	createPackInstallReporter,
+	derivePackInstallOutcome,
+	readbackPackInstall,
+} from '../lib/pack-install-truth.js';
 import { extractSkillZip, installToAgents, getCanonicalSkillPath } from '../lib/installer.js';
 
 /**
@@ -101,6 +106,7 @@ export default defineCommand({
 
 		// Determine target agents
 		let targetAgents: AgentConfig[];
+		let reportTargetAgents: string[] | undefined;
 		if (agentArg) {
 			// Parse comma-separated agent IDs
 			const agentIds = agentArg.split(',').map((s) => s.trim());
@@ -112,9 +118,13 @@ export default defineCommand({
 				process.exit(1);
 			}
 			targetAgents = getAgentsByIds(agentIds);
+			reportTargetAgents = targetAgents.map((agent) => agent.id);
 		} else {
 			// Auto-detect the default Skillstore targets only.
 			targetAgents = detectDefaultInstallAgents();
+			if (targetAgents.length > 0) {
+				reportTargetAgents = targetAgents.map((agent) => agent.id);
+			}
 			if (targetAgents.length === 0) {
 				logger.warn('No Codex or Claude Code folders detected. Installing to Claude Code by default.');
 				targetAgents = [agents['claude-code']];
@@ -122,7 +132,7 @@ export default defineCommand({
 		}
 
 		if (isPlugin) {
-			await addPlugin(slug, { targetAgents, isGlobal, skipVerify, dryRun, overwrite });
+			await addPlugin(slug, { targetAgents, reportTargetAgents, isGlobal, skipVerify, dryRun, overwrite });
 		} else {
 			await addSkill(slug, { targetAgents, isGlobal, skipVerify, dryRun, overwrite });
 		}
@@ -131,6 +141,7 @@ export default defineCommand({
 
 interface AddOptions {
 	targetAgents: AgentConfig[];
+	reportTargetAgents?: string[];
 	isGlobal: boolean;
 	skipVerify: boolean;
 	dryRun: boolean;
@@ -354,7 +365,7 @@ async function addSkill(slug: string, options: AddOptions): Promise<void> {
  * Add a plugin (skill collection)
  */
 async function addPlugin(slug: string, options: AddOptions): Promise<void> {
-	const { targetAgents, isGlobal, skipVerify, dryRun, overwrite } = options;
+	const { targetAgents, reportTargetAgents, isGlobal, skipVerify, dryRun, overwrite } = options;
 
 	const installTargets = getPluginInstallTargets(targetAgents, isGlobal);
 
@@ -363,6 +374,11 @@ async function addPlugin(slug: string, options: AddOptions): Promise<void> {
 		skipVerify,
 		dryRun,
 	});
+	const installTruth = dryRun ? null : await createPackInstallReporter(
+		(report) => reportPackInstallation(config, slug, report),
+		reportTargetAgents
+	);
+	let expectedSkillCount = 0;
 
 	logger.info(`Adding plugin: @${slug}`);
 	logger.info(`Target agents: ${targetAgents.map((a) => a.name).join(', ')}`);
@@ -379,6 +395,7 @@ async function addPlugin(slug: string, options: AddOptions): Promise<void> {
 		// Step 1: Fetch manifest
 		logger.startSpinner('Fetching plugin manifest...');
 		const manifest = await fetchManifest(config, slug);
+		expectedSkillCount = manifest.skills.length;
 		logger.spinnerSuccess(`Fetched manifest for "${manifest.plugin.name}"`);
 
 		// Step 2: Verify manifest
@@ -389,7 +406,7 @@ async function addPlugin(slug: string, options: AddOptions): Promise<void> {
 			if (!verifyResult.valid) {
 				logger.spinnerError('Manifest verification failed');
 				logger.error(verifyResult.error || 'Unknown verification error');
-				process.exit(1);
+				throw new Error(verifyResult.error || 'Manifest verification failed');
 			}
 
 			if (verifyResult.error) {
@@ -435,19 +452,8 @@ async function addPlugin(slug: string, options: AddOptions): Promise<void> {
 			}
 		}
 
-		// Step 6: Report installation (non-blocking)
-		if (!dryRun && downloadResult.success > 0) {
-			try {
-				const reportResult = await reportInstallation(config, slug, 'cli');
-				if (reportResult.duplicate) {
-					logger.debug('Installation already recorded');
-				} else if (reportResult.success) {
-					logger.debug('Installation reported successfully');
-				}
-			} catch {
-				logger.debug('Failed to report installation (non-critical)');
-			}
-
+		// Step 6: Report per-skill telemetry independently of Pack truth.
+		if (!dryRun && installTruth && downloadResult.success > 0) {
 			// Report telemetry for each successfully installed skill
 			const newlyInstalledSkillSlugs = [
 				...new Set(downloadResult.results.filter((r) => r.success && !r.skipped).map((r) => r.slug)),
@@ -460,9 +466,29 @@ async function addPlugin(slug: string, options: AddOptions): Promise<void> {
 			}
 		}
 
+		let installOutcome = derivePackInstallOutcome(expectedSkillCount, 0, false);
+		if (!dryRun && downloadResult.failed === 0) {
+			const readback = await readbackPackInstall(
+				manifest.skills,
+				installTargets.map((target) => target.installDir)
+			);
+			installOutcome = derivePackInstallOutcome(
+				expectedSkillCount,
+				readback.installedSkillCount,
+				readback.readbackPassed
+			);
+			if (readback.failedSkillSlugs.length > 0) {
+				logger.warn(`Install readback failed for: ${readback.failedSkillSlugs.join(', ')}`);
+			}
+		}
+		if (!dryRun) {
+			const reported = await installTruth?.report(installOutcome);
+			if (reported === false) logger.debug('Failed to report installation truth (non-critical)');
+		}
+
 		// Final status
-		if (downloadResult.failed > 0) {
-			logger.warn(`Installation completed with ${downloadResult.failed} failures`);
+		if (!dryRun && installOutcome.status !== 'complete') {
+			logger.warn(`Installation did not complete: ${installOutcome.failedSkillCount} member failure${installOutcome.failedSkillCount === 1 ? '' : 's'}`);
 			process.exit(1);
 		} else if (dryRun) {
 			logger.success('Dry run complete - no files were written');
@@ -471,6 +497,7 @@ async function addPlugin(slug: string, options: AddOptions): Promise<void> {
 		}
 	} catch (err) {
 		logger.stopSpinner();
+		await installTruth?.report(derivePackInstallOutcome(expectedSkillCount, 0, false));
 
 		if (err instanceof PluginApiError) {
 			if (err.statusCode === 404) {
