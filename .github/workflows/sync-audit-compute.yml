@@ -23,12 +23,16 @@ jobs:
       SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
       LEGACY_TOKENS: '1308077250'
       LEGACY_COST_USD: '2568.41704016099988706'
+      AUDIT_READ_MAX_ATTEMPTS: '3'
+      AUDIT_READ_RETRY_BASE_SECONDS: '2'
     steps:
       - name: Checkout research refresh helper
         uses: actions/checkout@v5
         with:
           persist-credentials: false
-          sparse-checkout: scripts/refresh-security-research-stats.sh
+          sparse-checkout: |
+            scripts/fetch-audit-compute-usage.sh
+            scripts/refresh-security-research-stats.sh
           sparse-checkout-cone-mode: false
 
       - name: Sync audit compute snapshot
@@ -50,11 +54,7 @@ jobs:
             helm_usage_url="$helm_base/v1/usage/stats"
           fi
 
-          helm_usage_json="$(
-            curl --fail --silent --show-error --retry 3 --retry-delay 2 \
-              -H "Authorization: Bearer $HELM_API_KEY" \
-              "$helm_usage_url"
-          )"
+          helm_usage_json="$(./scripts/fetch-audit-compute-usage.sh "$helm_usage_url")"
 
           read -r helm_tokens helm_cost < <(
             HELM_USAGE_JSON="$helm_usage_json" python3 - <<'PY'
@@ -97,8 +97,12 @@ jobs:
 
           supabase_base="${SUPABASE_URL%/}"
           response="$(
-            curl --fail --silent --show-error --retry 3 --retry-delay 2 \
-              -X POST "$supabase_base/rest/v1/rpc/record_audit_compute_snapshot" \
+            curl --fail --silent --show-error \
+              --proto '=https' \
+              --tlsv1.2 \
+              --connect-timeout 30 \
+              --max-time 120 \
+              --request POST "$supabase_base/rest/v1/rpc/record_audit_compute_snapshot" \
               -H "apikey: $SUPABASE_SERVICE_KEY" \
               -H "Authorization: Bearer $SUPABASE_SERVICE_KEY" \
               -H "Content-Type: application/json" \
