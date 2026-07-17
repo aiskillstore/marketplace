@@ -506,4 +506,5 @@ test('source monitor warns and falls back when checkout-cache support is unavail
 	assert.match(workflow, /Downloaded Skillstore CLI does not support --checkoutCacheDir; continuing without checkout cache/, 'missing checkout cache support must be visible in workflow logs');
 	assert.match(workflow, /This only affects runtime and network usage/, 'fallback warning must explain the tradeoff');
 	assert.doesNotMatch(workflow, /Latest Skillstore CLI does not support --checkoutCacheDir/, 'workflow must not hard-fail when the latest release lags checkout-cache support');
+	assert.match(workflow, /"\$\{CMD\[@\]\}" 2>&1 \| tee/, 'monitor evidence must capture stderr progress and failures, not upload an empty stdout-only artifact');
 });
