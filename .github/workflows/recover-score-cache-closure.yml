@@ -380,16 +380,24 @@ jobs:
             --expected-cache-version v6 \
             --concurrency 16 \
             --attempts 3 \
+            --build-attempts 3 \
+            --build-retry-delay-ms 15000 \
             --timeout-ms 30000
 
-      - name: Write closure evidence
+      - name: Finalize score and cache closure state
+        id: finalizer
         if: always()
         env:
-          INVALIDATION_COUNT: ${{ steps.selected.outputs.invalidation_count || 'unknown' }}
+          INVALIDATION_EXPECTED: ${{ steps.selected.outputs.invalidation_count || 'unknown' }}
+          INVALIDATION_FAILED: ${{ steps.invalidate.outputs.failed_count || 'unknown' }}
+          INVALIDATION_SUCCEEDED: ${{ steps.invalidate.outputs.success_count || 'unknown' }}
+          INVALIDATION_TOTAL: ${{ steps.invalidate.outputs.total_count || 'unknown' }}
           LIST_VERSION_BUMPED: ${{ steps.invalidate.outputs.list_version_bumped || 'unknown' }}
-          REMAINING: ${{ steps.selected.outputs.remaining_score_failures || 'unknown' }}
-          SLUG_COUNT: ${{ steps.selected.outputs.slug_count || 'unknown' }}
+          PLANNED_SLUG_COUNT: ${{ needs.plan.outputs.slug_count || 'unknown' }}
+          SCOPE: ${{ needs.plan.outputs.scope || 'unknown' }}
+          SELECTED_SLUG_COUNT: ${{ steps.selected.outputs.slug_count || 'unknown' }}
         run: |
+          set -euo pipefail
           evidence="$RUNNER_TEMP/score-cache-recovery-evidence"
           mkdir -p "$evidence"
           cp "$RUNNER_TEMP/cache-closure-slugs.txt" "$evidence/selected-slugs.txt" 2>/dev/null || true
@@ -399,13 +407,33 @@ jobs:
           cp "$RUNNER_TEMP/score-cache-recovery-result/before-score-evidence.json" "$evidence/before-score-evidence.json" 2>/dev/null || true
           cp "$RUNNER_TEMP/score-cache-recovery-result/run-boundary.txt" "$evidence/run-boundary.txt" 2>/dev/null || true
           cp "$RUNNER_TEMP/score-cache-recovery-result/score-write-evidence.json" "$evidence/score-write-evidence.json" 2>/dev/null || true
-          jq -n --arg scope "${{ needs.plan.outputs.scope }}" --arg slugCount "$SLUG_COUNT" \
-            --arg invalidationCount "$INVALIDATION_COUNT" \
-            --arg listVersionBumped "$LIST_VERSION_BUMPED" \
-            --arg remainingScoreFailures "$REMAINING" --arg invalidation "${{ steps.invalidate.outcome }}" \
-            --arg readback "${{ steps.readback.outcome }}" \
-            '{schemaVersion:1,scope:$scope,slugCount:$slugCount,invalidationCount:$invalidationCount,listVersionBumped:$listVersionBumped,remainingScoreFailures:$remainingScoreFailures,invalidation:$invalidation,readback:$readback}' \
-            > "$evidence/summary.json"
+
+          score_args=()
+          score_metadata="$RUNNER_TEMP/score-cache-recovery-result/metadata.json"
+          if [ -f "$score_metadata" ]; then
+            score_args+=(--score-metadata "$score_metadata")
+          fi
+          node scripts/score-cache-closure.mjs finalize-closure \
+            --scope "$SCOPE" \
+            --planned-slug-count "$PLANNED_SLUG_COUNT" \
+            --selected-slug-count "$SELECTED_SLUG_COUNT" \
+            --invalidation-expected-count "$INVALIDATION_EXPECTED" \
+            --invalidation-total-count "$INVALIDATION_TOTAL" \
+            --invalidation-success-count "$INVALIDATION_SUCCEEDED" \
+            --invalidation-failed-count "$INVALIDATION_FAILED" \
+            --list-version-bumped "$LIST_VERSION_BUMPED" \
+            --readback "$RUNNER_TEMP/cache-readback.json" \
+            --output "$evidence/final-summary.json" \
+            "${score_args[@]}"
+          jq '{
+            schemaVersion, scope, status, finalizerStatus,
+            slugCount: (.selectedSlugCount | tostring),
+            invalidationCount: (.invalidation.expectedCount | tostring),
+            listVersionBumped: (.invalidation.listVersionBumped | tostring),
+            remainingScoreFailures: ((.score.failedCount // 0) | tostring),
+            invalidation: .invalidation.status,
+            readback: .readback.status
+          }' "$evidence/final-summary.json" > "$evidence/summary.json"
 
       - name: Upload closure evidence
         if: always()
@@ -417,18 +445,28 @@ jobs:
           retention-days: 30
 
       - name: Require complete score and cache recovery
-        env:
-          REMAINING: ${{ steps.selected.outputs.remaining_score_failures }}
+        if: always()
         run: |
           set -euo pipefail
-          test "$REMAINING" -eq 0 || {
-            echo "::error::$REMAINING score recalculation(s) still failed; cache closure covered only proven successes"
+          summary="$RUNNER_TEMP/score-cache-recovery-evidence/final-summary.json"
+          test -f "$summary" || {
+            echo '::error::score/cache finalizer did not produce closure evidence'
             exit 1
           }
+          if jq -e '.status == "complete" and .finalizerStatus == "complete"' "$summary" >/dev/null; then
+            exit 0
+          fi
+          if jq -e '.status == "blocked_deployment_change"' "$summary" >/dev/null; then
+            echo '::error::Production deployment changed during GET-only readback; no cross-build evidence was accepted. Score and invalidation evidence remain intact; rerun only after production build routing is stable.'
+            exit 1
+          fi
+          echo "::error::Score/cache closure failed: $(jq -c '{score:.score.status,invalidation:.invalidation.status,readback:.readback.status,reasons}' "$summary")"
+          exit 1
 
       - name: Recovery summary
         if: always()
         run: |
+          final="$RUNNER_TEMP/score-cache-recovery-evidence/final-summary.json"
           {
             echo '## Score and cache recovery'
             echo
@@ -440,4 +478,11 @@ jobs:
             echo "- Remaining score failures: ${{ steps.selected.outputs.remaining_score_failures || 'unknown' }}"
             echo "- Invalidation: ${{ steps.invalidate.outcome }}"
             echo "- Production readback: ${{ steps.readback.outcome }}"
+            if [ -f "$final" ]; then
+              echo "- Finalizer: $(jq -r .status "$final")"
+              echo "- Accepted production build: $(jq -r '.readback.acceptedBuild // "none"' "$final")"
+            else
+              echo '- Finalizer: missing'
+              echo '- Accepted production build: none'
+            fi
           } >> "$GITHUB_STEP_SUMMARY"

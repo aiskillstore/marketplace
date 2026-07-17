@@ -1,13 +1,16 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { test } from 'node:test';
-import { dirname, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import {
   fetchApprovedCatalog,
   fetchScoreEvidence,
+  finalizeClosure,
   parseRecoveryResult,
   parseScoreRunLog,
   verifyCacheReadback,
@@ -220,6 +223,174 @@ test('production readback requires a closed first read and a stable HIT+SKIPPED 
   assert.deepEqual(Object.fromEntries(calls), { alpha: 2, beta: 2 });
 });
 
+test('readback retries a whole idempotent GET pass after a production build transition without mixing evidence', async () => {
+  const builds = ['build-a', 'build-a', 'build-b', 'build-b', 'build-b', 'build-b', 'build-b', 'build-b'];
+  let call = 0;
+  const evidence = await verifyCacheReadback({
+    expectedScores: ['alpha', 'beta'].map((slug) => ({
+      slug,
+      qualityScore: 88,
+      qualityTier: 'silver',
+      calculatedAt: '2026-07-15T12:00:00+00:00',
+      snapshotId: '11111111-1111-4111-8111-111111111111',
+    })),
+    attempts: 1,
+    buildAttempts: 2,
+    buildRetryDelayMs: 1,
+    concurrency: 1,
+    fetchImpl: async (url) => {
+      const slug = String(url).split('/').at(-1);
+      return cachedResponse(slug, {
+        build: builds[call++],
+        cache: 'HIT',
+        version: 'v6',
+        write: 'SKIPPED',
+      });
+    },
+    sleepImpl: async () => {},
+  });
+  assert.equal(evidence.status, 'complete');
+  assert.equal(evidence.acceptedBuild, 'build-b');
+  assert.equal(evidence.buildAttemptCount, 2);
+  assert.deepEqual(evidence.builds, ['build-b']);
+  assert.ok(evidence.results.every((result) => (
+    result.first.build === 'build-b' && result.second.build === 'build-b'
+  )));
+});
+
+test('readback retries a single-slug pair on build change before comparing build-specific data', async () => {
+  const reads = [
+    { build: 'build-a', key: 'key-old', qualityScore: 87, version: 'v5' },
+    { build: 'build-b', key: 'key-new', qualityScore: 88, version: 'v6' },
+    { build: 'build-b', key: 'key-new', qualityScore: 88, version: 'v6' },
+    { build: 'build-b', key: 'key-new', qualityScore: 88, version: 'v6' },
+  ];
+  let call = 0;
+  const evidence = await verifyCacheReadback({
+    expectedScores: [{
+      slug: 'alpha', qualityScore: 88, qualityTier: 'silver',
+      calculatedAt: '2026-07-15T12:00:00+00:00', snapshotId: '11111111-1111-4111-8111-111111111111',
+    }],
+    attempts: 1,
+    buildAttempts: 2,
+    buildRetryDelayMs: 1,
+    concurrency: 1,
+    fetchImpl: async () => cachedResponse('alpha', {
+      ...reads[call++], cache: 'HIT', write: 'SKIPPED',
+    }),
+    sleepImpl: async () => {},
+  });
+  assert.equal(evidence.status, 'complete');
+  assert.equal(evidence.acceptedBuild, 'build-b');
+  assert.equal(evidence.buildAttemptCount, 2);
+  assert.equal(evidence.results.length, 1);
+});
+
+test('readback retries a deployment-invalid pass even when it also contains HTTP 500', async () => {
+  const responses = [
+    new Response('temporary', { status: 500 }),
+    cachedResponse('beta', { build: 'build-a', cache: 'HIT', version: 'v6', write: 'SKIPPED' }),
+    cachedResponse('beta', { build: 'build-b', cache: 'HIT', version: 'v6', write: 'SKIPPED' }),
+    cachedResponse('alpha', { build: 'build-b', cache: 'HIT', version: 'v6', write: 'SKIPPED' }),
+    cachedResponse('alpha', { build: 'build-b', cache: 'HIT', version: 'v6', write: 'SKIPPED' }),
+    cachedResponse('beta', { build: 'build-b', cache: 'HIT', version: 'v6', write: 'SKIPPED' }),
+    cachedResponse('beta', { build: 'build-b', cache: 'HIT', version: 'v6', write: 'SKIPPED' }),
+  ];
+  let call = 0;
+  const evidence = await verifyCacheReadback({
+    expectedScores: ['alpha', 'beta'].map((slug) => ({
+      slug,
+      qualityScore: 88,
+      qualityTier: 'silver',
+      calculatedAt: '2026-07-15T12:00:00+00:00',
+      snapshotId: '11111111-1111-4111-8111-111111111111',
+    })),
+    attempts: 1,
+    buildAttempts: 2,
+    buildRetryDelayMs: 1,
+    concurrency: 1,
+    fetchImpl: async () => responses[call++],
+    sleepImpl: async () => {},
+  });
+  assert.equal(evidence.status, 'complete');
+  assert.equal(evidence.acceptedBuild, 'build-b');
+  assert.equal(evidence.buildAttemptCount, 2);
+  assert.equal(evidence.results.length, 2);
+  assert.equal(evidence.retryableReadFailures, 1);
+});
+
+test('readback returns an actionable non-destructive blocker when deployment never stabilizes', async () => {
+  const builds = ['build-a', 'build-b', 'build-a', 'build-b'];
+  let call = 0;
+  const evidence = await verifyCacheReadback({
+    expectedScores: [{
+      slug: 'alpha', qualityScore: 88, qualityTier: 'silver',
+      calculatedAt: '2026-07-15T12:00:00+00:00', snapshotId: '11111111-1111-4111-8111-111111111111',
+    }],
+    attempts: 1,
+    buildAttempts: 2,
+    buildRetryDelayMs: 1,
+    concurrency: 1,
+    fetchImpl: async () => cachedResponse('alpha', {
+      build: builds[call++], cache: 'HIT', version: 'v6', write: 'SKIPPED',
+    }),
+    sleepImpl: async () => {},
+  });
+  assert.equal(evidence.status, 'blocked_deployment_change');
+  assert.equal(evidence.acceptedBuild, null);
+  assert.equal(evidence.results.length, 0);
+  assert.equal(evidence.buildAttemptCount, 2);
+  assert.deepEqual(evidence.buildPasses.map((pass) => pass.failureCodes), [
+    ['build_transition'],
+    ['build_transition'],
+  ]);
+});
+
+test('readback bounds transient HTTP 500 retries to idempotent GETs and keeps persistent 500 red', async () => {
+  let transientCalls = 0;
+  const recovered = await verifyCacheReadback({
+    expectedScores: [{
+      slug: 'alpha', qualityScore: 88, qualityTier: 'silver',
+      calculatedAt: '2026-07-15T12:00:00+00:00', snapshotId: '11111111-1111-4111-8111-111111111111',
+    }],
+    attempts: 2,
+    buildAttempts: 1,
+    concurrency: 1,
+    fetchImpl: async (_url, init) => {
+      assert.equal(init.method, 'GET');
+      transientCalls += 1;
+      if (transientCalls === 1) return new Response('temporary', { status: 500 });
+      return cachedResponse('alpha', { build: 'build-b', cache: 'HIT', version: 'v6', write: 'SKIPPED' });
+    },
+    sleepImpl: async () => {},
+  });
+  assert.equal(recovered.status, 'complete');
+  assert.equal(recovered.retryableReadFailures, 1);
+  assert.equal(transientCalls, 3);
+
+  let persistentCalls = 0;
+  const failed = await verifyCacheReadback({
+    expectedScores: [{
+      slug: 'alpha', qualityScore: 88, qualityTier: 'silver',
+      calculatedAt: '2026-07-15T12:00:00+00:00', snapshotId: '11111111-1111-4111-8111-111111111111',
+    }],
+    attempts: 2,
+    buildAttempts: 1,
+    concurrency: 1,
+    fetchImpl: async (_url, init) => {
+      assert.equal(init.method, 'GET');
+      persistentCalls += 1;
+      return new Response('still broken', { status: 500 });
+    },
+    sleepImpl: async () => {},
+  });
+  assert.equal(failed.status, 'failed');
+  assert.equal(failed.acceptedBuild, null);
+  assert.equal(failed.results.length, 0);
+  assert.equal(failed.failures[0].code, 'http_5xx');
+  assert.equal(persistentCalls, 2);
+});
+
 test('readback rejects a stable cache generation that is not the required version', async () => {
   const evidence = await verifyCacheReadback({
     expectedScores: [{
@@ -309,6 +480,187 @@ test('readback rejects a freshly stored cache body that disagrees with frozen DB
   assert.match(evidence.failures[0].error, /API score identity does not match frozen DB evidence/);
 });
 
+function completedReadback(slugCount = 2) {
+  const slugs = Array.from({ length: slugCount }, (_, index) => `slug-${index + 1}`);
+  return {
+    acceptedBuild: 'build-b',
+    buildAttemptCount: 1,
+    buildPasses: [{ attempt: 1, builds: ['build-b'], failureCodes: [] }],
+    builds: ['build-b'],
+    failures: [],
+    results: slugs.map((slug) => ({
+      slug,
+      first: { build: 'build-b' },
+      second: { build: 'build-b' },
+    })),
+    retryableReadFailures: 0,
+    schemaVersion: 1,
+    slugCount,
+    slugSha256: createHash('sha256').update(`${slugs.join('\n')}\n`).digest('hex'),
+    status: 'complete',
+  };
+}
+
+function completedClosureInput() {
+  return {
+    scope: 'source-run-failures',
+    plannedSlugCount: 2,
+    selectedSlugCount: 2,
+    score: {
+      schemaVersion: 1,
+      requestedCount: 2,
+      successfulCount: 2,
+      failedCount: 0,
+      causallyProvenCount: 2,
+    },
+    invalidation: {
+      expectedCount: 2,
+      totalCount: 2,
+      successCount: 2,
+      failedCount: 0,
+      listVersionBumped: true,
+    },
+    readback: completedReadback(),
+  };
+}
+
+test('finalizer closes score, invalidation, and one-build readback deterministically and reentrantly', () => {
+  const input = completedClosureInput();
+  const first = finalizeClosure(input);
+  const second = finalizeClosure(structuredClone(input));
+  assert.deepEqual(second, first);
+  assert.equal(first.status, 'complete');
+  assert.equal(first.score.status, 'complete');
+  assert.equal(first.invalidation.status, 'complete');
+  assert.equal(first.readback.status, 'complete');
+  assert.equal(first.readback.acceptedBuild, 'build-b');
+  assert.equal(first.finalizerStatus, 'complete');
+
+  const approvedCatalog = finalizeClosure({
+    ...input,
+    scope: 'approved-catalog-cache',
+    score: null,
+    invalidation: {
+      expectedCount: 1,
+      totalCount: 1,
+      successCount: 1,
+      failedCount: 0,
+      listVersionBumped: true,
+    },
+  });
+  assert.equal(approvedCatalog.status, 'complete');
+  assert.equal(approvedCatalog.score.status, 'not_required');
+});
+
+test('finalizer CLI can replay the same local evidence without production writes', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'score-cache-finalizer-'));
+  try {
+    const readbackPath = join(directory, 'readback.json');
+    const scorePath = join(directory, 'score.json');
+    const outputPath = join(directory, 'final.json');
+    const replayPath = join(directory, 'final-replay.json');
+    writeFileSync(readbackPath, JSON.stringify(completedReadback()));
+    writeFileSync(scorePath, JSON.stringify(completedClosureInput().score));
+    const args = [
+      resolve(ROOT, 'scripts/score-cache-closure.mjs'),
+      'finalize-closure',
+      '--scope', 'source-run-failures',
+      '--planned-slug-count', '2',
+      '--selected-slug-count', '2',
+      '--invalidation-expected-count', '2',
+      '--invalidation-total-count', '2',
+      '--invalidation-success-count', '2',
+      '--invalidation-failed-count', '0',
+      '--list-version-bumped', 'true',
+      '--readback', readbackPath,
+      '--score-metadata', scorePath,
+    ];
+    const first = spawnSync(process.execPath, [...args, '--output', outputPath], { encoding: 'utf8' });
+    assert.equal(first.status, 0, first.stderr);
+    const replay = spawnSync(process.execPath, [...args, '--output', replayPath], { encoding: 'utf8' });
+    assert.equal(replay.status, 0, replay.stderr);
+    assert.deepEqual(
+      JSON.parse(readFileSync(replayPath, 'utf8')),
+      JSON.parse(readFileSync(outputPath, 'utf8')),
+    );
+    assert.equal(JSON.parse(readFileSync(outputPath, 'utf8')).status, 'complete');
+  } finally {
+    rmSync(directory, { force: true, recursive: true });
+  }
+});
+
+test('finalizer keeps score, invalidation, HTTP failure, and deployment transition distinct and fail-closed', () => {
+  const scoreFailed = finalizeClosure({
+    ...completedClosureInput(),
+    selectedSlugCount: 1,
+    score: {
+      schemaVersion: 1,
+      requestedCount: 2,
+      successfulCount: 1,
+      failedCount: 1,
+      causallyProvenCount: 1,
+    },
+    readback: completedReadback(1),
+  });
+  assert.equal(scoreFailed.status, 'failed');
+  assert.equal(scoreFailed.score.status, 'failed');
+
+  const invalidationFailed = finalizeClosure({
+    ...completedClosureInput(),
+    invalidation: {
+      expectedCount: 2,
+      totalCount: 2,
+      successCount: 1,
+      failedCount: 1,
+      listVersionBumped: true,
+    },
+  });
+  assert.equal(invalidationFailed.status, 'failed');
+  assert.equal(invalidationFailed.invalidation.status, 'failed');
+
+  const httpFailed = finalizeClosure({
+    ...completedClosureInput(),
+    readback: {
+      ...completedReadback(),
+      acceptedBuild: null,
+      builds: [],
+      failures: [{ slug: 'slug-1', code: 'http_5xx', error: 'HTTP 500' }],
+      results: [],
+      status: 'failed',
+    },
+  });
+  assert.equal(httpFailed.status, 'failed');
+  assert.equal(httpFailed.readback.status, 'failed');
+
+  const deploymentBlocked = finalizeClosure({
+    ...completedClosureInput(),
+    readback: {
+      ...completedReadback(),
+      acceptedBuild: null,
+      buildPasses: [{ attempt: 1, builds: [], failureCodes: ['build_transition'] }],
+      builds: [],
+      failures: [{ slug: '*', code: 'build_transition', error: 'deployment changed' }],
+      results: [],
+      status: 'blocked_deployment_change',
+    },
+  });
+  assert.equal(deploymentBlocked.status, 'blocked_deployment_change');
+  assert.equal(deploymentBlocked.score.status, 'complete');
+  assert.equal(deploymentBlocked.invalidation.status, 'complete');
+  assert.equal(deploymentBlocked.readback.status, 'blocked_deployment_change');
+
+  const mixedBuildClaim = finalizeClosure({
+    ...completedClosureInput(),
+    readback: {
+      ...completedReadback(),
+      acceptedBuild: 'build-b',
+      builds: ['build-a', 'build-b'],
+    },
+  });
+  assert.equal(mixedBuildClaim.status, 'failed');
+  assert.equal(mixedBuildClaim.readback.status, 'failed');
+});
+
 test('daily workflow moves score cache closure to a fail-closed hosted job', () => {
   assert.match(RECALCULATE, /cache-closure:[\s\S]*runs-on: ubuntu-latest/);
   assert.match(RECALCULATE, /actions\/upload-artifact@v4[\s\S]*score-closure-\$\{\{ github\.run_id \}\}/);
@@ -345,12 +697,20 @@ test('manual recovery is file-backed, fixed-CLI, bounded, and red on any remaini
   assert.match(RECOVERY, /slugs-file: \$\{\{ runner\.temp \}\}\/cache-invalidation-slugs\.txt/);
   assert.match(RECOVERY, /EXPECTED: \$\{\{ steps\.selected\.outputs\.invalidation_count \}\}/);
   assert.match(RECOVERY, /test "\$LIST_VERSION_BUMPED" = true/);
-  assert.match(RECOVERY, /invalidationCount:\$invalidationCount/);
-  assert.match(RECOVERY, /listVersionBumped:\$listVersionBumped/);
+  assert.match(RECOVERY, /invalidationCount: \(\.invalidation\.expectedCount \| tostring\)/);
+  assert.match(RECOVERY, /listVersionBumped: \(\.invalidation\.listVersionBumped \| tostring\)/);
   assert.match(RECOVERY, /List-generation invalidation slugs:/);
   assert.match(RECOVERY, /batch-size: '30'\n\s+concurrency: \$\{\{ needs\.plan\.outputs\.scope == 'approved-catalog-cache' && '4' \|\| '1' \}\}/);
   assert.match(RECOVERY, /--expected-cache-version v6/);
   assert.match(RECOVERY, /--concurrency 16/);
+  assert.match(RECOVERY, /--build-attempts 3/);
+  assert.match(RECOVERY, /--build-retry-delay-ms 15000/);
+  assert.match(RECOVERY, /name: Finalize score and cache closure state\n\s+id: finalizer\n\s+if: always\(\)/);
+  assert.match(RECOVERY, /score-cache-closure\.mjs finalize-closure/);
+  assert.match(RECOVERY, /--readback "\$RUNNER_TEMP\/cache-readback\.json"/);
+  assert.match(RECOVERY, /--output "\$evidence\/final-summary\.json"/);
+  assert.match(RECOVERY, /blocked_deployment_change/);
+  assert.match(RECOVERY, /\.finalizerStatus == "complete"/);
   assert.match(RECOVERY, /Require complete score and cache recovery/);
   assert.match(RECOVERY, /freeze-score-evidence/);
   assert.match(RECOVERY, /before-score-evidence\.json/);
@@ -358,7 +718,8 @@ test('manual recovery is file-backed, fixed-CLI, bounded, and red on any remaini
   assert.match(RECOVERY, /causallyProvenCount/);
   assert.match(RECOVERY, /test "\$proven_count" -eq "\$successful_count"/);
   assert.match(RECOVERY, /--expected-score-evidence/);
-  assert.match(RECOVERY, /test "\$REMAINING" -eq 0/);
+  assert.match(RECOVERY, /score_args\+=\(--score-metadata "\$score_metadata"\)/);
+  assert.match(RECOVERY, /remainingScoreFailures: \(\(\.score\.failedCount \/\/ 0\) \| tostring\)/);
   assert.doesNotMatch(RECOVERY, /workflow run|repository_dispatch/);
 });
 
