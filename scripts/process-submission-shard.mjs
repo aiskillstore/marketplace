@@ -168,6 +168,7 @@ async function processShard(config) {
     '--marketplace-repo', config.marketplaceRepo,
     '--skip-pr',
   ];
+  if (config.slugAliasesFile !== '') baseArgs.push('--slug-aliases-file', config.slugAliasesFile);
   if (config.model !== '') baseArgs.push('--model', config.model);
 
   const firstExecution = await runCli({ cli: config.cli, cliArgs: baseArgs, logPath, append: false });
@@ -233,6 +234,7 @@ async function main() {
     marketplaceRepo: option(args, '--marketplace-repo'),
     shardIndex: option(args, '--shard-index'),
     model: option(args, '--model', { required: false, defaultValue: '' }),
+    slugAliasesFile: option(args, '--slug-aliases-file', { required: false, defaultValue: '' }),
     retryDelayMs: Number(option(args, '--retry-delay-ms', { required: false, defaultValue: '10000' })),
   };
   if (!Number.isSafeInteger(config.retryDelayMs) || config.retryDelayMs < 0) fail('--retry-delay-ms must be a non-negative integer');

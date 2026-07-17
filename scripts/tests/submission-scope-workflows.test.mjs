@@ -151,6 +151,7 @@ test('submission processing isolates every shard and stages only its frozen plan
   assert.match(reusable, /process-shard-\$\{\{ github\.run_attempt \}\}-\$\{\{ matrix\.shard \}\}/);
   assert.match(reusable, /node "\$GITHUB_WORKSPACE\/scripts\/process-submission-shard\.mjs"/);
   assert.match(reusable, /node "\$GITHUB_WORKSPACE\/scripts\/aggregate-submission-shards\.mjs"/);
+  assert.match(reusable, /--slug-aliases-file "\$GITHUB_WORKSPACE\/governance\/submission-slug-aliases\.json"/);
   assert.match(reusable, /git add -- "\$\{SUBMISSION_PATHS\[@\]\}"/);
   assert.doesNotMatch(reusable, /continue-on-error:\s*true/);
   assert.doesNotMatch(reusable, /skill process[\s\S]{0,500}\|\| true/);
@@ -161,8 +162,11 @@ test('submission processing isolates every shard and stages only its frozen plan
 test('real CLI two-round failure produces a failed manifest and cannot aggregate as no-op', () => withTempDirectory((root) => {
   const fakeCli = join(root, 'fake-cli.sh');
   const state = join(root, 'calls.txt');
+  const argsLog = join(root, 'args.txt');
+  const aliases = join(root, 'aliases.json');
   const resultDir = join(root, 'result');
-  writeFileSync(fakeCli, `#!/usr/bin/env bash\nset -eu\ncount=0\n[ ! -f "$FAKE_STATE" ] || count=$(cat "$FAKE_STATE")\ncount=$((count + 1))\nprintf '%s\\n' "$count" > "$FAKE_STATE"\necho "fixture CLI failure $count" >&2\nexit 23\n`);
+  writeFileSync(aliases, '{"schemaVersion":1,"aliases":[]}\n');
+  writeFileSync(fakeCli, `#!/usr/bin/env bash\nset -eu\ncount=0\n[ ! -f "$FAKE_STATE" ] || count=$(cat "$FAKE_STATE")\ncount=$((count + 1))\nprintf '%s\\n' "$count" > "$FAKE_STATE"\nprintf '%s\\n' "$*" >> "$FAKE_ARGS"\necho "fixture CLI failure $count" >&2\nexit 23\n`);
   chmodSync(fakeCli, 0o755);
 
   const processing = runNode(processShardScript, [
@@ -172,10 +176,14 @@ test('real CLI two-round failure produces a failed manifest and cannot aggregate
     '--result-dir', resultDir,
     '--marketplace-repo', 'aiskillstore/marketplace',
     '--shard-index', '0',
+    '--slug-aliases-file', aliases,
     '--retry-delay-ms', '0',
-  ], { env: { FAKE_STATE: state } });
+  ], { env: { FAKE_STATE: state, FAKE_ARGS: argsLog } });
   assert.equal(processing.status, 0, processing.stderr);
   assert.equal(readFileSync(state, 'utf8').trim(), '2');
+  const attempts = readFileSync(argsLog, 'utf8').trim().split('\n');
+  assert.equal(attempts.length, 2);
+  for (const args of attempts) assert.match(args, new RegExp(`--slug-aliases-file ${aliases.replaceAll('/', '\\/')}`));
   const manifest = JSON.parse(readFileSync(join(resultDir, 'shard-manifest.json'), 'utf8'));
   assert.equal(manifest.status, 'failed');
   assert.deepEqual(manifest.planned, ['broken-skill']);
