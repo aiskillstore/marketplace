@@ -86,6 +86,23 @@ activity_start_line() {
   printf '%s\n' "$((lines + 1))"
 }
 
+summarize_preflight_http_activity() {
+  jq -cs '
+    def inference_response:
+      .phase == "response" and
+      (.path == "/v1/messages" or .path == "/v1/responses") and
+      (.status | type) == "number";
+    [ .[] | select(inference_response) ] as $inference |
+    {
+      messages200: ([$inference[] | select(.path == "/v1/messages" and .status == 200)] | length),
+      responses200: ([$inference[] | select(.path == "/v1/responses" and .status == 200)] | length),
+      inferenceFatalStatus: ([$inference[] | select(.status >= 400 and .status < 500 and .status != 408 and .status != 425 and .status != 429) | .status] | first // null),
+      inferenceRetryableStatus: ([$inference[] | select(.status == 408 or .status == 425 or .status == 429 or .status >= 500) | .status] | last // null),
+      auxiliaryRejectedCount: ([.[] | select(.phase == "response" and .path == "not_allowed" and (.status == 401 or .status == 403))] | length)
+    }
+  '
+}
+
 monitor_preflight_http() {
   local command_pid="$1"
   local start_line="$2"
@@ -95,15 +112,11 @@ monitor_preflight_http() {
   while true; do
     if [ -n "${PACK_EVALUATOR_ACTIVITY_FILE:-}" ] && \
        sudo test -f "$PACK_EVALUATOR_ACTIVITY_FILE"; then
-      observed=$(sudo tail -n "+$start_line" "$PACK_EVALUATOR_ACTIVITY_FILE" 2>/dev/null | jq -cs '
-        [ .[] | select(.phase == "response") | .status | select(type == "number") ] as $statuses |
-        {
-          fatal: ([$statuses[] | select(. >= 400 and . < 500 and . != 408 and . != 425 and . != 429)] | first // null),
-          retryable: ([$statuses[] | select(. == 408 or . == 425 or . == 429 or . >= 500)] | last // null)
-        }
-      ' 2>/dev/null || printf '{"fatal":null,"retryable":null}')
-      HTTP_FATAL_STATUS=$(jq -r '.fatal // empty' <<< "$observed")
-      HTTP_RETRYABLE_STATUS=$(jq -r '.retryable // empty' <<< "$observed")
+      observed=$(sudo tail -n "+$start_line" "$PACK_EVALUATOR_ACTIVITY_FILE" 2>/dev/null | \
+        summarize_preflight_http_activity 2>/dev/null || \
+        printf '{"inferenceFatalStatus":null,"inferenceRetryableStatus":null}')
+      HTTP_FATAL_STATUS=$(jq -r '.inferenceFatalStatus // empty' <<< "$observed")
+      HTTP_RETRYABLE_STATUS=$(jq -r '.inferenceRetryableStatus // empty' <<< "$observed")
       if [ -n "$HTTP_FATAL_STATUS" ]; then
         sudo pkill -TERM -u packeval 2>/dev/null || true
         for _ in $(seq 1 20); do
@@ -484,14 +497,12 @@ fi
 if [ -n "${PACK_EVALUATOR_ACTIVITY_FILE:-}" ] && sudo test -f "$PACK_EVALUATOR_ACTIVITY_FILE"; then
   sudo tail -n "+$ACTIVITY_START_LINE" "$PACK_EVALUATOR_ACTIVITY_FILE" > "$ACTIVITY_SLICE" 2>/dev/null || true
 fi
-HTTP_EVIDENCE=$(jq -cs '
-  {
-    messages200: ([.[] | select(.phase == "response" and .path == "/v1/messages" and .status == 200)] | length),
-    responses200: ([.[] | select(.phase == "response" and .path == "/v1/responses" and .status == 200)] | length),
-    fatalStatus: ([.[] | select(.phase == "response" and (.status | type) == "number" and .status >= 400 and .status < 500 and .status != 408 and .status != 425 and .status != 429) | .status] | first // null),
-    retryableStatus: ([.[] | select(.phase == "response" and ((.status == 408) or (.status == 425) or (.status == 429) or (.status >= 500))) | .status] | last // null)
-  }
-' "$ACTIVITY_SLICE" 2>/dev/null || printf '{"messages200":0,"responses200":0,"fatalStatus":null,"retryableStatus":null}')
+HTTP_EVIDENCE=$(summarize_preflight_http_activity < "$ACTIVITY_SLICE" 2>/dev/null || \
+  printf '{"messages200":0,"responses200":0,"inferenceFatalStatus":null,"inferenceRetryableStatus":null,"auxiliaryRejectedCount":0}')
+AUXILIARY_REJECTED_COUNT=$(jq -r '.auxiliaryRejectedCount // 0' <<< "$HTTP_EVIDENCE")
+if [ "$AUXILIARY_REJECTED_COUNT" -gt 0 ]; then
+  echo "::warning::Pack evaluator proxy rejected $AUXILIARY_REJECTED_COUNT auxiliary request(s) outside the inference endpoints"
+fi
 
 jq -n \
   --arg outcome "$PREFLIGHT_OUTCOME" \
