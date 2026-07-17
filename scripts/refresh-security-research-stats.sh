@@ -84,7 +84,8 @@ PY
 if [[ "$stale_only" == "true" ]]; then
   set +e
   probe_status="$(
-    curl --silent --show-error \
+    curl --disable --silent --show-error \
+      --retry 0 \
       --connect-timeout 10 \
       --max-time 30 \
       --output "$response_file" \
@@ -128,7 +129,8 @@ for attempt in 1 2 3; do
   set +e
   refresh_status="$(
     printf 'Authorization: Bearer %s\n' "$SECURITY_RESEARCH_AUTOMATION_KEY" \
-      | curl --silent --show-error \
+      | curl --disable --silent --show-error \
+        --retry 0 \
         --header @- \
         --header 'Accept: application/json' \
         --connect-timeout 10 \

@@ -134,22 +134,50 @@ test('CI tracks and syntax-checks every refresh contract input', () => {
   assert.match(testWorkflow, /node --test scripts\/tests\/\*\.test\.mjs/);
 });
 
-function installFakeCurl(probeState) {
+function installFakeCurl(probeState, { maliciousCurlConfig = false } = {}) {
   const root = mkdtempSync(join(tmpdir(), 'security-research-refresh-'));
   const bin = join(root, 'bin');
-  const mkdir = spawnSync('mkdir', ['-p', bin]);
+  const curlHome = join(root, 'curl-home');
+  const mkdir = spawnSync('mkdir', ['-p', bin, curlHome]);
   assert.equal(mkdir.status, 0, mkdir.stderr?.toString());
+  if (maliciousCurlConfig) {
+    writeFileSync(
+      join(curlHome, '.curlrc'),
+      'retry=3\nretry-all-errors\nretry-delay=0\n',
+    );
+  }
   const log = join(root, 'curl.log');
+  const contractLog = join(root, 'curl-contract.log');
   const fakeCurl = join(bin, 'curl');
   writeFileSync(fakeCurl, `#!/usr/bin/env bash
 set -euo pipefail
+config_enabled=true
+if [[ "\${1:-}" == '--disable' ]]; then
+  config_enabled=false
+fi
+retry_count=0
+if [[ "$config_enabled" == true && -f "\${CURL_HOME:?}/.curlrc" ]]; then
+  while IFS= read -r config_line || [[ -n "$config_line" ]]; do
+    normalized="\${config_line//[[:space:]]/}"
+    case "$normalized" in
+      retry=*) retry_count="\${normalized#retry=}" ;;
+    esac
+  done < "\${CURL_HOME}/.curlrc"
+fi
 method=GET
 output=''
 read_header=false
+first_arg="\${1:-<missing>}"
+explicit_retry='<missing>'
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --request) method="$2"; shift 2 ;;
     --output) output="$2"; shift 2 ;;
+    --retry)
+      explicit_retry="$2"
+      retry_count="$2"
+      shift 2
+      ;;
     --header)
       [[ "$2" == '@-' ]] && read_header=true
       shift 2
@@ -161,7 +189,10 @@ if [[ "$read_header" == true ]]; then
   IFS= read -r authorization
   [[ "$authorization" == 'Authorization: Bearer test-research-secret' ]]
 fi
-echo "$method" >> '${log}'
+printf '%s\\t%s\\t%s\\n' "$method" "$first_arg" "$explicit_retry" >> '${contractLog}'
+for ((attempt = 0; attempt <= retry_count; attempt += 1)); do
+  echo "$method" >> '${log}'
+done
 if [[ "$method" == GET ]]; then
   printf '%s' '{"snapshot_state":"${probeState}"}' > "$output"
 else
@@ -170,17 +201,18 @@ fi
 printf '200'
 `);
   chmodSync(fakeCurl, 0o755);
-  return { root, bin, log };
+  return { root, bin, curlHome, log, contractLog };
 }
 
-function runStaleOnly(probeState) {
-  const fixture = installFakeCurl(probeState);
+function runStaleOnly(probeState, options = {}) {
+  const fixture = installFakeCurl(probeState, options);
   const summary = join(fixture.root, 'summary.md');
   const result = spawnSync(refreshScript, ['--stale-only'], {
     encoding: 'utf8',
     env: {
       ...process.env,
       PATH: `${fixture.bin}:${process.env.PATH}`,
+      CURL_HOME: fixture.curlHome,
       GITHUB_STEP_SUMMARY: summary,
       SECURITY_RESEARCH_AUTOMATION_KEY: 'test-research-secret',
       SKILLSTORE_API_URL: 'https://skillstore.example',
@@ -189,6 +221,10 @@ function runStaleOnly(probeState) {
   return {
     ...result,
     calls: readFileSync(fixture.log, 'utf8').trim().split(/\r?\n/),
+    contracts: readFileSync(fixture.contractLog, 'utf8')
+      .trim()
+      .split(/\r?\n/)
+      .map((line) => line.split('\t')),
     summary: readFileSync(summary, 'utf8'),
   };
 }
@@ -207,4 +243,19 @@ test('stale-only runtime performs one authenticated POST for a stale snapshot', 
   assert.deepEqual(result.calls, ['GET', 'POST']);
   assert.match(result.stdout, /snapshot refreshed/);
   assert.match(result.summary, /source_version=`0123456789abcdef0123456789abcdef`/);
+});
+
+test('stale-only GET and POST disable curlrc retries within their max-time budgets', () => {
+  const result = runStaleOnly('stale', { maliciousCurlConfig: true });
+
+  assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
+  assert.deepEqual(
+    result.calls,
+    ['GET', 'POST'],
+    'retry=3 from CURL_HOME/.curlrc must not multiply either transfer',
+  );
+  assert.deepEqual(result.contracts, [
+    ['GET', '--disable', '0'],
+    ['POST', '--disable', '0'],
+  ]);
 });

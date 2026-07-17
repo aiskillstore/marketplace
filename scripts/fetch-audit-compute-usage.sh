@@ -26,39 +26,77 @@ if ! [[ "$retry_base_seconds" =~ ^[0-9]+$ ]] || ((retry_base_seconds > 60)); the
   exit 64
 fi
 
+temp_root="$(mktemp -d "${TMPDIR:-/tmp}/audit-compute-usage.XXXXXX")" || {
+  echo "failed to create audit compute usage temp directory" >&2
+  exit 1
+}
+cleanup() {
+  rm -rf -- "$temp_root"
+}
+trap cleanup EXIT
+
 for ((attempt = 1; attempt <= max_attempts; attempt++)); do
-  response="$({
-    curl --fail --silent --show-error \
+  attempt_dir="$temp_root/attempt-$attempt"
+  body_file="$attempt_dir/body"
+  header_file="$attempt_dir/headers"
+  mkdir -m 700 -- "$attempt_dir" || exit 1
+  : > "$body_file"
+  : > "$header_file"
+
+  http_status="$(
+    curl --disable \
+      --silent --show-error \
       --proto '=https' \
+      --proto-redir '=https' \
       --tlsv1.2 \
+      --retry 0 \
       --connect-timeout 30 \
       --max-time 120 \
       --request GET \
       --header @- \
+      --output "$body_file" \
+      --dump-header "$header_file" \
+      --write-out '%{http_code}' \
       -- "$usage_url" \
       <<<"Authorization: Bearer $HELM_API_KEY"
-  })"
+  )"
   curl_status=$?
 
-  if [[ "$curl_status" -eq 0 ]]; then
-    printf '%s' "$response"
+  if [[ "$curl_status" -eq 0 && "$http_status" == "200" ]]; then
+    cat "$body_file"
     exit 0
   fi
 
+  if [[ "$curl_status" -eq 0 ]]; then
+    echo "::error::audit compute Helm GET returned HTTP ${http_status:-unknown}; expected 200" >&2
+    exit 22
+  fi
+
+  allowlisted=false
+  retryable=false
   case "$curl_status" in
     28 | 35 | 52 | 55 | 56)
-      if ((attempt < max_attempts)); then
-        delay=$((retry_base_seconds * (1 << (attempt - 1))))
-        echo "::warning::audit compute Helm GET attempt ${attempt}/${max_attempts} failed with curl exit ${curl_status}; retrying in ${delay}s" >&2
-        sleep "$delay"
-        continue
+      allowlisted=true
+      if [[ "$http_status" == "000" && ! -s "$body_file" && ! -s "$header_file" ]]; then
+        retryable=true
       fi
-      echo "::error::audit compute Helm GET exhausted ${max_attempts} attempts; final curl exit ${curl_status}" >&2
-      ;;
-    *)
-      echo "::error::audit compute Helm GET failed with non-retryable curl exit ${curl_status}" >&2
       ;;
   esac
+
+  if [[ "$retryable" == true && "$attempt" -lt "$max_attempts" ]]; then
+    delay=$((retry_base_seconds * (1 << (attempt - 1))))
+    echo "::warning::audit compute Helm GET attempt ${attempt}/${max_attempts} failed with curl exit ${curl_status}; retrying in ${delay}s" >&2
+    sleep "$delay"
+    continue
+  fi
+
+  if [[ "$retryable" == true ]]; then
+    echo "::error::audit compute Helm GET exhausted ${max_attempts} attempts; final curl exit ${curl_status}" >&2
+  elif [[ "$allowlisted" == false ]]; then
+    echo "::error::audit compute Helm GET failed with non-retryable curl exit ${curl_status}" >&2
+  else
+    echo "::error::audit compute Helm GET failed closed with curl exit ${curl_status}, HTTP ${http_status:-unknown}, body bytes $(wc -c < "$body_file"), and header bytes $(wc -c < "$header_file")" >&2
+  fi
 
   exit "$curl_status"
 done

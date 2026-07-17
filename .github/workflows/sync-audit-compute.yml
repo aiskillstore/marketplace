@@ -15,7 +15,7 @@ concurrency:
 jobs:
   sync:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 17
     env:
       HELM_BASE_URL: https://helm.easymeta.au/v1
       HELM_API_KEY: ${{ secrets.HELM_API_KEY }}
@@ -56,19 +56,53 @@ jobs:
 
           helm_usage_json="$(./scripts/fetch-audit-compute-usage.sh "$helm_usage_url")"
 
-          read -r helm_tokens helm_cost < <(
+          validated_totals="$(
             HELM_USAGE_JSON="$helm_usage_json" python3 - <<'PY'
           import json
+          import math
           import os
 
-          data = json.loads(os.environ["HELM_USAGE_JSON"])
+          def reject_nonstandard_number(value):
+              raise ValueError(f"non-standard JSON number: {value}")
+
+          data = json.loads(
+              os.environ["HELM_USAGE_JSON"],
+              parse_constant=reject_nonstandard_number,
+          )
+          if not isinstance(data, dict):
+              raise SystemExit("Helm usage API response must be an object")
           if data.get("object") != "usage_stats":
               raise SystemExit("Helm usage API returned an unexpected object")
 
-          totals = data.get("totals") or {}
-          print(int(totals.get("total_tokens") or 0), float(totals.get("cost_usd") or 0))
+          if "totals" not in data or not isinstance(data["totals"], dict):
+              raise SystemExit("Helm usage API totals must exist and be an object")
+          totals = data["totals"]
+          for field in ("total_tokens", "cost_usd"):
+              if field not in totals:
+                  raise SystemExit(f"Helm usage API totals missing {field}")
+
+          total_tokens = totals["total_tokens"]
+          if (
+              type(total_tokens) is not int
+              or total_tokens < 0
+              or total_tokens > 9223372036854775807
+          ):
+              raise SystemExit("Helm total_tokens must be a signed 64-bit nonnegative integer")
+
+          cost_usd = totals["cost_usd"]
+          if type(cost_usd) not in (int, float) or cost_usd < 0:
+              raise SystemExit("Helm cost_usd must be a nonnegative number")
+          try:
+              cost_is_finite = math.isfinite(cost_usd)
+          except OverflowError:
+              cost_is_finite = False
+          if not cost_is_finite:
+              raise SystemExit("Helm cost_usd must be finite and representable")
+
+          print(total_tokens, cost_usd)
           PY
-          )
+          )"
+          read -r helm_tokens helm_cost <<<"$validated_totals"
 
           captured_at="$(date -u +%F)"
           note="Helm API usage stats + legacy claude-relay baseline, list-price equivalent"
@@ -91,15 +125,18 @@ jobs:
               "p_relay_tokens": int(os.environ["LEGACY_TOKENS"]),
               "p_relay_cost_usd": float(os.environ["LEGACY_COST_USD"]),
               "p_note": os.environ["NOTE"],
-          }))
+          }, allow_nan=False))
           PY
           )"
 
           supabase_base="${SUPABASE_URL%/}"
           response="$(
-            curl --fail --silent --show-error \
+            curl --disable \
+              --fail --silent --show-error \
               --proto '=https' \
+              --proto-redir '=https' \
               --tlsv1.2 \
+              --retry 0 \
               --connect-timeout 30 \
               --max-time 120 \
               --request POST "$supabase_base/rest/v1/rpc/record_audit_compute_snapshot" \
