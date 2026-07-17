@@ -123,6 +123,25 @@ jobs:
               const responseText = await response.text();
               console.log(`Callback response: ${response.status} - ${responseText}`);
 
+              // A legacy review issue can outlive the Pack it referred to. The
+              // callback has already proved that no mutable Pack exists, so a
+              // structured Pack-not-found response is a terminal no-op rather
+              // than a retryable command failure. Keep every other 404/error
+              // fail-closed: an unexpected route or response must remain
+              // visible to reviewers.
+              let callbackError = null;
+              try {
+                callbackError = JSON.parse(responseText);
+              } catch {
+                // Non-JSON error bodies are never safe to downgrade.
+              }
+              const isMissingLegacyPack = response.status === 404
+                && callbackError?.message === 'Pack not found';
+              if (isMissingLegacyPack) {
+                core.notice(`Callback no-op: legacy Pack ${packId} no longer exists`);
+                return;
+              }
+
               if (!response.ok) {
                 core.setFailed(`Callback failed: ${response.status} - ${responseText}`);
                 // Add failure reaction

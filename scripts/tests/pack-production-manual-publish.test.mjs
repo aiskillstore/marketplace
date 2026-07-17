@@ -469,4 +469,7 @@ test('legacy Pack review refuses guide replacement and marked v4 generation comm
   assert.match(workflow, /Pack Production v4 can only be published by the generation-bound production workflow/);
   assert.doesNotMatch(workflow, /const guideMatch =/);
   assert.match(workflow, /modifiedGuide: null/);
+  assert.match(workflow, /const isMissingLegacyPack = response\.status === 404/);
+  assert.match(workflow, /callbackError\?\.message === 'Pack not found'/);
+  assert.match(workflow, /Callback no-op: legacy Pack/);
 });
