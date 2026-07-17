@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       smoke_only:
-        description: 'Run exactly the Messages and Responses contract probes; never plan, generate, or persist'
+        description: 'Build one canonical Plan, then run exactly the Messages and Responses probes; never evaluate, generate, or persist'
         type: boolean
         default: false
       auto_publish:
@@ -23,18 +23,15 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  # Production v4 requires immutable CLI and model bindings. The release
-  # checksums.txt asset is verified before the binary crosses the boundary.
+  # Bootstrap only: the canonical Plan builder independently enforces this
+  # exact release version, asset name, and release-asset SHA-256.
   PACK_PRODUCTION_CLI_VERSION: '2.14.2'
-  PACK_EVALUATOR_RUNNER_MODEL: 'claude-sonnet-5'
-  PACK_EVALUATOR_JUDGE_MODEL: 'gpt-5.5'
-  # One cap feeds the local proxy and every Claude CLI process.
-  PACK_EVALUATOR_MAX_OUTPUT_TOKENS: '16384'
 
 jobs:
   contract_smoke_only:
     name: Smoke Helm Messages and Responses only
-    if: github.event_name == 'workflow_dispatch' && inputs.smoke_only == true
+    needs: plan
+    if: github.event_name == 'workflow_dispatch' && inputs.smoke_only == true && needs.plan.outputs.has_scenarios == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -46,8 +43,16 @@ jobs:
           filter: ''
           clean: true
           persist-credentials: false
-          sparse-checkout: scripts/pack-evaluator-contract-smoke.mjs
+          sparse-checkout: |
+            scripts/pack-evaluator-contract-smoke.mjs
+            scripts/pack-production-plan.mjs
           sparse-checkout-cone-mode: false
+
+      - name: Download canonical execution Plan
+        uses: actions/download-artifact@v6
+        with:
+          name: pack-production-plan
+          path: pack-production-input
 
       - name: Send exactly one Messages and one Responses request
         env:
@@ -58,7 +63,7 @@ jobs:
           mkdir -p "$GITHUB_WORKSPACE/pack-contract-smoke"
           PACK_EVALUATOR_PROXY_TOKEN="$PACK_EVALUATOR_HELM_API_KEY" \
           PACK_EVALUATOR_PROXY_URL=https://helm.easymeta.au \
-          PACK_EVALUATOR_CONTRACT_TIMEOUT_MS=30000 \
+          PACK_EVALUATOR_PLAN_PATH="$GITHUB_WORKSPACE/pack-production-input/plan.json" \
           PACK_EVALUATOR_CONTRACT_DIAGNOSTICS_FILE="$GITHUB_WORKSPACE/pack-contract-smoke/contract-smoke.json" \
           node scripts/pack-evaluator-contract-smoke.mjs
 
@@ -73,7 +78,6 @@ jobs:
 
   plan:
     name: Plan bounded scenario queue
-    if: github.event_name == 'schedule' || inputs.smoke_only != true
     runs-on: self-hosted
     timeout-minutes: 20
     outputs:
@@ -116,16 +120,14 @@ jobs:
         env:
           CLI: ${{ steps.cli.outputs.cli-path }}
           CLI_SHA256: ${{ steps.cli.outputs.cli-sha256 }}
-          CLI_VERSION: ${{ env.PACK_PRODUCTION_CLI_VERSION }}
         run: |
+          set -euo pipefail
+          test "$CLI_SHA256" = '21b1967e134622a40ae4d312278fa10d136103f0148887252f61e4e3b4536674'
+          VERSION=$("$CLI" --version | grep -Eo '[0-9]+([.][0-9]+){2}' | head -n1)
+          test "$VERSION" = '2.14.2'
           mkdir -p "$GITHUB_WORKSPACE/pack-plan" "$GITHUB_WORKSPACE/pack-cli"
           install -m 0555 "$CLI" "$GITHUB_WORKSPACE/pack-cli/skillstore-cli-linux-x64"
           printf '%s  skillstore-cli-linux-x64\n' "$CLI_SHA256" > "$GITHUB_WORKSPACE/pack-cli/checksums.txt"
-          jq -n \
-            --arg version "$CLI_VERSION" \
-            --arg sha256 "$CLI_SHA256" \
-            '{version: $version, sha256: $sha256}' \
-            > "$GITHUB_WORKSPACE/pack-plan/cli-identity.json"
 
       - name: Select at most one admitted scenario through the read-only API
         id: queue
@@ -151,7 +153,7 @@ jobs:
               --data-urlencode 'lookbackDays=30' \
               --data-urlencode 'cooldownDays=7' \
               --output "$RESPONSE"
-          jq -e '.data' "$RESPONSE" > "$GITHUB_WORKSPACE/pack-plan/plan.json"
+          jq -e '.data' "$RESPONSE" > "$GITHUB_WORKSPACE/pack-plan/queue.json"
           jq -e '
             .schemaVersion == "pack-production-queue/v1" and
             (.scenarios | type == "array" and length <= 1) and
@@ -161,8 +163,8 @@ jobs:
               (.capabilitySlots | length >= 1 and length <= 4) and
               (.requiredArtifacts | length >= 1)
             ))
-          ' "$GITHUB_WORKSPACE/pack-plan/plan.json"
-          SCENARIO_COUNT=$(jq -r '.scenarios | length' "$GITHUB_WORKSPACE/pack-plan/plan.json")
+          ' "$GITHUB_WORKSPACE/pack-plan/queue.json"
+          SCENARIO_COUNT=$(jq -r '.scenarios | length' "$GITHUB_WORKSPACE/pack-plan/queue.json")
           echo "scenario_count=$SCENARIO_COUNT" >> "$GITHUB_OUTPUT"
           if [ "$SCENARIO_COUNT" -eq 0 ]; then
             jq -e '
@@ -170,7 +172,7 @@ jobs:
               (.scenarios | length) == 0 and
               (has("generationId") | not) and
               (has("workflowBinding") | not)
-            ' "$GITHUB_WORKSPACE/pack-plan/plan.json" >/dev/null
+            ' "$GITHUB_WORKSPACE/pack-plan/queue.json" >/dev/null
             echo "has_scenarios=false" >> "$GITHUB_OUTPUT"
             jq \
               --arg runId "${{ github.run_id }}" \
@@ -191,59 +193,31 @@ jobs:
               generatedAt,
               lookbackDays,
               scenarioCount: (.scenarios | length)
-            }' "$GITHUB_WORKSPACE/pack-plan/plan.json" > "$GITHUB_WORKSPACE/pack-plan/no-op.json"
+            }' "$GITHUB_WORKSPACE/pack-plan/queue.json" > "$GITHUB_WORKSPACE/pack-plan/no-op.json"
             echo "No eligible scenario is due; recording an audited no-op." >> "$GITHUB_STEP_SUMMARY"
           else
             GENERATION_ID=$(node -e "process.stdout.write(require('node:crypto').randomUUID())")
-            PLAN_PATH="$GITHUB_WORKSPACE/pack-plan/plan.json"
-            PLAN_SNAPSHOT_SHA=$(node --input-type=module -e 'import { readFileSync } from "node:fs"; import { immutablePlanSnapshotSha256 } from "./marketplace-plan/scripts/pack-production.mjs"; const plan = JSON.parse(readFileSync(process.argv[1], "utf8")); plan.scenarios[0].generationId = process.argv[2]; delete plan.workflowBinding; process.stdout.write(immutablePlanSnapshotSha256(plan));' "$PLAN_PATH" "$GENERATION_ID")
-            test "$PLAN_SNAPSHOT_SHA" = "$(printf %s "$PLAN_SNAPSHOT_SHA" | grep -E '^[0-9a-f]{64}$')"
-            BOUND_PLAN=$(mktemp "$GITHUB_WORKSPACE/pack-plan/.plan.XXXXXX")
-            jq \
-              --arg generationId "$GENERATION_ID" \
-              --arg repository "$GITHUB_REPOSITORY" \
-              --arg workflow "Generate Pack" \
-              --arg runId "$GITHUB_RUN_ID" \
-              --argjson runAttempt "$GITHUB_RUN_ATTEMPT" \
-              --arg commitSha "$GITHUB_SHA" \
-              --arg planSnapshotSha256 "$PLAN_SNAPSHOT_SHA" \
-              '.scenarios[0].generationId = $generationId |
-               .workflowBinding = {
-                 repository: $repository,
-                 workflow: $workflow,
-                 runId: $runId,
-                 runAttempt: $runAttempt,
-                 commitSha: $commitSha,
-                 scenarioId: .scenarios[0].id,
-                 planSnapshotSha256: $planSnapshotSha256
-               }' \
-              "$PLAN_PATH" > "$BOUND_PLAN"
-            jq -e \
-              --arg generationId "$GENERATION_ID" \
-              --arg repository "$GITHUB_REPOSITORY" \
-              --arg runId "$GITHUB_RUN_ID" \
-              --argjson runAttempt "$GITHUB_RUN_ATTEMPT" \
-              --arg commitSha "$GITHUB_SHA" \
-              --arg planSnapshotSha256 "$PLAN_SNAPSHOT_SHA" \
-              '.source == "signals" and
-               (.scenarios | length) == 1 and
-               .scenarios[0].generationId == $generationId and
-               ($generationId | test("^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"; "i")) and
-               .workflowBinding == {
-                 repository: $repository,
-                 workflow: "Generate Pack",
-                 runId: $runId,
-                 runAttempt: $runAttempt,
-                 commitSha: $commitSha,
-                 scenarioId: .scenarios[0].id,
-                 planSnapshotSha256: $planSnapshotSha256
-               }' "$BOUND_PLAN" >/dev/null
-            chmod 0600 "$BOUND_PLAN"
-            mv -f "$BOUND_PLAN" "$GITHUB_WORKSPACE/pack-plan/plan.json"
+            node "$GITHUB_WORKSPACE/marketplace-plan/scripts/pack-production-plan.mjs" create \
+              --queue "$GITHUB_WORKSPACE/pack-plan/queue.json" \
+              --output "$GITHUB_WORKSPACE/pack-plan/plan.json" \
+              --generation-id "$GENERATION_ID" \
+              --repository "$GITHUB_REPOSITORY" \
+              --workflow "$GITHUB_WORKFLOW" \
+              --run-id "$GITHUB_RUN_ID" \
+              --run-attempt "$GITHUB_RUN_ATTEMPT" \
+              --head-sha "$GITHUB_SHA" \
+              --repo-root "$GITHUB_WORKSPACE/marketplace-plan" \
+              --cli "$GITHUB_WORKSPACE/pack-cli/skillstore-cli-linux-x64"
             echo "has_scenarios=true" >> "$GITHUB_OUTPUT"
           fi
-          jq '{source, scenarios: [.scenarios[] | {id, version, queueScore, reasons, generationId}]}' \
-            "$GITHUB_WORKSPACE/pack-plan/plan.json" >> "$GITHUB_STEP_SUMMARY"
+          jq '{source, scenarios: [.scenarios[] | {id, version, queueScore, reasons}]}' \
+            "$GITHUB_WORKSPACE/pack-plan/queue.json" >> "$GITHUB_STEP_SUMMARY"
+          if [ "$SCENARIO_COUNT" -eq 1 ]; then
+            node "$GITHUB_WORKSPACE/marketplace-plan/scripts/pack-production.mjs" plan-values \
+              --plan "$GITHUB_WORKSPACE/pack-plan/plan.json" \
+              | jq '{digest, workflowBinding, cli, models, parameters}' \
+              >> "$GITHUB_STEP_SUMMARY"
+          fi
 
       - name: Upload immutable plan
         uses: actions/upload-artifact@v6
@@ -265,7 +239,7 @@ jobs:
   evaluate:
     name: Evaluate without production credentials
     needs: plan
-    if: needs.plan.outputs.has_scenarios == 'true'
+    if: inputs.smoke_only != true && needs.plan.outputs.has_scenarios == 'true'
     # GitHub-hosted runners are single-use VMs. The evaluator never reuses the
     # persistent OAuth HOME or sibling workspaces from our self-hosted pool.
     runs-on: ubuntu-24.04
@@ -293,82 +267,73 @@ jobs:
           name: pack-production-cli
           path: pack-production-cli
 
-      - name: Verify Plan CLI handoff before execution
+      - name: Verify canonical Plan, source trees, scripts, and CLI before execution
         run: |
+          set -euo pipefail
           (cd pack-production-cli && sha256sum -c checksums.txt)
           chmod +x pack-production-cli/skillstore-cli-linux-x64
-          VERSION=$(pack-production-cli/skillstore-cli-linux-x64 --version | grep -Eo '[0-9]+([.][0-9]+){2}' | head -n1)
-          test "$VERSION" = "$PACK_PRODUCTION_CLI_VERSION"
+          node marketplace-evaluate/scripts/pack-production-plan.mjs verify-inputs \
+            --plan pack-production-input/plan.json \
+            --repo-root marketplace-evaluate \
+            --cli pack-production-cli/skillstore-cli-linux-x64
+          PLAN_VALUES=$(node marketplace-evaluate/scripts/pack-production.mjs plan-values \
+            --plan pack-production-input/plan.json)
+          jq -e \
+            --arg repository "$GITHUB_REPOSITORY" \
+            --arg workflow "$GITHUB_WORKFLOW" \
+            --arg runId "$GITHUB_RUN_ID" \
+            --argjson runAttempt "$GITHUB_RUN_ATTEMPT" \
+            --arg headSha "$GITHUB_SHA" \
+            '.workflowBinding.repository == $repository and
+             .workflowBinding.workflow == $workflow and
+             .workflowBinding.runId == $runId and
+             .workflowBinding.runAttempt == $runAttempt and
+             .workflowBinding.headSha == $headSha' \
+            <<< "$PLAN_VALUES" >/dev/null
+          node --input-type=module -e '
+            import { readFileSync, writeFileSync } from "node:fs";
+            import { canonicalJson } from "./marketplace-evaluate/scripts/pack-production-plan.mjs";
+            const plan = JSON.parse(readFileSync(process.argv[1], "utf8"));
+            writeFileSync(process.argv[2], canonicalJson({
+              artifact: {
+                name: "pack-production-plan",
+                planDigest: plan.digest,
+                status: "downloaded"
+              },
+              producer: { name: "plan", status: "success" },
+              schemaVersion: "marketplace.pack-production-artifact-state/v1",
+              workflowBinding: plan.workflowBinding
+            }));
+          ' pack-production-input/plan.json pack-production-input/plan-artifact-state.json
+          node marketplace-evaluate/scripts/pack-production.mjs artifact-gate \
+            --plan pack-production-input/plan.json \
+            --state pack-production-input/plan-artifact-state.json \
+            --output pack-production-input/plan-artifact-gate.json
 
-      - name: Reject plans outside the bounded evaluation budget
+      - name: Record the Plan-bound evaluation budget
         run: |
           set -euo pipefail
           mkdir -p "$GITHUB_WORKSPACE/pack-diagnostics"
-          SLOT_COUNT=$(jq '[.scenarios[].capabilitySlots | length] | add' pack-production-input/plan.json)
-          MAX_CANDIDATES=2
-          MAX_PACK_SKILLS=4
-          HIDDEN_VARIANTS=3
-          MAX_BEST_SINGLE_COMPETITORS=$((SLOT_COUNT * MAX_CANDIDATES))
-          CONTRACT_PROBES=2
-          MAX_CLI_PREFLIGHT_REQUESTS=4
-          # The deterministic treatment floor is not a safe operating ceiling:
-          # real file/browser work can require additional tool-result turns.
-          # Reserve a bounded 64-request envelope and let the proxy enforce the
-          # absolute 256-request stop.
-          TOOL_LOOP_HEADROOM=64
-          PROXY_REQUEST_BUDGET=256
-          # Upper-bound actual proxy wire requests for one scenario. Every
-          # executor/Judge request is counted, plus one Claude follow-up for
-          # each installed Skill that must emit runtime invocation evidence.
-          # Both CLI preflights may receive one bounded retry. Candidate dedupe
-          # and parallel Skill tool calls can only lower this bound.
-          ESTIMATED_REQUESTS=$((
-            CONTRACT_PROBES +
-            MAX_CLI_PREFLIGHT_REQUESTS +
-            3 * SLOT_COUNT * MAX_CANDIDATES +
-            3 +
-            HIDDEN_VARIANTS * (MAX_PACK_SKILLS + 2) +
-            2 * HIDDEN_VARIANTS +
-            3 * HIDDEN_VARIANTS * MAX_BEST_SINGLE_COMPETITORS +
-            HIDDEN_VARIANTS * MAX_PACK_SKILLS * (MAX_PACK_SKILLS + 1)
-          ))
-          jq -n \
-            --argjson slotCount "$SLOT_COUNT" \
-            --argjson maxCandidates "$MAX_CANDIDATES" \
-            --argjson maxPackSkills "$MAX_PACK_SKILLS" \
-            --argjson maxBestSingleCompetitors "$MAX_BEST_SINGLE_COMPETITORS" \
-            --argjson variants "$HIDDEN_VARIANTS" \
-            --argjson contractProbes "$CONTRACT_PROBES" \
-            --argjson maxCliPreflightRequests "$MAX_CLI_PREFLIGHT_REQUESTS" \
-            --argjson toolLoopHeadroom "$TOOL_LOOP_HEADROOM" \
-            --argjson estimatedRequests "$ESTIMATED_REQUESTS" \
-            --argjson reservedRequests "$((ESTIMATED_REQUESTS + TOOL_LOOP_HEADROOM))" \
-            --argjson requestBudget "$PROXY_REQUEST_BUDGET" \
-            '{
-              schemaVersion: "marketplace.pack-evaluation-budget/v1",
-              slotCount: $slotCount,
-              maxCandidates: $maxCandidates,
-              maxPackSkills: $maxPackSkills,
-              maxBestSingleCompetitors: $maxBestSingleCompetitors,
-              variants: $variants,
-              contractProbes: $contractProbes,
-              maxCliPreflightRequests: $maxCliPreflightRequests,
-              skillToolFollowupsIncluded: true,
-              toolLoopHeadroom: $toolLoopHeadroom,
-              estimatedRequests: $estimatedRequests,
-              reservedRequests: $reservedRequests,
-              requestBudget: $requestBudget,
-              admitted: ($slotCount >= 1 and $slotCount <= 4 and $reservedRequests <= $requestBudget)
-            }' > "$GITHUB_WORKSPACE/pack-diagnostics/evaluation-budget.json"
-          if [ "$SLOT_COUNT" -lt 1 ] || [ "$SLOT_COUNT" -gt 4 ] || \
-             [ "$((ESTIMATED_REQUESTS + TOOL_LOOP_HEADROOM))" -gt "$PROXY_REQUEST_BUDGET" ]; then
-            echo "::error::Evaluation plan exceeds bounded budget: slots=$SLOT_COUNT reserved=$((ESTIMATED_REQUESTS + TOOL_LOOP_HEADROOM))/$PROXY_REQUEST_BUDGET"
-            exit 1
-          fi
+          node marketplace-evaluate/scripts/pack-production.mjs plan-values \
+            --plan pack-production-input/plan.json \
+            | jq '{
+                schemaVersion: "marketplace.pack-evaluation-budget/v1",
+                planDigest: .digest,
+                generation: .parameters.generation,
+                proxy: .parameters.proxy,
+                resources: .parameters.resources,
+                timeoutsMs: .parameters.timeoutsMs,
+                tokens: .parameters.tokens
+              }' > "$GITHUB_WORKSPACE/pack-diagnostics/evaluation-budget.json"
           jq . "$GITHUB_WORKSPACE/pack-diagnostics/evaluation-budget.json" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Install evaluator runtimes before secrets are available
         run: |
+          set -euo pipefail
+          PLAN_VALUES=$(node marketplace-evaluate/scripts/pack-production.mjs plan-values \
+            --plan pack-production-input/plan.json)
+          CLAUDE_CODE_VERSION=$(jq -r '.parameters.runtime.claudeCodeVersion' <<< "$PLAN_VALUES")
+          CODEX_VERSION=$(jq -r '.parameters.runtime.codexVersion' <<< "$PLAN_VALUES")
           sudo apt-get update
           sudo apt-get install --yes --no-install-recommends \
             apparmor bubblewrap ffmpeg iptables poppler-utils ripgrep util-linux
@@ -376,8 +341,8 @@ jobs:
             /opt/pack-evaluator \
             /opt/pack-evaluator/runtime
           sudo npm install --global --prefix /opt/pack-evaluator/runtime \
-            @anthropic-ai/claude-code@2.1.210 \
-            @openai/codex@0.139.0
+            "@anthropic-ai/claude-code@$CLAUDE_CODE_VERSION" \
+            "@openai/codex@$CODEX_VERSION"
           sudo chown -R root:root /opt/pack-evaluator/runtime
           sudo chmod -R a=rX /opt/pack-evaluator/runtime
           command -v ffprobe
@@ -389,13 +354,17 @@ jobs:
           test "$(command -v google-chrome)" = /usr/bin/google-chrome
           test -x /usr/bin/google-chrome
           /usr/bin/google-chrome --version
-          test "$(/opt/pack-evaluator/runtime/bin/claude --version | awk '{print $1}')" = '2.1.210'
-          test "$(/opt/pack-evaluator/runtime/bin/codex --version | awk '{print $2}')" = '0.139.0'
+          test "$(/opt/pack-evaluator/runtime/bin/claude --version | awk '{print $1}')" = "$CLAUDE_CODE_VERSION"
+          test "$(/opt/pack-evaluator/runtime/bin/codex --version | awk '{print $2}')" = "$CODEX_VERSION"
 
       - name: Prepare disposable evaluator identities and filesystem
         env:
           CLI: ${{ github.workspace }}/pack-production-cli/skillstore-cli-linux-x64
         run: |
+          set -euo pipefail
+          PLAN_VALUES=$(node marketplace-evaluate/scripts/pack-production.mjs plan-values \
+            --plan pack-production-input/plan.json)
+          PROXY_PORT=$(jq -r '.parameters.proxy.port' <<< "$PLAN_VALUES")
           sudo useradd --system --create-home --home-dir /home/packproxy --shell /usr/sbin/nologin packproxy
           sudo useradd --create-home --home-dir /home/packeval --shell /bin/bash packeval
           NODE_SOURCE=$(command -v node)
@@ -417,9 +386,15 @@ jobs:
           sudo install -o root -g root -m 0555 \
             "$GITHUB_WORKSPACE/marketplace-evaluate/scripts/pack-production.mjs" \
             /opt/pack-evaluator/lib/pack-production.mjs
+          sudo install -o root -g root -m 0555 \
+            "$GITHUB_WORKSPACE/marketplace-evaluate/scripts/pack-production-plan.mjs" \
+            /opt/pack-evaluator/lib/pack-production-plan.mjs
           sudo install -o root -g root -m 0444 \
             "$GITHUB_WORKSPACE/pack-production-input/plan.json" \
             /opt/pack-evaluator/input/plan.json
+          sudo install -o root -g root -m 0444 \
+            "$GITHUB_WORKSPACE/pack-production-input/plan-artifact-gate.json" \
+            /opt/pack-evaluator/input/plan-artifact-gate.json
           if find "$GITHUB_WORKSPACE/marketplace-evaluate/skills" -type l -print -quit | grep -q .; then
             echo '::error::Evaluator skill input contains a symbolic link'
             exit 1
@@ -460,7 +435,7 @@ jobs:
             'model_provider = "pack_evaluator_proxy"' \
             '[model_providers.pack_evaluator_proxy]' \
             'name = "Job-local Pack evaluator proxy"' \
-            'base_url = "http://127.0.0.1:18765/v1"' \
+            "base_url = \"http://127.0.0.1:$PROXY_PORT/v1\"" \
             'env_key = "PACK_EVALUATOR_PROXY_TOKEN"' \
             'wire_api = "responses"' \
             'supports_websockets = false' \
@@ -515,6 +490,24 @@ jobs:
           LOCAL_TOKEN=$(openssl rand -hex 32)
           NODE_BIN=/opt/pack-evaluator/bin/node
           test -x "$NODE_BIN"
+          PLAN_PATH=/opt/pack-evaluator/input/plan.json
+          PLAN_GATE_PATH=/opt/pack-evaluator/input/plan-artifact-gate.json
+          PLAN_VALUES=$("$NODE_BIN" /opt/pack-evaluator/lib/pack-production.mjs plan-values \
+            --plan "$PLAN_PATH")
+          ALLOWED_MODELS=$(jq -r '.parameters.proxy.allowedModels | join(",")' <<< "$PLAN_VALUES")
+          MAX_REQUESTS=$(jq -r '.parameters.proxy.maxRequests' <<< "$PLAN_VALUES")
+          MAX_CONCURRENT=$(jq -r '.parameters.proxy.maxConcurrent' <<< "$PLAN_VALUES")
+          MAX_OUTPUT_TOKENS=$(jq -r '.parameters.tokens.maxOutput' <<< "$PLAN_VALUES")
+          PROXY_TTL_MS=$(jq -r '.parameters.timeoutsMs.proxyTtl' <<< "$PLAN_VALUES")
+          PROXY_REQUEST_TIMEOUT_MS=$(jq -r '.parameters.timeoutsMs.proxyRequest' <<< "$PLAN_VALUES")
+          PROXY_PORT=$(jq -r '.parameters.proxy.port' <<< "$PLAN_VALUES")
+          UPSTREAM_URL=$(jq -r '.parameters.proxy.upstreamUrl' <<< "$PLAN_VALUES")
+          OUTER_EVALUATION_MS=$(jq -r '.parameters.timeoutsMs.outerEvaluation' <<< "$PLAN_VALUES")
+          OUTER_EVALUATION_KILL_GRACE_MS=$(jq -r '.parameters.timeoutsMs.outerEvaluationKillGrace' <<< "$PLAN_VALUES")
+          MAX_PROCESSES=$(jq -r '.parameters.resources.maxProcesses' <<< "$PLAN_VALUES")
+          ADDRESS_SPACE_BYTES=$(jq -r '.parameters.resources.addressSpaceBytes' <<< "$PLAN_VALUES")
+          RESULT_BYTES_LIMIT=$(jq -r '.parameters.resources.resultBytes' <<< "$PLAN_VALUES")
+          RESULT_FILES_LIMIT=$(jq -r '.parameters.resources.resultFiles' <<< "$PLAN_VALUES")
           PROXY_LOG=$(mktemp)
           PROXY_ACTIVITY=$(mktemp)
           chmod 0600 "$PROXY_ACTIVITY"
@@ -640,14 +633,14 @@ jobs:
             PATH=/opt/pack-evaluator/bin:/usr/bin:/bin \
             PACK_EVALUATOR_LOCAL_TOKEN="$LOCAL_TOKEN" \
             PACK_EVALUATOR_UPSTREAM_KEY="$PACK_EVALUATOR_HELM_API_KEY" \
-            PACK_EVALUATOR_UPSTREAM_URL=https://helm.easymeta.au \
-            PACK_EVALUATOR_PROXY_PORT=18765 \
-            PACK_EVALUATOR_ALLOWED_MODELS=claude-sonnet-4.6,claude-sonnet-4-6,claude-sonnet-5,sonnet,gpt-5.5 \
-            PACK_EVALUATOR_MAX_REQUESTS=256 \
-            PACK_EVALUATOR_MAX_CONCURRENT=4 \
-            PACK_EVALUATOR_MAX_OUTPUT_TOKENS="$PACK_EVALUATOR_MAX_OUTPUT_TOKENS" \
-            PACK_EVALUATOR_TTL_MS=14400000 \
-            PACK_EVALUATOR_REQUEST_TIMEOUT_MS=600000 \
+            PACK_EVALUATOR_UPSTREAM_URL="$UPSTREAM_URL" \
+            PACK_EVALUATOR_PROXY_PORT="$PROXY_PORT" \
+            PACK_EVALUATOR_ALLOWED_MODELS="$ALLOWED_MODELS" \
+            PACK_EVALUATOR_MAX_REQUESTS="$MAX_REQUESTS" \
+            PACK_EVALUATOR_MAX_CONCURRENT="$MAX_CONCURRENT" \
+            PACK_EVALUATOR_MAX_OUTPUT_TOKENS="$MAX_OUTPUT_TOKENS" \
+            PACK_EVALUATOR_TTL_MS="$PROXY_TTL_MS" \
+            PACK_EVALUATOR_REQUEST_TIMEOUT_MS="$PROXY_REQUEST_TIMEOUT_MS" \
             PACK_EVALUATOR_ACTIVITY_FILE="$PROXY_ACTIVITY" \
             "$NODE_BIN" /opt/pack-evaluator/lib/pack-evaluator-proxy.mjs \
             >"$PROXY_LOG" 2>&1 &
@@ -658,7 +651,7 @@ jobs:
           for _ in $(seq 1 30); do
             if curl --fail --silent \
               -H "Authorization: Bearer $LOCAL_TOKEN" \
-              http://127.0.0.1:18765/healthz >/dev/null; then
+              "http://127.0.0.1:$PROXY_PORT/healthz" >/dev/null; then
               PROXY_READY=true
               break
             fi
@@ -727,8 +720,8 @@ jobs:
           CONTRACT_DIAGNOSTICS="$GITHUB_WORKSPACE/pack-diagnostics/contract-smoke.json"
           set +e
           PACK_EVALUATOR_PROXY_TOKEN="$LOCAL_TOKEN" \
-          PACK_EVALUATOR_PROXY_URL=http://127.0.0.1:18765 \
-          PACK_EVALUATOR_CONTRACT_TIMEOUT_MS=30000 \
+          PACK_EVALUATOR_PROXY_URL="http://127.0.0.1:$PROXY_PORT" \
+          PACK_EVALUATOR_PLAN_PATH="$PLAN_PATH" \
           PACK_EVALUATOR_CONTRACT_DIAGNOSTICS_FILE="$CONTRACT_DIAGNOSTICS" \
           "$NODE_BIN" /opt/pack-evaluator/lib/pack-evaluator-contract-smoke.mjs
           CONTRACT_RC=$?
@@ -767,8 +760,8 @@ jobs:
             PACK_EVALUATOR_PROXY_TOKEN="$LOCAL_TOKEN" \
             PACK_DIAGNOSTICS_DIR="$GITHUB_WORKSPACE/pack-diagnostics" \
             PACK_EVALUATOR_ACTIVITY_FILE="$PROXY_ACTIVITY" \
-            PACK_EVALUATOR_MARKETPLACE_COMMIT_SHA="$GITHUB_SHA" \
-            PACK_EVALUATOR_CLI_SHA256="$(jq -r '.sha256' "$GITHUB_WORKSPACE/pack-production-input/cli-identity.json")" \
+            PACK_EVALUATOR_PLAN_PATH="$PLAN_PATH" \
+            PACK_EVALUATOR_ARTIFACT_GATE_PATH="$PLAN_GATE_PATH" \
             bash "$GITHUB_WORKSPACE/marketplace-evaluate/scripts/pack-evaluator-preflight.sh"
             PREFLIGHT_RC=$?
             set -e
@@ -850,40 +843,25 @@ jobs:
             SKILLSTORE_AGENT_SANDBOX_RUNTIME_ROOT=/opt/pack-evaluator/runtime \
             PACK_EVALUATOR_CHROMIUM_PATH=/usr/bin/google-chrome \
             PACK_EVALUATOR_PROXY_TOKEN="$LOCAL_TOKEN" \
-            ANTHROPIC_BASE_URL=http://127.0.0.1:18765 \
+            ANTHROPIC_BASE_URL="http://127.0.0.1:$PROXY_PORT" \
             ANTHROPIC_AUTH_TOKEN="$LOCAL_TOKEN" \
-            CLAUDE_CODE_MAX_OUTPUT_TOKENS="$PACK_EVALUATOR_MAX_OUTPUT_TOKENS" \
+            CLAUDE_CODE_MAX_OUTPUT_TOKENS="$MAX_OUTPUT_TOKENS" \
             NO_PROXY=127.0.0.1,localhost \
-            timeout --signal=TERM --kill-after=30s 4h \
-            prlimit --nproc=256:256 --as=6442450944:6442450944 -- \
+            timeout --signal=TERM --kill-after="${OUTER_EVALUATION_KILL_GRACE_MS}ms" "${OUTER_EVALUATION_MS}ms" \
+            prlimit \
+              --nproc="$MAX_PROCESSES:$MAX_PROCESSES" \
+              --as="$ADDRESS_SPACE_BYTES:$ADDRESS_SPACE_BYTES" \
+              -- \
             "$NODE_BIN" /opt/pack-evaluator/lib/pack-production.mjs evaluate \
-            --plan /opt/pack-evaluator/input/plan.json \
+            --plan "$PLAN_PATH" \
+            --artifact-gate "$PLAN_GATE_PATH" \
             --results-dir /opt/pack-evaluator/results \
             --cli /opt/pack-evaluator/bin/skillstore-cli \
-            --expected-cli-version "$PACK_PRODUCTION_CLI_VERSION" \
             --skills-dir /opt/pack-evaluator/input/skills \
             --evaluator-uid "$PACKEVAL_UID" \
             --evaluator-gid "$PACKEVAL_GID" \
             --evaluator-cwd /home/packeval \
             --evaluator-runtime-root /opt/pack-evaluator/generations \
-            --run-id "${{ github.run_id }}" \
-            --run-attempt "${{ github.run_attempt }}" \
-            --commit-sha "${{ github.sha }}" \
-            --model "$PACK_EVALUATOR_RUNNER_MODEL" \
-            --judge-model "$PACK_EVALUATOR_JUDGE_MODEL" \
-            --max-candidates 2 \
-            --pick 4 \
-            --runs 1 \
-            --final-runs 3 \
-            --agent-timeout-ms 360000 \
-            --agent-max-retries 1 \
-            --threshold 7 \
-            --baseline-delta 1 \
-            --auto-publish-threshold 8 \
-            --evaluation-budget-ms 13800000 \
-            --scenario-timeout-ms 7200000 \
-            --minimum-fallback-ms 2700000 \
-            --scenario-idle-timeout-ms 1200000 \
             --proxy-activity-file "$PROXY_ACTIVITY" \
             "${INFRASTRUCTURE_ARGS[@]}" \
             > "$GITHUB_WORKSPACE/pack-diagnostics/evaluate-command.json" &
@@ -916,11 +894,11 @@ jobs:
           else
             RESULT_BYTES=$(sudo du -sb /opt/pack-evaluator/results | awk '{print $1}')
             RESULT_FILES=$(sudo find /opt/pack-evaluator/results -type f | wc -l)
-            if [ "$RESULT_BYTES" -gt 268435456 ]; then
-              echo "::error::Evaluator result directory exceeds 256 MiB: $RESULT_BYTES bytes"
+            if [ "$RESULT_BYTES" -gt "$RESULT_BYTES_LIMIT" ]; then
+              echo "::error::Evaluator result directory exceeds Plan bound: $RESULT_BYTES/$RESULT_BYTES_LIMIT bytes"
               EVALUATOR_RC=1
-            elif [ "$RESULT_FILES" -gt 1000 ]; then
-              echo "::error::Evaluator result directory exceeds 1000 files: $RESULT_FILES"
+            elif [ "$RESULT_FILES" -gt "$RESULT_FILES_LIMIT" ]; then
+              echo "::error::Evaluator result directory exceeds Plan file bound: $RESULT_FILES/$RESULT_FILES_LIMIT"
               EVALUATOR_RC=1
             elif sudo find /opt/pack-evaluator/results ! -type f ! -type d -print -quit | grep -q .; then
               echo '::error::Evaluator result directory contains a non-regular entry'
@@ -943,15 +921,10 @@ jobs:
           if [ "$EVALUATOR_RC" -eq 0 ]; then
             if ! env -i PATH=/opt/pack-evaluator/runtime/bin:/usr/bin:/bin \
               "$NODE_BIN" /opt/pack-evaluator/lib/pack-production.mjs verify \
-              --plan /opt/pack-evaluator/input/plan.json \
+              --plan "$PLAN_PATH" \
+              --artifact-gate "$PLAN_GATE_PATH" \
               --results-dir "$GITHUB_WORKSPACE/pack-harvest" \
               --cli /opt/pack-evaluator/bin/skillstore-cli \
-              --expected-cli-version "$PACK_PRODUCTION_CLI_VERSION" \
-              --run-id "${{ github.run_id }}" \
-              --run-attempt "${{ github.run_attempt }}" \
-              --commit-sha "${{ github.sha }}" \
-              --model "$PACK_EVALUATOR_RUNNER_MODEL" \
-              --judge-model "$PACK_EVALUATOR_JUDGE_MODEL" \
               > "$GITHUB_WORKSPACE/pack-diagnostics/verification-command.json"; then
               echo 'trusted evaluation closure verification failed' \
                 > "$GITHUB_WORKSPACE/pack-diagnostics/verification-failure.txt"
@@ -961,7 +934,9 @@ jobs:
           rm -f "$GITHUB_WORKSPACE/pack-harvest/"*.stdout.partial
           if [ "$EVALUATOR_RC" -eq 0 ]; then
             mkdir -p "$GITHUB_WORKSPACE/pack-trusted"
-            cp "$GITHUB_WORKSPACE/pack-harvest/evaluate-summary.json" \
+            cp "$PLAN_PATH" \
+              "$PLAN_GATE_PATH" \
+              "$GITHUB_WORKSPACE/pack-harvest/evaluate-summary.json" \
               "$GITHUB_WORKSPACE/pack-harvest/evaluation-verification.json" \
               "$GITHUB_WORKSPACE/pack-harvest/"*.evaluation.json \
               "$GITHUB_WORKSPACE/pack-harvest/"*.stdout.json \
@@ -1043,7 +1018,9 @@ jobs:
         with:
           path: marketplace-persist
           ref: ${{ github.sha }}
-          sparse-checkout: scripts/pack-production.mjs
+          sparse-checkout: |
+            scripts/pack-production-plan.mjs
+            scripts/pack-production.mjs
           sparse-checkout-cone-mode: false
           persist-credentials: false
 
@@ -1053,12 +1030,39 @@ jobs:
           name: pack-production-evaluation
           path: pack-results
 
+      - name: Gate the exact successful evaluation artifact
+        env:
+          PRODUCER_STATUS: ${{ needs.evaluate.result }}
+        run: |
+          set -euo pipefail
+          node --input-type=module -e '
+            import { readFileSync, writeFileSync } from "node:fs";
+            import { canonicalJson } from "./marketplace-persist/scripts/pack-production-plan.mjs";
+            const plan = JSON.parse(readFileSync(process.argv[1], "utf8"));
+            writeFileSync(process.argv[2], canonicalJson({
+              artifact: {
+                name: "pack-production-evaluation",
+                planDigest: plan.digest,
+                status: "downloaded"
+              },
+              producer: { name: "evaluate", status: process.env.PRODUCER_STATUS },
+              schemaVersion: "marketplace.pack-production-artifact-state/v1",
+              workflowBinding: plan.workflowBinding
+            }));
+          ' pack-results/plan.json pack-results/evaluate-artifact-state.json
+          node marketplace-persist/scripts/pack-production.mjs artifact-gate \
+            --plan pack-results/plan.json \
+            --state pack-results/evaluate-artifact-state.json \
+            --output pack-results/evaluate-artifact-gate.json
+
       - name: Persist every attempt atomically
         env:
           SKILLSTORE_API_URL: ${{ secrets.SKILLSTORE_API_URL }}
           PACK_PRODUCTION_AUTOMATION_KEY: ${{ secrets.PACK_PRODUCTION_AUTOMATION_KEY }}
         run: |
           node marketplace-persist/scripts/pack-production.mjs persist \
+            --plan "$GITHUB_WORKSPACE/pack-results/plan.json" \
+            --artifact-gate "$GITHUB_WORKSPACE/pack-results/evaluate-artifact-gate.json" \
             --results-dir "$GITHUB_WORKSPACE/pack-results" \
             --api-url "$SKILLSTORE_API_URL" \
             --token "$PACK_PRODUCTION_AUTOMATION_KEY" \
@@ -1085,7 +1089,9 @@ jobs:
         with:
           path: marketplace-finalize
           ref: ${{ github.sha }}
-          sparse-checkout: scripts/pack-production.mjs
+          sparse-checkout: |
+            scripts/pack-production-plan.mjs
+            scripts/pack-production.mjs
           sparse-checkout-cone-mode: false
           persist-credentials: false
 
@@ -1094,6 +1100,31 @@ jobs:
         with:
           name: pack-production-persisted
           path: pack-results
+
+      - name: Gate the exact successful persistence artifact
+        env:
+          PRODUCER_STATUS: ${{ needs.persist.result }}
+        run: |
+          set -euo pipefail
+          node --input-type=module -e '
+            import { readFileSync, writeFileSync } from "node:fs";
+            import { canonicalJson } from "./marketplace-finalize/scripts/pack-production-plan.mjs";
+            const plan = JSON.parse(readFileSync(process.argv[1], "utf8"));
+            writeFileSync(process.argv[2], canonicalJson({
+              artifact: {
+                name: "pack-production-persisted",
+                planDigest: plan.digest,
+                status: "downloaded"
+              },
+              producer: { name: "persist", status: process.env.PRODUCER_STATUS },
+              schemaVersion: "marketplace.pack-production-artifact-state/v1",
+              workflowBinding: plan.workflowBinding
+            }));
+          ' pack-results/plan.json pack-results/persist-artifact-state.json
+          node marketplace-finalize/scripts/pack-production.mjs artifact-gate \
+            --plan pack-results/plan.json \
+            --state pack-results/persist-artifact-state.json \
+            --output pack-results/persist-artifact-gate.json
 
       - name: Await enrichment and enforce publish gates
         env:
@@ -1105,6 +1136,8 @@ jobs:
           AUTO_PUBLISH: ${{ vars.PACK_PRODUCTION_AUTO_PUBLISH_ENABLED == 'true' && (github.event_name == 'schedule' || inputs.auto_publish) && 'true' || 'false' }}
         run: |
           node marketplace-finalize/scripts/pack-production.mjs finalize \
+            --plan "$GITHUB_WORKSPACE/pack-results/plan.json" \
+            --artifact-gate "$GITHUB_WORKSPACE/pack-results/persist-artifact-gate.json" \
             --results-dir "$GITHUB_WORKSPACE/pack-results" \
             --api-url "$SKILLSTORE_API_URL" \
             --token "$PACK_PRODUCTION_AUTOMATION_KEY" \

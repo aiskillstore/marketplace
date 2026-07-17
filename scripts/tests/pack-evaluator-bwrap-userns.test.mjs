@@ -123,11 +123,11 @@ test('hosted proof is manually gated, read-only, pinned, and invokes the product
   assert.match(HOSTED_CI, /download-skillstore-cli/);
   assert.match(HOSTED_CI, /require-checksum: 'true'/);
   assert.match(HOSTED_CI, /\/opt\/pack-evaluator\/bin\/skillstore-cli/);
-  assert.match(HOSTED_CI, /PACK_EVALUATOR_MAX_OUTPUT_TOKENS: '16384'/);
-  assert.match(
-    HOSTED_CI,
-    /PACK_EVALUATOR_MAX_OUTPUT_TOKENS="\$PACK_EVALUATOR_MAX_OUTPUT_TOKENS"/,
-  );
+  assert.match(HOSTED_CI, /pack-production-plan\.mjs create/);
+  assert.match(HOSTED_CI, /pack-production\.mjs artifact-gate/);
+  assert.match(HOSTED_CI, /PACK_EVALUATOR_PLAN_PATH=\/opt\/pack-evaluator\/input\/plan\.json/);
+  assert.match(HOSTED_CI, /PACK_EVALUATOR_ARTIFACT_GATE_PATH=\/opt\/pack-evaluator\/input\/plan-artifact-gate\.json/);
+  assert.doesNotMatch(HOSTED_CI, /PACK_EVALUATOR_MAX_OUTPUT_TOKENS:/);
   assert.match(HOSTED_CI, /\.maxTokens == 16384/);
   assert.match(HOSTED_CI, /\.schemaVersion == "marketplace\.pack-executor-preflight\/v1"/);
   assert.match(HOSTED_CI, /\.mode == "pack-production-node-uid-nested-bwrap"/);

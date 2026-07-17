@@ -8,6 +8,11 @@ import {
   buildInfrastructureApiEvaluation,
   canonicalJson,
 } from './pack-production.mjs';
+import {
+  CLI_IDENTITY,
+  assertProductionExecutionPolicy,
+  readExecutionPlan,
+} from './pack-production-plan.mjs';
 
 const RECOVERY_SCHEMA = 'marketplace.pack-production-cancellation-recovery/v1';
 const SOURCE_SCHEMA = 'marketplace.pack-production-source-run/v1';
@@ -191,17 +196,18 @@ export function verifySourceMetadata({ source, attempt, workflow, comparison, wo
     fail('Source Generate Pack workflow is missing or too large');
   }
   if (!/^name:\s*Generate Pack\s*$/m.test(workflowSource)) fail('Source workflow name contract is missing');
-  const cliVersion = workflowSource.match(/^\s*PACK_PRODUCTION_CLI_VERSION:\s*'([0-9]+\.[0-9]+\.[0-9]+)'\s*$/m)?.[1];
-  if (!cliVersion) fail('Source workflow does not pin a stable Pack production CLI');
-  if (!/--model sonnet(?:\s|\\|$)/.test(workflowSource) || !/--judge-model gpt-5\.5(?:\s|\\|$)/.test(workflowSource)) {
-    fail('Source workflow evaluator model identities differ from the recovery contract');
-  }
   if (
     !/randomUUID\(\)/.test(workflowSource)
-    || !/\.scenarios\[0\]\.generationId = \$generationId/.test(workflowSource)
-    || !/\.workflowBinding = \{/.test(workflowSource)
-  ) fail('Source workflow lacks immutable generation and workflow binding');
-  return { cliVersion, workflowSourceSha256: sha256(workflowSource) };
+    || !/pack-production-plan\.mjs" create/.test(workflowSource)
+    || !/--run-id "\$GITHUB_RUN_ID"/.test(workflowSource)
+    || !/--run-attempt "\$GITHUB_RUN_ATTEMPT"/.test(workflowSource)
+    || !/--head-sha "\$GITHUB_SHA"/.test(workflowSource)
+    || !/--workflow "\$GITHUB_WORKFLOW"/.test(workflowSource)
+  ) fail('Source workflow lacks canonical execution Plan creation and workflow binding');
+  if (/--(?:model|judge-model|expected-cli-version|agent-timeout-ms|max-candidates)\b/.test(workflowSource)) {
+    fail('Source workflow retains a deprecated execution override');
+  }
+  return { workflowSourceSha256: sha256(workflowSource) };
 }
 
 function artifactRun(artifact, source) {
@@ -349,7 +355,7 @@ async function progressBindings(file, scenarioId) {
   return bindings;
 }
 
-async function diagnosticsBinding(diagnosticsDir, scenario, cliIdentity) {
+async function diagnosticsBinding(diagnosticsDir, scenario, plan, cliIdentity) {
   const directory = resolve(diagnosticsDir);
   let entries;
   try {
@@ -367,6 +373,9 @@ async function diagnosticsBinding(diagnosticsDir, scenario, cliIdentity) {
   const statuses = [];
   if (summary) {
     if (summary.schemaVersion !== 'marketplace.pack-production-evaluate/v1') fail('Evaluator summary schema is invalid');
+    if (summary.executionPlanDigest !== plan.digest) {
+      fail('Evaluator summary execution Plan differs from the immutable plan');
+    }
     if (summary.cliVersion !== cliIdentity.version || summary.cliSha256 !== cliIdentity.sha256) {
       fail('Evaluator summary CLI identity differs from the immutable plan');
     }
@@ -396,18 +405,33 @@ async function diagnosticsBinding(diagnosticsDir, scenario, cliIdentity) {
   return { generationId: unique[0] ?? null, statuses: [...new Set(statuses)] };
 }
 
-function validateCliIdentity(value, expectedVersion) {
+function validateCliIdentity(value) {
   const identity = record(value, 'CLI identity');
-  if (identity.version !== expectedVersion || !/^[0-9]+\.[0-9]+\.[0-9]+$/.test(identity.version || '')) {
-    fail('Plan CLI version differs from the source workflow pin');
+  if (identity.version !== CLI_IDENTITY.version) {
+    fail(`Plan CLI version must be ${CLI_IDENTITY.version}`);
   }
-  if (!SHA256_RE.test(identity.sha256 || '')) fail('Plan CLI checksum is invalid');
-  return { version: identity.version, sha256: identity.sha256 };
+  if (
+    identity.assetName !== CLI_IDENTITY.assetName
+    || identity.releaseAssetSha256 !== CLI_IDENTITY.releaseAssetSha256
+  ) fail('Plan CLI release asset identity is invalid');
+  return {
+    assetName: identity.assetName,
+    version: identity.version,
+    sha256: identity.releaseAssetSha256,
+  };
 }
 
 function planBinding(plan, source, scenario) {
   const binding = plan.workflowBinding;
-  const expectedKeys = ['repository', 'workflow', 'runId', 'runAttempt', 'commitSha', 'scenarioId'];
+  const expectedKeys = [
+    'repository',
+    'workflow',
+    'runId',
+    'runAttempt',
+    'headSha',
+    'scenarioId',
+    'generationId',
+  ];
   if (
     !binding
     || typeof binding !== 'object'
@@ -417,8 +441,9 @@ function planBinding(plan, source, scenario) {
     || binding.workflow !== source.workflowName
     || String(binding.runId) !== String(source.runId)
     || Number(binding.runAttempt) !== source.runAttempt
-    || binding.commitSha !== source.commitSha
+    || binding.headSha !== source.commitSha
     || binding.scenarioId !== scenario.id
+    || binding.generationId !== scenario.generationId
   ) fail('Immutable plan workflow binding differs from the cancelled source run');
 }
 
@@ -459,31 +484,14 @@ export async function prepareCancellationRecovery({
   let plan;
   let cliIdentity;
   try {
-    plan = await readJson(resolve(planDir, 'plan.json'), MAX_JSON_BYTES, 'immutable plan');
-    cliIdentity = validateCliIdentity(
-      await readJson(resolve(planDir, 'cli-identity.json'), MAX_JSON_BYTES, 'CLI identity'),
-      sourceVerification.cliVersion,
+    plan = assertProductionExecutionPolicy(
+      await readExecutionPlan(resolve(planDir, 'plan.json')),
     );
+    cliIdentity = validateCliIdentity(plan.executionBinding.cli);
   } catch (error) {
     const result = unrecoverable(source, error?.code === 'ENOENT'
       ? 'immutable_plan_download_missing'
-      : 'immutable_plan_or_cli_identity_invalid', {
-      artifactVerification,
-      sourceVerification,
-    });
-    await writeJson(resolve(output, 'recovery-result.json'), result);
-    return result;
-  }
-  if (plan.schemaVersion !== 'pack-production-queue/v1' || !Array.isArray(plan.scenarios)) {
-    const result = unrecoverable(source, 'immutable_plan_or_cli_identity_invalid', {
-      artifactVerification,
-      sourceVerification,
-    });
-    await writeJson(resolve(output, 'recovery-result.json'), result);
-    return result;
-  }
-  if (plan.scenarios.length !== 1 || plan.source !== 'signals') {
-    const result = unrecoverable(source, 'immutable_plan_has_no_single_admitted_scenario', {
+      : 'immutable_execution_plan_invalid', {
       artifactVerification,
       sourceVerification,
     });
@@ -492,7 +500,7 @@ export async function prepareCancellationRecovery({
   }
   let scenario;
   try {
-    scenario = validateScenario(plan.scenarios[0]);
+    scenario = validateScenario(plan.scenario);
     planBinding(plan, source, scenario);
   } catch {
     const result = unrecoverable(source, 'immutable_plan_scenario_or_binding_invalid', {
@@ -505,7 +513,7 @@ export async function prepareCancellationRecovery({
   let diagnostics;
   try {
     diagnostics = artifactVerification.diagnosticsArtifact
-      ? await diagnosticsBinding(diagnosticsDir, scenario, cliIdentity)
+      ? await diagnosticsBinding(diagnosticsDir, scenario, plan, cliIdentity)
       : { generationId: null, statuses: [] };
   } catch {
     const result = unrecoverable(source, 'diagnostics_binding_invalid', {
@@ -553,12 +561,16 @@ export async function prepareCancellationRecovery({
     planArtifactId: artifactVerification.planArtifact.id,
     diagnosticsArtifactId: artifactVerification.diagnosticsArtifact?.id ?? null,
     planSha256: sha256(canonicalJson(plan)),
+    executionPlanDigest: plan.digest,
     cliIdentitySha256: sha256(canonicalJson(cliIdentity)),
     diagnosticsBindingSha256: artifactVerification.diagnosticsArtifact
       ? sha256(canonicalJson(diagnostics))
       : null,
     cliVersion: cliIdentity.version,
+    cliAssetName: cliIdentity.assetName,
     cliSha256: cliIdentity.sha256,
+    runner: plan.executionBinding.models.runner,
+    judge: plan.executionBinding.models.judge,
     workflowSourceSha256: sourceVerification.workflowSourceSha256,
   };
   const diagnosticSha256 = sha256(canonicalJson(recoveryBinding));
@@ -570,8 +582,13 @@ export async function prepareCancellationRecovery({
     commitSha: source.commitSha,
     cliVersion: cliIdentity.version,
     cliSha256: cliIdentity.sha256,
-    model: 'sonnet',
-    judgeModel: 'gpt-5.5',
+    model: plan.executionBinding.models.runner.identity,
+    modelRevision: plan.executionBinding.models.runner.revision,
+    modelPinType: plan.executionBinding.models.runner.pinType,
+    judgeModel: plan.executionBinding.models.judge.identity,
+    judgeModelRevision: plan.executionBinding.models.judge.revision,
+    judgeModelPinType: plan.executionBinding.models.judge.pinType,
+    executionPlanDigest: plan.digest,
   };
   const evaluation = buildInfrastructureApiEvaluation({
     scenario,

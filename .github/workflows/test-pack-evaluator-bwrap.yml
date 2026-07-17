@@ -10,7 +10,9 @@ on:
       - 'scripts/pack-evaluator-bwrap.apparmor'
       - 'scripts/pack-evaluator-preflight.sh'
       - 'scripts/pack-evaluator-preflight-mock.mjs'
+      - 'scripts/pack-production-plan.mjs'
       - 'scripts/pack-production.mjs'
+      - 'scripts/tests/pack-production-execution-plan.test.mjs'
       - 'scripts/tests/generate-packs-workflow.test.mjs'
       - 'scripts/tests/pack-evaluator-bwrap-userns.test.mjs'
       - 'scripts/tests/pack-evaluator-egress.test.mjs'
@@ -27,7 +29,9 @@ on:
       - 'scripts/pack-evaluator-bwrap.apparmor'
       - 'scripts/pack-evaluator-preflight.sh'
       - 'scripts/pack-evaluator-preflight-mock.mjs'
+      - 'scripts/pack-production-plan.mjs'
       - 'scripts/pack-production.mjs'
+      - 'scripts/tests/pack-production-execution-plan.test.mjs'
       - 'scripts/tests/generate-packs-workflow.test.mjs'
       - 'scripts/tests/pack-evaluator-bwrap-userns.test.mjs'
       - 'scripts/tests/pack-evaluator-egress.test.mjs'
@@ -40,7 +44,6 @@ permissions:
 
 env:
   PACK_PRODUCTION_CLI_VERSION: '2.14.2'
-  PACK_EVALUATOR_MAX_OUTPUT_TOKENS: '16384'
 
 concurrency:
   group: test-pack-evaluator-bwrap-${{ github.ref }}
@@ -107,6 +110,7 @@ jobs:
           sudo install -d -o root -g root -m 0755 \
             /opt/pack-evaluator \
             /opt/pack-evaluator/bin \
+            /opt/pack-evaluator/input \
             /opt/pack-evaluator/lib \
             /opt/pack-evaluator/runtime \
             /opt/pack-evaluator/runtime/bin \
@@ -120,6 +124,9 @@ jobs:
           sudo install -o root -g root -m 0555 \
             "$NODE_SOURCE" \
             /opt/pack-evaluator/runtime/bin/node
+          sudo install -o root -g root -m 0444 \
+            scripts/pack-production-plan.mjs \
+            /opt/pack-evaluator/lib/pack-production-plan.mjs
           sudo install -o root -g root -m 0444 \
             scripts/pack-production.mjs \
             /opt/pack-evaluator/lib/pack-production.mjs
@@ -148,13 +155,14 @@ jobs:
             scripts/pack-evaluator-bwrap.apparmor \
             scripts/pack-evaluator-preflight.sh \
             scripts/pack-evaluator-preflight-mock.mjs \
+            scripts/pack-production-plan.mjs \
             scripts/pack-production.mjs
           sudo chmod 0555 \
             scripts/configure-pack-evaluator-bwrap.sh \
             scripts/configure-pack-evaluator-egress.sh \
             scripts/pack-evaluator-preflight.sh \
             scripts/pack-evaluator-preflight-mock.mjs
-          sudo chmod 0444 scripts/pack-production.mjs
+          sudo chmod 0444 scripts/pack-production-plan.mjs scripts/pack-production.mjs
           sudo chmod 0444 scripts/pack-evaluator-bwrap.apparmor
           test "$(/opt/pack-evaluator/runtime/bin/claude --version | awk '{print $1}')" = '2.1.210'
           test "$(/opt/pack-evaluator/runtime/bin/codex --version | awk '{print $2}')" = '0.139.0'
@@ -178,6 +186,57 @@ jobs:
           sudo install -o root -g root -m 0555 "$CLI" /opt/pack-evaluator/bin/skillstore-cli
           test "$(/opt/pack-evaluator/bin/skillstore-cli --version | grep -Eo '[0-9]+([.][0-9]+){2}' | head -n1)" = \
             "$PACK_PRODUCTION_CLI_VERSION"
+          PLAN_ROOT="$RUNNER_TEMP/pack-evaluator-plan"
+          mkdir -p "$PLAN_ROOT"
+          jq -n '{
+            schemaVersion: "pack-production-queue/v1",
+            source: "signals",
+            scenarios: [{
+              id: "hosted-preflight-proof",
+              version: "1.0.0",
+              task: "Prove the canonical Pack executor preflight path.",
+              slug: "hosted-preflight-proof",
+              name: "Hosted Preflight Proof",
+              tags: ["preflight"],
+              capabilitySlots: [{id: "proof", required: true, keywords: ["proof"]}],
+              requiredArtifacts: [{id: "proof", kind: "text"}]
+            }]
+          }' > "$PLAN_ROOT/queue.json"
+          node scripts/pack-production-plan.mjs create \
+            --queue "$PLAN_ROOT/queue.json" \
+            --output "$PLAN_ROOT/plan.json" \
+            --generation-id 00000000-0000-4000-8000-000000000002 \
+            --repository "$GITHUB_REPOSITORY" \
+            --workflow "Generate Pack" \
+            --run-id "$GITHUB_RUN_ID" \
+            --run-attempt "$GITHUB_RUN_ATTEMPT" \
+            --head-sha "$GITHUB_SHA" \
+            --repo-root "$GITHUB_WORKSPACE" \
+            --cli /opt/pack-evaluator/bin/skillstore-cli
+          node --input-type=module -e '
+            import { readExecutionPlan, writeCanonicalJsonAtomic } from "./scripts/pack-production-plan.mjs";
+            const plan = await readExecutionPlan(process.argv[1]);
+            await writeCanonicalJsonAtomic(process.argv[2], {
+              artifact: {
+                name: "pack-production-plan",
+                planDigest: plan.digest,
+                status: "downloaded"
+              },
+              producer: { name: "plan", status: "success" },
+              schemaVersion: "marketplace.pack-production-artifact-state/v1",
+              workflowBinding: plan.workflowBinding
+            });
+          ' "$PLAN_ROOT/plan.json" "$PLAN_ROOT/plan-artifact-state.json"
+          node scripts/pack-production.mjs artifact-gate \
+            --plan "$PLAN_ROOT/plan.json" \
+            --state "$PLAN_ROOT/plan-artifact-state.json" \
+            --output "$PLAN_ROOT/plan-artifact-gate.json"
+          sudo install -o root -g root -m 0444 \
+            "$PLAN_ROOT/plan.json" \
+            /opt/pack-evaluator/input/plan.json
+          sudo install -o root -g root -m 0444 \
+            "$PLAN_ROOT/plan-artifact-gate.json" \
+            /opt/pack-evaluator/input/plan-artifact-gate.json
 
       - name: Configure scoped AppArmor policy and prove the real sandbox
         run: |
@@ -256,10 +315,8 @@ jobs:
             PACK_EVALUATOR_PROXY_TOKEN="$LOCAL_TOKEN" \
             PACK_DIAGNOSTICS_DIR="$DIAGNOSTICS_DIR" \
             PACK_EVALUATOR_ACTIVITY_FILE="$ACTIVITY_FILE" \
-            PACK_EVALUATOR_MAX_OUTPUT_TOKENS="$PACK_EVALUATOR_MAX_OUTPUT_TOKENS" \
-            PACK_PRODUCTION_CLI_VERSION="$PACK_PRODUCTION_CLI_VERSION" \
-            PACK_EVALUATOR_MARKETPLACE_COMMIT_SHA="$GITHUB_SHA" \
-            PACK_EVALUATOR_CLI_SHA256="$CLI_SHA256" \
+            PACK_EVALUATOR_PLAN_PATH=/opt/pack-evaluator/input/plan.json \
+            PACK_EVALUATOR_ARTIFACT_GATE_PATH=/opt/pack-evaluator/input/plan-artifact-gate.json \
             bash "$GITHUB_WORKSPACE/scripts/pack-evaluator-preflight.sh"
           IPV4_ACCEPT_AFTER=$(sudo iptables -w 5 -L PACK_EVALUATOR_EGRESS -v -n -x \
             | awk '$3 == "ACCEPT" {print $1}')

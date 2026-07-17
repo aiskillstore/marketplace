@@ -14,6 +14,7 @@ const EVALUATOR_PREFLIGHT = readFileSync(EVALUATOR_PREFLIGHT_PATH, 'utf8');
 const DOWNLOAD_ACTION = readFileSync(join(REPO_ROOT, '.github/actions/download-skillstore-cli/action.yml'), 'utf8');
 const EVALUATOR_PROXY = readFileSync(join(REPO_ROOT, 'scripts/pack-evaluator-proxy.mjs'), 'utf8');
 const PACK_PRODUCTION = readFileSync(join(REPO_ROOT, 'scripts/pack-production.mjs'), 'utf8');
+const PACK_PRODUCTION_PLAN = readFileSync(join(REPO_ROOT, 'scripts/pack-production-plan.mjs'), 'utf8');
 const CONTRACT_SMOKE = readFileSync(join(REPO_ROOT, 'scripts/pack-evaluator-contract-smoke.mjs'), 'utf8');
 const ADMISSION_WORKFLOW = readFileSync(
   join(REPO_ROOT, '.github/workflows/pack-opportunity-admission.yml'),
@@ -41,22 +42,26 @@ test('production workflow has separate Plan, secret-free Evaluate, Persist, and 
   assert.match(WORKFLOW, /permissions:\n  contents: read/);
 });
 
-test('manual smoke-only dispatch cannot enter Queue, generation, or persistence', () => {
-  assert.match(WORKFLOW, /smoke_only:\n\s+description: 'Run exactly the Messages and Responses contract probes; never plan, generate, or persist'\n\s+type: boolean\n\s+default: false/);
+test('manual smoke-only dispatch builds one Plan but cannot evaluate, generate, or persist', () => {
+  assert.match(WORKFLOW, /smoke_only:\n\s+description: 'Build one canonical Plan, then run exactly the Messages and Responses probes; never evaluate, generate, or persist'\n\s+type: boolean\n\s+default: false/);
   const smoke = section('  contract_smoke_only:', '  plan:');
   const plan = section('  plan:', '  evaluate:');
-  assert.match(smoke, /if: github\.event_name == 'workflow_dispatch' && inputs\.smoke_only == true/);
+  assert.match(smoke, /needs: plan/);
+  assert.match(smoke, /if: github\.event_name == 'workflow_dispatch' && inputs\.smoke_only == true && needs\.plan\.outputs\.has_scenarios == 'true'/);
   assert.match(smoke, /runs-on: ubuntu-latest/);
   assert.match(smoke, /PACK_EVALUATOR_HELM_API_KEY: \$\{\{ secrets\.PACK_EVALUATOR_HELM_API_KEY \}\}/);
   assert.match(smoke, /PACK_EVALUATOR_PROXY_URL=https:\/\/helm\.easymeta\.au/);
+  assert.match(smoke, /PACK_EVALUATOR_PLAN_PATH=/);
+  assert.match(smoke, /name: pack-production-plan/);
   assert.match(smoke, /pack-evaluator-contract-smoke\.mjs/);
   assert.match(smoke, /Upload sanitized contract diagnostics/);
   assert.doesNotMatch(
     smoke,
     /SKILLSTORE_API_URL|PACK_PRODUCTION_(?:PLANNER|AUTOMATION)_KEY|SUPABASE|APP_PRIVATE_KEY|skillstore-cli|api\/automation\/packs\/production|pack-production\.mjs|generate-content/
   );
-  assert.match(plan, /if: github\.event_name == 'schedule' \|\| inputs\.smoke_only != true/);
+  assert.doesNotMatch(plan, /^    if:/m);
   assert.match(section('  evaluate:', '  persist:'), /needs: plan/);
+  assert.match(section('  evaluate:', '  persist:'), /if: inputs\.smoke_only != true/);
   assert.match(section('  persist:', '  enrich_publish_readback:'), /needs: \[plan, evaluate\]/);
   assert.match(section('  enrich_publish_readback:'), /needs: \[plan, persist\]/);
 });
@@ -85,8 +90,10 @@ test('evaluate runs on a disposable VM with a user-separated job-local inference
   assert.ok(preflightCallLines.every((line) => line.endsWith(` ${continuation}`)));
   assert.ok(preflightCallLines.every((line) => !line.endsWith(` ${continuation}${continuation}`)));
   assert.match(evaluate, /runs-on: ubuntu-24\.04/);
-  assert.match(evaluate, /@anthropic-ai\/claude-code@2\.1\.210/);
-  assert.match(evaluate, /@openai\/codex@0\.139\.0/);
+  assert.match(evaluate, /CLAUDE_CODE_VERSION=\$\(jq -r '\.parameters\.runtime\.claudeCodeVersion'/);
+  assert.match(evaluate, /CODEX_VERSION=\$\(jq -r '\.parameters\.runtime\.codexVersion'/);
+  assert.match(evaluate, /"@anthropic-ai\/claude-code@\$CLAUDE_CODE_VERSION"/);
+  assert.match(evaluate, /"@openai\/codex@\$CODEX_VERSION"/);
   assert.match(
     evaluate,
     /apt-get install --yes --no-install-recommends[\s\\]+apparmor bubblewrap ffmpeg iptables poppler-utils ripgrep util-linux/,
@@ -146,87 +153,78 @@ test('evaluate runs on a disposable VM with a user-separated job-local inference
   assert.doesNotMatch(evaluate, /cp .*\.codex\/auth\.json|\/home\/runner\/_work\/_cache/);
   assert.match(evaluate, /name: pack-production-cli/);
   assert.match(evaluate, /sha256sum -c checksums\.txt/);
-  assert.match(evaluate, /Verify Plan CLI handoff before execution/);
+  assert.match(evaluate, /Verify canonical Plan, source trees, scripts, and CLI before execution/);
+  assert.match(evaluate, /pack-production-plan\.mjs verify-inputs/);
   assert.doesNotMatch(evaluate, /secrets\.APP_PRIVATE_KEY|steps\.cli-app-token/);
   assert.match(EVALUATOR_PROXY, /127\.0\.0\.1/);
   assert.match(EVALUATOR_PROXY, /ALLOWED_PATHS/);
   assert.match(EVALUATOR_PROXY, /authorization.*Bearer.*upstreamKey/s);
-  assert.match(evaluate, /PACK_EVALUATOR_ALLOWED_MODELS=claude-sonnet-4\.6,claude-sonnet-4-6,claude-sonnet-5,sonnet,gpt-5\.5/);
-  assert.match(evaluate, /PACK_EVALUATOR_MAX_REQUESTS=256/);
-  assert.match(evaluate, /PACK_EVALUATOR_MAX_CONCURRENT=4/);
-  assert.equal(
-    (WORKFLOW.match(/^  PACK_EVALUATOR_MAX_OUTPUT_TOKENS: '16384'$/gm) ?? []).length,
-    1,
-    'the production workflow must define one output-token cap',
-  );
+  assert.match(evaluate, /ALLOWED_MODELS=\$\(jq -r '\.parameters\.proxy\.allowedModels \| join\(","\)'/);
+  assert.match(evaluate, /MAX_REQUESTS=\$\(jq -r '\.parameters\.proxy\.maxRequests'/);
+  assert.match(evaluate, /MAX_CONCURRENT=\$\(jq -r '\.parameters\.proxy\.maxConcurrent'/);
+  assert.match(evaluate, /MAX_OUTPUT_TOKENS=\$\(jq -r '\.parameters\.tokens\.maxOutput'/);
+  assert.doesNotMatch(WORKFLOW, /^  PACK_EVALUATOR_MAX_OUTPUT_TOKENS:/m);
   assert.match(
     evaluateWorkflow,
-    /PACK_EVALUATOR_MAX_OUTPUT_TOKENS="\$PACK_EVALUATOR_MAX_OUTPUT_TOKENS"/,
-  );
-  assert.match(
-    evaluateWorkflow,
-    /CLAUDE_CODE_MAX_OUTPUT_TOKENS="\$PACK_EVALUATOR_MAX_OUTPUT_TOKENS"/,
+    /CLAUDE_CODE_MAX_OUTPUT_TOKENS="\$MAX_OUTPUT_TOKENS"/,
   );
   assert.match(
     evaluateWorkflow,
     /SKILLSTORE_AGENT_ENV_ALLOWLIST=.*CLAUDE_CODE_MAX_OUTPUT_TOKENS/,
   );
-  assert.match(EVALUATOR_PREFLIGHT, /PACK_EVALUATOR_MAX_OUTPUT_TOKENS is required/);
-  assert.match(EVALUATOR_PREFLIGHT, /PACK_EVALUATOR_MARKETPLACE_COMMIT_SHA is required/);
-  assert.match(EVALUATOR_PREFLIGHT, /PACK_EVALUATOR_CLI_SHA256 is required/);
-  assert.match(EVALUATOR_PREFLIGHT, /\^\[1-9\]\[0-9\]\*\$/);
+  assert.match(EVALUATOR_PREFLIGHT, /PACK_EVALUATOR_PLAN_PATH is required/);
+  assert.match(EVALUATOR_PREFLIGHT, /PACK_EVALUATOR_ARTIFACT_GATE_PATH is required/);
+  assert.match(EVALUATOR_PREFLIGHT, /plan-values --plan "\$PACK_EVALUATOR_PLAN_PATH"/);
   assert.match(
     EVALUATOR_PREFLIGHT,
-    /CLAUDE_CODE_MAX_OUTPUT_TOKENS="\$PACK_EVALUATOR_MAX_OUTPUT_TOKENS"/,
+    /CLAUDE_CODE_MAX_OUTPUT_TOKENS="\$MAX_OUTPUT_TOKENS"/,
   );
   assert.match(evaluate, /PACK_EVALUATOR_ACTIVITY_FILE="\$PROXY_ACTIVITY"/);
   assert.match(
     evaluate,
-    /PACK_EVALUATOR_ACTIVITY_FILE="\$PROXY_ACTIVITY"[\s\S]*PACK_EVALUATOR_MARKETPLACE_COMMIT_SHA="\$GITHUB_SHA"[\s\S]*bash .*pack-evaluator-preflight\.sh/,
+    /PACK_EVALUATOR_ACTIVITY_FILE="\$PROXY_ACTIVITY"[\s\S]*PACK_EVALUATOR_PLAN_PATH="\$PLAN_PATH"[\s\S]*PACK_EVALUATOR_ARTIFACT_GATE_PATH="\$PLAN_GATE_PATH"[\s\S]*bash .*pack-evaluator-preflight\.sh/,
   );
-  assert.match(evaluate, /PACK_EVALUATOR_CLI_SHA256="\$\(jq -r '\.sha256'/);
   assert.match(evaluate, /sudo rm -f "\$PROXY_ACTIVITY"/);
   assert.match(evaluate, /Pack evaluator proxy did not become healthy within 30 seconds/);
   assert.match(evaluate, /proxy-diagnostics\.json/);
-  assert.match(evaluate, /pack-executor-preflight-a first and Skill pack-executor-preflight-b second/);
-  assert.match(evaluate, /PACK_EVALUATOR_READY and nothing else/);
+  assert.match(PACK_PRODUCTION_PLAN, /pack-executor-preflight-a first and Skill pack-executor-preflight-b second/);
+  assert.match(PACK_PRODUCTION_PLAN, /PACK_EVALUATOR_READY and nothing else/);
   assert.match(evaluate, /pack-evaluator-contract-smoke\.mjs/);
-  assert.match(evaluate, /PACK_EVALUATOR_CONTRACT_TIMEOUT_MS=30000/);
+  assert.match(CONTRACT_SMOKE, /\.parameters\.timeoutsMs\.contract/);
   assert.match(evaluate, /contract-smoke\.json/);
   assert.ok(evaluate.indexOf('pack-evaluator-contract-smoke.mjs') < evaluate.indexOf('pack-evaluator-preflight.sh'));
   assert.match(CONTRACT_SMOKE, /path: '\/v1\/messages'/);
   assert.match(CONTRACT_SMOKE, /path: '\/v1\/responses'/);
-  assert.match(CONTRACT_SMOKE, /max_tokens: 16/);
-  assert.match(CONTRACT_SMOKE, /max_output_tokens: 16/);
-  assert.match(WORKFLOW, /PACK_EVALUATOR_RUNNER_MODEL: 'claude-sonnet-5'/);
-  assert.match(WORKFLOW, /PACK_EVALUATOR_JUDGE_MODEL: 'gpt-5\.5'/);
-  assert.match(CONTRACT_SMOKE, /model: 'claude-sonnet-5'/);
+  assert.match(CONTRACT_SMOKE, /max_tokens: outputTokens/);
+  assert.match(CONTRACT_SMOKE, /max_output_tokens: outputTokens/);
+  assert.doesNotMatch(WORKFLOW, /PACK_EVALUATOR_(?:RUNNER|JUDGE)_MODEL/);
+  assert.doesNotMatch(CONTRACT_SMOKE, /claude-sonnet-5|gpt-5\.5/);
+  assert.match(CONTRACT_SMOKE, /models\.runner\.identity/);
+  assert.match(CONTRACT_SMOKE, /models\.judge\.identity/);
   assert.equal((CONTRACT_SMOKE.match(/stream: true/g) ?? []).length, 2);
   assert.match(CONTRACT_SMOKE, /content_block_delta/);
   assert.match(CONTRACT_SMOKE, /response\.output_text\.delta/);
-  assert.match(evaluate, /readonly PREFLIGHT_TIMEOUT_SECONDS=420/);
-  assert.match(evaluate, /timeout --signal=TERM --kill-after=5s "\$\{PREFLIGHT_TIMEOUT_SECONDS\}s"/);
+  assert.match(evaluate, /readonly PREFLIGHT_TIMEOUT_MS=.*executorPreflightOuter/);
+  assert.match(evaluate, /readonly PREFLIGHT_TIMEOUT_SECONDS=/);
+  assert.match(evaluate, /timeout --signal=TERM --kill-after="\$\{PREFLIGHT_KILL_GRACE_SECONDS\}s" "\$\{PREFLIGHT_TIMEOUT_SECONDS\}s"/);
   assert.match(evaluate, /setsid sudo env -i/);
   assert.match(evaluate, /"\$NODE" "\$ORCHESTRATOR" executor-preflight/);
-  assert.match(evaluate, /--skill-a "\$PREFLIGHT_SKILL_A"/);
-  assert.match(evaluate, /--skill-b "\$PREFLIGHT_SKILL_B"/);
+  assert.doesNotMatch(EVALUATOR_PREFLIGHT, /--skill-a|--skill-b|--task|--generation-id/);
   assert.match(evaluate, /--evaluator-runtime-root "\$RUNTIME_ROOT"/);
   assert.match(evaluate, /--evaluator-uid "\$\(id -u packeval\)"/);
   assert.match(evaluate, /--evaluator-gid "\$\(id -g packeval\)"/);
-  assert.match(evaluate, /--model "\$PACK_EVALUATOR_RUNNER_MODEL"/);
-  assert.match(evaluate, /--judge-model "\$PACK_EVALUATOR_JUDGE_MODEL"/);
-  assert.doesNotMatch(evaluate, /--model sonnet/);
-  assert.match(evaluate, /--agent-timeout-ms "\$AGENT_TIMEOUT_MS"/);
-  assert.match(evaluate, /--agent-max-retries 1/);
+  assert.doesNotMatch(EVALUATOR_PREFLIGHT, /--model|--judge-model|--agent-timeout-ms|--agent-max-retries/);
+  assert.match(evaluate, /executor-preflight[\s\S]*--plan "\$PACK_EVALUATOR_PLAN_PATH"/);
+  assert.match(evaluate, /executor-preflight[\s\S]*--artifact-gate "\$PACK_EVALUATOR_ARTIFACT_GATE_PATH"/);
   assert.match(evaluate, /PREFLIGHT_OUTCOME=command_failed/);
   assert.match(evaluate, /PREFLIGHT_ERROR_CLASS=unknown/);
-  assert.match(evaluate, /for ATTEMPT in 1 2/);
-  assert.match(evaluate, /should_retry_preflight "\$PREFLIGHT_OUTCOME" "\$PREFLIGHT_ERROR_CLASS" "\$ATTEMPT"/);
+  assert.match(evaluate, /for ATTEMPT in \$\(seq 1 "\$MAX_PREFLIGHT_ATTEMPTS"\)/);
+  assert.match(evaluate, /should_retry_preflight[\s\\]*"\$PREFLIGHT_OUTCOME"[\s\\]*"\$PREFLIGHT_ERROR_CLASS"[\s\\]*"\$ATTEMPT"[\s\\]*"\$MAX_PREFLIGHT_ATTEMPTS"/);
   assert.match(EVALUATOR_PREFLIGHT, /\[ "\$error_class" = 'retryable_http' \]/);
-  assert.match(EVALUATOR_PREFLIGHT, /\[ "\$attempt" -lt 2 \]/);
+  assert.match(EVALUATOR_PREFLIGHT, /\[ "\$attempt" -lt "\$maximum_attempts" \]/);
   assert.match(evaluate, /cleanup_processes\(\)/);
   assert.match(evaluate, /RETRY_CLEANUP_OUTCOME=passed/);
-  assert.match(evaluate, /sleep 5/);
+  assert.match(evaluate, /sleep "\$PREFLIGHT_RETRY_DELAY_SECONDS"/);
   assert.match(evaluate, /commandAttempts: \$commandAttempts/);
   assert.match(evaluate, /agentExecutionEvidence: \$executionEvidence/);
   assert.match(evaluate, /durationMs: \$durationMs/);
@@ -286,26 +284,27 @@ test('evaluate runs on a disposable VM with a user-separated job-local inference
   assert.ok(evaluatorIndex > relaxedErrorIndex);
   assert.match(evaluate, /pack-production\.mjs verify/);
   assert.match(evaluate, /trusted evaluation closure verification failed/);
-  assert.match(evaluate, /timeout --signal=TERM --kill-after=30s 4h/);
-  assert.match(evaluate, /prlimit --nproc=256:256 --as=6442450944:6442450944/);
+  assert.match(evaluate, /OUTER_EVALUATION_MS=\$\(jq -r '\.parameters\.timeoutsMs\.outerEvaluation'/);
+  assert.match(evaluate, /OUTER_EVALUATION_KILL_GRACE_MS=\$\(jq -r '\.parameters\.timeoutsMs\.outerEvaluationKillGrace'/);
+  assert.match(evaluate, /--nproc="\$MAX_PROCESSES:\$MAX_PROCESSES"/);
+  assert.match(evaluate, /--as="\$ADDRESS_SPACE_BYTES:\$ADDRESS_SPACE_BYTES"/);
   assert.match(EVALUATOR_PROXY, /evaluator proxy request budget exhausted/);
   assert.match(EVALUATOR_PROXY, /evaluator proxy token has expired/);
   assert.match(EVALUATOR_PROXY, /response\.once\('close', abortUpstream\)/);
   assert.match(EVALUATOR_PROXY, /isDeterministicClientFailure/);
   assert.match(EVALUATOR_PROXY, /phase: 'circuit_open'/);
-  assert.match(evaluate, /Reject plans outside the bounded evaluation budget/);
-  assert.match(evaluate, /MAX_CANDIDATES=2/);
-  assert.match(evaluate, /MAX_BEST_SINGLE_COMPETITORS=\$\(\(SLOT_COUNT \* MAX_CANDIDATES\)\)/);
-  assert.match(evaluate, /CONTRACT_PROBES=2/);
-  assert.match(evaluate, /MAX_CLI_PREFLIGHT_REQUESTS=4/);
-  assert.match(evaluate, /TOOL_LOOP_HEADROOM=64/);
-  assert.match(evaluate, /PROXY_REQUEST_BUDGET=256/);
-  assert.match(evaluate, /3 \* SLOT_COUNT \* MAX_CANDIDATES/);
-  assert.match(evaluate, /3 \* HIDDEN_VARIANTS \* MAX_BEST_SINGLE_COMPETITORS/);
-  assert.match(evaluate, /HIDDEN_VARIANTS \* MAX_PACK_SKILLS \* \(MAX_PACK_SKILLS \+ 1\)/);
-  assert.match(evaluate, /skillToolFollowupsIncluded: true/);
-  assert.match(evaluate, /maxBestSingleCompetitors: \$maxBestSingleCompetitors/);
-  assert.match(evaluate, /ESTIMATED_REQUESTS[\s\S]*PROXY_REQUEST_BUDGET/);
+  assert.match(evaluate, /Record the Plan-bound evaluation budget/);
+  assert.match(PACK_PRODUCTION_PLAN, /proxy request reservation exceeds its budget/);
+  assert.match(PACK_PRODUCTION_PLAN, /const maxCandidates = 2/);
+  assert.match(PACK_PRODUCTION_PLAN, /const maxBestSingleCompetitors = slotCount \* maxCandidates/);
+  assert.match(PACK_PRODUCTION_PLAN, /contractProbes: 2/);
+  assert.match(PACK_PRODUCTION_PLAN, /maxCliPreflightRequests: 4/);
+  assert.match(PACK_PRODUCTION_PLAN, /toolLoopHeadroom: 64/);
+  assert.match(PACK_PRODUCTION_PLAN, /maxRequests: 256/);
+  assert.match(PACK_PRODUCTION_PLAN, /3 \* slotCount \* maxCandidates/);
+  assert.match(PACK_PRODUCTION_PLAN, /3 \* hiddenVariants \* maxBestSingleCompetitors/);
+  assert.match(PACK_PRODUCTION_PLAN, /hiddenVariants \* maxPackSkills \* \(maxPackSkills \+ 1\)/);
+  assert.match(PACK_PRODUCTION_PLAN, /reservedRequests: estimatedRequests \+ 64/);
   const maximumWireRequests = 2 + 4 + (3 * 4 * 2) + 3 + (3 * (4 + 2))
     + (2 * 3) + (3 * 3 * 8) + (3 * 4 * (4 + 1));
   assert.equal(maximumWireRequests, 189);
@@ -321,7 +320,7 @@ test('evaluate runs on a disposable VM with a user-separated job-local inference
 test('extracted evaluator preflight is valid bounded bash', () => {
   const result = spawnSync('bash', ['-n', EVALUATOR_PREFLIGHT_PATH], { encoding: 'utf8' });
   assert.equal(result.status, 0, result.stderr);
-  assert.match(EVALUATOR_PREFLIGHT, /for ATTEMPT in 1 2/);
+  assert.match(EVALUATOR_PREFLIGHT, /for ATTEMPT in \$\(seq 1 "\$MAX_PREFLIGHT_ATTEMPTS"\)/);
   assert.match(EVALUATOR_PREFLIGHT, /COMMAND_EXIT_CODE=\$\?/);
   assert.match(EVALUATOR_PREFLIGHT, /COMMAND_ATTEMPTS=/);
   assert.match(EVALUATOR_PREFLIGHT, /--argjson commandAttempts/);
@@ -329,12 +328,14 @@ test('extracted evaluator preflight is valid bounded bash', () => {
   assert.match(EVALUATOR_PREFLIGHT, /PACK_DIAGNOSTICS_DIR\/agent-preflight-diagnostics\.json/);
   assert.match(EVALUATOR_PREFLIGHT, /PACK_DIAGNOSTICS_DIR\/proxy-activity\.ndjson/);
   assert.match(EVALUATOR_PREFLIGHT, /setsid sudo env -i/);
-  assert.match(EVALUATOR_PREFLIGHT, /prlimit --nproc=256:256 --as=6442450944:6442450944/);
+  assert.match(EVALUATOR_PREFLIGHT, /--nproc="\$MAX_PROCESSES:\$MAX_PROCESSES"/);
+  assert.match(EVALUATOR_PREFLIGHT, /--as="\$ADDRESS_SPACE_BYTES:\$ADDRESS_SPACE_BYTES"/);
   assert.match(EVALUATOR_PREFLIGHT, /"\$NODE" "\$ORCHESTRATOR" executor-preflight/);
-  assert.match(EVALUATOR_PREFLIGHT, /--skill-a "\$PREFLIGHT_SKILL_A"/);
-  assert.match(EVALUATOR_PREFLIGHT, /--skill-b "\$PREFLIGHT_SKILL_B"/);
-  assert.match(EVALUATOR_PREFLIGHT, /--model "\$PACK_EVALUATOR_RUNNER_MODEL"/);
-  assert.match(EVALUATOR_PREFLIGHT, /--judge-model "\$PACK_EVALUATOR_JUDGE_MODEL"/);
+  assert.match(EVALUATOR_PREFLIGHT, /--plan "\$PACK_EVALUATOR_PLAN_PATH"/);
+  assert.match(EVALUATOR_PREFLIGHT, /--artifact-gate "\$PACK_EVALUATOR_ARTIFACT_GATE_PATH"/);
+  assert.match(EVALUATOR_PREFLIGHT, /EXPECTED_PREFLIGHT_SHA256/);
+  assert.match(EVALUATOR_PREFLIGHT, /ACTUAL_PREFLIGHT_SHA256/);
+  assert.doesNotMatch(EVALUATOR_PREFLIGHT, /PACK_EVALUATOR_(?:RUNNER|JUDGE)_MODEL/);
   assert.match(EVALUATOR_PREFLIGHT, /safe_runner_trace_evidence\(\)/);
   assert.match(EVALUATOR_PREFLIGHT, /proofBinding:/);
   assert.match(EVALUATOR_PREFLIGHT, /SKILLSTORE_AGENT_ENV_MODE=strict/);
@@ -346,21 +347,17 @@ test('extracted evaluator preflight is valid bounded bash', () => {
   assert.doesNotMatch(EVALUATOR_PREFLIGHT, /GITHUB_WORKSPACE/);
 });
 
-test('evaluator preflight rejects a non-positive Claude output-token cap before execution', () => {
+test('evaluator preflight requires the canonical Plan before execution', () => {
   const result = spawnSync('bash', [EVALUATOR_PREFLIGHT_PATH], {
     encoding: 'utf8',
     env: {
       PATH: process.env.PATH,
-      PACK_PRODUCTION_CLI_VERSION: '2.14.2',
-      PACK_EVALUATOR_RUNNER_MODEL: 'claude-sonnet-5',
-      PACK_EVALUATOR_JUDGE_MODEL: 'gpt-5.5',
       PACK_EVALUATOR_PROXY_TOKEN: 'local-token-that-is-longer-than-thirty-two-bytes',
       PACK_DIAGNOSTICS_DIR: '/tmp',
-      PACK_EVALUATOR_MAX_OUTPUT_TOKENS: '0',
     },
   });
   assert.equal(result.status, 1);
-  assert.match(result.stderr, /PACK_EVALUATOR_MAX_OUTPUT_TOKENS must be a positive integer/);
+  assert.match(result.stderr, /PACK_EVALUATOR_PLAN_PATH is required/);
 });
 
 test('preflight infrastructure evidence selects the last fatal response before category allowlisting', () => {
@@ -550,7 +547,7 @@ test('evaluator preflight retries only an exact bounded HTTP failure once', () =
   for (const errorClass of ['retryable_http']) {
     const result = spawnSync(
       'bash',
-      ['-c', `${policy}\nshould_retry_preflight "$1" "$2" "$3"`, 'policy', 'command_failed', errorClass, '1'],
+      ['-c', `${policy}\nshould_retry_preflight "$1" "$2" "$3" "$4"`, 'policy', 'command_failed', errorClass, '1', '2'],
       { encoding: 'utf8' }
     );
     assert.equal(result.status, 0, `${errorClass} should receive one retry`);
@@ -567,7 +564,7 @@ test('evaluator preflight retries only an exact bounded HTTP failure once', () =
   ]) {
     const result = spawnSync(
       'bash',
-      ['-c', `${policy}\nshould_retry_preflight "$1" "$2" "$3"`, 'policy', 'command_failed', errorClass, '1'],
+      ['-c', `${policy}\nshould_retry_preflight "$1" "$2" "$3" "$4"`, 'policy', 'command_failed', errorClass, '1', '2'],
       { encoding: 'utf8' }
     );
     assert.equal(result.status, 1, `${errorClass} must fail closed without retry`);
@@ -575,7 +572,7 @@ test('evaluator preflight retries only an exact bounded HTTP failure once', () =
   assert.equal(
     spawnSync(
       'bash',
-      ['-c', `${policy}\nshould_retry_preflight "$1" "$2" "$3"`, 'policy', 'command_failed', 'retryable_http', '2'],
+      ['-c', `${policy}\nshould_retry_preflight "$1" "$2" "$3" "$4"`, 'policy', 'command_failed', 'retryable_http', '2', '2'],
       { encoding: 'utf8' }
     ).status,
     1,
@@ -584,7 +581,7 @@ test('evaluator preflight retries only an exact bounded HTTP failure once', () =
   assert.equal(
     spawnSync(
       'bash',
-      ['-c', `${policy}\nshould_retry_preflight "$1" "$2" "$3"`, 'policy', 'invalid_response', 'unknown', '1'],
+      ['-c', `${policy}\nshould_retry_preflight "$1" "$2" "$3" "$4"`, 'policy', 'invalid_response', 'unknown', '1', '2'],
       { encoding: 'utf8' }
     ).status,
     1,
@@ -625,16 +622,12 @@ test('evaluate emits bounded progress and checkpoints cancellation-safe evidence
   assert.match(evaluate, /sudo ps -o stat= -g "\$EVALUATOR_PID"/);
   assert.match(evaluate, /sudo kill -TERM -- "-\$EVALUATOR_PID"/);
   assert.doesNotMatch(evaluate, /pgrep -f '\/opt\/pack-evaluator\/lib\/pack-production\.mjs evaluate'/);
-  assert.match(evaluate, /--model "\$PACK_EVALUATOR_RUNNER_MODEL"/);
-  assert.match(evaluate, /--judge-model "\$PACK_EVALUATOR_JUDGE_MODEL"/);
-  assert.doesNotMatch(evaluate, /--model sonnet/);
-  assert.match(evaluate, /--max-candidates 2/);
-  assert.match(evaluate, /--agent-timeout-ms 360000/);
-  assert.match(evaluate, /--agent-max-retries 1/);
-  assert.match(evaluate, /--evaluation-budget-ms 13800000/);
-  assert.match(evaluate, /--scenario-timeout-ms 7200000/);
-  assert.match(evaluate, /--minimum-fallback-ms 2700000/);
-  assert.match(evaluate, /--scenario-idle-timeout-ms 1200000/);
+  assert.doesNotMatch(
+    evaluate,
+    /--(?:model|judge-model|max-candidates|agent-timeout-ms|agent-max-retries|evaluation-budget-ms|scenario-timeout-ms|minimum-fallback-ms|scenario-idle-timeout-ms)/,
+  );
+  assert.match(evaluate, /pack-production\.mjs evaluate[\s\S]*--plan "\$PLAN_PATH"/);
+  assert.match(evaluate, /pack-production\.mjs evaluate[\s\S]*--artifact-gate "\$PLAN_GATE_PATH"/);
   assert.match(evaluate, /--proxy-activity-file "\$PROXY_ACTIVITY"/);
   assert.match(evaluate, /name: Upload trusted evaluation evidence\n\s+if: success\(\)/);
   assert.match(evaluate, /name: Upload bounded evaluation diagnostics\n\s+if: always\(\)/);
@@ -681,15 +674,19 @@ test('planning uses a read-only API and admits at most one artifact scenario', (
   assert.match(plan, /commitSha: \$commitSha/);
   assert.match(plan, /has_scenarios=false/);
   assert.match(plan, /require\('node:crypto'\)\.randomUUID\(\)/);
-  assert.match(plan, /\.scenarios\[0\]\.generationId = \$generationId/);
-  assert.match(plan, /workflow: "Generate Pack"/);
-  assert.match(plan, /runAttempt: \$runAttempt/);
-  assert.match(plan, /scenarioId: \.scenarios\[0\]\.id/);
-  assert.match(plan, /immutablePlanSnapshotSha256/);
-  assert.match(plan, /planSnapshotSha256: \$planSnapshotSha256/);
+  assert.match(plan, /pack-production-plan\.mjs" create/);
+  assert.match(plan, /--workflow "\$GITHUB_WORKFLOW"/);
+  assert.match(plan, /--run-attempt "\$GITHUB_RUN_ATTEMPT"/);
+  assert.match(plan, /--head-sha "\$GITHUB_SHA"/);
+  assert.match(plan, /--cli "\$GITHUB_WORKSPACE\/pack-cli\/skillstore-cli-linux-x64"/);
+  assert.match(plan, /21b1967e134622a40ae4d312278fa10d136103f0148887252f61e4e3b4536674/);
+  assert.match(PACK_PRODUCTION_PLAN, /writeExecutionPlanAtomic/);
+  assert.match(PACK_PRODUCTION_PLAN, /writeCanonicalJsonAtomic/);
+  assert.match(PACK_PRODUCTION_PLAN, /rename\(temporary, target\)/);
+  assert.doesNotMatch(plan, /immutablePlanSnapshotSha256|planSnapshotSha256/);
   assert.match(plan, /\(has\("generationId"\) \| not\)/);
   assert.match(plan, /\(has\("workflowBinding"\) \| not\)/);
-  const allocationIndex = plan.indexOf('.scenarios[0].generationId = $generationId');
+  const allocationIndex = plan.indexOf('pack-production-plan.mjs" create');
   const uploadIndex = plan.indexOf('name: Upload immutable plan');
   assert.ok(allocationIndex >= 0 && uploadIndex > allocationIndex);
   const noOpStart = plan.indexOf('if [ "$SCENARIO_COUNT" -eq 0 ]; then');
@@ -701,14 +698,14 @@ test('planning uses a read-only API and admits at most one artifact scenario', (
   );
   assert.doesNotMatch(PACK_PRODUCTION, /randomUUID/);
   assert.match(PACK_PRODUCTION, /const generationId = scenario\.generationId/);
-  assert.match(PACK_PRODUCTION, /Evaluate summary generation id differs from the immutable plan/);
-  assert.match(PACK_PRODUCTION, /Immutable plan snapshot SHA-256 differs from its bound input snapshot/);
+  assert.match(PACK_PRODUCTION, /Evaluate summary attempt differs from the immutable plan generation binding/);
+  assert.match(PACK_PRODUCTION, /Evaluate summary differs from the execution Plan digest/);
   const evaluate = section('  evaluate:', '  persist:');
   const persist = section('  persist:', '  enrich_publish_readback:');
   const finalize = section('  enrich_publish_readback:');
-  assert.match(evaluate, /if: needs\.plan\.outputs\.has_scenarios == 'true'/);
-  assert.match(persist, /if: needs\.plan\.outputs\.has_scenarios == 'true'/);
-  assert.match(finalize, /if: needs\.plan\.outputs\.has_scenarios == 'true'/);
+  assert.match(evaluate, /if: inputs\.smoke_only != true && needs\.plan\.outputs\.has_scenarios == 'true'/);
+  assert.match(persist, /if: needs\.plan\.outputs\.has_scenarios == 'true' && needs\.evaluate\.result == 'success'/);
+  assert.match(finalize, /if: needs\.plan\.outputs\.has_scenarios == 'true' && needs\.persist\.result == 'success'/);
   assert.match(WORKFLOW, /group: generate-pack-production-v4/);
   assert.match(WORKFLOW, /cron: '17 19 \* \* 1,3,5'/);
   assert.match(WORKFLOW, /PACK_PRODUCTION_CLI_VERSION: '2\.14\.2'/);
@@ -773,9 +770,10 @@ test('checkouts use isolated directories and never persist tokens', () => {
   assert.ok((WORKFLOW.match(/persist-credentials: false/g) ?? []).length >= 4);
   const persist = section('  persist:', '  enrich_publish_readback:');
   const finalize = section('  enrich_publish_readback:');
-  assert.match(persist, /sparse-checkout: scripts\/pack-production\.mjs\n\s+sparse-checkout-cone-mode: false/);
-  assert.match(finalize, /sparse-checkout: scripts\/pack-production\.mjs\n\s+sparse-checkout-cone-mode: false/);
-  assert.match(SLO_WORKFLOW, /sparse-checkout: scripts\/pack-production\.mjs\n\s+sparse-checkout-cone-mode: false/);
+  const sparseRuntime = /sparse-checkout: \|\n\s+scripts\/pack-production-plan\.mjs\n\s+scripts\/pack-production\.mjs\n\s+sparse-checkout-cone-mode: false/;
+  assert.match(persist, sparseRuntime);
+  assert.match(finalize, sparseRuntime);
+  assert.match(SLO_WORKFLOW, sparseRuntime);
 });
 
 test('CLI downloader verifies checksum before execution and shared-cache writes', () => {

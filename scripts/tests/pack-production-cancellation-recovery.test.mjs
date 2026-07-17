@@ -9,6 +9,17 @@ import {
   persistCancellationRecovery,
   prepareCancellationRecovery,
 } from '../pack-production-cancellation-recovery.mjs';
+import {
+  CLI_IDENTITY,
+  EXECUTION_SOURCE_FILES,
+  EXECUTOR_PREFLIGHT_SKILLS,
+  EXECUTOR_PREFLIGHT_TASK,
+  MODEL_IDENTITIES,
+  canonicalJson,
+  executionPlanDigest,
+  productionExecutionParameters,
+  sha256,
+} from '../pack-production-plan.mjs';
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const WORKFLOW_FILE = join(REPO_ROOT, '.github/workflows/recover-cancelled-pack-production.yml');
@@ -17,7 +28,7 @@ const RECOVERY_HELPER = readFileSync(join(REPO_ROOT, 'scripts/pack-production-ca
 const GENERATION_ID = '11111111-1111-4111-8111-111111111111';
 const SOURCE_SHA = 'a'.repeat(40);
 const CURRENT_SHA = 'b'.repeat(40);
-const CLI_SHA = 'c'.repeat(64);
+const CLI_SHA = CLI_IDENTITY.releaseAssetSha256;
 
 function json(file, value) {
   writeFileSync(file, `${JSON.stringify(value, null, 2)}\n`);
@@ -84,13 +95,15 @@ function metadata() {
 env:
   PACK_PRODUCTION_CLI_VERSION: '2.14.2'
 jobs:
-  evaluate:
+  plan:
     steps:
       - run: |
-          command --model sonnet \\
-            --judge-model gpt-5.5 \\
           GENERATION_ID=$(node -e "process.stdout.write(require('node:crypto').randomUUID())")
-          jq '.scenarios[0].generationId = $generationId | .workflowBinding = {' plan.json
+          node "$GITHUB_WORKSPACE/marketplace-plan/scripts/pack-production-plan.mjs" create \\
+            --workflow "$GITHUB_WORKFLOW" \\
+            --run-id "$GITHUB_RUN_ID" \\
+            --run-attempt "$GITHUB_RUN_ATTEMPT" \\
+            --head-sha "$GITHUB_SHA"
 `,
   };
 }
@@ -130,6 +143,72 @@ function scenario(generationId = GENERATION_ID) {
   };
 }
 
+function executionPlan(generationId = GENERATION_ID) {
+  const plannedScenario = scenario(generationId);
+  const parameters = productionExecutionParameters(plannedScenario.capabilitySlots.length);
+  const cli = { ...CLI_IDENTITY };
+  const models = structuredClone(MODEL_IDENTITIES);
+  const executorPreflight = {
+    generationId: '00000000-0000-4000-8000-000000000001',
+    skillA: {
+      canonicalId: EXECUTOR_PREFLIGHT_SKILLS[0].canonicalId,
+      contentSha256: sha256(EXECUTOR_PREFLIGHT_SKILLS[0].contents),
+      version: EXECUTOR_PREFLIGHT_SKILLS[0].version,
+    },
+    skillB: {
+      canonicalId: EXECUTOR_PREFLIGHT_SKILLS[1].canonicalId,
+      contentSha256: sha256(EXECUTOR_PREFLIGHT_SKILLS[1].contents),
+      version: EXECUTOR_PREFLIGHT_SKILLS[1].version,
+    },
+    task: EXECUTOR_PREFLIGHT_TASK,
+  };
+  const executionBinding = {
+    cli,
+    evaluatorInputs: null,
+    executorPreflight,
+    models,
+    parameters,
+    source: {
+      repositoryTreeSha: 'c'.repeat(40),
+      skillsTreeSha: 'd'.repeat(40),
+      skillsManifest: {
+        sha256: 'e'.repeat(64),
+        fileCount: 1,
+        totalBytes: 1,
+      },
+      files: EXECUTION_SOURCE_FILES.map((path, index) => ({
+        path,
+        gitBlobSha: `${(index + 1).toString(16)}`.repeat(40),
+        sha256: `${(index + 1).toString(16)}`.repeat(64),
+      })),
+    },
+  };
+  executionBinding.evaluatorInputs = {
+    configSha256: sha256(canonicalJson({ cli, models, parameters })),
+    promptSha256: sha256(plannedScenario.task),
+    rulesSha256: sha256(canonicalJson({
+      capabilitySlots: plannedScenario.capabilitySlots,
+      requiredArtifacts: plannedScenario.requiredArtifacts,
+    })),
+    scenarioSha256: sha256(canonicalJson(plannedScenario)),
+  };
+  const plan = {
+    schemaVersion: 'marketplace.pack-production-execution-plan/v1',
+    workflowBinding: {
+      repository: 'aiskillstore/marketplace',
+      workflow: 'Generate Pack',
+      runId: '12345',
+      runAttempt: 2,
+      headSha: SOURCE_SHA,
+      scenarioId: plannedScenario.id,
+      generationId,
+    },
+    executionBinding,
+    scenario: plannedScenario,
+  };
+  return { ...plan, digest: executionPlanDigest(plan) };
+}
+
 function createInput({ generationId = GENERATION_ID, artifacts, diagnostics = null } = {}) {
   const root = mkdtempSync(join(tmpdir(), 'pack-cancellation-recovery-'));
   const planDir = join(root, 'plan');
@@ -138,21 +217,7 @@ function createInput({ generationId = GENERATION_ID, artifacts, diagnostics = nu
   mkdirSync(planDir, { recursive: true });
   mkdirSync(diagnosticsDir, { recursive: true });
   mkdirSync(outputDir, { recursive: true });
-  const frozen = source();
-  json(join(planDir, 'plan.json'), {
-    schemaVersion: 'pack-production-queue/v1',
-    source: 'signals',
-    scenarios: [scenario(generationId)],
-    workflowBinding: {
-      repository: frozen.repository,
-      workflow: frozen.workflowName,
-      runId: String(frozen.runId),
-      runAttempt: frozen.runAttempt,
-      commitSha: frozen.commitSha,
-      scenarioId: 'spreadsheet-audit',
-    },
-  });
-  json(join(planDir, 'cli-identity.json'), { version: '2.14.2', sha256: CLI_SHA });
+  writeFileSync(join(planDir, 'plan.json'), canonicalJson(executionPlan(generationId)));
   if (diagnostics) {
     for (const [name, value] of Object.entries(diagnostics)) {
       if (typeof value === 'string') writeFileSync(join(diagnosticsDir, name), value);
@@ -192,7 +257,10 @@ test('immutable plan generation id produces a sanitized v4 candidate-null recove
   assert.equal(result.generationId, GENERATION_ID);
   assert.equal(result.evidence.recoveryBinding.generationSource, 'immutable-plan');
   assert.match(result.evidence.recoveryBinding.planSha256, /^[0-9a-f]{64}$/);
+  assert.match(result.evidence.recoveryBinding.executionPlanDigest, /^[0-9a-f]{64}$/);
   assert.match(result.evidence.recoveryBinding.cliIdentitySha256, /^[0-9a-f]{64}$/);
+  assert.deepEqual(result.evidence.recoveryBinding.runner, MODEL_IDENTITIES.runner);
+  assert.deepEqual(result.evidence.recoveryBinding.judge, MODEL_IDENTITIES.judge);
   assert.equal(result.evidence.recoveryBinding.diagnosticsBindingSha256, null);
   const evaluation = JSON.parse(readFileSync(join(input.outputDir, 'candidate-null.evaluation.json')));
   assert.equal(evaluation.schemaVersion, 'skillstore.pack-evaluation/v4');
@@ -256,7 +324,7 @@ test('missing or conflicting immutable generation provenance never invents an id
   const missing = createInput({ generationId: null });
   const missingResult = await prepareCancellationRecovery(missing);
   assert.equal(missingResult.outcome, 'unrecoverable');
-  assert.equal(missingResult.reason, 'immutable_plan_generation_id_invalid');
+  assert.equal(missingResult.reason, 'immutable_execution_plan_invalid');
   assert.equal(missingResult.generationId, null);
 
   const progress = [GENERATION_ID, '22222222-2222-4222-8222-222222222222']
@@ -298,7 +366,7 @@ test('source attempt and artifact provenance are bound to the exact cancelled at
   legacySourceWorkflow.workflowSource = legacySourceWorkflow.workflowSource.replace('randomUUID()', 'legacyId()');
   await assert.rejects(
     prepareCancellationRecovery(legacySourceWorkflow),
-    /lacks immutable generation and workflow binding/,
+    /lacks canonical execution Plan creation and workflow binding/,
   );
 });
 
@@ -327,6 +395,7 @@ test('an evaluator summary with a recorded report is never overwritten by recove
     diagnostics: {
       'evaluate-summary.json': {
         schemaVersion: 'marketplace.pack-production-evaluate/v1',
+        executionPlanDigest: executionPlan().digest,
         cliVersion: '2.14.2',
         cliSha256: CLI_SHA,
         attempts: [{ scenarioId: 'spreadsheet-audit', generationId: GENERATION_ID, status: 'completed' }],

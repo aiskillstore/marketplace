@@ -2,7 +2,12 @@
 
 import { createHash } from 'node:crypto';
 import { writeFile } from 'node:fs/promises';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import {
+  assertProductionExecutionPolicy,
+  readExecutionPlan,
+  verifyRuntimeSourceFiles,
+} from './pack-production-plan.mjs';
 
 const MAX_RESPONSE_BYTES = 1024 * 1024;
 const EXPECTED_RESPONSE_TEXT = 'PACK_EVALUATOR_READY';
@@ -170,14 +175,17 @@ function validateResponsesEvents(events) {
   };
 }
 
-const CONTRACTS = [
-  {
+function contractsFromPlan(plan) {
+  if (!plan) fail('Canonical execution Plan is required');
+  const { models, parameters } = assertProductionExecutionPolicy(plan).executionBinding;
+  const outputTokens = parameters.tokens.contractProbeOutput;
+  return [{
     name: 'claude_messages',
     path: '/v1/messages',
-    model: 'claude-sonnet-5',
+    model: models.runner.identity,
     payload: {
-      model: 'claude-sonnet-5',
-      max_tokens: 16,
+      model: models.runner.identity,
+      max_tokens: outputTokens,
       stream: true,
       messages: [{
         role: 'user',
@@ -189,16 +197,16 @@ const CONTRACTS = [
   {
     name: 'codex_responses',
     path: '/v1/responses',
-    model: 'gpt-5.5',
+    model: models.judge.identity,
     payload: {
-      model: 'gpt-5.5',
-      max_output_tokens: 16,
+      model: models.judge.identity,
+      max_output_tokens: outputTokens,
       stream: true,
       input: 'Reply with exactly PACK_EVALUATOR_READY and nothing else.',
     },
     validateEvents: validateResponsesEvents,
-  },
-];
+  }];
+}
 
 async function runOneContract({ contract, proxyUrl, token, fetchImpl, timeoutMs }) {
   const endpoint = new URL(contract.path, proxyUrl);
@@ -275,12 +283,14 @@ async function runOneContract({ contract, proxyUrl, token, fetchImpl, timeoutMs 
 }
 
 export async function runContractSmoke({
+  plan,
   proxyUrl,
   token,
   diagnosticsFile,
   fetchImpl = fetch,
-  timeoutMs = 30_000,
 }) {
+  const contractsToRun = contractsFromPlan(plan);
+  const timeoutMs = plan.executionBinding.parameters.timeoutsMs.contract;
   if (!proxyUrl) fail('PACK_EVALUATOR_PROXY_URL is required');
   if (!token) fail('PACK_EVALUATOR_PROXY_TOKEN is required');
   if (!diagnosticsFile) fail('PACK_EVALUATOR_CONTRACT_DIAGNOSTICS_FILE is required');
@@ -288,14 +298,15 @@ export async function runContractSmoke({
     fail('PACK_EVALUATOR_CONTRACT_TIMEOUT_MS must be between 1 and 120000');
   }
   const contracts = [];
-  for (const contract of CONTRACTS) {
+  for (const contract of contractsToRun) {
     const result = await runOneContract({ contract, proxyUrl, token, fetchImpl, timeoutMs });
     contracts.push(result);
   }
   const failed = contracts.find((contract) => contract.outcome !== 'passed');
   const diagnostics = {
     schemaVersion: 'marketplace.pack-evaluator-contract-smoke/v1',
-    outcome: failed ? 'failed' : contracts.length === CONTRACTS.length ? 'passed' : 'incomplete',
+    executionPlanDigest: plan.digest,
+    outcome: failed ? 'failed' : contracts.length === contractsToRun.length ? 'passed' : 'incomplete',
     contracts,
   };
   await writeFile(diagnosticsFile, `${JSON.stringify(diagnostics, null, 2)}\n`, { mode: 0o600 });
@@ -309,11 +320,21 @@ export async function runContractSmoke({
 }
 
 async function main(environment = process.env) {
+  if (!environment.PACK_EVALUATOR_PLAN_PATH) {
+    fail('PACK_EVALUATOR_PLAN_PATH is required');
+  }
+  const plan = await readExecutionPlan(environment.PACK_EVALUATOR_PLAN_PATH);
+  await verifyRuntimeSourceFiles(plan, {
+    'scripts/pack-evaluator-contract-smoke.mjs': fileURLToPath(import.meta.url),
+    'scripts/pack-production-plan.mjs': fileURLToPath(
+      new URL('./pack-production-plan.mjs', import.meta.url),
+    ),
+  });
   const result = await runContractSmoke({
+    plan,
     proxyUrl: environment.PACK_EVALUATOR_PROXY_URL || 'http://127.0.0.1:18765',
     token: environment.PACK_EVALUATOR_PROXY_TOKEN,
     diagnosticsFile: environment.PACK_EVALUATOR_CONTRACT_DIAGNOSTICS_FILE,
-    timeoutMs: Number(environment.PACK_EVALUATOR_CONTRACT_TIMEOUT_MS || '30000'),
   });
   process.stdout.write(`${JSON.stringify({
     outcome: result.outcome,

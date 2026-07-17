@@ -12,6 +12,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  readdirSync,
   statSync,
   writeFileSync,
 } from 'node:fs';
@@ -42,9 +43,20 @@ import {
   validateImmutableProductionPlan,
   validatePublicPackReadback,
 } from '../pack-production.mjs';
+import {
+  EXECUTION_SOURCE_FILES,
+  MODEL_IDENTITIES,
+  productionExecutionParameters,
+} from '../pack-production-plan.mjs';
 
 const PACK_PRODUCTION = fileURLToPath(new URL('../pack-production.mjs', import.meta.url));
+const PACK_PRODUCTION_PLAN = fileURLToPath(new URL('../pack-production-plan.mjs', import.meta.url));
 const PACK_PRODUCTION_URL = new URL('../pack-production.mjs', import.meta.url).href;
+const testSha256 = (value) => createHash('sha256').update(value).digest('hex');
+const RUNTIME_SOURCE_SHA256 = new Map([
+  ['scripts/pack-production.mjs', createHash('sha256').update(readFileSync(PACK_PRODUCTION)).digest('hex')],
+  ['scripts/pack-production-plan.mjs', createHash('sha256').update(readFileSync(PACK_PRODUCTION_PLAN)).digest('hex')],
+]);
 const V4_GOLDEN = fileURLToPath(new URL('./fixtures/pack-production-evaluation-v4.golden.json', import.meta.url));
 
 test('automatic publication is hard-disabled even when explicitly requested', () => {
@@ -319,31 +331,123 @@ export const context = {
   judgeModel: 'gpt-5.5',
 };
 
-function immutableProductionPlan(scenario, generationId = context.generationId) {
-  const plan = {
-    schemaVersion: 'pack-production-queue/v1',
-    source: 'signals',
-    scenarios: [{ ...scenario, generationId }],
+function fixtureSkillsManifest(root) {
+  const files = [];
+  const visit = (directory, prefix = '') => {
+    for (const entry of readdirSync(directory, { withFileTypes: true })
+      .sort((left, right) => left.name.localeCompare(right.name))) {
+      const path = join(directory, entry.name);
+      const relativePath = prefix ? `${prefix}/${entry.name}` : entry.name;
+      if (entry.isDirectory()) visit(path, relativePath);
+      else if (entry.isFile()) {
+        const bytes = readFileSync(path);
+        files.push({ path: relativePath, sha256: createHash('sha256').update(bytes).digest('hex'), size: bytes.length });
+      }
+    }
   };
+  visit(root);
+  if (files.length === 0) {
+    writeFileSync(join(root, 'fixture-skill.txt'), 'fixture\n');
+    return fixtureSkillsManifest(root);
+  }
   return {
-    ...plan,
+    sha256: createHash('sha256').update(canonicalJson(files)).digest('hex'),
+    fileCount: files.length,
+    totalBytes: files.reduce((total, file) => total + file.size, 0),
+  };
+}
+
+function immutableProductionPlan(scenarioValue, generationId = context.generationId, options = {}) {
+  const plannedScenario = { ...scenarioValue, generationId };
+  const parameters = productionExecutionParameters(plannedScenario.capabilitySlots.length);
+  for (const [group, values] of Object.entries(options.parameters ?? {})) {
+    Object.assign(parameters[group], values);
+  }
+  const cli = {
+    assetName: 'skillstore-cli-linux-x64',
+    releaseAssetSha256: options.cliSha256 ?? context.cliSha256,
+    version: options.cliVersion ?? context.cliVersion,
+  };
+  const models = structuredClone(MODEL_IDENTITIES);
+  const executionBinding = {
+    cli,
+    evaluatorInputs: null,
+    executorPreflight: {
+      generationId: '00000000-0000-4000-8000-000000000001',
+      skillA: {
+        canonicalId: 'pack-executor-preflight-a',
+        contentSha256: '1'.repeat(64),
+        version: '1.0.0',
+      },
+      skillB: {
+        canonicalId: 'pack-executor-preflight-b',
+        contentSha256: '2'.repeat(64),
+        version: '1.0.0',
+      },
+      task: 'Fixture executor preflight task.',
+    },
+    models,
+    parameters,
+    source: {
+      repositoryTreeSha: '1'.repeat(40),
+      skillsTreeSha: '2'.repeat(40),
+      skillsManifest: options.skillsDir
+        ? fixtureSkillsManifest(options.skillsDir)
+        : { sha256: '3'.repeat(64), fileCount: 1, totalBytes: 1 },
+      files: EXECUTION_SOURCE_FILES.map((path) => ({
+        path,
+        gitBlobSha: testSha256(path).slice(0, 40),
+        sha256: RUNTIME_SOURCE_SHA256.get(path) ?? testSha256(path),
+      })),
+    },
+  };
+  executionBinding.evaluatorInputs = {
+    configSha256: createHash('sha256').update(canonicalJson({ cli, models, parameters })).digest('hex'),
+    promptSha256: createHash('sha256').update(plannedScenario.task).digest('hex'),
+    rulesSha256: createHash('sha256').update(canonicalJson({
+      capabilitySlots: plannedScenario.capabilitySlots,
+      requiredArtifacts: plannedScenario.requiredArtifacts,
+    })).digest('hex'),
+    scenarioSha256: createHash('sha256').update(canonicalJson(plannedScenario)).digest('hex'),
+  };
+  const unsigned = {
+    schemaVersion: 'marketplace.pack-production-execution-plan/v1',
     workflowBinding: {
       repository: 'aiskillstore/marketplace',
       workflow: 'Generate Pack',
       runId: context.runId,
       runAttempt: context.runAttempt,
-      commitSha: context.commitSha,
-      scenarioId: scenario.id,
-      planSnapshotSha256: createHash('sha256').update(canonicalJson(plan)).digest('hex'),
+      headSha: context.commitSha,
+      scenarioId: plannedScenario.id,
+      generationId,
     },
+    executionBinding,
+    scenario: plannedScenario,
+  };
+  return {
+    ...unsigned,
+    digest: createHash('sha256').update(canonicalJson(unsigned)).digest('hex'),
   };
 }
 
-const workflowArgs = {
-  'run-id': context.runId,
-  'run-attempt': String(context.runAttempt),
-  'commit-sha': context.commitSha,
-};
+function writePlanGate(directory, plan, producer = 'plan', artifact = 'pack-production-plan') {
+  const planFile = join(directory, 'plan.json');
+  writeFileSync(planFile, canonicalJson(plan));
+  const unsigned = {
+    schemaVersion: 'marketplace.pack-production-artifact-gate/v1',
+    planDigest: plan.digest,
+    workflowBinding: plan.workflowBinding,
+    producer: { name: producer, status: 'success' },
+    artifact: { name: artifact, status: 'downloaded', planDigest: plan.digest },
+  };
+  const gate = {
+    ...unsigned,
+    digest: createHash('sha256').update(canonicalJson(unsigned)).digest('hex'),
+  };
+  const gateFile = join(directory, `${producer}-artifact-gate.json`);
+  writeFileSync(gateFile, canonicalJson(gate));
+  return { planFile, gateFile };
+}
 
 function verificationFixture(report = cliReport()) {
   const directory = mkdtempSync(join(tmpdir(), 'pack-production-verify-'));
@@ -351,16 +455,26 @@ function verificationFixture(report = cliReport()) {
   writeFileSync(cli, '#!/bin/sh\necho "skillstore-cli 2.10.0"\n');
   chmodSync(cli, 0o755);
   const cliSha256 = createHash('sha256').update(readFileSync(cli)).digest('hex');
-  const fixtureContext = { ...context, cliSha256 };
+  const plan = immutableProductionPlan(report.scenario, report.generationId, { cliSha256 });
+  const fixtureContext = {
+    ...context,
+    cliSha256,
+    model: plan.executionBinding.models.runner.identity,
+    modelRevision: plan.executionBinding.models.runner.revision,
+    modelPinType: plan.executionBinding.models.runner.pinType,
+    judgeModel: plan.executionBinding.models.judge.identity,
+    judgeModelRevision: plan.executionBinding.models.judge.revision,
+    judgeModelPinType: plan.executionBinding.models.judge.pinType,
+    executionPlanDigest: plan.digest,
+  };
   const evaluation = buildApiEvaluation(report, fixtureContext);
   const prefix = '01-excel-dashboard';
-  writeFileSync(join(directory, 'plan.json'), `${JSON.stringify(
-    immutableProductionPlan(report.scenario, report.generationId),
-  )}\n`);
+  const { gateFile } = writePlanGate(directory, plan);
   writeFileSync(join(directory, `${prefix}.stdout.json`), `${JSON.stringify(report)}\n`);
   writeFileSync(join(directory, `${prefix}.evaluation.json`), `${JSON.stringify(evaluation)}\n`);
   writeFileSync(join(directory, 'evaluate-summary.json'), `${JSON.stringify({
     schemaVersion: 'marketplace.pack-production-evaluate/v1',
+    executionPlanDigest: plan.digest,
     cliVersion: '2.10.0',
     cliSha256,
     attempts: [{
@@ -382,7 +496,12 @@ function verificationFixture(report = cliReport()) {
     }],
     selectedGenerationId: report.generationId,
   })}\n`);
-  return { directory, cli, evaluationFile: join(directory, `${prefix}.evaluation.json`) };
+  return {
+    directory,
+    cli,
+    gateFile,
+    evaluationFile: join(directory, `${prefix}.evaluation.json`),
+  };
 }
 
 function runVerification(fixture) {
@@ -390,14 +509,9 @@ function runVerification(fixture) {
     PACK_PRODUCTION,
     'verify',
     '--plan', join(fixture.directory, 'plan.json'),
+    '--artifact-gate', fixture.gateFile,
     '--results-dir', fixture.directory,
     '--cli', fixture.cli,
-    '--expected-cli-version', '2.10.0',
-    '--run-id', context.runId,
-    '--run-attempt', String(context.runAttempt),
-    '--commit-sha', context.commitSha,
-    '--model', context.model,
-    '--judge-model', context.judgeModel,
   ], { encoding: 'utf8' });
 }
 
@@ -408,41 +522,34 @@ test('canonical JSON is stable across object key order', () => {
 test('immutable production plan binds one generation id to the exact workflow invocation', () => {
   const report = cliReport();
   const plan = immutableProductionPlan(report.scenario, report.generationId);
-  assert.equal(validateImmutableProductionPlan(plan, workflowArgs).generationId, report.generationId);
+  assert.equal(validateImmutableProductionPlan(plan).generationId, report.generationId);
   assert.throws(
     () => validateImmutableProductionPlan({
       ...plan,
-      scenarios: [{ ...plan.scenarios[0], generationId: undefined }],
-    }, workflowArgs),
-    /generation id is invalid/,
+      scenario: { ...plan.scenario, generationId: undefined },
+    }),
+    /execution Plan digest mismatch/,
   );
   assert.throws(
     () => validateImmutableProductionPlan({
       ...plan,
       workflowBinding: { ...plan.workflowBinding, runAttempt: 2 },
-    }, workflowArgs),
-    /differs from this workflow invocation/,
+    }),
+    /execution Plan digest mismatch/,
   );
   assert.throws(
     () => validateImmutableProductionPlan({
       ...plan,
       workflowBinding: { ...plan.workflowBinding, injected: true },
-    }, workflowArgs),
-    /unexpected fields/,
+    }),
+    /execution Plan digest mismatch/,
   );
   assert.throws(
     () => validateImmutableProductionPlan({
       ...plan,
-      workflowBinding: { ...plan.workflowBinding, planSnapshotSha256: undefined },
-    }, workflowArgs),
-    /snapshot SHA-256 is invalid/,
-  );
-  assert.throws(
-    () => validateImmutableProductionPlan({
-      ...plan,
-      scenarios: [{ ...plan.scenarios[0], task: 'live drift after snapshot' }],
-    }, workflowArgs),
-    /snapshot SHA-256 differs/,
+      scenario: { ...plan.scenario, task: 'live drift after snapshot' },
+    }),
+    /execution Plan digest mismatch/,
   );
 });
 
@@ -1178,30 +1285,38 @@ if (scenarioId === 'slow') {
 `;
   writeFileSync(cli, script);
   chmodSync(cli, 0o755);
-  const planFile = join(directory, 'plan.json');
+  const skillsDir = join(directory, 'skills');
+  mkdirSync(skillsDir);
+  writeFileSync(join(skillsDir, 'fixture.txt'), 'fixture\n');
+  const cliSha256 = createHash('sha256').update(readFileSync(cli)).digest('hex');
+  const plan = immutableProductionPlan(scenarios.slow, context.generationId, {
+    cliSha256,
+    skillsDir,
+    parameters: {
+      retries: { agentMaxRetries: 2 },
+      timeoutsMs: {
+        agent: 1234,
+        evaluationBudget: 2000,
+        minimumFallback: 500,
+        scenario: 500,
+      },
+    },
+  });
+  const { planFile, gateFile } = writePlanGate(directory, plan);
   const resultsDir = join(directory, 'results');
-  writeFileSync(planFile, `${JSON.stringify(immutableProductionPlan(scenarios.slow))}\n`);
 
   const common = [
     '--plan', planFile,
+    '--artifact-gate', gateFile,
     '--results-dir', resultsDir,
     '--cli', cli,
-    '--expected-cli-version', '2.10.0',
-    '--skills-dir', directory,
-    '--run-id', context.runId,
-    '--run-attempt', String(context.runAttempt),
-    '--commit-sha', context.commitSha,
-    '--model', context.model,
-    '--judge-model', context.judgeModel,
+    '--skills-dir', skillsDir,
   ];
-  const evaluation = spawnSync(process.execPath, [
-    PACK_PRODUCTION, 'evaluate', ...common,
-    '--evaluation-budget-ms', '2000',
-    '--scenario-timeout-ms', '500',
-    '--minimum-fallback-ms', '500',
-    '--agent-timeout-ms', '1234',
-    '--agent-max-retries', '2',
-  ], { encoding: 'utf8', timeout: 5_000 });
+  const evaluation = spawnSync(
+    process.execPath,
+    [PACK_PRODUCTION, 'evaluate', ...common],
+    { encoding: 'utf8', timeout: 5_000 },
+  );
   assert.equal(evaluation.status, 0, evaluation.stderr);
 
   const summary = JSON.parse(readFileSync(join(resultsDir, 'evaluate-summary.json'), 'utf8'));
@@ -1232,7 +1347,7 @@ if (scenarioId === 'slow') {
   );
 });
 
-test('preflight failure evidence skips Pack generation and closes as an infrastructure audit', () => {
+test('agent preflight HTTP 401 skips every Pack generation and closes candidate-null', () => {
   const directory = mkdtempSync(join(tmpdir(), 'pack-production-preflight-audit-'));
   const cli = join(directory, 'fake-skillstore-cli');
   const invoked = join(directory, 'pack-generate-invoked');
@@ -1243,31 +1358,32 @@ exit 99
 `);
   chmodSync(cli, 0o755);
   const report = cliReport();
-  const planFile = join(directory, 'plan.json');
+  const skillsDir = join(directory, 'skills');
+  mkdirSync(skillsDir);
+  writeFileSync(join(skillsDir, 'fixture.txt'), 'fixture\n');
+  const plan = immutableProductionPlan(report.scenario, context.generationId, {
+    cliSha256: createHash('sha256').update(readFileSync(cli)).digest('hex'),
+    skillsDir,
+  });
+  const { planFile, gateFile } = writePlanGate(directory, plan);
   const resultsDir = join(directory, 'results');
   const failureFile = join(directory, 'infrastructure-failure.json');
-  writeFileSync(planFile, `${JSON.stringify(immutableProductionPlan(report.scenario))}\n`);
   writeFileSync(failureFile, `${JSON.stringify({
     schemaVersion: 'marketplace.pack-production-infrastructure-failure/v1',
     stage: 'agent_preflight',
     reason: 'deterministic_http',
-    status: 400,
-    errorCategory: 'invalid_output_token_limit',
+    status: 401,
+    errorCategory: 'authentication_failed',
     diagnosticSha256: 'a'.repeat(64),
   })}\n`);
   const result = spawnSync(process.execPath, [
     PACK_PRODUCTION,
     'evaluate',
     '--plan', planFile,
+    '--artifact-gate', gateFile,
     '--results-dir', resultsDir,
     '--cli', cli,
-    '--expected-cli-version', '2.10.0',
-    '--skills-dir', directory,
-    '--run-id', context.runId,
-    '--run-attempt', String(context.runAttempt),
-    '--commit-sha', context.commitSha,
-    '--model', context.model,
-    '--judge-model', context.judgeModel,
+    '--skills-dir', skillsDir,
     '--infrastructure-failure-file', failureFile,
   ], { encoding: 'utf8' });
 
@@ -1281,8 +1397,8 @@ exit 99
     schemaVersion: 'marketplace.pack-production-infrastructure-failure/v1',
     stage: 'agent_preflight',
     reason: 'deterministic_http',
-    status: 400,
-    errorCategory: 'invalid_output_token_limit',
+    status: 401,
+    errorCategory: 'authentication_failed',
     diagnosticSha256: 'a'.repeat(64),
     pathSha256: null,
     modelSha256: null,
@@ -1293,15 +1409,10 @@ exit 99
     PACK_PRODUCTION,
     'evaluate',
     '--plan', planFile,
+    '--artifact-gate', gateFile,
     '--results-dir', replayResultsDir,
     '--cli', cli,
-    '--expected-cli-version', '2.10.0',
-    '--skills-dir', directory,
-    '--run-id', context.runId,
-    '--run-attempt', String(context.runAttempt),
-    '--commit-sha', context.commitSha,
-    '--model', context.model,
-    '--judge-model', context.judgeModel,
+    '--skills-dir', skillsDir,
     '--infrastructure-failure-file', failureFile,
   ], { encoding: 'utf8' });
   assert.equal(replay.status, 0, replay.stderr);
@@ -1532,33 +1643,46 @@ test('finalize fails closed when a newer content dispatch supersedes its nonce',
   }, expected, 'generation-1'), /was superseded/);
 });
 
-test('persist POSTs every verified v4 candidate-null outcome and creates no Pack', async () => {
+test('persist POSTs every verified v4 candidate-null outcome and creates no Pack', async (t) => {
   const directory = mkdtempSync(join(tmpdir(), 'pack-production-persist-audits-'));
-  const makeRejected = (generationId, outcome) => {
-    const report = cliReport();
-    report.generationId = generationId;
-    report.outcome = outcome;
-    report.outcomeReason = `${outcome} fixture`;
-    report.manifest = null;
-    report.packVerification = null;
-    report.baselineVerification = null;
-    return buildApiEvaluation(report, { ...context, generationId });
+  const report = cliReport();
+  report.outcome = 'infrastructure_failed';
+  report.outcomeReason = 'infrastructure_failed fixture';
+  report.manifest = null;
+  report.packVerification = null;
+  report.baselineVerification = null;
+  const plan = immutableProductionPlan(report.scenario, report.generationId);
+  const evaluationContext = {
+    ...context,
+    model: plan.executionBinding.models.runner.identity,
+    modelRevision: plan.executionBinding.models.runner.revision,
+    modelPinType: plan.executionBinding.models.runner.pinType,
+    judgeModel: plan.executionBinding.models.judge.identity,
+    judgeModelRevision: plan.executionBinding.models.judge.revision,
+    judgeModelPinType: plan.executionBinding.models.judge.pinType,
+    executionPlanDigest: plan.digest,
   };
   const evaluations = [
-    ['01-quality.evaluation.json', makeRejected('11111111-1111-4111-8111-111111111111', 'quality_rejected')],
-    ['02-infrastructure.evaluation.json', makeRejected('22222222-2222-4222-8222-222222222222', 'infrastructure_failed')],
+    ['01-infrastructure.evaluation.json', buildApiEvaluation(report, evaluationContext)],
   ];
   for (const [file, evaluation] of evaluations) {
     writeFileSync(join(directory, file), `${JSON.stringify(evaluation, null, 2)}\n`);
   }
   writeFileSync(join(directory, 'evaluation-verification.json'), `${JSON.stringify({
     schemaVersion: 'marketplace.pack-production-evaluation-verification/v1',
+    executionPlanDigest: plan.digest,
     selectedGenerationId: null,
     files: evaluations.map(([file]) => ({
       file,
       sha256: createHash('sha256').update(readFileSync(join(directory, file))).digest('hex'),
     })),
   })}\n`);
+  const { planFile, gateFile } = writePlanGate(
+    directory,
+    plan,
+    'evaluate',
+    'pack-production-evaluation',
+  );
 
   const observed = [];
   const server = createServer((request, response) => {
@@ -1588,11 +1712,24 @@ test('persist POSTs every verified v4 candidate-null outcome and creates no Pack
     });
   });
   server.listen(0, '127.0.0.1');
-  await once(server, 'listening');
+  try {
+    await Promise.race([
+      once(server, 'listening'),
+      once(server, 'error').then(([error]) => Promise.reject(error)),
+    ]);
+  } catch (error) {
+    if (error?.code === 'EPERM') {
+      t.skip('local listening sockets are disabled by the test sandbox');
+      return;
+    }
+    throw error;
+  }
   const address = server.address();
   const child = spawn(process.execPath, [
     PACK_PRODUCTION,
     'persist',
+    '--plan', planFile,
+    '--artifact-gate', gateFile,
     '--results-dir', directory,
     '--api-url', `http://127.0.0.1:${address.port}`,
     '--token', 'test-token',
@@ -1606,11 +1743,8 @@ test('persist POSTs every verified v4 candidate-null outcome and creates no Pack
   await once(server, 'close');
 
   assert.equal(status, 0, stderr);
-  assert.equal(observed.length, 2);
-  assert.deepEqual(observed.map((item) => item.evaluation.outcome), [
-    'quality_rejected',
-    'infrastructure_failed',
-  ]);
+  assert.equal(observed.length, 1);
+  assert.deepEqual(observed.map((item) => item.evaluation.outcome), ['infrastructure_failed']);
   assert.ok(observed.every((item) => (
     item.method === 'POST'
     && item.url === '/api/automation/packs/production'
@@ -1619,7 +1753,7 @@ test('persist POSTs every verified v4 candidate-null outcome and creates no Pack
   )));
   const summary = JSON.parse(stdout);
   assert.equal(summary.selected, null);
-  assert.equal(summary.persisted.length, 2);
+  assert.equal(summary.persisted.length, 1);
   assert.ok(summary.persisted.every((item) => (
     item.auditOnly === true
     && item.persistedRemotely === true
@@ -1784,30 +1918,36 @@ test('internal SIGTERM becomes a verified candidate-null infrastructure closure'
   writeFileSync(cli, `#!/bin/sh
 if [ "$1" = "--version" ]; then echo "skillstore-cli 2.10.0"; exit 0; fi
 touch ${JSON.stringify(marker)}
-while :; do sleep 1; done
+  while :; do sleep 1; done
 `);
   chmodSync(cli, 0o755);
-  writeFileSync(planFile, `${JSON.stringify(immutableProductionPlan(cliReport().scenario))}\n`);
+  const skillsDir = join(directory, 'skills');
+  mkdirSync(skillsDir);
+  writeFileSync(join(skillsDir, 'fixture.txt'), 'fixture\n');
+  const plan = immutableProductionPlan(cliReport().scenario, context.generationId, {
+    cliSha256: createHash('sha256').update(readFileSync(cli)).digest('hex'),
+    skillsDir,
+    parameters: {
+      timeoutsMs: {
+        evaluationBudget: 10_000,
+        minimumFallback: 1,
+        scenario: 10_000,
+        scenarioIdle: 10_000,
+      },
+    },
+  });
+  const gateFile = writePlanGate(directory, plan).gateFile;
   const common = [
     '--plan', planFile,
+    '--artifact-gate', gateFile,
     '--results-dir', resultsDir,
     '--cli', cli,
-    '--expected-cli-version', '2.10.0',
-    '--run-id', context.runId,
-    '--run-attempt', String(context.runAttempt),
-    '--commit-sha', context.commitSha,
-    '--model', context.model,
-    '--judge-model', context.judgeModel,
   ];
   const child = spawn(process.execPath, [
     PACK_PRODUCTION,
     'evaluate',
     ...common,
-    '--skills-dir', directory,
-    '--evaluation-budget-ms', '10000',
-    '--scenario-timeout-ms', '10000',
-    '--scenario-idle-timeout-ms', '10000',
-    '--minimum-fallback-ms', '1',
+    '--skills-dir', skillsDir,
   ], { stdio: ['ignore', 'pipe', 'pipe'] });
   let stdout = '';
   let stderr = '';

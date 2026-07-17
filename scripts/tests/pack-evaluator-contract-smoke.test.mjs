@@ -3,7 +3,93 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { createHash } from 'node:crypto';
 import { runContractSmoke } from '../pack-evaluator-contract-smoke.mjs';
+import {
+  CLI_IDENTITY,
+  EXECUTION_SOURCE_FILES,
+  EXECUTOR_PREFLIGHT_SKILLS,
+  EXECUTOR_PREFLIGHT_TASK,
+  MODEL_IDENTITIES,
+  canonicalJson,
+  executionPlanDigest,
+  productionExecutionParameters,
+} from '../pack-production-plan.mjs';
+
+const digest = (value) => createHash('sha256').update(canonicalJson(value)).digest('hex');
+
+function contractExecutionPlan() {
+  const scenario = {
+    generationId: '123e4567-e89b-42d3-a456-426614174000',
+    id: 'contract-smoke',
+    task: 'Return the exact contract token.',
+    capabilitySlots: [{
+      id: 'contract-smoke', name: 'Contract Smoke', task: 'Return the exact token.',
+      keywords: ['contract'], required: true, artifactIds: ['contract-output'],
+    }],
+    requiredArtifacts: [{
+      id: 'contract-output', description: 'Exact contract token.', extensions: ['.txt'], minimumCount: 1,
+    }],
+  };
+  const parameters = productionExecutionParameters(1);
+  const models = {
+    runner: { ...MODEL_IDENTITIES.runner },
+    judge: { ...MODEL_IDENTITIES.judge },
+  };
+  const sourceFiles = EXECUTION_SOURCE_FILES.map((path) => ({
+    gitBlobSha: '1'.repeat(40), path, sha256: '2'.repeat(64),
+  }));
+  const plan = {
+    schemaVersion: 'marketplace.pack-production-execution-plan/v1',
+    scenario,
+    workflowBinding: {
+      repository: 'aiskillstore/marketplace', workflow: 'Generate Pack', runId: '111',
+      runAttempt: 1, headSha: '3'.repeat(40), scenarioId: scenario.id,
+      generationId: scenario.generationId,
+    },
+    executionBinding: {
+      cli: { ...CLI_IDENTITY },
+      evaluatorInputs: {
+        promptSha256: createHash('sha256').update(scenario.task).digest('hex'),
+        rulesSha256: digest({
+          capabilitySlots: scenario.capabilitySlots,
+          requiredArtifacts: scenario.requiredArtifacts,
+        }),
+        configSha256: digest({ cli: CLI_IDENTITY, models, parameters }),
+        scenarioSha256: digest(scenario),
+      },
+      models,
+      parameters,
+      executorPreflight: {
+        generationId: '00000000-0000-4000-8000-000000000001',
+        skillA: {
+          canonicalId: EXECUTOR_PREFLIGHT_SKILLS[0].canonicalId,
+          contentSha256: createHash('sha256').update(EXECUTOR_PREFLIGHT_SKILLS[0].contents).digest('hex'),
+          version: EXECUTOR_PREFLIGHT_SKILLS[0].version,
+        },
+        skillB: {
+          canonicalId: EXECUTOR_PREFLIGHT_SKILLS[1].canonicalId,
+          contentSha256: createHash('sha256').update(EXECUTOR_PREFLIGHT_SKILLS[1].contents).digest('hex'),
+          version: EXECUTOR_PREFLIGHT_SKILLS[1].version,
+        },
+        task: EXECUTOR_PREFLIGHT_TASK,
+      },
+      source: {
+        repositoryTreeSha: '4'.repeat(40),
+        skillsTreeSha: '5'.repeat(40),
+        skillsManifest: {
+          fileCount: 1, totalBytes: 1, sha256: '6'.repeat(64),
+        },
+        files: sourceFiles,
+      },
+    },
+  };
+  return { ...plan, digest: executionPlanDigest(plan) };
+}
+
+function contractSmoke(options) {
+  return runContractSmoke({ ...options, plan: contractExecutionPlan() });
+}
 
 function sse(events) {
   return `${events.map(({ type, data }) => (
@@ -33,11 +119,24 @@ function contractSse(url, { messagesText, responsesText, responsesCompleted = tr
     : sse(responsesEvents(responsesText, { completed: responsesCompleted }));
 }
 
+test('contract smoke rejects calls without the canonical execution Plan', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'pack-contract-smoke-no-plan-'));
+  await assert.rejects(
+    () => runContractSmoke({
+      proxyUrl: 'http://127.0.0.1:1',
+      proxyToken: 'local-token',
+      diagnosticsFile: join(directory, 'diagnostics.json'),
+      fetchImpl: async () => { throw new Error('must not call network'); },
+    }),
+    /Canonical execution Plan is required/,
+  );
+});
+
 test('contract smoke makes one bounded request for Messages and Responses before evaluation', async () => {
   const directory = mkdtempSync(join(tmpdir(), 'pack-contract-smoke-'));
   const diagnosticsFile = join(directory, 'contract-smoke.json');
   const calls = [];
-  const diagnostics = await runContractSmoke({
+  const diagnostics = await contractSmoke({
     proxyUrl: 'http://127.0.0.1:18765',
     token: 'job-local-secret',
     diagnosticsFile,
@@ -78,7 +177,7 @@ test('generated text mismatch is redacted diagnostics and not a protocol failure
   const directory = mkdtempSync(join(tmpdir(), 'pack-contract-smoke-content-'));
   const diagnosticsFile = join(directory, 'contract-smoke.json');
   let calls = 0;
-  const diagnostics = await runContractSmoke({
+  const diagnostics = await contractSmoke({
     proxyUrl: 'http://127.0.0.1:18765',
     token: 'job-local-secret',
     diagnosticsFile,
@@ -112,7 +211,7 @@ for (const emptyContract of ['messages', 'responses']) {
     const diagnosticsFile = join(directory, 'contract-smoke.json');
     let calls = 0;
     await assert.rejects(
-      runContractSmoke({
+      contractSmoke({
         proxyUrl: 'http://127.0.0.1:18765',
         token: 'job-local-secret',
         diagnosticsFile,
@@ -145,7 +244,7 @@ for (const errorContract of ['messages', 'responses']) {
     const diagnosticsFile = join(directory, 'contract-smoke.json');
     let calls = 0;
     await assert.rejects(
-      runContractSmoke({
+      contractSmoke({
         proxyUrl: 'http://127.0.0.1:18765',
         token: 'job-local-secret',
         diagnosticsFile,
@@ -185,7 +284,7 @@ test('HTTP 200 JSON is not accepted as an SSE protocol response', async () => {
   const diagnosticsFile = join(directory, 'contract-smoke.json');
   let calls = 0;
   await assert.rejects(
-    runContractSmoke({
+    contractSmoke({
       proxyUrl: 'http://127.0.0.1:18765',
       token: 'job-local-secret',
       diagnosticsFile,
@@ -209,7 +308,7 @@ test('malformed SSE JSON remains a protocol failure', async () => {
   const diagnosticsFile = join(directory, 'contract-smoke.json');
   let calls = 0;
   await assert.rejects(
-    runContractSmoke({
+    contractSmoke({
       proxyUrl: 'http://127.0.0.1:18765',
       token: 'job-local-secret',
       diagnosticsFile,
@@ -235,7 +334,7 @@ test('wrong first SSE event remains a protocol failure', async () => {
   const directory = mkdtempSync(join(tmpdir(), 'pack-contract-smoke-first-event-'));
   const diagnosticsFile = join(directory, 'contract-smoke.json');
   await assert.rejects(
-    runContractSmoke({
+    contractSmoke({
       proxyUrl: 'http://127.0.0.1:18765',
       token: 'job-local-secret',
       diagnosticsFile,
@@ -263,7 +362,7 @@ test('missing completion SSE event remains a protocol failure', async () => {
   const directory = mkdtempSync(join(tmpdir(), 'pack-contract-smoke-completed-'));
   const diagnosticsFile = join(directory, 'contract-smoke.json');
   await assert.rejects(
-    runContractSmoke({
+    contractSmoke({
       proxyUrl: 'http://127.0.0.1:18765',
       token: 'job-local-secret',
       diagnosticsFile,
@@ -285,7 +384,7 @@ test('contract smoke still sends exactly two probes after an HTTP error without 
   const diagnosticsFile = join(directory, 'contract-smoke.json');
   let calls = 0;
   await assert.rejects(
-    runContractSmoke({
+    contractSmoke({
       proxyUrl: 'http://127.0.0.1:18765',
       token: 'job-local-secret',
       diagnosticsFile,

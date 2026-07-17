@@ -7,6 +7,33 @@ import { chmod, chown, copyFile, mkdir, readFile, readdir, rename, writeFile } f
 import { basename, resolve } from 'node:path';
 import { finished } from 'node:stream/promises';
 import { fileURLToPath } from 'node:url';
+import {
+  EXECUTOR_PREFLIGHT_SKILLS,
+  assertProductionExecutionPolicy,
+  canonicalJson as canonicalPlanJson,
+  createArtifactGate,
+  planRuntimeValues,
+  readArtifactGate,
+  readExecutionPlan as readCanonicalExecutionPlan,
+  validateExecutionPlan,
+  verifyCliAgainstPlan,
+  verifyRuntimeSourceFiles,
+  verifySkillsAgainstPlan,
+} from './pack-production-plan.mjs';
+
+const RUNTIME_SOURCE_FILES = {
+  'scripts/pack-production.mjs': fileURLToPath(import.meta.url),
+  'scripts/pack-production-plan.mjs': fileURLToPath(
+    new URL('./pack-production-plan.mjs', import.meta.url),
+  ),
+};
+
+async function readExecutionPlan(file) {
+  const plan = await readCanonicalExecutionPlan(file);
+  planRuntimeValues(plan);
+  await verifyRuntimeSourceFiles(plan, RUNTIME_SOURCE_FILES);
+  return plan;
+}
 
 const CLI_SCHEMA = 'pack-generation-evaluation/v2';
 const API_SCHEMA = 'skillstore.pack-evaluation/v4';
@@ -70,23 +97,8 @@ function positiveInteger(value, name, fallback) {
   return parsed;
 }
 
-function normalizeJson(value) {
-  if (value === null || typeof value === 'boolean' || typeof value === 'string') return value;
-  if (typeof value === 'number' && Number.isFinite(value)) return value;
-  if (Array.isArray(value)) return value.map(normalizeJson);
-  if (value && typeof value === 'object') {
-    return Object.fromEntries(
-      Object.entries(value)
-        .filter(([, entry]) => entry !== undefined)
-        .sort(([left], [right]) => left.localeCompare(right))
-        .map(([key, entry]) => [key, normalizeJson(entry)]),
-    );
-  }
-  fail('Value is not canonical JSON');
-}
-
 export function canonicalJson(value) {
-  return JSON.stringify(normalizeJson(value));
+  return canonicalPlanJson(value);
 }
 
 function sha256(value) {
@@ -1539,6 +1551,13 @@ export function buildInfrastructureApiEvaluation({
       cliSha256: context.cliSha256,
       model: context.model,
       judgeModel: context.judgeModel,
+      ...(context.executionPlanDigest ? {
+        executionPlanDigest: context.executionPlanDigest,
+        modelRevision: context.modelRevision,
+        modelPinType: context.modelPinType,
+        judgeModelRevision: context.judgeModelRevision,
+        judgeModelPinType: context.judgeModelPinType,
+      } : {}),
       startedAt: safeEvidence.startedAt,
       completedAt: safeEvidence.completedAt,
     },
@@ -1756,6 +1775,13 @@ export function buildApiEvaluation(raw, context) {
       cliSha256: context.cliSha256,
       model: context.model,
       judgeModel: context.judgeModel,
+      ...(context.executionPlanDigest ? {
+        executionPlanDigest: context.executionPlanDigest,
+        modelRevision: context.modelRevision,
+        modelPinType: context.modelPinType,
+        judgeModelRevision: context.judgeModelRevision,
+        judgeModelPinType: context.judgeModelPinType,
+      } : {}),
       startedAt: raw.evaluationStartedAt,
       completedAt: raw.evaluationCompletedAt,
     },
@@ -1766,69 +1792,59 @@ export function buildApiEvaluation(raw, context) {
   return { ...unsigned, evidenceDigest: sha256(canonicalJson(unsigned)) };
 }
 
-function workflowContext(args, generationId, scenarioId, cli, version, checksum) {
-  const runId = required(args, 'run-id');
-  if (!/^[1-9][0-9]*$/.test(runId)) fail('--run-id must be a GitHub Actions numeric run id');
-  const runAttempt = positiveInteger(args['run-attempt'], 'run-attempt', 1);
-  const commitSha = required(args, 'commit-sha');
-  if (!/^[0-9a-f]{40}$/.test(commitSha)) fail('--commit-sha must be a 40-character lowercase SHA');
+function workflowContext(plan, cli, version, checksum) {
+  const workflow = plan.workflowBinding;
+  const models = plan.executionBinding.models;
   return {
-    generationId,
-    scenarioId,
-    runId,
-    runAttempt,
-    commitSha,
+    generationId: workflow.generationId,
+    scenarioId: workflow.scenarioId,
+    runId: workflow.runId,
+    runAttempt: workflow.runAttempt,
+    commitSha: workflow.headSha,
     cli,
     cliVersion: version,
     cliSha256: checksum,
-    model: args.model ?? 'sonnet',
-    judgeModel: args['judge-model'] ?? 'gpt-5.5',
+    model: models.runner.identity,
+    modelRevision: models.runner.revision,
+    modelPinType: models.runner.pinType,
+    judgeModel: models.judge.identity,
+    judgeModelRevision: models.judge.revision,
+    judgeModelPinType: models.judge.pinType,
+    executionPlanDigest: plan.digest,
   };
 }
 
-function exactObjectKeys(value, expected) {
-  return value && typeof value === 'object' && !Array.isArray(value)
-    && canonicalJson(Object.keys(value).sort()) === canonicalJson([...expected].sort());
+export function validateImmutableProductionPlan(plan) {
+  return validateExecutionPlan(plan).scenario;
 }
 
-export function immutablePlanSnapshotSha256(plan) {
-  const { workflowBinding: _workflowBinding, ...snapshot } = plan ?? {};
-  return sha256(canonicalJson(snapshot));
-}
+const DEPRECATED_EXECUTION_OVERRIDES = new Set([
+  'agent-max-retries',
+  'agent-timeout-ms',
+  'auto-publish-threshold',
+  'baseline-delta',
+  'commit-sha',
+  'evaluation-budget-ms',
+  'expected-cli-version',
+  'final-runs',
+  'judge-model',
+  'max-candidates',
+  'minimum-fallback-ms',
+  'model',
+  'pick',
+  'run-attempt',
+  'run-id',
+  'runs',
+  'scenario-idle-timeout-ms',
+  'scenario-timeout-ms',
+  'threshold',
+]);
 
-export function validateImmutableProductionPlan(plan, args) {
-  if (plan?.schemaVersion !== 'pack-production-queue/v1') {
-    fail(`Unsupported plan schema: ${plan?.schemaVersion}`);
+function rejectDeprecatedExecutionOverrides(args, command) {
+  const supplied = [...DEPRECATED_EXECUTION_OVERRIDES].filter((name) => Object.hasOwn(args, name));
+  if (supplied.length > 0) {
+    fail(`${command} rejects deprecated execution override flag(s): ${supplied.map((name) => `--${name}`).join(', ')}`);
   }
-  if (plan.source !== 'signals' || !Array.isArray(plan.scenarios) || plan.scenarios.length !== 1) {
-    fail('Production v4 plan must contain exactly one signal-admitted scenario');
-  }
-  const scenario = plan.scenarios[0];
-  if (!/^[a-z0-9][a-z0-9-]{0,79}$/.test(scenario?.id || '')) fail(`Unsafe scenario id: ${scenario?.id}`);
-  if (!UUID_RE.test(scenario.generationId || '')) {
-    fail(`Immutable plan generation id is invalid for ${scenario.id}`);
-  }
-  const binding = plan.workflowBinding;
-  const bindingKeys = ['repository', 'workflow', 'runId', 'runAttempt', 'commitSha', 'scenarioId', 'planSnapshotSha256'];
-  if (!exactObjectKeys(binding, bindingKeys)) fail('Immutable plan workflow binding has unexpected fields');
-  if (!/^[0-9a-f]{64}$/.test(binding.planSnapshotSha256 || '')) {
-    fail('Immutable plan snapshot SHA-256 is invalid');
-  }
-  if (binding.planSnapshotSha256 !== immutablePlanSnapshotSha256(plan)) {
-    fail('Immutable plan snapshot SHA-256 differs from its bound input snapshot');
-  }
-  const runId = required(args, 'run-id');
-  const runAttempt = positiveInteger(args['run-attempt'], 'run-attempt', 1);
-  const commitSha = required(args, 'commit-sha');
-  if (
-    binding.repository !== EXPECTED_REPOSITORY
-    || binding.workflow !== EXPECTED_WORKFLOW
-    || String(binding.runId) !== runId
-    || binding.runAttempt !== runAttempt
-    || binding.commitSha !== commitSha
-    || binding.scenarioId !== scenario.id
-  ) fail('Immutable plan workflow binding differs from this workflow invocation');
-  return scenario;
 }
 
 function safeSpawnErrorCode(value) {
@@ -1934,35 +1950,56 @@ export function exactExecutorPreflightClosure(raw, expectedBindings) {
 }
 
 export async function executorPreflight(args) {
+  rejectDeprecatedExecutionOverrides(args, 'executor-preflight');
+  for (const name of ['generation-id', 'idle-timeout-ms', 'task', 'timeout-ms']) {
+    if (Object.hasOwn(args, name)) fail(`executor-preflight rejects deprecated execution override flag --${name}`);
+  }
+  const plan = await readExecutionPlan(resolve(required(args, 'plan')));
+  await readArtifactGate(
+    resolve(required(args, 'artifact-gate')),
+    plan,
+    'plan',
+    'pack-production-plan',
+  );
   const cli = resolve(required(args, 'cli'));
-  const expectedCliVersion = required(args, 'expected-cli-version');
-  if (cliVersion(cli) !== expectedCliVersion) fail('Executor preflight CLI version mismatch');
-  const skillDirectories = [
-    resolve(required(args, 'skill-a')),
-    resolve(required(args, 'skill-b')),
-  ];
-  if (skillDirectories[0] === skillDirectories[1]) fail('Executor preflight Skills must be distinct');
-  const expectedBindings = await Promise.all([
-    { canonicalId: 'pack-executor-preflight-a', directory: skillDirectories[0] },
-    { canonicalId: 'pack-executor-preflight-b', directory: skillDirectories[1] },
-  ].map(async ({ canonicalId, directory }) => ({
-    canonicalId,
-    contentHash: await sha256File(resolve(directory, 'SKILL.md')),
-    version: '1.0.0',
-  })));
+  await verifyCliAgainstPlan(plan, cli);
+  const execution = plan.executionBinding;
+  const parameters = execution.parameters;
   const resultsDir = resolve(required(args, 'results-dir'));
   const runtimeRoot = resolve(required(args, 'evaluator-runtime-root'));
-  const generationId = required(args, 'generation-id');
-  if (!UUID_RE.test(generationId)) fail('--generation-id must be a UUID');
+  const preflightRoot = resolve(required(args, 'preflight-root'));
+  const generationId = execution.executorPreflight.generationId;
   const uid = positiveInteger(required(args, 'evaluator-uid'), 'evaluator-uid');
   const gid = positiveInteger(required(args, 'evaluator-gid'), 'evaluator-gid');
-  const timeoutMs = positiveInteger(args['timeout-ms'], 'timeout-ms', 360_000);
-  const idleTimeoutMs = positiveInteger(args['idle-timeout-ms'], 'idle-timeout-ms', 240_000);
-  const agentTimeoutMs = positiveInteger(args['agent-timeout-ms'], 'agent-timeout-ms', 180_000);
+  const timeoutMs = parameters.timeoutsMs.executorPreflight;
+  const idleTimeoutMs = parameters.timeoutsMs.executorPreflightIdle;
+  const agentTimeoutMs = parameters.timeoutsMs.executorPreflightAgent;
   const proxyActivityFile = args['proxy-activity-file']
     ? resolve(args['proxy-activity-file'])
     : null;
   await mkdir(resultsDir, { recursive: true, mode: 0o700 });
+  const skillDirectories = await Promise.all(EXECUTOR_PREFLIGHT_SKILLS.map(async (skill, index) => {
+    const directory = resolve(preflightRoot, `skill-${index + 1}`);
+    await mkdir(directory, { recursive: true, mode: 0o700 });
+    await chown(directory, uid, gid);
+    const skillFile = resolve(directory, 'SKILL.md');
+    await writeFile(skillFile, skill.contents, { mode: 0o444 });
+    await chown(skillFile, uid, gid);
+    await chmod(skillFile, 0o444);
+    return directory;
+  }));
+  const expectedBindings = await Promise.all([
+    execution.executorPreflight.skillA,
+    execution.executorPreflight.skillB,
+  ].map(async (skill, index) => {
+    const contentHash = await sha256File(resolve(skillDirectories[index], 'SKILL.md'));
+    if (contentHash !== skill.contentSha256) fail('Executor preflight Skill bytes differ from the execution Plan');
+    return {
+      canonicalId: skill.canonicalId,
+      contentHash,
+      version: skill.version,
+    };
+  }));
   const stdoutFile = resolve(resultsDir, 'executor-preflight.raw.json');
   const stderrFile = resolve(resultsDir, 'executor-preflight.run.log');
   const progressFile = resolve(resultsDir, 'executor-preflight.progress.ndjson');
@@ -1981,10 +2018,7 @@ export async function executorPreflight(args) {
     const manifestFile = resolve(runtime.cwd, 'pack-executor-preflight-manifest.json');
     await writeFile(manifestFile, `${JSON.stringify({
       schemaVersion: 'skillstore.pack-executor-preflight-manifest/v1',
-      task: args.task ?? [
-        'Invoke Skill pack-executor-preflight-a first and Skill pack-executor-preflight-b second.',
-        'After both Skills load successfully, reply with exactly PACK_EVALUATOR_READY and nothing else.',
-      ].join(' '),
+      task: execution.executorPreflight.task,
       skills: expectedBindings.map((binding, index) => ({
         directory: skillDirectories[index],
         ...binding,
@@ -1994,10 +2028,10 @@ export async function executorPreflight(args) {
     processResult = await runEvaluatorProcess(cli, [
       'pack', 'executor-preflight',
       '--manifest', manifestFile,
-      '--model', args.model ?? 'sonnet',
-      '--judge-model', args['judge-model'] ?? 'gpt-5.5',
+      '--model', execution.models.runner.identity,
+      '--judge-model', execution.models.judge.identity,
       '--agent-timeout-ms', String(agentTimeoutMs),
-      '--agent-max-retries', '1',
+      '--agent-max-retries', String(parameters.retries.agentMaxRetries),
     ], {
       cwd: runtime.cwd,
       env: runtime.env,
@@ -2010,7 +2044,8 @@ export async function executorPreflight(args) {
       generationId,
       timeoutMs,
       idleTimeoutMs,
-      heartbeatMs: 30_000,
+      heartbeatMs: parameters.timeoutsMs.executorPreflightHeartbeat,
+      killGraceMs: parameters.timeoutsMs.processKillGrace,
       ...(proxyActivityFile ? { externalActivityFile: proxyActivityFile } : {}),
       onProgress: () => {},
     });
@@ -2057,6 +2092,7 @@ export async function executorPreflight(args) {
   const stderrEvidence = await readFile(stderrFile).catch(() => Buffer.alloc(0));
   const summary = {
     schemaVersion: 'marketplace.pack-executor-preflight/v1',
+    executionPlanDigest: plan.digest,
     mode: 'pack-production-node-uid-nested-bwrap',
     outcome,
     errorClass,
@@ -2089,41 +2125,33 @@ export async function executorPreflight(args) {
 }
 
 async function evaluate(args) {
+  rejectDeprecatedExecutionOverrides(args, 'evaluate');
+  const plan = await readExecutionPlan(resolve(required(args, 'plan')));
+  await readArtifactGate(
+    resolve(required(args, 'artifact-gate')),
+    plan,
+    'plan',
+    'pack-production-plan',
+  );
   const cli = resolve(required(args, 'cli'));
-  const plan = await readJson(resolve(required(args, 'plan')));
   const resultsDir = resolve(required(args, 'results-dir'));
   const skillsDir = resolve(required(args, 'skills-dir'));
-  validateImmutableProductionPlan(plan, args);
+  await verifyCliAgainstPlan(plan, cli);
+  await verifySkillsAgainstPlan(plan, skillsDir);
   await mkdir(resultsDir, { recursive: true });
 
-  const version = cliVersion(cli);
-  const expectedVersion = required(args, 'expected-cli-version');
-  if (version !== expectedVersion) fail(`CLI version mismatch: expected ${expectedVersion}, got ${version}`);
+  const version = plan.executionBinding.cli.version;
   const checksum = await sha256File(cli);
-  const evaluationBudgetMs = positiveInteger(
-    args['evaluation-budget-ms'],
-    'evaluation-budget-ms',
-    230 * 60_000,
-  );
-  const maxScenarioMs = positiveInteger(
-    args['scenario-timeout-ms'],
-    'scenario-timeout-ms',
-    120 * 60_000,
-  );
-  const scenarioIdleTimeoutMs = positiveInteger(
-    args['scenario-idle-timeout-ms'],
-    'scenario-idle-timeout-ms',
-    20 * 60_000,
-  );
+  const parameters = plan.executionBinding.parameters;
+  const evaluationBudgetMs = parameters.timeoutsMs.evaluationBudget;
+  const maxScenarioMs = parameters.timeoutsMs.scenario;
+  const scenarioIdleTimeoutMs = parameters.timeoutsMs.scenarioIdle;
   const proxyActivityFile = args['proxy-activity-file'] ? resolve(args['proxy-activity-file']) : null;
   const externalInfrastructureFailure = args['infrastructure-failure-file']
     ? normalizeInfrastructureFailure(await readJson(resolve(args['infrastructure-failure-file'])))
     : null;
-  const minimumFallbackMs = positiveInteger(
-    args['minimum-fallback-ms'],
-    'minimum-fallback-ms',
-    45 * 60_000,
-  );
+  const minimumFallbackMs = parameters.timeoutsMs.minimumFallback;
+  const scenarios = [plan.scenario];
   const progressFile = resolve(resultsDir, 'evaluate-progress.ndjson');
   const checkpointFile = resolve(resultsDir, 'evaluate-checkpoint.json');
   await writeFile(progressFile, '', { mode: 0o600 });
@@ -2153,6 +2181,7 @@ async function evaluate(args) {
 
   const buildSummary = () => ({
     schemaVersion: 'marketplace.pack-production-evaluate/v1',
+    executionPlanDigest: plan.digest,
     cliVersion: version,
     cliSha256: checksum,
     evaluationBudgetMs,
@@ -2165,12 +2194,12 @@ async function evaluate(args) {
     await writeJson(resolve(resultsDir, 'evaluate-summary.json'), buildSummary());
   };
 
-  for (const [scenarioIndex, scenario] of plan.scenarios.entries()) {
+  for (const [scenarioIndex, scenario] of scenarios.entries()) {
     if (!/^[a-z0-9][a-z0-9-]{0,79}$/.test(scenario.id || '')) fail(`Unsafe scenario id: ${scenario.id}`);
     const remainingBudgetMs = evaluationDeadline - Date.now();
     const scenarioBudgetMs = allocateScenarioBudgetMs({
       remainingBudgetMs,
-      remainingScenarios: plan.scenarios.length - scenarioIndex,
+      remainingScenarios: scenarios.length - scenarioIndex,
       maxScenarioMs,
       minimumFallbackMs,
     });
@@ -2187,23 +2216,23 @@ async function evaluate(args) {
     }
     const ordinal = String(scenarioIndex + 1).padStart(2, '0');
     const generationId = scenario.generationId;
-    const context = workflowContext(args, generationId, scenario.id, cli, version, checksum);
+    const context = workflowContext(plan, cli, version, checksum);
     const commandArgs = [
       'pack', 'generate',
       '--scenario', scenario.id,
       '--generation-id', generationId,
       '--skills-dir', skillsDir,
-      '--max-candidates', args['max-candidates'] ?? '3',
-      '--pick', args.pick ?? '4',
+      '--max-candidates', String(parameters.generation.maxCandidates),
+      '--pick', String(parameters.generation.pick),
       '--model', context.model,
       '--judge-model', context.judgeModel,
-      '--runs', args.runs ?? '1',
-      '--final-runs', args['final-runs'] ?? '3',
-      '--agent-timeout-ms', args['agent-timeout-ms'] ?? '360000',
-      '--agent-max-retries', args['agent-max-retries'] ?? '1',
-      '--threshold', args.threshold ?? '7',
-      '--baseline-delta', args['baseline-delta'] ?? '1',
-      '--auto-publish-threshold', args['auto-publish-threshold'] ?? '8',
+      '--runs', String(parameters.generation.runs),
+      '--final-runs', String(parameters.generation.finalRuns),
+      '--agent-timeout-ms', String(parameters.timeoutsMs.agent),
+      '--agent-max-retries', String(parameters.retries.agentMaxRetries),
+      '--threshold', String(parameters.generation.threshold),
+      '--baseline-delta', String(parameters.generation.baselineDelta),
+      '--auto-publish-threshold', String(parameters.generation.autoPublishThreshold),
       '--json',
     ];
     const partialStdoutFile = resolve(resultsDir, `${ordinal}-${scenario.id}.stdout.partial`);
@@ -2274,10 +2303,12 @@ async function evaluate(args) {
         label: scenario.id,
         generationId,
         scenarioIndex: scenarioIndex + 1,
-        scenarioCount: plan.scenarios.length,
+        scenarioCount: scenarios.length,
         progressSequenceStart: progressSequence,
         timeoutMs: scenarioBudgetMs,
         idleTimeoutMs: scenarioIdleTimeoutMs,
+        heartbeatMs: parameters.timeoutsMs.evaluatorHeartbeat,
+        killGraceMs: parameters.timeoutsMs.processKillGrace,
         ...(proxyActivityFile ? { externalActivityFile: proxyActivityFile } : {}),
         ...(hasEvaluatorIdentity ? { uid: evaluatorUid, gid: evaluatorGid } : {}),
         env: runtime.env,
@@ -2391,18 +2422,28 @@ async function evaluate(args) {
 }
 
 async function verifyEvaluation(args) {
+  rejectDeprecatedExecutionOverrides(args, 'verify');
+  const plan = await readExecutionPlan(resolve(required(args, 'plan')));
+  await readArtifactGate(
+    resolve(required(args, 'artifact-gate')),
+    plan,
+    'plan',
+    'pack-production-plan',
+  );
   const cli = resolve(required(args, 'cli'));
-  const plan = await readJson(resolve(required(args, 'plan')));
   const resultsDir = resolve(required(args, 'results-dir'));
   const summary = await readJson(resolve(resultsDir, 'evaluate-summary.json'));
-  validateImmutableProductionPlan(plan, args);
   if (summary.schemaVersion !== 'marketplace.pack-production-evaluate/v1') {
     fail(`Unsupported evaluate summary schema: ${summary.schemaVersion}`);
   }
-  if (!Array.isArray(summary.reports) || summary.reports.length < 1 || summary.reports.length > plan.scenarios.length) {
+  if (summary.executionPlanDigest !== plan.digest) {
+    fail('Evaluate summary differs from the execution Plan digest');
+  }
+  const scenarios = [plan.scenario];
+  if (!Array.isArray(summary.reports) || summary.reports.length < 1 || summary.reports.length > scenarios.length) {
     fail('Evaluate summary report count is outside the immutable plan');
   }
-  if (!Array.isArray(summary.attempts) || summary.attempts.length !== plan.scenarios.length) {
+  if (!Array.isArray(summary.attempts) || summary.attempts.length !== scenarios.length) {
     fail('Evaluate summary attempts do not exactly cover the immutable plan');
   }
   const incompleteAttempts = summary.attempts.filter((attempt) => attempt?.status !== 'completed');
@@ -2413,7 +2454,7 @@ async function verifyEvaluation(args) {
     );
   }
   for (const [planIndex, attempt] of summary.attempts.entries()) {
-    const scenario = plan.scenarios[planIndex];
+    const scenario = scenarios[planIndex];
     if (
       attempt?.planIndex !== planIndex
       || attempt.scenarioId !== scenario.id
@@ -2421,10 +2462,10 @@ async function verifyEvaluation(args) {
     ) fail('Evaluate summary attempt differs from the immutable plan generation binding');
   }
 
-  const version = cliVersion(cli);
-  const expectedVersion = required(args, 'expected-cli-version');
-  if (version !== expectedVersion || summary.cliVersion !== version) {
-    fail(`Evaluation CLI version mismatch: expected ${expectedVersion}, got ${version}/${summary.cliVersion}`);
+  await verifyCliAgainstPlan(plan, cli);
+  const version = plan.executionBinding.cli.version;
+  if (summary.cliVersion !== version) {
+    fail(`Evaluation CLI version mismatch: expected ${version}, got ${summary.cliVersion}`);
   }
   const checksum = await sha256File(cli);
   if (summary.cliSha256 !== checksum) fail('Evaluation CLI checksum differs from the trusted CLI');
@@ -2437,12 +2478,12 @@ async function verifyEvaluation(args) {
   let previousPlanIndex = -1;
   for (const [index, report] of summary.reports.entries()) {
     const planIndex = report.planIndex ?? index;
-    if (!Number.isSafeInteger(planIndex) || planIndex < 0 || planIndex >= plan.scenarios.length) {
+    if (!Number.isSafeInteger(planIndex) || planIndex < 0 || planIndex >= scenarios.length) {
       fail(`Invalid evaluate summary plan index: ${report.planIndex}`);
     }
     if (planIndex <= previousPlanIndex) fail('Evaluate summary plan indexes are not strictly increasing');
     previousPlanIndex = planIndex;
-    const scenario = plan.scenarios[planIndex];
+    const scenario = scenarios[planIndex];
     if (!scenario || report.scenarioId !== scenario.id) fail('Evaluate summary scenario differs from the immutable plan');
     if (!/^[a-z0-9][a-z0-9-]{0,79}$/.test(scenario.id)) fail(`Unsafe scenario id: ${scenario.id}`);
     if (report.generationId !== scenario.generationId) {
@@ -2465,7 +2506,7 @@ async function verifyEvaluation(args) {
     ) {
       fail(`Evaluate summary outcome differs from stdout for ${scenario.id}`);
     }
-    const context = workflowContext(args, report.generationId, scenario.id, cli, version, checksum);
+    const context = workflowContext(plan, cli, version, checksum);
     const rebuilt = buildApiEvaluation(raw, context);
     const recorded = await readJson(resolve(resultsDir, evaluationFile));
     if (canonicalJson(recorded) !== canonicalJson(rebuilt)) {
@@ -2494,6 +2535,7 @@ async function verifyEvaluation(args) {
   ));
   const verification = {
     schemaVersion: VERIFICATION_SCHEMA,
+    executionPlanDigest: plan.digest,
     cliVersion: version,
     cliSha256: checksum,
     selectedGenerationId,
@@ -2767,11 +2809,20 @@ export async function readExactPublicPack(base, expected, fetchImpl = fetch) {
 }
 
 async function persist(args) {
+  const plan = await readExecutionPlan(resolve(required(args, 'plan')));
+  await readArtifactGate(
+    resolve(required(args, 'artifact-gate')),
+    plan,
+    'evaluate',
+    'pack-production-evaluation',
+  );
   const resultsDir = resolve(required(args, 'results-dir'));
-  const token = required(args, 'token');
-  const base = apiBase(args);
   const verification = await readJson(resolve(resultsDir, 'evaluation-verification.json'));
-  if (verification.schemaVersion !== VERIFICATION_SCHEMA || !Array.isArray(verification.files)) {
+  if (
+    verification.schemaVersion !== VERIFICATION_SCHEMA
+    || verification.executionPlanDigest !== plan.digest
+    || !Array.isArray(verification.files)
+  ) {
     fail('Trusted evaluation verification is missing or invalid');
   }
   const files = (await readdir(resultsDir))
@@ -2800,7 +2851,12 @@ async function persist(args) {
     file,
     evaluation: await readJson(resolve(resultsDir, file)),
   })));
+  if (evaluations.some(({ evaluation }) => evaluation.evaluator?.executionPlanDigest !== plan.digest)) {
+    fail('Persist evaluation artifact differs from the execution Plan');
+  }
   const persistencePlan = planTrustedPersistence(evaluations, verification.selectedGenerationId ?? null);
+  const token = required(args, 'token');
+  const base = apiBase(args);
   const persisted = persistencePlan.auditOnly.map(({ file, evaluation }) => ({
     file,
     request: evaluation,
@@ -2852,6 +2908,7 @@ async function persist(args) {
   }
   const summary = {
     schemaVersion: 'marketplace.pack-production-persist/v1',
+    executionPlanDigest: plan.digest,
     persisted,
     selected,
   };
@@ -2944,8 +3001,18 @@ export function buildHardDisabledReviewPendingResult(selected, autoPublishReques
 }
 
 async function finalize(args) {
+  const plan = await readExecutionPlan(resolve(required(args, 'plan')));
+  await readArtifactGate(
+    resolve(required(args, 'artifact-gate')),
+    plan,
+    'persist',
+    'pack-production-persisted',
+  );
   const resultsDir = resolve(required(args, 'results-dir'));
   const persisted = await readJson(resolve(resultsDir, 'persist-summary.json'));
+  if (persisted.executionPlanDigest !== plan.digest) {
+    fail('Persist summary differs from the execution Plan');
+  }
   const selected = persisted.selected;
   const rawOutcomes = persisted.persisted.map((item) => item.request.outcome);
   if (!selected) {
@@ -3046,9 +3113,27 @@ async function reportSlo(args) {
   process.stdout.write(`${JSON.stringify(result)}\n`);
 }
 
+async function artifactGate(args) {
+  const gate = await createArtifactGate(
+    resolve(required(args, 'plan')),
+    resolve(required(args, 'state')),
+    resolve(required(args, 'output')),
+  );
+  process.stdout.write(`${JSON.stringify(gate)}\n`);
+}
+
+async function printPlanValues(args) {
+  const plan = await readExecutionPlan(resolve(required(args, 'plan')));
+  process.stdout.write(`${JSON.stringify(planRuntimeValues(plan))}\n`);
+}
+
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   switch (args.command) {
+    case 'artifact-gate':
+      return artifactGate(args);
+    case 'plan-values':
+      return printPlanValues(args);
     case 'executor-preflight':
       return executorPreflight(args);
     case 'evaluate':
@@ -3062,7 +3147,7 @@ async function main() {
     case 'slo':
       return reportSlo(args);
     default:
-      fail('Usage: pack-production.mjs <executor-preflight|evaluate|verify|persist|finalize|slo> [options]');
+      fail('Usage: pack-production.mjs <artifact-gate|plan-values|executor-preflight|evaluate|verify|persist|finalize|slo> [options]');
   }
 }
 

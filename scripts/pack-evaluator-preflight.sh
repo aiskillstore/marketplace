@@ -3,37 +3,15 @@ set -euo pipefail
 
 : "${PACK_EVALUATOR_PROXY_TOKEN:?PACK_EVALUATOR_PROXY_TOKEN is required}"
 : "${PACK_DIAGNOSTICS_DIR:?PACK_DIAGNOSTICS_DIR is required}"
-: "${PACK_EVALUATOR_MAX_OUTPUT_TOKENS:?PACK_EVALUATOR_MAX_OUTPUT_TOKENS is required}"
-: "${PACK_PRODUCTION_CLI_VERSION:?PACK_PRODUCTION_CLI_VERSION is required}"
-: "${PACK_EVALUATOR_RUNNER_MODEL:?PACK_EVALUATOR_RUNNER_MODEL is required}"
-: "${PACK_EVALUATOR_JUDGE_MODEL:?PACK_EVALUATOR_JUDGE_MODEL is required}"
-if ! [[ "$PACK_EVALUATOR_MAX_OUTPUT_TOKENS" =~ ^[1-9][0-9]*$ ]]; then
-  echo 'PACK_EVALUATOR_MAX_OUTPUT_TOKENS must be a positive integer' >&2
-  exit 1
-fi
-: "${PACK_EVALUATOR_MARKETPLACE_COMMIT_SHA:?PACK_EVALUATOR_MARKETPLACE_COMMIT_SHA is required}"
-: "${PACK_EVALUATOR_CLI_SHA256:?PACK_EVALUATOR_CLI_SHA256 is required}"
-if ! [[ "$PACK_EVALUATOR_MARKETPLACE_COMMIT_SHA" =~ ^[0-9a-f]{40}$ ]]; then
-  echo 'PACK_EVALUATOR_MARKETPLACE_COMMIT_SHA must be a lowercase Git commit SHA' >&2
-  exit 1
-fi
-if ! [[ "$PACK_EVALUATOR_CLI_SHA256" =~ ^[0-9a-f]{64}$ ]]; then
-  echo 'PACK_EVALUATOR_CLI_SHA256 must be a lowercase SHA-256' >&2
-  exit 1
-fi
+: "${PACK_EVALUATOR_PLAN_PATH:?PACK_EVALUATOR_PLAN_PATH is required}"
+: "${PACK_EVALUATOR_ARTIFACT_GATE_PATH:?PACK_EVALUATOR_ARTIFACT_GATE_PATH is required}"
 
-readonly PREFLIGHT_TIMEOUT_SECONDS=420
-readonly AGENT_TIMEOUT_MS=180000
 readonly NODE=/opt/pack-evaluator/bin/node
 readonly CLI=/opt/pack-evaluator/bin/skillstore-cli
 readonly ORCHESTRATOR=/opt/pack-evaluator/lib/pack-production.mjs
 readonly RUNTIME_ROOT=/opt/pack-evaluator/generations
-readonly PREFLIGHT_GENERATION_ID=00000000-0000-4000-8000-000000000001
 readonly PREFLIGHT_ROOT=/home/packeval/tmp/skillstore-executor-preflight
-readonly PREFLIGHT_SKILL_A="$PREFLIGHT_ROOT/input/skill-a"
-readonly PREFLIGHT_SKILL_B="$PREFLIGHT_ROOT/input/skill-b"
 readonly PREFLIGHT_RAW="$PREFLIGHT_ROOT/raw"
-readonly PREFLIGHT_TASK='Invoke Skill pack-executor-preflight-a first and Skill pack-executor-preflight-b second. After both Skills load successfully, reply with exactly PACK_EVALUATOR_READY and nothing else.'
 readonly CLI_STDOUT="$(mktemp)"
 readonly CLI_STDERR="$(mktemp)"
 readonly ACTIVITY_SLICE="$(mktemp)"
@@ -42,14 +20,58 @@ for executable in "$NODE" "$CLI" /usr/bin/bwrap /usr/bin/jq /usr/bin/prlimit /us
   [ -x "$executable" ] || { echo "Required evaluator executable is missing: $executable" >&2; exit 1; }
 done
 [ -r "$ORCHESTRATOR" ] || { echo 'Pack production orchestrator is missing' >&2; exit 1; }
+[ -r "$PACK_EVALUATOR_PLAN_PATH" ] || { echo 'Canonical execution Plan is missing' >&2; exit 1; }
+[ -r "$PACK_EVALUATOR_ARTIFACT_GATE_PATH" ] || { echo 'Plan artifact gate is missing' >&2; exit 1; }
+
+readonly PLAN_VALUES="$("$NODE" "$ORCHESTRATOR" plan-values --plan "$PACK_EVALUATOR_PLAN_PATH")"
+EXPECTED_PREFLIGHT_SHA256=$(jq -er '
+  .executionBinding.source.files[]
+  | select(.path == "scripts/pack-evaluator-preflight.sh")
+  | .sha256
+' "$PACK_EVALUATOR_PLAN_PATH")
+ACTUAL_PREFLIGHT_SHA256=$(sha256sum "$0" | awk '{print $1}')
+if [ "$ACTUAL_PREFLIGHT_SHA256" != "$EXPECTED_PREFLIGHT_SHA256" ]; then
+  echo 'Pack evaluator preflight source differs from the execution Plan' >&2
+  exit 1
+fi
+jq -e '
+  (.digest | test("^[0-9a-f]{64}$")) and
+  (.workflowBinding.headSha | test("^[0-9a-f]{40}$")) and
+  (.cli.version | type == "string" and length > 0) and
+  (.cli.releaseAssetSha256 | test("^[0-9a-f]{64}$")) and
+  (.models.runner.pinType == "workflow-pinned alias") and
+  (.models.judge.pinType == "workflow-pinned alias") and
+  (.parameters.tokens.maxOutput | type == "number" and . > 0) and
+  (.parameters.proxy.port | type == "number" and . > 0) and
+  (.parameters.resources.maxProcesses | type == "number" and . > 0) and
+  (.parameters.resources.addressSpaceBytes | type == "number" and . > 0) and
+  (.parameters.timeoutsMs.executorPreflightOuter | type == "number" and . > 0) and
+  (.parameters.timeoutsMs.executorPreflightOuterKillGrace | type == "number" and . > 0) and
+  (.parameters.timeoutsMs.executorPreflightRetryDelay | type == "number" and . > 0) and
+  (.parameters.retries.executorPreflightMaxAttempts | type == "number" and . > 0)
+' <<< "$PLAN_VALUES" >/dev/null
+readonly EXECUTION_PLAN_DIGEST="$(jq -r '.digest' <<< "$PLAN_VALUES")"
+readonly MARKETPLACE_COMMIT_SHA="$(jq -r '.workflowBinding.headSha' <<< "$PLAN_VALUES")"
+readonly CLI_VERSION="$(jq -r '.cli.version' <<< "$PLAN_VALUES")"
+readonly CLI_SHA256="$(jq -r '.cli.releaseAssetSha256' <<< "$PLAN_VALUES")"
+readonly PREFLIGHT_GENERATION_ID="$(jq -r '.executorPreflight.generationId' <<< "$PLAN_VALUES")"
+readonly MAX_OUTPUT_TOKENS="$(jq -r '.parameters.tokens.maxOutput' <<< "$PLAN_VALUES")"
+readonly PREFLIGHT_TIMEOUT_MS="$(jq -r '.parameters.timeoutsMs.executorPreflightOuter' <<< "$PLAN_VALUES")"
+readonly PREFLIGHT_TIMEOUT_SECONDS="$(( (PREFLIGHT_TIMEOUT_MS + 999) / 1000 ))"
+readonly PREFLIGHT_KILL_GRACE_MS="$(jq -r '.parameters.timeoutsMs.executorPreflightOuterKillGrace' <<< "$PLAN_VALUES")"
+readonly PREFLIGHT_KILL_GRACE_SECONDS="$(( (PREFLIGHT_KILL_GRACE_MS + 999) / 1000 ))"
+readonly PREFLIGHT_RETRY_DELAY_MS="$(jq -r '.parameters.timeoutsMs.executorPreflightRetryDelay' <<< "$PLAN_VALUES")"
+readonly PREFLIGHT_RETRY_DELAY_SECONDS="$(( (PREFLIGHT_RETRY_DELAY_MS + 999) / 1000 ))"
+readonly MAX_PREFLIGHT_ATTEMPTS="$(jq -r '.parameters.retries.executorPreflightMaxAttempts' <<< "$PLAN_VALUES")"
+readonly PROXY_PORT="$(jq -r '.parameters.proxy.port' <<< "$PLAN_VALUES")"
+readonly MAX_PROCESSES="$(jq -r '.parameters.resources.maxProcesses' <<< "$PLAN_VALUES")"
+readonly ADDRESS_SPACE_BYTES="$(jq -r '.parameters.resources.addressSpaceBytes' <<< "$PLAN_VALUES")"
 
 cleanup_files() {
   rm -f \
     "$CLI_STDOUT" \
     "$CLI_STDERR" \
-    "$ACTIVITY_SLICE" \
-    "${PREFLIGHT_SKILL_MD_A:-}" \
-    "${PREFLIGHT_SKILL_MD_B:-}"
+    "$ACTIVITY_SLICE"
   sudo rm -rf "$PREFLIGHT_ROOT"
   sudo rm -rf "$RUNTIME_ROOT/$PREFLIGHT_GENERATION_ID"
 }
@@ -129,9 +151,10 @@ should_retry_preflight() {
   local outcome="$1"
   local error_class="$2"
   local attempt="$3"
+  local maximum_attempts="$4"
   [ "$outcome" = 'command_failed' ] && \
     [ "$error_class" = 'retryable_http' ] && \
-    [ "$attempt" -lt 2 ]
+    [ "$attempt" -lt "$maximum_attempts" ]
 }
 
 safe_execution_evidence() {
@@ -286,34 +309,8 @@ mark_recovered_command_attempts() {
   ' <<< "$history"
 }
 
-# The two synthetic Skills are immutable inputs for the exact verifyPack trace
-# path. They have no network/write instructions and live only in disposable HOME.
 sudo rm -rf "$PREFLIGHT_ROOT"
-sudo install -d -o packeval -g packeval -m 0700 "$PREFLIGHT_SKILL_A" "$PREFLIGHT_SKILL_B"
 sudo install -d -o root -g root -m 0700 "$PREFLIGHT_RAW"
-PREFLIGHT_SKILL_MD_A=$(mktemp)
-printf '%s\n' \
-  '---' \
-  'name: pack-executor-preflight-a' \
-  'description: Load first, then follow the evaluator task exactly.' \
-  '---' \
-  '' \
-  'Follow the evaluator task exactly. Do not inspect the host or call external tools.' \
-  > "$PREFLIGHT_SKILL_MD_A"
-PREFLIGHT_SKILL_MD_B=$(mktemp)
-printf '%s\n' \
-  '---' \
-  'name: pack-executor-preflight-b' \
-  'description: Load second, then return the exact marker requested by the evaluator.' \
-  '---' \
-  '' \
-  'Follow the evaluator task exactly. Do not inspect the host or call external tools.' \
-  > "$PREFLIGHT_SKILL_MD_B"
-sudo install -o packeval -g packeval -m 0444 \
-  "$PREFLIGHT_SKILL_MD_A" "$PREFLIGHT_SKILL_A/SKILL.md"
-sudo install -o packeval -g packeval -m 0444 \
-  "$PREFLIGHT_SKILL_MD_B" "$PREFLIGHT_SKILL_B/SKILL.md"
-rm -f "$PREFLIGHT_SKILL_MD_A" "$PREFLIGHT_SKILL_MD_B"
 
 COMMAND_ATTEMPTS='[]'
 RETRY_CLEANUP_OUTCOME=not_needed
@@ -325,7 +322,7 @@ FINAL_EXECUTION_EVIDENCE='[]'
 FINAL_RUNNER_TRACE_EVIDENCE='null'
 FINAL_OUTER_EXECUTION='{}'
 
-for ATTEMPT in 1 2; do
+for ATTEMPT in $(seq 1 "$MAX_PREFLIGHT_ATTEMPTS"); do
   : > "$CLI_STDOUT"
   : > "$CLI_STDERR"
   STARTED_MS=$(date +%s%3N)
@@ -345,28 +342,24 @@ for ATTEMPT in 1 2; do
     SKILLSTORE_AGENT_SANDBOX_RUNTIME_ROOT=/opt/pack-evaluator/runtime \
     PACK_EVALUATOR_CHROMIUM_PATH=/usr/bin/google-chrome \
     PACK_EVALUATOR_PROXY_TOKEN="$PACK_EVALUATOR_PROXY_TOKEN" \
-    ANTHROPIC_BASE_URL=http://127.0.0.1:18765 \
+    ANTHROPIC_BASE_URL="http://127.0.0.1:$PROXY_PORT" \
     ANTHROPIC_AUTH_TOKEN="$PACK_EVALUATOR_PROXY_TOKEN" \
-    CLAUDE_CODE_MAX_OUTPUT_TOKENS="$PACK_EVALUATOR_MAX_OUTPUT_TOKENS" \
+    CLAUDE_CODE_MAX_OUTPUT_TOKENS="$MAX_OUTPUT_TOKENS" \
     NO_PROXY=127.0.0.1,localhost \
-    timeout --signal=TERM --kill-after=5s "${PREFLIGHT_TIMEOUT_SECONDS}s" \
-    prlimit --nproc=256:256 --as=6442450944:6442450944 -- \
+    timeout --signal=TERM --kill-after="${PREFLIGHT_KILL_GRACE_SECONDS}s" "${PREFLIGHT_TIMEOUT_SECONDS}s" \
+    prlimit \
+      --nproc="$MAX_PROCESSES:$MAX_PROCESSES" \
+      --as="$ADDRESS_SPACE_BYTES:$ADDRESS_SPACE_BYTES" \
+      -- \
     "$NODE" "$ORCHESTRATOR" executor-preflight \
+    --plan "$PACK_EVALUATOR_PLAN_PATH" \
+    --artifact-gate "$PACK_EVALUATOR_ARTIFACT_GATE_PATH" \
     --cli "$CLI" \
-    --expected-cli-version "$PACK_PRODUCTION_CLI_VERSION" \
-    --skill-a "$PREFLIGHT_SKILL_A" \
-    --skill-b "$PREFLIGHT_SKILL_B" \
+    --preflight-root "$PREFLIGHT_ROOT/input" \
     --results-dir "$PREFLIGHT_RAW" \
     --evaluator-runtime-root "$RUNTIME_ROOT" \
-    --generation-id "$PREFLIGHT_GENERATION_ID" \
     --evaluator-uid "$(id -u packeval)" \
     --evaluator-gid "$(id -g packeval)" \
-    --task "$PREFLIGHT_TASK" \
-    --model "$PACK_EVALUATOR_RUNNER_MODEL" \
-    --judge-model "$PACK_EVALUATOR_JUDGE_MODEL" \
-    --agent-timeout-ms "$AGENT_TIMEOUT_MS" \
-    --timeout-ms 360000 \
-    --idle-timeout-ms 240000 \
     --proxy-activity-file "$PACK_EVALUATOR_ACTIVITY_FILE" \
     > "$CLI_STDOUT" 2> "$CLI_STDERR" &
   COMMAND_PID=$!
@@ -461,7 +454,11 @@ for ATTEMPT in 1 2; do
     }')
   COMMAND_ATTEMPTS=$(append_command_attempt "$COMMAND_ATTEMPTS" "$ATTEMPT_RECORD")
 
-  if ! should_retry_preflight "$PREFLIGHT_OUTCOME" "$PREFLIGHT_ERROR_CLASS" "$ATTEMPT"; then
+  if ! should_retry_preflight \
+    "$PREFLIGHT_OUTCOME" \
+    "$PREFLIGHT_ERROR_CLASS" \
+    "$ATTEMPT" \
+    "$MAX_PREFLIGHT_ATTEMPTS"; then
     break
   fi
   if cleanup_processes; then
@@ -471,7 +468,7 @@ for ATTEMPT in 1 2; do
     RETRY_CLEANUP_OUTCOME=$([ "$CLEANUP_RC" -eq 1 ] && printf failed || printf probe_failed)
     break
   fi
-  sleep 5
+  sleep "$PREFLIGHT_RETRY_DELAY_SECONDS"
 done
 
 COMMAND_ATTEMPTS=$(mark_recovered_command_attempts "$COMMAND_ATTEMPTS" "$PREFLIGHT_OUTCOME")
@@ -505,9 +502,10 @@ jq -n \
   --argjson http "$HTTP_EVIDENCE" \
   --arg cleanupOutcome "$CLEANUP_OUTCOME" \
   --arg retryCleanupOutcome "$RETRY_CLEANUP_OUTCOME" \
-  --arg marketplaceCommitSha "$PACK_EVALUATOR_MARKETPLACE_COMMIT_SHA" \
-  --arg cliVersion "$PACK_PRODUCTION_CLI_VERSION" \
-  --arg cliSha256 "$PACK_EVALUATOR_CLI_SHA256" \
+  --arg executionPlanDigest "$EXECUTION_PLAN_DIGEST" \
+  --arg marketplaceCommitSha "$MARKETPLACE_COMMIT_SHA" \
+  --arg cliVersion "$CLI_VERSION" \
+  --arg cliSha256 "$CLI_SHA256" \
   '{
     schemaVersion: "marketplace.pack-executor-preflight/v1",
     mode: "pack-production-node-uid-nested-bwrap",
@@ -520,6 +518,7 @@ jq -n \
     http: $http,
     cleanup: { outcome: $cleanupOutcome, retryOutcome: $retryCleanupOutcome },
     proofBinding: {
+      executionPlanDigest: $executionPlanDigest,
       marketplaceCommitSha: $marketplaceCommitSha,
       cliVersion: $cliVersion,
       cliSha256: $cliSha256
