@@ -1,6 +1,6 @@
 ---
 identifier: zhuangxiu-yusuan-jisuanqi
-name: 装修预算计算器
+name: zhuangxiu-yusuan-jisuanqi
 description: 【算装修要花多少钱】输入户型/面积/新房旧房/装修档次，一键估算装修预算——半包施工费、主材费、定制柜、间接费全算清，并告诉你预算单怎么看、容易超在哪。适合想知道"我家装修大概多少钱""半包全包差多少""预算怎么做才不超"的业主。
 version: 1.1.0
 tags:
