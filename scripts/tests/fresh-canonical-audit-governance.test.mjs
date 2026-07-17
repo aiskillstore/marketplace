@@ -114,6 +114,10 @@ test('workflow is two-phase, CLI-pinned, resumable, and closes P0 channels', () 
   assert.match(workflow, /fresh-audit-run\.json/);
   assert.match(workflow, /previous_boundary_run_id/);
   assert.match(workflow, /previous_execute_run_id/);
+  assert.match(workflow, /PREVIOUS_EXECUTE_RUN_ID" = '29619841184'/);
+  assert.match(workflow, /execute_head_sha" = '09cce5e8dac464d8e5f1d0a10446110bd95a9e3f'/);
+  assert.match(workflow, /grep -Ec "\$legacy_hidden_pattern"/);
+  assert.match(workflow, /grep -Ev "\$legacy_hidden_pattern" SHA256SUMS \| sha256sum --check -/);
   assert.equal((workflow.match(/sparse-checkout: ''/g) || []).length, 2);
   assert.equal((workflow.match(/sparse-checkout-cone-mode: false/g) || []).length, 2);
   assert.equal((workflow.match(/git sparse-checkout disable/g) || []).length, 2);
