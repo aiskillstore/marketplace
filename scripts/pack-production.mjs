@@ -192,6 +192,7 @@ const INFRASTRUCTURE_ERROR_CATEGORIES = new Set([
   'model_not_allowed',
   'invalid_output_token_limit',
 ]);
+const INFERENCE_HTTP_PATHS = new Set(['/v1/messages', '/v1/responses']);
 const INTERRUPTED_SIGNALS = new Set(['SIGINT', 'SIGTERM', 'SIGHUP']);
 
 export function normalizeInterruptedSignal(value) {
@@ -286,13 +287,15 @@ export function deterministicHttpFailureFromActivity(contents) {
       continue;
     }
     if (!['response', 'circuit_open'].includes(activity?.phase)) continue;
+    const path = safeActivityToken(activity.path);
+    if (!INFERENCE_HTTP_PATHS.has(path)) continue;
     const status = Number(activity.status);
     if (!Number.isSafeInteger(status) || status < 400 || status >= 500 || [408, 425, 429].includes(status)) {
       continue;
     }
     return {
       status,
-      path: safeActivityToken(activity.path),
+      path,
       model: safeActivityToken(activity.model),
       requestNumber: Number.isSafeInteger(activity.requestNumber) ? activity.requestNumber : null,
       errorType: safeActivityToken(activity.errorType),
