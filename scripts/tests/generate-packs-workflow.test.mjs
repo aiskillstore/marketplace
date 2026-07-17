@@ -334,6 +334,8 @@ test('extracted evaluator preflight is valid bounded bash', () => {
   assert.match(EVALUATOR_PREFLIGHT, /--skill-a "\$PREFLIGHT_SKILL_A"/);
   assert.match(EVALUATOR_PREFLIGHT, /--skill-b "\$PREFLIGHT_SKILL_B"/);
   assert.match(EVALUATOR_PREFLIGHT, /safe_runner_trace_evidence\(\)/);
+  assert.match(EVALUATOR_PREFLIGHT, /safe_runner_trace_diagnostics\(\)/);
+  assert.match(EVALUATOR_PREFLIGHT, /runnerTraceDiagnostics: \$runnerTraceDiagnostics/);
   assert.match(EVALUATOR_PREFLIGHT, /proofBinding:/);
   assert.match(EVALUATOR_PREFLIGHT, /SKILLSTORE_AGENT_ENV_MODE=strict/);
   assert.match(EVALUATOR_PREFLIGHT, /SKILLSTORE_AGENT_SANDBOX_MODE=bwrap/);
@@ -507,6 +509,30 @@ test('invalid trace and outer summaries project explicit JSON fallbacks', () => 
   const report = join(directory, 'report.json');
   writeFileSync(report, JSON.stringify({
     runnerTraceEvidence: { schemaVersion: 'attacker-schema', bindingDigest: 'private path' },
+    runnerTraceDiagnostics: {
+      schemaVersion: 'marketplace.pack-executor-preflight-diagnostics/v1',
+      cliOutcome: 'failed',
+      verification: {
+        passed: false,
+        verdictCount: 1,
+        errorCount: 0,
+        usedSkill: true,
+        usedSkillCount: 2,
+        taskCompleted: true,
+        envBlocked: false,
+      },
+      traceCount: 1,
+      tracesTruncated: false,
+      traces: [{
+        schemaValid: false,
+        agent: 'claude',
+        source: 'claude-stream-json-v1',
+        deterministic: true,
+        eventCount: 2,
+        eventsTruncated: false,
+        failureReason: 'private attacker reason',
+      }],
+    },
     outerExecution: {
       durationMs: 430001,
       rawStderr: 'private process detail',
@@ -514,15 +540,17 @@ test('invalid trace and outer summaries project explicit JSON fallbacks', () => 
   }));
   const script = [
     extractFunction('safe_runner_trace_evidence'),
+    extractFunction('safe_runner_trace_diagnostics'),
     extractFunction('safe_outer_execution'),
     'trace=$(safe_runner_trace_evidence "$1")',
+    'diagnostics=$(safe_runner_trace_diagnostics "$1")',
     'outer=$(safe_outer_execution "$1")',
-    'jq -cn --argjson trace "$trace" --argjson outer "$outer" "{trace: \\$trace, outer: \\$outer}"',
+    'jq -cn --argjson trace "$trace" --argjson diagnostics "$diagnostics" --argjson outer "$outer" "{trace: \\$trace, diagnostics: \\$diagnostics, outer: \\$outer}"',
   ].join('\n');
   const result = spawnSync('bash', ['-c', script, 'invalid-projection', report], { encoding: 'utf8' });
 
   assert.equal(result.status, 0, result.stderr);
-  assert.deepEqual(JSON.parse(result.stdout), { trace: null, outer: {} });
+  assert.deepEqual(JSON.parse(result.stdout), { trace: null, diagnostics: null, outer: {} });
   assert.doesNotMatch(result.stdout, /private|rawStderr|attacker/);
 });
 

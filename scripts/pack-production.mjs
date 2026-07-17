@@ -194,6 +194,24 @@ const INFRASTRUCTURE_ERROR_CATEGORIES = new Set([
 ]);
 const INFERENCE_HTTP_PATHS = new Set(['/v1/messages', '/v1/responses']);
 const INTERRUPTED_SIGNALS = new Set(['SIGINT', 'SIGTERM', 'SIGHUP']);
+const RUNNER_TRACE_FAILURE_REASONS = new Set([
+  'invalid-bindings',
+  'unsupported-agent',
+  'malformed-stream-json',
+  'missing-result-event',
+  'duplicate-result-event',
+  'agent-result-error',
+  'agent-execution-failed',
+  'missing-skill-use',
+  'malformed-skill-use',
+  'unknown-skill-use',
+  'missing-skill-result',
+  'failed-skill-result',
+  'unknown-tool-result',
+  'duplicate-tool-result',
+  'out-of-order-skill-result',
+  'missing-bound-skill',
+]);
 
 export function normalizeInterruptedSignal(value) {
   if (!INTERRUPTED_SIGNALS.has(value)) fail('Evaluator interruption signal is not allowlisted');
@@ -1925,6 +1943,48 @@ export function exactExecutorPreflightClosure(raw, expectedBindings) {
   return exactExecutorPreflightClosureFromEvidence(raw, evidence, expectedBindings);
 }
 
+export function projectExecutorPreflightDiagnostics(raw) {
+  const traces = Array.isArray(raw?.runnerUsageTraces) ? raw.runnerUsageTraces : null;
+  const usedSkills = Array.isArray(raw?.verification?.usedSkills)
+    ? raw.verification.usedSkills
+    : null;
+  const boundedInteger = (value) => Number.isSafeInteger(value) && value >= 0 && value <= 1_000_000
+    ? value
+    : null;
+  const boundedBoolean = (value) => typeof value === 'boolean' ? value : null;
+  return {
+    schemaVersion: 'marketplace.pack-executor-preflight-diagnostics/v1',
+    cliOutcome: raw?.outcome === 'passed' || raw?.outcome === 'failed' ? raw.outcome : 'unknown',
+    verification: {
+      passed: boundedBoolean(raw?.verification?.passed),
+      verdictCount: boundedInteger(raw?.verification?.verdictCount),
+      errorCount: boundedInteger(raw?.verification?.errorCount),
+      usedSkill: boundedBoolean(raw?.verification?.usedSkill),
+      usedSkillCount: usedSkills ? Math.min(usedSkills.length, 1_000) : null,
+      taskCompleted: boundedBoolean(raw?.verification?.taskCompleted),
+      envBlocked: boundedBoolean(raw?.verification?.envBlocked),
+    },
+    traceCount: traces ? Math.min(traces.length, 1_000) : null,
+    tracesTruncated: Boolean(traces && traces.length > 4),
+    traces: (traces ?? []).slice(0, 4).map((trace) => {
+      const events = Array.isArray(trace?.events) ? trace.events : null;
+      return {
+        schemaValid: trace?.schemaVersion === 'skillstore.runner-skill-trace/v1',
+        agent: ['claude', 'codex', 'gemini'].includes(trace?.agent) ? trace.agent : 'unknown',
+        source: ['claude-stream-json-v1', 'unsupported-agent'].includes(trace?.source)
+          ? trace.source
+          : 'unknown',
+        deterministic: boundedBoolean(trace?.deterministic),
+        eventCount: events ? Math.min(events.length, 1_000) : null,
+        eventsTruncated: Boolean(events && events.length > 1_000),
+        failureReason: trace?.failureReason == null
+          ? null
+          : RUNNER_TRACE_FAILURE_REASONS.has(trace.failureReason) ? trace.failureReason : 'unknown',
+      };
+    }),
+  };
+}
+
 export async function executorPreflight(args) {
   const cli = resolve(required(args, 'cli'));
   const expectedCliVersion = required(args, 'expected-cli-version');
@@ -2067,6 +2127,7 @@ export async function executorPreflight(args) {
     },
     agentExecutionEvidence,
     runnerTraceEvidence: closure?.runnerTraceEvidence ?? null,
+    runnerTraceDiagnostics: projectExecutorPreflightDiagnostics(raw),
     verdictCount: Number.isSafeInteger(raw?.verification?.verdictCount)
       ? raw.verification.verdictCount
       : 0,

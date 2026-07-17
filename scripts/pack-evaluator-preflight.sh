@@ -226,6 +226,49 @@ safe_runner_trace_evidence() {
   ' "$source" 2>/dev/null || printf 'null\n'
 }
 
+safe_runner_trace_diagnostics() {
+  local source="$1"
+  jq -c '
+    def bounded_boolean: . == null or (type == "boolean");
+    def bounded_count: . == null or (type == "number" and . >= 0 and . <= 1000000);
+    def failure_reason: . as $reason | $reason == null or ([
+      "invalid-bindings", "unsupported-agent", "malformed-stream-json",
+      "missing-result-event", "duplicate-result-event", "agent-result-error",
+      "agent-execution-failed", "missing-skill-use", "malformed-skill-use",
+      "unknown-skill-use", "missing-skill-result", "failed-skill-result",
+      "unknown-tool-result", "duplicate-tool-result", "out-of-order-skill-result",
+      "missing-bound-skill", "unknown"
+    ] | index($reason) != null);
+    .runnerTraceDiagnostics as $diagnostics
+    | if (
+        ($diagnostics | type) == "object"
+        and $diagnostics.schemaVersion == "marketplace.pack-executor-preflight-diagnostics/v1"
+        and (["passed", "failed", "unknown"] | index($diagnostics.cliOutcome) != null)
+        and ($diagnostics.verification | type) == "object"
+        and ($diagnostics.verification.passed | bounded_boolean)
+        and ($diagnostics.verification.verdictCount | bounded_count)
+        and ($diagnostics.verification.errorCount | bounded_count)
+        and ($diagnostics.verification.usedSkill | bounded_boolean)
+        and ($diagnostics.verification.usedSkillCount | bounded_count)
+        and ($diagnostics.verification.taskCompleted | bounded_boolean)
+        and ($diagnostics.verification.envBlocked | bounded_boolean)
+        and ($diagnostics.traceCount | bounded_count)
+        and ($diagnostics.tracesTruncated | type) == "boolean"
+        and ($diagnostics.traces | type) == "array"
+        and ($diagnostics.traces | length) <= 4
+        and all($diagnostics.traces[];
+          (.schemaValid | type) == "boolean"
+          and (["claude", "codex", "gemini", "unknown"] | index(.agent) != null)
+          and (["claude-stream-json-v1", "unsupported-agent", "unknown"] | index(.source) != null)
+          and (.deterministic | bounded_boolean)
+          and (.eventCount | bounded_count)
+          and (.eventsTruncated | type) == "boolean"
+          and (.failureReason | failure_reason)
+        )
+      ) then $diagnostics else null end
+  ' "$source" 2>/dev/null || printf 'null\n'
+}
+
 safe_outer_execution() {
   local source="$1"
   jq -c '
@@ -334,6 +377,7 @@ HTTP_FATAL_STATUS=''
 HTTP_RETRYABLE_STATUS=''
 FINAL_EXECUTION_EVIDENCE='[]'
 FINAL_RUNNER_TRACE_EVIDENCE='null'
+FINAL_RUNNER_TRACE_DIAGNOSTICS='null'
 FINAL_OUTER_EXECUTION='{}'
 
 for ATTEMPT in 1 2; do
@@ -393,6 +437,7 @@ for ATTEMPT in 1 2; do
   STDERR_SHA256=$(sha256sum "$CLI_STDERR" | awk '{print $1}')
   FINAL_EXECUTION_EVIDENCE=$(safe_execution_evidence "$CLI_STDOUT")
   FINAL_RUNNER_TRACE_EVIDENCE=$(safe_runner_trace_evidence "$CLI_STDOUT")
+  FINAL_RUNNER_TRACE_DIAGNOSTICS=$(safe_runner_trace_diagnostics "$CLI_STDOUT")
   FINAL_OUTER_EXECUTION=$(safe_outer_execution "$CLI_STDOUT")
 
   if [ -n "$HTTP_FATAL_STATUS" ]; then
@@ -510,6 +555,7 @@ jq -n \
   --argjson commandAttempts "$COMMAND_ATTEMPTS" \
   --argjson executionEvidence "$FINAL_EXECUTION_EVIDENCE" \
   --argjson runnerTraceEvidence "$FINAL_RUNNER_TRACE_EVIDENCE" \
+  --argjson runnerTraceDiagnostics "$FINAL_RUNNER_TRACE_DIAGNOSTICS" \
   --argjson outerExecution "$FINAL_OUTER_EXECUTION" \
   --argjson http "$HTTP_EVIDENCE" \
   --arg cleanupOutcome "$CLEANUP_OUTCOME" \
@@ -526,6 +572,7 @@ jq -n \
     outerExecution: $outerExecution,
     agentExecutionEvidence: $executionEvidence,
     runnerTraceEvidence: $runnerTraceEvidence,
+    runnerTraceDiagnostics: $runnerTraceDiagnostics,
     http: $http,
     cleanup: { outcome: $cleanupOutcome, retryOutcome: $retryCleanupOutcome },
     proofBinding: {

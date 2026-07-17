@@ -34,6 +34,7 @@ import {
   normalizeInfrastructureFailure,
   planTrustedPersistence,
   prepareScenarioRuntime,
+  projectExecutorPreflightDiagnostics,
   projectExecutorPreflightEvidence,
   readExactPublicPack,
   runEvaluatorProcess,
@@ -766,6 +767,36 @@ test('executor preflight preserves the validated attempt schema for the shell pr
   const wrongTrace = structuredClone(report);
   wrongTrace.runnerUsageTraces[0].events[1].contentHash = 'f'.repeat(64);
   assert.equal(exactExecutorPreflightClosure(wrongTrace, bindings), null);
+
+  const diagnostics = projectExecutorPreflightDiagnostics(wrongJudge);
+  assert.deepEqual(diagnostics, {
+    schemaVersion: 'marketplace.pack-executor-preflight-diagnostics/v1',
+    cliOutcome: 'passed',
+    verification: {
+      passed: true,
+      verdictCount: 1,
+      errorCount: 0,
+      usedSkill: true,
+      usedSkillCount: 1,
+      taskCompleted: true,
+      envBlocked: false,
+    },
+    traceCount: 1,
+    tracesTruncated: false,
+    traces: [{
+      schemaValid: true,
+      agent: 'claude',
+      source: 'claude-stream-json-v1',
+      deterministic: true,
+      eventCount: 2,
+      eventsTruncated: false,
+      failureReason: null,
+    }],
+  });
+  assert.doesNotMatch(
+    JSON.stringify(diagnostics),
+    /contentHash|bindingDigest|canonicalSkillId|private/,
+  );
 });
 
 test('executor preflight retains bounded failed Agent evidence outside the pass closure', () => {
