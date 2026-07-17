@@ -1,12 +1,12 @@
 import assert from 'node:assert/strict';
 import {
-  chmodSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
   readdirSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from 'node:fs';
 import { basename, join } from 'node:path';
@@ -16,6 +16,17 @@ import { test } from 'node:test';
 
 const reusable = readFileSync('.github/workflows/reusable-process-skills.yml', 'utf8');
 const caller = readFileSync('.github/workflows/process-submission.yml', 'utf8');
+const runtimeFiles = [
+  'schemas/skill-report.schema.json',
+  '.github/actions/download-skillstore-cli/action.yml',
+  '.github/workflows/reusable-process-skills.yml',
+  'scripts/resolve-submission-source.mjs',
+  'scripts/discover-submission-skills.mjs',
+  'scripts/process-submission-shard.mjs',
+  'scripts/submission-shard-contract.mjs',
+  'scripts/aggregate-submission-shards.mjs',
+  'scripts/resolve-approved-submission.mjs',
+];
 
 function run(command, args, options = {}) {
   const result = spawnSync(command, args, {
@@ -77,6 +88,12 @@ function createFixture() {
     'schemas/skill-report.schema.json': '{"type":"object"}\n',
     '.github/actions/download-skillstore-cli/action.yml': 'name: fixture action\n',
     '.github/workflows/reusable-process-skills.yml': 'name: fixture workflow\n',
+    'scripts/resolve-submission-source.mjs': 'export const source = true;\n',
+    'scripts/discover-submission-skills.mjs': 'export const discover = true;\n',
+    'scripts/process-submission-shard.mjs': 'export const process = true;\n',
+    'scripts/submission-shard-contract.mjs': 'export const contract = true;\n',
+    'scripts/aggregate-submission-shards.mjs': "import './resolve-approved-submission.mjs';\n",
+    'scripts/resolve-approved-submission.mjs': 'export const resolve = true;\n',
     'skills/example/SKILL.md': '---\nname: example\n---\n',
   };
   for (const [path, content] of Object.entries(files)) {
@@ -125,13 +142,10 @@ test('process checkout clears inherited sparse state before cloning the immutabl
   }
 });
 
-test('runtime preflight rejects missing or modified schema/runtime files and a mismatched head', () => {
+test('runtime preflight rejects every missing, modified, symlinked, or skip-worktree runtime and a mismatched head', () => {
   const fixture = createFixture();
   try {
     const preflight = extractRunBlock(reusable, 'Verify immutable processing runtime');
-    const cliPath = join(fixture.workspace, 'skillstore-cli');
-    writeFileSync(cliPath, '#!/usr/bin/env bash\nexit 0\n');
-    chmodSync(cliPath, 0o755);
     const baseOptions = {
       cwd: fixture.workspace,
       env: {
@@ -143,14 +157,27 @@ test('runtime preflight rejects missing or modified schema/runtime files and a m
 
     run('bash', ['-c', preflight], baseOptions);
 
-    rmSync(join(fixture.workspace, 'schemas/skill-report.schema.json'));
-    assert.notEqual(run('bash', ['-c', preflight], { ...baseOptions, allowFailure: true }).status, 0);
+    for (const file of runtimeFiles) {
+      const absolute = join(fixture.workspace, file);
+      rmSync(absolute);
+      assert.notEqual(run('bash', ['-c', preflight], { ...baseOptions, allowFailure: true }).status, 0, `${file} missing passed`);
+      run('git', ['-C', fixture.workspace, 'checkout', '--', file]);
 
-    run('git', ['-C', fixture.workspace, 'checkout', '--', 'schemas/skill-report.schema.json']);
-    writeFileSync(join(fixture.workspace, 'schemas/skill-report.schema.json'), '{"tampered":true}\n');
-    assert.notEqual(run('bash', ['-c', preflight], { ...baseOptions, allowFailure: true }).status, 0);
+      writeFileSync(absolute, 'tampered\n');
+      assert.notEqual(run('bash', ['-c', preflight], { ...baseOptions, allowFailure: true }).status, 0, `${file} tamper passed`);
+      run('git', ['-C', fixture.workspace, 'checkout', '--', file]);
 
-    run('git', ['-C', fixture.workspace, 'checkout', '--', 'schemas/skill-report.schema.json']);
+      rmSync(absolute);
+      symlinkSync(join(fixture.workspace, 'skills/example/SKILL.md'), absolute);
+      assert.notEqual(run('bash', ['-c', preflight], { ...baseOptions, allowFailure: true }).status, 0, `${file} symlink passed`);
+      rmSync(absolute);
+      run('git', ['-C', fixture.workspace, 'checkout', '--', file]);
+    }
+
+    run('git', ['-C', fixture.workspace, 'update-index', '--skip-worktree', runtimeFiles[0]]);
+    assert.notEqual(run('bash', ['-c', preflight], { ...baseOptions, allowFailure: true }).status, 0);
+    run('git', ['-C', fixture.workspace, 'update-index', '--no-skip-worktree', runtimeFiles[0]]);
+
     const wrongHeadOptions = {
       ...baseOptions,
       env: { ...baseOptions.env, EXPECTED_WORKFLOW_SHA: '0000000000000000000000000000000000000000' },
@@ -160,6 +187,18 @@ test('runtime preflight rejects missing or modified schema/runtime files and a m
   } finally {
     rmSync(fixture.root, { recursive: true, force: true });
   }
+});
+
+test('all submission entrypoints and the aggregation import closure are immutable and execute from GITHUB_WORKSPACE', () => {
+  for (const file of runtimeFiles) assert.match(reusable, new RegExp(file.replaceAll('.', '\\.')));
+  assert.match(reusable, /node "\$GITHUB_WORKSPACE\/scripts\/process-submission-shard\.mjs"/);
+  assert.match(reusable, /node "\$GITHUB_WORKSPACE\/scripts\/submission-shard-contract\.mjs"/);
+  assert.match(reusable, /node "\$GITHUB_WORKSPACE\/scripts\/aggregate-submission-shards\.mjs"/);
+  assert.match(reusable, /require-checksum: true/);
+  assert.match(
+    readFileSync('scripts/aggregate-submission-shards.mjs', 'utf8'),
+    /from '\.\/resolve-approved-submission\.mjs'/,
+  );
 });
 
 test('repository dispatch caller preserves reusable failure and callback status contracts', () => {

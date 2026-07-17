@@ -149,8 +149,8 @@ function runAggregate(root, matrix, expectedCount = matrix.include.length) {
 test('submission processing isolates every shard and stages only its frozen plan', () => {
   assert.match(reusable, /RESULT_DIR="\/tmp\/submission-shard-/);
   assert.match(reusable, /process-shard-\$\{\{ github\.run_attempt \}\}-\$\{\{ matrix\.shard \}\}/);
-  assert.match(reusable, /node scripts\/process-submission-shard\.mjs/);
-  assert.match(reusable, /node scripts\/aggregate-submission-shards\.mjs/);
+  assert.match(reusable, /node "\$GITHUB_WORKSPACE\/scripts\/process-submission-shard\.mjs"/);
+  assert.match(reusable, /node "\$GITHUB_WORKSPACE\/scripts\/aggregate-submission-shards\.mjs"/);
   assert.match(reusable, /git add -- "\$\{SUBMISSION_PATHS\[@\]\}"/);
   assert.doesNotMatch(reusable, /continue-on-error:\s*true/);
   assert.doesNotMatch(reusable, /skill process[\s\S]{0,500}\|\| true/);
