@@ -42,6 +42,42 @@ jobs:
           # Full history needed to diff against last successful sync
           fetch-depth: 0
 
+      - name: Normalize pinned sync runtime checkout
+        env:
+          EXPECTED_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          if ! [[ "$EXPECTED_SHA" =~ ^[0-9a-fA-F]{40}$ ]]; then
+            echo "::error::workflow SHA is not an exact 40-character commit"
+            exit 1
+          fi
+          checked_out_sha=$(git rev-parse HEAD)
+          if [ "$checked_out_sha" != "$EXPECTED_SHA" ]; then
+            echo "::error::checkout SHA mismatch: expected=$EXPECTED_SHA actual=$checked_out_sha"
+            exit 1
+          fi
+          # Self-hosted runners can retain sparse-checkout state even when this
+          # job did not request it. The resolvers are pinned-tree readers, so
+          # restore their exact workflow-commit bytes before any plan is made.
+          git sparse-checkout disable
+          git reset --hard "$EXPECTED_SHA"
+          for required_path in \
+            scripts/resolve-manual-skills.mjs \
+            scripts/detect-changed-skills.mjs \
+            scripts/materialize-changed-skills.mjs \
+            .github/actions/download-skillstore-cli/action.yml; do
+            if [ ! -f "$required_path" ] || [ -L "$required_path" ]; then
+              echo "::error::required pinned runtime file is missing or not regular: $required_path"
+              exit 1
+            fi
+            expected_blob=$(git rev-parse "$EXPECTED_SHA:$required_path")
+            actual_blob=$(git hash-object "$required_path")
+            if [ "$actual_blob" != "$expected_blob" ]; then
+              echo "::error::runtime file does not match workflow commit: $required_path"
+              exit 1
+            fi
+          done
+
       - name: Generate GitHub App Token
         id: app-token
         uses: actions/create-github-app-token@v3

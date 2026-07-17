@@ -110,6 +110,25 @@ test('incremental detection resolves both sides from pinned Git trees', () => {
   assert.doesNotMatch(detectJob, /get_skill_slug|\[ -f "skills\/\$first/);
 });
 
+test('sync normalizes a retained sparse checkout before invoking pinned-tree resolvers', () => {
+  const workflow = readFileSync(WORKFLOW, 'utf8');
+  const checkout = section(workflow, '      - name: Checkout repository', '      - name: Generate GitHub App Token');
+  const runtime = section(workflow, '      - name: Normalize pinned sync runtime checkout', '      - name: Generate GitHub App Token');
+  const detect = section(workflow, '      - name: Detect changed skills', '      - name: Download skillstore-cli');
+
+  assert.match(checkout, /fetch-depth: 0/);
+  assert.match(runtime, /checked_out_sha=\$\(git rev-parse HEAD\)/);
+  assert.match(runtime, /git sparse-checkout disable[\s\S]*git reset --hard "\$EXPECTED_SHA"/);
+  assert.match(runtime, /scripts\/resolve-manual-skills\.mjs/);
+  assert.match(runtime, /scripts\/detect-changed-skills\.mjs/);
+  assert.match(runtime, /scripts\/materialize-changed-skills\.mjs/);
+  assert.match(runtime, /\.github\/actions\/download-skillstore-cli\/action\.yml/);
+  assert.match(runtime, /git rev-parse "\$EXPECTED_SHA:\$required_path"/);
+  assert.match(runtime, /git hash-object "\$required_path"/);
+  assert.ok(workflow.indexOf('      - name: Normalize pinned sync runtime checkout') < workflow.indexOf('      - name: Detect changed skills'));
+  assert.match(detect, /node \.\/scripts\/resolve-manual-skills\.mjs/);
+});
+
 test('sync materializes only the detected paths from the exact workflow commit', () => {
   const workflow = readFileSync(WORKFLOW, 'utf8');
   const materialize = section(workflow, '      - name: Materialize changed skills', '      - name: Sync skills to Supabase');
