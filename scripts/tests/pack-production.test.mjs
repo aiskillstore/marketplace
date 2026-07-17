@@ -447,11 +447,20 @@ test('v4 causal stages are allowlisted as bounded evaluator progress', () => {
   );
 });
 
-test('deterministic HTTP activity excludes only bounded retryable statuses', () => {
+test('deterministic HTTP activity is scoped to exact inference paths', () => {
   const retryable = [408, 425, 429, 500, 503]
-    .map((status) => JSON.stringify({ phase: 'response', status }))
+    .map((status) => JSON.stringify({ phase: 'response', path: '/v1/messages', status }))
     .join('\n');
   assert.equal(deterministicHttpFailureFromActivity(retryable), null);
+  assert.equal(deterministicHttpFailureFromActivity([
+    { phase: 'response', path: 'not_allowed', status: 401 },
+    { phase: 'response', path: '/v1/messages/count_tokens', status: 403 },
+    { phase: 'circuit_open', path: '/v1/responses/compact', status: 422 },
+    { phase: 'response', status: 400 },
+  ].map((activity) => JSON.stringify(activity)).join('\n')), null);
+  assert.equal(deterministicHttpFailureFromActivity(JSON.stringify({
+    phase: 'response', path: '/v1/responses', status: 401,
+  }))?.path, '/v1/responses');
   const failure = deterministicHttpFailureFromActivity([
     retryable,
     JSON.stringify({
@@ -973,6 +982,40 @@ test('external proxy activity extends the idle deadline without exposing request
   assert.equal(result.status, 0);
   assert.equal(result.stalled, false);
   assert.equal(result.timedOut, false);
+});
+
+test('auxiliary proxy rejection does not terminate in-flight inference', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'pack-production-auxiliary-activity-'));
+  const activityFile = join(directory, 'proxy.activity');
+  const progressFile = join(directory, 'progress.ndjson');
+  writeFileSync(activityFile, [
+    { phase: 'response', requestNumber: 1, path: 'not_allowed', status: 401 },
+    { phase: 'started', requestNumber: 2, path: '/v1/messages', model: 'claude-sonnet-5' },
+    { phase: 'started', requestNumber: 3, path: '/v1/messages', model: 'claude-sonnet-5' },
+  ].map((activity) => JSON.stringify(activity)).join('\n'));
+  const result = await runEvaluatorProcess(
+    process.execPath,
+    ['-e', 'setTimeout(() => process.exit(0), 180)'],
+    {
+      cwd: directory,
+      env: process.env,
+      stdoutFile: join(directory, 'stdout.json'),
+      stderrFile: join(directory, 'run.log'),
+      progressFile,
+      externalActivityFile: activityFile,
+      label: 'executor-preflight',
+      heartbeatMs: 20,
+      idleTimeoutMs: 5_000,
+      timeoutMs: 1_000,
+      killGraceMs: 100,
+      onProgress: () => {},
+    },
+  );
+
+  assert.equal(result.status, 0);
+  assert.equal(result.signal, null);
+  assert.equal(result.deterministicHttpFailure, null);
+  assert.doesNotMatch(readFileSync(progressFile, 'utf8'), /scenario\.deterministic_http_failure/);
 });
 
 test('mid-evaluation deterministic 4xx opens the circuit and terminates the scenario', async () => {
