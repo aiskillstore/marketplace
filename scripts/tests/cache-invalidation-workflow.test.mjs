@@ -32,7 +32,7 @@ function runAggregate({ plan = 'success', shards = 'success', scores = 'success'
   });
 }
 
-test('workflow matrix is artifact-backed, id-only, bounded, and max-parallel 3', () => {
+test('workflow matrix is artifact-backed, one-Skill, and serial', () => {
   const workflow = readFileSync(WORKFLOW, 'utf8');
   const planJob = section(workflow, '  plan-cache-invalidation:', '  cache-invalidate-shard:');
   const shardJob = section(workflow, '  cache-invalidate-shard:', '  cache-invalidate:');
@@ -43,49 +43,64 @@ test('workflow matrix is artifact-backed, id-only, bounded, and max-parallel 3',
   assert.doesNotMatch(planJob, /synced_slugs.*GITHUB_OUTPUT|slugs.*GITHUB_OUTPUT/i);
 
   assert.match(shardJob, /matrix: \$\{\{ fromJSON\(needs\.plan-cache-invalidation\.outputs\.matrix\) \}\}/);
-  assert.match(shardJob, /max-parallel: 3/);
+  assert.match(planJob, /--shard-size 1 --max-shards 25/);
+  assert.match(shardJob, /max-parallel: 1/);
   assert.match(shardJob, /fail-fast: false/);
   assert.doesNotMatch(shardJob, /continue-on-error:/);
-  assert.match(shardJob, /timeout-minutes: 25/);
+  assert.match(shardJob, /timeout-minutes: 5/);
   assert.match(shardJob, /name: synced-slugs/);
   assert.match(shardJob, /--shard-id "\$\{\{ matrix\.shard \}\}"/);
   assert.match(shardJob, /SLUGS_FILE: .*cache-invalidation-shard\.txt/);
-  assert.match(shardJob, /MAX_ITEMS: ['"]100['"]/);
-  assert.match(shardJob, /FALLBACK_CONCURRENCY: ['"]2['"]/);
-  assert.match(shardJob, /FALLBACK_MAX_ATTEMPTS: ['"]2['"]/);
-  assert.match(shardJob, /MAX_RUNTIME_SECONDS: ['"]1200['"]/);
+  assert.match(shardJob, /BATCH_SIZE: ['"]1['"]/);
+  assert.match(shardJob, /MAX_ITEMS: ['"]1['"]/);
+  assert.match(shardJob, /FALLBACK_CONCURRENCY: ['"]1['"]/);
+  assert.match(shardJob, /FALLBACK_MAX_ATTEMPTS: ['"]1['"]/);
+  assert.match(shardJob, /MAX_RUNTIME_SECONDS: ['"]240['"]/);
   assert.doesNotMatch(shardJob, /needs\.sync\.outputs\.synced_slugs/);
 });
 
-test('workflow full_sync inputs above 100 use the configured bounded matrix', () => {
+test('workflow rejects 26 sync targets before Supabase writes and removes full sync', () => {
   const workflow = readFileSync(WORKFLOW, 'utf8');
   const detectJob = section(workflow, '      - name: Detect changed skills', '      - name: Download skillstore-cli');
-  const capacityGuard = section(workflow, '      - name: Validate cache matrix capacity', '      - name: Download skillstore-cli');
+  const admission = section(workflow, '      - name: Validate bounded sync admission', '      - name: Download skillstore-cli');
   const planJob = section(workflow, '  plan-cache-invalidation:', '  cache-invalidate-shard:');
-  const shardJob = section(workflow, '  cache-invalidate-shard:', '  cache-invalidate:');
   const shardSize = Number(planJob.match(/--shard-size (\d+)/)?.[1]);
   const maxShards = Number(planJob.match(/--max-shards (\d+)/)?.[1]);
 
-  assert.match(detectJob, /inputs\.full_sync.*true[\s\S]*CHANGED=\$\(find_all_skills/s);
-  assert.equal(shardSize, 100);
-  assert.equal(maxShards, 256);
-  assert.match(capacityGuard, /MAX_CACHE_ITEMS=25600/);
-  assert.match(capacityGuard, /exceeds cache matrix capacity/);
+  assert.doesNotMatch(workflow, /full_sync|find_all_skills/);
+  assert.equal(shardSize, 1);
+  assert.equal(maxShards, 25);
+  assert.match(admission, /MAX_SYNC_SKILLS=25/);
+  assert.match(admission, /exceeds the production limit \$MAX_SYNC_SKILLS/);
   assert.ok(
-    workflow.indexOf('      - name: Validate cache matrix capacity')
+    workflow.indexOf('      - name: Validate bounded sync admission')
       < workflow.indexOf('      - name: Sync skills to Supabase'),
-    'matrix capacity must be checked before any Supabase write',
+    'bounded admission must be checked before any Supabase write',
   );
-  assert.match(shardJob, /max-parallel: 3/);
+  assert.doesNotMatch(detectJob, /mode=full/);
 
-  for (const [slugCount, expectedShards] of [[101, 2], [5263, 53]]) {
-    const plan = buildShardPlan(
-      Array.from({ length: slugCount }, (_, index) => `full-sync-${index}`),
-      { shardSize, maxShards },
-    );
-    assert.equal(plan.shardCount, expectedShards);
-    assert.ok(plan.shards.every((shard) => shard.length >= 1 && shard.length <= 100));
-  }
+  const runMarker = '        run: |\n';
+  const runStart = admission.indexOf(runMarker) + runMarker.length;
+  const script = admission.slice(runStart).split('\n').map((line) => line.replace(/^ {10}/, '')).join('\n');
+  const runAdmission = (count) => spawnSync('/bin/bash', ['-c', script], {
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      CHANGED_SKILLS: Array.from({ length: count }, (_, index) => `owner/skill-${index + 1}`).join(' '),
+    },
+  });
+  const accepted = runAdmission(25);
+  assert.equal(accepted.status, 0, `${accepted.stdout}\n${accepted.stderr}`);
+  const rejected = runAdmission(26);
+  assert.equal(rejected.status, 1);
+  assert.match(`${rejected.stdout}\n${rejected.stderr}`, /Sync target count 26 exceeds the production limit 25/);
+
+  const plan = buildShardPlan(
+    Array.from({ length: 25 }, (_, index) => `bounded-sync-${index}`),
+    { shardSize, maxShards },
+  );
+  assert.equal(plan.shardCount, 25);
+  assert.ok(plan.shards.every((shard) => shard.length === 1));
 });
 
 test('workflow treats an empty sync as a no-op before planning or invalidation', () => {
@@ -104,9 +119,12 @@ test('incremental detection resolves both sides from pinned Git trees', () => {
 
   assert.match(detectJob, /node \.\/scripts\/detect-changed-skills\.mjs/);
   assert.match(detectJob, /node \.\/scripts\/resolve-manual-skills\.mjs/);
-  assert.match(detectJob, /--commit "\$\{\{ github\.sha \}\}"/);
+  assert.match(detectJob, /INPUT_SLUGS: \$\{\{ inputs\.slugs \}\}/);
+  assert.match(detectJob, /HEAD_SHA: \$\{\{ github\.sha \}\}/);
+  assert.doesNotMatch(detectJob.slice(detectJob.indexOf('run: |')), /\$\{\{\s*inputs\./);
+  assert.match(detectJob, /--commit "\$HEAD_SHA"/);
   assert.match(detectJob, /--base "\$BASE_SHA"/);
-  assert.match(detectJob, /--head "\$\{\{ github\.sha \}\}"/);
+  assert.match(detectJob, /--head "\$HEAD_SHA"/);
   assert.doesNotMatch(detectJob, /get_skill_slug|\[ -f "skills\/\$first/);
 });
 
@@ -127,6 +145,7 @@ test('sync normalizes a retained sparse checkout before invoking pinned-tree res
   assert.match(runtime, /git hash-object "\$required_path"/);
   assert.ok(workflow.indexOf('      - name: Normalize pinned sync runtime checkout') < workflow.indexOf('      - name: Detect changed skills'));
   assert.match(detect, /node \.\/scripts\/resolve-manual-skills\.mjs/);
+  assert.doesNotMatch(detect.slice(detect.indexOf('run: |')), /\$\{\{\s*inputs\./);
 });
 
 test('sync materializes only the detected paths from the exact workflow commit', () => {
@@ -144,8 +163,20 @@ test('sync materializes only the detected paths from the exact workflow commit',
   assert.match(materialize, /--commit "\$GITHUB_SHA"/);
   assert.match(materialize, /--skills "\$CHANGED_SKILLS"/);
   assert.doesNotMatch(materialize, /checkout\s+\.\s*$|sparse-checkout disable|git clean/mi);
-  assert.match(sync, /skill sync --slugs "\$paths"/);
+  assert.match(sync, /skill sync[\s\S]*--slugs "\$paths"/);
   assert.match(sync, /--marketplace-commit "\$GITHUB_SHA"/);
+});
+
+test('sync writes are single-concurrency, single-attempt, and wall-clock bounded', () => {
+  const workflow = readFileSync(WORKFLOW, 'utf8');
+  const syncStep = section(workflow, '      - name: Sync skills to Supabase', '      - name: Reconcile durable security change events');
+
+  assert.match(syncStep, /Sync attempt 1\/1/);
+  assert.match(syncStep, /run_sync_once "\$SKILL_PATHS" 1/);
+  assert.doesNotMatch(syncStep, /CONCURRENCY=(?:3|10)/);
+  assert.doesNotMatch(syncStep, /MAX_SYNC_ATTEMPTS|retrying affected skills/);
+  assert.match(syncStep, /timeout --signal=TERM --kill-after=30s 60m/);
+  assert.match(syncStep, /--concurrency "\$concurrency"/);
 });
 
 test('sync downloads the security-event-capable CLI release', () => {

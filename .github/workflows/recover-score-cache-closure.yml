@@ -4,11 +4,11 @@ on:
   workflow_dispatch:
     inputs:
       scope:
-        description: 'Recover failures from a score/recovery run, or close cache for the current approved catalog'
+        description: 'Recover terminal failures from a score or recovery run'
         type: choice
         required: true
         default: source-run-failures
-        options: [source-run-failures, recovery-run-failures, approved-catalog-cache]
+        options: [source-run-failures, recovery-run-failures]
       source_run_id:
         description: 'Completed score or recovery run ID (required for either failure scope)'
         type: string
@@ -19,12 +19,6 @@ on:
         type: string
         required: false
         default: ''
-      score_concurrency:
-        description: 'Bounded failed-score recovery concurrency (1-2)'
-        type: choice
-        required: true
-        default: '1'
-        options: ['1', '2']
 
 permissions:
   actions: read
@@ -125,21 +119,16 @@ jobs:
             cp "$source_result/SHA256SUMS" "$plan/source-result-SHA256SUMS"
             cp "$source_result/failed-slugs.txt" "$plan/source-failed-slugs.txt"
           else
-            test "$SCOPE" = approved-catalog-cache
-            test -z "$SOURCE_RUN_ID" || {
-              echo '::error::source_run_id must be empty for approved-catalog-cache'
-              exit 2
-            }
-            node scripts/score-cache-closure.mjs approved-catalog \
-              --output "$plan/requested-slugs.txt"
-            node scripts/score-cache-closure.mjs freeze-score-evidence \
-              --slugs-file "$plan/requested-slugs.txt" \
-              --output "$plan/expected-score-evidence.json" \
-              --require-snapshot false
+            echo "::error::Unsupported recovery scope: $SCOPE"
+            exit 2
           fi
 
           slug_count=$(sed '/^$/d' "$plan/requested-slugs.txt" | sort -u | wc -l | tr -d ' ')
           test "$slug_count" -gt 0
+          test "$slug_count" -le 25 || {
+            echo "::error::Recovery plan exceeds the 25-slug production limit: $slug_count"
+            exit 2
+          }
           jq -n --arg scope "$SCOPE" --arg sourceRunId "$SOURCE_RUN_ID" \
             --argjson slugCount "$slug_count" --arg workflowCommit "$GITHUB_SHA" \
             '{schemaVersion:1,scope:$scope,sourceRunId:$sourceRunId,slugCount:$slugCount,workflowCommit:$workflowCommit}' \
@@ -158,9 +147,8 @@ jobs:
 
   rescore-failures:
     needs: plan
-    if: needs.plan.outputs.scope != 'approved-catalog-cache'
     runs-on: ubuntu-latest
-    timeout-minutes: 1440
+    timeout-minutes: 180
     steps:
       - name: Checkout bounded score recovery runtime
         uses: actions/checkout@v5
@@ -185,6 +173,7 @@ jobs:
           sha256sum --check SHA256SUMS
           test "$(sed '/^$/d' requested-slugs.txt | sort -u | wc -l | tr -d ' ')" \
             -eq "$(jq -r .slugCount metadata.json)"
+          test "$(jq -r .slugCount metadata.json)" -le 25
 
       - name: Generate GitHub App token
         id: app-token
@@ -229,8 +218,8 @@ jobs:
             --slugs-file "$requested" \
             --success-slugs-file "$result/successful-slugs.txt" \
             --failed-slugs-file "$result/failed-slugs.txt" \
-            --concurrency "${{ inputs.score_concurrency }}" \
-            --max-attempts 3 \
+            --concurrency 1 \
+            --max-attempts 1 \
             --retry-base-seconds 5 \
             --timeout-seconds 300 2>&1 | tee "$result/score-output.log"
           wrapper_exit=${PIPESTATUS[0]}
@@ -239,6 +228,8 @@ jobs:
           successful_count=$(sed '/^$/d' "$result/successful-slugs.txt" | sort -u | wc -l | tr -d ' ')
           failed_count=$(sed '/^$/d' "$result/failed-slugs.txt" | sort -u | wc -l | tr -d ' ')
           test "$requested_count" -eq "$((successful_count + failed_count))"
+          test "$requested_count" -le 25
+          test "$successful_count" -le 25
           proven_count=0
           if [ "$successful_count" -gt 0 ]; then
             node scripts/score-cache-closure.mjs freeze-score-evidence \
@@ -277,7 +268,7 @@ jobs:
     needs: [plan, rescore-failures]
     if: always() && needs.plan.result == 'success' && (needs.rescore-failures.result == 'success' || needs.rescore-failures.result == 'skipped')
     runs-on: ubuntu-latest
-    timeout-minutes: 360
+    timeout-minutes: 180
     steps:
       - name: Checkout hosted cache closure runtime
         uses: actions/checkout@v5
@@ -295,7 +286,6 @@ jobs:
           path: ${{ runner.temp }}/score-cache-recovery-plan
 
       - name: Download rescore result
-        if: needs.plan.outputs.scope != 'approved-catalog-cache'
         uses: actions/download-artifact@v5
         with:
           name: score-cache-recovery-result-${{ github.run_id }}
@@ -303,40 +293,25 @@ jobs:
 
       - name: Select only proven cache closure slugs
         id: selected
-        env:
-          SCOPE: ${{ needs.plan.outputs.scope }}
         run: |
           set -euo pipefail
           (cd "$RUNNER_TEMP/score-cache-recovery-plan" && sha256sum --check SHA256SUMS)
           target="$RUNNER_TEMP/cache-closure-slugs.txt"
           expected="$RUNNER_TEMP/cache-closure-expected-score-evidence.json"
-          if [ "$SCOPE" != approved-catalog-cache ]; then
-            result="$RUNNER_TEMP/score-cache-recovery-result"
-            (cd "$result" && sha256sum --check SHA256SUMS)
-            jq -e '.successfulCount > 0 and .causallyProvenCount == .successfulCount' "$result/metadata.json" >/dev/null
-            test "$(jq -r '.transitions | length' "$result/score-write-evidence.json")" \
-              -eq "$(jq -r .successfulCount "$result/metadata.json")"
-            cp "$result/successful-slugs.txt" "$target"
-            cp "$result/expected-score-evidence.json" "$expected"
-            echo "remaining_score_failures=$(jq -r .failedCount "$result/metadata.json")" >> "$GITHUB_OUTPUT"
-          else
-            cp "$RUNNER_TEMP/score-cache-recovery-plan/requested-slugs.txt" "$target"
-            cp "$RUNNER_TEMP/score-cache-recovery-plan/expected-score-evidence.json" "$expected"
-            echo 'remaining_score_failures=0' >> "$GITHUB_OUTPUT"
-          fi
+          result="$RUNNER_TEMP/score-cache-recovery-result"
+          (cd "$result" && sha256sum --check SHA256SUMS)
+          jq -e '.successfulCount > 0 and .successfulCount <= 25 and .causallyProvenCount == .successfulCount' "$result/metadata.json" >/dev/null
+          test "$(jq -r '.transitions | length' "$result/score-write-evidence.json")" \
+            -eq "$(jq -r .successfulCount "$result/metadata.json")"
+          cp "$result/successful-slugs.txt" "$target"
+          cp "$result/expected-score-evidence.json" "$expected"
+          echo "remaining_score_failures=$(jq -r .failedCount "$result/metadata.json")" >> "$GITHUB_OUTPUT"
           count=$(sed '/^$/d' "$target" | sort -u | wc -l | tr -d ' ')
           test "$count" -gt 0
+          test "$count" -le 25
           test "$(jq -r '.scores | length' "$expected")" -eq "$count"
           invalidation_target="$RUNNER_TEMP/cache-invalidation-slugs.txt"
-          if [ "$SCOPE" = approved-catalog-cache ]; then
-            # The deployed Skill detail v7 / recommendation v3 / page-build
-            # generations make every old per-Skill key unreachable. One exact
-            # invalidation still bumps the shared Skill-list generation without
-            # issuing millions of redundant KV deletes for the full catalog.
-            awk 'NF { print; exit }' "$target" > "$invalidation_target"
-          else
-            cp "$target" "$invalidation_target"
-          fi
+          cp "$target" "$invalidation_target"
           invalidation_count=$(sed '/^$/d' "$invalidation_target" | sort -u | wc -l | tr -d ' ')
           test "$invalidation_count" -gt 0
           echo "slug_count=$count" >> "$GITHUB_OUTPUT"
@@ -350,8 +325,8 @@ jobs:
           slugs-file: ${{ runner.temp }}/cache-invalidation-slugs.txt
           site-url: https://skillstore.io
           secret: ${{ secrets.CACHE_INVALIDATE_SECRET }}
-          batch-size: '30'
-          concurrency: ${{ needs.plan.outputs.scope == 'approved-catalog-cache' && '4' || '1' }}
+          batch-size: '1'
+          concurrency: '1'
           invalidate-artifacts: 'false'
           invalidate-dependent-packs: 'false'
           fail-on-error: 'true'
@@ -378,7 +353,7 @@ jobs:
             --evidence "$RUNNER_TEMP/cache-readback.json" \
             --site-url https://skillstore.io \
             --expected-cache-version v7 \
-            --concurrency 16 \
+            --concurrency 2 \
             --attempts 3 \
             --timeout-ms 30000
 

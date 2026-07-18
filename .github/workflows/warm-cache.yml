@@ -12,13 +12,12 @@ on:
           - force
         default: warm
       scope:
-        description: 'Changed/high-traffic scopes require explicit slugs; full catalog requires separate approval and larger budgets'
+        description: 'Warm only an explicit changed or high-traffic Skill set'
         required: true
         type: choice
         options:
           - changed
           - high-traffic
-          - full-catalog
         default: changed
       slugs:
         description: 'Changed or high-traffic skill slugs (comma/space separated)'
@@ -35,21 +34,16 @@ on:
         required: false
         type: string
         default: ''
-      approve_full_catalog:
-        description: 'I explicitly approve full-catalog warming within the request and byte budgets below'
-        required: false
-        type: boolean
-        default: false
       request_budget:
-        description: 'Hard cap for warm verification HTTP requests, including retries and build probes'
+        description: 'Hard cap for warm verification HTTP requests, including retries and build probes (1-128)'
         required: true
         type: string
-        default: '5000'
+        default: '128'
       byte_budget:
-        description: 'Hard cap for downloaded response bytes'
+        description: 'Hard cap for downloaded response bytes (1-20971520)'
         required: true
         type: string
-        default: '536870912'
+        default: '20971520'
       expected_build_token:
         description: 'Optional exact x-skillstore-build value for deployment-specific warming'
         required: false
@@ -68,8 +62,9 @@ concurrency:
 env:
   SITE_URL: https://skillstore.io
   SUPPORTED_LOCALES: 'en zh-hans zh-hant ja ko de fr es pt ru ar'
-  CONCURRENCY: 10
-  INVALIDATE_BATCH_SIZE: 10
+  CONCURRENCY: 4
+  MAX_FORCE_INVALIDATION_SLUGS: 25
+  INVALIDATE_BATCH_SIZE: 1
   BUILD_HEADER: x-skillstore-build
   API_CACHE_HEADER: x-api-kv-cache
   PAGE_CACHE_HEADER: x-page-kv-cache
@@ -80,7 +75,7 @@ env:
 jobs:
   warm:
     runs-on: self-hosted
-    timeout-minutes: 1440
+    timeout-minutes: 120
     steps:
       - name: Checkout cache tooling
         uses: actions/checkout@v5
@@ -96,7 +91,7 @@ jobs:
           package-manager-cache: false
 
       - name: Download changed slugs from source workflow
-        if: inputs.source_run_id != '' && inputs.scope != 'full-catalog'
+        if: inputs.source_run_id != ''
         uses: actions/download-artifact@v7
         with:
           name: synced-slugs
@@ -111,20 +106,30 @@ jobs:
           INPUT_SLUGS: ${{ inputs.slugs }}
           INPUT_LOCALES: ${{ inputs.locales }}
           SOURCE_RUN_ID: ${{ inputs.source_run_id }}
-          APPROVE_FULL_CATALOG: ${{ inputs.approve_full_catalog }}
           REQUEST_BUDGET: ${{ inputs.request_budget }}
           BYTE_BUDGET: ${{ inputs.byte_budget }}
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          WARM_ZIP: ${{ inputs.warm_zip }}
         run: |
           set -euo pipefail
 
-          if ! [[ "$REQUEST_BUDGET" =~ ^[1-9][0-9]*$ ]]; then
-            echo "::error::request_budget must be a positive integer"
+          if ! [[ "$CONCURRENCY" =~ ^[1-9][0-9]*$ ]] || [ "$CONCURRENCY" -gt 4 ]; then
+            echo "::error::concurrency must be a positive integer no greater than 4"
             exit 1
           fi
-          if ! [[ "$BYTE_BUDGET" =~ ^[1-9][0-9]*$ ]]; then
-            echo "::error::byte_budget must be a positive integer"
+          if ! [[ "$REQUEST_BUDGET" =~ ^[1-9][0-9]*$ ]] || [ "$REQUEST_BUDGET" -gt 128 ]; then
+            echo "::error::request_budget must be an integer between 1 and 128"
+            exit 1
+          fi
+          if ! [[ "$BYTE_BUDGET" =~ ^[1-9][0-9]*$ ]] || [ "$BYTE_BUDGET" -gt 20971520 ]; then
+            echo "::error::byte_budget must be an integer between 1 and 20971520"
+            exit 1
+          fi
+          if [ "$WARM_ZIP" != "true" ] && [ "$WARM_ZIP" != "false" ]; then
+            echo "::error::warm_zip must be true or false"
+            exit 1
+          fi
+          if [ "$MODE" = "force" ] && [ "$WARM_ZIP" = "true" ]; then
+            echo "::error::force mode does not invalidate immutable ZIP artifacts; run ZIP verification separately in warm mode"
             exit 1
           fi
 
@@ -154,48 +159,7 @@ jobs:
             tr ',[:space:]' '\n' | sed '/^$/d' | sort -u
           }
 
-          if [ "$SCOPE" = "full-catalog" ]; then
-            if [ "$APPROVE_FULL_CATALOG" != "true" ]; then
-              echo "::error::Full-catalog warming requires approve_full_catalog=true"
-              exit 1
-            fi
-            if [ -n "$INPUT_SLUGS" ] || [ -n "$SOURCE_RUN_ID" ]; then
-              echo "::error::Full-catalog scope cannot be combined with slugs or source_run_id"
-              exit 1
-            fi
-            if [ "$MODE" = "force" ]; then
-              echo "::error::Full-catalog force invalidation is intentionally unsupported; use warm mode with explicit budgets or invalidate a bounded slug set"
-              exit 1
-            fi
-            if [ -z "$SUPABASE_URL" ] || [ -z "$SUPABASE_SERVICE_KEY" ]; then
-              echo "::error::Supabase credentials are required to resolve the full catalog"
-              exit 1
-            fi
-
-            echo "Resolving the explicitly approved full public Skill catalog..."
-            offset=0
-            limit=1000
-            while true; do
-              response=$(curl -fsS \
-                "${SUPABASE_URL}/rest/v1/skills?select=slug&status=eq.approved&public_eligible=eq.true&order=slug.asc&offset=${offset}&limit=${limit}" \
-                -H "apikey: ${SUPABASE_SERVICE_KEY}" \
-                -H "Authorization: Bearer ${SUPABASE_SERVICE_KEY}" \
-                -H "Accept-Profile: skillstore" \
-                --connect-timeout 10 \
-                --max-time 90)
-              page_file=$(mktemp)
-              printf '%s' "$response" | jq -r 'if type == "array" then .[].slug else error("expected array") end' > "$page_file"
-              count=$(grep -c . "$page_file" || true)
-              cat "$page_file" >> "$SLUGS_FILE"
-              rm -f "$page_file"
-              echo "Resolved $count approved skills at offset $offset"
-              if [ "$count" -lt "$limit" ]; then
-                break
-              fi
-              offset=$((offset + limit))
-            done
-            sort -u -o "$SLUGS_FILE" "$SLUGS_FILE"
-          elif [ -n "$SOURCE_RUN_ID" ]; then
+          if [ -n "$SOURCE_RUN_ID" ]; then
             if [ "$SCOPE" != "changed" ]; then
               echo "::error::source_run_id is only valid for changed scope"
               exit 1
@@ -211,7 +175,20 @@ jobs:
 
           SLUG_COUNT=$(grep -c . "$SLUGS_FILE" || true)
           if [ "$SLUG_COUNT" -eq 0 ]; then
-            echo "::error::Warm scope is empty. Supply changed/high-traffic slugs or explicitly approve full-catalog mode."
+            echo "::error::Warm scope is empty. Supply an explicit changed or high-traffic Skill set."
+            exit 1
+          fi
+          if [ "$MODE" = "force" ] && [ "$SLUG_COUNT" -gt "$MAX_FORCE_INVALIDATION_SLUGS" ]; then
+            echo "::error::Force invalidation is limited to $MAX_FORCE_INVALIDATION_SLUGS skills per run; resolved $SLUG_COUNT"
+            exit 1
+          fi
+          LOCALE_COUNT=$(grep -c . "$LOCALES_FILE")
+          MINIMUM_REQUESTS=$((2 + SLUG_COUNT * LOCALE_COUNT * 6))
+          if [ "$WARM_ZIP" = "true" ]; then
+            MINIMUM_REQUESTS=$((MINIMUM_REQUESTS + SLUG_COUNT * 3))
+          fi
+          if [ "$MINIMUM_REQUESTS" -gt "$REQUEST_BUDGET" ]; then
+            echo "::error::Resolved scope needs at least $MINIMUM_REQUESTS requests for complete cache verification, above request_budget=$REQUEST_BUDGET"
             exit 1
           fi
 
@@ -228,6 +205,9 @@ jobs:
           slugs-file: ${{ steps.scope.outputs.slugs_file }}
           secret: ${{ secrets.CACHE_INVALIDATE_SECRET }}
           batch-size: ${{ env.INVALIDATE_BATCH_SIZE }}
+          concurrency: '1'
+          invalidate-artifacts: 'false'
+          invalidate-dependent-packs: 'false'
           fail-on-error: 'true'
 
       - name: Warm and verify API, HTML, and optional ZIP caches

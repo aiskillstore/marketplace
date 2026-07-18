@@ -137,33 +137,25 @@ export async function fetchScoreEvidence({
   supabaseUrl,
 }) {
   if (!supabaseUrl || !serviceRoleKey) fail('Supabase credentials are required');
-  const requested = normalizeSlugs(slugs);
-  const requestedSet = new Set(requested);
-  const rows = [];
-  const pageSize = 1000;
-  for (let offset = 0; ; offset += pageSize) {
-    const url = new URL('/rest/v1/skills', supabaseUrl);
-    url.searchParams.set(
-      'select',
-      'slug,quality_score,quality_tier,quality_score_calculated_at,current_quality_score_snapshot_id',
-    );
-    url.searchParams.set('order', 'slug.asc');
-    url.searchParams.set('limit', String(pageSize));
-    url.searchParams.set('offset', String(offset));
-    const response = await fetchImpl(url, {
-      headers: {
-        Accept: 'application/json',
-        'Accept-Profile': 'skillstore',
-        apikey: serviceRoleKey,
-        Authorization: `Bearer ${serviceRoleKey}`,
-      },
-    });
-    if (!response.ok) fail(`score evidence query failed: HTTP ${response.status}`);
-    const page = await response.json();
-    if (!Array.isArray(page)) fail('score evidence query returned a non-array');
-    rows.push(...page.filter((row) => requestedSet.has(row?.slug)));
-    if (page.length < pageSize) break;
-  }
+  const requested = normalizeSlugs(slugs, { maximum: 25 });
+  const url = new URL('/rest/v1/skills', supabaseUrl);
+  url.searchParams.set(
+    'select',
+    'slug,quality_score,quality_tier,quality_score_calculated_at,current_quality_score_snapshot_id',
+  );
+  url.searchParams.set('slug', `in.(${requested.join(',')})`);
+  url.searchParams.set('order', 'slug.asc');
+  const response = await fetchImpl(url, {
+    headers: {
+      Accept: 'application/json',
+      'Accept-Profile': 'skillstore',
+      apikey: serviceRoleKey,
+      Authorization: `Bearer ${serviceRoleKey}`,
+    },
+  });
+  if (!response.ok) fail(`score evidence query failed: HTTP ${response.status}`);
+  const rows = await response.json();
+  if (!Array.isArray(rows)) fail('score evidence query returned a non-array');
 
   const bySlug = new Map();
   for (const row of rows) {

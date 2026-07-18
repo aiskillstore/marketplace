@@ -673,15 +673,15 @@ test('sync workflow uses an artifact-backed bounded invalidator and preserves do
   );
   assert.match(invalidationJob, /scripts\/invalidate-cache\.sh/);
   assert.match(invalidationJob, /name: synced-slugs/);
-  assert.match(invalidationJob, /BATCH_SIZE: ['"]10['"]/);
+  assert.match(invalidationJob, /BATCH_SIZE: ['"]1['"]/);
   assert.match(invalidationJob, /CONTENT_TYPE: skills/);
   assert.match(invalidationJob, /CURL_MAX_TIME: ['"]30['"]/);
-  assert.match(invalidationJob, /FALLBACK_CONCURRENCY: ['"]2['"]/);
+  assert.match(invalidationJob, /FALLBACK_CONCURRENCY: ['"]1['"]/);
   assert.match(invalidationJob, /FALLBACK_CURL_MAX_TIME: ['"]30['"]/);
-  assert.match(invalidationJob, /FALLBACK_MAX_ATTEMPTS: ['"]2['"]/);
-  assert.match(invalidationJob, /MAX_ATTEMPTS: ['"]3['"]/);
-  assert.match(invalidationJob, /MAX_ITEMS: ['"]100['"]/);
-  assert.match(invalidationJob, /MAX_RUNTIME_SECONDS: ['"]1200['"]/);
+  assert.match(invalidationJob, /FALLBACK_MAX_ATTEMPTS: ['"]1['"]/);
+  assert.match(invalidationJob, /MAX_ATTEMPTS: ['"]2['"]/);
+  assert.match(invalidationJob, /MAX_ITEMS: ['"]1['"]/);
+  assert.match(invalidationJob, /MAX_RUNTIME_SECONDS: ['"]240['"]/);
   assert.match(invalidationJob, /run: \.\/scripts\/invalidate-cache\.sh/);
   assert.doesNotMatch(invalidationJob, /uses: \.\/\.github\/actions\/invalidate-cache/);
   assert.doesNotMatch(invalidationJob, /curl .*api\/cache\/invalidate/);
@@ -711,6 +711,7 @@ test('each cache invalidation shard has a hard runtime deadline below its own ti
 
   const timeoutMinutes = readInteger('timeout-minutes');
   const settings = {
+    MAX_PARALLEL: readInteger('max-parallel'),
     BATCH_SIZE: readInteger('BATCH_SIZE'),
     MAX_ATTEMPTS: readInteger('MAX_ATTEMPTS'),
     CURL_MAX_TIME: readInteger('CURL_MAX_TIME'),
@@ -723,22 +724,23 @@ test('each cache invalidation shard has a hard runtime deadline below its own ti
     MAX_RUNTIME_SECONDS: readInteger('MAX_RUNTIME_SECONDS'),
   };
   const expectedSettings = {
-    BATCH_SIZE: 10,
-    MAX_ATTEMPTS: 3,
+    MAX_PARALLEL: 1,
+    BATCH_SIZE: 1,
+    MAX_ATTEMPTS: 2,
     CURL_MAX_TIME: 30,
     RETRY_BASE_SECONDS: 5,
-    FALLBACK_CONCURRENCY: 2,
-    FALLBACK_MAX_ATTEMPTS: 2,
+    FALLBACK_CONCURRENCY: 1,
+    FALLBACK_MAX_ATTEMPTS: 1,
     FALLBACK_CURL_MAX_TIME: 30,
     FALLBACK_RETRY_BASE_SECONDS: 2,
-    MAX_ITEMS: 100,
-    MAX_RUNTIME_SECONDS: 1200,
+    MAX_ITEMS: 1,
+    MAX_RUNTIME_SECONDS: 240,
   };
   const violations = [];
 
-  if (timeoutMinutes === undefined || timeoutMinutes < 25) {
+  if (timeoutMinutes === undefined || timeoutMinutes < 5) {
     violations.push(
-      `cache-invalidate-shard timeout-minutes must be at least 25 (found ${timeoutMinutes ?? 'missing'})`,
+      `cache-invalidate-shard timeout-minutes must be at least 5 (found ${timeoutMinutes ?? 'missing'})`,
     );
   }
   for (const [name, expected] of Object.entries(expectedSettings)) {
@@ -754,11 +756,18 @@ test('each cache invalidation shard has a hard runtime deadline below its own ti
     /^MAX_RUNTIME_SECONDS="\$\{MAX_RUNTIME_SECONDS:-([0-9]+)\}"$/m,
   );
   assert.ok(runtimeMatch, 'invalidator must declare a fixed default runtime deadline');
-  const maxRuntimeSeconds = Number(runtimeMatch[1]);
-  assert.equal(maxRuntimeSeconds, settings.MAX_RUNTIME_SECONDS);
+  const defaultMaxRuntimeSeconds = Number(runtimeMatch[1]);
   assert.ok(
-    maxRuntimeSeconds <= timeoutMinutes * 60 - 300,
-    'script deadline must leave five minutes for setup and teardown',
+    settings.MAX_RUNTIME_SECONDS <= defaultMaxRuntimeSeconds,
+    'workflow runtime override must not exceed the script default',
   );
-  assert.equal(3 * settings.FALLBACK_CONCURRENCY, 6, 'matrix-wide fallback pressure must stay capped');
+  assert.ok(
+    settings.MAX_RUNTIME_SECONDS <= timeoutMinutes * 60 - 60,
+    'script deadline must leave one minute for setup and teardown',
+  );
+  assert.equal(
+    settings.MAX_PARALLEL * settings.FALLBACK_CONCURRENCY,
+    1,
+    'matrix-wide fallback pressure must remain strictly serial',
+  );
 });
