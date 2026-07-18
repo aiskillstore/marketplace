@@ -139,6 +139,7 @@ test('workflow is two-phase, CLI-pinned, resumable, and closes P0 channels', () 
   assert.match(workflow, /recover-boundary:/);
   assert.match(workflow, /INCIDENT_DRY_RUN_ID: '29622305779'/);
   assert.match(workflow, /INCIDENT_FAILED_EXECUTE_RUN_ID: '29623717000'/);
+  assert.match(workflow, /RECOVERY_EXPECTED_CACHE_VERSION: 'v7'/);
   assert.match(workflow, /producerKind:"fresh_canonical_audit_recovery"/);
   assert.match(workflow, /scripts\/verify-fresh-canonical-audit-recovery\.mjs/);
   assert.match(workflow, /scripts\/close-fresh-canonical-audit-cache\.mjs/);
