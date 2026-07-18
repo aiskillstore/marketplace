@@ -97,18 +97,22 @@ test('approved catalog pagination selects only public eligible canonical slugs',
 });
 
 test('freezes exact current DB score and snapshot identity for every requested slug', async () => {
+  const requests = [];
   const evidence = await fetchScoreEvidence({
     supabaseUrl: 'https://db.example.test',
     serviceRoleKey: 'secret',
     slugs: ['alpha'],
     requireSnapshot: true,
-    fetchImpl: async () => new Response(JSON.stringify([{
-      slug: 'alpha',
-      quality_score: 88,
-      quality_tier: 'silver',
-      quality_score_calculated_at: '2026-07-15T12:00:00+00:00',
-      current_quality_score_snapshot_id: '11111111-1111-4111-8111-111111111111',
-    }]), { status: 200, headers: { 'content-type': 'application/json' } }),
+    fetchImpl: async (url, init) => {
+      requests.push({ url: String(url), init });
+      return new Response(JSON.stringify([{
+        slug: 'alpha',
+        quality_score: 88,
+        quality_tier: 'silver',
+        quality_score_calculated_at: '2026-07-15T12:00:00+00:00',
+        current_quality_score_snapshot_id: '11111111-1111-4111-8111-111111111111',
+      }]), { status: 200, headers: { 'content-type': 'application/json' } });
+    },
   });
   assert.deepEqual(evidence, [{
     calculatedAt: '2026-07-15T12:00:00+00:00',
@@ -117,6 +121,12 @@ test('freezes exact current DB score and snapshot identity for every requested s
     slug: 'alpha',
     snapshotId: '11111111-1111-4111-8111-111111111111',
   }]);
+  assert.equal(requests.length, 1);
+  assert.equal(new URL(requests[0].url).searchParams.get('slug'), 'in.(alpha)');
+  assert.equal(
+    new URL(requests[0].url).searchParams.get('select'),
+    'slug,quality_score,quality_tier,quality_score_calculated_at,current_quality_score_snapshot_id',
+  );
 });
 
 test('rejects a claimed update that preserves an old snapshot and predates the trusted run boundary', () => {
@@ -309,7 +319,7 @@ test('readback rejects a freshly stored cache body that disagrees with frozen DB
   assert.match(evidence.failures[0].error, /API score identity does not match frozen DB evidence/);
 });
 
-test('daily workflow moves score cache closure to a fail-closed hosted job', () => {
+test('bounded manual workflow moves score cache closure to a fail-closed hosted job', () => {
   assert.match(RECALCULATE, /cache-closure:[\s\S]*runs-on: ubuntu-latest/);
   assert.match(RECALCULATE, /actions\/upload-artifact@v4[\s\S]*score-closure-\$\{\{ github\.run_id \}\}/);
   assert.match(RECALCULATE, /actions\/download-artifact@v5[\s\S]*score-closure-\$\{\{ github\.run_id \}\}/);
@@ -318,9 +328,11 @@ test('daily workflow moves score cache closure to a fail-closed hosted job', () 
   assert.match(RECALCULATE, /--expected-score-evidence/);
   assert.match(RECALCULATE, /^concurrency:\n(?:.*\n){0,5}\s+group: production-skill-score-writes/m);
   assert.doesNotMatch(RECALCULATE, /\|\| echo "::warning::Batch cache invalidation failed/);
+  assert.match(RECALCULATE, /batch-size: '1'/);
+  assert.match(RECALCULATE, /--concurrency 2/);
 });
 
-test('manual recovery is file-backed, fixed-CLI, bounded, and red on any remaining failure', () => {
+test('manual recovery is file-backed, limited to 25 slugs, and red on any remaining failure', () => {
   assert.match(RECOVERY, /source_run_id:/);
   assert.match(RECOVERY, /gh run view "\$SOURCE_RUN_ID"[\s\S]*--log > "\$plan\/source-run\.log"/);
   assert.match(RECOVERY, /extract-run-log/);
@@ -332,25 +344,31 @@ test('manual recovery is file-backed, fixed-CLI, bounded, and red on any remaini
   assert.match(RECOVERY, /source-result-metadata\.json/);
   assert.match(RECOVERY, /compare\/\$source_sha\.\.\.\$GITHUB_SHA/);
   assert.match(RECOVERY, /source run commit is not an ancestor/);
-  assert.match(RECOVERY, /approved-catalog/);
+  assert.doesNotMatch(RECOVERY, /approved-catalog-cache/);
+  assert.doesNotMatch(RECOVERY, /approved-catalog/);
   assert.match(RECOVERY, /name: score-cache-recovery-plan-\$\{\{ github\.run_id \}\}/);
   assert.match(RECOVERY, /RECOVERY_CLI_VERSION: '2\.8\.1'/);
   assert.match(RECOVERY, /RECOVERY_CLI_SHA256: '0c53207352b1fe1c5bc73c9d544ee7d97067ed55ab6b72f00e5624b7ee0c7c5c'/);
   assert.match(RECOVERY, /RECOVERY_CLI_SHA256: '[0-9a-f]{64}'/);
   assert.match(RECOVERY, /runs-on: ubuntu-latest/);
   assert.match(RECOVERY, /group: production-skill-score-writes/);
-  assert.match(RECOVERY, /--concurrency "\$\{\{ inputs\.score_concurrency \}\}"/);
+  assert.match(RECOVERY, /--concurrency 1/);
+  assert.match(RECOVERY, /--max-attempts 1/);
+  assert.equal((RECOVERY.match(/timeout-minutes: 180/g) || []).length, 2);
+  assert.doesNotMatch(RECOVERY, /timeout-minutes: (?:360|1440)/);
+  assert.doesNotMatch(RECOVERY, /score_concurrency:/);
+  assert.match(RECOVERY, /Recovery plan exceeds the 25-slug production limit/);
+  assert.match(RECOVERY, /test "\$\(jq -r \.slugCount metadata\.json\)" -le 25/);
   assert.match(RECOVERY, /Invalidate selected score API entries/);
-  assert.match(RECOVERY, /awk 'NF \{ print; exit \}' "\$target" > "\$invalidation_target"/);
   assert.match(RECOVERY, /slugs-file: \$\{\{ runner\.temp \}\}\/cache-invalidation-slugs\.txt/);
   assert.match(RECOVERY, /EXPECTED: \$\{\{ steps\.selected\.outputs\.invalidation_count \}\}/);
   assert.match(RECOVERY, /test "\$LIST_VERSION_BUMPED" = true/);
   assert.match(RECOVERY, /invalidationCount:\$invalidationCount/);
   assert.match(RECOVERY, /listVersionBumped:\$listVersionBumped/);
   assert.match(RECOVERY, /List-generation invalidation slugs:/);
-  assert.match(RECOVERY, /batch-size: '30'\n\s+concurrency: \$\{\{ needs\.plan\.outputs\.scope == 'approved-catalog-cache' && '4' \|\| '1' \}\}/);
+  assert.match(RECOVERY, /batch-size: '1'\n\s+concurrency: '1'/);
   assert.match(RECOVERY, /--expected-cache-version v7/);
-  assert.match(RECOVERY, /--concurrency 16/);
+  assert.match(RECOVERY, /--concurrency 2/);
   assert.match(RECOVERY, /Require complete score and cache recovery/);
   assert.match(RECOVERY, /freeze-score-evidence/);
   assert.match(RECOVERY, /before-score-evidence\.json/);

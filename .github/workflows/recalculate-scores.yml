@@ -1,32 +1,22 @@
 # GitHub Action Workflow for Recalculating Skill Quality Scores
 #
-# Runs daily to update community metrics (views, downloads, favorites)
-# and recalculate composite quality scores for all skills.
-#
-# This ensures the "Community" dimension reflects actual engagement data
-# after skills mature beyond the 7-day grace period.
+# Manually recalculates a strictly bounded set of quality scores. A durable,
+# incremental scorer will replace this stopgap before unattended scheduling is
+# restored.
 
 name: Recalculate Skill Scores
 
 on:
-  schedule:
-    # Run daily at 03:00 UTC (11:00 Beijing Time)
-    - cron: '0 3 * * *'
-
   workflow_dispatch:
     inputs:
       slug:
-        description: 'Score specific skill only (leave empty for all)'
+        description: 'Score one canonical skill slug (required unless limit is set)'
         type: string
         default: ''
       limit:
-        description: 'Maximum skills to process (leave empty for all)'
+        description: 'Score the first N canonical report slugs (1-25; required unless slug is set)'
         type: string
         default: ''
-      concurrency:
-        description: 'Parallel database updates (production-safe default: 1)'
-        type: string
-        default: '1'
       dry_run:
         description: 'Preview without updating database'
         type: boolean
@@ -36,7 +26,7 @@ on:
         type: string
         default: '2.8.1'
       timeout_seconds:
-        description: 'Per-skill CLI timeout in seconds (0 disables)'
+        description: 'Per-skill CLI timeout in seconds (30-300)'
         type: string
         default: '180'
 
@@ -54,7 +44,7 @@ env:
 jobs:
   recalculate:
     runs-on: self-hosted
-    timeout-minutes: 1440
+    timeout-minutes: 180
     steps:
       - name: Generate GitHub App Token
         id: app-token
@@ -105,7 +95,7 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
           INPUT_SLUG: ${{ inputs.slug }}
           INPUT_LIMIT: ${{ inputs.limit }}
-          INPUT_CONCURRENCY: ${{ inputs.concurrency || '1' }}
+          INPUT_CONCURRENCY: '1'
           INPUT_DRY_RUN: ${{ inputs.dry_run }}
           INPUT_TIMEOUT_SECONDS: ${{ inputs.timeout_seconds || '180' }}
           INPUT_CLI_VERSION: ${{ inputs.cli_version || '2.8.1' }}
@@ -117,6 +107,27 @@ jobs:
           [[ "$INPUT_CLI_VERSION" =~ ^(cli-v)?[0-9]+\.[0-9]+\.[0-9]+$ ]]
           NORMALIZED_CLI_VERSION="${INPUT_CLI_VERSION#cli-v}"
           test "$NORMALIZED_CLI_VERSION" = "$SCORE_CLI_VERSION"
+          test "$INPUT_CONCURRENCY" = "1"
+          if [ -n "$INPUT_SLUG" ] && [ -n "$INPUT_LIMIT" ]; then
+            echo '::error::Specify exactly one of slug or limit, not both.'
+            exit 2
+          fi
+          if [ -z "$INPUT_SLUG" ] && [ -z "$INPUT_LIMIT" ]; then
+            echo '::error::Specify a canonical slug or a bounded limit (1-25). Unbounded score recalculation is disabled.'
+            exit 2
+          fi
+          if [ -n "$INPUT_SLUG" ] && ! [[ "$INPUT_SLUG" =~ ^[a-z0-9][a-z0-9-]*$ ]]; then
+            echo "::error::slug must be one canonical slug: $INPUT_SLUG"
+            exit 2
+          fi
+          if [ -n "$INPUT_LIMIT" ] && { ! [[ "$INPUT_LIMIT" =~ ^[1-9][0-9]*$ ]] || [ "$INPUT_LIMIT" -gt 25 ]; }; then
+            echo "::error::limit must be a positive integer no greater than 25: $INPUT_LIMIT"
+            exit 2
+          fi
+          if ! [[ "$INPUT_TIMEOUT_SECONDS" =~ ^[0-9]+$ ]] || [ "$INPUT_TIMEOUT_SECONDS" -lt 30 ] || [ "$INPUT_TIMEOUT_SECONDS" -gt 300 ]; then
+            echo "::error::timeout_seconds must be an integer between 30 and 300: $INPUT_TIMEOUT_SECONDS"
+            exit 2
+          fi
           CLOSURE_DIR="$RUNNER_TEMP/score-closure"
           SUCCESS_SLUGS_FILE="$CLOSURE_DIR/successful-slugs.txt"
           FAILED_SLUGS_FILE="$CLOSURE_DIR/failed-slugs.txt"
@@ -166,28 +177,19 @@ jobs:
             --timeout-seconds "$INPUT_TIMEOUT_SECONDS"
           )
 
-          SUPPORTS_SLUGS=0
           SCORE_HELP=$("$GITHUB_WORKSPACE/skillstore-cli" skill score --help 2>&1 || true)
-          if printf '%s\n' "$SCORE_HELP" | grep -q -- '--slugs'; then
-            SUPPORTS_SLUGS=1
-          else
-            echo "::warning::Downloaded CLI does not advertise --slugs support; falling back to legacy --recalculate mode."
+          if ! printf '%s\n' "$SCORE_HELP" | grep -q -- '--slugs'; then
+            echo '::error::Downloaded CLI does not advertise --slugs support; refusing bounded production scoring.'
+            exit 2
           fi
 
           if [ -n "$INPUT_SLUG" ]; then
-            if [ "$SUPPORTS_SLUGS" -ne 1 ]; then
-              echo "::error::Single-skill mode requires a CLI with --slugs support. The downloaded release asset appears older than the resolved tag."
-              exit 2
-            fi
             # Single-skill mode: per-slug wrapper
             WRAPPER_ARGS+=( --slugs "$INPUT_SLUG" )
             echo "Mode: Single skill ($INPUT_SLUG)"
-          elif [ "$SUPPORTS_SLUGS" -eq 1 ]; then
-            # Scheduled/default full recalculation must still use the
-            # per-slug isolation wrapper when the downloaded CLI supports
-            # it. Enumerate the canonical DB slug from each report; path
-            # segments are owner-qualified and do not necessarily match
-            # skillstore.skills.slug.
+          else
+            # Bounded report enumeration: path segments are owner-qualified and
+            # do not necessarily match skillstore.skills.slug.
             mapfile -t ALL_SLUGS < <(node <<'NODE'
           const fs = require('node:fs');
           const path = require('node:path');
@@ -210,16 +212,8 @@ jobs:
           for (const slug of [...slugs].sort()) console.log(slug);
           NODE
           )
-            if [ -n "$INPUT_LIMIT" ]; then
-              if ! [[ "$INPUT_LIMIT" =~ ^[1-9][0-9]*$ ]]; then
-                echo "::error::limit must be a positive integer when provided: $INPUT_LIMIT"
-                exit 2
-              fi
-              mapfile -t ALL_SLUGS < <(printf '%s\n' "${ALL_SLUGS[@]}" | head -n "$INPUT_LIMIT")
-              echo "Mode: All skills (limit $INPUT_LIMIT)"
-            else
-              echo "Mode: All skills"
-            fi
+            mapfile -t ALL_SLUGS < <(printf '%s\n' "${ALL_SLUGS[@]}" | head -n "$INPUT_LIMIT")
+            echo "Mode: Bounded report selection (limit $INPUT_LIMIT)"
 
             if [ "${#ALL_SLUGS[@]}" -eq 0 ]; then
               echo "::error::No skills found to recalculate. Sparse checkout may be missing skills/."
@@ -231,34 +225,14 @@ jobs:
             WRAPPER_ARGS+=( --slugs-file "$SLUGS_FILE" )
             echo "Skills queued: ${#ALL_SLUGS[@]}"
             echo "Slug list file: $SLUGS_FILE"
-          else
-            # Compatibility fallback for mislabeled/older CLI release
-            # assets (observed: cli-v1.28.0 asset reporting 1.27.0).
-            # This restores the historical all-skills path instead of
-            # failing before any skill is scored.
-            if [ -n "$INPUT_LIMIT" ]; then
-              if ! [[ "$INPUT_LIMIT" =~ ^[1-9][0-9]*$ ]]; then
-                echo "::error::limit must be a positive integer when provided: $INPUT_LIMIT"
-                exit 2
-              fi
-              WRAPPER_ARGS+=( --limit "$INPUT_LIMIT" )
-              echo "Mode: All skills via legacy CLI (limit $INPUT_LIMIT)"
-            else
-              echo "Mode: All skills via legacy CLI"
-            fi
-            WRAPPER_ARGS+=( --recalculate )
           fi
 
-          if [ "$SUPPORTS_SLUGS" -eq 1 ]; then
-            WRAPPER_ARGS+=(
-              --success-slugs-file "$SUCCESS_SLUGS_FILE"
-              --failed-slugs-file "$FAILED_SLUGS_FILE"
-            )
-          fi
+          WRAPPER_ARGS+=(
+            --success-slugs-file "$SUCCESS_SLUGS_FILE"
+            --failed-slugs-file "$FAILED_SLUGS_FILE"
+          )
 
-          if [ "$INPUT_CONCURRENCY" != "5" ]; then
-            echo "Concurrency: $INPUT_CONCURRENCY"
-          fi
+          echo "Concurrency: $INPUT_CONCURRENCY"
 
           if [ "$INPUT_DRY_RUN" = "true" ]; then
             WRAPPER_ARGS+=( --dry-run )
@@ -305,6 +279,10 @@ jobs:
           FAILED_FILE_COUNT=$(sed '/^$/d' "$FAILED_SLUGS_FILE" | wc -l | tr -d ' ')
           if [ "$SUCCESS_FILE_COUNT" -ne "$SUCCESSFUL" ] || [ "$FAILED_FILE_COUNT" -ne "${ERRORS:-0}" ]; then
             echo "::error::Exact score closure count mismatch: successful=$SUCCESSFUL/$SUCCESS_FILE_COUNT failed=${ERRORS:-0}/$FAILED_FILE_COUNT"
+            FINAL_EXIT_CODE=1
+          fi
+          if [ "${PROCESSED:-0}" -gt 25 ] || [ "$SUCCESSFUL" -gt 25 ] || [ "$SUCCESS_FILE_COUNT" -gt 25 ]; then
+            echo "::error::Bounded score closure exceeded 25 items: processed=${PROCESSED:-0} successful=$SUCCESSFUL recorded=$SUCCESS_FILE_COUNT"
             FINAL_EXIT_CODE=1
           fi
           echo "exit_code=$FINAL_EXIT_CODE" >> $GITHUB_OUTPUT
@@ -363,9 +341,10 @@ jobs:
           EXIT_CODE: ${{ steps.score.outputs.exit_code }}
           DRY_RUN: ${{ inputs.dry_run || 'false' }}
           SLUG: ${{ inputs.slug }}
+          LIMIT: ${{ inputs.limit }}
           CLI_VERSION: ${{ env.SCORE_CLI_VERSION }}
         run: |
-          MODE="All skills"
+          MODE="Bounded selection (limit $LIMIT)"
           if [ -n "$SLUG" ]; then
             MODE="Single skill ($SLUG)"
           fi
@@ -411,7 +390,7 @@ jobs:
     needs: recalculate
     if: always() && inputs.dry_run != true
     runs-on: ubuntu-latest
-    timeout-minutes: 360
+    timeout-minutes: 180
     steps:
       - name: Checkout cache closure runtime
         uses: actions/checkout@v5
@@ -442,12 +421,14 @@ jobs:
           jq -e --arg runId "$GITHUB_RUN_ID" \
             '.schemaVersion == 1 and .sourceRunId == $runId and .dryRun == false
              and (.processed == (.successfulCount + .failedCount))
-             and (.errors == .failedCount) and (.updated == .successfulCount)' \
+             and (.errors == .failedCount) and (.updated == .successfulCount)
+             and (.processed <= 25) and (.successfulCount <= 25)' \
             "$metadata" >/dev/null
           success_count=$(sed '/^$/d' "$successes" | sort -u | wc -l | tr -d ' ')
           failed_count=$(sed '/^$/d' "$failures" | sort -u | wc -l | tr -d ' ')
           test "$success_count" -eq "$(jq -r .successfulCount "$metadata")"
           test "$failed_count" -eq "$(jq -r .failedCount "$metadata")"
+          test "$success_count" -le 25
           test "$success_count" -gt 0
           test "$(jq -r '.scores | length' "$expected")" -eq "$success_count"
           test "$(jq -r '[.scores[].slug] | unique | length' "$expected")" -eq "$success_count"
@@ -461,7 +442,7 @@ jobs:
           slugs-file: ${{ runner.temp }}/score-closure/successful-slugs.txt
           site-url: https://skillstore.io
           secret: ${{ secrets.CACHE_INVALIDATE_SECRET }}
-          batch-size: '30'
+          batch-size: '1'
           invalidate-artifacts: 'false'
           invalidate-dependent-packs: 'false'
           fail-on-error: 'true'
@@ -485,7 +466,7 @@ jobs:
             --expected-score-evidence "$RUNNER_TEMP/score-closure/expected-score-evidence.json" \
             --evidence "$RUNNER_TEMP/score-closure/cache-readback.json" \
             --site-url https://skillstore.io \
-            --concurrency 8 \
+            --concurrency 2 \
             --attempts 3 \
             --timeout-ms 30000
 

@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { dirname, resolve } from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
@@ -1133,18 +1135,93 @@ test('workflow checks out scripts, requires bounded skill scope, and has no reti
   const invalidateAction = readFileSync(resolve(REPO_ROOT, '.github/actions/invalidate-cache/action.yml'), 'utf8');
 
   assert.match(workflow, /sparse-checkout: \|\n\s+\.github\/actions\n\s+scripts/);
-  assert.match(workflow, /approve_full_catalog/);
+  assert.doesNotMatch(workflow, /full-catalog|approve_full_catalog|SUPABASE_SERVICE_KEY/);
   assert.match(workflow, /request_budget/);
   assert.match(workflow, /byte_budget/);
+  assert.match(workflow, /CONCURRENCY: 4/);
+  assert.match(workflow, /timeout-minutes: 120/);
+  assert.match(workflow, /MAX_FORCE_INVALIDATION_SLUGS: 25/);
+  assert.match(workflow, /INVALIDATE_BATCH_SIZE: 1/);
+  assert.match(workflow, /default: '128'/);
+  assert.match(workflow, /default: '20971520'/);
+  assert.match(workflow, /concurrency must be a positive integer no greater than 4/);
+  assert.match(workflow, /request_budget must be an integer between 1 and 128/);
+  assert.match(workflow, /byte_budget must be an integer between 1 and 20971520/);
   assert.match(workflow, /CACHE_WRITE_HEADER: x-kv-write/);
   assert.match(workflow, /CACHE_KEY_HEADER: x-kv-key/);
   assert.match(workflow, /CACHE_VERSION_HEADER: x-kv-version/);
   assert.match(workflow, /Warm scope is empty/);
+  assert.match(workflow, /Resolved scope needs at least \$MINIMUM_REQUESTS requests/);
+  assert.match(workflow, /batch-size: \$\{\{ env\.INVALIDATE_BATCH_SIZE \}\}[\s\S]*concurrency: '1'[\s\S]*invalidate-artifacts: 'false'[\s\S]*invalidate-dependent-packs: 'false'/);
   assert.match(workflow, /node scripts\/warm-skill-cache\.mjs/);
-  assert.match(workflow, /status=eq\.approved&public_eligible=eq\.true/);
   assert.doesNotMatch(workflow, /Warm workflows cache|Warm releases cache|type=skills/);
   assert.doesNotMatch(invalidateAction, /packs\/workflows/);
   assert.match(invalidateAction, /skills\|packs\|plugins\|releases/);
+});
+
+test('workflow rejects oversized and underbudget force invalidation before the invalidation step', () => {
+  const workflow = readFileSync(resolve(REPO_ROOT, '.github/workflows/warm-cache.yml'), 'utf8');
+  const runMarker = '        run: |\n';
+  const stepStart = workflow.indexOf('      - name: Resolve and validate warm scope');
+  const runStart = workflow.indexOf(runMarker, stepStart) + runMarker.length;
+  const runEnd = workflow.indexOf('\n      - name: Invalidate selected skill caches', runStart);
+  assert.ok(stepStart >= 0 && runStart >= runMarker.length && runEnd > runStart);
+
+  const script = workflow
+    .slice(runStart, runEnd)
+    .split('\n')
+    .map((line) => line.replace(/^ {10}/, ''))
+    .join('\n');
+  const workDir = mkdtempSync(resolve(tmpdir(), 'warm-cache-scope-'));
+
+  try {
+    const runScope = (overrides = {}) => spawnSync('bash', ['-c', script], {
+        encoding: 'utf8',
+        env: {
+        ...process.env,
+        RUNNER_TEMP: workDir,
+        GITHUB_OUTPUT: resolve(workDir, 'github-output'),
+        SUPPORTED_LOCALES: 'en zh-hans zh-hant ja ko de fr es pt ru ar',
+        CONCURRENCY: '4',
+        MAX_FORCE_INVALIDATION_SLUGS: '25',
+        SCOPE: 'changed',
+        MODE: 'force',
+        INPUT_SLUGS: 'skill-1',
+        INPUT_LOCALES: 'en',
+        SOURCE_RUN_ID: '',
+        APPROVE_FULL_CATALOG: 'false',
+        REQUEST_BUDGET: '128',
+        BYTE_BUDGET: '20971520',
+        WARM_ZIP: 'false',
+        SUPABASE_URL: '',
+        SUPABASE_SERVICE_KEY: '',
+        ...overrides,
+      },
+    });
+
+    const oversized = runScope({
+      INPUT_SLUGS: Array.from({ length: 26 }, (_, index) => `skill-${index + 1}`).join('\n'),
+    });
+    assert.equal(oversized.status, 1);
+    assert.match(`${oversized.stdout}\n${oversized.stderr}`, /Force invalidation is limited to 25 skills per run; resolved 26/);
+
+    const underbudget = runScope({
+      INPUT_SLUGS: Array.from({ length: 22 }, (_, index) => `skill-${index + 1}`).join('\n'),
+    });
+    assert.equal(underbudget.status, 1);
+    assert.match(`${underbudget.stdout}\n${underbudget.stderr}`, /needs at least 134 requests.*request_budget=128/);
+
+    const exactBudget = runScope({
+      INPUT_SLUGS: Array.from({ length: 21 }, (_, index) => `skill-${index + 1}`).join('\n'),
+    });
+    assert.equal(exactBudget.status, 0, `${exactBudget.stdout}\n${exactBudget.stderr}`);
+
+    const forceZip = runScope({ WARM_ZIP: 'true' });
+    assert.equal(forceZip.status, 1);
+    assert.match(`${forceZip.stdout}\n${forceZip.stderr}`, /force mode does not invalidate immutable ZIP artifacts/);
+  } finally {
+    rmSync(workDir, { recursive: true, force: true });
+  }
 });
 
 test('sync propagates invalidation failures and cannot warm stale 365-day detail entries', () => {

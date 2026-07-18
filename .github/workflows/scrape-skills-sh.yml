@@ -7,7 +7,7 @@
 #   - Scrapes skills.sh leaderboard pages for new skills not yet in skillstore
 #   - Scheduled runs scan the first 5 hot pages (200 skills/page)
 #   - Collects skills.sh market metrics for scoring
-#   - Recalculates matched skill scores after metrics are stored
+#   - Leaves score writes to the bounded Recalculate Skill Scores workflow
 #   - Submits up to 10 unique skills per run
 #   - Triggers process-submission workflow for each skill
 #   - Provides detailed summary of discovered vs submitted skills
@@ -49,11 +49,6 @@ on:
         required: false
         type: string
         default: 'all-time,trending,hot'
-      rescore_metrics:
-        description: 'Recalculate matched skill scores after metric ingestion'
-        required: false
-        type: boolean
-        default: true
       dry_run:
         description: 'Preview only, do not submit'
         required: false
@@ -123,13 +118,19 @@ jobs:
           GITHUB_APP_ID: ${{ secrets.APP_ID }}
           GITHUB_APP_PRIVATE_KEY: ${{ secrets.APP_PRIVATE_KEY }}
           GITHUB_APP_INSTALLATION_ID: ${{ secrets.APP_INSTALLATION_ID }}
+          INPUT_LIMIT: ${{ inputs.limit || 10 }}
+          INPUT_PAGES: ${{ inputs.pages || 5 }}
+          INPUT_VIEW: ${{ inputs.view || 'hot' }}
+          INPUT_COLLECT_METRICS: ${{ inputs.collect_metrics }}
+          INPUT_METRIC_VIEWS: ${{ inputs.metric_views || 'all-time,trending,hot' }}
+          INPUT_DRY_RUN: ${{ inputs.dry_run || false }}
         run: |
-          LIMIT="${{ inputs.limit || 10 }}"
-          PAGES="${{ inputs.pages || 5 }}"
-          VIEW="${{ inputs.view || 'hot' }}"
-          COLLECT_METRICS="${{ inputs.collect_metrics }}"
-          METRIC_VIEWS="${{ inputs.metric_views || 'all-time,trending,hot' }}"
-          DRY_RUN="${{ inputs.dry_run || false }}"
+          LIMIT="$INPUT_LIMIT"
+          PAGES="$INPUT_PAGES"
+          VIEW="$INPUT_VIEW"
+          COLLECT_METRICS="$INPUT_COLLECT_METRICS"
+          METRIC_VIEWS="$INPUT_METRIC_VIEWS"
+          DRY_RUN="$INPUT_DRY_RUN"
           if [ -z "$COLLECT_METRICS" ]; then
             COLLECT_METRICS="true"
           fi
@@ -275,11 +276,12 @@ jobs:
           METRIC_SNAPSHOTS: ${{ steps.scrape.outputs.metric_snapshots }}
           METRIC_DETAIL_FAILURES: ${{ steps.scrape.outputs.metric_detail_failures }}
           DRY_RUN: ${{ steps.scrape.outputs.dry_run }}
+          LIMIT: ${{ inputs.limit || 10 }}
         run: |
           cat << EOF >> $GITHUB_STEP_SUMMARY
           ## Skills.sh Scrape Summary
 
-          **Run Type**: ${{ github.event_name == 'schedule' && 'Scheduled (Daily)' || 'Manual' }}
+          **Run Type**: ${{ github.event_name == 'schedule' && 'Scheduled (Discovery only)' || 'Manual' }}
           **View**: ${VIEW:-hot}
           **Requested Pages**: ${PAGES:-5}
           **Pages Scanned**: ${PAGES_SCANNED:-N/A}
@@ -287,7 +289,7 @@ jobs:
           **Collect Metrics**: ${COLLECT_METRICS:-false}
           **Metric Views**: ${METRIC_VIEWS:-N/A}
           **Dry Run**: ${DRY_RUN}
-          **Limit**: ${{ inputs.limit || 10 }}
+          **Limit**: ${LIMIT:-10}
 
           ### Statistics
 
@@ -325,93 +327,3 @@ jobs:
         if: failure()
         run: |
           echo "::error::Skills.sh scrape workflow failed"
-
-  rescore-metrics:
-    name: Rescore matched skills.sh metrics
-    needs: scrape
-    if: needs.scrape.outputs.dry_run != 'true' && needs.scrape.outputs.metric_slugs != '' && (github.event_name == 'schedule' || inputs.rescore_metrics == true)
-    runs-on: ${{ github.event_name == 'schedule' && 'ubuntu-latest' || 'self-hosted' }}
-    timeout-minutes: 180
-    concurrency:
-      group: production-skill-score-writes
-      cancel-in-progress: false
-    steps:
-      - name: Generate GitHub App Token
-        id: app-token
-        uses: actions/create-github-app-token@v3
-        with:
-          client-id: ${{ vars.APP_CLIENT_ID }}
-          private-key: ${{ secrets.APP_PRIVATE_KEY }}
-          repositories: marketplace,skillstore
-
-      - name: Checkout score runtime
-        uses: actions/checkout@v5
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          sparse-checkout: |
-            .github/actions/download-skillstore-cli
-            scripts/recalculate-scores.sh
-          sparse-checkout-cone-mode: false
-
-      - name: Download Skillstore CLI
-        uses: ./.github/actions/download-skillstore-cli
-        with:
-          version: ${{ env.CLI_VERSION }}
-          token: ${{ steps.app-token.outputs.token }}
-          cache-dir: /home/runner/_work/_cache/skillstore-cli
-
-      - name: Recalculate scores for matched metrics
-        id: rescore
-        env:
-          PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
-          CACHE_INVALIDATE_SECRET: ${{ secrets.CACHE_INVALIDATE_SECRET }}
-          METRIC_SLUGS: ${{ needs.scrape.outputs.metric_slugs }}
-        run: |
-          set -euo pipefail
-          SLUG_FILE="$RUNNER_TEMP/skills-sh-metric-slugs.txt"
-          printf '%s' "$METRIC_SLUGS" | tr ',' '\n' | sed '/^$/d' > "$SLUG_FILE"
-
-          SLUG_COUNT=$(wc -l < "$SLUG_FILE" | tr -d ' ')
-          test "$SLUG_COUNT" -gt 0
-          echo "🎯 Recalculating scores for $SLUG_COUNT skills matched from skills.sh metrics"
-
-          set +e
-          bash scripts/recalculate-scores.sh \
-            --cli "$GITHUB_WORKSPACE/skillstore-cli" \
-            --slugs-file "$SLUG_FILE" \
-            --concurrency 5 \
-            --max-attempts 3 \
-            --retry-base-seconds 5 2>&1 | tee score-output.log
-          EXIT_CODE=${PIPESTATUS[0]}
-          set -e
-
-          PROCESSED=$(grep -oP 'Processed:\s*\K\d+' score-output.log | tail -n1 || echo "0")
-          UPDATED=$(grep -oP 'Updated:\s*\K\d+' score-output.log | tail -n1 || echo "0")
-          ERRORS=$(grep -oP 'Errors:\s*\K\d+' score-output.log | tail -n1 || echo "0")
-
-          echo "processed=${PROCESSED:-0}" >> "$GITHUB_OUTPUT"
-          echo "updated=${UPDATED:-0}" >> "$GITHUB_OUTPUT"
-          echo "errors=${ERRORS:-0}" >> "$GITHUB_OUTPUT"
-
-          if [ "$EXIT_CODE" -ne 0 ]; then
-            echo "::error::Metric-driven score recalculation failed"
-            exit "$EXIT_CODE"
-          fi
-
-      - name: Rescore summary
-        if: always()
-        run: |
-          {
-            echo '## Skills.sh metric score refresh'
-            echo
-            echo "- Processed: ${{ steps.rescore.outputs.processed || 'unknown' }}"
-            echo "- Updated: ${{ steps.rescore.outputs.updated || 'unknown' }}"
-            echo "- Errors: ${{ steps.rescore.outputs.errors || 'unknown' }}"
-            echo "- Mutex: production-skill-score-writes"
-          } >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Notify on score failure
-        if: failure()
-        run: |
-          echo "::error::Skills.sh metric score refresh failed"

@@ -12,8 +12,6 @@
 //   AC3: per-slug retries happen with backoff; after the retry budget
 //        is exhausted, the slug is counted in Errors.
 //
-// We also cover the legacy --recalculate top-level retry path.
-//
 // Run with: `node --test scripts/tests/recalculate-scores.test.mjs`
 // (No external dependencies; uses node:test + node:child_process.)
 
@@ -385,14 +383,20 @@ test('recalculate-scores workflow checks out wrapper and skill paths', () => {
 	assert.match(workflow, /sparse-checkout:\s*\|[\s\S]*\n\s*skills\n/, 'skills tree must be checked out for all-skills enumeration');
 });
 
-test('recalculate-scores workflow default all-skills path uses per-slug wrapper', () => {
+test('recalculate-scores workflow is manual-only, bounded, and fails closed', () => {
 	const workflow = readFileSync(RECALCULATE_WORKFLOW, 'utf8');
+	assert.match(workflow, /^on:\n\s+workflow_dispatch:/m, 'manual dispatch must be the only trigger');
+	assert.doesNotMatch(workflow, /^\s+schedule:/m, 'unattended score recalculation must be disabled');
 	assert.match(workflow, /report\?\.meta\?\.slug/, 'workflow must enumerate canonical DB slugs from skill-report meta.slug');
 	assert.doesNotMatch(workflow, /sed 's\|\^skills\/\|\|; s\|\/skill-report\.json\$\|\|'/, 'workflow must not derive DB slugs from owner-qualified paths');
 	assert.match(workflow, /NODE_EXTRA_CA_CERTS=\/etc\/ssl\/certs\/ca-certificates\.crt/, 'workflow must configure the Node CA bundle before Supabase calls');
 	assert.match(workflow, /--use-openssl-ca/, 'workflow must force Node to use the system OpenSSL CA store');
-	assert.match(workflow, /SLUGS_FILE=/, 'workflow must materialize the full no-limit slug list into a file');
-	assert.match(workflow, /WRAPPER_ARGS\+=\( --slugs-file "\$SLUGS_FILE" \)/, 'default full run must pass a slug file, not a giant CSV argv');
+	assert.match(workflow, /Specify a canonical slug or a bounded limit \(1-25\)/, 'unbounded requests must be rejected before work starts');
+	assert.match(workflow, /Specify exactly one of slug or limit, not both/, 'manual scope must be unambiguous');
+	assert.match(workflow, /limit must be a positive integer no greater than 25/, 'limit must be capped at 25');
+	assert.match(workflow, /timeout_seconds must be an integer between 30 and 300/, 'per-skill timeout must reject disabled and excessive values');
+	assert.match(workflow, /SLUGS_FILE=/, 'bounded limit mode must materialize selected slugs into a file');
+	assert.match(workflow, /WRAPPER_ARGS\+=\( --slugs-file "\$SLUGS_FILE" \)/, 'bounded limit mode must avoid a giant CSV argv');
 	assert.match(workflow, /--timeout-seconds "\$INPUT_TIMEOUT_SECONDS"/, 'default full run must bound each per-skill CLI child');
 	assert.match(workflow, /CACHE_INVALIDATE_SECRET= bash scripts\/recalculate-scores\.sh/, 'per-slug CLI children must not invalidate cache one-by-one');
 	assert.match(workflow, /--success-slugs-file "\$SUCCESS_SLUGS_FILE"/, 'workflow must materialize exact successes');
@@ -405,8 +409,12 @@ test('recalculate-scores workflow default all-skills path uses per-slug wrapper'
 	assert.doesNotMatch(workflow, /Batch cache invalidation failed; scores were already written/, 'cache failure must not be downgraded to a warning');
 	assert.doesNotMatch(workflow, /WRAPPER_ARGS\+=\( --slugs "\$SLUGS_CSV" \)/, 'default full run must not put all slugs in one argv');
 	assert.doesNotMatch(workflow, /SLUGS_CSV=/, 'workflow must not build an all-skills CSV that can exceed ARG_MAX');
-	assert.match(workflow, /SUPPORTS_SLUGS=0/, 'workflow must feature-probe whether the downloaded CLI supports --slugs');
-	assert.match(workflow, /WRAPPER_ARGS\+=\( --recalculate \)/, 'workflow must fall back to legacy --recalculate when the release asset is older than the tag');
+	assert.match(workflow, /Downloaded CLI does not advertise --slugs support; refusing bounded production scoring/, 'unsupported CLI must fail closed');
+	assert.doesNotMatch(workflow, /WRAPPER_ARGS\+=\( --recalculate \)/, 'workflow must not retain an unbounded legacy fallback');
+	assert.match(workflow, /processed <= 25/, 'closure metadata must cap processed items');
+	assert.match(workflow, /successfulCount <= 25/, 'closure metadata must cap successful items');
+	assert.match(workflow, /batch-size: '1'/, 'score cache invalidation must run one item at a time');
+	assert.match(workflow, /--concurrency 2/, 'score cache readback must use low concurrency');
 });
 
 test('production score writers serialize and avoid multiplicative retries', () => {
@@ -418,10 +426,13 @@ test('production score writers serialize and avoid multiplicative retries', () =
 		assert.match(workflow, /--max-attempts 1/,
 			'the workflow wrapper must not multiply the CLI request retry layer');
 	}
-	assert.match(recalc, /default:\s*'1'/, 'scheduled score concurrency must default to one');
-	assert.match(recalc, /INPUT_CONCURRENCY:\s*\$\{\{ inputs\.concurrency \|\| '1' \}\}/,
-		'recalculate fallback concurrency must remain one');
+	assert.match(recalc, /INPUT_CONCURRENCY:\s*'1'/, 'manual score concurrency must be hard-coded to one');
+	assert.doesNotMatch(recalc, /inputs\.concurrency/, 'manual callers must not be able to raise production score concurrency');
 	assert.match(sync, /--concurrency 1/, 'incremental sync scoring must remain single-writer');
+	assert.match(sync, /Synced score plan exceeds the 25-Skill production limit/,
+		'incremental sync scoring must independently reject an oversized artifact');
+	assert.match(sync, /--slugs-file "\$SCORE_SLUGS_FILE"/,
+		'incremental sync scoring must consume its bounded file without a large CSV argv');
 });
 
 test('every workflow that invokes the score wrapper is enumerated and holds the production writer mutex', () => {
@@ -432,7 +443,6 @@ test('every workflow that invokes the score wrapper is enumerated and holds the 
 	assert.deepEqual(writerWorkflows, [
 		'recalculate-scores.yml',
 		'recover-score-cache-closure.yml',
-		'scrape-skills-sh.yml',
 		'sync-to-supabase.yml',
 	]);
 	for (const name of writerWorkflows) {
@@ -442,12 +452,16 @@ test('every workflow that invokes the score wrapper is enumerated and holds the 
 	}
 
 	const scrape = readFileSync(SCRAPE_WORKFLOW, 'utf8');
-	const [nonWritingScrape, scoreJob] = scrape.split('\n  rescore-metrics:');
-	assert.ok(scoreJob, 'skills.sh scoring must be isolated in its own job');
-	assert.doesNotMatch(nonWritingScrape, /production-skill-score-writes/,
-		'the non-writing scrape phase must not wait on the production score mutex');
-	assert.match(scoreJob, /concurrency:[\s\S]*group:\s*production-skill-score-writes/,
-		'the isolated skills.sh score job must hold the mutex');
+	assert.doesNotMatch(scrape, /recalculate-scores\.sh|rescore-metrics:|rescore_metrics:/,
+		'skills.sh discovery and metric ingestion must never perform score writes');
+	const scrapeRun = scrape.slice(
+		scrape.indexOf('      - name: Run scrape-skills-sh'),
+		scrape.indexOf('      - name: Summary'),
+	);
+	assert.match(scrapeRun, /INPUT_METRIC_VIEWS:\s*\$\{\{ inputs\.metric_views/,
+		'free-form metric views input must enter shell only through the environment');
+	assert.doesNotMatch(scrapeRun.slice(scrapeRun.indexOf('run: |')), /\$\{\{\s*inputs\./,
+		'skills.sh shell must not directly interpolate workflow inputs');
 });
 
 test('malicious cli_version input cannot become shell syntax or select an unpinned binary', () => {
@@ -465,12 +479,17 @@ test('malicious cli_version input cannot become shell syntax or select an unpinn
 	assert.equal(/^(cli-v)?[0-9]+\.[0-9]+\.[0-9]+$/.test('2.8.0; echo "$SUPABASE_SERVICE_ROLE_KEY"'), false);
 });
 
-test('score test workflow is triggered when the skills.sh production writer changes', () => {
+test('score and cache tests run when the skills.sh or warm-cache workflow changes', () => {
 	const workflow = readFileSync(TEST_WORKFLOW, 'utf8');
 	assert.equal(
 		[...workflow.matchAll(/"\.github\/workflows\/scrape-skills-sh\.yml"/g)].length,
 		2,
-		'pull_request and push path filters must both cover the skills.sh writer',
+		'pull_request and push path filters must both cover skills.sh workflow behavior',
+	);
+	assert.equal(
+		[...workflow.matchAll(/"\.github\/workflows\/warm-cache\.yml"/g)].length,
+		2,
+		'pull_request and push path filters must both cover warm-cache safety behavior',
 	);
 });
 
