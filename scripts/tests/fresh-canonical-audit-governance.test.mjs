@@ -75,7 +75,7 @@ test('cursor requires both the immediately preceding boundary and a fully govern
     },
     selection: { status: 'lineage_unproven', lastSelected: row.slug },
     executionProof: {
-      status: 'fresh_canonical_audit_execution_complete', executeRunId: '456',
+      schemaVersion: 1, status: 'fresh_canonical_audit_execution_complete', executeRunId: '456',
       dryRunId: '123', lastSelected: row.slug, cohortSha256,
       scoreFinalized: true, timestampFinalized: true, cacheClosureCompleted: true,
       packClosureCompleted: true, productionSmokeCompleted: true,
@@ -102,9 +102,9 @@ test('cursor requires both the immediately preceding boundary and a fully govern
 
 test('workflow is two-phase, CLI-pinned, resumable, and closes P0 channels', () => {
   const workflow = readFileSync(new URL('../../.github/workflows/govern-fresh-canonical-audits.yml', import.meta.url), 'utf8');
-  assert.match(workflow, /options: \[dry-run, execute\]/);
+  assert.match(workflow, /options: \[dry-run, execute, recover\]/);
   assert.match(workflow, /default: '2\.8\.0'/);
-  assert.equal((workflow.match(/ecfaa49aa72d24b8ea6322c7dae24d4bbe9df174a5d009cc56d7d2a89e7ae05a/g) || []).length, 2);
+  assert.equal((workflow.match(/ecfaa49aa72d24b8ea6322c7dae24d4bbe9df174a5d009cc56d7d2a89e7ae05a/g) || []).length, 3);
   assert.match(workflow, /\[\[ "\$audited" =~ \^\[0-9a-f\]\{64\}\$ \]\]/);
   assert.match(workflow, /skill audit/);
   assert.match(workflow, /cd "\$RUNNER_TEMP\/materialized\/\$commit"/);
@@ -122,9 +122,9 @@ test('workflow is two-phase, CLI-pinned, resumable, and closes P0 channels', () 
   assert.equal((workflow.match(/sparse-checkout-cone-mode: false/g) || []).length, 2);
   assert.equal((workflow.match(/git sparse-checkout disable/g) || []).length, 2);
   assert.equal((workflow.match(/git reset --hard HEAD/g) || []).length, 2);
-  assert.equal((workflow.match(/test "\$\(git rev-parse HEAD\)" = "\$GITHUB_SHA"/g) || []).length, 2);
+  assert.equal((workflow.match(/test "\$\(git rev-parse HEAD\)" = "\$GITHUB_SHA"/g) || []).length, 3);
   assert.match(workflow, /fresh_canonical_audit_execution_complete/);
-  assert.equal((workflow.match(/include-hidden-files: true/g) || []).length, 2);
+  assert.equal((workflow.match(/include-hidden-files: true/g) || []).length, 3);
   assert.match(workflow, /name: fresh-canonical-audit-boundary-\$\{\{ github\.run_id \}\}[\s\S]*?include-hidden-files: true/);
   assert.match(workflow, /name: fresh-canonical-audit-execution-\$\{\{ github\.run_id \}\}[\s\S]*?include-hidden-files: true/);
   assert.match(workflow, /productionSmokeCompleted:true/);
@@ -136,4 +136,12 @@ test('workflow is two-phase, CLI-pinned, resumable, and closes P0 channels', () 
   assert.match(workflow, /SMOKE_PUBLIC_CLI_PACKAGES: skillstore@0\.1\.9,skillstore@latest/);
   assert.match(workflow, /production-smoke\.mjs/);
   assert.match(workflow, /MCP channel/);
+  assert.match(workflow, /recover-boundary:/);
+  assert.match(workflow, /INCIDENT_DRY_RUN_ID: '29622305779'/);
+  assert.match(workflow, /INCIDENT_FAILED_EXECUTE_RUN_ID: '29623717000'/);
+  assert.match(workflow, /producerKind:"fresh_canonical_audit_recovery"/);
+  assert.match(workflow, /scripts\/verify-fresh-canonical-audit-recovery\.mjs/);
+  assert.match(workflow, /scripts\/close-fresh-canonical-audit-cache\.mjs/);
+  const recovery = workflow.slice(workflow.indexOf('  recover-boundary:'));
+  assert.doesNotMatch(recovery, /skill govern-fresh-canonical-audit|recalculate-scores|record_fresh_canonical_audit/);
 });

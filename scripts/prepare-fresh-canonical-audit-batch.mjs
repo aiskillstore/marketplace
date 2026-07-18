@@ -60,12 +60,28 @@ export function prepareFreshCanonicalAuditBatch({
     const metadata = previousBoundary?.metadata;
     const selection = previousBoundary?.selection;
     const execution = previousBoundary?.executionProof;
+    const supportedExecutionProof = execution?.schemaVersion === 1
+      || (execution?.schemaVersion === 2
+        && execution.producerKind === 'fresh_canonical_audit_recovery'
+        && execution.failedExecuteRunId === '29623717000'
+        && execution.failedExecuteHeadSha === '15492b473b84a835e8b63083510ad1e59184b8db'
+        && [
+          execution.executionResultsSha256,
+          execution.postInventorySha256,
+          execution.boundaryManifestSha256,
+          execution.recoveryEvidenceManifestSha256,
+          execution.scoreTimestampEvidenceSha256,
+          execution.cacheClosureEvidenceSha256,
+          execution.cacheReadbackSha256,
+          execution.smokeResultSha256,
+        ].every((value) => typeof value === 'string' && /^[0-9a-f]{64}$/.test(value)));
     if (metadata?.status !== 'fresh_canonical_audit_frozen'
       || metadata.lastSelected !== cursor || selection?.lastSelected !== cursor
       || selection?.status !== 'lineage_unproven'
       || typeof metadata.runId !== 'string' || !metadata.runId
       || !cohortSha256 || metadata.cohortSha256 !== cohortSha256
       || execution?.status !== 'fresh_canonical_audit_execution_complete'
+      || !supportedExecutionProof
       || execution.dryRunId !== metadata.runId
       || execution.lastSelected !== cursor || execution.cohortSha256 !== cohortSha256
       || typeof execution.executeRunId !== 'string' || !execution.executeRunId

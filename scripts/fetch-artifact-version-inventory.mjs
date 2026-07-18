@@ -20,6 +20,10 @@ const SELECT = [
   'public_eligibility_audit_id',
   'published_at',
   'updated_at',
+  'quality_score',
+  'quality_tier',
+  'quality_score_calculated_at',
+  'current_quality_score_snapshot_id',
 ].join(',');
 const ARTIFACT_SELECT = [
   'id',
