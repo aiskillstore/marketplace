@@ -44,6 +44,8 @@ test('report auto-fix rebinds every changed report and verifies its hash contrac
   assert.match(rebindReport, /--diff-filter=D/);
   assert.match(verifyReportHashContract, /content_hash does not match SKILL\.md raw bytes/);
   assert.match(verifyReportHashContract, /tree_hash does not match the canonical skill tree/);
+  assert.ok(verifyReportHashContract.includes(String.raw`.split('\0')`));
+  assert.ok(!verifyReportHashContract.includes(String.raw`.split('\\0')`));
   assert.match(
     workflow,
     /Commit auto-fixed skill-report\.json files locally\n        if: [^\n]*steps\.revalidate-report-hash-contract\.outcome == 'success'/,
