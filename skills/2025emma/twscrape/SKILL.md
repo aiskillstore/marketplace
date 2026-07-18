@@ -1,9 +1,3 @@
----
-name: twscrape
-description: Guides use of twscrape for Twitter/X data collection, account setup, proxy configuration, exports, and troubleshooting.
-license: MIT
----
-
 # twscrape
 
 Python library for scraping Twitter/X data using GraphQL API with account rotation and session management.

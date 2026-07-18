@@ -1,5 +1,5 @@
 ---
-name: crud-with-spec-kit
+name: CRUD with Spec-Kit
 category: Development
 author: Claude
 version: 1.0.0

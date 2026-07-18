@@ -1,8 +1,3 @@
----
-name: quality-gates
-description: Assess task complexity, validate requirements, and apply quality gates before implementation begins.
----
-
 # Quality Gates Skill
 
 **Version:** 1.0.0

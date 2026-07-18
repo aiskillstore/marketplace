@@ -1,5 +1,5 @@
 ---
-name: project-setup-architecture
+name: Project Setup & Architecture
 description: Set up project infrastructure including TypeScript, database, state management, navigation, and testing. Use when initializing new features or configuring development environment.
 allowed-tools: Bash, Read, Write, Edit, Glob
 ---

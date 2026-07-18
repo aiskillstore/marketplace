@@ -1,5 +1,5 @@
 ---
-name: ui-design-system
+name: UI Design System
 description: The Design System, Theme, and UX rules for the Physical AI Hub.
 ---
 

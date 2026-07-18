@@ -1,5 +1,5 @@
 ---
-name: repairing-signal-tower
+name: Repairing Signal Tower
 description: 信号塔修复 - Stella尝试修复或建造信号发射装置,希望联系地球或发送求救信号
 ---
 
