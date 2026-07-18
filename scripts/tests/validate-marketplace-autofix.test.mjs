@@ -1,9 +1,11 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
+import { calculateCanonicalTreeHash } from '../resolve-approved-submission.mjs';
 
 const workflow = readFileSync('.github/workflows/validate-marketplace.yml', 'utf8');
 
@@ -19,6 +21,8 @@ function runBlock(stepName) {
 }
 
 const rebind = runBlock('Rebind reports to auto-fixed SKILL.md artifacts');
+const rebindReport = runBlock('Rebind reports to auto-fixed skill-report artifacts');
+const verifyReportHashContract = runBlock('Verify skill-report hash contract after auto-fix');
 const commitSkill = runBlock('Commit auto-fixed SKILL.md artifacts locally');
 const commitReport = runBlock('Commit auto-fixed skill-report.json files locally');
 const publish = runBlock('Publish validated auto-fixes');
@@ -29,6 +33,70 @@ test('auto-fix binds final artifact hashes before creating local commits', () =>
   assert.match(rebind, /--skill-paths-file/);
   assert.doesNotMatch(commitSkill, /git push|gh pr create/);
   assert.doesNotMatch(commitReport, /git push|git pull|git reset|git cherry-pick/);
+});
+
+test('report auto-fix rebinds every changed report and verifies its hash contract before commit', () => {
+  assert.match(rebindReport, /git diff --no-renames --name-only -z --diff-filter=ACMRT HEAD/);
+  assert.match(rebindReport, /skills\/\*\/skill-report\.json/);
+  assert.match(rebindReport, /pending\/\*\/skill-report\.json/);
+  assert.match(rebindReport, /scripts\/rebind-skill-report-hashes\.mjs/);
+  assert.match(rebindReport, /--skill-paths-file/);
+  assert.match(rebindReport, /--diff-filter=D/);
+  assert.match(verifyReportHashContract, /content_hash does not match SKILL\.md raw bytes/);
+  assert.match(verifyReportHashContract, /tree_hash does not match the canonical skill tree/);
+  assert.match(
+    workflow,
+    /Commit auto-fixed skill-report\.json files locally\n        if: [^\n]*steps\.revalidate-report-hash-contract\.outcome == 'success'/,
+  );
+});
+
+test('report auto-fix restores erased hashes without changing source lineage', () => {
+  const root = mkdtempSync(join(tmpdir(), 'validate-autofix-report-rebind-'));
+  const skillDirectory = 'pending/example/fixture';
+  const absoluteDirectory = join(root, skillDirectory);
+  const skillPath = join(absoluteDirectory, 'SKILL.md');
+  const reportPath = join(absoluteDirectory, 'skill-report.json');
+  const pathsFile = join(root, 'affected-skills.bin');
+  try {
+    mkdirSync(absoluteDirectory, { recursive: true });
+    writeFileSync(skillPath, '---\nname: fixture\ndescription: Auto-fixed fixture\n---\n');
+    writeFileSync(reportPath, `${JSON.stringify({
+      meta: {
+        slug: 'example-fixture',
+        source_type: 'community',
+        source_url: 'https://github.com/example/source/tree/main/fixture',
+        source_ref: 'main',
+        content_hash: 'a'.repeat(64),
+        tree_hash: 'b'.repeat(64),
+      },
+      security_audit: { is_blocked: false, safe_to_publish: true },
+    }, null, 2)}\n`);
+
+    // Model the report-only AI repair dropping both identity hashes.
+    const autoFixed = JSON.parse(readFileSync(reportPath, 'utf8'));
+    delete autoFixed.meta.content_hash;
+    delete autoFixed.meta.tree_hash;
+    writeFileSync(reportPath, `${JSON.stringify(autoFixed, null, 2)}\n`);
+    writeFileSync(pathsFile, Buffer.from(`${skillDirectory}/SKILL.md\0`));
+
+    const result = spawnSync(process.execPath, [
+      'scripts/rebind-skill-report-hashes.mjs',
+      '--repo-root', root,
+      '--skill-paths-file', pathsFile,
+    ], { cwd: process.cwd(), encoding: 'utf8' });
+    assert.equal(result.status, 0, result.stderr);
+
+    const rebound = JSON.parse(readFileSync(reportPath, 'utf8'));
+    assert.equal(rebound.meta.source_url, 'https://github.com/example/source/tree/main/fixture');
+    assert.equal(rebound.meta.source_ref, 'main');
+    assert.equal(
+      rebound.meta.content_hash,
+      createHash('sha256').update(readFileSync(skillPath)).digest('hex'),
+    );
+    assert.equal(rebound.meta.tree_hash, calculateCanonicalTreeHash(root, skillDirectory));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test('publishing updates only the original trusted PR head and fails closed on races', () => {

@@ -625,8 +625,85 @@ jobs:
             exit 1
           fi
 
-      - name: Commit auto-fixed skill-report.json files locally
+      - name: Rebind reports to auto-fixed skill-report artifacts
         if: steps.validate-skill-reports.outcome == 'failure' && env.AUTO_FIX_ENABLED == 'true' && steps.revalidate.outcome == 'success'
+        working-directory: ${{ env.WORK_DIR }}
+        run: |
+          set -euo pipefail
+          CHANGED_REPORTS="$RUNNER_TEMP/auto-fixed-report-paths-${{ github.run_id }}.bin"
+          CHANGED_SKILLS="$RUNNER_TEMP/auto-fixed-report-skill-paths-${{ github.run_id }}.bin"
+
+          if ! git diff --no-renames --quiet --diff-filter=D HEAD -- \
+            'skills/**/skill-report.json' 'pending/**/skill-report.json'; then
+            echo "::error::skill-report.json auto-fix deleted a report; refusing to publish an unbound artifact"
+            exit 1
+          fi
+
+          git diff --no-renames --name-only -z --diff-filter=ACMRT HEAD -- \
+            'skills/**/skill-report.json' 'pending/**/skill-report.json' > "$CHANGED_REPORTS"
+          if [ ! -s "$CHANGED_REPORTS" ]; then
+            echo "::error::skill-report.json auto-fix reported success without a changed report artifact"
+            exit 1
+          fi
+
+          while IFS= read -r -d '' report_path; do
+            case "$report_path" in
+              skills/*/skill-report.json|pending/*/skill-report.json)
+                printf '%s\0' "${report_path%/skill-report.json}/SKILL.md"
+                ;;
+              *)
+                echo "::error::Unexpected auto-fixed report path: $report_path"
+                exit 1
+                ;;
+            esac
+          done < "$CHANGED_REPORTS" | LC_ALL=C sort -z -u > "$CHANGED_SKILLS"
+
+          node scripts/rebind-skill-report-hashes.mjs \
+            --repo-root "$PWD" \
+            --skill-paths-file "$CHANGED_SKILLS"
+
+      - name: Verify skill-report hash contract after auto-fix
+        if: steps.validate-skill-reports.outcome == 'failure' && env.AUTO_FIX_ENABLED == 'true' && steps.revalidate.outcome == 'success'
+        id: revalidate-report-hash-contract
+        working-directory: ${{ env.WORK_DIR }}
+        run: |
+          set -euo pipefail
+          CHANGED_SKILLS="$RUNNER_TEMP/auto-fixed-report-skill-paths-${{ github.run_id }}.bin"
+          test -s "$CHANGED_SKILLS" || {
+            echo "::error::Missing affected SKILL.md list for report hash contract validation"
+            exit 1
+          }
+
+          node --input-type=module - "$CHANGED_SKILLS" <<'NODE'
+          import { createHash } from 'node:crypto';
+          import { readFileSync } from 'node:fs';
+          import { dirname } from 'node:path';
+          import { calculateCanonicalTreeHash } from './scripts/resolve-approved-submission.mjs';
+
+          const pathsFile = process.argv[2];
+          const skillPaths = [...new Set(readFileSync(pathsFile, 'utf8').split('\\0').filter(Boolean))].sort();
+          if (skillPaths.length === 0) throw new Error('no affected SKILL.md paths were provided');
+
+          for (const skillPath of skillPaths) {
+            const skillDirectory = dirname(skillPath);
+            const reportPath = `${skillDirectory}/skill-report.json`;
+            const report = JSON.parse(readFileSync(reportPath, 'utf8'));
+            const contentHash = createHash('sha256').update(readFileSync(skillPath)).digest('hex');
+            const treeHash = calculateCanonicalTreeHash(process.cwd(), skillDirectory);
+            if (typeof report?.meta?.source_url !== 'string' || !report.meta.source_url.startsWith('https://github.com/')) {
+              throw new Error(`${reportPath} has invalid source_url lineage`);
+            }
+            if (typeof report?.meta?.source_ref !== 'string' || report.meta.source_ref.trim() === '') {
+              throw new Error(`${reportPath} has invalid source_ref lineage`);
+            }
+            if (report?.meta?.content_hash !== contentHash) throw new Error(`${reportPath} content_hash does not match SKILL.md raw bytes`);
+            if (report?.meta?.tree_hash !== treeHash) throw new Error(`${reportPath} tree_hash does not match the canonical skill tree`);
+          }
+          console.log(`Verified report hash contract for ${skillPaths.length} auto-fixed artifact(s)`);
+          NODE
+
+      - name: Commit auto-fixed skill-report.json files locally
+        if: steps.validate-skill-reports.outcome == 'failure' && env.AUTO_FIX_ENABLED == 'true' && steps.revalidate.outcome == 'success' && steps.revalidate-report-hash-contract.outcome == 'success'
         working-directory: ${{ env.WORK_DIR }}
         run: |
           set -euo pipefail
@@ -704,7 +781,7 @@ jobs:
           exit 1
 
       - name: Publish validated auto-fixes
-        if: success() && env.AUTO_FIX_ENABLED == 'true' && (steps.revalidate-skill-md.outcome == 'success' || steps.revalidate.outcome == 'success')
+        if: success() && env.AUTO_FIX_ENABLED == 'true' && (steps.revalidate-skill-md.outcome == 'success' || (steps.revalidate.outcome == 'success' && steps.revalidate-report-hash-contract.outcome == 'success'))
         working-directory: ${{ env.WORK_DIR }}
         env:
           APP_TOKEN: ${{ steps.app-token.outputs.token }}
