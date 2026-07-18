@@ -349,7 +349,7 @@ test('manual recovery is file-backed, fixed-CLI, bounded, and red on any remaini
   assert.match(RECOVERY, /listVersionBumped:\$listVersionBumped/);
   assert.match(RECOVERY, /List-generation invalidation slugs:/);
   assert.match(RECOVERY, /batch-size: '30'\n\s+concurrency: \$\{\{ needs\.plan\.outputs\.scope == 'approved-catalog-cache' && '4' \|\| '1' \}\}/);
-  assert.match(RECOVERY, /--expected-cache-version v6/);
+  assert.match(RECOVERY, /--expected-cache-version v7/);
   assert.match(RECOVERY, /--concurrency 16/);
   assert.match(RECOVERY, /Require complete score and cache recovery/);
   assert.match(RECOVERY, /freeze-score-evidence/);
