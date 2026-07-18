@@ -1,5 +1,5 @@
 ---
-name: cave-exploration
+name: Cave Exploration
 description: 洞穴探险 - Stella发现一个深邃的洞穴系统,深入探索发现bioluminescent晶体、地下水源和神秘的古老痕迹
 ---
 

@@ -1,5 +1,5 @@
 ---
-name: mobile-debugging
+name: Mobile Debugging
 description: Debug React Native apps including metro bundler issues, native errors, performance problems, and crash analysis. Use when troubleshooting errors or investigating issues.
 allowed-tools: Bash, Read, Grep
 ---

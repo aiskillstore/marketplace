@@ -1,5 +1,5 @@
 ---
-name: first-alien-encounter
+name: First Alien Encounter
 description: 神秘接触 - Stella终于与盖亚星球的智慧生命面对面接触,一次改变一切的遭遇
 ---
 

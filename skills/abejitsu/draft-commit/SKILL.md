@@ -1,8 +1,3 @@
----
-name: draft-commit
-description: Draft clear commit messages from staged Git changes without creating a commit.
----
-
 # Draft a Commit
 
 Create a thoughtful, supportive commit message from your staged changes.

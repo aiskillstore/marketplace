@@ -1,5 +1,5 @@
 ---
-name: 1password-credential-lookup
+name: 1Password Credential Lookup
 description: This skill should be used when agents need to log into websites, retrieve passwords, or access credentials. CRITICAL - always use find_credential with the website URL, never guess item names.
 version: 2.0.0
 ---
