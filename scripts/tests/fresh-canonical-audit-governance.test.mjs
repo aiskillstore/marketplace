@@ -103,8 +103,9 @@ test('cursor requires both the immediately preceding boundary and a fully govern
 test('workflow is two-phase, CLI-pinned, resumable, and closes P0 channels', () => {
   const workflow = readFileSync(new URL('../../.github/workflows/govern-fresh-canonical-audits.yml', import.meta.url), 'utf8');
   assert.match(workflow, /options: \[dry-run, execute, recover\]/);
-  assert.match(workflow, /default: '2\.8\.0'/);
-  assert.equal((workflow.match(/ecfaa49aa72d24b8ea6322c7dae24d4bbe9df174a5d009cc56d7d2a89e7ae05a/g) || []).length, 3);
+  assert.match(workflow, /default: '2\.8\.2'/);
+  assert.equal((workflow.match(/9b885943950c15555e8fbae522adf2cf9514ae74f63050a905c8e97694d52fcb/g) || []).length, 2);
+  assert.equal((workflow.match(/ecfaa49aa72d24b8ea6322c7dae24d4bbe9df174a5d009cc56d7d2a89e7ae05a/g) || []).length, 1);
   assert.match(workflow, /\[\[ "\$audited" =~ \^\[0-9a-f\]\{64\}\$ \]\]/);
   assert.match(workflow, /skill audit/);
   assert.match(workflow, /cd "\$RUNNER_TEMP\/materialized\/\$commit"/);
