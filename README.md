@@ -24,7 +24,7 @@ npx skillstore add aiskillstore/code-review
 
 It downloads the skill and drops it into the right `skills/` directory for your tool. Claude Code auto-discovers it; for Codex, restart the session.
 
-Prefer to do it by hand, or installing via Claude Web? See the full **[Installation Guides](https://skillstore.io/docs/install-guides)** for every method (CLI, manual, and ZIP upload) and the scope directories (`.claude/skills/`, `~/.claude/skills/`, `.codex/skills/`, …).
+Prefer to do it by hand, or installing via Claude Web? See the full **[Installation Guides](https://skillstore.io/docs/install-guides)** for every method (CLI, manual, and ZIP upload) and the scope directories (`~/.agents/skills/`, `.claude/skills/`, `~/.claude/skills/`, `.codex/skills/`, …).
 
 ## Contributing a skill
 
