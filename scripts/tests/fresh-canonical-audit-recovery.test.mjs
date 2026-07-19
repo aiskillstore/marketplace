@@ -118,9 +118,21 @@ function preflight(slug, packs = []) {
     plan: {
       primary: { resources: 1, api: 253, page: 231, artifactPrefixes: 2, artifacts: 0, artifactListOperations: 2 },
       dependentPacks: { resources: packs.length, api: packs.length * 33, page: packs.length * 66, artifactPrefixes: packs.length, artifacts: 0, artifactListOperations: packs.length },
-      totals: { resources: 1 + packs.length, kvOperations: packs.length ? 588 : 488 },
+      totals: {
+        resources: 1 + packs.length,
+        api: 253 + packs.length * 33,
+        page: 231 + packs.length * 66,
+        artifactPrefixes: 2 + packs.length,
+        artifacts: 0,
+        artifactListOperations: 2 + packs.length,
+        listWrites: 2,
+        kvOperations: packs.length ? 588 : 488,
+      },
     },
-    invalidated: { total: 0, api: 0, artifacts: 0 },
+    invalidated: {
+      total: 0, api: 0, page: 0, artifacts: 0,
+      listVersionBumped: false, listMaxStaleSeconds: 0,
+    },
   };
 }
 
@@ -130,11 +142,17 @@ function executed(plan) {
     catalogEpoch: plan.catalogEpoch,
     planHash: plan.planHash,
     closure: plan.closure, plan: plan.plan,
-    invalidated: { total: 484, api: 253, page: 231, artifacts: 0, listVersionBumped: true },
+    invalidated: {
+      total: 484, api: 253, page: 231, artifacts: 0,
+      listVersionBumped: true, listMaxStaleSeconds: 0,
+    },
     ...(plan.closure.dependentPacks.all.length ? { dependentPacks: {
       slugs: plan.closure.dependentPacks.all,
       anonymousWarmableSlugs: plan.closure.dependentPacks.warmable,
-      invalidated: { total: 99, api: 33, page: 66, artifacts: 0 },
+      invalidated: {
+        total: 99, api: 33, page: 66, artifacts: 0,
+        listVersionBumped: true, listMaxStaleSeconds: 0,
+      },
     } } : {}),
   };
 }
@@ -160,6 +178,37 @@ test('closes cache one Skill at a time and binds execution to exact Pack closure
   assert(requests.every((request) => request.slugs.length === 1));
   assert.deepEqual(requests[1].expectedDependentPacks, ['pack-a']);
   assert.equal(requests[1].expectedPlanHash, plans.get('alpha').planHash);
+});
+
+test('accepts evolved cache-key counts only when the full bounded plan reconciles', async () => {
+  const evolved = preflight('alpha');
+  evolved.plan.primary.api = 260;
+  evolved.plan.totals.api = 260;
+  evolved.plan.totals.kvOperations = 495;
+  const execution = executed(evolved);
+  execution.invalidated.api = 260;
+  execution.invalidated.total = 491;
+  let calls = 0;
+  const result = await closeFreshAuditCaches({
+    secret: 'secret', slugs: ['alpha'], sleepImpl: async () => {},
+    fetchImpl: async () => {
+      calls += 1;
+      return new Response(JSON.stringify(calls === 1 ? evolved : execution), { status: 200 });
+    },
+  });
+  assert.equal(result.closedCount, 1);
+
+  const malformed = preflight('alpha');
+  malformed.plan.totals.kvOperations += 1;
+  let malformedCalls = 0;
+  await assert.rejects(closeFreshAuditCaches({
+    secret: 'secret', slugs: ['alpha'], sleepImpl: async () => {},
+    fetchImpl: async () => {
+      malformedCalls += 1;
+      return new Response(JSON.stringify(malformed), { status: 200 });
+    },
+  }), /invalid cache preflight contract/);
+  assert.equal(malformedCalls, 1);
 });
 
 test('retries an aborted per-Skill execution and refreshes an explicit closure drift', async () => {

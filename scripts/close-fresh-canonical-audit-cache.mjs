@@ -17,23 +17,71 @@ function canonicalJson(value) {
   return JSON.stringify(value);
 }
 
+function nonNegativeInteger(value) {
+  return Number.isSafeInteger(value) && value >= 0;
+}
+
+function planCounts(value) {
+  if (!value || typeof value !== 'object') return null;
+  const counts = {
+    resources: value.resources,
+    api: value.api,
+    page: value.page,
+    artifactPrefixes: value.artifactPrefixes,
+    artifacts: value.artifacts,
+    artifactListOperations: value.artifactListOperations,
+  };
+  return Object.values(counts).every(nonNegativeInteger) ? counts : null;
+}
+
+function resourcePlan(value, dependentResources) {
+  if (!value || typeof value !== 'object') return null;
+  const primary = planCounts(value.primary);
+  const dependentPacks = planCounts(value.dependentPacks);
+  const totalsBase = planCounts(value.totals);
+  const totals = totalsBase && nonNegativeInteger(value.totals?.listWrites)
+    && nonNegativeInteger(value.totals?.kvOperations)
+    ? { ...totalsBase, listWrites: value.totals.listWrites, kvOperations: value.totals.kvOperations }
+    : null;
+  if (!primary || !dependentPacks || !totals
+    || primary.resources !== 1 || dependentPacks.resources !== dependentResources
+    || totals.resources !== primary.resources + dependentPacks.resources
+    || totals.api !== primary.api + dependentPacks.api
+    || totals.page !== primary.page + dependentPacks.page
+    || totals.artifactPrefixes !== primary.artifactPrefixes + dependentPacks.artifactPrefixes
+    || totals.artifacts !== primary.artifacts + dependentPacks.artifacts
+    || totals.artifactListOperations !== (
+      primary.artifactListOperations + dependentPacks.artifactListOperations
+    )
+    || totals.listWrites !== 2
+    || totals.kvOperations !== (
+      totals.api + totals.page + totals.artifacts + totals.artifactListOperations + totals.listWrites
+    )
+    || totals.kvOperations > 850) {
+    return null;
+  }
+  return { primary, dependentPacks, totals };
+}
+
+function zeroWritePreflight(value) {
+  return value && typeof value === 'object'
+    && value.total === 0 && value.page === 0 && value.api === 0 && value.artifacts === 0
+    && value.listVersionBumped === false && nonNegativeInteger(value.listMaxStaleSeconds);
+}
+
 function parsePlan(body, slug) {
   const closure = body?.closure?.dependentPacks;
+  const plan = resourcePlan(body?.plan, closure?.all?.length);
   if (body?.preflight !== true || body?.type !== 'skills'
     || canonicalJson(body.slugs) !== canonicalJson([slug])
     || !Array.isArray(body.locales) || body.locales.length === 0
     || !closure || !Array.isArray(closure.all) || !Array.isArray(closure.warmable)
     || closure.overflow !== false || !Number.isSafeInteger(closure.cap)
-    || !body.plan || !Number.isSafeInteger(body?.plan?.totals?.kvOperations)
-    || body.plan.totals.kvOperations > 850
-    || body?.plan?.primary?.resources !== 1
-    || body?.plan?.primary?.api !== 253
-    || body?.plan?.primary?.page !== 231
-    || body?.plan?.primary?.artifactPrefixes !== 2
+    || !plan
     || body.locales.length !== 11
     || !/^[0-9a-f]{64}$/i.test(body?.planHash || '')
     || typeof body?.catalogEpoch !== 'string' || body.catalogEpoch.length === 0
-    || body?.invalidated?.total !== 0) {
+    || !zeroWritePreflight(body?.invalidated)) {
     fail(`invalid cache preflight contract for ${slug}`);
   }
   return {
@@ -41,7 +89,7 @@ function parsePlan(body, slug) {
     locales: body.locales,
     closure,
     catalogEpoch: body.catalogEpoch,
-    plan: body.plan,
+    plan,
     planHash: body.planHash,
     response: body,
   };
@@ -61,7 +109,8 @@ function verifyExecution(body, frozen) {
     || body?.invalidated?.artifacts !== frozen.plan.primary.artifacts
     || body?.invalidated?.total !== (
       frozen.plan.primary.api + frozen.plan.primary.page + frozen.plan.primary.artifacts
-    )) {
+    )
+    || body?.invalidated?.listMaxStaleSeconds !== 0) {
     fail(`invalid cache execution contract for ${frozen.slug}`);
   }
   if (frozen.closure.all.length > 0) {
@@ -69,7 +118,13 @@ function verifyExecution(body, frozen) {
       || canonicalJson(body?.dependentPacks?.anonymousWarmableSlugs) !== canonicalJson(frozen.closure.warmable)
       || body?.dependentPacks?.invalidated?.api !== frozen.plan.dependentPacks.api
       || body?.dependentPacks?.invalidated?.page !== frozen.plan.dependentPacks.page
-      || body?.dependentPacks?.invalidated?.artifacts !== frozen.plan.dependentPacks.artifacts) {
+      || body?.dependentPacks?.invalidated?.artifacts !== frozen.plan.dependentPacks.artifacts
+      || body?.dependentPacks?.invalidated?.total !== (
+        frozen.plan.dependentPacks.api + frozen.plan.dependentPacks.page
+        + frozen.plan.dependentPacks.artifacts
+      )
+      || body?.dependentPacks?.invalidated?.listVersionBumped !== true
+      || body?.dependentPacks?.invalidated?.listMaxStaleSeconds !== 0) {
       fail(`invalid dependent Pack closure for ${frozen.slug}`);
     }
   } else if (Object.hasOwn(body, 'dependentPacks')) {
