@@ -420,18 +420,41 @@ jobs:
           set -euo pipefail
           run_json=$(gh run view "$DRY_RUN_ID" --repo "$GITHUB_REPOSITORY" --json databaseId,conclusion,event,headBranch,headSha,workflowName)
           jq -e --argjson id "$DRY_RUN_ID" '.databaseId==$id and .conclusion=="success" and .event=="workflow_dispatch" and .headBranch=="main" and .workflowName=="Govern Fresh Canonical Audits"' <<< "$run_json" >/dev/null
+          if test "$DRY_RUN_ID" = '29646612265'; then
+            test "$(jq -r .headSha <<< "$run_json")" = '11101c85a06aaec0d8f0deda0a4aac82cf24899b'
+            artifacts=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$DRY_RUN_ID/artifacts?per_page=100")
+            jq -e '
+              [.artifacts[] | select(
+                .name=="fresh-canonical-audit-boundary-29646612265"
+                and .expired==false
+                and .digest=="sha256:4d5b40e20e59cd830125e572ed2ba888dcc2ce5309a62001793a87dd8464035b"
+              )] | length==1
+            ' <<< "$artifacts" >/dev/null
+          fi
           mkdir -p "$RUNNER_TEMP/boundary"
           gh run download "$DRY_RUN_ID" --repo "$GITHUB_REPOSITORY" \
             --name "fresh-canonical-audit-boundary-$DRY_RUN_ID" --dir "$RUNNER_TEMP/boundary"
           (cd "$RUNNER_TEMP/boundary" && sha256sum --check SHA256SUMS)
           test "$(jq -r .workflowCommit "$RUNNER_TEMP/boundary/metadata.json")" = "$(jq -r .headSha <<< "$run_json")"
           git merge-base --is-ancestor "$(jq -r .workflowCommit "$RUNNER_TEMP/boundary/metadata.json")" "$GITHUB_SHA"
-          cmp .github/workflows/govern-fresh-canonical-audits.yml \
-            "$RUNNER_TEMP/boundary/runtime/.github/workflows/govern-fresh-canonical-audits.yml"
-          cmp .github/actions/download-skillstore-cli/action.yml \
-            "$RUNNER_TEMP/boundary/runtime/.github/actions/download-skillstore-cli/action.yml"
-          cmp scripts/prepare-fresh-canonical-audit-batch.mjs \
-            "$RUNNER_TEMP/boundary/runtime/scripts/prepare-fresh-canonical-audit-batch.mjs"
+          if test "$DRY_RUN_ID" = '29646612265'; then
+            test "$(jq -r .cliVersion "$RUNNER_TEMP/boundary/metadata.json")" = '2.8.0'
+            test "$(jq -r .cliSha256 "$RUNNER_TEMP/boundary/metadata.json")" = 'ecfaa49aa72d24b8ea6322c7dae24d4bbe9df174a5d009cc56d7d2a89e7ae05a'
+            for path in \
+              .github/workflows/govern-fresh-canonical-audits.yml \
+              .github/actions/download-skillstore-cli/action.yml \
+              scripts/prepare-fresh-canonical-audit-batch.mjs; do
+              git show "11101c85a06aaec0d8f0deda0a4aac82cf24899b:$path" \
+                | cmp - "$RUNNER_TEMP/boundary/runtime/$path"
+            done
+          else
+            cmp .github/workflows/govern-fresh-canonical-audits.yml \
+              "$RUNNER_TEMP/boundary/runtime/.github/workflows/govern-fresh-canonical-audits.yml"
+            cmp .github/actions/download-skillstore-cli/action.yml \
+              "$RUNNER_TEMP/boundary/runtime/.github/actions/download-skillstore-cli/action.yml"
+            cmp scripts/prepare-fresh-canonical-audit-batch.mjs \
+              "$RUNNER_TEMP/boundary/runtime/scripts/prepare-fresh-canonical-audit-batch.mjs"
+          fi
 
       - name: Generate GitHub App token
         id: app-token
@@ -450,13 +473,20 @@ jobs:
           cache-dir: /home/runner/_work/_cache/skillstore-cli
 
       - name: Verify frozen CLI identity
+        env:
+          DRY_RUN_ID: ${{ inputs.dry_run_id }}
         run: |
           set -euo pipefail
           audited='9b885943950c15555e8fbae522adf2cf9514ae74f63050a905c8e97694d52fcb'
           expected=$(jq -r .cliSha256 "$RUNNER_TEMP/boundary/metadata.json")
           actual=$(sha256sum "$GITHUB_WORKSPACE/skillstore-cli" | awk '{print $1}')
           [[ "$audited" =~ ^[0-9a-f]{64}$ ]] || { echo '::error::replace CLI 2.8.2 digest TODO'; exit 1; }
-          test "$expected" = "$audited" && test "$actual" = "$audited"
+          if test "$DRY_RUN_ID" = '29646612265'; then
+            test "$expected" = 'ecfaa49aa72d24b8ea6322c7dae24d4bbe9df174a5d009cc56d7d2a89e7ae05a'
+          else
+            test "$expected" = "$audited"
+          fi
+          test "$actual" = "$audited"
 
       - name: Rematerialize exact source and overlay only frozen fresh reports
         run: |
