@@ -15,4 +15,4 @@ To make an element or custom component interactive, use:
 
 ## Video editing
 
-If a Remotion component mainly consists of video and audio clips, see [Video editing](../remotion-markup/video-editing.md) for best practices on how to structure Remotion markup so the clips are interactively editable in the timeline.
+If a Remotion component mainly consists of video and audio clips, see [Video editing](https://github.com/remotion-dev/skills/blob/e44d7f765ed42412d8e91ef87f217c5a158abf57/skills/remotion-markup/video-editing.md) for best practices on how to structure Remotion markup so the clips are interactively editable in the timeline.
