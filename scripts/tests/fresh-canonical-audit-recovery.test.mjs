@@ -24,10 +24,10 @@ const content = 'b'.repeat(64);
 const tree = 'c'.repeat(64);
 const auditContent = `v3:${commit}:${content}:${tree}:path:payload`;
 const failedRun = {
-  id: 29623717000,
-  head_sha: '15492b473b84a835e8b63083510ad1e59184b8db',
+  id: 29666546406,
+  head_sha: '3e7baf520a4d078047b53b95352156e3a3f74260',
   conclusion: 'failure', event: 'workflow_dispatch', head_branch: 'main', run_attempt: 1,
-  run_started_at: '2026-07-18T00:43:26Z', updated_at: '2026-07-18T00:47:35Z',
+  run_started_at: '2026-07-19T00:11:42Z', updated_at: '2026-07-19T00:16:10Z',
 };
 
 function fixture() {
@@ -45,7 +45,7 @@ function fixture() {
     content_hash: content, tree_hash: tree, marketplace_commit_sha: commit,
     plugin_path: 'skills/owner/skill', public_eligibility_audit_id: ids.audit,
     current_quality_score_snapshot_id: ids.snapshot, quality_score: 88, quality_tier: 'silver',
-    quality_score_calculated_at: '2026-07-18T00:44:12Z',
+    quality_score_calculated_at: '2026-07-19T00:12:55Z',
     published_at: '2026-07-01T00:00:00Z', updated_at: '2026-07-02T00:00:00Z',
   };
   return {
@@ -53,23 +53,23 @@ function fixture() {
     inventory: { schemaVersion: 2, rows: [skill], artifacts: [{
       id: ids.artifact, skill_id: ids.skill, artifact_revision: 1, change_kind: 'initial',
       previous_version_id: null, content_hash: content, tree_hash: tree,
-      marketplace_commit_sha: commit, source_path: 'skills/owner/skill', created_at: '2026-07-18T00:44:04Z',
+      marketplace_commit_sha: commit, source_path: 'skills/owner/skill', created_at: '2026-07-19T00:12:45Z',
     }], observations: [{
       id: '66666666-6666-4666-8666-666666666666',
       skill_id: ids.skill,
       artifact_version_id: ids.artifact,
       marketplace_commit_sha: commit,
       source_path: 'skills/owner/skill',
-      created_at: '2026-07-18T00:44:04Z',
+      created_at: '2026-07-19T00:12:45Z',
     }] },
     audits: [{ id: ids.audit, skill_id: ids.skill, version: 5, content_hash: auditContent,
       analysis_status: 'ok', derived_from_audit_id: null, derivation_kind: null,
       subject_marketplace_commit_sha: commit, subject_content_hash: content,
       subject_tree_hash: tree, subject_plugin_path: 'skills/owner/skill',
-      created_at: '2026-07-18T00:44:04Z' }],
-    snapshots: [{ id: ids.snapshot, skill_id: ids.skill, scorer_version: '1.9.0',
-      composite_score: 88, quality_tier: 'silver', calculated_at: '2026-07-18T00:44:12Z',
-      created_at: '2026-07-18T00:44:12Z', score_inputs: {
+      created_at: '2026-07-19T00:12:45Z' }],
+    snapshots: [{ id: ids.snapshot, skill_id: ids.skill, scorer_version: '1.9.1',
+      composite_score: 88, quality_tier: 'silver', calculated_at: '2026-07-19T00:12:55Z',
+      created_at: '2026-07-19T00:12:55Z', score_inputs: {
         skill: { updatedAt: '2026-07-02T00:00:00Z' },
       }, score_subject: {
         auditId: ids.audit, auditVersion: 5, auditContentHash: auditContent,
@@ -77,7 +77,7 @@ function fixture() {
       } }],
     breakdowns: [{
       skill_id: ids.skill, score_snapshot_id: ids.snapshot, stale_at: null, stale_reason: null,
-      calculated_at: '2026-07-18T00:44:12Z', scorer_version: '1.9.0', composite_score: 88,
+      calculated_at: '2026-07-19T00:12:55Z', scorer_version: '1.9.1', composite_score: 88,
     }],
     failedRun,
   };
@@ -96,7 +96,7 @@ test('reconstructs deterministic execution results only from exact incident-boun
 
 test('rejects later mutation, wrong snapshot binding, or a different failed run', () => {
   const later = fixture();
-  later.inventory.artifacts[0].created_at = '2026-07-18T00:48:00Z';
+  later.inventory.artifacts[0].created_at = '2026-07-19T00:17:00Z';
   assert.throws(() => verifyRecoveryState(later), /artifact evidence mismatch/);
   const snapshot = fixture();
   snapshot.snapshots[0].score_subject.auditId = ids.oldAudit;
