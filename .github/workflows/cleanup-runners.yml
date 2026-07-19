@@ -20,6 +20,8 @@ on:
         type: boolean
         default: false
 
+permissions: {}
+
 concurrency:
   group: cleanup-runners
   cancel-in-progress: false
@@ -29,6 +31,32 @@ jobs:
     runs-on: self-hosted
     timeout-minutes: 30
     steps:
+      - name: Reclaim bounded Docker build cache under disk pressure
+        env:
+          AGE_DAYS: ${{ inputs.age_days || 7 }}
+          DRY_RUN: ${{ inputs.dry_run || false }}
+        run: |
+          set -euo pipefail
+          [[ "$AGE_DAYS" =~ ^[1-9][0-9]*$ ]] || { echo '::error::age_days must be a positive integer'; exit 1; }
+          usage=$(df -P / | awk 'NR==2 {gsub(/%/, "", $5); print $5}')
+          [[ "$usage" =~ ^[0-9]+$ ]] || { echo '::error::Unable to read root disk usage'; exit 1; }
+          echo "Root disk usage before bounded cleanup: ${usage}%"
+          docker system df || true
+
+          if [ "$DRY_RUN" = true ]; then
+            echo "[DRY RUN] Would prune only unused Docker build cache older than $AGE_DAYS days when disk usage is at least 90%."
+          elif [ "$usage" -lt 90 ]; then
+            echo 'Disk pressure is below 90%; Docker build cache is unchanged.'
+          else
+            command -v docker >/dev/null 2>&1 || { echo '::error::Docker CLI is required under disk pressure'; exit 1; }
+            docker info >/dev/null 2>&1 || { echo '::error::Docker daemon is unavailable under disk pressure'; exit 1; }
+            age_hours=$((AGE_DAYS * 24))
+            docker builder prune --all --force --filter "until=${age_hours}h"
+            echo 'Only unused build cache was pruned; images, containers, and volumes were preserved.'
+          fi
+
+          df -h /
+
       - name: Cleanup orphaned temp directories
         env:
           AGE_DAYS: ${{ inputs.age_days || 7 }}
@@ -108,6 +136,7 @@ jobs:
           **Dry Run:** ${{ inputs.dry_run || false }}
 
           ### Cleanup Patterns
+          - Unused Docker build cache older than the age threshold, only when root disk usage is at least 90%
           - \`/tmp/marketplace-*\` - Main workflow temp directories
           - \`/tmp/marketplace-audit-*\` - Audit workflow temp directories
           - \`/tmp/marketplace-approve-*\` - Approval workflow temp directories
@@ -117,6 +146,7 @@ jobs:
 
           ### Next Steps
           - Monitor disk usage trends
+          - Images, containers, and volumes are never pruned by this workflow
           - Adjust age threshold if needed
           - Run manual cleanup with workflow_dispatch if disk space is critical
 

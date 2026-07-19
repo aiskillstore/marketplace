@@ -52,12 +52,25 @@ function latestAuditsBySkill(rows, skillIds) {
   return result;
 }
 
-export function verifyRecoveryState({ boundary, inventory, audits, snapshots, breakdowns, failedRun }) {
+export function verifyRecoveryState({
+  boundary,
+  inventory,
+  audits,
+  snapshots,
+  breakdowns,
+  failedRun,
+  expectedFailedRunId,
+  expectedFailedRunSha,
+}) {
   if (boundary?.schemaVersion !== 1 || boundary?.status !== 'fresh_canonical_audit_frozen'
     || !Array.isArray(boundary.candidates) || boundary.candidates.length === 0) {
     fail('unsupported frozen boundary');
   }
-  if (failedRun?.id !== 29666546406 || failedRun?.head_sha !== '3e7baf520a4d078047b53b95352156e3a3f74260'
+  if (!Number.isSafeInteger(expectedFailedRunId) || expectedFailedRunId <= 0
+    || !/^[0-9a-f]{40}$/.test(expectedFailedRunSha || '')) {
+    fail('expected failed run identity is invalid');
+  }
+  if (failedRun?.id !== expectedFailedRunId || failedRun?.head_sha !== expectedFailedRunSha
     || failedRun?.conclusion !== 'failure' || failedRun?.event !== 'workflow_dispatch'
     || failedRun?.head_branch !== 'main' || failedRun?.run_attempt !== 1) {
     fail('failed run identity does not match the incident boundary');
@@ -242,6 +255,8 @@ export async function main(args = process.argv.slice(2)) {
   const boundary = JSON.parse(readFileSync(option(args, '--boundary'), 'utf8'));
   const inventory = JSON.parse(readFileSync(option(args, '--post-inventory'), 'utf8'));
   const failedRun = JSON.parse(readFileSync(option(args, '--failed-run'), 'utf8'));
+  const expectedFailedRunId = Number(option(args, '--expected-failed-run-id'));
+  const expectedFailedRunSha = option(args, '--expected-failed-run-sha');
   const outputDir = resolve(option(args, '--output-dir'));
   const ids = boundary.candidates.map((candidate) => candidate.row.skillId);
   const common = {
@@ -265,6 +280,8 @@ export async function main(args = process.argv.slice(2)) {
     snapshots,
     breakdowns,
     failedRun,
+    expectedFailedRunId,
+    expectedFailedRunSha,
   });
   mkdirSync(outputDir, { recursive: true });
   writeFileSync(resolve(outputDir, 'execution-results.json'), `${JSON.stringify(result.executionResults, null, 2)}\n`);

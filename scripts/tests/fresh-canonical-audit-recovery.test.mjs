@@ -79,7 +79,9 @@ function fixture() {
       skill_id: ids.skill, score_snapshot_id: ids.snapshot, stale_at: null, stale_reason: null,
       calculated_at: '2026-07-19T00:12:55Z', scorer_version: '1.9.1', composite_score: 88,
     }],
-    failedRun,
+    failedRun: { ...failedRun },
+    expectedFailedRunId: failedRun.id,
+    expectedFailedRunSha: failedRun.head_sha,
   };
 }
 
@@ -94,7 +96,7 @@ test('reconstructs deterministic execution results only from exact incident-boun
   assert.equal(result.expectedScoreEvidence.scores[0].qualityScore, 88);
 });
 
-test('rejects later mutation, wrong snapshot binding, or a different failed run', () => {
+test('rejects later mutation, wrong snapshot binding, or a non-first failed attempt', () => {
   const later = fixture();
   later.inventory.artifacts[0].created_at = '2026-07-19T00:17:00Z';
   assert.throws(() => verifyRecoveryState(later), /artifact evidence mismatch/);
@@ -104,6 +106,26 @@ test('rejects later mutation, wrong snapshot binding, or a different failed run'
   const run = fixture();
   run.failedRun.run_attempt = 2;
   assert.throws(() => verifyRecoveryState(run), /failed run identity/);
+});
+
+test('rejects a failed run whose ID or SHA does not match the explicit incident boundary', () => {
+  const wrongId = fixture();
+  wrongId.expectedFailedRunId += 1;
+  assert.throws(() => verifyRecoveryState(wrongId), /failed run identity/);
+
+  const wrongSha = fixture();
+  wrongSha.expectedFailedRunSha = 'f'.repeat(40);
+  assert.throws(() => verifyRecoveryState(wrongSha), /failed run identity/);
+});
+
+test('binds recovery to an explicitly supplied incident instead of one hard-coded run', () => {
+  const nextIncident = fixture();
+  nextIncident.failedRun.id = 29684825610;
+  nextIncident.failedRun.head_sha = '2bfe0fd5cf25a967c5481dd83207b0de24997273';
+  nextIncident.expectedFailedRunId = nextIncident.failedRun.id;
+  nextIncident.expectedFailedRunSha = nextIncident.failedRun.head_sha;
+
+  assert.equal(verifyRecoveryState(nextIncident).recoveryEvidence.verifiedCount, 1);
 });
 
 function preflight(slug, packs = []) {

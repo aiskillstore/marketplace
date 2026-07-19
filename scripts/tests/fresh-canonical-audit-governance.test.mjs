@@ -231,13 +231,14 @@ test('cursor requires both the immediately preceding boundary and a fully govern
 
 test('workflow is two-phase, CLI-pinned, resumable, and closes P0 channels', () => {
   const workflow = readFileSync(new URL('../../.github/workflows/govern-fresh-canonical-audits.yml', import.meta.url), 'utf8');
-  assert.match(workflow, /options: \[dry-run, execute, recover, recover-smoke\]/);
-  assert.match(workflow, /default: '2\.8\.4'/);
+  assert.match(workflow, /options: \[dry-run, execute, recover, recover-cache, recover-smoke\]/);
+  assert.match(workflow, /default: '2\.15\.1'/);
   assert.match(workflow, /DRY_RUN_ID" = '29646612265'/);
   assert.match(workflow, /11101c85a06aaec0d8f0deda0a4aac82cf24899b/);
   assert.match(workflow, /sha256:4d5b40e20e59cd830125e572ed2ba888dcc2ce5309a62001793a87dd8464035b/);
   assert.match(workflow, /git show "11101c85a06aaec0d8f0deda0a4aac82cf24899b:\$path"/);
-  assert.equal((workflow.match(/282cfb6103f580c1758674f6d407493b3039a2ca788c986297684180ae6f0dbb/g) || []).length, 2);
+  assert.ok((workflow.match(/282cfb6103f580c1758674f6d407493b3039a2ca788c986297684180ae6f0dbb/g) || []).length >= 4);
+  assert.equal((workflow.match(/0d9b845310aed9f7213c6e384e86aa1a3eb8676894f3bfdec1309a840b413ad5/g) || []).length, 2);
   assert.equal((workflow.match(/296cab05576adec2c6613255b26663fab58e8f3fa585e2c085cd0367d8c7274f/g) || []).length, 2);
   assert.equal((workflow.match(/9b885943950c15555e8fbae522adf2cf9514ae74f63050a905c8e97694d52fcb/g) || []).length, 2);
   assert.equal((workflow.match(/ecfaa49aa72d24b8ea6322c7dae24d4bbe9df174a5d009cc56d7d2a89e7ae05a/g) || []).length, 4);
@@ -274,10 +275,16 @@ test('workflow is two-phase, CLI-pinned, resumable, and closes P0 channels', () 
   assert.match(workflow, /production-smoke\.mjs/);
   assert.match(workflow, /MCP channel/);
   assert.match(workflow, /recover-boundary:/);
-  assert.match(workflow, /INCIDENT_DRY_RUN_ID: '29646612265'/);
-  assert.match(workflow, /INCIDENT_FAILED_EXECUTE_RUN_ID: '29666546406'/);
-  assert.match(workflow, /INCIDENT_BOUNDARY_CLI_VERSION: '2\.8\.0'/);
-  assert.match(workflow, /INCIDENT_EXECUTE_CLI_VERSION: '2\.8\.2'/);
+  assert.match(workflow, /INCIDENT_DRY_RUN_ID: \$\{\{ inputs\.mode == 'recover-cache' && '29682699325' \|\| '29646612265' \}\}/);
+  assert.match(workflow, /INCIDENT_DRY_RUN_SHA: \$\{\{ inputs\.mode == 'recover-cache' && 'e8ce3fcb20197aefea54f9fb43ccce4716e3209c' \|\| '11101c85a06aaec0d8f0deda0a4aac82cf24899b' \}\}/);
+  assert.match(workflow, /INCIDENT_FAILED_EXECUTE_RUN_ID: \$\{\{ inputs\.mode == 'recover-cache' && '29684825610' \|\| '29666546406' \}\}/);
+  assert.match(workflow, /INCIDENT_FAILED_EXECUTE_SHA: \$\{\{ inputs\.mode == 'recover-cache' && '2bfe0fd5cf25a967c5481dd83207b0de24997273' \|\| '3e7baf520a4d078047b53b95352156e3a3f74260' \}\}/);
+  assert.match(workflow, /RECOVERY_INPUT_CLI_VERSION: \$\{\{ inputs\.mode == 'recover-cache' && '2\.8\.4' \|\| '2\.8\.3' \}\}/);
+  assert.match(workflow, /RECOVERY_SMOKE_SHA: \$\{\{ inputs\.mode == 'recover-cache' && '0f78b2d983b0e233f6b7071e38ddf6b4f29c9168' \|\| 'e368da730951aceca17a7e5d9d5a9adc0e3efc2a' \}\}/);
+  assert.match(workflow, /2\.8\.0/);
+  assert.match(workflow, /2\.8\.2/);
+  assert.match(workflow, /--expected-failed-run-id/);
+  assert.match(workflow, /--expected-failed-run-sha/);
   assert.match(workflow, /failedExecutionCli:\{version:\$failedExecutionCliVersion,sha256:\$failedExecutionCliSha256\}/);
   assert.match(workflow, /RECOVERY_EXPECTED_CACHE_VERSION: 'v7'/);
   assert.match(workflow, /producerKind:"fresh_canonical_audit_recovery"/);
