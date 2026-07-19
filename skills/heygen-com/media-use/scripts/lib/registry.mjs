@@ -22,6 +22,7 @@
 
 import { bgmProvider } from "./bgm-provider.mjs";
 import { sfxProvider } from "./sfx-provider.mjs";
+import { bundledSfxProvider } from "./bundled-sfx-provider.mjs";
 import { imageProvider, iconProvider } from "./image-provider.mjs";
 import { brandProvider } from "./brand-provider.mjs";
 import {
@@ -31,6 +32,8 @@ import {
   faviconSearch,
 } from "./logo-provider.mjs";
 import { heygenTtsGenerate } from "./voice-provider.mjs";
+import { heygenVideoGenerate } from "./heygen-video-provider.mjs";
+import { ltxVideoGenerate } from "./ltx-video-provider.mjs";
 import { localTtsGenerate } from "./tts-local-provider.mjs";
 import { codexImageGenerate } from "./codex-provider.mjs";
 import { mfluxImageGenerate } from "./mflux-provider.mjs";
@@ -44,10 +47,13 @@ const A = (name, caps) => ({ name, ...caps }); // local, free
 const N = (name, caps) => ({ name, network: true, ...caps }); // remote, free
 const P = (name, caps) => ({ name, network: true, paid: true, ...caps }); // remote, paid
 
-// heygen-CLI first (and currently only). All remote providers are skipped by --local-only.
+// heygen-CLI first. All remote providers are skipped by --local-only.
 const REGISTRY = {
   bgm: [N("heygen.audio.sounds", { search: bgmProvider.search })],
-  sfx: [N("heygen.audio.sounds", { search: sfxProvider.search })],
+  sfx: [
+    N("heygen.audio.sounds", { search: sfxProvider.search }),
+    A("bundled.sfx", { search: bundledSfxProvider.search }),
+  ],
   image: [
     N("heygen.asset.search", { search: imageProvider.search }),
     // Catalog miss -> generate. Local first (best FLUX-class model the machine's
@@ -78,6 +84,12 @@ const REGISTRY = {
     // tri-state "quota-first, paid after" would need backend quota state.)
     P("heygen.tts", { generate: heygenTtsGenerate }),
     A("kokoro.local", { generate: localTtsGenerate }),
+  ],
+  video: [
+    // HeyGen avatar video first when credentialed; --local-only skips it and
+    // keeps LTX as the local fallback.
+    P("heygen.video", { generate: heygenVideoGenerate }),
+    A("ltx.local", { generate: ltxVideoGenerate }),
   ],
   brand: [
     // Local design spec, not heygen — reads frame.md / design.md tokens.
