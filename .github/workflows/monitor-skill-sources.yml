@@ -66,6 +66,11 @@ on:
         required: false
         type: string
         default: ''
+      expected_upstream_commit:
+        description: 'Expected 40-character upstream commit for an explicit slug-scoped update PR'
+        required: false
+        type: string
+        default: ''
       checkout_cache_dir:
         description: 'Persistent upstream checkout cache directory on self-hosted runners'
         required: false
@@ -157,6 +162,7 @@ jobs:
           REQUIRED_RUNTIME_FILES=(
             ".github/actions/download-skillstore-cli/action.yml"
             ".github/workflows/monitor-skill-sources.yml"
+            "scripts/verify-source-monitor-selection.mjs"
           )
           {
             echo "expected_workflow_sha=$EXPECTED_WORKFLOW_SHA"
@@ -187,7 +193,7 @@ jobs:
       - name: Download Skillstore CLI
         uses: ./.github/actions/download-skillstore-cli
         with:
-          version: latest
+          version: 2.15.0
           token: ${{ steps.app-token.outputs.token }}
           cache-dir: /home/runner/_work/_cache/skillstore-cli
           minimum-version: 2.14.5
@@ -223,6 +229,7 @@ jobs:
           DELETE_ARCHIVED: ${{ inputs.delete_archived || false }}
           MIN_MISSING_AGE_HOURS: ${{ inputs.min_missing_age_hours || 24 }}
           MODEL: ${{ inputs.model || '' }}
+          EXPECTED_UPSTREAM_COMMIT: ${{ inputs.expected_upstream_commit || '' }}
         run: |
           set -euo pipefail
 
@@ -270,9 +277,25 @@ jobs:
           fi
 
           if [ "$DRY_RUN" != "true" ]; then
-            CMD+=(--write)
-            if [ "$CREATE_PR" = "true" ]; then
+            if [ "$CREATE_PR" = "true" ] && [ -n "$SLUGS" ]; then
+              if [ -z "$EXPECTED_UPSTREAM_COMMIT" ]; then
+                echo "::error::A slug-scoped update PR requires expected_upstream_commit"
+                exit 1
+              fi
+              if ! [[ "$EXPECTED_UPSTREAM_COMMIT" =~ ^[0-9a-f]{40}$ ]]; then
+                echo "::error::expected_upstream_commit must be a lowercase 40-character Git SHA"
+                exit 1
+              fi
+              if [ "$ARCHIVE_MISSING" != "false" ] || [ "$CONFIRM_ARCHIVE" != "false" ] || [ "$DELETE_ARCHIVED" != "false" ]; then
+                echo "::error::A slug-scoped update PR cannot archive or delete skills"
+                exit 1
+              fi
               CMD+=(--updateLocal)
+            else
+              CMD+=(--write)
+              if [ "$CREATE_PR" = "true" ]; then
+                CMD+=(--updateLocal)
+              fi
             fi
           fi
 
@@ -307,6 +330,25 @@ jobs:
           echo "Delete archived: $DELETE_ARCHIVED"
           echo "Command: ${CMD[*]}"
           "${CMD[@]}" 2>&1 | tee "source-monitor-results/stdout-${GITHUB_RUN_ID}.jsonl"
+
+          if [ -n "$SLUGS" ]; then
+            VERIFY_SELECTION=(
+              node "$GITHUB_WORKSPACE/scripts/verify-source-monitor-selection.mjs"
+              --requested "$SLUGS"
+              --jsonl "$JSONL_FILE"
+            )
+            if [ -n "$EXPECTED_UPSTREAM_COMMIT" ]; then
+              VERIFY_SELECTION+=(--expected-upstream-commit "$EXPECTED_UPSTREAM_COMMIT")
+            fi
+            if [ "$DRY_RUN" != "true" ] && [ "$CREATE_PR" = "true" ]; then
+              VERIFY_SELECTION+=(
+                --require-local-updates
+                --summary "$SUMMARY_FILE"
+                --repository-root "$GITHUB_WORKSPACE"
+              )
+            fi
+            "${VERIFY_SELECTION[@]}"
+          fi
 
           echo "jsonl_file=$JSONL_FILE" >> "$GITHUB_OUTPUT"
           echo "summary_file=$SUMMARY_FILE" >> "$GITHUB_OUTPUT"
@@ -415,6 +457,7 @@ jobs:
         env:
           DRY_RUN: ${{ github.event_name == 'schedule' && 'false' || inputs.dry_run }}
           CREATE_PR: ${{ github.event_name == 'schedule' && 'true' || inputs.create_pr }}
+          SLUGS: ${{ inputs.slugs || '' }}
           CONCURRENCY: ${{ inputs.concurrency || 8 }}
           WRITE_CONCURRENCY: ${{ inputs.write_concurrency || 2 }}
           MAX_UPDATES_PER_RUN: ${{ inputs.max_updates_per_run || 100 }}
@@ -422,7 +465,7 @@ jobs:
           ARCHIVE_MISSING: ${{ inputs.archive_missing || false }}
           DELETE_ARCHIVED: ${{ inputs.delete_archived || false }}
         run: |
-          if [ "$DRY_RUN" != "true" ]; then
+          if [ "$DRY_RUN" != "true" ] && { [ "$CREATE_PR" != "true" ] || [ -z "$SLUGS" ]; }; then
             WRITES="enabled"
           else
             WRITES="disabled"
