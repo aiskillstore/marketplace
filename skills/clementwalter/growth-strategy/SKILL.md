@@ -1,6 +1,6 @@
 ---
 name: growth-strategy
-description: Designing growth strategy or GTM plans - Planning experiments and A/B tests - Optimizing activation, retention, or referral flows
+description: "Design ethical growth strategies using product-led loops, measurable experiments, and privacy-aware guardrails."
 ---
 
 # Growth Strategy

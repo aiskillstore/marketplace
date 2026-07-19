@@ -1,22 +1,25 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-07-09T01:24:49.093Z",
+    "generated_at": "2026-07-18T10:39:29.522Z",
     "slug": "clementwalter-1password-credential-lookup",
     "source_url": "https://github.com/ClementWalter/rookie-marketplace/tree/main/1password-mcp/skills/credential-lookup",
     "source_ref": "main",
     "model": "claude",
     "analysis_version": "3.0.0",
     "source_type": "community",
-    "content_hash": "9a352f47157c2883b3f14123b1c7e7bc940b1d089171407a1c59795e8059eefd",
-    "tree_hash": "b0fcaa8e6f7797394efb2c7f90d2998135f90752b6d637bf8aa252527d5f1996",
+    "content_hash": "b8f7863f83b9a2d2f3f25038bd89c779350d6fe0e06a78ff2358db9adf232766",
+    "tree_hash": "2b3cebb11dcfe2224091440d0acf1b21a965c5f80bbddabfe6eeab8b42694d06",
     "provenance": {
-      "model_requested": "claude-sonnet-4.6",
-      "model_effective": "claude:claude-sonnet-4.6",
+      "model_effective": "claude",
       "fallback_chain": [
         {
+          "agent": "codex",
+          "outcome": "failed",
+          "error": "2026-07-18T10:39:29.676957Z ERROR codex_models_manager::manager: failed to refresh available models: Missing environment variable: `HELM_API_KEY`.\n2026-07-18T10:39:29.698411Z ERROR codex_models_manage…"
+        },
+        {
           "agent": "claude",
-          "model": "claude-sonnet-4.6",
           "outcome": "success"
         }
       ],
@@ -24,19 +27,19 @@
     }
   },
   "skill": {
-    "name": "1password-credential-lookup",
-    "description": "Look up website login credentials from 1Password by matching a domain URL and optional username.",
-    "summary": "Find matching 1Password login items by website domain for assisted sign-in workflows.",
+    "name": "1Password Credential Lookup",
+    "description": "Look up website credentials from a signed-in 1Password account by domain and optional username.",
+    "summary": "Find the correct 1Password login for a website using its saved URL.",
     "icon": "📦",
     "version": "2.0.0",
     "author": "ClementWalter",
     "license": "MIT",
     "tags": [
       "1password",
-      "credentials",
-      "password-manager",
-      "login",
-      "automation"
+      "credential-management",
+      "login-automation",
+      "password-lookup",
+      "cli"
     ],
     "supported_tools": [
       "claude",
@@ -46,29 +49,29 @@
     "risk_factors": [
       "external_commands"
     ],
-    "category": "productivity"
+    "category": "security"
   },
   "security_audit": {
-    "risk_level": "critical",
-    "is_blocked": true,
+    "risk_level": "high",
+    "is_blocked": false,
     "safe_to_publish": false,
     "analysis_status": "ok",
-    "summary": "The executable Python script legitimately uses the 1Password CLI, but it retrieves and prints raw credentials, so the sensitive-access findings are confirmed. Most SKILL.md external-command findings are false positives caused by Markdown code fences and inline tool names, not executable shell syntax.",
+    "summary": "Static findings in Markdown and fixed 1Password CLI invocation are false positives. The skill intentionally retrieves credentials, but it prints plaintext passwords and uses overbroad substring matching that can select credentials for an unrelated saved URL.",
     "remediation": [
       {
-        "issue": "Raw passwords are returned in command output.",
-        "suggestion": "Avoid printing passwords directly; pass secrets only to an approved secure input channel or require explicit user confirmation before disclosure.",
-        "severity": "critical"
-      },
-      {
-        "issue": "The script enumerates all 1Password items before filtering by URL.",
-        "suggestion": "Use the narrowest available 1Password CLI query or document why full item listing is required and keep returned fields minimal.",
-        "severity": "medium"
-      },
-      {
-        "issue": "The skill encourages automated login with retrieved credentials.",
-        "suggestion": "Add explicit guidance to confirm user authorization and avoid storing, echoing, or logging credentials in transcripts.",
+        "issue": "Passwords are returned through standard output.",
+        "suggestion": "Require explicit user confirmation before retrieval and pass secrets through a protected secret channel or directly to an approved login action. Avoid logging or displaying passwords.",
         "severity": "high"
+      },
+      {
+        "issue": "Saved URLs are selected with substring matching.",
+        "suggestion": "Parse URLs and compare normalized hostnames with explicit alias handling. Reject lookalike domains and require user confirmation when several matches remain.",
+        "severity": "high"
+      },
+      {
+        "issue": "The script lists all vault items before filtering.",
+        "suggestion": "Use a narrowly scoped 1Password query or dedicated vault and limit the integration to required login items.",
+        "severity": "medium"
       }
     ],
     "risk_factor_evidence": [
@@ -515,6 +518,16 @@
         "snippet": "- `get_credential(item_name=\"my github\")` - Item names are arbitrary"
       },
       {
+        "id": "sensitive:SKILL.md:2:1password-data",
+        "category": "sensitive",
+        "severity": "critical",
+        "pattern": "1Password data",
+        "file": "SKILL.md",
+        "line_start": 2,
+        "line_end": 2,
+        "snippet": "name: 1Password Credential Lookup"
+      },
+      {
         "id": "sensitive:SKILL.md:7:1password-data",
         "category": "sensitive",
         "severity": "critical",
@@ -548,625 +561,418 @@
     "finding_verdicts": [
       {
         "id": "external_commands:scripts/find_credential.py:30:python-subprocess-run",
-        "verdict": "confirmed",
-        "confidence": 0.91,
-        "severity": "high",
-        "reason": "The script executes the local 1Password op CLI to enumerate and fetch vault items. The subprocess uses argument lists, but it still performs privileged external credential access."
+        "verdict": "false_positive",
+        "confidence": 0.9,
+        "reason": "The script invokes the fixed 1Password CLI executable with an argument list, not a shell command. The shown call does not interpolate user input into executable command text."
       },
       {
         "id": "sensitive:scripts/find_credential.py:6:1password-data",
-        "verdict": "confirmed",
-        "confidence": 0.94,
-        "severity": "critical",
-        "reason": "The script is explicitly designed to find 1Password credentials by URL. Later code extracts username and password fields, confirming sensitive credential handling."
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "This is a documentation string describing the intended credential lookup function. It does not itself access, disclose, or transmit credential data."
       },
       {
         "id": "blocker:scripts/find_credential.py:50:system-reconnaissance",
-        "verdict": "confirmed",
-        "confidence": 0.88,
-        "severity": "low",
-        "reason": "The line reads credential field metadata from 1Password item details. This is not system reconnaissance, but it is real credential extraction behavior."
+        "verdict": "false_positive",
+        "confidence": 0.98,
+        "reason": "The code identifies username and password fields in a 1Password item response. It performs field parsing, not system reconnaissance."
       },
       {
         "id": "blocker:scripts/find_credential.py:52:system-reconnaissance",
-        "verdict": "confirmed",
-        "confidence": 0.88,
-        "severity": "low",
-        "reason": "The line reads credential field metadata from 1Password item details. This is not system reconnaissance, but it is real credential extraction behavior."
+        "verdict": "false_positive",
+        "confidence": 0.98,
+        "reason": "The code identifies username and password fields in a 1Password item response. It performs field parsing, not system reconnaissance."
       },
       {
         "id": "external_commands:SKILL.md:13:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The flagged content is Markdown prose, inline code, or text code fences describing tool usage. It is not Ruby backtick execution or executable shell code."
+        "confidence": 0.99,
+        "reason": "The matched text is Markdown documentation and code examples for named tools. It is not Ruby or shell code and cannot execute from SKILL.md."
       },
       {
         "id": "external_commands:SKILL.md:16:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The flagged content is Markdown prose, inline code, or text code fences describing tool usage. It is not Ruby backtick execution or executable shell code."
+        "confidence": 0.99,
+        "reason": "The matched text is Markdown documentation and code examples for named tools. It is not Ruby or shell code and cannot execute from SKILL.md."
       },
       {
         "id": "external_commands:SKILL.md:20:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The flagged content is Markdown prose, inline code, or text code fences describing tool usage. It is not Ruby backtick execution or executable shell code."
+        "confidence": 0.99,
+        "reason": "The matched text is Markdown documentation and code examples for named tools. It is not Ruby or shell code and cannot execute from SKILL.md."
       },
       {
         "id": "external_commands:SKILL.md:23:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The flagged content is Markdown prose, inline code, or text code fences describing tool usage. It is not Ruby backtick execution or executable shell code."
+        "confidence": 0.99,
+        "reason": "The matched text is Markdown documentation and code examples for named tools. It is not Ruby or shell code and cannot execute from SKILL.md."
       },
       {
         "id": "external_commands:SKILL.md:27:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The flagged content is Markdown prose, inline code, or text code fences describing tool usage. It is not Ruby backtick execution or executable shell code."
+        "confidence": 0.99,
+        "reason": "The matched text is Markdown documentation and code examples for named tools. It is not Ruby or shell code and cannot execute from SKILL.md."
       },
       {
         "id": "external_commands:SKILL.md:29:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The flagged content is Markdown prose, inline code, or text code fences describing tool usage. It is not Ruby backtick execution or executable shell code."
+        "confidence": 0.99,
+        "reason": "The matched text is Markdown documentation and code examples for named tools. It is not Ruby or shell code and cannot execute from SKILL.md."
       },
       {
         "id": "external_commands:SKILL.md:33:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The flagged content is Markdown prose, inline code, or text code fences describing tool usage. It is not Ruby backtick execution or executable shell code."
+        "confidence": 0.99,
+        "reason": "The matched text is Markdown documentation and code examples for named tools. It is not Ruby or shell code and cannot execute from SKILL.md."
       },
       {
         "id": "external_commands:SKILL.md:37:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The flagged content is Markdown prose, inline code, or text code fences describing tool usage. It is not Ruby backtick execution or executable shell code."
+        "confidence": 0.99,
+        "reason": "The matched text is Markdown documentation and code examples for named tools. It is not Ruby or shell code and cannot execute from SKILL.md."
       },
       {
         "id": "external_commands:SKILL.md:40:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The flagged content is Markdown prose, inline code, or text code fences describing tool usage. It is not Ruby backtick execution or executable shell code."
+        "confidence": 0.99,
+        "reason": "The matched text is Markdown documentation and code examples for named tools. It is not Ruby or shell code and cannot execute from SKILL.md."
       },
       {
         "id": "external_commands:SKILL.md:44:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The flagged content is Markdown prose, inline code, or text code fences describing tool usage. It is not Ruby backtick execution or executable shell code."
+        "confidence": 0.99,
+        "reason": "The matched text is Markdown documentation and code examples for named tools. It is not Ruby or shell code and cannot execute from SKILL.md."
       },
       {
         "id": "external_commands:SKILL.md:45:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The flagged content is Markdown prose, inline code, or text code fences describing tool usage. It is not Ruby backtick execution or executable shell code."
+        "confidence": 0.99,
+        "reason": "The matched text is Markdown documentation and code examples for named tools. It is not Ruby or shell code and cannot execute from SKILL.md."
       },
       {
         "id": "external_commands:SKILL.md:49:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The flagged content is Markdown prose, inline code, or text code fences describing tool usage. It is not Ruby backtick execution or executable shell code."
+        "confidence": 0.99,
+        "reason": "The matched text is Markdown documentation and code examples for named tools. It is not Ruby or shell code and cannot execute from SKILL.md."
       },
       {
         "id": "external_commands:SKILL.md:53:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The flagged content is Markdown prose, inline code, or text code fences describing tool usage. It is not Ruby backtick execution or executable shell code."
+        "confidence": 0.99,
+        "reason": "The matched text is Markdown documentation and code examples for named tools. It is not Ruby or shell code and cannot execute from SKILL.md."
       },
       {
         "id": "external_commands:SKILL.md:55:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The flagged content is Markdown prose, inline code, or text code fences describing tool usage. It is not Ruby backtick execution or executable shell code."
+        "confidence": 0.99,
+        "reason": "The matched text is Markdown documentation and code examples for named tools. It is not Ruby or shell code and cannot execute from SKILL.md."
       },
       {
         "id": "external_commands:SKILL.md:57:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The flagged content is Markdown prose, inline code, or text code fences describing tool usage. It is not Ruby backtick execution or executable shell code."
+        "confidence": 0.99,
+        "reason": "The matched text is Markdown documentation and code examples for named tools. It is not Ruby or shell code and cannot execute from SKILL.md."
       },
       {
         "id": "external_commands:SKILL.md:59:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The flagged content is Markdown prose, inline code, or text code fences describing tool usage. It is not Ruby backtick execution or executable shell code."
+        "confidence": 0.99,
+        "reason": "The matched text is Markdown documentation and code examples for named tools. It is not Ruby or shell code and cannot execute from SKILL.md."
       },
       {
         "id": "external_commands:SKILL.md:61:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The flagged content is Markdown prose, inline code, or text code fences describing tool usage. It is not Ruby backtick execution or executable shell code."
+        "confidence": 0.99,
+        "reason": "The matched text is Markdown documentation and code examples for named tools. It is not Ruby or shell code and cannot execute from SKILL.md."
       },
       {
         "id": "external_commands:SKILL.md:63:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The flagged content is Markdown prose, inline code, or text code fences describing tool usage. It is not Ruby backtick execution or executable shell code."
+        "confidence": 0.99,
+        "reason": "The matched text is Markdown documentation and code examples for named tools. It is not Ruby or shell code and cannot execute from SKILL.md."
       },
       {
         "id": "external_commands:SKILL.md:69:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The flagged content is Markdown prose, inline code, or text code fences describing tool usage. It is not Ruby backtick execution or executable shell code."
+        "confidence": 0.99,
+        "reason": "The matched text is Markdown documentation and code examples for named tools. It is not Ruby or shell code and cannot execute from SKILL.md."
       },
       {
         "id": "external_commands:SKILL.md:78:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The flagged content is Markdown prose, inline code, or text code fences describing tool usage. It is not Ruby backtick execution or executable shell code."
+        "confidence": 0.99,
+        "reason": "The matched text is Markdown documentation and code examples for named tools. It is not Ruby or shell code and cannot execute from SKILL.md."
       },
       {
         "id": "external_commands:SKILL.md:84:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The flagged content is Markdown prose, inline code, or text code fences describing tool usage. It is not Ruby backtick execution or executable shell code."
+        "confidence": 0.99,
+        "reason": "The matched text is Markdown documentation and code examples for named tools. It is not Ruby or shell code and cannot execute from SKILL.md."
       },
       {
         "id": "external_commands:SKILL.md:91:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The flagged content is Markdown prose, inline code, or text code fences describing tool usage. It is not Ruby backtick execution or executable shell code."
+        "confidence": 0.99,
+        "reason": "The matched text is Markdown documentation and code examples for named tools. It is not Ruby or shell code and cannot execute from SKILL.md."
       },
       {
         "id": "external_commands:SKILL.md:93:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The flagged content is Markdown prose, inline code, or text code fences describing tool usage. It is not Ruby backtick execution or executable shell code."
+        "confidence": 0.99,
+        "reason": "The matched text is Markdown documentation and code examples for named tools. It is not Ruby or shell code and cannot execute from SKILL.md."
       },
       {
         "id": "external_commands:SKILL.md:99:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The flagged content is Markdown prose, inline code, or text code fences describing tool usage. It is not Ruby backtick execution or executable shell code."
+        "confidence": 0.99,
+        "reason": "The matched text is Markdown documentation and code examples for named tools. It is not Ruby or shell code and cannot execute from SKILL.md."
       },
       {
         "id": "external_commands:SKILL.md:100:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The flagged content is Markdown prose, inline code, or text code fences describing tool usage. It is not Ruby backtick execution or executable shell code."
+        "confidence": 0.99,
+        "reason": "The matched text is Markdown documentation and code examples for named tools. It is not Ruby or shell code and cannot execute from SKILL.md."
       },
       {
         "id": "external_commands:SKILL.md:101:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The flagged content is Markdown prose, inline code, or text code fences describing tool usage. It is not Ruby backtick execution or executable shell code."
+        "confidence": 0.99,
+        "reason": "The matched text is Markdown documentation and code examples for named tools. It is not Ruby or shell code and cannot execute from SKILL.md."
+      },
+      {
+        "id": "sensitive:SKILL.md:2:1password-data",
+        "verdict": "false_positive",
+        "confidence": 0.99,
+        "reason": "The match is descriptive Markdown about 1Password and its CLI. It contains no credential values or code that accesses sensitive data."
       },
       {
         "id": "sensitive:SKILL.md:7:1password-data",
-        "verdict": "confirmed",
-        "confidence": 0.9,
-        "severity": "critical",
-        "reason": "The heading identifies the skill as a 1Password credential lookup. The surrounding document instructs agents to retrieve credentials for website logins."
+        "verdict": "false_positive",
+        "confidence": 0.99,
+        "reason": "The match is descriptive Markdown about 1Password and its CLI. It contains no credential values or code that accesses sensitive data."
       },
       {
         "id": "sensitive:SKILL.md:29:1password-data",
-        "verdict": "confirmed",
-        "confidence": 0.93,
-        "severity": "critical",
-        "reason": "The text explains that the tool searches 1Password URL fields to locate login items. This confirms direct access to sensitive password-manager records."
+        "verdict": "false_positive",
+        "confidence": 0.99,
+        "reason": "The match is descriptive Markdown about 1Password and its CLI. It contains no credential values or code that accesses sensitive data."
       },
       {
         "id": "sensitive:SKILL.md:92:1password-data",
-        "verdict": "confirmed",
-        "confidence": 0.84,
-        "severity": "critical",
-        "reason": "The line references the required 1Password CLI dependency. In context, it supports a workflow that retrieves credentials from a password vault."
+        "verdict": "false_positive",
+        "confidence": 0.99,
+        "reason": "The match is descriptive Markdown about 1Password and its CLI. It contains no credential values or code that accesses sensitive data."
       }
     ],
     "semantic_findings": [
       {
-        "title": "Raw Password Exposure in Tool Output",
-        "description": "The script returns credential objects that include password values, and the skill documentation advertises password output. This can expose secrets to logs, transcripts, or downstream tools if the agent displays or stores results.",
-        "severity": "critical",
+        "title": "Plaintext credential disclosure through command output",
+        "description": "The credential lookup path includes username and password values in JSON written to standard output. Any agent or process that receives this output can access the plaintext password.",
+        "severity": "high",
         "locations": [
           {
             "file": "scripts/find_credential.py",
-            "line_start": 112,
-            "line_end": 128
+            "line_start": 114,
+            "line_end": 120
           },
           {
             "file": "SKILL.md",
-            "line_start": 47,
+            "line_start": 49,
             "line_end": 50
           }
         ],
-        "confidence": 0.95,
-        "confidence_reasoning": "The code prints JSON containing extracted credentials, and the documentation states that a single match returns a password field. This is direct evidence of raw secret disclosure."
+        "confidence": 0.97,
+        "confidence_reasoning": "The script constructs output objects from extracted password fields at both locations, and the documentation explicitly describes password-bearing output."
       },
       {
-        "title": "Broad Vault Enumeration Before Filtering",
-        "description": "The script lists all 1Password items before matching by URL. Even though it only returns matches, broad enumeration increases exposure if the process output, errors, or local environment are compromised.",
-        "severity": "medium",
+        "title": "Overbroad domain matching can select unrelated credentials",
+        "description": "URL matching accepts a requested domain when it appears anywhere in a saved URL. A domain such as github.com.evil.example can match github.com and may return an unintended credential.",
+        "severity": "high",
         "locations": [
           {
             "file": "scripts/find_credential.py",
-            "line_start": 57,
-            "line_end": 77
+            "line_start": 72,
+            "line_end": 75
           }
         ],
-        "confidence": 0.82,
-        "confidence_reasoning": "The implementation calls op item list and iterates through all returned item URL metadata. The behavior is clear, but the final returned data is limited to matching candidates."
-      }
-    ],
-    "critical_findings": [
-      {
-        "title": "1Password data",
-        "description": "\"\"\"Find 1Password credential by URL and optionally filter by username.",
-        "locations": [
-          {
-            "file": "scripts/find_credential.py",
-            "line_start": 6,
-            "line_end": 6
-          }
-        ],
-        "review_kind": "security",
-        "source_category": "sensitive",
-        "source_severity": "critical",
         "confidence": 0.94,
-        "confidence_reasoning": "The script is explicitly designed to find 1Password credentials by URL. Later code extracts username and password fields, confirming sensitive credential handling."
-      },
-      {
-        "title": "1Password data",
-        "description": "# 1Password Credential Lookup",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 7,
-            "line_end": 7
-          }
-        ],
-        "review_kind": "security",
-        "source_category": "sensitive",
-        "source_severity": "critical",
-        "confidence": 0.9,
-        "confidence_reasoning": "The heading identifies the skill as a 1Password credential lookup. The surrounding document instructs agents to retrieve credentials for website logins."
-      },
-      {
-        "title": "1Password data",
-        "description": "1Password items have arbitrary names that don't match URLs. The `find_credential` tool searches by t",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 29,
-            "line_end": 29
-          }
-        ],
-        "review_kind": "security",
-        "source_category": "sensitive",
-        "source_severity": "critical",
-        "confidence": 0.93,
-        "confidence_reasoning": "The text explains that the tool searches 1Password URL fields to locate login items. This confirms direct access to sensitive password-manager records."
-      },
-      {
-        "title": "1Password data",
-        "description": "| \"op CLI not installed\" | User needs 1Password CLI           |",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 92,
-            "line_end": 92
-          }
-        ],
-        "review_kind": "security",
-        "source_category": "sensitive",
-        "source_severity": "critical",
-        "confidence": 0.84,
-        "confidence_reasoning": "The line references the required 1Password CLI dependency. In context, it supports a workflow that retrieves credentials from a password vault."
-      },
-      {
-        "title": "Raw Password Exposure in Tool Output",
-        "description": "The script returns credential objects that include password values, and the skill documentation advertises password output. This can expose secrets to logs, transcripts, or downstream tools if the agent displays or stores results.",
-        "locations": [
-          {
-            "file": "scripts/find_credential.py",
-            "line_start": 112,
-            "line_end": 128
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 47,
-            "line_end": 50
-          }
-        ],
-        "review_kind": "security",
-        "source_category": "semantic",
-        "source_severity": "critical",
-        "confidence": 0.95,
-        "confidence_reasoning": "The code prints JSON containing extracted credentials, and the documentation states that a single match returns a password field. This is direct evidence of raw secret disclosure."
+        "confidence_reasoning": "The code uses substring containment rather than validating the parsed hostname or a domain boundary."
       }
     ],
+    "critical_findings": [],
     "high_findings": [
       {
-        "title": "Python subprocess.run",
-        "description": "result = subprocess.run(",
+        "title": "Plaintext credential disclosure through command output",
+        "description": "The credential lookup path includes username and password values in JSON written to standard output. Any agent or process that receives this output can access the plaintext password.",
         "locations": [
           {
             "file": "scripts/find_credential.py",
-            "line_start": 30,
-            "line_end": 30
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "external_commands",
-        "source_severity": "high",
-        "confidence": 0.91,
-        "confidence_reasoning": "The script executes the local 1Password op CLI to enumerate and fetch vault items. The subprocess uses argument lists, but it still performs privileged external credential access."
-      }
-    ],
-    "medium_findings": [
-      {
-        "title": "Broad Vault Enumeration Before Filtering",
-        "description": "The script lists all 1Password items before matching by URL. Even though it only returns matches, broad enumeration increases exposure if the process output, errors, or local environment are compromised.",
-        "locations": [
+            "line_start": 114,
+            "line_end": 120
+          },
           {
-            "file": "scripts/find_credential.py",
-            "line_start": 57,
-            "line_end": 77
+            "file": "SKILL.md",
+            "line_start": 49,
+            "line_end": 50
           }
         ],
         "review_kind": "security",
         "source_category": "semantic",
-        "source_severity": "medium",
-        "confidence": 0.82,
-        "confidence_reasoning": "The implementation calls op item list and iterates through all returned item URL metadata. The behavior is clear, but the final returned data is limited to matching candidates."
-      }
-    ],
-    "low_findings": [
-      {
-        "title": "System reconnaissance",
-        "description": "if purpose == \"USERNAME\" or fid == \"username\":",
-        "locations": [
-          {
-            "file": "scripts/find_credential.py",
-            "line_start": 50,
-            "line_end": 50
-          }
-        ],
-        "review_kind": "security",
-        "source_category": "blocker",
-        "source_severity": "low",
-        "confidence": 0.88,
-        "confidence_reasoning": "The line reads credential field metadata from 1Password item details. This is not system reconnaissance, but it is real credential extraction behavior."
+        "source_severity": "high",
+        "confidence": 0.97,
+        "confidence_reasoning": "The script constructs output objects from extracted password fields at both locations, and the documentation explicitly describes password-bearing output."
       },
       {
-        "title": "System reconnaissance",
-        "description": "elif purpose == \"PASSWORD\" or fid == \"password\":",
+        "title": "Overbroad domain matching can select unrelated credentials",
+        "description": "URL matching accepts a requested domain when it appears anywhere in a saved URL. A domain such as github.com.evil.example can match github.com and may return an unintended credential.",
         "locations": [
           {
             "file": "scripts/find_credential.py",
-            "line_start": 52,
-            "line_end": 52
+            "line_start": 72,
+            "line_end": 75
           }
         ],
         "review_kind": "security",
-        "source_category": "blocker",
-        "source_severity": "low",
-        "confidence": 0.88,
-        "confidence_reasoning": "The line reads credential field metadata from 1Password item details. This is not system reconnaissance, but it is real credential extraction behavior."
-      }
-    ],
-    "dangerous_patterns": [
-      {
-        "title": "1Password data",
-        "description": "\"\"\"Find 1Password credential by URL and optionally filter by username.",
-        "locations": [
-          {
-            "file": "scripts/find_credential.py",
-            "line_start": 6,
-            "line_end": 6
-          }
-        ],
-        "review_kind": "security",
-        "source_category": "sensitive",
-        "source_severity": "critical",
+        "source_category": "semantic",
+        "source_severity": "high",
         "confidence": 0.94,
-        "confidence_reasoning": "The script is explicitly designed to find 1Password credentials by URL. Later code extracts username and password fields, confirming sensitive credential handling."
-      },
-      {
-        "title": "System reconnaissance",
-        "description": "if purpose == \"USERNAME\" or fid == \"username\":",
-        "locations": [
-          {
-            "file": "scripts/find_credential.py",
-            "line_start": 50,
-            "line_end": 50
-          }
-        ],
-        "review_kind": "security",
-        "source_category": "blocker",
-        "source_severity": "low",
-        "confidence": 0.88,
-        "confidence_reasoning": "The line reads credential field metadata from 1Password item details. This is not system reconnaissance, but it is real credential extraction behavior."
-      },
-      {
-        "title": "System reconnaissance",
-        "description": "elif purpose == \"PASSWORD\" or fid == \"password\":",
-        "locations": [
-          {
-            "file": "scripts/find_credential.py",
-            "line_start": 52,
-            "line_end": 52
-          }
-        ],
-        "review_kind": "security",
-        "source_category": "blocker",
-        "source_severity": "low",
-        "confidence": 0.88,
-        "confidence_reasoning": "The line reads credential field metadata from 1Password item details. This is not system reconnaissance, but it is real credential extraction behavior."
-      },
-      {
-        "title": "1Password data",
-        "description": "# 1Password Credential Lookup",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 7,
-            "line_end": 7
-          }
-        ],
-        "review_kind": "security",
-        "source_category": "sensitive",
-        "source_severity": "critical",
-        "confidence": 0.9,
-        "confidence_reasoning": "The heading identifies the skill as a 1Password credential lookup. The surrounding document instructs agents to retrieve credentials for website logins."
-      },
-      {
-        "title": "1Password data",
-        "description": "1Password items have arbitrary names that don't match URLs. The `find_credential` tool searches by t",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 29,
-            "line_end": 29
-          }
-        ],
-        "review_kind": "security",
-        "source_category": "sensitive",
-        "source_severity": "critical",
-        "confidence": 0.93,
-        "confidence_reasoning": "The text explains that the tool searches 1Password URL fields to locate login items. This confirms direct access to sensitive password-manager records."
-      },
-      {
-        "title": "1Password data",
-        "description": "| \"op CLI not installed\" | User needs 1Password CLI           |",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 92,
-            "line_end": 92
-          }
-        ],
-        "review_kind": "security",
-        "source_category": "sensitive",
-        "source_severity": "critical",
-        "confidence": 0.84,
-        "confidence_reasoning": "The line references the required 1Password CLI dependency. In context, it supports a workflow that retrieves credentials from a password vault."
+        "confidence_reasoning": "The code uses substring containment rather than validating the parsed hostname or a domain boundary."
       }
     ],
+    "medium_findings": [],
+    "low_findings": [],
+    "dangerous_patterns": [],
     "files_scanned": 2,
     "total_lines": 252,
     "audit_model": "claude",
-    "audited_at": "2026-07-09T01:24:49.093Z",
-    "agent_auto_install_policy": "blocked",
-    "manual_install_policy": "allowed_with_warning"
+    "audited_at": "2026-07-18T10:39:29.522Z",
+    "agent_auto_install_policy": "confirmation_required",
+    "manual_install_policy": "allowed"
   },
   "content": {
-    "user_title": "Find 1Password Website Credentials",
-    "value_statement": "Website login automation often fails when agents guess password item names. This skill searches 1Password by website domain and optional username to find the matching login item.",
+    "user_title": "Find website credentials by domain",
+    "value_statement": "Finding the correct login item is difficult when item titles do not match website names. This skill searches saved 1Password URLs and can filter results by username.",
     "seo_keywords": [
       "Claude",
       "Codex",
       "Claude Code",
       "1Password credential lookup",
-      "password manager",
-      "website login automation",
-      "op CLI",
-      "credential retrieval",
-      "domain matching",
-      "secure sign-in"
+      "password manager automation",
+      "website login credentials",
+      "1Password CLI",
+      "domain credential search",
+      "login item search",
+      "credential management"
     ],
     "actual_capabilities": [
-      "Searches 1Password login items by website domain.",
-      "Accepts an optional username filter when multiple accounts exist.",
-      "Handles x.com and twitter.com as equivalent domains.",
-      "Returns item names and usernames when multiple matches are found.",
-      "Reports common setup errors for the 1Password CLI."
+      "Searches 1Password login items by a requested website domain.",
+      "Filters a matching login by an optional username.",
+      "Supports the x.com and twitter.com domain alias.",
+      "Returns account choices when several items match a domain.",
+      "Reports missing 1Password CLI and sign-in timeout errors."
     ],
     "limitations": [
-      "Requires the local 1Password CLI to be installed and signed in.",
-      "Can expose raw passwords in tool output or transcripts.",
-      "Only searches URL metadata available from 1Password items.",
-      "Does not verify whether the agent is authorized to use a credential."
+      "Requires the 1Password CLI and an authenticated local session.",
+      "Only supports the configured x.com and twitter.com domain alias.",
+      "Returns plaintext passwords through command output.",
+      "Substring URL matching can select a lookalike or unrelated saved URL."
     ],
     "use_cases": [
       {
-        "title": "Agent-assisted website sign-in",
-        "description": "Retrieve the correct login item for a known website domain before filling a sign-in form.",
-        "target_user": "Claude Code users"
+        "title": "Open a known website account",
+        "description": "Find a saved login for a website before an approved sign-in action.",
+        "target_user": "Individual users"
       },
       {
-        "title": "Account selection for shared domains",
-        "description": "List matching accounts for a domain so the user can choose the correct username.",
-        "target_user": "Support engineers"
+        "title": "Choose a work account",
+        "description": "List matching accounts and filter by username when a website has several saved logins.",
+        "target_user": "Professionals with multiple accounts"
       },
       {
-        "title": "Password manager workflow testing",
-        "description": "Check whether 1Password items contain usable URL metadata for automated credential lookup.",
-        "target_user": "Productivity automation builders"
+        "title": "Troubleshoot credential lookup",
+        "description": "Identify missing CLI installation, sign-in, or no-match conditions during local automation.",
+        "target_user": "IT support staff"
       }
     ],
     "prompt_templates": [
       {
         "title": "Find a website login",
-        "scenario": "Beginner lookup for one domain.",
-        "prompt": "Find the 1Password credential for example.com and tell me which username is available."
+        "scenario": "Beginner",
+        "prompt": "Find my 1Password credential for github.com. Ask for confirmation before revealing any password."
       },
       {
-        "title": "Find a specific account",
-        "scenario": "Use a username filter to avoid selecting the wrong login.",
-        "prompt": "Find the 1Password credential for example.com using the username me@example.com."
+        "title": "Filter by username",
+        "scenario": "Basic",
+        "prompt": "Find the 1Password login for linkedin.com using the username work@example.com. Show only the matching account name until I confirm."
       },
       {
-        "title": "Resolve multiple matches",
-        "scenario": "List possible accounts before retrieving a password.",
-        "prompt": "List the 1Password accounts for example.com so I can choose the correct one."
+        "title": "Resolve several accounts",
+        "scenario": "Intermediate",
+        "prompt": "List my saved accounts for github.com without passwords. Ask me which username I want before retrieving credentials."
       },
       {
-        "title": "Assist a browser login safely",
-        "scenario": "Advanced workflow with explicit authorization and minimal disclosure.",
-        "prompt": "With my authorization, find the credential for example.com, use it only for the active login form, and do not print the password."
+        "title": "Use an approved login",
+        "scenario": "Advanced",
+        "prompt": "For the approved site github.com, find the login for work@example.com and use it only to complete the current sign-in. Do not display or log the password."
       }
     ],
     "output_examples": [
       {
-        "input": "Find the credential for github.com.",
-        "output": "Found one matching GitHub login with the username clementwalter."
+        "input": "Find the login for github.com using work@example.com.",
+        "output": [
+          "Matched account: work@example.com",
+          "Login item found for github.com",
+          "Password remains protected until confirmation"
+        ]
       },
       {
         "input": "List accounts for github.com.",
         "output": [
-          "Found a work account for work@example.com.",
-          "Found a personal account for personal@example.com."
+          "Two accounts found",
+          "work@example.com",
+          "personal@example.com",
+          "Select a username to continue"
         ]
       },
       {
-        "input": "Find the credential for a domain with no saved item.",
-        "output": "No matching 1Password item was found for that domain."
+        "input": "Find the login for unknown.example.",
+        "output": "No saved login was found for the requested domain."
       }
     ],
     "best_practices": [
-      "Use the website domain, not a guessed 1Password item name.",
-      "Add a username filter when more than one account may exist.",
-      "Avoid printing, saving, or sharing passwords returned by the tool."
+      "Confirm the website domain and intended account before retrieving a password.",
+      "Use a username filter when multiple accounts are available.",
+      "Keep passwords out of chat history, logs, and terminal output whenever possible."
     ],
     "anti_patterns": [
-      "Do not guess item names such as GitHub or my github.",
-      "Do not use retrieved credentials without user authorization.",
-      "Do not paste raw passwords into chat, logs, tickets, or documentation."
+      "Do not guess 1Password item names from a website name.",
+      "Do not retrieve a password before the user confirms the selected account.",
+      "Do not rely on substring domain matches for sensitive login decisions."
     ],
     "faq": [
       {
-        "question": "Does this skill require 1Password?",
-        "answer": "Yes. It requires the 1Password CLI on the local machine and an active sign-in session."
+        "question": "What does this skill search?",
+        "answer": "It searches saved 1Password login items using the website URL field."
       },
       {
-        "question": "Should I search by item name?",
-        "answer": "No. The skill is designed to search by website domain because item names may not match URLs."
+        "question": "What software is required?",
+        "answer": "You need the 1Password CLI installed and signed in locally."
       },
       {
-        "question": "What happens when multiple accounts match?",
-        "answer": "The skill can list matching usernames and ask you to choose one before retrieving the credential."
+        "question": "Can I select a specific account?",
+        "answer": "Yes. Provide the username when more than one login may exist."
       },
       {
-        "question": "Can this expose passwords?",
-        "answer": "Yes. The underlying script can return password values, so users should avoid logging or displaying them."
+        "question": "Why should I use a domain instead of an item name?",
+        "answer": "Item titles can be arbitrary, while saved URLs usually identify the website."
       },
       {
-        "question": "Does it work with x.com and twitter.com?",
-        "answer": "Yes. The skill treats those domains as aliases during lookup."
+        "question": "Does it support domain aliases?",
+        "answer": "It treats x.com and twitter.com as equivalent."
       },
       {
-        "question": "Is this safe for unattended automation?",
-        "answer": "No. Credential retrieval should require user authorization and careful handling of secret output."
+        "question": "Are passwords protected in the output?",
+        "answer": "No. The current script returns plaintext passwords, so use it only with explicit approval and secure output handling."
       }
     ]
   },

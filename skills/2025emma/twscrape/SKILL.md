@@ -1,7 +1,6 @@
 ---
 name: twscrape
-description: Guides use of twscrape for Twitter/X data collection, account setup, proxy configuration, exports, and troubleshooting.
-license: MIT
+description: "Guide for using twscrape to collect public Twitter/X data through its GraphQL interface, asynchronous queries, and account session management."
 ---
 
 # twscrape

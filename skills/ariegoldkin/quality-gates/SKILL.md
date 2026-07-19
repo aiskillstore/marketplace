@@ -1,6 +1,6 @@
 ---
 name: quality-gates
-description: Assess task complexity, validate requirements, and apply quality gates before implementation begins.
+description: "Provides quality gates for assessing task complexity, clarifying requirements, tracking failed attempts, and escalating blocked work."
 ---
 
 # Quality Gates Skill

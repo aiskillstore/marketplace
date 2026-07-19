@@ -1,6 +1,6 @@
 ---
 name: security-audit
-description: Security review or audit of code, architecture, or infrastructure - Threat modeling sessions - Reviewing PRs for security implications
+description: "Security review guidance and domain checklists based on NIST, CIS, OWASP, MITRE ATT&CK, SLSA, and OpenSSF frameworks."
 ---
 
 # Security Researcher

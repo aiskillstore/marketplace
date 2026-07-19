@@ -1,6 +1,6 @@
 ---
 name: gmail-tools
-description: Reading and managing Gmail emails - Sending emails with attachments - Replying to emails while maintaining thread continuity
+description: "Access Gmail through IMAP and SMTP using credentials retrieved from a named 1Password item. The included scripts list emails, read messages, and send threaded replies with optional attachments."
 ---
 
 # Gmail Tools
