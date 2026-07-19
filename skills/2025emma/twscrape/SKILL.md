@@ -1,3 +1,8 @@
+---
+name: twscrape
+description: "Guide for using twscrape to collect public Twitter/X data through its GraphQL interface, asynchronous queries, and account session management."
+---
+
 # twscrape
 
 Python library for scraping Twitter/X data using GraphQL API with account rotation and session management.

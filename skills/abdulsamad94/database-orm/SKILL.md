@@ -1,5 +1,5 @@
 ---
-name: Database & ORM
+name: database-orm
 description: Interaction with NeonDB Postgres using Drizzle ORM.
 ---
 

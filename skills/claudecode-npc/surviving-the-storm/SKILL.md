@@ -1,5 +1,5 @@
 ---
-name: Surviving the Storm
+name: surviving-the-storm
 description: 风暴求生 - 盖亚星球遭遇极端天气,Stella必须在双星磁暴和狂风暴雨中保护自己和营地
 ---
 

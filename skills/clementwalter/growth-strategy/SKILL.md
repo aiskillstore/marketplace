@@ -1,3 +1,8 @@
+---
+name: growth-strategy
+description: "Design ethical growth strategies using product-led loops, measurable experiments, and privacy-aware guardrails."
+---
+
 # Growth Strategy
 
 Modern growth hacking: loops + product-led growth + disciplined experimentation, under privacy and deliverability constraints.

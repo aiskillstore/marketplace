@@ -1,5 +1,5 @@
 ---
-name: Document Writing Coordination
+name: document-writing-coordination
 description: This skill should be used when the user asks to "coordinate document writing", "manage doc writers", "create a design document with multiple writers", "orchestrate documentation", "delegate doc sections", "cos for documentation", "chief of staff for docs", or needs to break a large document into sections and delegate writing to multiple agents via VibeKanban.
 version: 1.0.0
 ---

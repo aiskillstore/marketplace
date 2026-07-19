@@ -1,5 +1,5 @@
 ---
-name: API JWT Authenticator
+name: api-jwt-authenticator
 category: Security
 author: Claude
 version: 1.0.0

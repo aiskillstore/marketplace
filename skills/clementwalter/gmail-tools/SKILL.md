@@ -1,3 +1,8 @@
+---
+name: gmail-tools
+description: "Access Gmail through IMAP and SMTP using credentials retrieved from a named 1Password item. The included scripts list emails, read messages, and send threaded replies with optional attachments."
+---
+
 # Gmail Tools
 
 Secure Gmail access via IMAP/SMTP with 1Password credential storage. Supports listing, reading, searching, sending, and replying to emails with proper threading and attachments.
