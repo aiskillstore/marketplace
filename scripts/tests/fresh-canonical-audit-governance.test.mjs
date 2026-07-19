@@ -88,6 +88,49 @@ function exactRecoveryBoundary(row, cohortSha256) {
   };
 }
 
+function exactSmokeRecoveryBoundary(row, cohortSha256) {
+  return {
+    metadata: {
+      status: 'fresh_canonical_audit_frozen', runId: '29669706395', lastSelected: row.slug,
+      cohortSha256,
+    },
+    selection: { status: 'lineage_unproven', lastSelected: row.slug },
+    executionProof: {
+      schemaVersion: 2,
+      producerKind: 'fresh_canonical_audit_smoke_recovery',
+      status: 'fresh_canonical_audit_execution_complete',
+      executeRunId: 'future-smoke-recovery-run',
+      dryRunId: '29669706395',
+      failedExecuteRunId: '29671150631',
+      failedExecuteHeadSha: '88d62f4c32ec837ef30075b202b81a580b723259',
+      workflowCommit: 'f'.repeat(40),
+      lastSelected: row.slug,
+      cohortSha256,
+      executedCount: 1,
+      executionResultsSha256: '1'.repeat(64),
+      postInventorySha256: '2'.repeat(64),
+      boundaryManifestSha256: '3'.repeat(64),
+      recoveryEvidenceManifestSha256: '4'.repeat(64),
+      smokeResultSha256: '5'.repeat(64),
+      failedExecutionCli: {
+        version: '2.8.3',
+        sha256: '296cab05576adec2c6613255b26663fab58e8f3fa585e2c085cd0367d8c7274f',
+      },
+      failedSmokeExpectedPublicCliVersion: '0.1.9',
+      recoveryRuntime: {
+        smokeCommit: 'e368da730951aceca17a7e5d9d5a9adc0e3efc2a',
+        publicCliVersion: '0.1.10',
+        publicCliIntegrity: 'sha512-HKxQJadsobOSJFrf43w9kPHjwlzel0KC9G0R2tIfHVwIbypj2r0eQE2mZkj07wZKQOtYLbQRBcLi2eZpLftzJw==',
+      },
+      scoreFinalized: true,
+      timestampFinalized: true,
+      cacheClosureCompleted: true,
+      packClosureCompleted: true,
+      productionSmokeCompleted: true,
+    },
+  };
+}
+
 test('prepares a bounded commit-addressed fresh audit batch', () => {
   const { root, row } = fixture();
   const result = prepareFreshCanonicalAuditBatch({
@@ -165,17 +208,36 @@ test('cursor requires both the immediately preceding boundary and a fully govern
     },
     cohortSha256,
   }), /successfully closed previous execution/);
+
+  const smokeRecoveryBoundary = exactSmokeRecoveryBoundary(row, cohortSha256);
+  const smokeRecovered = prepareFreshCanonicalAuditBatch({
+    repositoryRoot: root, cohort, startAfter: row.slug, batchSize: 1,
+    productionInventory: inventory(row, 1), previousBoundary: smokeRecoveryBoundary, cohortSha256,
+  });
+  assert.equal(smokeRecovered.count, 0);
+  assert.throws(() => prepareFreshCanonicalAuditBatch({
+    repositoryRoot: root, cohort, startAfter: row.slug, batchSize: 1,
+    productionInventory: inventory(row, 1),
+    previousBoundary: {
+      ...smokeRecoveryBoundary,
+      executionProof: {
+        ...smokeRecoveryBoundary.executionProof,
+        failedSmokeExpectedPublicCliVersion: '0.1.10',
+      },
+    },
+    cohortSha256,
+  }), /successfully closed previous execution/);
 });
 
 test('workflow is two-phase, CLI-pinned, resumable, and closes P0 channels', () => {
   const workflow = readFileSync(new URL('../../.github/workflows/govern-fresh-canonical-audits.yml', import.meta.url), 'utf8');
-  assert.match(workflow, /options: \[dry-run, execute, recover\]/);
+  assert.match(workflow, /options: \[dry-run, execute, recover, recover-smoke\]/);
   assert.match(workflow, /default: '2\.8\.3'/);
   assert.match(workflow, /DRY_RUN_ID" = '29646612265'/);
   assert.match(workflow, /11101c85a06aaec0d8f0deda0a4aac82cf24899b/);
   assert.match(workflow, /sha256:4d5b40e20e59cd830125e572ed2ba888dcc2ce5309a62001793a87dd8464035b/);
   assert.match(workflow, /git show "11101c85a06aaec0d8f0deda0a4aac82cf24899b:\$path"/);
-  assert.equal((workflow.match(/296cab05576adec2c6613255b26663fab58e8f3fa585e2c085cd0367d8c7274f/g) || []).length, 2);
+  assert.equal((workflow.match(/296cab05576adec2c6613255b26663fab58e8f3fa585e2c085cd0367d8c7274f/g) || []).length, 4);
   assert.equal((workflow.match(/9b885943950c15555e8fbae522adf2cf9514ae74f63050a905c8e97694d52fcb/g) || []).length, 2);
   assert.equal((workflow.match(/ecfaa49aa72d24b8ea6322c7dae24d4bbe9df174a5d009cc56d7d2a89e7ae05a/g) || []).length, 4);
   assert.match(workflow, /\[\[ "\$audited" =~ \^\[0-9a-f\]\{64\}\$ \]\]/);
@@ -195,9 +257,9 @@ test('workflow is two-phase, CLI-pinned, resumable, and closes P0 channels', () 
   assert.equal((workflow.match(/sparse-checkout-cone-mode: false/g) || []).length, 2);
   assert.equal((workflow.match(/git sparse-checkout disable/g) || []).length, 2);
   assert.equal((workflow.match(/git reset --hard HEAD/g) || []).length, 2);
-  assert.equal((workflow.match(/test "\$\(git rev-parse HEAD\)" = "\$GITHUB_SHA"/g) || []).length, 3);
+  assert.equal((workflow.match(/test "\$\(git rev-parse HEAD\)" = "\$GITHUB_SHA"/g) || []).length, 4);
   assert.match(workflow, /fresh_canonical_audit_execution_complete/);
-  assert.equal((workflow.match(/include-hidden-files: true/g) || []).length, 3);
+  assert.equal((workflow.match(/include-hidden-files: true/g) || []).length, 4);
   assert.match(workflow, /name: fresh-canonical-audit-boundary-\$\{\{ github\.run_id \}\}[\s\S]*?include-hidden-files: true/);
   assert.match(workflow, /name: fresh-canonical-audit-execution-\$\{\{ github\.run_id \}\}[\s\S]*?include-hidden-files: true/);
   assert.match(workflow, /productionSmokeCompleted:true/);
@@ -206,7 +268,8 @@ test('workflow is two-phase, CLI-pinned, resumable, and closes P0 channels', () 
   assert.match(workflow, /production-skill-score-writes/);
   assert.match(workflow, /CACHE_INVALIDATE_SECRET/);
   assert.match(workflow, /expected.*Pack|post-execution artifact and Pack evidence/i);
-  assert.match(workflow, /SMOKE_PUBLIC_CLI_PACKAGES: skillstore@0\.1\.9,skillstore@latest/);
+  assert.doesNotMatch(workflow, /SMOKE_PUBLIC_CLI_PACKAGES: skillstore@0\.1\.9,skillstore@latest/);
+  assert.match(workflow, /SMOKE_PUBLIC_CLI_PACKAGES: skillstore@0\.1\.10,skillstore@latest/);
   assert.match(workflow, /production-smoke\.mjs/);
   assert.match(workflow, /MCP channel/);
   assert.match(workflow, /recover-boundary:/);
@@ -218,6 +281,11 @@ test('workflow is two-phase, CLI-pinned, resumable, and closes P0 channels', () 
   assert.match(workflow, /RECOVERY_EXPECTED_CACHE_VERSION: 'v7'/);
   assert.match(workflow, /producerKind:"fresh_canonical_audit_recovery"/);
   assert.match(workflow, /scripts\/verify-fresh-canonical-audit-recovery\.mjs/);
+  assert.match(workflow, /recover-smoke-boundary:/);
+  assert.match(workflow, /INCIDENT_DRY_RUN_ID: '29669706395'/);
+  assert.match(workflow, /INCIDENT_FAILED_EXECUTE_RUN_ID: '29671150631'/);
+  assert.match(workflow, /fresh_canonical_audit_smoke_recovery/);
+  assert.match(workflow, /Recovery ran no governance RPC, score recalculation, or cache invalidation/);
   assert.match(workflow, /scripts\/close-fresh-canonical-audit-cache\.mjs/);
   assert.match(workflow, /def job_rows:/);
   assert.match(workflow, /elif type=="array" and all\(\.\[\]; type=="object" and \(\.jobs\|type\)=="array"\)/);

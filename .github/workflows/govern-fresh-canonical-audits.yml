@@ -4,11 +4,11 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: 'Freeze, execute, or recover the authenticated 2026-07-18 partial execution'
+        description: 'Freeze, execute, or run one authenticated incident recovery'
         type: choice
         required: true
         default: dry-run
-        options: [dry-run, execute, recover]
+        options: [dry-run, execute, recover, recover-smoke]
       cohort_path:
         description: 'Repository-relative lineage-unproven cohort JSON; dry-run only'
         type: string
@@ -169,7 +169,7 @@ jobs:
               --arg executeHeadSha "$execute_head_sha" \
               '.status=="fresh_canonical_audit_execution_complete" and .executeRunId==$executeRunId and .dryRunId==$dryRunId and .lastSelected==$lastSelected and .workflowCommit==$executeHeadSha and .scoreFinalized==true and .timestampFinalized==true and .cacheClosureCompleted==true and .packClosureCompleted==true and .productionSmokeCompleted==true' \
               "$proof" >/dev/null
-          elif [ "$proof_schema" = 2 ]; then
+          elif [ "$proof_schema" = 2 ] && [ "$(jq -r .producerKind "$proof")" = fresh_canonical_audit_recovery ]; then
             jq -e --arg executeRunId "$PREVIOUS_EXECUTE_RUN_ID" \
               --arg dryRunId "$PREVIOUS_BOUNDARY_RUN_ID" --arg lastSelected "$START_AFTER" \
               --arg executeHeadSha "$execute_head_sha" \
@@ -182,6 +182,29 @@ jobs:
             test "$(jq -r .scoreTimestampEvidenceSha256 "$proof")" = "$(sha256sum "$recovery/score-timestamp-evidence.json" | awk '{print $1}')"
             test "$(jq -r .cacheClosureEvidenceSha256 "$proof")" = "$(sha256sum "$recovery/cache-closure-evidence.json" | awk '{print $1}')"
             test "$(jq -r .cacheReadbackSha256 "$proof")" = "$(sha256sum "$recovery/cache-readback.json" | awk '{print $1}')"
+            test "$(jq -r .smokeResultSha256 "$proof")" = "$(sha256sum "$recovery/smoke-result.json" | awk '{print $1}')"
+          elif [ "$proof_schema" = 2 ] && [ "$(jq -r .producerKind "$proof")" = fresh_canonical_audit_smoke_recovery ]; then
+            jq -e --arg executeRunId "$PREVIOUS_EXECUTE_RUN_ID" \
+              --arg dryRunId "$PREVIOUS_BOUNDARY_RUN_ID" --arg lastSelected "$START_AFTER" \
+              --arg executeHeadSha "$execute_head_sha" '
+              .status=="fresh_canonical_audit_execution_complete"
+              and .executeRunId==$executeRunId and .dryRunId==$dryRunId
+              and .lastSelected==$lastSelected and .workflowCommit==$executeHeadSha
+              and .failedExecuteRunId=="29671150631"
+              and .failedExecuteHeadSha=="88d62f4c32ec837ef30075b202b81a580b723259"
+              and .failedExecutionCli.version=="2.8.3"
+              and .failedExecutionCli.sha256=="296cab05576adec2c6613255b26663fab58e8f3fa585e2c085cd0367d8c7274f"
+              and .failedSmokeExpectedPublicCliVersion=="0.1.9"
+              and .recoveryRuntime.smokeCommit=="e368da730951aceca17a7e5d9d5a9adc0e3efc2a"
+              and .recoveryRuntime.publicCliVersion=="0.1.10"
+              and .recoveryRuntime.publicCliIntegrity=="sha512-HKxQJadsobOSJFrf43w9kPHjwlzel0KC9G0R2tIfHVwIbypj2r0eQE2mZkj07wZKQOtYLbQRBcLi2eZpLftzJw=="
+              and .scoreFinalized==true and .timestampFinalized==true
+              and .cacheClosureCompleted==true and .packClosureCompleted==true
+              and .productionSmokeCompleted==true' "$proof" >/dev/null
+            recovery="$RUNNER_TEMP/previous-execution/recovery-evidence"
+            (cd "$recovery" && sha256sum --check SHA256SUMS)
+            test "$(jq -r .recoveryEvidenceManifestSha256 "$proof")" = "$(sha256sum "$recovery/SHA256SUMS" | awk '{print $1}')"
+            test "$(jq -r .boundaryManifestSha256 "$proof")" = "$(sha256sum "$execution_boundary/SHA256SUMS" | awk '{print $1}')"
             test "$(jq -r .smokeResultSha256 "$proof")" = "$(sha256sum "$recovery/smoke-result.json" | awk '{print $1}')"
           else
             echo '::error::unsupported fresh execution proof schema'; exit 1
@@ -541,8 +564,9 @@ jobs:
 
       - name: Verify every P0/P1 download, install, NPX, Pack, and MCP channel
         env:
-          SMOKE_PUBLIC_CLI_PACKAGES: skillstore@0.1.9,skillstore@latest
-          SMOKE_EXPECTED_PUBLIC_CLI_VERSION: 0.1.9
+          SMOKE_PUBLIC_CLI_PACKAGES: skillstore@0.1.10,skillstore@latest
+          SMOKE_EXPECTED_PUBLIC_CLI_VERSION: 0.1.10
+          SMOKE_EXPECTED_PUBLIC_CLI_INTEGRITY: sha512-HKxQJadsobOSJFrf43w9kPHjwlzel0KC9G0R2tIfHVwIbypj2r0eQE2mZkj07wZKQOtYLbQRBcLi2eZpLftzJw==
           SMOKE_EXPECTED_SIGNING_KEY_ID: EP0Myk7rTk_J0RdG1fvpkP
           SMOKE_EXPECTED_SIGNING_PUBLIC_KEY_X: 2tbC6eNY4T9sx4Pvuo_NwHlXGyWWz95WAtHyHUTqzs8
           SMOKE_EXPECT_INTERACTION_RECOVERY: true
@@ -871,4 +895,240 @@ jobs:
             echo "- Failed execute: \`$INCIDENT_FAILED_EXECUTE_RUN_ID\`"
             echo '- Reconstructed durable writes: `10/10`; next campaign cursor: `40/106`.'
             echo '- No governance RPC or score recalculation ran in recovery.'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  recover-smoke-boundary:
+    if: inputs.mode == 'recover-smoke'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      INCIDENT_DRY_RUN_ID: '29669706395'
+      INCIDENT_DRY_RUN_SHA: '88d62f4c32ec837ef30075b202b81a580b723259'
+      INCIDENT_BOUNDARY_ARTIFACT_DIGEST: 'sha256:12cfbdd4bcd38e38c93495c145c7e8d1f7254b50a236457d3112aa6b92055d2c'
+      INCIDENT_FAILED_EXECUTE_RUN_ID: '29671150631'
+      INCIDENT_FAILED_EXECUTE_SHA: '88d62f4c32ec837ef30075b202b81a580b723259'
+      INCIDENT_FAILED_ARTIFACT_DIGEST: 'sha256:2d52fc0097f9d7e4014c66e3af97081f519d00e391e9867eb345d756d1e3fcbf'
+      INCIDENT_EXECUTE_CLI_VERSION: '2.8.3'
+      INCIDENT_EXECUTE_CLI_SHA256: '296cab05576adec2c6613255b26663fab58e8f3fa585e2c085cd0367d8c7274f'
+      INCIDENT_FAILED_SMOKE_CLI_VERSION: '0.1.9'
+      RECOVERY_SMOKE_SHA: 'e368da730951aceca17a7e5d9d5a9adc0e3efc2a'
+      RECOVERY_PUBLIC_CLI_VERSION: '0.1.10'
+      RECOVERY_PUBLIC_CLI_INTEGRITY: 'sha512-HKxQJadsobOSJFrf43w9kPHjwlzel0KC9G0R2tIfHVwIbypj2r0eQE2mZkj07wZKQOtYLbQRBcLi2eZpLftzJw=='
+    steps:
+      - name: Checkout immutable smoke-recovery runtime
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+        with:
+          fetch-depth: 0
+          clean: true
+
+      - name: Validate smoke-only incident inputs and public CLI identity
+        env:
+          DRY_RUN_ID: ${{ inputs.dry_run_id }}
+          FAILED_EXECUTE_RUN_ID: ${{ inputs.failed_execute_run_id }}
+          START_AFTER: ${{ inputs.start_after }}
+          PREVIOUS_BOUNDARY_RUN_ID: ${{ inputs.previous_boundary_run_id }}
+          PREVIOUS_EXECUTE_RUN_ID: ${{ inputs.previous_execute_run_id }}
+          CLI_VERSION: ${{ inputs.cli_version }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF_NAME" = main
+          test "$DRY_RUN_ID" = "$INCIDENT_DRY_RUN_ID"
+          test "$FAILED_EXECUTE_RUN_ID" = "$INCIDENT_FAILED_EXECUTE_RUN_ID"
+          test "$CLI_VERSION" = "$INCIDENT_EXECUTE_CLI_VERSION"
+          test -z "$START_AFTER" && test -z "$PREVIOUS_BOUNDARY_RUN_ID" && test -z "$PREVIOUS_EXECUTE_RUN_ID"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git merge-base --is-ancestor "$INCIDENT_DRY_RUN_SHA" "$GITHUB_SHA"
+          test "$(npm view "skillstore@$RECOVERY_PUBLIC_CLI_VERSION" version)" = "$RECOVERY_PUBLIC_CLI_VERSION"
+          test "$(npm view "skillstore@$RECOVERY_PUBLIC_CLI_VERSION" dist.integrity)" = "$RECOVERY_PUBLIC_CLI_INTEGRITY"
+          test "$(npm view skillstore@latest version)" = "$RECOVERY_PUBLIC_CLI_VERSION"
+          test "$(npm view skillstore@latest dist.integrity)" = "$RECOVERY_PUBLIC_CLI_INTEGRITY"
+
+      - name: Authenticate the exact failed smoke boundary without writes
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          source="$RUNNER_TEMP/smoke-recovery-source"
+          recovery="$RUNNER_TEMP/fresh-smoke-recovery"
+          mkdir -p "$source/original-boundary" "$source/failed-execution" "$recovery/recovery-evidence"
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$INCIDENT_DRY_RUN_ID" > "$source/dry-run.json"
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$INCIDENT_FAILED_EXECUTE_RUN_ID" > "$source/failed-run.json"
+          jq -e --argjson id "$INCIDENT_DRY_RUN_ID" --arg sha "$INCIDENT_DRY_RUN_SHA" '
+            .id==$id and .name=="Govern Fresh Canonical Audits" and .event=="workflow_dispatch"
+            and .head_branch=="main" and .head_sha==$sha and .conclusion=="success" and .run_attempt==1
+          ' "$source/dry-run.json" >/dev/null
+          jq -e --argjson id "$INCIDENT_FAILED_EXECUTE_RUN_ID" --arg sha "$INCIDENT_FAILED_EXECUTE_SHA" '
+            .id==$id and .name=="Govern Fresh Canonical Audits" and .event=="workflow_dispatch"
+            and .head_branch=="main" and .head_sha==$sha and .conclusion=="failure" and .run_attempt==1
+          ' "$source/failed-run.json" >/dev/null
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$INCIDENT_DRY_RUN_ID/artifacts" > "$source/dry-artifacts.json"
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$INCIDENT_FAILED_EXECUTE_RUN_ID/artifacts" > "$source/failed-artifacts.json"
+          jq -e --arg name "fresh-canonical-audit-boundary-$INCIDENT_DRY_RUN_ID" \
+            --arg digest "$INCIDENT_BOUNDARY_ARTIFACT_DIGEST" '
+            [.artifacts[] | select(.name==$name and .expired==false and .digest==$digest)] | length==1
+          ' "$source/dry-artifacts.json" >/dev/null
+          jq -e --arg name "fresh-canonical-audit-execution-$INCIDENT_FAILED_EXECUTE_RUN_ID" \
+            --arg digest "$INCIDENT_FAILED_ARTIFACT_DIGEST" '
+            [.artifacts[] | select(.name==$name and .expired==false and .digest==$digest)] | length==1
+          ' "$source/failed-artifacts.json" >/dev/null
+          gh run download "$INCIDENT_DRY_RUN_ID" --repo "$GITHUB_REPOSITORY" \
+            --name "fresh-canonical-audit-boundary-$INCIDENT_DRY_RUN_ID" --dir "$source/original-boundary"
+          gh run download "$INCIDENT_FAILED_EXECUTE_RUN_ID" --repo "$GITHUB_REPOSITORY" \
+            --name "fresh-canonical-audit-execution-$INCIDENT_FAILED_EXECUTE_RUN_ID" --dir "$source/failed-execution"
+          (cd "$source/original-boundary" && sha256sum --check SHA256SUMS)
+          (cd "$source/failed-execution/boundary" && sha256sum --check SHA256SUMS)
+          cmp "$source/original-boundary/SHA256SUMS" "$source/failed-execution/boundary/SHA256SUMS"
+          test ! -e "$source/failed-execution/execution-proof/proof.json"
+          test "$(jq -r .cliVersion "$source/original-boundary/metadata.json")" = "$INCIDENT_EXECUTE_CLI_VERSION"
+          test "$(jq -r .cliSha256 "$source/original-boundary/metadata.json")" = "$INCIDENT_EXECUTE_CLI_SHA256"
+          jq -e --slurpfile selected "$source/original-boundary/selected-cohort.json" '
+            length==$selected[0].count
+            and [.[].skillId]==[$selected[0].rows[].skillId]
+            and all(.[]; .artifactCreated==true and .artifactRevision==1)
+          ' "$source/failed-execution/execution-results.json" >/dev/null
+          jq -e --slurpfile selected "$source/original-boundary/selected-cohort.json" \
+            --slurpfile results "$source/failed-execution/execution-results.json" '
+            [$selected[0].rows[].skillId] as $ids |
+            ($results[0] | map({key:.skillId,value:.artifactVersionId}) | from_entries) as $versions |
+            [.rows[] | select(.id as $id | $ids | index($id))] as $rows |
+            ($rows|length)==($ids|length)
+            and all($rows[]; .artifact_revision==1 and .current_artifact_version_id==$versions[.id])
+          ' "$source/failed-execution/post-inventory.json" >/dev/null
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$INCIDENT_FAILED_EXECUTE_RUN_ID/jobs?filter=latest&per_page=100" \
+            > "$source/failed-jobs.json"
+          jq -e '
+            def job_rows:
+              if type=="object" and (.jobs|type)=="array" then .jobs
+              elif type=="array" and all(.[]; type=="object" and (.jobs|type)=="array") then [.[].jobs[]]
+              elif type=="array" then .
+              else error("unsupported jobs response") end;
+            job_rows as $jobs |
+            [$jobs[] | select(.name=="execute-boundary" and .conclusion=="failure")] | length==1
+            and ([$jobs[].steps[] | select(.name=="Execute resumable compound governance, score, and cache closure" and .conclusion=="success")] | length==1)
+            and ([$jobs[].steps[] | select(.name=="Fetch exact post-execution artifact and Pack evidence" and .conclusion=="success")] | length==1)
+            and ([$jobs[].steps[] | select(.name=="Verify every P0/P1 download, install, NPX, Pack, and MCP channel" and .conclusion=="failure")] | length==1)
+            and ([$jobs[].steps[] | select(.name=="Seal successful execute closure for the next cursor" and .conclusion=="skipped")] | length==1)
+            and ([$jobs[].steps[] | select(.name=="Upload execution and smoke evidence" and .conclusion=="success")] | length==1)
+          ' "$source/failed-jobs.json" >/dev/null
+          gh run view "$INCIDENT_FAILED_EXECUTE_RUN_ID" --repo "$GITHUB_REPOSITORY" --log-failed \
+            > "$source/failed-smoke.log"
+          test "$(grep -Fc '[FAIL][P0]' "$source/failed-smoke.log")" = 1
+          test "$(grep -Fc '[PASS]' "$source/failed-smoke.log")" = 20
+          grep -F 'expected "0.1.9", got "0.1.10"' "$source/failed-smoke.log" >/dev/null
+          cp -a "$source/original-boundary" "$recovery/boundary"
+          cp "$source/failed-execution/execution-results.json" "$recovery/execution-results.json"
+          cp "$source/failed-execution/post-inventory.json" "$recovery/post-inventory.json"
+
+      - name: Verify production 10 of 10 readback without writes
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: |
+          set -euo pipefail
+          source="$RUNNER_TEMP/smoke-recovery-source"
+          recovery="$RUNNER_TEMP/fresh-smoke-recovery"
+          jq '{schemaVersion:1,scopedSkillIds:[.rows[].skillId],rows:.rows}' \
+            "$source/original-boundary/selected-cohort.json" > "$recovery/scope.json"
+          node scripts/fetch-artifact-version-inventory.mjs \
+            --scope-inventory "$recovery/scope.json" \
+            --output "$recovery/recovery-evidence/production-readback.json"
+          jq -e --slurpfile results "$recovery/execution-results.json" '
+            ($results[0] | map({key:.skillId,value:.}) | from_entries) as $expected |
+            [.rows[] | select($expected[.id] != null)] as $rows |
+            ($rows|length)==10 and all($rows[];
+              .artifact_revision==1
+              and .current_artifact_version_id==$expected[.id].artifactVersionId
+              and .public_eligibility_audit_id==$expected[.id].auditId
+              and .current_quality_score_snapshot_id==$expected[.id].scoreSnapshotId)
+          ' "$recovery/recovery-evidence/production-readback.json" >/dev/null
+
+      - name: Generate GitHub App token for immutable smoke harness
+        id: smoke-app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
+        with:
+          client-id: ${{ vars.APP_CLIENT_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+          repositories: skillstore
+
+      - name: Checkout pinned Skillstore structured smoke harness
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+        with:
+          repository: aiskillstore/skillstore
+          token: ${{ steps.smoke-app-token.outputs.token }}
+          ref: ${{ env.RECOVERY_SMOKE_SHA }}
+          path: skillstore-smoke
+          fetch-depth: 1
+
+      - name: Verify corrected download, install, NPX, Pack, MCP, and CI channels
+        env:
+          SMOKE_PUBLIC_CLI_PACKAGES: skillstore@0.1.10,skillstore@latest
+          SMOKE_EXPECTED_PUBLIC_CLI_VERSION: '0.1.10'
+          SMOKE_EXPECTED_PUBLIC_CLI_INTEGRITY: ${{ env.RECOVERY_PUBLIC_CLI_INTEGRITY }}
+          SMOKE_EXPECTED_SIGNING_KEY_ID: EP0Myk7rTk_J0RdG1fvpkP
+          SMOKE_EXPECTED_SIGNING_PUBLIC_KEY_X: 2tbC6eNY4T9sx4Pvuo_NwHlXGyWWz95WAtHyHUTqzs8
+          SMOKE_EXPECT_INTERACTION_RECOVERY: true
+          CI: true
+        run: |
+          set -euo pipefail
+          evidence="$RUNNER_TEMP/fresh-smoke-recovery/recovery-evidence"
+          test "$(git -C skillstore-smoke rev-parse HEAD)" = "$RECOVERY_SMOKE_SHA"
+          sha256sum skillstore-smoke/scripts/smoke/production-smoke.mjs > "$evidence/smoke-runtime.sha256"
+          node skillstore-smoke/scripts/smoke/production-smoke.mjs \
+            --base-url https://skillstore.io --attempts 3 --retry-ms 3000 \
+            --result-file "$evidence/smoke-result.json" 2>&1 | tee "$evidence/smoke.log"
+
+      - name: Seal schema-v2 smoke-only recovery proof for the next cursor
+        run: |
+          set -euo pipefail
+          source="$RUNNER_TEMP/smoke-recovery-source"
+          recovery="$RUNNER_TEMP/fresh-smoke-recovery"
+          evidence="$recovery/recovery-evidence"
+          cp "$source/"*.json "$evidence/"
+          cp "$source/failed-smoke.log" "$evidence/"
+          (cd "$evidence" && find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS)
+          proof="$recovery/execution-proof"
+          mkdir -p "$proof"
+          jq -n \
+            --arg executeRunId "$GITHUB_RUN_ID" --arg dryRunId "$INCIDENT_DRY_RUN_ID" \
+            --arg failedExecuteRunId "$INCIDENT_FAILED_EXECUTE_RUN_ID" \
+            --arg failedExecuteHeadSha "$INCIDENT_FAILED_EXECUTE_SHA" --arg workflowCommit "$GITHUB_SHA" \
+            --arg lastSelected "$(jq -r .lastSelected "$recovery/boundary/selected-cohort.json")" \
+            --arg cohortSha256 "$(jq -r .cohortSha256 "$recovery/boundary/metadata.json")" \
+            --arg executionResultsSha256 "$(sha256sum "$recovery/execution-results.json" | awk '{print $1}')" \
+            --arg postInventorySha256 "$(sha256sum "$recovery/post-inventory.json" | awk '{print $1}')" \
+            --arg boundaryManifestSha256 "$(sha256sum "$recovery/boundary/SHA256SUMS" | awk '{print $1}')" \
+            --arg recoveryEvidenceManifestSha256 "$(sha256sum "$evidence/SHA256SUMS" | awk '{print $1}')" \
+            --arg smokeResultSha256 "$(sha256sum "$evidence/smoke-result.json" | awk '{print $1}')" \
+            --arg failedExecutionCliVersion "$INCIDENT_EXECUTE_CLI_VERSION" \
+            --arg failedExecutionCliSha256 "$INCIDENT_EXECUTE_CLI_SHA256" \
+            --arg failedSmokeExpectedPublicCliVersion "$INCIDENT_FAILED_SMOKE_CLI_VERSION" \
+            --arg smokeCommit "$RECOVERY_SMOKE_SHA" --arg publicCliVersion "$RECOVERY_PUBLIC_CLI_VERSION" \
+            --arg publicCliIntegrity "$RECOVERY_PUBLIC_CLI_INTEGRITY" --argjson executedCount 10 \
+            '{schemaVersion:2,producerKind:"fresh_canonical_audit_smoke_recovery",status:"fresh_canonical_audit_execution_complete",executeRunId:$executeRunId,dryRunId:$dryRunId,failedExecuteRunId:$failedExecuteRunId,failedExecuteHeadSha:$failedExecuteHeadSha,workflowCommit:$workflowCommit,lastSelected:$lastSelected,cohortSha256:$cohortSha256,executedCount:$executedCount,executionResultsSha256:$executionResultsSha256,postInventorySha256:$postInventorySha256,boundaryManifestSha256:$boundaryManifestSha256,recoveryEvidenceManifestSha256:$recoveryEvidenceManifestSha256,smokeResultSha256:$smokeResultSha256,failedExecutionCli:{version:$failedExecutionCliVersion,sha256:$failedExecutionCliSha256},failedSmokeExpectedPublicCliVersion:$failedSmokeExpectedPublicCliVersion,recoveryRuntime:{smokeCommit:$smokeCommit,publicCliVersion:$publicCliVersion,publicCliIntegrity:$publicCliIntegrity},scoreFinalized:true,timestampFinalized:true,cacheClosureCompleted:true,packClosureCompleted:true,productionSmokeCompleted:true}' \
+            > "$proof/proof.json"
+          (cd "$proof" && sha256sum proof.json > SHA256SUMS)
+
+      - name: Upload smoke-only recovery evidence
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: fresh-canonical-audit-execution-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/fresh-smoke-recovery/boundary/
+            ${{ runner.temp }}/fresh-smoke-recovery/execution-results.json
+            ${{ runner.temp }}/fresh-smoke-recovery/post-inventory.json
+            ${{ runner.temp }}/fresh-smoke-recovery/recovery-evidence/
+            ${{ runner.temp }}/fresh-smoke-recovery/execution-proof/
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Publish verified smoke-only recovery summary
+        run: |
+          {
+            echo '## Fresh canonical audit smoke closure recovered'
+            echo "- Frozen boundary: \`$INCIDENT_DRY_RUN_ID\`"
+            echo "- Failed execute: \`$INCIDENT_FAILED_EXECUTE_RUN_ID\`"
+            echo '- Durable governance, score, and cache readback: `10/10`.'
+            echo '- Recovery ran no governance RPC, score recalculation, or cache invalidation.'
           } >> "$GITHUB_STEP_SUMMARY"
