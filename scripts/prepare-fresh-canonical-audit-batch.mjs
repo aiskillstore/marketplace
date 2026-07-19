@@ -22,34 +22,62 @@ const RECOVERY_PROOF_IDENTITY = Object.freeze({
   cacheVersion: 'v7',
   smokeCommit: 'e368da730951aceca17a7e5d9d5a9adc0e3efc2a',
 });
+const SMOKE_RECOVERY_PROOF_IDENTITY = Object.freeze({
+  dryRunId: '29669706395',
+  failedExecuteRunId: '29671150631',
+  failedExecuteHeadSha: '88d62f4c32ec837ef30075b202b81a580b723259',
+  failedCliVersion: '2.8.3',
+  failedCliSha256: '296cab05576adec2c6613255b26663fab58e8f3fa585e2c085cd0367d8c7274f',
+  failedSmokeExpectedPublicCliVersion: '0.1.9',
+  smokeCommit: 'e368da730951aceca17a7e5d9d5a9adc0e3efc2a',
+  publicCliVersion: '0.1.10',
+  publicCliIntegrity: 'sha512-HKxQJadsobOSJFrf43w9kPHjwlzel0KC9G0R2tIfHVwIbypj2r0eQE2mZkj07wZKQOtYLbQRBcLi2eZpLftzJw==',
+});
 const AUDIT_SCHEMA_PATH = 'schemas/skill-report.schema.json';
 
 function fail(message) { throw new Error(message); }
 function isSupportedExecutionProof(execution) {
   if (execution?.schemaVersion === 1) return true;
-  if (execution?.schemaVersion !== 2
-    || execution.producerKind !== 'fresh_canonical_audit_recovery'
-    || execution.executeRunId !== RECOVERY_PROOF_IDENTITY.executeRunId
-    || execution.dryRunId !== RECOVERY_PROOF_IDENTITY.dryRunId
-    || execution.failedExecuteRunId !== RECOVERY_PROOF_IDENTITY.failedExecuteRunId
-    || execution.failedExecuteHeadSha !== RECOVERY_PROOF_IDENTITY.failedExecuteHeadSha
-    || execution.workflowCommit !== RECOVERY_PROOF_IDENTITY.workflowCommit
-    || execution.originalCli?.version !== RECOVERY_PROOF_IDENTITY.originalCliVersion
-    || execution.originalCli?.sha256 !== RECOVERY_PROOF_IDENTITY.originalCliSha256
-    || execution.failedExecutionCli?.version !== RECOVERY_PROOF_IDENTITY.failedCliVersion
-    || execution.failedExecutionCli?.sha256 !== RECOVERY_PROOF_IDENTITY.failedCliSha256
-    || execution.recoveryRuntime?.cacheVersion !== RECOVERY_PROOF_IDENTITY.cacheVersion
-    || execution.recoveryRuntime?.smokeCommit !== RECOVERY_PROOF_IDENTITY.smokeCommit) return false;
-  return [
+  if (execution?.schemaVersion !== 2) return false;
+  const hashes = [
     execution.executionResultsSha256,
     execution.postInventorySha256,
     execution.boundaryManifestSha256,
     execution.recoveryEvidenceManifestSha256,
-    execution.scoreTimestampEvidenceSha256,
-    execution.cacheClosureEvidenceSha256,
-    execution.cacheReadbackSha256,
     execution.smokeResultSha256,
-  ].every((value) => typeof value === 'string' && SHA256_RE.test(value));
+  ];
+  if (!hashes.every((value) => typeof value === 'string' && SHA256_RE.test(value))) return false;
+  if (execution.producerKind === 'fresh_canonical_audit_recovery') {
+    return execution.executeRunId === RECOVERY_PROOF_IDENTITY.executeRunId
+      && execution.dryRunId === RECOVERY_PROOF_IDENTITY.dryRunId
+      && execution.failedExecuteRunId === RECOVERY_PROOF_IDENTITY.failedExecuteRunId
+      && execution.failedExecuteHeadSha === RECOVERY_PROOF_IDENTITY.failedExecuteHeadSha
+      && execution.workflowCommit === RECOVERY_PROOF_IDENTITY.workflowCommit
+      && execution.originalCli?.version === RECOVERY_PROOF_IDENTITY.originalCliVersion
+      && execution.originalCli?.sha256 === RECOVERY_PROOF_IDENTITY.originalCliSha256
+      && execution.failedExecutionCli?.version === RECOVERY_PROOF_IDENTITY.failedCliVersion
+      && execution.failedExecutionCli?.sha256 === RECOVERY_PROOF_IDENTITY.failedCliSha256
+      && execution.recoveryRuntime?.cacheVersion === RECOVERY_PROOF_IDENTITY.cacheVersion
+      && execution.recoveryRuntime?.smokeCommit === RECOVERY_PROOF_IDENTITY.smokeCommit
+      && [execution.scoreTimestampEvidenceSha256, execution.cacheClosureEvidenceSha256,
+        execution.cacheReadbackSha256]
+        .every((value) => typeof value === 'string' && SHA256_RE.test(value));
+  }
+  if (execution.producerKind === 'fresh_canonical_audit_smoke_recovery') {
+    return execution.dryRunId === SMOKE_RECOVERY_PROOF_IDENTITY.dryRunId
+      && execution.failedExecuteRunId === SMOKE_RECOVERY_PROOF_IDENTITY.failedExecuteRunId
+      && execution.failedExecuteHeadSha === SMOKE_RECOVERY_PROOF_IDENTITY.failedExecuteHeadSha
+      && execution.failedExecutionCli?.version === SMOKE_RECOVERY_PROOF_IDENTITY.failedCliVersion
+      && execution.failedExecutionCli?.sha256 === SMOKE_RECOVERY_PROOF_IDENTITY.failedCliSha256
+      && execution.failedSmokeExpectedPublicCliVersion
+        === SMOKE_RECOVERY_PROOF_IDENTITY.failedSmokeExpectedPublicCliVersion
+      && execution.recoveryRuntime?.smokeCommit === SMOKE_RECOVERY_PROOF_IDENTITY.smokeCommit
+      && execution.recoveryRuntime?.publicCliVersion
+        === SMOKE_RECOVERY_PROOF_IDENTITY.publicCliVersion
+      && execution.recoveryRuntime?.publicCliIntegrity
+        === SMOKE_RECOVERY_PROOF_IDENTITY.publicCliIntegrity;
+  }
+  return false;
 }
 function git(root, args) {
   try {
