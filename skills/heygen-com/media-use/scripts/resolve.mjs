@@ -4,7 +4,14 @@ import { spawnSync } from "node:child_process";
 import { existsSync, statSync, writeFileSync, renameSync, rmSync } from "node:fs";
 import { resolve, join, extname, basename } from "node:path";
 import { parseArgs } from "node:util";
-import { appendRecord, findByPrompt, findByEntity, nextId, allocateId } from "./lib/manifest.mjs";
+import {
+  appendRecord,
+  findByPrompt,
+  findByEntity,
+  nextId,
+  withReservedFile,
+  withReservedFileSync,
+} from "./lib/manifest.mjs";
 import { regenerateIndex } from "./lib/index-gen.mjs";
 import { cacheGet, cacheGetByEntity, importFromCache, cachePut } from "./lib/cache.mjs";
 import { runCapability, listTypes, providerMatches, providerNamesFor } from "./lib/registry.mjs";
@@ -16,6 +23,7 @@ import { buildStats } from "./lib/stats.mjs";
 import { typesMatch } from "./lib/match.mjs";
 import { listCandidates, formatCandidates, CANDIDATE_CAP } from "./lib/candidates.mjs";
 import { findGlobalBySha } from "./lib/cache.mjs";
+import { heygenAuthMethod } from "../audio/scripts/lib/heygen.mjs";
 import { buildCube, paramsFromIntent } from "./lib/cube-build.mjs";
 import { validateCubeFile } from "./lib/cube-validate.mjs";
 import { analyzeMediaGrade, formatMeasuredNote } from "./lib/grade-analyzer.mjs";
@@ -29,9 +37,26 @@ import {
   HEYGEN_INSTALL_COMMAND,
   HEYGEN_MIN_VERSION,
   HEYGEN_UPDATE_COMMAND,
+  consumeHeygenRemediation,
   firstSemver,
+  flushHeygenFailureTracking,
   versionLessThan,
 } from "./lib/heygen-cli.mjs";
+import { BundledSfxAssetsError, inspectBundledSfxAssets } from "./lib/bundled-sfx-provider.mjs";
+
+const INGEST_TYPES = listTypes();
+const DEFAULT_EXT = {
+  bgm: ".wav",
+  sfx: ".mp3",
+  voice: ".wav",
+  image: ".jpg",
+  icon: ".svg",
+  logo: ".svg",
+  brand: ".png",
+  video: ".mp4",
+  grade: ".cube",
+  lut: ".cube",
+};
 
 // resolve shells `fetch`/`freezeUrl` and modern ESM; 18 is the floor where those
 // exist without flags. Named so the --doctor node check verifies something real
@@ -56,6 +81,8 @@ const { values: args } = parseArgs({
     for: { type: "string" },
     "local-only": { type: "boolean", default: false },
     provider: { type: "string" },
+    "avatar-id": { type: "string" },
+    "voice-id": { type: "string" },
     json: { type: "boolean", default: false },
     help: { type: "boolean", short: "h", default: false },
   },
@@ -90,6 +117,8 @@ Options:
                   suggestions (grade only)
   --local-only    Offline: skip every network provider
   --provider      Force one generator (e.g. codex, mflux, kokoro, heygen)
+  --avatar-id     Override the default avatar for heygen.video generation
+  --voice-id      Override the default voice for voice/heygen.video generation
   --json          Output JSON instead of one-line result
   --help, -h      Show this help`);
   process.exit(0);
@@ -169,6 +198,32 @@ if (args.from) {
   process.exit(0);
 }
 
+// Recipes: folder-based named bundles resolved by entity name — no providers,
+// no content hashing (an evolving versioned bundle, not an immutable file).
+// Delegates to lib/recipe-store.mjs the way grade/lut delegate to resolveColor;
+// freeze/list live in scripts/recipe.mjs.
+if (type === "recipe") {
+  const { useRecipe } = await import("./lib/recipe-store.mjs");
+  const name = (entity || intent || "").trim();
+  if (!name) exitError("--type recipe needs --entity <name> (or --intent <name>)", 2);
+  try {
+    const used = useRecipe({ projectDir, name });
+    if (args.json) {
+      console.log(JSON.stringify({ ok: true, ...used }));
+    } else {
+      console.log(
+        `resolved recipe ${used.recipe.name} (v${used.recipe.version}, ${used.recipe.workflow})`,
+      );
+      console.log(`  frame spec → ${used.frameSpecPath} (copied over)`);
+      console.log(`  storyboard skeleton → ${used.skeletonPath}`);
+      if (used.briefSkeletonPath) console.log(`  brief skeleton → ${used.briefSkeletonPath}`);
+    }
+    process.exit(0);
+  } catch (err) {
+    exitError(err.message, 1);
+  }
+}
+
 if (args.params !== undefined) {
   if (type !== "lut" && type !== "grade") {
     exitError(
@@ -210,6 +265,15 @@ function recordAvailable(projectDir, record) {
   if (!record) return false;
   if (record.path) return existsSync(join(projectDir, record.path));
   return record.type === "grade" && record.grading;
+}
+
+// Sparse `{ authMethod }` for a heygen-family provider name (e.g. "heygen.tts"),
+// else `{}` — keeps auth_method telemetry absent for every non-heygen resolve
+// instead of implying an auth method that doesn't apply.
+function heygenAuthMethodFor(provider) {
+  if (!provider || !provider.startsWith("heygen.")) return {};
+  const authMethod = heygenAuthMethod();
+  return authMethod ? { authMethod } : {};
 }
 
 function localizeImportedRecord(record, localPath) {
@@ -269,10 +333,8 @@ async function run() {
   const cacheHit = forced ? null : cacheGet(intent, type);
   if (cacheHit) {
     const ext = extname(cacheHit.cached_path);
-    const { id, localPath } = allocateId(projectDir, type, ext);
-    const imported = localizeImportedRecord(
-      importFromCache(cacheHit, projectDir, id, localPath),
-      localPath,
+    const imported = withReservedFileSync(projectDir, type, ext, ({ id, localPath }) =>
+      localizeImportedRecord(importFromCache(cacheHit, projectDir, id, localPath), localPath),
     );
     if (imported) {
       appendRecord(projectDir, imported);
@@ -285,10 +347,11 @@ async function run() {
     const entityCacheHit = cacheGetByEntity(entity);
     if (entityCacheHit && typesMatch(entityCacheHit.type, type)) {
       const ext = extname(entityCacheHit.cached_path);
-      const { id, localPath } = allocateId(projectDir, type, ext);
-      const imported = localizeImportedRecord(
-        importFromCache(entityCacheHit, projectDir, id, localPath),
-        localPath,
+      const imported = withReservedFileSync(projectDir, type, ext, ({ id, localPath }) =>
+        localizeImportedRecord(
+          importFromCache(entityCacheHit, projectDir, id, localPath),
+          localPath,
+        ),
       );
       if (imported) {
         appendRecord(projectDir, imported);
@@ -301,7 +364,14 @@ async function run() {
   // Offline guard: --local-only skips every remote provider (HeyGen catalog),
   // leaving the project + global cache and any local provider.
   const localOnly = args["local-only"];
-  const ctx = { entity, projectDir, localOnly, provider: args.provider };
+  const ctx = {
+    entity,
+    projectDir,
+    localOnly,
+    provider: args.provider,
+    avatarId: args["avatar-id"],
+    voiceId: args["voice-id"],
+  };
 
   // Adherence nudge (offline, no auto-reuse): the exact-cache floor missed and
   // we're about to fetch/generate. If lexically-similar assets already exist,
@@ -325,9 +395,11 @@ async function run() {
 
   // 3. provider search — registry tries providers in order (heygen-CLI first)
   let searchResult = null;
+  let providerFailure = null;
   try {
     searchResult = await runCapability(type, "search", intent, ctx);
-  } catch {
+  } catch (error) {
+    providerFailure = error;
     // search failed, try generate
   }
 
@@ -335,10 +407,19 @@ async function run() {
   if (!searchResult) {
     try {
       searchResult = await runCapability(type, "generate", intent, ctx);
-    } catch {
+    } catch (error) {
+      providerFailure ??= error;
       // generate failed too
     }
   }
+
+  // A search/generate attempt against heygen may have fired a fire-and-forget
+  // media_use_provider_error track (reportHeygenFailure — heygen-search.mjs /
+  // voice-provider.mjs are sync call sites several layers below here and can't
+  // await it themselves). Join it now, before any process.exit() below can
+  // race it: both it and the miss/success telemetry below are separate,
+  // non-keepalive HTTP connections with no ordering guarantee otherwise.
+  await flushHeygenFailureTracking();
 
   if (!searchResult) {
     await track("media_use_resolve_miss", {
@@ -355,13 +436,23 @@ async function run() {
     // brand stays local: no frame.md/design.md -> upsell the HyperFrames design
     // flow rather than reporting a generic miss (B5).
     const msg =
-      type === "brand"
-        ? "no brand spec found — add a frame.md or design.md (colors/font/logo) to this project. Run the HyperFrames design flow to create one; brand tokens are read locally for deterministic rendering."
-        : args.provider
-          ? `provider "${args.provider}" could not resolve ${type}: "${intent}"${localOnly ? " (--local-only skips network providers; drop it or the --provider override)" : ""}`
-          : `no provider could resolve ${type}: "${intent}"`;
+      providerFailure instanceof BundledSfxAssetsError
+        ? providerFailure.message
+        : type === "brand"
+          ? "no brand spec found — add a frame.md or design.md (colors/font/logo) to this project. Run the HyperFrames design flow to create one; brand tokens are read locally for deterministic rendering."
+          : args.provider
+            ? `provider "${args.provider}" could not resolve ${type}: "${intent}"${localOnly ? " (--local-only skips network providers; drop it or the --provider override)" : ""}`
+            : `no provider could resolve ${type}: "${intent}"`;
     if (args.json) {
-      console.log(JSON.stringify({ ok: false, error: msg }));
+      console.log(
+        JSON.stringify({
+          ok: false,
+          ...(providerFailure instanceof BundledSfxAssetsError
+            ? { code: providerFailure.code, fix: providerFailure.fix }
+            : {}),
+          error: msg,
+        }),
+      );
     } else {
       console.error(`error: ${msg}`);
     }
@@ -371,17 +462,21 @@ async function run() {
   // 5. freeze + register (atomic id+file reservation so concurrent resolves
   // can't collide on an id during the download — MU-23)
   const ext = searchResult.ext || extFromUrl(searchResult.url || "") || defaultExt(type);
-  const { id, localPath } = allocateId(projectDir, type, ext);
-  const fullPath = join(projectDir, localPath);
-
-  if (searchResult.localPath) {
-    freezeLocalFile(searchResult.localPath, fullPath);
-  } else if (searchResult.url) {
-    await freezeUrl(searchResult.url, fullPath);
-  } else {
-    console.error("error: provider returned no url or localPath");
-    process.exit(1);
-  }
+  const { id, localPath, fullPath } = await withReservedFile(
+    projectDir,
+    type,
+    ext,
+    async (reservation) => {
+      if (searchResult.localPath) {
+        freezeLocalFile(searchResult.localPath, reservation.fullPath);
+      } else if (searchResult.url) {
+        await freezeUrl(searchResult.url, reservation.fullPath);
+      } else {
+        throw new Error("provider returned no url or localPath");
+      }
+      return reservation;
+    },
+  );
 
   const record = {
     id,
@@ -401,9 +496,24 @@ async function run() {
     provenance: {
       provider: searchResult.metadata?.provider || "unknown",
       prompt: intent,
+      // heygenAuthMethodFor spreads first so an explicit authMethod on a
+      // future provider's own metadata.provenance can still override it below
+      // -- safe today (no provider sets authMethod itself), but keep this
+      // ordering if that ever changes.
+      ...heygenAuthMethodFor(searchResult.metadata?.provider),
       ...searchResult.metadata?.provenance,
     },
   };
+
+  const heygenRemediation = consumeHeygenRemediation();
+  if (
+    searchResult.metadata?.provider === "bundled.sfx" &&
+    !localOnly &&
+    !args.provider &&
+    heygenRemediation
+  ) {
+    record.advisory = heygenRemediation;
+  }
 
   appendRecord(projectDir, record);
   regenerateIndex(projectDir);
@@ -445,32 +555,32 @@ function freezeGeneratedLut(
     validationErrorPrefix = "generated LUT failed validation",
   },
 ) {
-  const { id, localPath } = allocateId(projectDir, type, ".cube");
-  const fullPath = join(projectDir, localPath);
-  const tmpPath = `${fullPath}.tmp`;
-  try {
-    // Write + validate at .tmp, then atomic rename, so a crash between write and
-    // validate can't leave an invalid .cube at the final path.
-    writeFileSync(tmpPath, buildCube(params));
-    const check = validateCubeFile(tmpPath);
-    if (!check.ok) throw new Error(check.error);
-    renameSync(tmpPath, fullPath);
-  } catch (err) {
-    rmSync(tmpPath, { force: true });
-    throw new Error(`${validationErrorPrefix}: ${err.message}`);
-  }
-  return {
-    id,
-    localPath,
-    fullPath,
-    lut: { src: localPath, intensity: 1 },
-    source: "generated",
-    description,
-    metadata: {
-      provider: "cube_lut.builder",
-      provenance: { params },
-    },
-  };
+  return withReservedFileSync(projectDir, type, ".cube", ({ id, localPath, fullPath }) => {
+    const tmpPath = `${fullPath}.tmp`;
+    try {
+      // Write + validate at .tmp, then atomic rename, so a crash between write and
+      // validate can't leave an invalid .cube at the final path.
+      writeFileSync(tmpPath, buildCube(params));
+      const check = validateCubeFile(tmpPath);
+      if (!check.ok) throw new Error(check.error);
+      renameSync(tmpPath, fullPath);
+    } catch (err) {
+      rmSync(tmpPath, { force: true });
+      throw new Error(`${validationErrorPrefix}: ${err.message}`);
+    }
+    return {
+      id,
+      localPath,
+      fullPath,
+      lut: { src: localPath, intensity: 1 },
+      source: "generated",
+      description,
+      metadata: {
+        provider: "cube_lut.builder",
+        provenance: { params },
+      },
+    };
+  });
 }
 
 function exitError(message, status = 1) {
@@ -696,8 +806,8 @@ async function resolveColor(type, intent, options) {
 }
 
 async function ingest(src) {
-  if (!type || !listTypes().includes(type)) {
-    console.error(`error: --from requires --type (one of: ${listTypes().join(", ")})`);
+  if (!type || !INGEST_TYPES.includes(type)) {
+    console.error(`error: --from requires --type (one of: ${INGEST_TYPES.join(", ")})`);
     process.exit(2);
   }
   const isUrl = /^https?:\/\//i.test(src);
@@ -718,10 +828,16 @@ async function ingest(src) {
     process.exit(2);
   }
   const ext = extname(isUrl ? new URL(src).pathname : src) || defaultExt(type);
-  const { id, localPath } = allocateId(projectDir, type, ext);
-  const fullPath = join(projectDir, localPath);
-  if (isUrl) await freezeUrl(src, fullPath);
-  else freezeLocalFile(resolve(src), fullPath);
+  const { id, localPath, fullPath } = await withReservedFile(
+    projectDir,
+    type,
+    ext,
+    async (reservation) => {
+      if (isUrl) await freezeUrl(src, reservation.fullPath);
+      else freezeLocalFile(resolve(src), reservation.fullPath);
+      return reservation;
+    },
+  );
   if (type === "lut" || type === "grade") {
     try {
       const check = validateCubeFile(fullPath);
@@ -815,6 +931,13 @@ function heygenAuthCheck() {
 
 function runDoctor() {
   const checks = [];
+  const bundledSfx = inspectBundledSfxAssets();
+  checks.push({
+    name: "bundled SFX assets",
+    ok: bundledSfx.ok,
+    detail: bundledSfx.detail,
+    fix: bundledSfx.fix,
+  });
   const heygenVersionProbe = runCommand("heygen", ["--version"]);
   const heygenOnPath = heygenVersionProbe.status === 0;
   const heygenVersionText = commandText(heygenVersionProbe);
@@ -915,7 +1038,7 @@ function runDoctor() {
   // missing and then break at the first probe call.
   const ffmpeg = checks.find((check) => check.name === "ffmpeg on PATH");
   const ffprobe = checks.find((check) => check.name === "ffprobe on PATH");
-  return { ok: !!ffmpeg?.ok && !!ffprobe?.ok, checks };
+  return { ok: bundledSfx.ok && !!ffmpeg?.ok && !!ffprobe?.ok, checks };
 }
 
 function printDoctor(checks) {
@@ -1028,10 +1151,8 @@ async function reuseGlobal(shaArg) {
     process.exit(2);
   }
   const ext = extname(rec.cached_path || "") || defaultExt(type);
-  const { id, localPath } = allocateId(projectDir, type, ext);
-  const imported = localizeImportedRecord(
-    importFromCache(rec, projectDir, id, localPath),
-    localPath,
+  const imported = withReservedFileSync(projectDir, type, ext, ({ id, localPath }) =>
+    localizeImportedRecord(importFromCache(rec, projectDir, id, localPath), localPath),
   );
   if (!imported) {
     console.error(`error: cache entry for "${shaArg}" is incomplete or missing on disk`);
@@ -1056,6 +1177,13 @@ async function result(record, source) {
     // parametric), or "params" (offline). Surfaces silent CDN→params downgrades
     // in prod, which --doctor can't (it only answers "reachable now?").
     via: record.provenance?.via,
+    // Free (OAuth) vs. paid (API-key) heygen path — sparse: absent for every
+    // non-heygen provider (see heygenAuthMethodFor at construction time). On a
+    // cache/reuse hit this reports how the asset was ORIGINALLY fetched, not
+    // this resolve's own credential state — intentional: it's a conversion
+    // signal about the fetch that actually consumed a heygen credit, not
+    // about the (free, no-credential) act of copying a cached file.
+    auth_method: record.provenance?.authMethod,
     local_only: !!args["local-only"],
     provider_override: !!args.provider,
   });
@@ -1095,18 +1223,6 @@ function extFromUrl(url) {
     return null;
   }
 }
-
-const DEFAULT_EXT = {
-  bgm: ".wav",
-  sfx: ".mp3",
-  voice: ".wav",
-  image: ".jpg",
-  icon: ".svg",
-  logo: ".svg",
-  brand: ".png",
-  grade: ".cube",
-  lut: ".cube",
-};
 
 function defaultExt(type) {
   return DEFAULT_EXT[type] || ".bin";
