@@ -24,7 +24,8 @@ function decodePathSegment(raw) {
   } catch {
     fail(`GitHub URL contains invalid percent encoding: ${raw}`);
   }
-  if (decoded === '' || decoded === '.' || decoded === '..' || decoded.includes('\\') || decoded.includes('\0')) {
+  if (decoded === '' || decoded !== decoded.normalize('NFC') || /[\u0000-\u001f\u007f-\u009f]/u.test(decoded)
+    || decoded === '.' || decoded === '..' || decoded.startsWith('-') || decoded.includes('\\')) {
     fail(`GitHub URL contains an unsafe path segment: ${raw}`);
   }
   return decoded;
@@ -148,8 +149,10 @@ export function resolveSubmissionSource({ githubUrl, defaultRef, refsText }) {
     ref: selected.name,
     refType: selected.type,
     refSha: selected.sha,
-    skillPath: skillPath.join('/'),
-    explicitPath: skillPath.length > 0,
+    // A blob URL is always an explicit authority selection, including a
+    // root-level SKILL.md. Keep '.' as a transport-safe root sentinel.
+    skillPath: mode === 'blob' && skillPath.length === 0 ? '.' : skillPath.join('/'),
+    explicitPath: mode === 'blob' || skillPath.length > 0,
     normalizedUrl: normalizedTreeUrl(owner, repo, selected.name, skillPath),
   };
 }

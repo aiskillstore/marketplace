@@ -40,6 +40,28 @@ function runNode(script, args, options = {}) {
   });
 }
 
+function writeSelectionPlan(root, skills, { scope = 'skills' } = {}) {
+  const path = join(root, 'selection-plan.json');
+  writeFileSync(path, `${JSON.stringify({
+    schemaVersion: 1,
+    repository: 'example/source',
+    sourceCommit: 'a'.repeat(40),
+    scope: { path: scope, reason: scope === '.' ? 'explicit_path' : 'conventional_skills' },
+    skills,
+  })}\n`);
+  return path;
+}
+
+function selectionPlanFor(skills) {
+  return {
+    schemaVersion: 1,
+    repository: 'example/source',
+    sourceCommit: 'a'.repeat(40),
+    scope: { path: 'skills', reason: 'conventional_skills' },
+    skills: skills.map((slug) => ({ slug, path: `skills/${slug}` })),
+  };
+}
+
 function writePendingSkill(root, slug, extraFiles = []) {
   const pendingDir = `pending/${slug}`;
   const absoluteDir = join(root, pendingDir);
@@ -71,6 +93,7 @@ function successfulManifest(index, planned, { reasonCode = 'processed_all_planne
     shardIndex: index,
     status: 'succeeded',
     reasonCode: noOp ? 'no_skills_planned' : reasonCode,
+    selectionPlan: selectionPlanFor(planned),
     planned,
     succeeded: planned,
     failed: [],
@@ -93,6 +116,7 @@ function failedManifest(index, planned, status = 'failed') {
     shardIndex: index,
     status,
     reasonCode: status === 'failed' ? 'processing_failed' : `processing_${status}`,
+    selectionPlan: selectionPlanFor(planned),
     planned,
     succeeded: [],
     failed: planned,
@@ -112,6 +136,7 @@ function failedManifest(index, planned, status = 'failed') {
 function createShardArchive(artifactsDir, {
   rawIndex,
   manifest,
+  selectionPlan = manifest?.selectionPlan,
   slugs = manifest?.succeeded ?? [],
   nested = '',
   omitManifest = false,
@@ -124,10 +149,11 @@ function createShardArchive(artifactsDir, {
     if (!omitManifest) {
       writeFileSync(join(fixtureRoot, 'shard-manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`);
     }
+    writeFileSync(join(fixtureRoot, 'selection-plan.json'), `${JSON.stringify(selectionPlan)}\n`);
     const archiveDir = join(artifactsDir, nested);
     mkdirSync(archiveDir, { recursive: true });
     const archive = join(archiveDir, `process-shard-1-${rawIndex}.tar.gz`);
-    const entries = ['pending'];
+    const entries = ['pending', 'selection-plan.json'];
     if (!omitManifest) entries.push('shard-manifest.json');
     const tar = spawnSync('tar', ['-C', fixtureRoot, '-czf', archive, ...entries], { encoding: 'utf8' });
     assert.equal(tar.status, 0, tar.stderr);
@@ -158,14 +184,23 @@ function createRawEntryArchive(artifactsDir, entryName) {
   return archive;
 }
 
-function runAggregate(root, matrix, expectedCount = matrix.include.length) {
+function matrixWithSelectionPlans(matrix) {
+  return {
+    include: matrix.include.map((entry) => entry.selection_plan ? entry : {
+      shard: entry.shard,
+      selection_plan: selectionPlanFor(entry.slugs === '' ? [] : entry.slugs.split(',')),
+    }),
+  };
+}
+
+function runAggregate(root, matrix, expectedCount = matrix.include.length, { normalizeLegacyMatrix = true } = {}) {
   const approvalPlan = join(root, 'approval-plan.json');
   const mergedResults = join(root, 'merged');
   const summary = join(root, 'summary.json');
   const result = runNode(aggregateShardsScript, [
     '--artifacts-dir', join(root, 'artifacts'),
     '--run-attempt', '1',
-    '--matrix-json', JSON.stringify(matrix),
+    '--matrix-json', JSON.stringify(normalizeLegacyMatrix ? matrixWithSelectionPlans(matrix) : matrix),
     '--expected-count', String(expectedCount),
     '--approval-plan', approvalPlan,
     '--merged-results', mergedResults,
@@ -180,6 +215,9 @@ test('submission processing isolates every shard and stages only its frozen plan
   assert.match(reusable, /node "\$GITHUB_WORKSPACE\/scripts\/process-submission-shard\.mjs"/);
   assert.match(reusable, /node "\$GITHUB_WORKSPACE\/scripts\/aggregate-submission-shards\.mjs"/);
   assert.match(reusable, /--slug-aliases-file "\$GITHUB_WORKSPACE\/governance\/submission-slug-aliases\.json"/);
+  assert.match(reusable, /--selection-plan "\$INPUT_PLAN"/);
+  assert.match(reusable, /PLAN_EVIDENCE=\(\)/);
+  assert.match(reusable, /selection-plan\.invalid\.json/);
   assert.match(reusable, /git add -- "\$\{SUBMISSION_PATHS\[@\]\}"/);
   assert.doesNotMatch(reusable, /continue-on-error:\s*true/);
   assert.doesNotMatch(reusable, /skill process[\s\S]{0,500}\|\| true/);
@@ -193,6 +231,7 @@ test('real CLI two-round failure produces a failed manifest and cannot aggregate
   const argsLog = join(root, 'args.txt');
   const aliases = join(root, 'aliases.json');
   const resultDir = join(root, 'result');
+  const selectionPlan = writeSelectionPlan(root, [{ slug: 'broken-skill', path: 'skills/broken-skill' }]);
   writeFileSync(aliases, '{"schemaVersion":1,"aliases":[]}\n');
   writeFileSync(fakeCli, `#!/usr/bin/env bash\nset -eu\ncount=0\n[ ! -f "$FAKE_STATE" ] || count=$(cat "$FAKE_STATE")\ncount=$((count + 1))\nprintf '%s\\n' "$count" > "$FAKE_STATE"\nprintf '%s\\n' "$*" >> "$FAKE_ARGS"\necho "fixture CLI failure $count" >&2\nexit 23\n`);
   chmodSync(fakeCli, 0o755);
@@ -200,7 +239,7 @@ test('real CLI two-round failure produces a failed manifest and cannot aggregate
   const processing = runNode(processShardScript, [
     '--cli', fakeCli,
     '--github-url', 'https://github.com/example/source',
-    '--slugs', 'broken-skill',
+    '--selection-plan', selectionPlan,
     '--result-dir', resultDir,
     '--marketplace-repo', 'aiskillstore/marketplace',
     '--shard-index', '0',
@@ -211,8 +250,13 @@ test('real CLI two-round failure produces a failed manifest and cannot aggregate
   assert.equal(readFileSync(state, 'utf8').trim(), '2');
   const attempts = readFileSync(argsLog, 'utf8').trim().split('\n');
   assert.equal(attempts.length, 2);
-  for (const args of attempts) assert.match(args, new RegExp(`--slug-aliases-file ${aliases.replaceAll('/', '\\/')}`));
+  for (const args of attempts) {
+    assert.match(args, new RegExp(`--slug-aliases-file ${aliases.replaceAll('/', '\\/')}`));
+    assert.match(args, /--selection-plan .*selection-plan\.json/);
+    assert.match(args, /--slugs broken-skill/);
+  }
   const manifest = JSON.parse(readFileSync(join(resultDir, 'shard-manifest.json'), 'utf8'));
+  assert.deepEqual(JSON.parse(readFileSync(join(resultDir, 'selection-plan.json'), 'utf8')), JSON.parse(readFileSync(selectionPlan, 'utf8')));
   assert.equal(manifest.status, 'failed');
   assert.deepEqual(manifest.planned, ['broken-skill']);
   assert.deepEqual(manifest.succeeded, []);
@@ -223,6 +267,7 @@ test('real CLI two-round failure produces a failed manifest and cannot aggregate
     '--manifest', join(resultDir, 'shard-manifest.json'),
     '--expected-index', '0',
     '--expected-slugs', 'broken-skill',
+    '--expected-selection-plan', selectionPlan,
     '--pending-root', join(resultDir, 'pending'),
     '--require-success',
   ]);
@@ -247,6 +292,7 @@ test('a successful retry closes the manifest only after every planned result exi
   const state = join(root, 'calls.txt');
   const sourceFixture = join(root, 'source-fixture');
   const resultDir = join(root, 'result');
+  const selectionPlan = writeSelectionPlan(root, [{ slug: 'recoverable', path: 'skills/recoverable' }]);
   mkdirSync(join(sourceFixture, 'pending'), { recursive: true });
   writePendingSkill(sourceFixture, 'recoverable');
   writeFileSync(fakeCli, `#!/usr/bin/env bash\nset -eu\ncount=0\n[ ! -f "$FAKE_STATE" ] || count=$(cat "$FAKE_STATE")\ncount=$((count + 1))\nprintf '%s\\n' "$count" > "$FAKE_STATE"\nif [ "$count" -eq 1 ]; then\n  echo 'first attempt fails' >&2\n  exit 23\nfi\noutput=''\nwhile [ "$#" -gt 0 ]; do\n  if [ "$1" = '--output' ]; then output="$2"; break; fi\n  shift\ndone\ntest -n "$output"\nmkdir -p "$output/pending"\ncp -R "$FIXTURE_PENDING/recoverable" "$output/pending/recoverable"\n`);
@@ -255,7 +301,7 @@ test('a successful retry closes the manifest only after every planned result exi
   const processing = runNode(processShardScript, [
     '--cli', fakeCli,
     '--github-url', 'https://github.com/example/source',
-    '--slugs', 'recoverable',
+    '--selection-plan', selectionPlan,
     '--result-dir', resultDir,
     '--marketplace-repo', 'aiskillstore/marketplace',
     '--shard-index', '0',
@@ -263,6 +309,7 @@ test('a successful retry closes the manifest only after every planned result exi
   ], { env: { FAKE_STATE: state, FIXTURE_PENDING: join(sourceFixture, 'pending') } });
   assert.equal(processing.status, 0, processing.stderr);
   const manifest = JSON.parse(readFileSync(join(resultDir, 'shard-manifest.json'), 'utf8'));
+  assert.deepEqual(JSON.parse(readFileSync(join(resultDir, 'selection-plan.json'), 'utf8')), JSON.parse(readFileSync(selectionPlan, 'utf8')));
   assert.equal(manifest.status, 'succeeded');
   assert.equal(manifest.reasonCode, 'processed_all_planned');
   assert.deepEqual(manifest.succeeded, ['recoverable']);
@@ -273,10 +320,55 @@ test('a successful retry closes the manifest only after every planned result exi
     '--manifest', join(resultDir, 'shard-manifest.json'),
     '--expected-index', '0',
     '--expected-slugs', 'recoverable',
+    '--expected-selection-plan', selectionPlan,
     '--pending-root', join(resultDir, 'pending'),
     '--require-success',
   ]);
   assert.equal(terminal.status, 0, terminal.stderr);
+}));
+
+test('the shard contract rejects a serialized selection plan whose paths do not match the shard slugs', () => withTempDirectory((root) => {
+  const manifest = successfulManifest(0, ['alpha']);
+  manifest.selectionPlan = {
+    schemaVersion: 1,
+    repository: 'example/source',
+    sourceCommit: 'a'.repeat(40),
+    scope: { path: 'skills', reason: 'conventional_skills' },
+    skills: [{ slug: 'beta', path: 'skills/beta' }],
+  };
+  const manifestPath = join(root, 'shard-manifest.json');
+  const expectedPlan = writeSelectionPlan(root, [{ slug: 'alpha', path: 'skills/alpha' }]);
+  writeFileSync(manifestPath, `${JSON.stringify(manifest)}\n`);
+  mkdirSync(join(root, 'pending'));
+  const result = runNode(shardContractScript, [
+    '--manifest', manifestPath,
+    '--expected-index', '0',
+    '--expected-slugs', 'alpha',
+    '--expected-selection-plan', expectedPlan,
+    '--pending-root', join(root, 'pending'),
+  ]);
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /selection plan does not match planned slugs/);
+}));
+
+test('an invalid selection plan still produces an uploadable diagnostic manifest and raw-plan evidence', () => withTempDirectory((root) => {
+  const plan = join(root, 'tampered-plan.json');
+  const resultDir = join(root, 'result');
+  writeFileSync(plan, '{not-json\n');
+  const result = runNode(processShardScript, [
+    '--cli', join(root, 'not-invoked'),
+    '--github-url', 'https://github.com/example/source',
+    '--selection-plan', plan,
+    '--result-dir', resultDir,
+    '--marketplace-repo', 'aiskillstore/marketplace',
+    '--shard-index', '0',
+    '--retry-delay-ms', '0',
+  ]);
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(readFileSync(join(resultDir, 'selection-plan.invalid.json'), 'utf8'), '{not-json\n');
+  const manifest = JSON.parse(readFileSync(join(resultDir, 'shard-manifest.json'), 'utf8'));
+  assert.equal(manifest.reasonCode, 'process_step_failed');
+  assert.equal(manifest.selectionPlan, null);
 }));
 
 test('aggregation accepts root and nested archives only when manifests and pending results agree', () => withTempDirectory((root) => {
@@ -305,6 +397,73 @@ test('aggregation accepts root and nested archives only when manifests and pendi
   assert.deepEqual(plan.skills.map(({ pendingDir }) => pendingDir), ['pending/alpha', 'pending/beta']);
   assert.equal(JSON.parse(readFileSync(aggregate.summary, 'utf8')).status, 'has_results');
 }));
+
+test('aggregation rejects legacy slug-only matrix entries and path-bound plan drift', () => withTempDirectory((root) => {
+  const artifacts = join(root, 'artifacts');
+  mkdirSync(artifacts);
+  const manifest = successfulManifest(0, ['alpha']);
+  manifest.selectionPlan.skills[0].path = 'skills/other-alpha';
+  createShardArchive(artifacts, {
+    rawIndex: '0',
+    manifest,
+    selectionPlan: selectionPlanFor(['alpha']),
+    slugs: ['alpha'],
+  });
+  const matrix = { include: [{ shard: 0, slugs: 'alpha' }] };
+  const legacy = runAggregate(root, matrix, 1, { normalizeLegacyMatrix: false });
+  assert.notEqual(legacy.result.status, 0);
+  assert.match(legacy.result.stderr, /selection_plan/);
+  const drift = runAggregate(root, matrix);
+  assert.notEqual(drift.result.status, 0);
+  assert.match(drift.result.stderr, /selection plan does not match matrix selection plan/);
+}));
+
+test('aggregation requires archive selection-plan evidence to exactly match the matrix plan', () => withTempDirectory((root) => {
+  const artifacts = join(root, 'artifacts');
+  mkdirSync(artifacts);
+  const tamperedPlan = { ...selectionPlanFor(['alpha']), skills: [{ slug: 'alpha', path: 'skills/tampered-alpha' }] };
+  createShardArchive(artifacts, {
+    rawIndex: '0',
+    manifest: successfulManifest(0, ['alpha']),
+    selectionPlan: tamperedPlan,
+    slugs: ['alpha'],
+  });
+  const matrix = { include: [{ shard: 0, selection_plan: selectionPlanFor(['alpha']) }] };
+  const aggregate = runAggregate(root, matrix);
+  assert.notEqual(aggregate.result.status, 0);
+  assert.match(aggregate.result.stderr, /archive selection plan does not match matrix selection plan/);
+}));
+
+for (const fixture of [
+  {
+    name: 'mixed source commits',
+    plans: [selectionPlanFor(['alpha']), { ...selectionPlanFor(['beta']), sourceCommit: 'b'.repeat(40) }],
+    expected: /identity does not match/,
+  },
+  {
+    name: 'mixed scopes',
+    plans: [selectionPlanFor(['alpha']), { ...selectionPlanFor(['beta']), scope: { path: '.', reason: 'explicit_path' }, skills: [{ slug: 'beta', path: 'beta' }] }],
+    expected: /identity does not match/,
+  },
+  {
+    name: 'duplicate slugs',
+    plans: [selectionPlanFor(['alpha']), selectionPlanFor(['alpha'])],
+    expected: /duplicate slug/,
+  },
+  {
+    name: 'duplicate paths',
+    plans: [selectionPlanFor(['alpha']), { ...selectionPlanFor(['beta']), skills: [{ slug: 'beta', path: 'skills/alpha' }] }],
+    expected: /duplicate path/,
+  },
+]) {
+  test(`aggregation rejects matrix selection plans with ${fixture.name}`, () => withTempDirectory((root) => {
+    mkdirSync(join(root, 'artifacts'));
+    const matrix = { include: fixture.plans.map((selection_plan, shard) => ({ shard, selection_plan })) };
+    const aggregate = runAggregate(root, matrix);
+    assert.notEqual(aggregate.result.status, 0);
+    assert.match(aggregate.result.stderr, fixture.expected);
+  }));
+}
 
 test('aggregation preserves printable UTF-8 archive paths without weakening path validation', () => withTempDirectory((root) => {
   const artifacts = join(root, 'artifacts');

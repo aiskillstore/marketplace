@@ -16,9 +16,9 @@ import { pathToFileURL } from 'node:url';
 import { resolveApprovedSubmission } from './resolve-approved-submission.mjs';
 import {
   parseCanonicalShardIndex,
-  parseSlugCsv,
   readAndValidateSubmissionShardManifest,
 } from './submission-shard-contract.mjs';
+import { validateSelectionPlan } from './submission-selection-plan.mjs';
 
 function fail(message) {
   throw new Error(message);
@@ -43,14 +43,56 @@ function parseMatrix(json, expectedCount) {
     fail(`matrix contains ${matrix.include.length} shard(s), expected ${expectedCount}`);
   }
   const entries = new Map();
+  // The union of these immutable shard subplans is the frozen full submission
+  // plan; callers deliberately do not pass a separate mutable full-plan file.
+  let identity = null;
+  const slugs = new Set();
+  const paths = new Set();
+  const foldedPaths = new Set();
   for (const [position, entry] of matrix.include.entries()) {
-    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) fail(`matrix entry ${position} must be an object`);
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)
+      || JSON.stringify(Object.keys(entry).sort()) !== JSON.stringify(['selection_plan', 'shard'])) {
+      fail(`matrix entry ${position} must contain only shard and selection_plan`);
+    }
     if (typeof entry.shard !== 'number') fail(`matrix entry ${position} shard must be a canonical JSON integer`);
     const shard = parseCanonicalShardIndex(entry.shard, `matrix entry ${position} shard`);
     if (entries.has(shard)) fail(`matrix contains duplicate canonical shard index ${shard}`);
-    entries.set(shard, parseSlugCsv(entry.slugs, `matrix shard ${shard} slugs`));
+    const plan = validateSelectionPlan(entry.selection_plan);
+    const planIdentity = JSON.stringify({ repository: plan.repository, sourceCommit: plan.sourceCommit, scope: plan.scope });
+    if (identity !== null && identity !== planIdentity) fail(`matrix shard ${shard} selection plan identity does not match other shards`);
+    identity = planIdentity;
+    for (const skill of plan.skills) {
+      if (slugs.has(skill.slug)) fail(`matrix selection plans contain duplicate slug ${skill.slug}`);
+      if (paths.has(skill.path)) fail(`matrix selection plans contain duplicate path ${skill.path}`);
+      const foldedPath = skill.path.normalize('NFC').toLocaleLowerCase('en-US');
+      if (foldedPaths.has(foldedPath)) fail(`matrix selection plans contain NFC/case-fold path collision ${skill.path}`);
+      slugs.add(skill.slug);
+      paths.add(skill.path);
+      foldedPaths.add(foldedPath);
+    }
+    entries.set(shard, plan);
   }
   return entries;
+}
+
+function readArchiveSelectionPlan(root, expectedPlan, shardIndex) {
+  const expectedPath = join(root, 'selection-plan.json');
+  if (!existsSync(expectedPath)) fail(`shard ${shardIndex} archive is missing root selection-plan.json`);
+  const evidenceStat = lstatSync(expectedPath);
+  if (evidenceStat.isSymbolicLink() || !evidenceStat.isFile()) {
+    fail(`shard ${shardIndex} archive root selection-plan.json must be a regular file`);
+  }
+  let plan;
+  try {
+    plan = JSON.parse(readFileSync(expectedPath, 'utf8'));
+  } catch (error) {
+    fail(`shard ${shardIndex} archive selection plan is invalid JSON: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  const normalized = validateSelectionPlan(plan);
+  if (JSON.stringify(normalized) !== JSON.stringify(expectedPlan)) {
+    fail(`shard ${shardIndex} archive selection plan does not match matrix selection plan`);
+  }
+  return normalized;
 }
 
 function collectFiles(root, predicate) {
@@ -183,9 +225,12 @@ function aggregate(config) {
     const root = extractArchive(archive);
     const pendingRoot = join(root, 'pending');
     const manifestPath = join(root, 'shard-manifest.json');
+    const expectedPlan = matrix.get(index);
+    readArchiveSelectionPlan(root, expectedPlan, index);
     const manifest = readAndValidateSubmissionShardManifest(manifestPath, {
       expectedIndex: index,
-      expectedPlanned: matrix.get(index),
+      expectedPlanned: expectedPlan.skills.map(({ slug }) => slug),
+      expectedSelectionPlan: expectedPlan,
       pendingRoot,
       requireSuccess: true,
     });

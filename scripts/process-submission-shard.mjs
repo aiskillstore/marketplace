@@ -14,7 +14,8 @@ import {
 } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { parseCanonicalShardIndex, parseSlugCsv } from './submission-shard-contract.mjs';
+import { parseCanonicalShardIndex } from './submission-shard-contract.mjs';
+import { parseSelectionPlan } from './submission-selection-plan.mjs';
 
 function fail(message) {
   throw new Error(message);
@@ -127,7 +128,8 @@ function buildAttempt(number, requested, execution, result) {
 }
 
 async function processShard(config) {
-  const planned = parseSlugCsv(config.slugs, 'planned slugs');
+  const selectionPlan = parseSelectionPlan(readFileSync(config.selectionPlan, 'utf8'));
+  const planned = selectionPlan.skills.map(({ slug }) => slug);
   const shardIndex = parseCanonicalShardIndex(config.shardIndex);
   const pendingRoot = join(config.resultDir, 'pending');
   const manifestPath = join(config.resultDir, 'shard-manifest.json');
@@ -135,6 +137,7 @@ async function processShard(config) {
 
   rmSync(config.resultDir, { recursive: true, force: true });
   mkdirSync(pendingRoot, { recursive: true });
+  writeFileSync(join(config.resultDir, 'selection-plan.json'), `${JSON.stringify(selectionPlan)}\n`, { mode: 0o600 });
 
   if (planned.length === 0) {
     writeFileSync(logPath, 'No skills planned; explicit no-op.\n', { mode: 0o600 });
@@ -143,6 +146,7 @@ async function processShard(config) {
       shardIndex,
       status: 'succeeded',
       reasonCode: 'no_skills_planned',
+      selectionPlan,
       planned: [],
       succeeded: [],
       failed: [],
@@ -163,6 +167,7 @@ async function processShard(config) {
 
   const baseArgs = [
     'skill', 'process', config.githubUrl,
+    '--selection-plan', join(config.resultDir, 'selection-plan.json'),
     '--slugs', planned.join(','),
     '--output', config.resultDir,
     '--marketplace-repo', config.marketplaceRepo,
@@ -214,6 +219,7 @@ async function processShard(config) {
     shardIndex,
     status,
     reasonCode: status === 'succeeded' ? 'processed_all_planned' : 'processing_failed',
+    selectionPlan,
     planned,
     succeeded,
     failed,
@@ -229,7 +235,7 @@ async function main() {
   const config = {
     cli: option(args, '--cli'),
     githubUrl: option(args, '--github-url'),
-    slugs: option(args, '--slugs'),
+    selectionPlan: option(args, '--selection-plan'),
     resultDir: option(args, '--result-dir'),
     marketplaceRepo: option(args, '--marketplace-repo'),
     shardIndex: option(args, '--shard-index'),
@@ -243,9 +249,23 @@ async function main() {
   try {
     manifest = await processShard(config);
   } catch (error) {
-    const planned = parseSlugCsv(config.slugs, 'planned slugs');
+    let planned = [];
+    let selectionPlan = null;
+    try {
+      selectionPlan = parseSelectionPlan(readFileSync(config.selectionPlan, 'utf8'));
+      planned = selectionPlan.skills.map(({ slug }) => slug);
+    } catch {
+      // The diagnostic manifest below records the stable processing failure.
+    }
     const shardIndex = parseCanonicalShardIndex(config.shardIndex);
     mkdirSync(join(config.resultDir, 'pending'), { recursive: true });
+    if (existsSync(config.selectionPlan)) {
+      writeFileSync(
+        join(config.resultDir, 'selection-plan.invalid.json'),
+        readFileSync(config.selectionPlan),
+        { mode: 0o600 },
+      );
+    }
     const manifestPath = join(config.resultDir, 'shard-manifest.json');
     const logPath = join(config.resultDir, `process-output-${shardIndex}.log`);
     const message = error instanceof Error ? error.message : String(error);
@@ -255,6 +275,7 @@ async function main() {
       shardIndex,
       status: 'failed',
       reasonCode: 'process_step_failed',
+      selectionPlan,
       planned,
       succeeded: [],
       failed: planned,

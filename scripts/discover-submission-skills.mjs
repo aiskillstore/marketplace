@@ -1,10 +1,13 @@
 #!/usr/bin/env node
 
-import { lstatSync, readFileSync, readdirSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { lstatSync, readFileSync, readdirSync, realpathSync } from 'node:fs';
 import { basename, dirname, join, relative, resolve, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { validatePortablePath } from './submission-selection-plan.mjs';
 
 const SKIP_DIRECTORIES = new Set(['node_modules', '.git', '.venv', 'venv', 'dist', 'build', '__pycache__', '.cache']);
+const PROJECT_LOCAL_SKILL_ROOTS = ['.agents/skills', '.claude/skills', '.codex/skills'];
 const REPOSITORY = /^[a-z0-9_-]+\/[a-z0-9._-]+$/;
 const CANONICAL_SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
@@ -27,14 +30,18 @@ function slugify(value) {
 }
 
 function repositoryPath(value, label) {
-  if (typeof value !== 'string' || value === '' || value !== value.normalize('NFC') || value.includes('\\')) {
-    fail(`${label} must be a non-empty NFC POSIX repository-relative path`);
+  return validatePortablePath(value, label);
+}
+
+function publicationPath(value, label) {
+  if (typeof value !== 'string' || value === '' || value !== value.normalize('NFC')) {
+    fail(`${label} must be a non-empty NFC string`);
   }
-  const segments = value.split('/');
-  if (segments.some((segment) => segment === '' || segment === '.' || segment === '..')) {
-    fail(`${label} contains an empty or unsafe path segment`);
-  }
-  return segments.join('/');
+  if (value.startsWith('/') || value.includes('\\')) fail(`${label} must be repository-relative POSIX path`);
+  const withoutPrefix = value.startsWith('./') ? value.slice(2) : value;
+  const normalized = withoutPrefix.replace(/\/+$/g, '');
+  if (normalized === '') fail(`${label} must not resolve to the repository root`);
+  return repositoryPath(normalized, label);
 }
 
 function canonicalRepository(value, label) {
@@ -129,19 +136,186 @@ function topLevelName(skillMdPath, content) {
   return name;
 }
 
-function collectSkillFiles(root) {
+function collectSkillFiles(root, { strict = false } = {}) {
   const files = [];
   function walk(directory) {
-    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+    const seenNames = new Set();
+    for (const entry of readdirSync(directory, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name, 'en', { sensitivity: 'variant' }))) {
+      if (strict) {
+        // Validate every traversed tree entry before opening it. This makes the
+        // plan portable across case-insensitive and Windows checkouts.
+        validatePortablePath(entry.name, `publication tree entry ${entry.name}`);
+        const folded = entry.name.normalize('NFC').toLocaleLowerCase('en-US');
+        if (seenNames.has(folded)) fail(`publication tree contains NFC/case-fold collision: ${entry.name}`);
+        seenNames.add(folded);
+      }
       if (entry.isDirectory() && !SKIP_DIRECTORIES.has(entry.name)) {
         walk(join(directory, entry.name));
       } else if (entry.isFile() && entry.name === 'SKILL.md') {
         files.push(join(directory, entry.name));
+      } else if (strict && entry.isSymbolicLink()) {
+        fail(`symbolic links are not allowed in the selected publication scope: ${join(directory, entry.name)}`);
       }
     }
   }
   walk(root);
   return files.sort();
+}
+
+function resolveContainedPath(sourceRoot, relativePath, label, { directory = true } = {}) {
+  const normalized = relativePath === '.' ? '.' : repositoryPath(relativePath, label);
+  const segments = normalized === '.' ? [] : normalized.split('/');
+  let current = sourceRoot;
+  for (const segment of segments) {
+    current = join(current, segment);
+    let stat;
+    try { stat = lstatSync(current); } catch { fail(`${label} does not exist: ${relativePath}`); }
+    if (stat.isSymbolicLink()) fail(`${label} contains a symbolic link: ${relativePath}`);
+  }
+  let resolved;
+  try { resolved = realpathSync(current); } catch { fail(`${label} cannot be resolved: ${relativePath}`); }
+  if (resolved !== sourceRoot && !resolved.startsWith(`${sourceRoot}${sep}`)) fail(`${label} escapes source repository: ${relativePath}`);
+  const final = lstatSync(current);
+  if (directory && !final.isDirectory()) fail(`${label} must be a real directory: ${relativePath}`);
+  if (!directory && !final.isFile()) fail(`${label} must be a regular file: ${relativePath}`);
+  return current;
+}
+
+function codexPluginScope(sourceRoot) {
+  let pluginDirectory;
+  try { pluginDirectory = lstatSync(join(sourceRoot, '.codex-plugin')); } catch (error) {
+    if (error?.code === 'ENOENT') return null;
+    throw error;
+  }
+  if (!pluginDirectory.isDirectory() || pluginDirectory.isSymbolicLink()) fail('Codex plugin directory must be a real directory');
+  try { lstatSync(join(sourceRoot, '.codex-plugin', 'plugin.json')); } catch (error) {
+    if (error?.code === 'ENOENT') return null;
+    throw error;
+  }
+  const manifestPath = resolveContainedPath(sourceRoot, '.codex-plugin/plugin.json', 'Codex plugin manifest', { directory: false });
+  let stat;
+  try { stat = lstatSync(manifestPath); } catch (error) { if (error?.code === 'ENOENT') return null; throw error; }
+  if (!stat.isFile() || stat.isSymbolicLink()) fail('Codex plugin manifest must be a regular file');
+  let manifest;
+  try {
+    manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
+  } catch (error) {
+    fail(`cannot parse Codex plugin manifest: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  if (!manifest || typeof manifest !== 'object' || Array.isArray(manifest)) fail('Codex plugin manifest must be an object');
+  if (!Object.hasOwn(manifest, 'skills')) return null;
+  if (typeof manifest.skills !== 'string') fail('Codex plugin skills must be one repository-relative directory path');
+  return publicationPath(manifest.skills, 'Codex plugin skills path');
+}
+
+function resolvePublicationScope(sourceRoot, skillPath, explicitPath) {
+  if (explicitPath) {
+    const path = skillPath === '.' ? '.' : repositoryPath(skillPath, 'skillPath');
+    resolveContainedPath(sourceRoot, path, 'explicit skill path');
+    return { reason: 'explicit_path', path };
+  }
+  const manifestScope = codexPluginScope(sourceRoot);
+  if (manifestScope !== null) {
+    resolveContainedPath(sourceRoot, manifestScope, 'declared publication scope');
+    return { reason: 'codex_plugin_manifest', path: manifestScope };
+  }
+  const conventional = join(sourceRoot, 'skills');
+  try {
+    const stat = lstatSync(conventional);
+    if (stat.isSymbolicLink() || !stat.isDirectory()) fail('conventional publication scope must be a real directory: skills');
+    resolveContainedPath(sourceRoot, 'skills', 'conventional publication scope');
+    return { reason: 'conventional_skills', path: 'skills' };
+  } catch (error) {
+    if (error?.code !== 'ENOENT') throw error;
+  }
+  return { reason: 'repository_fallback', path: '.' };
+}
+
+function canonicalTreeHash(skillDir) {
+  const entries = [];
+  function walk(directory) {
+    const seenNames = new Set();
+    for (const entry of readdirSync(directory, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name, 'en', { sensitivity: 'variant' }))) {
+      validatePortablePath(entry.name, `mirrored skill tree entry ${entry.name}`);
+      const folded = entry.name.normalize('NFC').toLocaleLowerCase('en-US');
+      if (seenNames.has(folded)) fail(`mirrored skill tree contains NFC/case-fold collision: ${entry.name}`);
+      seenNames.add(folded);
+      const absolute = join(directory, entry.name);
+      const relativePath = posixRelative(skillDir, absolute);
+      const stat = lstatSync(absolute);
+      if (entry.isSymbolicLink() || (!entry.isDirectory() && !entry.isFile())) {
+        fail(`unsupported file type in mirrored skill tree: ${relativePath}`);
+      }
+      if (entry.isDirectory()) {
+        walk(absolute);
+        continue;
+      }
+      if (relativePath === 'skill-report.json' || entry.name === '.DS_Store' || entry.name.endsWith('~') || entry.name.endsWith('.tmp') || entry.name.endsWith('.temp')) continue;
+      const bytes = readFileSync(absolute);
+      entries.push({
+        path: relativePath,
+        mode: (stat.mode & 0o111) === 0 ? '100644' : '100755',
+        sha256: createHash('sha256').update(bytes).digest('hex'),
+        size: bytes.byteLength,
+      });
+    }
+  }
+  walk(skillDir);
+  const serialized = entries
+    .sort((a, b) => a.path.localeCompare(b.path, 'en', { sensitivity: 'variant' }))
+    .map((entry) => JSON.stringify(entry))
+    .join('\n');
+  return createHash('sha256').update(serialized).digest('hex');
+}
+
+function projectLocalMirrorIdentity(relativeDirectory) {
+  const root = PROJECT_LOCAL_SKILL_ROOTS.find((candidate) => relativeDirectory.startsWith(`${candidate}/`));
+  if (!root) return null;
+  return { root, logicalPath: relativeDirectory.slice(root.length + 1) };
+}
+
+function mirrorDiagnostics(sourceRoot, physicalSkillFiles, selectedSkillFiles, includeSelected) {
+  const selected = new Set(selectedSkillFiles);
+  const groups = new Map();
+  for (const file of physicalSkillFiles) {
+    if (!includeSelected && selected.has(file)) continue;
+    const directory = dirname(file);
+    const relativeDirectory = posixRelative(sourceRoot, directory);
+    const identity = projectLocalMirrorIdentity(relativeDirectory);
+    if (!identity) continue;
+    let slug;
+    try {
+      slug = slugify(topLevelName(posixRelative(sourceRoot, file), readFileSync(file, 'utf8')) ?? basename(directory));
+    } catch {
+      continue;
+    }
+    if (slug === '') continue;
+    const key = `${slug}\0${identity.logicalPath}`;
+    const rows = groups.get(key) ?? [];
+    let treeHash = null;
+    try {
+      treeHash = canonicalTreeHash(directory);
+    } catch {
+      // This path is outside the authoritative publication scope. Keep the
+      // diagnostic conservative without allowing ignored local files to block it.
+    }
+    rows.push({ path: relativeDirectory, treeHash });
+    groups.set(key, rows);
+  }
+  return [...groups.entries()]
+    .filter(([, rows]) => rows.length > 1)
+    .map(([key, rows]) => {
+      const slug = key.split('\0', 1)[0];
+      const hashes = [...new Set(rows.map(({ treeHash }) => treeHash))];
+      const fullyInspected = hashes.every((hash) => typeof hash === 'string');
+      return {
+        slug,
+        paths: rows.map(({ path }) => path).sort(),
+        identical: fullyInspected && hashes.length === 1,
+        treeHash: fullyInspected && hashes.length === 1 ? hashes[0] : null,
+      };
+    })
+    .sort((a, b) => a.slug.localeCompare(b.slug, 'en', { sensitivity: 'variant' }));
 }
 
 export function discoverSubmissionSkills({
@@ -151,8 +325,9 @@ export function discoverSubmissionSkills({
   repository = '',
   slugAliasRegistry = { schemaVersion: 1, aliases: [] },
 }) {
-  const sourceRoot = resolve(sourceDir);
-  const searchRoot = resolve(sourceRoot, skillPath);
+  const sourceRoot = realpathSync(resolve(sourceDir));
+  const scope = resolvePublicationScope(sourceRoot, skillPath, explicitPath);
+  const searchRoot = scope.path === '.' ? sourceRoot : resolve(sourceRoot, scope.path);
   const relativeSearch = relative(sourceRoot, searchRoot);
   if (relativeSearch === '..' || relativeSearch.startsWith(`..${sep}`)) fail(`skill path escapes source repository: ${skillPath}`);
   let searchStat;
@@ -160,7 +335,13 @@ export function discoverSubmissionSkills({
     searchStat = lstatSync(searchRoot);
   } catch {
     if (explicitPath) fail(`explicit skill path does not exist: ${skillPath}`);
-    return { schemaVersion: 1, explicitPath, skillPath, skills: [] };
+    return { schemaVersion: 2, explicitPath, skillPath, scope, stats: {
+      physicalSkillFiles: 0,
+      selectedSkillFiles: 0,
+      ignoredSkillFiles: 0,
+      identicalMirrorGroups: 0,
+      conflictingMirrorGroups: 0,
+    }, mirrorGroups: [], skills: [] };
   }
   if (!searchStat.isDirectory() || searchStat.isSymbolicLink()) fail(`skill search root must be a real directory: ${skillPath || '.'}`);
 
@@ -170,14 +351,32 @@ export function discoverSubmissionSkills({
     : '';
   const repositoryAliases = aliases.filter((alias) => alias.repository === canonicalRepo);
   const aliasByPath = new Map(repositoryAliases.map((alias) => [alias.path, alias]));
-  const normalizedSkillPath = skillPath === '' ? '' : repositoryPath(skillPath, 'skillPath');
-  const scopedAliases = repositoryAliases.filter((alias) => isWithinScope(alias.path, normalizedSkillPath));
+  const normalizedSkillPath = scope.path === '.' ? '' : scope.path;
+  const scopedAliases = explicitPath && scope.path === '.'
+    ? []
+    : repositoryAliases.filter((alias) => isWithinScope(alias.path, normalizedSkillPath));
   const consumedAliases = new Set();
 
-  const skillFiles = collectSkillFiles(searchRoot);
+  const physicalSkillFiles = collectSkillFiles(sourceRoot);
+  let skillFiles;
+  // A root-level blob URL names only repository-root SKILL.md. Do not walk
+  // unrelated nested content: it is outside this explicit authority boundary.
+  if (explicitPath && scope.path === '.') {
+    const rootSkill = join(sourceRoot, 'SKILL.md');
+    try {
+      const stat = lstatSync(rootSkill);
+      if (stat.isSymbolicLink() || !stat.isFile()) fail('root-level explicit SKILL.md must be a regular file');
+      skillFiles = [rootSkill];
+    } catch (error) {
+      if (error?.code === 'ENOENT') skillFiles = [];
+      else throw error;
+    }
+  } else {
+    skillFiles = collectSkillFiles(searchRoot, { strict: true });
+  }
   if (explicitPath && skillFiles.length === 0) fail(`explicit skill path contains no SKILL.md: ${skillPath}`);
   const skills = [];
-  const seen = new Set();
+  const seen = new Map();
   for (const file of skillFiles) {
     const directory = dirname(file);
     const relativeFile = posixRelative(sourceRoot, file);
@@ -195,13 +394,47 @@ export function discoverSubmissionSkills({
       slug = alias.baseSlug;
       consumedAliases.add(alias.path);
     }
-    if (seen.has(slug)) fail(`duplicate discovered skill slug: ${slug}`);
-    seen.add(slug);
+    const previous = seen.get(slug);
+    if (previous) {
+      const previousIdentity = projectLocalMirrorIdentity(previous.path);
+      const currentIdentity = projectLocalMirrorIdentity(relativeDirectory);
+      const approvedMirror = scope.reason === 'repository_fallback'
+        && previousIdentity !== null
+        && currentIdentity !== null
+        && previousIdentity.logicalPath === currentIdentity.logicalPath;
+      if (!approvedMirror) fail(`duplicate discovered skill slug: ${slug}`);
+      const previousHash = canonicalTreeHash(previous.directory);
+      const currentHash = canonicalTreeHash(directory);
+      if (previousHash !== currentHash) fail(`conflicting project-local mirror slug: ${slug}`);
+      continue;
+    }
+    seen.set(slug, { path: relativeDirectory, directory });
     skills.push({ slug, path: relativeDirectory });
   }
   const unconsumed = scopedAliases.filter((alias) => !consumedAliases.has(alias.path));
   if (unconsumed.length > 0) fail(`slug alias scope contains unconsumed paths: ${unconsumed.map((alias) => alias.path).join(', ')}`);
-  return { schemaVersion: 1, explicitPath, skillPath, skills };
+  const mirrorGroups = mirrorDiagnostics(
+    sourceRoot,
+    physicalSkillFiles,
+    skillFiles,
+    scope.reason === 'repository_fallback',
+  );
+  const identicalMirrorGroups = mirrorGroups.filter(({ identical }) => identical).length;
+  return {
+    schemaVersion: 2,
+    explicitPath,
+    skillPath,
+    scope,
+    stats: {
+      physicalSkillFiles: physicalSkillFiles.length,
+      selectedSkillFiles: skills.length,
+      ignoredSkillFiles: physicalSkillFiles.length - skills.length,
+      identicalMirrorGroups,
+      conflictingMirrorGroups: mirrorGroups.length - identicalMirrorGroups,
+    },
+    mirrorGroups,
+    skills,
+  };
 }
 
 function main() {
