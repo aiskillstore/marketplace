@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
 import {
+  chmodSync,
+  copyFileSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -18,6 +20,7 @@ const workflow = readFileSync('.github/workflows/monitor-skill-sources.yml', 'ut
 const runtimeFiles = [
   '.github/actions/download-skillstore-cli/action.yml',
   '.github/workflows/monitor-skill-sources.yml',
+  'scripts/verify-source-monitor-selection.mjs',
 ];
 
 function run(command, args, options = {}) {
@@ -70,6 +73,7 @@ function createFixture() {
   const files = {
     '.github/actions/download-skillstore-cli/action.yml': 'name: fixture action\n',
     '.github/workflows/monitor-skill-sources.yml': 'name: fixture workflow\n',
+    'scripts/verify-source-monitor-selection.mjs': 'export const fixture = true;\n',
     'README.md': 'fixture\n',
   };
   for (const [path, content] of Object.entries(files)) {
@@ -168,9 +172,198 @@ test('source monitor binds checkout and artifacts to immutable runtime evidence'
   assert.match(workflow, /ref: \$\{\{ github\.workflow_sha \}\}/);
   assert.match(workflow, /fetch-depth: 1/);
   assert.match(workflow, /persist-credentials: false/);
+  assert.match(workflow, /version: 2\.15\.0/);
   assert.match(workflow, /minimum-version: 2\.14\.5/);
   assert.match(workflow, /require-checksum: true/);
   assert.match(workflow, /\$\{\{ runner\.temp \}\}\/source-monitor-diagnostics-\$\{\{ github\.run_id \}\}\//);
   assert.match(workflow, /name: Upload monitor evidence\n\s+if: always\(\)/);
   for (const file of runtimeFiles) assert.match(workflow, new RegExp(file.replaceAll('.', '\\.')));
+});
+
+test('source monitor verifies every explicit requested slug before later workflow steps', () => {
+  const monitor = extractRunBlock('Run source monitor');
+  assert.match(monitor, /A slug-scoped update PR requires expected_upstream_commit/);
+  assert.match(monitor, /if \[ "\$CREATE_PR" = "true" \] && \[ -n "\$SLUGS" \]; then/);
+  assert.match(monitor, /CMD\+=\(--updateLocal\)/);
+  assert.match(monitor, /if \[ -n "\$SLUGS" \]; then/);
+  assert.match(monitor, /node "\$GITHUB_WORKSPACE\/scripts\/verify-source-monitor-selection\.mjs"/);
+  assert.match(monitor, /--requested "\$SLUGS"/);
+  assert.match(monitor, /--jsonl "\$JSONL_FILE"/);
+  assert.match(monitor, /--expected-upstream-commit "\$EXPECTED_UPSTREAM_COMMIT"/);
+  assert.ok(
+    monitor.indexOf('verify-source-monitor-selection.mjs') < monitor.indexOf('jsonl_file=$JSONL_FILE'),
+    'explicit selection verification must run before publishing step outputs',
+  );
+});
+
+test('final summary reports scoped local updates as no-write while scheduled scans keep writes enabled', () => {
+  const summary = extractRunBlock('Final summary').replaceAll('${{ github.run_id }}', '1234');
+  const cases = [
+    {
+      name: 'scoped local update PR',
+      env: { DRY_RUN: 'false', CREATE_PR: 'true', SLUGS: 'owner-one' },
+      expected: '- Supabase writes: disabled',
+    },
+    {
+      name: 'scheduled full scan',
+      env: { DRY_RUN: 'false', CREATE_PR: 'true', SLUGS: '' },
+      expected: '- Supabase writes: enabled',
+    },
+  ];
+
+  for (const fixture of cases) {
+    const root = mkdtempSync(join(tmpdir(), 'source-monitor-summary-'));
+    try {
+      const output = join(root, 'summary.md');
+      run('bash', ['-c', summary], {
+        env: {
+          ...process.env,
+          ...fixture.env,
+          GITHUB_STEP_SUMMARY: output,
+          CONCURRENCY: '8',
+          WRITE_CONCURRENCY: '2',
+          MAX_UPDATES_PER_RUN: '100',
+          CHECKOUT_CACHE_DIR: '/tmp/source-monitor-cache',
+          ARCHIVE_MISSING: 'false',
+          DELETE_ARCHIVED: 'false',
+        },
+      });
+      assert.match(readFileSync(output, 'utf8'), new RegExp(fixture.expected), fixture.name);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  }
+});
+
+test('a scoped update PR requires a pinned upstream commit and does not write Supabase', () => {
+  const root = mkdtempSync(join(tmpdir(), 'source-monitor-scoped-update-'));
+  const workspace = join(root, 'workspace');
+  const argsFile = join(root, 'args.txt');
+  const expectedCommit = '458df4c41294655f76e551100a9b634114209bb9';
+  try {
+    mkdirSync(join(workspace, 'scripts'), { recursive: true });
+    copyFileSync('scripts/verify-source-monitor-selection.mjs', join(workspace, 'scripts', 'verify-source-monitor-selection.mjs'));
+    const skillDirectory = join(workspace, 'skills', 'owner', 'one');
+    const reportPath = join(skillDirectory, 'skill-report.json');
+    const skillPath = join(skillDirectory, 'SKILL.md');
+    mkdirSync(skillDirectory, { recursive: true });
+    writeFileSync(reportPath, '{"meta":{"slug":"owner-one","upstream_commit_sha":null}}\n');
+    writeFileSync(skillPath, '# old\n');
+    const fakeCli = join(workspace, 'skillstore-cli');
+    writeFileSync(fakeCli, `#!/usr/bin/env bash
+set -euo pipefail
+if [ "\${1:-}" = "--version" ]; then
+  echo "2.15.0"
+  exit 0
+fi
+if [ "\${1:-}" = "skill" ] && [ "\${2:-}" = "monitor-upstream" ] && [ "\${3:-}" = "--help" ]; then
+  echo "--writeConcurrency --checkoutCacheDir"
+  exit 0
+fi
+printf '%s\\n' "$*" > "$FAKE_ARGS"
+jsonl=''
+summary=''
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --jsonlFile) jsonl="$2"; shift 2 ;;
+    --summaryFile) summary="$2"; shift 2 ;;
+    *) shift ;;
+  esac
+done
+printf '{"slug":"owner-one","scan_status":"updated","upstream_commit_sha":"%s"}\\n' "$FAKE_COMMIT" > "$jsonl"
+printf '{"meta":{"slug":"owner-one","upstream_commit_sha":"%s"}}\\n' "$FAKE_COMMIT" > "$FAKE_REPORT"
+printf '# updated\\n' > "$FAKE_SKILL"
+cat > "$summary" <<'SUMMARY'
+| Observed updated skills | 1 |
+| Selected updated skills for this run | 1 |
+| Applied updated skills | 1 |
+| Failed selected updates | 0 |
+| Deferred updated skills | 0 |
+SUMMARY
+`);
+    chmodSync(fakeCli, 0o755);
+    run('git', ['init', '-q', workspace]);
+    run('git', ['-C', workspace, 'config', 'user.name', 'Fixture']);
+    run('git', ['-C', workspace, 'config', 'user.email', 'fixture@example.com']);
+    run('git', ['-C', workspace, 'add', '.']);
+    run('git', ['-C', workspace, 'commit', '-qm', 'fixture']);
+    writeFileSync(join(workspace, '.git', 'info', 'exclude'), '/source-monitor-results/\n', { flag: 'a' });
+    const baseEnv = {
+      ...process.env,
+      GITHUB_WORKSPACE: workspace,
+      GITHUB_RUN_ID: '1234',
+      GITHUB_OUTPUT: join(root, 'github-output'),
+      GH_TOKEN: 'fixture',
+      SLUGS: 'owner-one',
+      LIMIT: '1',
+      CONCURRENCY: '1',
+      WRITE_CONCURRENCY: '1',
+      MAX_UPDATES_PER_RUN: '1',
+      CHECKOUT_CACHE_DIR: join(root, 'cache'),
+      DRY_RUN: 'false',
+      CREATE_PR: 'true',
+      ARCHIVE_MISSING: 'false',
+      CONFIRM_ARCHIVE: 'false',
+      DELETE_ARCHIVED: 'false',
+      MIN_MISSING_AGE_HOURS: '24',
+      MODEL: '',
+      EXPECTED_UPSTREAM_COMMIT: expectedCommit,
+      FAKE_ARGS: argsFile,
+      FAKE_COMMIT: expectedCommit,
+      FAKE_REPORT: reportPath,
+      FAKE_SKILL: skillPath,
+    };
+    const monitor = extractRunBlock('Run source monitor');
+    const result = run('bash', ['-c', monitor], { cwd: workspace, env: baseEnv });
+    assert.match(result.stdout, /Verified exact source monitor selection: 1\/1/);
+    const invoked = readFileSync(argsFile, 'utf8');
+    assert.match(invoked, /--updateLocal/);
+    assert.doesNotMatch(invoked, /(^|\s)--write(\s|$)/);
+
+    rmSync(argsFile);
+    const rejected = run('bash', ['-c', monitor], {
+      cwd: workspace,
+      env: { ...baseEnv, EXPECTED_UPSTREAM_COMMIT: '' },
+      allowFailure: true,
+    });
+    assert.notEqual(rejected.status, 0);
+    assert.match(rejected.stdout + rejected.stderr, /requires expected_upstream_commit/);
+    assert.equal(existsSync(argsFile), false, 'CLI must not execute without the expected commit');
+
+    const helperArgs = [
+      join(workspace, 'scripts', 'verify-source-monitor-selection.mjs'),
+      '--requested', 'owner-one',
+      '--jsonl', join(workspace, 'source-monitor-results', 'skill-source-monitor-1234.jsonl'),
+      '--expected-upstream-commit', expectedCommit,
+      '--require-local-updates',
+      '--summary', join(workspace, 'source-monitor-results', 'skill-source-monitor-1234.md'),
+      '--repository-root', workspace,
+    ];
+    writeFileSync(skillPath, '# old\n');
+    const reportOnly = run('node', helperArgs, { cwd: workspace, allowFailure: true });
+    assert.notEqual(reportOnly.status, 0);
+    assert.match(reportOnly.stderr, /produced no payload file changes/);
+    writeFileSync(skillPath, '# updated\n');
+
+    const unsafeLink = join(skillDirectory, 'unsafe-link');
+    symlinkSync('SKILL.md', unsafeLink);
+    const symlinked = run('node', helperArgs, { cwd: workspace, allowFailure: true });
+    assert.notEqual(symlinked.status, 0);
+    assert.match(symlinked.stderr, /changed a symbolic link/);
+    rmSync(unsafeLink);
+
+    const controlPath = join(skillDirectory, 'control\npath');
+    writeFileSync(controlPath, 'unsafe\n');
+    const controlled = run('node', helperArgs, { cwd: workspace, allowFailure: true });
+    assert.notEqual(controlled.status, 0);
+    assert.match(controlled.stderr, /unsafe changed path/);
+    rmSync(controlPath);
+
+    writeFileSync(join(workspace, 'README.md'), 'unauthorized\n');
+    const unauthorized = run('node', helperArgs, { cwd: workspace, allowFailure: true });
+    assert.notEqual(unauthorized.status, 0);
+    assert.match(unauthorized.stderr, /changed an unauthorized path: README\.md/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });
