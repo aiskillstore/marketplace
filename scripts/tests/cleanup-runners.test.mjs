@@ -18,6 +18,10 @@ const timer = readFileSync(
   new URL('../../ops/systemd/marketplace-runner-disk-guard.timer', import.meta.url),
   'utf8'
 );
+const testWorkflow = readFileSync(
+  new URL('../../.github/workflows/test-recalculate-scores.yml', import.meta.url),
+  'utf8'
+);
 
 test('runner cleanup bounds Docker maintenance to old build cache under pressure', () => {
   assert.match(workflow, /usage" -lt 90/);
@@ -36,4 +40,7 @@ test('host guard can reclaim shared Docker build cache before Actions setup', ()
   assert.match(service, /Nice=19/);
   assert.match(timer, /OnUnitActiveSec=15min/);
   assert.match(timer, /Persistent=true/);
+  assert.match(testWorkflow, /- "scripts\/runner-disk-guard\.sh"/);
+  assert.match(testWorkflow, /- "ops\/systemd\/\*\*"/);
+  assert.match(testWorkflow, /sparse-checkout: \|\n\s+\.github\n\s+ops\/systemd\n\s+scripts/);
 });
