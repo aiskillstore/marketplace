@@ -23,6 +23,7 @@ const runtimeFiles = [
   '.github/workflows/reusable-process-skills.yml',
   'scripts/resolve-submission-source.mjs',
   'scripts/discover-submission-skills.mjs',
+  'scripts/classify-submission-targets.mjs',
   'scripts/process-submission-shard.mjs',
   'scripts/submission-selection-plan.mjs',
   'scripts/submission-shard-contract.mjs',
@@ -93,6 +94,7 @@ function createFixture() {
     '.github/workflows/reusable-process-skills.yml': 'name: fixture workflow\n',
     'scripts/resolve-submission-source.mjs': 'export const source = true;\n',
     'scripts/discover-submission-skills.mjs': 'export const discover = true;\n',
+    'scripts/classify-submission-targets.mjs': 'export const classify = true;\n',
     'scripts/process-submission-shard.mjs': 'export const process = true;\n',
     'scripts/submission-selection-plan.mjs': 'export const selectionPlan = true;\n',
     'scripts/submission-shard-contract.mjs': 'export const contract = true;\n',
@@ -198,6 +200,7 @@ test('all submission entrypoints and the aggregation import closure are immutabl
   assert.match(reusable, /node "\$GITHUB_WORKSPACE\/scripts\/process-submission-shard\.mjs"/);
   assert.match(reusable, /node "\$GITHUB_WORKSPACE\/scripts\/submission-shard-contract\.mjs"/);
   assert.match(reusable, /node "\$GITHUB_WORKSPACE\/scripts\/aggregate-submission-shards\.mjs"/);
+  assert.match(reusable, /node "\$GITHUB_WORKSPACE\/scripts\/classify-submission-targets\.mjs"/);
   assert.match(reusable, /require-checksum: true/);
   assert.match(reusable, /minimum-version: 2\.15\.0/);
   assert.match(reusable, /Rollout pin: selection-plan processing requires the exact 2\.15\.0 contract/);
@@ -208,6 +211,8 @@ test('all submission entrypoints and the aggregation import closure are immutabl
   assert.match(readFileSync('scripts/process-submission-shard.mjs', 'utf8'), /'--selection-plan', join\(config\.resultDir, 'selection-plan\.json'\)/);
   assert.equal((reusable.match(/"scripts\/submission-selection-plan\.mjs"/g) ?? []).length, 3,
     'discovery, processing, and aggregation immutable runtime lists must all include the plan validator');
+  assert.equal((reusable.match(/"scripts\/classify-submission-targets\.mjs"/g) ?? []).length, 3,
+    'discovery, processing, and aggregation immutable runtime lists must all include the target classifier');
   assert.match(
     readFileSync('scripts/aggregate-submission-shards.mjs', 'utf8'),
     /from '\.\/resolve-approved-submission\.mjs'/,
@@ -246,5 +251,43 @@ test('repository dispatch caller preserves reusable failure and callback status 
   assert.match(caller, /name: Notify skillstore - PR created\n\s+if: needs\.process-skills\.outputs\.pr_url/);
   assert.match(caller, /name: Notify skillstore - Failed\n\s+if: needs\.process-skills\.result == 'failure'/);
   assert.match(caller, /"event": "failed"/);
+  assert.match(caller, /needs\.process-skills\.outputs\.outcome == 'rejected'/);
+  assert.match(caller, /event: "rejected"/);
+  assert.match(caller, /outcome: "rejected"/);
+  assert.match(caller, /reason_code: \$reason_code/);
+  assert.match(caller, /reason: \$reason/);
+  assert.match(caller, /processed_count: 0/);
+  assert.match(caller, /curl --fail-with-body/);
+  assert.match(caller, /--retry 3/);
+  assert.doesNotMatch(
+    extractRunBlock(caller, 'Notify skillstore - Rejected because all targets exist'),
+    /\|\|\s+echo/,
+  );
   assert.doesNotMatch(caller, /continue-on-error:\s*true/);
+});
+
+test('existing-target classification is a pre-CLI gate with a handled rejection output', () => {
+  const classifyIndex = reusable.indexOf('- name: Classify submission targets');
+  const planIndex = reusable.indexOf('- name: Plan processing strategy');
+  const processIndex = reusable.indexOf('\n  process:');
+  assert.ok(classifyIndex > reusable.indexOf('- name: Discover skills (fast - no AI)'));
+  assert.ok(classifyIndex < planIndex);
+  assert.ok(planIndex < processIndex);
+  const startedIndex = reusable.indexOf('- name: Notify skillstore - Processing started');
+  assert.ok(startedIndex > classifyIndex);
+  assert.match(reusable, /inputs\.is_manual_approval == false && steps\.targets\.outputs\.disposition == 'processable'/);
+  assert.match(reusable, /if: steps\.targets\.outputs\.disposition == 'processable'/);
+  assert.match(reusable, /target_disposition == 'processable' && needs\.discover-and-plan\.outputs\.shard_count != '0'/);
+  assert.match(reusable, /target_disposition == 'all_existing' && 'rejected'/);
+  assert.match(
+    readFileSync('scripts/classify-submission-targets.mjs', 'utf8'),
+    /all_selected_targets_already_published/,
+  );
+  assert.match(reusable, /existing_targets:/);
+  const latePendingGuard = reusable.indexOf('Pending path already exists on main');
+  const latePublishedGuard = reusable.indexOf('Published target already exists; use the explicit update workflow');
+  const lateCopy = reusable.indexOf('cp -R "$MERGED_RESULTS/$pending_dir"');
+  assert.ok(latePendingGuard > 0 && latePendingGuard < lateCopy);
+  assert.ok(latePublishedGuard > latePendingGuard && latePublishedGuard < lateCopy);
+  assert.match(reusable, /Published target already exists; use the explicit update workflow/);
 });

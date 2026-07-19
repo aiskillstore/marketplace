@@ -50,16 +50,19 @@ on:
         value: ${{ jobs.merge-and-create-pr.outputs.pr_url }}
       processed_count:
         description: 'Number of skills successfully processed'
-        value: ${{ jobs.merge-and-create-pr.outputs.processed_count }}
+        value: ${{ jobs.discover-and-plan.outputs.target_disposition == 'all_existing' && '0' || jobs.merge-and-create-pr.outputs.processed_count }}
       highest_risk:
         description: 'Highest security risk level found'
-        value: ${{ jobs.merge-and-create-pr.outputs.highest_risk }}
+        value: ${{ jobs.discover-and-plan.outputs.target_disposition == 'all_existing' && 'not_evaluated' || jobs.merge-and-create-pr.outputs.highest_risk }}
       outcome:
-        description: 'Terminal outcome: pr_created or no_op'
-        value: ${{ jobs.merge-and-create-pr.outputs.outcome }}
+        description: 'Terminal outcome: pr_created, no_op, or rejected'
+        value: ${{ jobs.discover-and-plan.outputs.target_disposition == 'all_existing' && 'rejected' || jobs.merge-and-create-pr.outputs.outcome }}
       outcome_reason:
         description: 'Machine-readable terminal outcome reason'
-        value: ${{ jobs.merge-and-create-pr.outputs.outcome_reason }}
+        value: ${{ jobs.discover-and-plan.outputs.target_disposition == 'all_existing' && jobs.discover-and-plan.outputs.target_reason || jobs.merge-and-create-pr.outputs.outcome_reason }}
+      existing_targets:
+        description: 'Comma-separated exact targets for a handled existing-target rejection'
+        value: ${{ jobs.discover-and-plan.outputs.existing_targets }}
       source_sha:
         description: 'Immutable source commit used for discovery'
         value: ${{ jobs.discover-and-plan.outputs.source_sha }}
@@ -127,6 +130,10 @@ jobs:
       ignored_count: ${{ steps.discover.outputs.ignored_count }}
       identical_count: ${{ steps.discover.outputs.identical_count }}
       conflicting_count: ${{ steps.discover.outputs.conflicting_count }}
+      target_disposition: ${{ steps.targets.outputs.disposition }}
+      target_reason: ${{ steps.targets.outputs.reason_code }}
+      existing_count: ${{ steps.targets.outputs.existing_count }}
+      existing_targets: ${{ steps.targets.outputs.existing_targets }}
     steps:
       - name: Clear inherited discovery checkout
         run: |
@@ -165,6 +172,7 @@ jobs:
             ".github/workflows/reusable-process-skills.yml"
             "scripts/resolve-submission-source.mjs"
             "scripts/discover-submission-skills.mjs"
+            "scripts/classify-submission-targets.mjs"
             "scripts/process-submission-shard.mjs"
             "scripts/submission-selection-plan.mjs"
             "scripts/submission-shard-contract.mjs"
@@ -188,21 +196,6 @@ jobs:
               exit 1
             }
           done
-
-      - name: Notify skillstore - Processing started
-        if: inputs.is_manual_approval == false
-        run: |
-          curl -sS -X POST "${{ secrets.SKILLSTORE_API_URL }}/api/submit/callback" \
-            -H "Authorization: Bearer ${{ secrets.SKILLSTORE_CALLBACK_TOKEN }}" \
-            -H "Content-Type: application/json" \
-            -H "User-Agent: GitHub-Actions/SkillstoreBot" \
-            -H "X-Skillstore-Callback: true" \
-            -d '{
-              "submission_id": "'"${{ inputs.submission_id }}"'",
-              "event": "started",
-              "workflow_run_id": ${{ github.run_id }},
-              "workflow_run_url": "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-            }' || echo "::warning::Failed to notify skillstore"
 
       - name: Clone source repository
         id: clone
@@ -314,8 +307,67 @@ jobs:
             echo "| Conflicting ignored mirror groups | $CONFLICTING_MIRRORS |"
           } >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Classify submission targets
+        id: targets
+        env:
+          FULL_SELECTION_PLAN: ${{ steps.discover.outputs.selection_plan }}
+          SOURCE_REF: ${{ steps.clone.outputs.branch }}
+        run: |
+          set -euo pipefail
+          PLAN_FILE="${RUNNER_TEMP:?}/target-plan-${{ github.run_id }}-${{ github.run_attempt }}.json"
+          cleanup_target_plan() { rm -f "$PLAN_FILE"; }
+          trap cleanup_target_plan EXIT
+          umask 077
+          printf '%s\n' "$FULL_SELECTION_PLAN" > "$PLAN_FILE"
+          CLASSIFICATION=$(node "$GITHUB_WORKSPACE/scripts/classify-submission-targets.mjs" \
+            --marketplace-root "$GITHUB_WORKSPACE" \
+            --selection-plan "$PLAN_FILE" \
+            --source-ref "$SOURCE_REF")
+          DISPOSITION=$(jq -er '.disposition' <<< "$CLASSIFICATION")
+          REASON_CODE=$(jq -er '.reasonCode' <<< "$CLASSIFICATION")
+          SELECTED_COUNT=$(jq -er '.selectedCount' <<< "$CLASSIFICATION")
+          EXISTING_COUNT=$(jq -er '.existingCount' <<< "$CLASSIFICATION")
+          EXISTING_TARGETS=$(jq -er '.existingTargets | join(",")' <<< "$CLASSIFICATION")
+          echo "disposition=$DISPOSITION" >> "$GITHUB_OUTPUT"
+          echo "reason_code=$REASON_CODE" >> "$GITHUB_OUTPUT"
+          echo "existing_count=$EXISTING_COUNT" >> "$GITHUB_OUTPUT"
+          echo "existing_targets=$EXISTING_TARGETS" >> "$GITHUB_OUTPUT"
+          if [ "$DISPOSITION" = "all_existing" ]; then
+            echo "::notice title=SUBMISSION_ALREADY_PUBLISHED::All $EXISTING_COUNT selected targets already exist; skipping CLI, AI, shards, artifacts, branch, and PR"
+          fi
+          {
+            echo "## Submission target preflight"
+            echo
+            echo "| Metric | Value |"
+            echo "|---|---:|"
+            echo "| Disposition | \`$DISPOSITION\` |"
+            echo "| Reason | \`$REASON_CODE\` |"
+            echo "| Selected targets | $SELECTED_COUNT |"
+            echo "| Existing targets | $EXISTING_COUNT |"
+            if [ -n "$EXISTING_TARGETS" ]; then
+              echo
+              echo "Exact existing targets: \`$EXISTING_TARGETS\`"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Notify skillstore - Processing started
+        if: inputs.is_manual_approval == false && steps.targets.outputs.disposition == 'processable'
+        run: |
+          curl -sS -X POST "${{ secrets.SKILLSTORE_API_URL }}/api/submit/callback" \
+            -H "Authorization: Bearer ${{ secrets.SKILLSTORE_CALLBACK_TOKEN }}" \
+            -H "Content-Type: application/json" \
+            -H "User-Agent: GitHub-Actions/SkillstoreBot" \
+            -H "X-Skillstore-Callback: true" \
+            -d '{
+              "submission_id": "'"${{ inputs.submission_id }}"'",
+              "event": "started",
+              "workflow_run_id": ${{ github.run_id }},
+              "workflow_run_url": "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            }' || echo "::warning::Failed to notify skillstore"
+
       - name: Plan processing strategy
         id: plan
+        if: steps.targets.outputs.disposition == 'processable'
         env:
           FULL_SELECTION_PLAN: ${{ steps.discover.outputs.selection_plan }}
           EXPLICIT_PATH: ${{ steps.clone.outputs.explicit_path }}
@@ -381,7 +433,7 @@ jobs:
   # ============================================================
   process:
     needs: discover-and-plan
-    if: needs.discover-and-plan.outputs.shard_count != '0'
+    if: needs.discover-and-plan.outputs.target_disposition == 'processable' && needs.discover-and-plan.outputs.shard_count != '0'
     runs-on: self-hosted
     timeout-minutes: 1440
     strategy:
@@ -453,6 +505,7 @@ jobs:
             ".github/workflows/reusable-process-skills.yml"
             "scripts/resolve-submission-source.mjs"
             "scripts/discover-submission-skills.mjs"
+            "scripts/classify-submission-targets.mjs"
             "scripts/process-submission-shard.mjs"
             "scripts/submission-selection-plan.mjs"
             "scripts/submission-shard-contract.mjs"
@@ -584,7 +637,7 @@ jobs:
   # ============================================================
   merge-and-create-pr:
     needs: [discover-and-plan, process]
-    if: always() && needs.discover-and-plan.outputs.shard_count != '0'
+    if: always() && needs.discover-and-plan.outputs.target_disposition == 'processable' && needs.discover-and-plan.outputs.shard_count != '0'
     runs-on: self-hosted
     timeout-minutes: 60
     permissions:
@@ -633,6 +686,7 @@ jobs:
             ".github/workflows/reusable-process-skills.yml"
             "scripts/resolve-submission-source.mjs"
             "scripts/discover-submission-skills.mjs"
+            "scripts/classify-submission-targets.mjs"
             "scripts/process-submission-shard.mjs"
             "scripts/submission-selection-plan.mjs"
             "scripts/submission-shard-contract.mjs"
