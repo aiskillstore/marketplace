@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 import { closeFreshAuditCaches } from '../close-fresh-canonical-audit-cache.mjs';
 import {
@@ -29,6 +31,17 @@ const failedRun = {
   conclusion: 'failure', event: 'workflow_dispatch', head_branch: 'main', run_attempt: 1,
   run_started_at: '2026-07-19T00:11:42Z', updated_at: '2026-07-19T00:16:10Z',
 };
+
+const jobsEnvelopeFilter = fileURLToPath(
+  new URL('../normalize-actions-jobs-envelope.jq', import.meta.url),
+);
+
+function normalizeJobsEnvelope(value) {
+  return JSON.parse(execFileSync('jq', ['-c', '-f', jobsEnvelopeFilter], {
+    encoding: 'utf8',
+    input: JSON.stringify(value),
+  }));
+}
 
 function fixture() {
   const candidate = {
@@ -104,6 +117,14 @@ test('rejects later mutation, wrong snapshot binding, or a different failed run'
   const run = fixture();
   run.failedRun.run_attempt = 2;
   assert.throws(() => verifyRecoveryState(run), /failed run identity/);
+});
+
+test('normalizes both Actions jobs API envelopes and rejects unknown shapes', () => {
+  const jobs = [{ id: 1, name: 'execute-boundary', steps: [] }];
+  assert.deepEqual(normalizeJobsEnvelope({ total_count: 1, jobs }), jobs);
+  assert.deepEqual(normalizeJobsEnvelope(jobs), jobs);
+  assert.throws(() => normalizeJobsEnvelope({ total_count: 1, items: jobs }));
+  assert.throws(() => normalizeJobsEnvelope(['not-a-job']));
 });
 
 function preflight(slug, packs = []) {

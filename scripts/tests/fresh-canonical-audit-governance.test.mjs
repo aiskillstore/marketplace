@@ -152,6 +152,8 @@ test('workflow is two-phase, CLI-pinned, resumable, and closes P0 channels', () 
   assert.match(workflow, /producerKind:"fresh_canonical_audit_recovery"/);
   assert.match(workflow, /scripts\/verify-fresh-canonical-audit-recovery\.mjs/);
   assert.match(workflow, /scripts\/close-fresh-canonical-audit-cache\.mjs/);
+  assert.match(workflow, /jq -f scripts\/normalize-actions-jobs-envelope\.jq/);
+  assert.match(workflow, /type=="array"[\s\S]*?\.\[\] \| select\(\.name=="execute-boundary"/);
   const recovery = workflow.slice(workflow.indexOf('  recover-boundary:'));
   assert.doesNotMatch(recovery, /skill govern-fresh-canonical-audit|recalculate-scores|record_fresh_canonical_audit/);
 });

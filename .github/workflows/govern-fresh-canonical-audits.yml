@@ -701,21 +701,24 @@ jobs:
           test "$(grep -Fc "$INCIDENT_EXECUTE_CLI_SHA256" "$evidence/failed-workflow.yml")" -ge 1
 
           gh api "repos/$GITHUB_REPOSITORY/actions/runs/$INCIDENT_FAILED_EXECUTE_RUN_ID/jobs?filter=latest&per_page=100" \
+            | jq -f scripts/normalize-actions-jobs-envelope.jq \
+            | jq -s 'if length > 0 and all(.[]; type == "array") then add else error("invalid Actions jobs page stream") end' \
             > "$evidence/failed-jobs.json"
           jq -e '
-            [.jobs[] | select(.name=="execute-boundary" and .conclusion=="failure")] | length==1
-            and ([.jobs[].steps[] | select(.name=="Checkout complete Marketplace history" and .conclusion=="success")] | length==1)
-            and ([.jobs[].steps[] | select(.name=="Normalize full checkout and verify governance runtime" and .conclusion=="success")] | length==1)
-            and ([.jobs[].steps[] | select(.name=="Validate execute inputs" and .conclusion=="success")] | length==1)
-            and ([.jobs[].steps[] | select(.name=="Download and authenticate the successful frozen boundary" and .conclusion=="success")] | length==1)
-            and ([.jobs[].steps[] | select(.name=="Generate GitHub App token" and .conclusion=="success")] | length==1)
-            and ([.jobs[].steps[] | select(.name=="Download exact audited CLI 2.8.2" and .conclusion=="success")] | length==1)
-            and ([.jobs[].steps[] | select(.name=="Verify frozen CLI identity" and .conclusion=="success")] | length==1)
-            and ([.jobs[].steps[] | select(.name=="Rematerialize exact source and overlay only frozen fresh reports" and .conclusion=="success")] | length==1)
-            and ([.jobs[].steps[] | select(.name=="Execute resumable compound governance, score, and cache closure" and .conclusion=="failure")] | length==1)
-            and ([.jobs[].steps[] | select(.name=="Fetch exact post-execution artifact and Pack evidence" and .conclusion=="skipped")] | length==1)
-            and ([.jobs[].steps[] | select(.name=="Verify every P0/P1 download, install, NPX, Pack, and MCP channel" and .conclusion=="skipped")] | length==1)
-            and ([.jobs[].steps[] | select(.name=="Seal successful execute closure for the next cursor" and .conclusion=="skipped")] | length==1)
+            type=="array"
+            and ([.[] | select(.name=="execute-boundary" and .conclusion=="failure")] | length==1)
+            and ([.[].steps[] | select(.name=="Checkout complete Marketplace history" and .conclusion=="success")] | length==1)
+            and ([.[].steps[] | select(.name=="Normalize full checkout and verify governance runtime" and .conclusion=="success")] | length==1)
+            and ([.[].steps[] | select(.name=="Validate execute inputs" and .conclusion=="success")] | length==1)
+            and ([.[].steps[] | select(.name=="Download and authenticate the successful frozen boundary" and .conclusion=="success")] | length==1)
+            and ([.[].steps[] | select(.name=="Generate GitHub App token" and .conclusion=="success")] | length==1)
+            and ([.[].steps[] | select(.name=="Download exact audited CLI 2.8.2" and .conclusion=="success")] | length==1)
+            and ([.[].steps[] | select(.name=="Verify frozen CLI identity" and .conclusion=="success")] | length==1)
+            and ([.[].steps[] | select(.name=="Rematerialize exact source and overlay only frozen fresh reports" and .conclusion=="success")] | length==1)
+            and ([.[].steps[] | select(.name=="Execute resumable compound governance, score, and cache closure" and .conclusion=="failure")] | length==1)
+            and ([.[].steps[] | select(.name=="Fetch exact post-execution artifact and Pack evidence" and .conclusion=="skipped")] | length==1)
+            and ([.[].steps[] | select(.name=="Verify every P0/P1 download, install, NPX, Pack, and MCP channel" and .conclusion=="skipped")] | length==1)
+            and ([.[].steps[] | select(.name=="Seal successful execute closure for the next cursor" and .conclusion=="skipped")] | length==1)
           ' "$evidence/failed-jobs.json" >/dev/null
 
       - name: Fetch exact scoped post-inventory
