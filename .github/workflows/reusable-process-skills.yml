@@ -25,10 +25,10 @@ on:
         type: string
         default: ''
       cli_version:
-        description: 'CLI version to use'
+        description: 'Reserved compatibility input; this selection-plan rollout is pinned to CLI 2.15.0'
         required: false
         type: string
-        default: 'latest'
+        default: '2.15.0'
       max_parallel:
         description: 'Maximum parallel shards'
         required: false
@@ -60,6 +60,27 @@ on:
       outcome_reason:
         description: 'Machine-readable terminal outcome reason'
         value: ${{ jobs.merge-and-create-pr.outputs.outcome_reason }}
+      source_sha:
+        description: 'Immutable source commit used for discovery'
+        value: ${{ jobs.discover-and-plan.outputs.source_sha }}
+      scope:
+        description: 'Validated authoritative publication scope'
+        value: ${{ jobs.discover-and-plan.outputs.scope_path }}
+      physical_count:
+        description: 'Physical SKILL.md files observed'
+        value: ${{ jobs.discover-and-plan.outputs.physical_count }}
+      selected_count:
+        description: 'Skills in the authoritative selection plan'
+        value: ${{ jobs.discover-and-plan.outputs.selected_count }}
+      ignored_count:
+        description: 'Out-of-scope SKILL.md files ignored by authority'
+        value: ${{ jobs.discover-and-plan.outputs.ignored_count }}
+      identical_count:
+        description: 'Ignored identical local mirror groups'
+        value: ${{ jobs.discover-and-plan.outputs.identical_count }}
+      conflicting_count:
+        description: 'Conflicting ignored local mirror groups recorded as diagnostics'
+        value: ${{ jobs.discover-and-plan.outputs.conflicting_count }}
     secrets:
       APP_ID:
         required: true
@@ -98,6 +119,14 @@ jobs:
       repo: ${{ steps.clone.outputs.repo }}
       branch: ${{ steps.clone.outputs.branch }}
       github_url: ${{ steps.discover.outputs.github_url }}
+      source_sha: ${{ steps.clone.outputs.ref_sha }}
+      scope_path: ${{ steps.discover.outputs.scope_path }}
+      selection_plan: ${{ steps.discover.outputs.selection_plan }}
+      physical_count: ${{ steps.discover.outputs.physical_count }}
+      selected_count: ${{ steps.discover.outputs.skill_count }}
+      ignored_count: ${{ steps.discover.outputs.ignored_count }}
+      identical_count: ${{ steps.discover.outputs.identical_count }}
+      conflicting_count: ${{ steps.discover.outputs.conflicting_count }}
     steps:
       - name: Clear inherited discovery checkout
         run: |
@@ -137,6 +166,7 @@ jobs:
             "scripts/resolve-submission-source.mjs"
             "scripts/discover-submission-skills.mjs"
             "scripts/process-submission-shard.mjs"
+            "scripts/submission-selection-plan.mjs"
             "scripts/submission-shard-contract.mjs"
             "scripts/aggregate-submission-shards.mjs"
             "scripts/resolve-approved-submission.mjs"
@@ -178,17 +208,17 @@ jobs:
         id: clone
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SUBMISSION_URL: ${{ inputs.github_url }}
         run: |
           set -euo pipefail
-          URL="${{ inputs.github_url }}"
           REPOSITORY_ID=$(node "$GITHUB_WORKSPACE/scripts/resolve-submission-source.mjs" \
-            --github-url "$URL" --repository-only)
+            --github-url "$SUBMISSION_URL" --repository-only)
           OWNER_REPO=$(jq -er '"\(.owner)/\(.repo)"' <<< "$REPOSITORY_ID")
           DEFAULT_REF=$(gh api "repos/$OWNER_REPO" --jq '.default_branch')
           REFS_FILE="${RUNNER_TEMP:?}/submission-refs-${{ github.run_id }}-${{ github.run_attempt }}.txt"
           git ls-remote --heads --tags "https://github.com/$OWNER_REPO.git" > "$REFS_FILE"
           RESOLVED=$(node "$GITHUB_WORKSPACE/scripts/resolve-submission-source.mjs" \
-            --github-url "$URL" \
+            --github-url "$SUBMISSION_URL" \
             --default-ref "$DEFAULT_REF" \
             --refs-file "$REFS_FILE")
           rm -f "$REFS_FILE"
@@ -217,6 +247,7 @@ jobs:
           echo "owner=$OWNER" >> "$GITHUB_OUTPUT"
           echo "repo=$REPO" >> "$GITHUB_OUTPUT"
           echo "branch=$REF" >> "$GITHUB_OUTPUT"
+          echo "ref_sha=$REF_SHA" >> "$GITHUB_OUTPUT"
           echo "skill_path=$SKILL_PATH" >> "$GITHUB_OUTPUT"
           echo "explicit_path=$EXPLICIT_PATH" >> "$GITHUB_OUTPUT"
           echo "normalized_url=$NORMALIZED_URL" >> "$GITHUB_OUTPUT"
@@ -227,30 +258,69 @@ jobs:
         id: discover
         env:
           SKILL_PATH: ${{ steps.clone.outputs.skill_path }}
+          SOURCE_DIR: ${{ steps.clone.outputs.source_dir }}
+          SOURCE_REPOSITORY: ${{ steps.clone.outputs.owner }}/${{ steps.clone.outputs.repo }}
+          SOURCE_SHA: ${{ steps.clone.outputs.ref_sha }}
         run: |
           set -euo pipefail
-          SOURCE_DIR="${{ steps.clone.outputs.source_dir }}"
           DISCOVERY=$(node "$GITHUB_WORKSPACE/scripts/discover-submission-skills.mjs" \
             --source-dir "$SOURCE_DIR" \
             --skill-path "$SKILL_PATH" \
             --explicit-path "${{ steps.clone.outputs.explicit_path }}" \
-            --repository "${{ steps.clone.outputs.owner }}/${{ steps.clone.outputs.repo }}" \
+            --repository "$SOURCE_REPOSITORY" \
             --slug-aliases-file "$GITHUB_WORKSPACE/governance/submission-slug-aliases.json")
+          FULL_PLAN=$(jq -ce --arg repository "$SOURCE_REPOSITORY" --arg sourceCommit "$SOURCE_SHA" \
+            '{schemaVersion: 1, repository: $repository, sourceCommit: $sourceCommit, scope: .scope, skills: .skills}' <<< "$DISCOVERY")
+          PLAN_FILE="${RUNNER_TEMP:?}/selection-plan-${{ github.run_id }}-${{ github.run_attempt }}.json"
+          printf '%s\n' "$FULL_PLAN" > "$PLAN_FILE"
+          node "$GITHUB_WORKSPACE/scripts/submission-selection-plan.mjs" --input "$PLAN_FILE" --output "$PLAN_FILE"
+          FULL_PLAN=$(tr -d '\n' < "$PLAN_FILE")
+          rm -f "$PLAN_FILE"
           SKILLS_JSON=$(jq -cer '[.skills[].slug]' <<< "$DISCOVERY")
           SKILL_COUNT=$(jq -er '.skills | length' <<< "$DISCOVERY")
-          echo "github_url=${{ steps.clone.outputs.normalized_url }}" >> "$GITHUB_OUTPUT"
+          SCOPE_PATH=$(jq -er '.scope.path' <<< "$DISCOVERY")
+          SCOPE_REASON=$(jq -er '.scope.reason' <<< "$DISCOVERY")
+          PHYSICAL_COUNT=$(jq -er '.stats.physicalSkillFiles' <<< "$DISCOVERY")
+          IGNORED_COUNT=$(jq -er '.stats.ignoredSkillFiles' <<< "$DISCOVERY")
+          IDENTICAL_MIRRORS=$(jq -er '.stats.identicalMirrorGroups' <<< "$DISCOVERY")
+          CONFLICTING_MIRRORS=$(jq -er '.stats.conflictingMirrorGroups' <<< "$DISCOVERY")
+          # CLI always receives the repository root. The immutable selection
+          # plan, not an untrusted tree URL, carries the authority scope.
+          printf 'github_url=https://github.com/%s/%s\n' "${{ steps.clone.outputs.owner }}" "${{ steps.clone.outputs.repo }}" >> "$GITHUB_OUTPUT"
           echo "skills_json=$SKILLS_JSON" >> "$GITHUB_OUTPUT"
           echo "skill_count=$SKILL_COUNT" >> "$GITHUB_OUTPUT"
-          echo "📊 Discovered $SKILL_COUNT skill(s)"
+          echo "scope_path=$SCOPE_PATH" >> "$GITHUB_OUTPUT"
+          echo "selection_plan=$FULL_PLAN" >> "$GITHUB_OUTPUT"
+          echo "physical_count=$PHYSICAL_COUNT" >> "$GITHUB_OUTPUT"
+          echo "ignored_count=$IGNORED_COUNT" >> "$GITHUB_OUTPUT"
+          echo "identical_count=$IDENTICAL_MIRRORS" >> "$GITHUB_OUTPUT"
+          echo "conflicting_count=$CONFLICTING_MIRRORS" >> "$GITHUB_OUTPUT"
+          echo "📊 Selected $SKILL_COUNT public skill(s) from ${SCOPE_PATH:-repository root}; ignored $IGNORED_COUNT of $PHYSICAL_COUNT physical SKILL.md files"
+          annotation_escape() { sed -e 's/%/%25/g' -e 's/\r/%0D/g' -e 's/\n/%0A/g'; }
+          ANNOTATION=$(printf 'reason=%s scope=%s selected=%s ignored=%s identical_mirror_groups=%s conflicting_mirror_groups=%s' "$SCOPE_REASON" "${SCOPE_PATH:-.}" "$SKILL_COUNT" "$IGNORED_COUNT" "$IDENTICAL_MIRRORS" "$CONFLICTING_MIRRORS" | annotation_escape)
+          echo "::notice title=DISCOVERY_SCOPE_SELECTED::$ANNOTATION"
+          {
+            echo "## Skill discovery scope"
+            echo
+            echo "| Metric | Value |"
+            echo "|---|---:|"
+            echo "| Source commit | \`${{ steps.clone.outputs.ref_sha }}\` |"
+            echo "| Scope reason | \`$SCOPE_REASON\` |"
+            echo "| Selected scope | \`${SCOPE_PATH:-.}\` |"
+            echo "| Physical SKILL.md files | $PHYSICAL_COUNT |"
+            echo "| Selected public skills | $SKILL_COUNT |"
+            echo "| Ignored out-of-scope SKILL.md files | $IGNORED_COUNT |"
+            echo "| Identical mirror groups | $IDENTICAL_MIRRORS |"
+            echo "| Conflicting ignored mirror groups | $CONFLICTING_MIRRORS |"
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Plan processing strategy
         id: plan
         env:
-          SKILL_COUNT: ${{ steps.discover.outputs.skill_count }}
-          SKILLS_JSON: ${{ steps.discover.outputs.skills_json }}
+          FULL_SELECTION_PLAN: ${{ steps.discover.outputs.selection_plan }}
           EXPLICIT_PATH: ${{ steps.clone.outputs.explicit_path }}
         run: |
-          COUNT=$SKILL_COUNT
+          COUNT=$(jq -er '.skills | length' <<< "$FULL_SELECTION_PLAN")
           THRESHOLD=${{ env.SHARD_THRESHOLD }}
           MAX_SHARDS=${{ env.MAX_SHARDS }}
 
@@ -260,7 +330,8 @@ jobs:
               exit 1
             fi
             echo "No skills found; planning one explicit no-op shard"
-            echo 'matrix={"include":[{"shard":0,"slugs":""}]}' >> $GITHUB_OUTPUT
+            MATRIX=$(jq -ce '{include: [{shard: 0, selection_plan: .}]}' <<< "$FULL_SELECTION_PLAN")
+            echo "matrix=$MATRIX" >> "$GITHUB_OUTPUT"
             echo "is_sharded=false" >> $GITHUB_OUTPUT
             echo "shard_count=1" >> $GITHUB_OUTPUT
             exit 0
@@ -268,8 +339,8 @@ jobs:
 
           if [ "$COUNT" -lt "$THRESHOLD" ]; then
             echo "📦 Simple mode: $COUNT skills (below threshold $THRESHOLD)"
-            ESCAPED_SLUGS=$(echo "$SKILLS_JSON" | jq -r 'join(",")')
-            echo "matrix={\"include\":[{\"shard\":0,\"slugs\":\"$ESCAPED_SLUGS\"}]}" >> $GITHUB_OUTPUT
+            MATRIX=$(jq -ce '{include: [{shard: 0, selection_plan: .}]}' <<< "$FULL_SELECTION_PLAN")
+            echo "matrix=$MATRIX" >> "$GITHUB_OUTPUT"
             echo "is_sharded=false" >> $GITHUB_OUTPUT
             echo "shard_count=1" >> $GITHUB_OUTPUT
           else
@@ -286,27 +357,16 @@ jobs:
             BASE_SIZE=$((COUNT / SHARDS))
             REMAINDER=$((COUNT % SHARDS))
 
-            MATRIX='{"include":['
-            CURRENT_IDX=0
-
-            for i in $(seq 0 $((SHARDS - 1))); do
-              if [ $i -lt $REMAINDER ]; then
-                THIS_SIZE=$((BASE_SIZE + 1))
-              else
-                THIS_SIZE=$BASE_SIZE
-              fi
-
-              SHARD_SLUGS=$(echo "$SKILLS_JSON" | jq -r ".[$CURRENT_IDX:$((CURRENT_IDX + THIS_SIZE))] | join(\",\")")
-              CURRENT_IDX=$((CURRENT_IDX + THIS_SIZE))
-
-              [ $i -gt 0 ] && MATRIX+=','
-              MATRIX+="{\"shard\":$i,\"slugs\":\"$SHARD_SLUGS\"}"
-
-              echo "  Shard $i: $THIS_SIZE skills"
-            done
-            MATRIX+=']}'
-
-            echo "matrix=$MATRIX" >> $GITHUB_OUTPUT
+            MATRIX=$(jq -nce --argjson plan "$FULL_SELECTION_PLAN" --argjson shards "$SHARDS" '
+              ($plan.skills | length) as $count |
+              ($count / $shards | floor) as $base |
+              ($count % $shards) as $remainder |
+              {include: [range(0; $shards) as $index |
+                ($base + (if $index < $remainder then 1 else 0 end)) as $size |
+                ($index * $base + (if $index < $remainder then $index else $remainder end)) as $start |
+                {shard: $index, selection_plan: ($plan | .skills = .skills[$start:($start + $size)])}
+              ]}')
+            echo "matrix=$MATRIX" >> "$GITHUB_OUTPUT"
             echo "is_sharded=true" >> $GITHUB_OUTPUT
             echo "shard_count=$SHARDS" >> $GITHUB_OUTPUT
           fi
@@ -330,7 +390,6 @@ jobs:
       matrix: ${{ fromJSON(needs.discover-and-plan.outputs.matrix) }}
     steps:
       - name: Generate GitHub App Token
-        if: matrix.slugs != ''
         id: app-token
         uses: actions/create-github-app-token@v3
         with:
@@ -395,6 +454,7 @@ jobs:
             "scripts/resolve-submission-source.mjs"
             "scripts/discover-submission-skills.mjs"
             "scripts/process-submission-shard.mjs"
+            "scripts/submission-selection-plan.mjs"
             "scripts/submission-shard-contract.mjs"
             "scripts/aggregate-submission-shards.mjs"
             "scripts/resolve-approved-submission.mjs"
@@ -417,13 +477,13 @@ jobs:
           done
 
       - name: Download Skillstore CLI
-        if: matrix.slugs != ''
         uses: ./.github/actions/download-skillstore-cli
         with:
-          version: ${{ inputs.cli_version }}
+          # Rollout pin: selection-plan processing requires the exact 2.15.0 contract.
+          version: '2.15.0'
           token: ${{ steps.app-token.outputs.token }}
           cache-dir: /home/runner/_work/_cache/skillstore-cli
-          minimum-version: 2.14.3
+          minimum-version: 2.15.0
           require-checksum: true
 
       - name: Process shard ${{ matrix.shard }}
@@ -433,15 +493,21 @@ jobs:
           SKILLSTORE_AGENTS: ${{ secrets.SKILLSTORE_AGENTS }}
           PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
-          SLUGS: ${{ matrix.slugs }}
+          SELECTION_PLAN_JSON: ${{ toJSON(matrix.selection_plan) }}
+          NORMALIZED_GITHUB_URL: ${{ needs.discover-and-plan.outputs.github_url }}
           MODEL: ${{ inputs.model }}
         run: |
           set -euo pipefail
           RESULT_DIR="/tmp/submission-shard-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}"
+          INPUT_PLAN="${RUNNER_TEMP:?}/selection-plan-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}.json"
+          cleanup_input_plan() { rm -f "$INPUT_PLAN"; }
+          trap cleanup_input_plan EXIT
+          umask 077
+          printf '%s\n' "$SELECTION_PLAN_JSON" > "$INPUT_PLAN"
           node "$GITHUB_WORKSPACE/scripts/process-submission-shard.mjs" \
             --cli "$GITHUB_WORKSPACE/skillstore-cli" \
-            --github-url "${{ needs.discover-and-plan.outputs.github_url }}" \
-            --slugs "$SLUGS" \
+            --github-url "$NORMALIZED_GITHUB_URL" \
+            --selection-plan "$INPUT_PLAN" \
             --result-dir "$RESULT_DIR" \
             --marketplace-repo "${{ github.repository }}" \
             --shard-index "${{ matrix.shard }}" \
@@ -450,8 +516,6 @@ jobs:
 
       - name: Create mode-preserving shard archive
         if: always()
-        env:
-          PLANNED_SLUGS: ${{ matrix.slugs }}
         run: |
           set -euo pipefail
           RESULT_DIR="/tmp/submission-shard-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}"
@@ -463,10 +527,20 @@ jobs:
             echo "::error::Shard process step did not produce a diagnostic manifest"
             exit 1
           }
-          printf '%s\n' "$PLANNED_SLUGS" > "$RESULT_DIR/planned-slugs.csv"
+          PLAN_EVIDENCE=()
+          if [ -f "$RESULT_DIR/selection-plan.json" ] && jq -e . "$RESULT_DIR/selection-plan.json" >/dev/null; then
+            jq -r '[.skills[].slug] | join(",")' "$RESULT_DIR/selection-plan.json" > "$RESULT_DIR/planned-slugs.csv"
+            PLAN_EVIDENCE+=(selection-plan.json)
+          else
+            # Preserve the untrusted bytes separately; do not let malformed
+            # plan JSON prevent artifact upload or overwrite valid evidence.
+            jq -r '[.planned[]] | join(",")' "$MANIFEST_FILE" > "$RESULT_DIR/planned-slugs.csv"
+            test -f "$RESULT_DIR/selection-plan.invalid.json" || : > "$RESULT_DIR/selection-plan.invalid.json"
+            PLAN_EVIDENCE+=(selection-plan.invalid.json)
+          fi
           SHARD_ARCHIVE_NAME="process-shard-${{ github.run_attempt }}-${{ matrix.shard }}.tar.gz"
           tar -C "$RESULT_DIR" -czf "$RESULT_DIR/$SHARD_ARCHIVE_NAME" \
-            pending "$(basename "$LOG_FILE")" planned-slugs.csv shard-manifest.json
+            pending "$(basename "$LOG_FILE")" planned-slugs.csv shard-manifest.json "${PLAN_EVIDENCE[@]}"
 
       - name: Upload shard results
         if: always()
@@ -480,14 +554,22 @@ jobs:
       - name: Enforce shard terminal status
         if: always()
         env:
-          PLANNED_SLUGS: ${{ matrix.slugs }}
+          EXPECTED_SELECTION_PLAN_JSON: ${{ toJSON(matrix.selection_plan) }}
         run: |
           set -euo pipefail
           RESULT_DIR="/tmp/submission-shard-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}"
+          EXPECTED_PLAN="${RUNNER_TEMP:?}/expected-selection-plan-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}.json"
+          cleanup_expected_plan() { rm -f "$EXPECTED_PLAN"; }
+          trap cleanup_expected_plan EXIT
+          umask 077
+          printf '%s\n' "$EXPECTED_SELECTION_PLAN_JSON" > "$EXPECTED_PLAN"
+          node "$GITHUB_WORKSPACE/scripts/submission-selection-plan.mjs" --input "$EXPECTED_PLAN" --output "$EXPECTED_PLAN"
+          PLANNED_SLUGS=$(jq -r '[.skills[].slug] | join(",")' "$EXPECTED_PLAN")
           node "$GITHUB_WORKSPACE/scripts/submission-shard-contract.mjs" \
             --manifest "$RESULT_DIR/shard-manifest.json" \
             --expected-index "${{ matrix.shard }}" \
             --expected-slugs "$PLANNED_SLUGS" \
+            --expected-selection-plan "$EXPECTED_PLAN" \
             --pending-root "$RESULT_DIR/pending" \
             --require-success
 
@@ -552,6 +634,7 @@ jobs:
             "scripts/resolve-submission-source.mjs"
             "scripts/discover-submission-skills.mjs"
             "scripts/process-submission-shard.mjs"
+            "scripts/submission-selection-plan.mjs"
             "scripts/submission-shard-contract.mjs"
             "scripts/aggregate-submission-shards.mjs"
             "scripts/resolve-approved-submission.mjs"

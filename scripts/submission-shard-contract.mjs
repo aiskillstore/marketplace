@@ -7,6 +7,7 @@ import {
 } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { validateSelectionPlan } from './submission-selection-plan.mjs';
 
 const CANONICAL_INDEX = /^(0|[1-9][0-9]*)$/;
 const SLUG = /^[a-z0-9][a-z0-9-]*$/;
@@ -147,6 +148,7 @@ function validateAttempt(attempt, planned, expectedNumber) {
 export function validateSubmissionShardManifest(manifest, {
   expectedIndex = null,
   expectedPlanned = null,
+  expectedSelectionPlan = null,
   pendingRoot = null,
   requireSuccess = false,
 } = {}) {
@@ -164,6 +166,13 @@ export function validateSubmissionShardManifest(manifest, {
   const failed = validateSlugArray(manifest.failed, 'manifest.failed');
   assertPartition(planned, succeeded, failed, 'manifest');
   if (expectedPlanned !== null) assertSameSet(planned, expectedPlanned, 'manifest planned slugs do not match matrix');
+  if (!Object.hasOwn(manifest, 'selectionPlan')) fail('manifest selectionPlan is required');
+  const selectionPlan = validateSelectionPlan(manifest.selectionPlan);
+  assertSameSet(selectionPlan.skills.map(({ slug }) => slug), planned, 'manifest selection plan does not match planned slugs');
+  if (expectedSelectionPlan !== null) {
+    const expected = validateSelectionPlan(expectedSelectionPlan);
+    assert.deepEqual(selectionPlan, expected, 'manifest selection plan does not match matrix selection plan');
+  }
 
   if (!Array.isArray(manifest.failureCategories)) fail('manifest.failureCategories must be an array');
   for (const category of manifest.failureCategories) {
@@ -220,10 +229,17 @@ function main() {
   const manifestPath = option(args, '--manifest');
   const expectedIndex = option(args, '--expected-index');
   const expectedSlugs = parseSlugCsv(option(args, '--expected-slugs'), 'expected slugs');
+  let expectedSelectionPlan;
+  try {
+    expectedSelectionPlan = JSON.parse(readFileSync(option(args, '--expected-selection-plan'), 'utf8'));
+  } catch (error) {
+    fail(`cannot read expected selection plan: ${error instanceof Error ? error.message : String(error)}`);
+  }
   const pendingRoot = option(args, '--pending-root');
   const manifest = readAndValidateSubmissionShardManifest(manifestPath, {
     expectedIndex,
     expectedPlanned: expectedSlugs,
+    expectedSelectionPlan,
     pendingRoot,
     requireSuccess: args.includes('--require-success'),
   });

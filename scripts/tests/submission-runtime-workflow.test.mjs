@@ -24,6 +24,7 @@ const runtimeFiles = [
   'scripts/resolve-submission-source.mjs',
   'scripts/discover-submission-skills.mjs',
   'scripts/process-submission-shard.mjs',
+  'scripts/submission-selection-plan.mjs',
   'scripts/submission-shard-contract.mjs',
   'scripts/aggregate-submission-shards.mjs',
   'scripts/resolve-approved-submission.mjs',
@@ -93,6 +94,7 @@ function createFixture() {
     'scripts/resolve-submission-source.mjs': 'export const source = true;\n',
     'scripts/discover-submission-skills.mjs': 'export const discover = true;\n',
     'scripts/process-submission-shard.mjs': 'export const process = true;\n',
+    'scripts/submission-selection-plan.mjs': 'export const selectionPlan = true;\n',
     'scripts/submission-shard-contract.mjs': 'export const contract = true;\n',
     'scripts/aggregate-submission-shards.mjs': "import './resolve-approved-submission.mjs';\n",
     'scripts/resolve-approved-submission.mjs': 'export const resolve = true;\n',
@@ -197,8 +199,15 @@ test('all submission entrypoints and the aggregation import closure are immutabl
   assert.match(reusable, /node "\$GITHUB_WORKSPACE\/scripts\/submission-shard-contract\.mjs"/);
   assert.match(reusable, /node "\$GITHUB_WORKSPACE\/scripts\/aggregate-submission-shards\.mjs"/);
   assert.match(reusable, /require-checksum: true/);
-  assert.match(reusable, /minimum-version: 2\.14\.3/);
+  assert.match(reusable, /minimum-version: 2\.15\.0/);
+  assert.match(reusable, /Rollout pin: selection-plan processing requires the exact 2\.15\.0 contract/);
+  assert.match(reusable, /trap cleanup_input_plan EXIT/);
   assert.match(reusable, /--slug-aliases-file "\$GITHUB_WORKSPACE\/governance\/submission-slug-aliases\.json"/);
+  assert.match(reusable, /--selection-plan "\$INPUT_PLAN"/);
+  assert.match(reusable, /SELECTION_PLAN_JSON:/);
+  assert.match(readFileSync('scripts/process-submission-shard.mjs', 'utf8'), /'--selection-plan', join\(config\.resultDir, 'selection-plan\.json'\)/);
+  assert.equal((reusable.match(/"scripts\/submission-selection-plan\.mjs"/g) ?? []).length, 3,
+    'discovery, processing, and aggregation immutable runtime lists must all include the plan validator');
   assert.match(
     readFileSync('scripts/aggregate-submission-shards.mjs', 'utf8'),
     /from '\.\/resolve-approved-submission\.mjs'/,
