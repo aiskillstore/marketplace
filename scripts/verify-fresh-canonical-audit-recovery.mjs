@@ -57,7 +57,7 @@ export function verifyRecoveryState({ boundary, inventory, audits, snapshots, br
     || !Array.isArray(boundary.candidates) || boundary.candidates.length === 0) {
     fail('unsupported frozen boundary');
   }
-  if (failedRun?.id !== 29623717000 || failedRun?.head_sha !== '15492b473b84a835e8b63083510ad1e59184b8db'
+  if (failedRun?.id !== 29666546406 || failedRun?.head_sha !== '3e7baf520a4d078047b53b95352156e3a3f74260'
     || failedRun?.conclusion !== 'failure' || failedRun?.event !== 'workflow_dispatch'
     || failedRun?.head_branch !== 'main' || failedRun?.run_attempt !== 1) {
     fail('failed run identity does not match the incident boundary');
@@ -142,7 +142,7 @@ export function verifyRecoveryState({ boundary, inventory, audits, snapshots, br
       fail(`fresh audit evidence mismatch for ${row.slug}`);
     }
     if (!snapshot || snapshot.skill_id !== row.skillId || !withinRun(snapshot.created_at, failedRun)
-      || snapshot.scorer_version !== '1.9.0' || typeof snapshot.composite_score !== 'number'
+      || snapshot.scorer_version !== '1.9.1' || typeof snapshot.composite_score !== 'number'
       || subject?.auditId !== auditId || subject?.auditVersion !== audit.version
       || subject?.auditContentHash !== audit.content_hash
       || subject?.contentHash !== row.canonicalArtifact.contentHash
