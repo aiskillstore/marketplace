@@ -626,12 +626,20 @@ for (const fixture of rejectedFixtures) {
   }));
 }
 
-test('submission callers emit a terminal callback for explicit legal no-op and failure', () => {
+test('submission callers emit distinct terminal callbacks for legal no-op, rejection, and failure', () => {
   for (const workflow of [processSubmission, approveSubmission]) {
     assert.match(workflow, /needs\.process-skills\.result == 'failure'/);
     assert.match(workflow, /needs\.process-skills\.outputs\.outcome == 'no_op'/);
     assert.match(workflow, /"event": "completed"/);
     assert.match(workflow, /"reason_code":/);
+    assert.match(workflow, /needs\.process-skills\.outputs\.outcome == 'rejected'/);
+    assert.match(workflow, /event: "rejected"/);
+    assert.match(workflow, /outcome: "rejected"/);
+    assert.match(workflow, /reason_code: \$reason_code/);
+    assert.match(workflow, /reason: \$reason/);
+    assert.match(workflow, /processed_count: 0/);
+    assert.match(workflow, /curl --fail-with-body/);
+    assert.match(workflow, /--retry 3/);
   }
 });
 

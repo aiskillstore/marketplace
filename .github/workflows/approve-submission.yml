@@ -175,6 +175,45 @@ jobs:
               "workflow_run_url": "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
             }' || echo "::warning::Failed to notify skillstore"
 
+      - name: Notify skillstore - Rejected because all targets exist
+        if: needs.process-skills.result == 'success' && needs.process-skills.outputs.outcome == 'rejected'
+        env:
+          REASON_CODE: ${{ needs.process-skills.outputs.outcome_reason }}
+          SELECTED_COUNT: ${{ needs.process-skills.outputs.selected_count }}
+          EXISTING_TARGETS: ${{ needs.process-skills.outputs.existing_targets }}
+          SKILLSTORE_API_URL: ${{ secrets.SKILLSTORE_API_URL }}
+          SKILLSTORE_CALLBACK_TOKEN: ${{ secrets.SKILLSTORE_CALLBACK_TOKEN }}
+        run: |
+          set -euo pipefail
+          REASON="$REASON_CODE: count=$SELECTED_COUNT; targets=$EXISTING_TARGETS"
+          PAYLOAD=$(jq -n \
+            --arg submission_id "${{ env.SUBMISSION_ID }}" \
+            --arg reason_code "$REASON_CODE" \
+            --arg reason "$REASON" \
+            --arg approved_by "${{ github.actor }}" \
+            --arg workflow_run_id "${{ github.run_id }}" \
+            --arg workflow_run_url "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            '{
+              submission_id: $submission_id,
+              event: "rejected",
+              outcome: "rejected",
+              reason_code: $reason_code,
+              reason: $reason,
+              processed_count: 0,
+              approved_by: $approved_by,
+              workflow_run_id: ($workflow_run_id | tonumber),
+              workflow_run_url: $workflow_run_url
+            }')
+          curl --fail-with-body --silent --show-error \
+            --retry 3 --retry-delay 2 --retry-max-time 120 --retry-connrefused \
+            --connect-timeout 10 --max-time 30 \
+            -X POST "$SKILLSTORE_API_URL/api/submit/callback" \
+            -H "Authorization: Bearer $SKILLSTORE_CALLBACK_TOKEN" \
+            -H "Content-Type: application/json" \
+            -H "User-Agent: GitHub-Actions/SkillstoreBot" \
+            -H "X-Skillstore-Callback: true" \
+            -d "$PAYLOAD"
+
       - name: Notify skillstore - Failed
         if: needs.process-skills.result == 'failure'
         env:
@@ -211,6 +250,9 @@ jobs:
           PR_URL: ${{ needs.process-skills.outputs.pr_url }}
           PROCESSED_COUNT: ${{ needs.process-skills.outputs.processed_count }}
           HIGHEST_RISK: ${{ needs.process-skills.outputs.highest_risk }}
+          OUTCOME: ${{ needs.process-skills.outputs.outcome }}
+          OUTCOME_REASON: ${{ needs.process-skills.outputs.outcome_reason }}
+          EXISTING_TARGETS: ${{ needs.process-skills.outputs.existing_targets }}
         run: |
           cat << EOF >> $GITHUB_STEP_SUMMARY
           ## Processing Summary (Manual Approval)
@@ -224,8 +266,14 @@ jobs:
           | Workflow Status | ${{ needs.process-skills.result }} |
           | Successfully Processed | ${PROCESSED_COUNT:-N/A} |
           | Highest Risk | ${HIGHEST_RISK:-N/A} |
+          | Business Outcome | ${OUTCOME:-N/A} |
+          | Outcome Reason | ${OUTCOME_REASON:-N/A} |
 
           EOF
+
+          if [ -n "$EXISTING_TARGETS" ]; then
+            echo "Existing targets: \`$EXISTING_TARGETS\`" >> "$GITHUB_STEP_SUMMARY"
+          fi
 
           if [ -n "$PR_URL" ]; then
             echo "🔗 **PR Created**: $PR_URL" >> $GITHUB_STEP_SUMMARY
