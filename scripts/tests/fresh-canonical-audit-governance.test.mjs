@@ -40,6 +40,54 @@ function inventory(row, revision = 0) {
   };
 }
 
+function exactRecoveryBoundary(row, cohortSha256) {
+  return {
+    metadata: {
+      status: 'fresh_canonical_audit_frozen', runId: '29646612265', lastSelected: row.slug,
+      cohortSha256,
+    },
+    selection: { status: 'lineage_unproven', lastSelected: row.slug },
+    executionProof: {
+      schemaVersion: 2,
+      producerKind: 'fresh_canonical_audit_recovery',
+      status: 'fresh_canonical_audit_execution_complete',
+      executeRunId: '29668478921',
+      dryRunId: '29646612265',
+      failedExecuteRunId: '29666546406',
+      failedExecuteHeadSha: '3e7baf520a4d078047b53b95352156e3a3f74260',
+      workflowCommit: '7e58b46f1a1478773d6d1f5ef5eb4ae5d56d439c',
+      lastSelected: row.slug,
+      cohortSha256,
+      executedCount: 1,
+      originalCli: {
+        version: '2.8.0',
+        sha256: 'ecfaa49aa72d24b8ea6322c7dae24d4bbe9df174a5d009cc56d7d2a89e7ae05a',
+      },
+      failedExecutionCli: {
+        version: '2.8.2',
+        sha256: '9b885943950c15555e8fbae522adf2cf9514ae74f63050a905c8e97694d52fcb',
+      },
+      recoveryRuntime: {
+        cacheVersion: 'v7',
+        smokeCommit: 'e368da730951aceca17a7e5d9d5a9adc0e3efc2a',
+      },
+      executionResultsSha256: '1'.repeat(64),
+      postInventorySha256: '2'.repeat(64),
+      boundaryManifestSha256: '3'.repeat(64),
+      recoveryEvidenceManifestSha256: '4'.repeat(64),
+      scoreTimestampEvidenceSha256: '5'.repeat(64),
+      cacheClosureEvidenceSha256: '6'.repeat(64),
+      cacheReadbackSha256: '7'.repeat(64),
+      smokeResultSha256: '8'.repeat(64),
+      scoreFinalized: true,
+      timestampFinalized: true,
+      cacheClosureCompleted: true,
+      packClosureCompleted: true,
+      productionSmokeCompleted: true,
+    },
+  };
+}
+
 test('prepares a bounded commit-addressed fresh audit batch', () => {
   const { root, row } = fixture();
   const result = prepareFreshCanonicalAuditBatch({
@@ -95,6 +143,25 @@ test('cursor requires both the immediately preceding boundary and a fully govern
     previousBoundary: {
       ...previousBoundary,
       executionProof: { ...previousBoundary.executionProof, productionSmokeCompleted: false },
+    },
+    cohortSha256,
+  }), /successfully closed previous execution/);
+
+  const recoveryBoundary = exactRecoveryBoundary(row, cohortSha256);
+  const recovered = prepareFreshCanonicalAuditBatch({
+    repositoryRoot: root, cohort, startAfter: row.slug, batchSize: 1,
+    productionInventory: inventory(row, 1), previousBoundary: recoveryBoundary, cohortSha256,
+  });
+  assert.equal(recovered.count, 0);
+  assert.throws(() => prepareFreshCanonicalAuditBatch({
+    repositoryRoot: root, cohort, startAfter: row.slug, batchSize: 1,
+    productionInventory: inventory(row, 1),
+    previousBoundary: {
+      ...recoveryBoundary,
+      executionProof: {
+        ...recoveryBoundary.executionProof,
+        failedExecuteRunId: '29623717000',
+      },
     },
     cohortSha256,
   }), /successfully closed previous execution/);
