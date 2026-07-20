@@ -870,6 +870,42 @@ test('freezes the complete source audit row and unhashed Skill install metadata'
   assert.deepEqual(output.audits.map((row) => row.id), [SOURCE_AUDIT_ID, secondAuditId]);
 });
 
+test('includes the drift cohort only when an exact caller requests it', async () => {
+  const classification = structuredClone(fixtures().hashClassification);
+  const drift = {
+    ...classification.cohorts.legacy_algorithm_equivalent[0],
+    id: '00000000-0000-4000-8000-000000000002',
+    slug: 'owner-drift',
+    publicEligibilityAuditId: '10000000-0000-4000-8000-000000000002',
+  };
+  classification.cohorts.actual_or_unproven_drift.push(drift);
+  classification.counts.actual_or_unproven_drift = 1;
+  const requested = [];
+  const fetchImpl = async (url) => {
+    const table = url.pathname.split('/').at(-1);
+    requested.push({ table, select: url.searchParams.get('select') });
+    if (table === 'legacy_audit_subject_bindings') return { ok: true, json: async () => [] };
+    if (table === 'skills') return { ok: true, json: async () => [
+      { id: SKILL_ID, slug: 'owner-image' },
+      { id: drift.id, slug: drift.slug },
+    ] };
+    return { ok: true, json: async () => [
+      { id: SOURCE_AUDIT_ID, skill_id: SKILL_ID },
+      { id: drift.publicEligibilityAuditId, skill_id: drift.id },
+    ] };
+  };
+  const output = await fetchLegacyGovernanceSourceEvidence({
+    supabaseUrl: 'https://db.example.test',
+    serviceKey: 'service-key',
+    classification,
+    includeDrift: true,
+    fetchImpl,
+  });
+  assert.equal(output.skills.length, 2);
+  assert.equal(output.audits.length, 2);
+  assert.ok(requested.find((row) => row.table === 'skills').select.includes('artifact_revision'));
+});
+
 test('workflow is two-phase, exactly pinned, bounded, and never executes ordinary sync', () => {
   const workflow = readFileSync(
     resolve(import.meta.dirname, '../../.github/workflows/govern-legacy-equivalent-artifacts.yml'),
