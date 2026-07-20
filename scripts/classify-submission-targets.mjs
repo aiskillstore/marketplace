@@ -10,7 +10,7 @@ import { pathToFileURL } from 'node:url';
 import { parseSelectionPlan, validateSelectionPlan } from './submission-selection-plan.mjs';
 
 const SOURCE_TYPES = new Set(['community', 'official']);
-// Must stay aligned with the exact CLI 2.15.0 trust allowlist pinned by the workflow.
+// Must stay aligned with the exact CLI 2.15.7 trust allowlist pinned by the workflow.
 const OFFICIAL_REPOSITORIES = new Set([
   'aiskillstore/marketplace',
   'anthropics/skills',
