@@ -120,6 +120,16 @@ test('workflow freezes and replays Git evidence with the audited CLI digest', ()
   assert.match(workflow, /sha256sum --check SHA256SUMS/);
   assert.match(workflow, /cmp "\$RUNNER_TEMP\/boundary\/origin-lineage\.json" "\$RUNNER_TEMP\/current-origin-lineage\.json"/);
   assert.match(workflow, /--expected-count 70/);
+  assert.equal(
+    (workflow.match(/Normalize full checkout and verify report-origin runtime/g) || []).length,
+    2
+  );
+  assert.equal((workflow.match(/git sparse-checkout disable/g) || []).length, 2);
+  assert.equal((workflow.match(/git reset --hard HEAD/g) || []).length, 2);
+  assert.equal(
+    (workflow.match(/Missing report-origin runtime after full-checkout normalization/g) || []).length,
+    2
+  );
   assert.equal((workflow.match(/--legacy-origin-lineage/g) || []).length, 2);
   assert.equal((workflow.match(/--legacy-origin-root/g) || []).length, 2);
   assert.equal((workflow.match(/--legacy-previous-report-root/g) || []).length, 2);
