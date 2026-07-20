@@ -143,3 +143,24 @@ test('workflow freezes and replays Git evidence with the audited CLI digest', ()
   assert.equal((workflow.match(/--legacy-origin-root/g) || []).length, 2);
   assert.equal((workflow.match(/--legacy-previous-report-root/g) || []).length, 2);
 });
+
+test('score-cache recovery is one-row, two-stage, and cannot rewrite incident artifacts', () => {
+  const workflow = readFileSync(resolve(
+    import.meta.dirname,
+    '../../.github/workflows/recover-report-origin-score-cache.yml'
+  ), 'utf8');
+  assert.match(workflow, /options: \[dry-run, execute\]/);
+  assert.match(workflow, /group: production-skill-score-writes/);
+  assert.match(workflow, /INCIDENT_DRY_RUN_ID: '29767776933'/);
+  assert.match(workflow, /INCIDENT_EXECUTE_ID: '29768013787'/);
+  assert.match(workflow, /RECOVERY_CLI_VERSION: '2\.15\.9'/);
+  assert.match(workflow, /RECOVERY_SLUG: crossbill-highlights-css-colors/);
+  assert.match(workflow, /\.cohorts\.actual_or_unproven_drift \|= map/);
+  assert.match(workflow, /artifactCreated==false/);
+  assert.match(workflow, /\(\$rows\|length\)==51/);
+  assert.match(workflow, /\.artifacts==\$before\[0\]\.artifacts/);
+  assert.match(workflow, /\.audits==\$before\[0\]\.audits/);
+  assert.match(workflow, /\.observations==\$before\[0\]\.observations/);
+  assert.match(workflow, /packGenerationTouched:false/);
+  assert.doesNotMatch(workflow, /generate-packs|install_pack|\/api\/packs/);
+});
