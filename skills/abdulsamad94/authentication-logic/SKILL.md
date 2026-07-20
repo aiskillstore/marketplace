@@ -1,5 +1,5 @@
 ---
-name: Authentication Logic
+name: authentication-logic
 description: Guide to using Better Auth for client and server-side authentication.
 ---
 

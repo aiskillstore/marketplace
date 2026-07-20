@@ -1,3 +1,8 @@
+---
+name: quality-gates
+description: "Provides quality gates for assessing task complexity, clarifying requirements, tracking failed attempts, and escalating blocked work."
+---
+
 # Quality Gates Skill
 
 **Version:** 1.0.0

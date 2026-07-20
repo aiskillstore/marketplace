@@ -1,5 +1,5 @@
 ---
-name: Robotics Subject Expert
+name: robotics-subject-expert
 description: Domain knowledge for Physical AI, ROS 2, and Humanoid Robotics.
 ---
 
