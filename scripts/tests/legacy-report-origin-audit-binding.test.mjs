@@ -211,6 +211,8 @@ test('workflow freezes one dry-run before binding and forbids governance side ef
   assert.match(workflow, /--expected-selected 11 --expected-v2 54 --expected-governed 5/);
   assert.match(workflow, /skill bind-legacy-audit/);
   assert.match(workflow, /Prove only 11 append-only bindings changed/);
+  assert.match(workflow, /inventory-scope\.json/);
+  assert.doesNotMatch(workflow, /--scope-inventory "\$ORIGIN_COHORT"/);
   assert.match(workflow, /cmp "\$RUNNER_TEMP\/current\/inventory\.json" "\$RUNNER_TEMP\/post-inventory\.json"/);
   assert.doesNotMatch(workflow, /govern-legacy-equivalent|skill score|CACHE_INVALIDATE/);
 });

@@ -170,8 +170,12 @@ jobs:
           node scripts/fetch-legacy-equivalent-governance-readback.mjs \
             --classification "$work/classification.json" --include-drift true \
             --output "$work/source-evidence.json"
+          jq '{schemaVersion:1,rows:[.cohorts.actual_or_unproven_drift[] | {id:.id}]}' \
+            "$work/classification.json" > "$work/inventory-scope.json"
+          jq -e '.schemaVersion == 1 and (.rows | length) == 70 and ([.rows[].id] | unique | length) == 70' \
+            "$work/inventory-scope.json" >/dev/null
           node scripts/fetch-artifact-version-inventory.mjs \
-            --scope-inventory "$ORIGIN_COHORT" --output "$work/inventory.json"
+            --scope-inventory "$work/inventory-scope.json" --output "$work/inventory.json"
           node scripts/build-legacy-report-origin-audit-binding-plan.mjs \
             --classification "$work/classification.json" \
             --origin-lineage "$work/origin-lineage.json" \
@@ -182,6 +186,7 @@ jobs:
             --output "$work/binding-plan.json"
           if [ '${{ inputs.mode }}' = execute ]; then
             cmp "$work/source-evidence.json" "$RUNNER_TEMP/boundary/source-evidence.json"
+            cmp "$work/inventory-scope.json" "$RUNNER_TEMP/boundary/inventory-scope.json"
             cmp "$work/binding-plan.json" "$RUNNER_TEMP/boundary/binding-plan.json"
             cmp "$work/inventory.json" "$RUNNER_TEMP/boundary/inventory.json"
           fi
@@ -215,7 +220,7 @@ jobs:
           cp "$ORIGIN_COHORT" "$out/cohort.json"
           cp "$work/classification.json" "$work/report-origin-plan.json" \
             "$work/origin-lineage.json" "$work/source-evidence.json" \
-            "$work/binding-plan.json" "$work/inventory.json" \
+            "$work/inventory-scope.json" "$work/binding-plan.json" "$work/inventory.json" \
             "$work/binding-dry-run.json" "$out/"
           jq -n --arg runId "$GITHUB_RUN_ID" --arg repository "$GITHUB_REPOSITORY" \
             --arg workflowCommit "$GITHUB_SHA" --arg cliVersion "$BINDING_CLI_VERSION" \
@@ -224,7 +229,7 @@ jobs:
               repository:$repository,workflowCommit:$workflowCommit,cliVersion:$cliVersion,
               cliSha256:$cliSha256,selectedCount:11}' > "$out/boundary.json"
           (cd "$out" && sha256sum cohort.json classification.json report-origin-plan.json \
-            origin-lineage.json source-evidence.json binding-plan.json inventory.json \
+            origin-lineage.json source-evidence.json inventory-scope.json binding-plan.json inventory.json \
             binding-dry-run.json boundary.json > SHA256SUMS)
 
       - name: Upload immutable binding boundary
@@ -260,7 +265,8 @@ jobs:
             --classification "$RUNNER_TEMP/current/classification.json" --include-drift true \
             --output "$RUNNER_TEMP/post-source-evidence.json"
           node scripts/fetch-artifact-version-inventory.mjs \
-            --scope-inventory "$ORIGIN_COHORT" --output "$RUNNER_TEMP/post-inventory.json"
+            --scope-inventory "$RUNNER_TEMP/current/inventory-scope.json" \
+            --output "$RUNNER_TEMP/post-inventory.json"
           jq -S 'del(.bindings)' "$RUNNER_TEMP/current/source-evidence.json" > "$RUNNER_TEMP/pre-without-bindings.json"
           jq -S 'del(.bindings)' "$RUNNER_TEMP/post-source-evidence.json" > "$RUNNER_TEMP/post-without-bindings.json"
           cmp "$RUNNER_TEMP/pre-without-bindings.json" "$RUNNER_TEMP/post-without-bindings.json"
