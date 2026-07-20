@@ -91,7 +91,7 @@ export function freezeLegacyReportOriginBoundary(input) {
     !/^\d+$/.test(input.runId || '')
     || input.repository !== 'aiskillstore/marketplace'
     || !COMMIT_RE.test(input.workflowCommit || '')
-    || input.cliVersion !== '2.6.0'
+    || input.cliVersion !== '2.15.2'
     || !SHA256_RE.test(input.cliSha256 || '')
   ) fail('invalid frozen execution identity');
   return {
