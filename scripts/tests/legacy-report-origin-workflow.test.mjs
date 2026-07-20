@@ -147,7 +147,17 @@ test('workflow freezes and replays Git evidence with the audited CLI digest', ()
   assert.match(workflow, /ORIGIN_COHORT_SHA256: 3750ca3d83fe28efb5673f384cef74195a44d388f14062ba3cec9f06f78a873c/);
   assert.match(workflow, /ORIGIN_CLI_VERSION: '2\.15\.9'/);
   assert.match(workflow, /ORIGIN_CLI_SHA256: '9a980bbb9574dd3da976803264796dd3ba57d15bafde5645afe6fe5783e5e9ec'/);
-  assert.equal((workflow.match(/version: '2\.15\.9'/g) || []).length, 4);
+  assert.match(workflow, /RECOVERY_CLI_VERSION: '2\.15\.10'/);
+  assert.match(workflow, /RECOVERY_CLI_SHA256: '2ea8ef90fcb890b83b1cf1bd772bd02da3fff98bc8f5162c481287552518bdd8'/);
+  assert.equal((workflow.match(/version: '2\.15\.9'/g) || []).length, 2);
+  assert.equal((workflow.match(/version: '2\.15\.10'/g) || []).length, 2);
+  assert.match(workflow, /options: \[recover-post-score\]/);
+  assert.match(workflow, /INCIDENT_DRY_RUN_ID: '29781656344'/);
+  assert.match(workflow, /INCIDENT_EXECUTE_RUN_ID: '29782034145'/);
+  assert.match(workflow, /INCIDENT_EXECUTION_ARTIFACT_ID: '8477301225'/);
+  assert.match(workflow, /sha256:e4c70363c55f79011c8b28ade2050af34859af15d37925848123f13aed7315a8/);
+  assert.match(workflow, /\.artifactCreated == false/);
+  assert.match(workflow, /production-smoke\.mjs/);
   assert.match(workflow, /\[\[ "\$ORIGIN_CLI_SHA256" =~ \^\[0-9a-f\]\{64\}\$ \]\]/);
   assert.match(workflow, /\.workflowName == "Govern Legacy Report-Origin V2-Only"/);
   assert.match(workflow, /sha256sum --check SHA256SUMS/);

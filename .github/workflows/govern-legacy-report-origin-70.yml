@@ -4,16 +4,19 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: 'Freeze a no-write boundary, or execute one successful boundary'
+        description: 'Recover the exact sealed post-score incident'
         type: choice
         required: true
-        default: dry-run
-        options: [dry-run, execute]
+        default: recover-post-score
+        options: [recover-post-score]
       dry_run_id:
-        description: 'Successful dry-run run ID; execute only'
+        description: 'Exact successful dry-run run ID'
         type: string
-        required: false
-        default: ''
+        required: true
+      failed_execute_run_id:
+        description: 'Exact cancelled execute run ID'
+        type: string
+        required: true
 
 permissions:
   actions: read
@@ -28,6 +31,16 @@ env:
   # Production is intentionally impossible until the released linux-x64 binary
   # has been audited and this placeholder is replaced by its exact SHA-256.
   ORIGIN_CLI_SHA256: '9a980bbb9574dd3da976803264796dd3ba57d15bafde5645afe6fe5783e5e9ec'
+  RECOVERY_CLI_VERSION: '2.15.10'
+  RECOVERY_CLI_SHA256: '2ea8ef90fcb890b83b1cf1bd772bd02da3fff98bc8f5162c481287552518bdd8'
+  INCIDENT_DRY_RUN_ID: '29781656344'
+  INCIDENT_DRY_RUN_SHA: '3d596a8adb68424326794898b381688aa252f636'
+  INCIDENT_BOUNDARY_ARTIFACT_ID: '8476920934'
+  INCIDENT_BOUNDARY_ARTIFACT_DIGEST: 'sha256:964aa8359db0608b45ff8f7b6aca6686ca9ef3a3a9bbd5add2f45c9ea3fadfa5'
+  INCIDENT_EXECUTE_RUN_ID: '29782034145'
+  INCIDENT_EXECUTE_JOB_ID: '88485256934'
+  INCIDENT_EXECUTION_ARTIFACT_ID: '8477301225'
+  INCIDENT_EXECUTION_ARTIFACT_DIGEST: 'sha256:e4c70363c55f79011c8b28ade2050af34859af15d37925848123f13aed7315a8'
   ORIGIN_COHORT: scripts/data/ordinary-v2-report-origin-cohort-v1.json
   # Boundary 29775654869 classified the complete non-deferred residual. This
   # cohort freezes only its 192 v2 report-origin rows; raw32 and deferred rows
@@ -256,7 +269,7 @@ jobs:
           retention-days: 30
 
   execute-boundary:
-    if: inputs.mode == 'execute'
+    if: inputs.mode == 'recover-post-score'
     concurrency:
       group: production-skill-score-writes
       cancel-in-progress: false
@@ -285,16 +298,17 @@ jobs:
             test -f "$path" || { echo "::error file=$path::Missing report-origin runtime after full-checkout normalization"; exit 1; }
           done
 
-      - name: Validate execute gate and production pin
+      - name: Validate exact recovery gate and production pins
         env:
           DRY_RUN_ID: ${{ inputs.dry_run_id }}
+          FAILED_EXECUTE_RUN_ID: ${{ inputs.failed_execute_run_id }}
         run: |
           set -euo pipefail
           test "$GITHUB_REF_NAME" = main
-          [[ "$DRY_RUN_ID" =~ ^[1-9][0-9]*$ ]] || { echo '::error::execute requires dry_run_id'; exit 1; }
-          [[ "$ORIGIN_CLI_SHA256" =~ ^[0-9a-f]{64}$ ]] || {
-            echo '::error::CLI audit digest placeholder blocks production'; exit 1;
-          }
+          test "$DRY_RUN_ID" = "$INCIDENT_DRY_RUN_ID"
+          test "$FAILED_EXECUTE_RUN_ID" = "$INCIDENT_EXECUTE_RUN_ID"
+          [[ "$ORIGIN_CLI_SHA256" =~ ^[0-9a-f]{64}$ ]]
+          [[ "$RECOVERY_CLI_SHA256" =~ ^[0-9a-f]{64}$ ]]
 
       - name: Download exact successful dry-run boundary
         env:
@@ -313,8 +327,51 @@ jobs:
           gh run download "$DRY_RUN_ID" --repo "$GITHUB_REPOSITORY" \
             --name "legacy-report-origin-v2-only-boundary-$DRY_RUN_ID" --dir "$RUNNER_TEMP/boundary"
           (cd "$RUNNER_TEMP/boundary" && sha256sum --check SHA256SUMS)
+          artifacts=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$DRY_RUN_ID/artifacts?per_page=100")
+          jq -e --argjson id "$INCIDENT_BOUNDARY_ARTIFACT_ID" \
+            --arg digest "$INCIDENT_BOUNDARY_ARTIFACT_DIGEST" \
+            --arg name "legacy-report-origin-v2-only-boundary-$DRY_RUN_ID" '
+            [.artifacts[] | select(.id==$id and .name==$name and .expired==false and .digest==$digest)] | length==1
+          ' <<< "$artifacts" >/dev/null
           test "$(jq -r .workflowCommit "$RUNNER_TEMP/boundary/boundary.json")" = "$(jq -r .headSha <<< "$run_json")"
+          test "$(jq -r .headSha <<< "$run_json")" = "$INCIDENT_DRY_RUN_SHA"
           git merge-base --is-ancestor "$(jq -r .workflowCommit "$RUNNER_TEMP/boundary/boundary.json")" "$GITHUB_SHA"
+
+      - name: Authenticate the sealed cancelled execute
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          incident="$RUNNER_TEMP/post-score-incident"
+          mkdir -p "$incident/failed-execution"
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$INCIDENT_EXECUTE_RUN_ID" > "$incident/run.json"
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$INCIDENT_EXECUTE_RUN_ID/artifacts?per_page=100" > "$incident/artifacts.json"
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$INCIDENT_EXECUTE_RUN_ID/jobs?filter=latest&per_page=100" > "$incident/jobs.json"
+          jq -e --argjson id "$INCIDENT_EXECUTE_RUN_ID" --arg sha "$INCIDENT_DRY_RUN_SHA" '
+            .id==$id and .name=="Govern Legacy Report-Origin V2-Only" and
+            .event=="workflow_dispatch" and .head_branch=="main" and .head_sha==$sha and
+            .conclusion=="cancelled" and .run_attempt==1
+          ' "$incident/run.json" >/dev/null
+          jq -e --argjson id "$INCIDENT_EXECUTION_ARTIFACT_ID" \
+            --arg digest "$INCIDENT_EXECUTION_ARTIFACT_DIGEST" \
+            --arg name "legacy-report-origin-v2-only-execution-$INCIDENT_EXECUTE_RUN_ID" '
+            [.artifacts[] | select(.id==$id and .name==$name and .expired==false and .digest==$digest)] | length==1
+          ' "$incident/artifacts.json" >/dev/null
+          jq -e --argjson id "$INCIDENT_EXECUTE_JOB_ID" '
+            [.jobs[] | select(.id==$id and .name=="execute-boundary" and
+              .runner_name=="docker-runner-199-4-4" and .conclusion=="cancelled")] | length==1
+          ' "$incident/jobs.json" >/dev/null
+          gh run download "$INCIDENT_EXECUTE_RUN_ID" --repo "$GITHUB_REPOSITORY" \
+            --name "legacy-report-origin-v2-only-execution-$INCIDENT_EXECUTE_RUN_ID" \
+            --dir "$incident/failed-execution"
+          mapfile -t files < <(find "$incident/failed-execution" -mindepth 1 -maxdepth 1 -printf '%f\n' | sort)
+          test "${#files[@]}" = 2
+          test "${files[0]}" = boundary && test "${files[1]}" = current-origin-lineage.json
+          (cd "$incident/failed-execution/boundary" && sha256sum --check SHA256SUMS)
+          diff -qr "$RUNNER_TEMP/boundary" "$incident/failed-execution/boundary"
+          cmp "$RUNNER_TEMP/boundary/origin-lineage.json" \
+            "$incident/failed-execution/current-origin-lineage.json"
+          test ! -e "$incident/failed-execution/execution-results.json"
 
       - name: Recompute Git evidence and byte-match the frozen manifest
         run: |
@@ -359,18 +416,19 @@ jobs:
         uses: ./.github/actions/download-skillstore-cli
         with:
           token: ${{ steps.app-token.outputs.token }}
-          version: '2.15.9'
-          minimum-version: '2.15.9'
+          version: '2.15.10'
+          minimum-version: '2.15.10'
           cache-dir: /home/runner/_work/_cache/skillstore-cli
 
-      - name: Verify frozen CLI binary identity
+      - name: Verify boundary and recovery CLI identities
         run: |
           set -euo pipefail
-          expected=$(jq -r .cliSha256 "$RUNNER_TEMP/boundary/boundary.json")
+          test "$(jq -r .cliVersion "$RUNNER_TEMP/boundary/boundary.json")" = "$ORIGIN_CLI_VERSION"
+          test "$(jq -r .cliSha256 "$RUNNER_TEMP/boundary/boundary.json")" = "$ORIGIN_CLI_SHA256"
           actual=$(sha256sum "$GITHUB_WORKSPACE/skillstore-cli" | awk '{print $1}')
-          test "$expected" = "$ORIGIN_CLI_SHA256" && test "$actual" = "$ORIGIN_CLI_SHA256"
+          test "$actual" = "$RECOVERY_CLI_SHA256"
 
-      - name: Execute only the frozen 192 rows
+      - name: Recover only the frozen 192 post-score rows
         env:
           PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
@@ -397,8 +455,29 @@ jobs:
           jq -s . "$RUNNER_TEMP/execution-results.jsonl" > "$RUNNER_TEMP/execution-results.json"
           jq -e '[.[].result.results[]] as $rows |
             ($rows | length) == 192 and ($rows | map(.slug) | unique | length) == 192 and
-            ($rows | all(.mode == "execute" and .artifactRevision == 1))' \
+            ($rows | all(.mode == "execute" and .artifactRevision == 1 and .artifactCreated == false))' \
             "$RUNNER_TEMP/execution-results.json" >/dev/null
+
+      - name: Checkout current Skillstore production smoke harness
+        uses: actions/checkout@v5
+        with:
+          repository: aiskillstore/skillstore
+          ref: c1b150a305b1f1244b2097286e3e2f84ab3b4efd
+          token: ${{ steps.app-token.outputs.token }}
+          path: skillstore-smoke
+          sparse-checkout: scripts/smoke
+
+      - name: Verify every production P0/P1 channel
+        env:
+          SMOKE_PUBLIC_CLI_PACKAGES: skillstore@0.1.9,skillstore@latest
+          SMOKE_EXPECTED_SIGNING_KEY_ID: EP0Myk7rTk_J0RdG1fvpkP
+          SMOKE_EXPECTED_SIGNING_PUBLIC_KEY_X: 2tbC6eNY4T9sx4Pvuo_NwHlXGyWWz95WAtHyHUTqzs8
+          SMOKE_EXPECT_INTERACTION_RECOVERY: 'false'
+        run: |
+          set -euo pipefail
+          node skillstore-smoke/scripts/smoke/production-smoke.mjs \
+            --base-url https://skillstore.io --attempts 3 --retry-ms 3000 \
+            | tee "$RUNNER_TEMP/production-smoke.log"
 
       - name: Upload execution evidence
         if: always()
@@ -409,5 +488,7 @@ jobs:
             ${{ runner.temp }}/boundary/
             ${{ runner.temp }}/current-origin-lineage.json
             ${{ runner.temp }}/execution-results.json
+            ${{ runner.temp }}/post-score-incident/
+            ${{ runner.temp }}/production-smoke.log
           if-no-files-found: error
           retention-days: 30
