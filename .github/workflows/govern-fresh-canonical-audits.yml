@@ -8,7 +8,7 @@ on:
         type: choice
         required: true
         default: dry-run
-        options: [dry-run, execute, recover, recover-cache, recover-smoke]
+        options: [dry-run, execute, recover-rpc-timeout, recover, recover-cache, recover-smoke]
       cohort_path:
         description: 'Repository-relative lineage-unproven cohort JSON; dry-run only'
         type: string
@@ -498,12 +498,21 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
   execute-boundary:
-    if: inputs.mode == 'execute'
+    if: inputs.mode == 'execute' || inputs.mode == 'recover-rpc-timeout'
     concurrency:
       group: production-skill-score-writes
       cancel-in-progress: false
     runs-on: self-hosted
     timeout-minutes: 180
+    env:
+      ZERO_WRITE_DRY_RUN_ID: '29743150038'
+      ZERO_WRITE_DRY_RUN_SHA: 'd75b0863d962bc58cf69d554f8fa6ea67a5c040a'
+      ZERO_WRITE_DRY_ARTIFACT_ID: '8461534557'
+      ZERO_WRITE_DRY_ARTIFACT_DIGEST: 'sha256:627c18c8d1c127ed6fb4d5020043dae90f35643550b37e6b0150a76233dbfc4b'
+      ZERO_WRITE_FAILED_RUN_ID: '29744338076'
+      ZERO_WRITE_FAILED_RUN_SHA: 'd75b0863d962bc58cf69d554f8fa6ea67a5c040a'
+      ZERO_WRITE_FAILED_ARTIFACT_ID: '8461872394'
+      ZERO_WRITE_FAILED_ARTIFACT_DIGEST: 'sha256:e36360f2dd23fae710d9c6ea3a0f02e40b55b31fe18b57f354a62542b8560b50'
     steps:
       - name: Checkout complete Marketplace history
         uses: actions/checkout@v5
@@ -522,23 +531,34 @@ jobs:
           for path in \
             .github/actions/download-skillstore-cli/action.yml \
             scripts/prepare-fresh-canonical-audit-batch.mjs \
-            scripts/fetch-artifact-version-inventory.mjs; do
+            scripts/fetch-artifact-version-inventory.mjs \
+            scripts/verify-fresh-canonical-zero-write-recovery.mjs; do
             test -f "$path" || { echo "::error file=$path::Missing fresh governance runtime"; exit 1; }
           done
 
       - name: Validate execute inputs
         env:
           CLI_VERSION: ${{ inputs.cli_version }}
+          MODE: ${{ inputs.mode }}
           DRY_RUN_ID: ${{ inputs.dry_run_id }}
           START_AFTER: ${{ inputs.start_after }}
           FAILED_EXECUTE_RUN_ID: ${{ inputs.failed_execute_run_id }}
+          PREVIOUS_BOUNDARY_RUN_ID: ${{ inputs.previous_boundary_run_id }}
+          PREVIOUS_EXECUTE_RUN_ID: ${{ inputs.previous_execute_run_id }}
         run: |
           set -euo pipefail
           test "$GITHUB_REF_NAME" = main || { echo '::error::execute requires main'; exit 1; }
           test "$CLI_VERSION" = "$FRESH_GOVERNANCE_CLI_VERSION" || { echo '::error::workflow CLI pin changed'; exit 1; }
-          [[ "$DRY_RUN_ID" =~ ^[1-9][0-9]*$ ]] || { echo '::error::numeric dry_run_id required'; exit 1; }
           test -z "$START_AFTER" || { echo '::error::execute cannot accept a scan cursor'; exit 1; }
-          test -z "$FAILED_EXECUTE_RUN_ID" || { echo '::error::execute cannot consume failed_execute_run_id'; exit 1; }
+          test -z "$PREVIOUS_BOUNDARY_RUN_ID" && test -z "$PREVIOUS_EXECUTE_RUN_ID"
+          if test "$MODE" = 'recover-rpc-timeout'; then
+            test "$DRY_RUN_ID" = "$ZERO_WRITE_DRY_RUN_ID"
+            test "$FAILED_EXECUTE_RUN_ID" = "$ZERO_WRITE_FAILED_RUN_ID"
+          else
+            [[ "$DRY_RUN_ID" =~ ^[1-9][0-9]*$ ]] || { echo '::error::numeric dry_run_id required'; exit 1; }
+            test "$DRY_RUN_ID" != "$ZERO_WRITE_DRY_RUN_ID" || { echo '::error::sealed zero-write boundary requires recover-rpc-timeout'; exit 1; }
+            test -z "$FAILED_EXECUTE_RUN_ID" || { echo '::error::execute cannot consume failed_execute_run_id'; exit 1; }
+          fi
 
       - name: Download and authenticate the successful frozen boundary
         env:
@@ -558,6 +578,14 @@ jobs:
                 and .digest=="sha256:4d5b40e20e59cd830125e572ed2ba888dcc2ce5309a62001793a87dd8464035b"
               )] | length==1
             ' <<< "$artifacts" >/dev/null
+          elif test "$DRY_RUN_ID" = "$ZERO_WRITE_DRY_RUN_ID"; then
+            test "$(jq -r .headSha <<< "$run_json")" = "$ZERO_WRITE_DRY_RUN_SHA"
+            artifacts=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$DRY_RUN_ID/artifacts?per_page=100")
+            jq -e --argjson id "$ZERO_WRITE_DRY_ARTIFACT_ID" \
+              --arg digest "$ZERO_WRITE_DRY_ARTIFACT_DIGEST" \
+              --arg name "fresh-canonical-audit-boundary-$ZERO_WRITE_DRY_RUN_ID" '
+              [.artifacts[] | select(.id==$id and .name==$name and .expired==false and .digest==$digest)] | length==1
+            ' <<< "$artifacts" >/dev/null
           fi
           mkdir -p "$RUNNER_TEMP/boundary"
           gh run download "$DRY_RUN_ID" --repo "$GITHUB_REPOSITORY" \
@@ -575,6 +603,13 @@ jobs:
               git show "11101c85a06aaec0d8f0deda0a4aac82cf24899b:$path" \
                 | cmp - "$RUNNER_TEMP/boundary/runtime/$path"
             done
+          elif test "$DRY_RUN_ID" = "$ZERO_WRITE_DRY_RUN_ID"; then
+            for path in \
+              .github/workflows/govern-fresh-canonical-audits.yml \
+              .github/actions/download-skillstore-cli/action.yml \
+              scripts/prepare-fresh-canonical-audit-batch.mjs; do
+              git show "$ZERO_WRITE_DRY_RUN_SHA:$path" | cmp - "$RUNNER_TEMP/boundary/runtime/$path"
+            done
           else
             cmp .github/workflows/govern-fresh-canonical-audits.yml \
               "$RUNNER_TEMP/boundary/runtime/.github/workflows/govern-fresh-canonical-audits.yml"
@@ -583,6 +618,49 @@ jobs:
             cmp scripts/prepare-fresh-canonical-audit-batch.mjs \
               "$RUNNER_TEMP/boundary/runtime/scripts/prepare-fresh-canonical-audit-batch.mjs"
           fi
+
+      - name: Authenticate exact zero-write timeout incident
+        if: inputs.mode == 'recover-rpc-timeout'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          incident="$RUNNER_TEMP/zero-write-incident"
+          mkdir -p "$incident/failed-execution"
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$ZERO_WRITE_DRY_RUN_ID" > "$incident/dry-run.json"
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$ZERO_WRITE_FAILED_RUN_ID" > "$incident/failed-run.json"
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$ZERO_WRITE_DRY_RUN_ID/artifacts?per_page=100" > "$incident/dry-artifacts.json"
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$ZERO_WRITE_FAILED_RUN_ID/artifacts?per_page=100" > "$incident/failed-artifacts.json"
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$ZERO_WRITE_FAILED_RUN_ID/jobs?filter=latest&per_page=100" > "$incident/failed-jobs.json"
+          gh run download "$ZERO_WRITE_FAILED_RUN_ID" --repo "$GITHUB_REPOSITORY" \
+            --name "fresh-canonical-audit-execution-$ZERO_WRITE_FAILED_RUN_ID" \
+            --dir "$incident/failed-execution"
+          mapfile -t top_level < <(find "$incident/failed-execution" -mindepth 1 -maxdepth 1 -printf '%f\n')
+          test "${#top_level[@]}" = 1 && test "${top_level[0]}" = boundary
+          (cd "$incident/failed-execution/boundary" && sha256sum --check SHA256SUMS)
+          diff -qr "$RUNNER_TEMP/boundary" "$incident/failed-execution/boundary"
+
+      - name: Verify all ten rows still match the zero-write boundary
+        if: inputs.mode == 'recover-rpc-timeout'
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: |
+          set -euo pipefail
+          incident="$RUNNER_TEMP/zero-write-incident"
+          jq '{schemaVersion:1,scopedSkillIds:[.rows[].skillId],rows:.rows}' \
+            "$RUNNER_TEMP/boundary/selected-cohort.json" > "$incident/scope.json"
+          node scripts/fetch-artifact-version-inventory.mjs \
+            --scope-inventory "$incident/scope.json" --output "$incident/current-inventory.json"
+          node scripts/verify-fresh-canonical-zero-write-recovery.mjs \
+            --boundary "$RUNNER_TEMP/boundary/fresh-boundary.json" \
+            --original-inventory "$RUNNER_TEMP/boundary/pre-inventory.json" \
+            --current-inventory "$incident/current-inventory.json" \
+            --dry-run "$incident/dry-run.json" --failed-run "$incident/failed-run.json" \
+            --dry-artifacts "$incident/dry-artifacts.json" \
+            --failed-artifacts "$incident/failed-artifacts.json" \
+            --failed-jobs "$incident/failed-jobs.json" \
+            > "$incident/verification.json"
 
       - name: Generate GitHub App token
         id: app-token
@@ -689,13 +767,15 @@ jobs:
           mkdir -p "$proof"
           jq -n \
             --arg executeRunId "$GITHUB_RUN_ID" --arg dryRunId '${{ inputs.dry_run_id }}' \
+            --arg producerKind '${{ inputs.mode == 'recover-rpc-timeout' && 'fresh_canonical_zero_write_recovery' || 'fresh_canonical_execute' }}' \
+            --arg failedExecuteRunId '${{ inputs.failed_execute_run_id }}' \
             --arg workflowCommit "$GITHUB_SHA" \
             --arg lastSelected "$(jq -r .lastSelected "$RUNNER_TEMP/boundary/selected-cohort.json")" \
             --arg cohortSha256 "$(jq -r .cohortSha256 "$RUNNER_TEMP/boundary/metadata.json")" \
             --arg executionResultsSha256 "$(sha256sum "$RUNNER_TEMP/execution-results.json" | awk '{print $1}')" \
             --arg postInventorySha256 "$(sha256sum "$RUNNER_TEMP/post-inventory.json" | awk '{print $1}')" \
             --argjson executedCount "$expected" \
-            '{schemaVersion:1,status:"fresh_canonical_audit_execution_complete",executeRunId:$executeRunId,dryRunId:$dryRunId,workflowCommit:$workflowCommit,lastSelected:$lastSelected,cohortSha256:$cohortSha256,executedCount:$executedCount,executionResultsSha256:$executionResultsSha256,postInventorySha256:$postInventorySha256,scoreFinalized:true,timestampFinalized:true,cacheClosureCompleted:true,packClosureCompleted:true,productionSmokeCompleted:true}' \
+            '{schemaVersion:1,producerKind:$producerKind,status:"fresh_canonical_audit_execution_complete",executeRunId:$executeRunId,dryRunId:$dryRunId,failedExecuteRunId:$failedExecuteRunId,workflowCommit:$workflowCommit,lastSelected:$lastSelected,cohortSha256:$cohortSha256,executedCount:$executedCount,executionResultsSha256:$executionResultsSha256,postInventorySha256:$postInventorySha256,scoreFinalized:true,timestampFinalized:true,cacheClosureCompleted:true,packClosureCompleted:true,productionSmokeCompleted:true}' \
             > "$proof/proof.json"
           (cd "$proof" && sha256sum proof.json > SHA256SUMS)
 
@@ -709,6 +789,7 @@ jobs:
             ${{ runner.temp }}/execution-results.json
             ${{ runner.temp }}/post-inventory.json
             ${{ runner.temp }}/execution-proof/
+            ${{ runner.temp }}/zero-write-incident/
           include-hidden-files: true
           if-no-files-found: error
           retention-days: 30

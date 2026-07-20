@@ -276,7 +276,7 @@ test('cursor requires both the immediately preceding boundary and a fully govern
 
 test('workflow is two-phase, CLI-pinned, resumable, and closes P0 channels', () => {
   const workflow = readFileSync(new URL('../../.github/workflows/govern-fresh-canonical-audits.yml', import.meta.url), 'utf8');
-  assert.match(workflow, /options: \[dry-run, execute, recover, recover-cache, recover-smoke\]/);
+  assert.match(workflow, /options: \[dry-run, execute, recover-rpc-timeout, recover, recover-cache, recover-smoke\]/);
   assert.match(workflow, /default: '2\.15\.5'/);
   assert.equal((workflow.match(/b47de464e5a2d1469875988c4b815cdf6765731a24aade68b8a904ad87417189/g) || []).length, 1);
   assert.match(workflow, /DRY_RUN_ID" = '29646612265'/);
@@ -327,6 +327,12 @@ test('workflow is two-phase, CLI-pinned, resumable, and closes P0 channels', () 
   assert.match(workflow, /name: fresh-canonical-audit-execution-\$\{\{ github\.run_id \}\}[\s\S]*?include-hidden-files: true/);
   assert.match(workflow, /productionSmokeCompleted:true/);
   assert.match(workflow, /pre-inventory\.json/);
+  assert.match(workflow, /ZERO_WRITE_DRY_RUN_ID: '29743150038'/);
+  assert.match(workflow, /ZERO_WRITE_FAILED_RUN_ID: '29744338076'/);
+  assert.match(workflow, /ZERO_WRITE_FAILED_ARTIFACT_ID: '8461872394'/);
+  assert.match(workflow, /test "\$DRY_RUN_ID" != "\$ZERO_WRITE_DRY_RUN_ID" \|\| \{ echo '::error::sealed zero-write boundary requires recover-rpc-timeout'; exit 1; \}/);
+  assert.match(workflow, /verify-fresh-canonical-zero-write-recovery\.mjs/);
+  assert.match(workflow, /fresh_canonical_zero_write_recovery/);
   assert.match(workflow, /skill govern-fresh-canonical-audit/);
   assert.match(workflow, /production-skill-score-writes/);
   assert.match(workflow, /CACHE_INVALIDATE_SECRET/);
