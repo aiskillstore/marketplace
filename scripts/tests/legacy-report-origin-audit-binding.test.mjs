@@ -117,7 +117,25 @@ function fixture() {
       derivation_kind: null,
     })),
   };
-  return { root, classification, originLineage, sourceEvidence };
+  const inventory = {
+    scopedSkillIds: rows.map((row) => row.id),
+    rows: sourceEvidence.skills,
+    artifacts: rows.slice(65).map((row, offset) => {
+      const index = offset + 65;
+      const skill = sourceEvidence.skills[index];
+      return {
+        id: skill.current_artifact_version_id,
+        skill_id: row.id,
+        artifact_revision: 1,
+        content_hash: skill.content_hash,
+        tree_hash: skill.tree_hash,
+        marketplace_commit_sha: skill.marketplace_commit_sha,
+        source_path: skill.plugin_path,
+        snapshot_status: 'complete',
+      };
+    }),
+  };
+  return { root, classification, originLineage, sourceEvidence, inventory };
 }
 
 test('builds exactly 11 append-only bindings from the authenticated 70-row Report-Origin split', () => {
@@ -145,6 +163,7 @@ test('builds exactly 11 append-only bindings from the authenticated 70-row Repor
       classification: item.classification,
       originLineage: item.originLineage,
       sourceEvidence: tampered,
+      inventory: item.inventory,
       repositoryRoot: item.root,
       expectedSelected: 11,
       expectedV2Revision0: 54,
@@ -157,11 +176,25 @@ test('builds exactly 11 append-only bindings from the authenticated 70-row Repor
       classification: item.classification,
       originLineage: item.originLineage,
       sourceEvidence: alreadyBound,
+      inventory: item.inventory,
       repositoryRoot: item.root,
       expectedSelected: 11,
       expectedV2Revision0: 54,
       expectedGoverned: 5,
     }), /already bound/);
+
+    const brokenPointer = structuredClone(item.inventory);
+    brokenPointer.artifacts[0].tree_hash = '0'.repeat(64);
+    assert.throws(() => buildLegacyReportOriginAuditBindingPlan({
+      classification: item.classification,
+      originLineage: item.originLineage,
+      sourceEvidence: item.sourceEvidence,
+      inventory: brokenPointer,
+      repositoryRoot: item.root,
+      expectedSelected: 11,
+      expectedV2Revision0: 54,
+      expectedGoverned: 5,
+    }), /governed projection changed/);
   } finally {
     rmSync(item.root, { recursive: true, force: true });
   }
