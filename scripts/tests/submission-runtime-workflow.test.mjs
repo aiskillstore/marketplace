@@ -202,8 +202,8 @@ test('all submission entrypoints and the aggregation import closure are immutabl
   assert.match(reusable, /node "\$GITHUB_WORKSPACE\/scripts\/aggregate-submission-shards\.mjs"/);
   assert.match(reusable, /node "\$GITHUB_WORKSPACE\/scripts\/classify-submission-targets\.mjs"/);
   assert.match(reusable, /require-checksum: true/);
-  assert.match(reusable, /minimum-version: 2\.15\.0/);
-  assert.match(reusable, /Rollout pin: selection-plan processing requires the exact 2\.15\.0 contract/);
+  assert.match(reusable, /minimum-version: 2\.15\.7/);
+  assert.match(reusable, /Rollout pin: selection-plan processing requires the exact 2\.15\.7 contract/);
   assert.match(reusable, /trap cleanup_input_plan EXIT/);
   assert.match(reusable, /--slug-aliases-file "\$GITHUB_WORKSPACE\/governance\/submission-slug-aliases\.json"/);
   assert.match(reusable, /--selection-plan "\$INPUT_PLAN"/);
