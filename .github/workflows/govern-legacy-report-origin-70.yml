@@ -28,12 +28,11 @@ env:
   # Production is intentionally impossible until the released linux-x64 binary
   # has been audited and this placeholder is replaced by its exact SHA-256.
   ORIGIN_CLI_SHA256: '9a980bbb9574dd3da976803264796dd3ba57d15bafde5645afe6fe5783e5e9ec'
-  ORIGIN_COHORT: scripts/data/legacy-report-origin-v2-only-cohort-v1.json
-  # Dry-runs 29765964455 and 29767036462 exposed three incomplete stored
-  # file structures: davila7-docx (66/70 nodes), davila7-pptx (62/66), and
-  # dmitrypogrebnoy-generating-rbs (144/365). Keep them deferred instead of
-  # weakening exact install-snapshot validation for the ordinary cohort.
-  ORIGIN_COHORT_SHA256: 164edab51b71a2be141d726cb50f7ae94b1c3f7ae622353d28c3f9ad7ac9b346
+  ORIGIN_COHORT: scripts/data/ordinary-v2-report-origin-cohort-v1.json
+  # Boundary 29775654869 classified the complete non-deferred residual. This
+  # cohort freezes only its 197 v2 report-origin rows; raw32 and deferred rows
+  # stay excluded instead of weakening source-audit or install validation.
+  ORIGIN_COHORT_SHA256: dfb78a0a55e4f534e6706396662de3bdfc116078b89a66c148177f630f0edac0
 
 jobs:
   freeze-boundary:
@@ -77,12 +76,12 @@ jobs:
             test -f "$path" || { echo "::error file=$path::Missing report-origin runtime"; exit 1; }
           done
           test "$(sha256sum "$ORIGIN_COHORT" | awk '{print $1}')" = "$ORIGIN_COHORT_SHA256"
-          jq -e '.schemaVersion == 2 and .selectedCount == 50 and (.rows | length) == 50 and (.sourceBoundaries | length) == 2' "$ORIGIN_COHORT" >/dev/null
+          jq -e '.schemaVersion == 2 and .selectedCount == 197 and (.rows | length) == 197 and (.sourceBoundaries | length) == 1' "$ORIGIN_COHORT" >/dev/null
           [[ "$ORIGIN_CLI_SHA256" =~ ^[0-9a-f]{64}$ ]] || {
             echo '::error::CLI 2.15.9 audit digest is still a non-production placeholder'; exit 1;
           }
 
-      - name: Download and verify two frozen drift classifications
+      - name: Download and verify the frozen drift classification
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -108,7 +107,7 @@ jobs:
             }
           done < <(jq -c '.sourceBoundaries[]' "$ORIGIN_COHORT")
 
-      - name: Build exact 50-row v2-only drift classification and plan
+      - name: Build exact 197-row v2-only drift classification and plan
         run: |
           set -euo pipefail
           node scripts/build-legacy-report-origin-boundary.mjs \
@@ -122,7 +121,7 @@ jobs:
           set -euo pipefail
           node scripts/materialize-legacy-report-origin-evidence.mjs \
             --repository-root "$GITHUB_WORKSPACE" --cohort "$ORIGIN_COHORT" \
-            --expected-count 50 --origin-root "$RUNNER_TEMP/origin" \
+            --expected-count 197 --origin-root "$RUNNER_TEMP/origin" \
             --previous-report-root "$RUNNER_TEMP/previous" \
             --manifest "$RUNNER_TEMP/origin-lineage.json"
 
@@ -158,7 +157,7 @@ jobs:
           set -euo pipefail
           test "$(sha256sum "$GITHUB_WORKSPACE/skillstore-cli" | awk '{print $1}')" = "$ORIGIN_CLI_SHA256"
 
-      - name: Run exact 50-row administrator dry-run
+      - name: Run exact 197-row administrator dry-run
         env:
           PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
@@ -278,7 +277,7 @@ jobs:
           test "$(sha256sum "$RUNNER_TEMP/boundary/cohort.json" | awk '{print $1}')" = "$ORIGIN_COHORT_SHA256"
           node scripts/materialize-legacy-report-origin-evidence.mjs \
             --repository-root "$GITHUB_WORKSPACE" --cohort "$RUNNER_TEMP/boundary/cohort.json" \
-            --expected-count 50 --origin-root "$RUNNER_TEMP/origin" \
+            --expected-count 197 --origin-root "$RUNNER_TEMP/origin" \
             --previous-report-root "$RUNNER_TEMP/previous" \
             --manifest "$RUNNER_TEMP/current-origin-lineage.json"
           cmp "$RUNNER_TEMP/boundary/origin-lineage.json" "$RUNNER_TEMP/current-origin-lineage.json" || {
@@ -326,7 +325,7 @@ jobs:
           actual=$(sha256sum "$GITHUB_WORKSPACE/skillstore-cli" | awk '{print $1}')
           test "$expected" = "$ORIGIN_CLI_SHA256" && test "$actual" = "$ORIGIN_CLI_SHA256"
 
-      - name: Execute only the frozen 50 rows
+      - name: Execute only the frozen 197 rows
         env:
           PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
@@ -352,7 +351,7 @@ jobs:
           done < <(jq -c '.groups[]' "$RUNNER_TEMP/boundary/plan.json")
           jq -s . "$RUNNER_TEMP/execution-results.jsonl" > "$RUNNER_TEMP/execution-results.json"
           jq -e '[.[].result.results[]] as $rows |
-            ($rows | length) == 50 and ($rows | map(.slug) | unique | length) == 50 and
+            ($rows | length) == 197 and ($rows | map(.slug) | unique | length) == 197 and
             ($rows | all(.mode == "execute" and .artifactRevision == 1))' \
             "$RUNNER_TEMP/execution-results.json" >/dev/null
 
