@@ -30,9 +30,9 @@ env:
   ORIGIN_CLI_SHA256: '9a980bbb9574dd3da976803264796dd3ba57d15bafde5645afe6fe5783e5e9ec'
   ORIGIN_COHORT: scripts/data/ordinary-v2-report-origin-cohort-v1.json
   # Boundary 29775654869 classified the complete non-deferred residual. This
-  # cohort freezes only its 197 v2 report-origin rows; raw32 and deferred rows
+  # cohort freezes only its 196 v2 report-origin rows; raw32 and deferred rows
   # stay excluded instead of weakening source-audit or install validation.
-  ORIGIN_COHORT_SHA256: dfb78a0a55e4f534e6706396662de3bdfc116078b89a66c148177f630f0edac0
+  ORIGIN_COHORT_SHA256: 29e248eac74cce31454d167a46d7857fb9d43ac476f8e753b854cab1ce7e84cc
 
 jobs:
   freeze-boundary:
@@ -76,7 +76,7 @@ jobs:
             test -f "$path" || { echo "::error file=$path::Missing report-origin runtime"; exit 1; }
           done
           test "$(sha256sum "$ORIGIN_COHORT" | awk '{print $1}')" = "$ORIGIN_COHORT_SHA256"
-          jq -e '.schemaVersion == 2 and .selectedCount == 197 and (.rows | length) == 197 and (.sourceBoundaries | length) == 1' "$ORIGIN_COHORT" >/dev/null
+          jq -e '.schemaVersion == 2 and .selectedCount == 196 and (.rows | length) == 196 and (.sourceBoundaries | length) == 1' "$ORIGIN_COHORT" >/dev/null
           [[ "$ORIGIN_CLI_SHA256" =~ ^[0-9a-f]{64}$ ]] || {
             echo '::error::CLI 2.15.9 audit digest is still a non-production placeholder'; exit 1;
           }
@@ -107,7 +107,7 @@ jobs:
             }
           done < <(jq -c '.sourceBoundaries[]' "$ORIGIN_COHORT")
 
-      - name: Build exact 197-row v2-only drift classification and plan
+      - name: Build exact 196-row v2-only drift classification and plan
         run: |
           set -euo pipefail
           node scripts/build-legacy-report-origin-boundary.mjs \
@@ -121,7 +121,7 @@ jobs:
           set -euo pipefail
           node scripts/materialize-legacy-report-origin-evidence.mjs \
             --repository-root "$GITHUB_WORKSPACE" --cohort "$ORIGIN_COHORT" \
-            --expected-count 197 --origin-root "$RUNNER_TEMP/origin" \
+            --expected-count 196 --origin-root "$RUNNER_TEMP/origin" \
             --previous-report-root "$RUNNER_TEMP/previous" \
             --manifest "$RUNNER_TEMP/origin-lineage.json"
 
@@ -157,7 +157,7 @@ jobs:
           set -euo pipefail
           test "$(sha256sum "$GITHUB_WORKSPACE/skillstore-cli" | awk '{print $1}')" = "$ORIGIN_CLI_SHA256"
 
-      - name: Run exact 197-row administrator dry-run
+      - name: Run exact 196-row administrator dry-run
         env:
           PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
@@ -165,21 +165,66 @@ jobs:
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/dry-run-groups"
           : > "$RUNNER_TEMP/dry-run-results.jsonl"
+          : > "$RUNNER_TEMP/dry-run-failures.jsonl"
           while IFS= read -r group; do
             commit=$(jq -r .marketplaceCommit <<< "$group")
-            slugs=$(jq -r '.slugs | join(",")' <<< "$group")
-            result="$RUNNER_TEMP/dry-run-groups/$commit.json"
-            "$GITHUB_WORKSPACE/skillstore-cli" skill govern-legacy-equivalent \
-              --classification "$RUNNER_TEMP/classification.json" \
-              --legacy-origin-lineage "$RUNNER_TEMP/origin-lineage.json" \
-              --legacy-origin-root "$RUNNER_TEMP/origin" \
-              --legacy-previous-report-root "$RUNNER_TEMP/previous" \
-              --root "$RUNNER_TEMP/current/$commit" --slugs "$slugs" \
-              --dry-run --concurrency 1 --result-file "$result"
-            jq -n -c --arg commit "$commit" --slurpfile result "$result" \
+            group_root="$RUNNER_TEMP/dry-run-groups/$commit"
+            mkdir -p "$group_root/results" "$group_root/logs"
+            : > "$group_root/results.jsonl"
+            while IFS= read -r slug; do
+              result="$group_root/results/$slug.json"
+              stdout="$group_root/logs/$slug.stdout"
+              stderr="$group_root/logs/$slug.stderr"
+              set +e
+              "$GITHUB_WORKSPACE/skillstore-cli" skill govern-legacy-equivalent \
+                --classification "$RUNNER_TEMP/classification.json" \
+                --legacy-origin-lineage "$RUNNER_TEMP/origin-lineage.json" \
+                --legacy-origin-root "$RUNNER_TEMP/origin" \
+                --legacy-previous-report-root "$RUNNER_TEMP/previous" \
+                --root "$RUNNER_TEMP/current/$commit" --slugs "$slug" \
+                --dry-run --concurrency 1 --result-file "$result" \
+                >"$stdout" 2>"$stderr"
+              exit_code=$?
+              set -e
+              [ ! -s "$stdout" ] || cat "$stdout"
+              [ ! -s "$stderr" ] || cat "$stderr" >&2
+              if [ "$exit_code" -ne 0 ]; then
+                jq -n -c --arg commit "$commit" --arg slug "$slug" \
+                  --argjson exitCode "$exit_code" --rawfile error "$stderr" \
+                  '{marketplaceCommit:$commit,slug:$slug,exitCode:$exitCode,error:$error}' \
+                  >> "$RUNNER_TEMP/dry-run-failures.jsonl"
+                continue
+              fi
+              jq -e --arg slug "$slug" '
+                .success == true and .mode == "dry-run" and .governed == 0 and
+                .validated == 1 and (.results | length) == 1 and .results[0].slug == $slug
+              ' "$result" >/dev/null
+              jq -c . "$result" >> "$group_root/results.jsonl"
+            done < <(jq -r '.slugs[]' <<< "$group")
+            jq -s '
+              {success:all(.[];.success == true),mode:"dry-run",
+               governed:(map(.governed)|add // 0),validated:(map(.validated)|add // 0),
+               results:[.[].results[]]}
+            ' "$group_root/results.jsonl" > "$group_root/group.json"
+            jq -n -c --arg commit "$commit" --slurpfile result "$group_root/group.json" \
               '{marketplaceCommit:$commit,result:$result[0]}' >> "$RUNNER_TEMP/dry-run-results.jsonl"
           done < <(jq -c '.groups[]' "$RUNNER_TEMP/plan.json")
+          if [ -s "$RUNNER_TEMP/dry-run-failures.jsonl" ]; then
+            jq -s . "$RUNNER_TEMP/dry-run-failures.jsonl" > "$RUNNER_TEMP/dry-run-failures.json"
+            jq -r '.[] | "::error title=No-write validation failed for \(.slug)::\(.error | split("\n")[0])"' \
+              "$RUNNER_TEMP/dry-run-failures.json"
+            exit 1
+          fi
           jq -s . "$RUNNER_TEMP/dry-run-results.jsonl" > "$RUNNER_TEMP/dry-run-results.json"
+
+      - name: Upload no-write validation failures
+        if: failure()
+        uses: actions/upload-artifact@v6
+        with:
+          name: legacy-report-origin-v2-only-failed-dry-run-${{ github.run_id }}
+          path: ${{ runner.temp }}/dry-run-failures.json
+          if-no-files-found: ignore
+          retention-days: 30
 
       - name: Freeze exact cohort, manifest, classification, and dry-run boundary
         run: |
@@ -277,7 +322,7 @@ jobs:
           test "$(sha256sum "$RUNNER_TEMP/boundary/cohort.json" | awk '{print $1}')" = "$ORIGIN_COHORT_SHA256"
           node scripts/materialize-legacy-report-origin-evidence.mjs \
             --repository-root "$GITHUB_WORKSPACE" --cohort "$RUNNER_TEMP/boundary/cohort.json" \
-            --expected-count 197 --origin-root "$RUNNER_TEMP/origin" \
+            --expected-count 196 --origin-root "$RUNNER_TEMP/origin" \
             --previous-report-root "$RUNNER_TEMP/previous" \
             --manifest "$RUNNER_TEMP/current-origin-lineage.json"
           cmp "$RUNNER_TEMP/boundary/origin-lineage.json" "$RUNNER_TEMP/current-origin-lineage.json" || {
@@ -325,7 +370,7 @@ jobs:
           actual=$(sha256sum "$GITHUB_WORKSPACE/skillstore-cli" | awk '{print $1}')
           test "$expected" = "$ORIGIN_CLI_SHA256" && test "$actual" = "$ORIGIN_CLI_SHA256"
 
-      - name: Execute only the frozen 197 rows
+      - name: Execute only the frozen 196 rows
         env:
           PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
@@ -351,7 +396,7 @@ jobs:
           done < <(jq -c '.groups[]' "$RUNNER_TEMP/boundary/plan.json")
           jq -s . "$RUNNER_TEMP/execution-results.jsonl" > "$RUNNER_TEMP/execution-results.json"
           jq -e '[.[].result.results[]] as $rows |
-            ($rows | length) == 197 and ($rows | map(.slug) | unique | length) == 197 and
+            ($rows | length) == 196 and ($rows | map(.slug) | unique | length) == 196 and
             ($rows | all(.mode == "execute" and .artifactRevision == 1))' \
             "$RUNNER_TEMP/execution-results.json" >/dev/null
 

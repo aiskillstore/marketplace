@@ -917,13 +917,13 @@ test('ordinary workflow excludes the exact deferred cohort before planning', () 
   const deferred = JSON.parse(raw);
   assert.equal(deferred.schemaVersion, 1);
   assert.equal(deferred.status, 'artifact_governance_deferred');
-  assert.equal(deferred.count, 27);
-  assert.equal(deferred.slugs.length, 27);
-  assert.equal(new Set(deferred.slugs).size, 27);
+  assert.equal(deferred.count, 28);
+  assert.equal(deferred.slugs.length, 28);
+  assert.equal(new Set(deferred.slugs).size, 28);
   assert.deepEqual(deferred.slugs, [...deferred.slugs].sort());
   assert.equal(
     createHash('sha256').update(raw).digest('hex'),
-    'f294d245dd228f5f58a2e30a5c52dede96bd8fa4498743b24825ddcbc07aba69'
+    '1b965077ffcc3feb3daf3d289f19a76971a47e3e49c42a3647fd34cf5031955a'
   );
 
   const workflow = readFileSync(
@@ -931,7 +931,7 @@ test('ordinary workflow excludes the exact deferred cohort before planning', () 
     'utf8'
   );
   assert.match(workflow, /DEFERRED_FILE: scripts\/data\/artifact-governance-deferred-v1\.json/);
-  assert.match(workflow, /DEFERRED_SHA256: f294d245dd228f5f58a2e30a5c52dede96bd8fa4498743b24825ddcbc07aba69/);
+  assert.match(workflow, /DEFERRED_SHA256: 1b965077ffcc3feb3daf3d289f19a76971a47e3e49c42a3647fd34cf5031955a/);
   assert.match(workflow, /\(\$deferred\[0\]\.slugs \| index\(\$slug\) \| not\)/);
   assert.match(workflow, /--inventory "\$RUNNER_TEMP\/ordinary-catalog\.json"/);
 });
