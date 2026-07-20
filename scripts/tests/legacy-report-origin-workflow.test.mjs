@@ -121,9 +121,9 @@ test('workflow freezes and replays Git evidence with the audited CLI digest', ()
   );
   assert.match(workflow, /ORIGIN_COHORT: scripts\/data\/legacy-report-origin-v2-only-cohort-v1\.json/);
   assert.match(workflow, /ORIGIN_COHORT_SHA256: 19405cdafddc726fca51dd26b7b7d3f40c1a12816c4b8ebe33fea2ed20e5c616/);
-  assert.match(workflow, /ORIGIN_CLI_VERSION: '2\.15\.2'/);
-  assert.match(workflow, /ORIGIN_CLI_SHA256: 'fceaa46ab5e8cb2b68398a49f1e6c041bfa4cc83abc00221ba7d1e2bf83a73e4'/);
-  assert.equal((workflow.match(/version: '2\.15\.2'/g) || []).length, 4);
+  assert.match(workflow, /ORIGIN_CLI_VERSION: '2\.15\.9'/);
+  assert.match(workflow, /ORIGIN_CLI_SHA256: '9a980bbb9574dd3da976803264796dd3ba57d15bafde5645afe6fe5783e5e9ec'/);
+  assert.equal((workflow.match(/version: '2\.15\.9'/g) || []).length, 4);
   assert.match(workflow, /\[\[ "\$ORIGIN_CLI_SHA256" =~ \^\[0-9a-f\]\{64\}\$ \]\]/);
   assert.match(workflow, /\.workflowName == "Govern Legacy Report-Origin V2-Only"/);
   assert.match(workflow, /sha256sum --check SHA256SUMS/);
