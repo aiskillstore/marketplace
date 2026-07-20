@@ -23,6 +23,11 @@ const runtimeFiles = [
   'scripts/verify-source-monitor-selection.mjs',
 ];
 
+test('source monitor shares the production governance writer mutex', () => {
+  assert.match(workflow, /scan:\n(?:.*\n){0,8}\s+concurrency:\n\s+# Source monitoring[\s\S]{0,260}group: production-skill-score-writes/);
+  assert.match(workflow, /group: production-skill-score-writes\n\s+cancel-in-progress: false/);
+});
+
 function run(command, args, options = {}) {
   const result = spawnSync(command, args, { encoding: 'utf8', ...options });
   if (result.status !== 0 && !options.allowFailure) {

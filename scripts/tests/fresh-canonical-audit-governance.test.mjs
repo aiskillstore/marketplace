@@ -277,13 +277,14 @@ test('cursor requires both the immediately preceding boundary and a fully govern
 test('workflow is two-phase, CLI-pinned, resumable, and closes P0 channels', () => {
   const workflow = readFileSync(new URL('../../.github/workflows/govern-fresh-canonical-audits.yml', import.meta.url), 'utf8');
   assert.match(workflow, /options: \[dry-run, execute, recover, recover-cache, recover-smoke\]/);
-  assert.match(workflow, /default: '2\.15\.4'/);
+  assert.match(workflow, /default: '2\.15\.5'/);
+  assert.equal((workflow.match(/b47de464e5a2d1469875988c4b815cdf6765731a24aade68b8a904ad87417189/g) || []).length, 1);
   assert.match(workflow, /DRY_RUN_ID" = '29646612265'/);
   assert.match(workflow, /11101c85a06aaec0d8f0deda0a4aac82cf24899b/);
   assert.match(workflow, /sha256:4d5b40e20e59cd830125e572ed2ba888dcc2ce5309a62001793a87dd8464035b/);
   assert.match(workflow, /git show "11101c85a06aaec0d8f0deda0a4aac82cf24899b:\$path"/);
   assert.ok((workflow.match(/282cfb6103f580c1758674f6d407493b3039a2ca788c986297684180ae6f0dbb/g) || []).length >= 4);
-  assert.equal((workflow.match(/3fe1650ff585db24a2708ea26819c22bc9f5fa0702fe703885c41537a08c8de5/g) || []).length, 1);
+  assert.doesNotMatch(workflow, /3fe1650ff585db24a2708ea26819c22bc9f5fa0702fe703885c41537a08c8de5/);
   assert.equal((workflow.match(/296cab05576adec2c6613255b26663fab58e8f3fa585e2c085cd0367d8c7274f/g) || []).length, 2);
   assert.equal((workflow.match(/9b885943950c15555e8fbae522adf2cf9514ae74f63050a905c8e97694d52fcb/g) || []).length, 2);
   assert.equal((workflow.match(/ecfaa49aa72d24b8ea6322c7dae24d4bbe9df174a5d009cc56d7d2a89e7ae05a/g) || []).length, 4);
