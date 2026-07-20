@@ -99,7 +99,7 @@ export function buildLegacyReportOriginAuditBindingPlan({
         || artifact.tree_hash !== skill.tree_hash
         || artifact.marketplace_commit_sha !== skill.marketplace_commit_sha
         || artifact.source_path !== skill.plugin_path
-        || artifact.snapshot_status !== 'complete'
+        || artifact.snapshot_status !== 'exact'
       ) fail(`report-origin governed projection changed for ${row.slug}`);
       governed += 1;
       continue;
