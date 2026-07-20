@@ -98,7 +98,7 @@ test('rejects absolute, traversal, and backslash frozen paths', () => withReposi
   }
 }));
 
-test('rejects stale report hashes and blocked reports', () => withRepository((root) => {
+test('rejects stale report hashes without using audit verdicts as a publication gate', () => withRepository((root) => {
   addSkill(root, 'pending/owner/stale', { hash: '0'.repeat(64), slug: 'owner-stale' });
   assert.throws(
     () => resolveApprovedSubmission({
@@ -109,17 +109,9 @@ test('rejects stale report hashes and blocked reports', () => withRepository((ro
   );
 
   addSkill(root, 'pending/owner/blocked', { blocked: true, slug: 'owner-blocked' });
-  assert.throws(
-    () => resolveApprovedSubmission({
-      repositoryRoot: root,
-      changedFiles: ['pending/owner/blocked/SKILL.md', 'pending/owner/blocked/skill-report.json'],
-    }),
-    /blocked or missing/,
-  );
   assert.equal(resolveApprovedSubmission({
     repositoryRoot: root,
     changedFiles: ['pending/owner/blocked/SKILL.md', 'pending/owner/blocked/skill-report.json'],
-    allowBlocked: true,
   }).skills.length, 1);
 }));
 

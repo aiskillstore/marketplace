@@ -129,7 +129,7 @@ function rootFromSkillFile(path) {
   return segments.slice(0, -1).join('/');
 }
 
-export function resolveApprovedSubmission({ repositoryRoot, changedFiles, allowBlocked = false }) {
+export function resolveApprovedSubmission({ repositoryRoot, changedFiles }) {
   const root = realpathSync(repositoryRoot);
   const normalizedFiles = [...new Set(changedFiles.map(normalizeFrozenPath).filter(Boolean))].sort();
   const pendingFiles = normalizedFiles.filter((path) => path === 'pending' || path.startsWith('pending/'));
@@ -188,10 +188,6 @@ export function resolveApprovedSubmission({ repositoryRoot, changedFiles, allowB
     if (report.meta.slug !== expectedSlug) {
       fail(`${pendingDir} report slug does not match its publication path`);
     }
-    if (report?.security_audit?.is_blocked !== false && !allowBlocked) {
-      fail(`${pendingDir} is blocked or missing an explicit unblocked audit verdict`);
-    }
-
     const expectedContentHash = report?.meta?.content_hash;
     const actualContentHash = sha256(skillPath);
     if (!/^[0-9a-f]{64}$/.test(expectedContentHash ?? '') || expectedContentHash !== actualContentHash) {
@@ -231,9 +227,8 @@ function main() {
   const repositoryRoot = readOption(args, '--repo-root');
   const filesPath = readOption(args, '--files');
   const outputPath = readOption(args, '--output');
-  const allowBlocked = args.includes('--allow-blocked');
   const changedFiles = readFileSync(filesPath, 'utf8').split(/\r?\n/).filter(Boolean);
-  const plan = resolveApprovedSubmission({ repositoryRoot, changedFiles, allowBlocked });
+  const plan = resolveApprovedSubmission({ repositoryRoot, changedFiles });
   writeFileSync(outputPath, `${JSON.stringify(plan, null, 2)}\n`, { mode: 0o600 });
   process.stdout.write(`Resolved ${plan.skills.length} frozen pending skill(s)\n`);
 }

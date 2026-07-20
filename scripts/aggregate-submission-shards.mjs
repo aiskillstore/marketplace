@@ -241,7 +241,6 @@ function aggregate(config) {
       const plan = resolveApprovedSubmission({
         repositoryRoot: root,
         changedFiles,
-        allowBlocked: true,
       });
       shardSkills = plan.skills;
       assertSameStringSet(
