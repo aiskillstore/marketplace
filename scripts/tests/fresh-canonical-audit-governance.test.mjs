@@ -279,8 +279,8 @@ test('workflow is two-phase, CLI-pinned, resumable, and closes P0 channels', () 
   assert.match(workflow, /options: \[dry-run, execute, recover, recover-cache, recover-smoke\]/);
   assert.doesNotMatch(workflow, /options: \[[^\]]*recover-rpc-timeout/);
   assert.match(workflow, /execute-boundary:\n    if: inputs\.mode == 'execute'/);
-  assert.match(workflow, /default: '2\.15\.5'/);
-  assert.equal((workflow.match(/b47de464e5a2d1469875988c4b815cdf6765731a24aade68b8a904ad87417189/g) || []).length, 1);
+  assert.match(workflow, /default: '2\.15\.10'/);
+  assert.equal((workflow.match(/2ea8ef90fcb890b83b1cf1bd772bd02da3fff98bc8f5162c481287552518bdd8/g) || []).length, 1);
   assert.match(workflow, /DRY_RUN_ID" = '29646612265'/);
   assert.match(workflow, /11101c85a06aaec0d8f0deda0a4aac82cf24899b/);
   assert.match(workflow, /sha256:4d5b40e20e59cd830125e572ed2ba888dcc2ce5309a62001793a87dd8464035b/);
@@ -291,8 +291,8 @@ test('workflow is two-phase, CLI-pinned, resumable, and closes P0 channels', () 
   assert.equal((workflow.match(/9b885943950c15555e8fbae522adf2cf9514ae74f63050a905c8e97694d52fcb/g) || []).length, 2);
   assert.equal((workflow.match(/ecfaa49aa72d24b8ea6322c7dae24d4bbe9df174a5d009cc56d7d2a89e7ae05a/g) || []).length, 4);
   assert.match(workflow, /\[\[ "\$FRESH_GOVERNANCE_CLI_SHA256" =~ \^\[0-9a-f\]\{64\}\$ \]\]/);
-  assert.match(workflow, /REPORT_ORIGIN_FRESH_COHORT: 'governance\/fresh-canonical-audit\/report-origin-raw32-v1\.json'/);
-  assert.match(workflow, /REPORT_ORIGIN_FRESH_COHORT_SHA256: '261604847b20ede3b31264c4500433692ba38269b32c48e84c78d4609d4568e6'/);
+  assert.match(workflow, /REPORT_ORIGIN_FRESH_COHORT: 'governance\/fresh-canonical-audit\/raw32-exact62-v1\.json'/);
+  assert.match(workflow, /REPORT_ORIGIN_FRESH_COHORT_SHA256: 'ad5938fa521d2c7bd5d3de95304d9e5e5eff74376b0ceab173628058efaf6539'/);
   assert.match(workflow, /Prove Report-Origin raw32 audits are replacement pointers only/);
   assert.match(workflow, /auditReplacementMode == "expected_replaced_pointer_only"/);
   assert.match(workflow, /invalid Report-Origin replacement proof/);
@@ -409,6 +409,40 @@ test('Report-Origin Fresh-11 cohort is exact, immutable, and source-addressed', 
       kind: 'frozen_mutable_main',
       sourceRef: 'main',
       skillReportUrl: `https://github.com/aiskillstore/marketplace/blob/main/${row.path}/skill-report.json`,
+    });
+  }
+});
+
+test('residual raw32 Fresh cohort is exact, commit-pinned, and replacement-only', () => {
+  const bytes = readFileSync(new URL(
+    '../../governance/fresh-canonical-audit/raw32-exact62-v1.json', import.meta.url
+  ));
+  const cohort = JSON.parse(bytes.toString('utf8'));
+  assert.equal(createHash('sha256').update(bytes).digest('hex'),
+    'ad5938fa521d2c7bd5d3de95304d9e5e5eff74376b0ceab173628058efaf6539');
+  assert.equal(cohort.schemaVersion, 1);
+  assert.equal(cohort.status, 'lineage_unproven');
+  assert.equal(cohort.count, 62);
+  assert.equal(cohort.rows.length, 62);
+  assert.equal(new Set(cohort.rows.map((row) => row.slug)).size, 62);
+  assert.equal(new Set(cohort.rows.map((row) => row.skillId)).size, 62);
+  assert.equal(new Set(cohort.rows.map((row) => row.path)).size, 62);
+  assert.deepEqual([...new Set(cohort.rows.map((row) => row.marketplaceCommit))].sort(), [
+    '14dc8f201a64f8d30fd131d7f036cd5e788be523',
+    '3f6e026a3363e0954ede7bef0cfe88d4475de137',
+    'd1c4c60b80afc545d96b5e8a51c19b2fdc81df70',
+  ]);
+  for (const row of cohort.rows) {
+    assert.equal(row.remainingReason, 'same_source_tree_unproven');
+    assert.equal(row.governanceEligibleByLineage, false);
+    assert.match(row.reportContentHash, /^[0-9a-f]{64}$/);
+    assert.match(row.reportTreeHash, /^[0-9a-f]{64}$/);
+    assert.equal(row.reportContentHash, row.canonicalArtifact.contentHash);
+    assert.equal(row.reportTreeHash, row.canonicalArtifact.treeHash);
+    assert.deepEqual(row.legacyReference, {
+      kind: 'frozen_commit_ref',
+      sourceRef: row.marketplaceCommit,
+      skillReportUrl: `https://github.com/aiskillstore/marketplace/blob/${row.marketplaceCommit}/${row.path}/skill-report.json`,
     });
   }
 });
