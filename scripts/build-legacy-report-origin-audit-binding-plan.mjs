@@ -30,6 +30,7 @@ export function buildLegacyReportOriginAuditBindingPlan({
   classification,
   originLineage,
   sourceEvidence,
+  inventory,
   repositoryRoot,
   expectedSelected,
   expectedV2Revision0,
@@ -58,8 +59,14 @@ export function buildLegacyReportOriginAuditBindingPlan({
   const audits = uniqueMap(sourceEvidence.audits, 'id', 'source audits');
   const bindings = uniqueMap(sourceEvidence.bindings, 'source_audit_id', 'legacy bindings');
   const lineage = uniqueMap(originLineage.entries, 'slug', 'origin lineage');
+  const inventorySkills = uniqueMap(inventory?.rows, 'id', 'inventory Skills');
+  const artifacts = uniqueMap(inventory?.artifacts, 'id', 'inventory artifacts');
+  const scopedIds = new Set(inventory?.scopedSkillIds || []);
   if (skills.size !== 70 || audits.size !== 70 || lineage.size !== 70) {
     fail('report-origin source evidence does not cover exactly 70 identities');
+  }
+  if (scopedIds.size !== 70 || rows.some((row) => !scopedIds.has(row.id))) {
+    fail('report-origin inventory does not cover exactly the frozen 70 identities');
   }
 
   const entries = [];
@@ -69,16 +76,30 @@ export function buildLegacyReportOriginAuditBindingPlan({
     const skill = skills.get(row.id);
     const audit = audits.get(row.publicEligibilityAuditId);
     const proof = lineage.get(row.slug);
+    const inventorySkill = inventorySkills.get(row.id);
     if (
       !skill || skill.slug !== row.slug
       || !audit || audit.skill_id !== row.id || audit.id !== row.publicEligibilityAuditId
     ) fail(`report-origin immutable identity changed for ${row.slug}`);
 
     if (skill.artifact_revision === 1 && UUID_RE.test(skill.current_artifact_version_id || '')) {
+      const artifact = artifacts.get(skill.current_artifact_version_id);
       if (
-        skill.content_hash !== row.evidence?.artifact?.contentHash
-        || skill.tree_hash !== row.evidence?.artifact?.treeHash
-        || !UUID_RE.test(skill.public_eligibility_audit_id || '')
+        !inventorySkill
+        || inventorySkill.current_artifact_version_id !== skill.current_artifact_version_id
+        || inventorySkill.artifact_revision !== 1
+        || inventorySkill.content_hash !== skill.content_hash
+        || inventorySkill.tree_hash !== skill.tree_hash
+        || inventorySkill.marketplace_commit_sha !== skill.marketplace_commit_sha
+        || inventorySkill.plugin_path !== skill.plugin_path
+        || !artifact
+        || artifact.skill_id !== row.id
+        || artifact.artifact_revision !== 1
+        || artifact.content_hash !== skill.content_hash
+        || artifact.tree_hash !== skill.tree_hash
+        || artifact.marketplace_commit_sha !== skill.marketplace_commit_sha
+        || artifact.source_path !== skill.plugin_path
+        || artifact.snapshot_status !== 'complete'
       ) fail(`report-origin governed projection changed for ${row.slug}`);
       governed += 1;
       continue;
@@ -92,6 +113,14 @@ export function buildLegacyReportOriginAuditBindingPlan({
       || skill.plugin_path !== row.path
       || skill.public_eligible !== true
       || skill.public_eligibility_audit_id !== row.publicEligibilityAuditId
+      || !inventorySkill
+      || inventorySkill.current_artifact_version_id !== null
+      || inventorySkill.artifact_revision !== 0
+      || inventorySkill.content_hash !== skill.content_hash
+      || inventorySkill.tree_hash !== skill.tree_hash
+      || inventorySkill.marketplace_commit_sha !== skill.marketplace_commit_sha
+      || inventorySkill.plugin_path !== skill.plugin_path
+      || inventorySkill.public_eligibility_audit_id !== skill.public_eligibility_audit_id
       || !proof || proof.skillId !== row.id || proof.path !== row.path
       || proof.currentMarketplaceCommit !== row.marketplaceCommit
       || proof.currentReport?.contentHash !== row.contentHash
@@ -183,6 +212,7 @@ if (process.argv[1]?.endsWith('build-legacy-report-origin-audit-binding-plan.mjs
       classification: { type: 'string' },
       'origin-lineage': { type: 'string' },
       'source-evidence': { type: 'string' },
+      inventory: { type: 'string' },
       'repository-root': { type: 'string' },
       'expected-selected': { type: 'string' },
       'expected-v2': { type: 'string' },
@@ -193,6 +223,7 @@ if (process.argv[1]?.endsWith('build-legacy-report-origin-audit-binding-plan.mjs
       classification: JSON.parse(readFileSync(resolve(values.classification), 'utf8')),
       originLineage: JSON.parse(readFileSync(resolve(values['origin-lineage']), 'utf8')),
       sourceEvidence: JSON.parse(readFileSync(resolve(values['source-evidence']), 'utf8')),
+      inventory: JSON.parse(readFileSync(resolve(values.inventory), 'utf8')),
       repositoryRoot: resolve(values['repository-root']),
       expectedSelected: parseCount(values['expected-selected'], '--expected-selected'),
       expectedV2Revision0: parseCount(values['expected-v2'], '--expected-v2'),
