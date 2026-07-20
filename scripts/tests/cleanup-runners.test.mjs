@@ -42,5 +42,5 @@ test('host guard can reclaim shared Docker build cache before Actions setup', ()
   assert.match(timer, /Persistent=true/);
   assert.match(testWorkflow, /- "scripts\/runner-disk-guard\.sh"/);
   assert.match(testWorkflow, /- "ops\/systemd\/\*\*"/);
-  assert.match(testWorkflow, /sparse-checkout: \|\n\s+\.github\n\s+ops\/systemd\n\s+scripts/);
+  assert.match(testWorkflow, /sparse-checkout: \|\n\s+\.github\n\s+governance\/fresh-canonical-audit\n\s+ops\/systemd\n\s+scripts/);
 });
