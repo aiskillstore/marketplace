@@ -88,6 +88,31 @@ function exactRecoveryBoundary(row, cohortSha256) {
   };
 }
 
+function exactCacheRecoveryBoundary(row, cohortSha256) {
+  const boundary = exactRecoveryBoundary(row, cohortSha256);
+  boundary.metadata.runId = '29682699325';
+  Object.assign(boundary.executionProof, {
+    executeRunId: '29691166740',
+    dryRunId: '29682699325',
+    failedExecuteRunId: '29684825610',
+    failedExecuteHeadSha: '2bfe0fd5cf25a967c5481dd83207b0de24997273',
+    workflowCommit: '15eac13abcacce4146ebfc3069898fe24fbc178d',
+    originalCli: {
+      version: '2.8.4',
+      sha256: '282cfb6103f580c1758674f6d407493b3039a2ca788c986297684180ae6f0dbb',
+    },
+    failedExecutionCli: {
+      version: '2.8.4',
+      sha256: '282cfb6103f580c1758674f6d407493b3039a2ca788c986297684180ae6f0dbb',
+    },
+    recoveryRuntime: {
+      cacheVersion: 'v7',
+      smokeCommit: '0f78b2d983b0e233f6b7071e38ddf6b4f29c9168',
+    },
+  });
+  return boundary;
+}
+
 function exactSmokeRecoveryBoundary(row, cohortSha256) {
   return {
     metadata: {
@@ -204,6 +229,25 @@ test('cursor requires both the immediately preceding boundary and a fully govern
       executionProof: {
         ...recoveryBoundary.executionProof,
         failedExecuteRunId: '29623717000',
+      },
+    },
+    cohortSha256,
+  }), /successfully closed previous execution/);
+
+  const cacheRecoveryBoundary = exactCacheRecoveryBoundary(row, cohortSha256);
+  const cacheRecovered = prepareFreshCanonicalAuditBatch({
+    repositoryRoot: root, cohort, startAfter: row.slug, batchSize: 1,
+    productionInventory: inventory(row, 1), previousBoundary: cacheRecoveryBoundary, cohortSha256,
+  });
+  assert.equal(cacheRecovered.count, 0);
+  assert.throws(() => prepareFreshCanonicalAuditBatch({
+    repositoryRoot: root, cohort, startAfter: row.slug, batchSize: 1,
+    productionInventory: inventory(row, 1),
+    previousBoundary: {
+      ...cacheRecoveryBoundary,
+      executionProof: {
+        ...cacheRecoveryBoundary.executionProof,
+        workflowCommit: 'f'.repeat(40),
       },
     },
     cohortSha256,
