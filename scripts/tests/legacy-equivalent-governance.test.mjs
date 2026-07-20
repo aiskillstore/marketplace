@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -229,8 +230,8 @@ function createBoundaryFixture() {
       runId: '12345',
       repository: 'aiskillstore/marketplace',
       workflowCommit: 'f'.repeat(40),
-      cliVersion: '2.11.4',
-      cliSha256: '236c0d3f5091d6cf15d3fa90a247706ab2419f7cfb672554fc5336f0f4212394',
+      cliVersion: '2.15.9',
+      cliSha256: '9a980bbb9574dd3da976803264796dd3ba57d15bafde5645afe6fe5783e5e9ec',
     },
   });
   return { ...values, directory, files, boundary };
@@ -390,6 +391,7 @@ test('freezes and verifies one exact dry-run boundary', () => {
       ['2.11.1', '9aa6a6e15d249e52bed690049974d8312f3257c205025823a68d249cc5cc8367'],
       ['2.11.2', 'c596ca3b6d27875fdcd231bfb889899f08ea8ae95217def7bf46de2aa3722b81'],
       ['2.11.3', 'af5d2718c527d5228ce356182e1a80b9efba065b0a794888a79215666344b201'],
+      ['2.11.4', '236c0d3f5091d6cf15d3fa90a247706ab2419f7cfb672554fc5336f0f4212394'],
     ];
     for (const [cliVersion, cliSha256] of priorCliBoundaries) {
       assert.equal(verifyLegacyGovernanceBoundary({
@@ -906,6 +908,34 @@ test('includes the drift cohort only when an exact caller requests it', async ()
   assert.ok(requested.find((row) => row.table === 'skills').select.includes('artifact_revision'));
 });
 
+test('ordinary workflow excludes the exact deferred cohort before planning', () => {
+  const deferredPath = resolve(
+    import.meta.dirname,
+    '../data/artifact-governance-deferred-v1.json'
+  );
+  const raw = readFileSync(deferredPath, 'utf8');
+  const deferred = JSON.parse(raw);
+  assert.equal(deferred.schemaVersion, 1);
+  assert.equal(deferred.status, 'artifact_governance_deferred');
+  assert.equal(deferred.count, 25);
+  assert.equal(deferred.slugs.length, 25);
+  assert.equal(new Set(deferred.slugs).size, 25);
+  assert.deepEqual(deferred.slugs, [...deferred.slugs].sort());
+  assert.equal(
+    createHash('sha256').update(raw).digest('hex'),
+    '065d31301818d991a6a525fef083611315ac73a746ee031b86fe5097230e388d'
+  );
+
+  const workflow = readFileSync(
+    resolve(import.meta.dirname, '../../.github/workflows/govern-legacy-equivalent-artifacts.yml'),
+    'utf8'
+  );
+  assert.match(workflow, /DEFERRED_FILE: scripts\/data\/artifact-governance-deferred-v1\.json/);
+  assert.match(workflow, /DEFERRED_SHA256: 065d31301818d991a6a525fef083611315ac73a746ee031b86fe5097230e388d/);
+  assert.match(workflow, /\(\$deferred\[0\]\.slugs \| index\(\$slug\) \| not\)/);
+  assert.match(workflow, /--inventory "\$RUNNER_TEMP\/ordinary-catalog\.json"/);
+});
+
 test('workflow is two-phase, exactly pinned, bounded, and never executes ordinary sync', () => {
   const workflow = readFileSync(
     resolve(import.meta.dirname, '../../.github/workflows/govern-legacy-equivalent-artifacts.yml'),
@@ -915,8 +945,8 @@ test('workflow is two-phase, exactly pinned, bounded, and never executes ordinar
     resolve(import.meta.dirname, '../../.github/workflows/backfill-artifact-versions.yml'),
     'utf8'
   );
-  assert.match(workflow, /default: '2\.11\.4'/);
-  assert.match(workflow, /test "\$CLI_VERSION" = '2\.11\.4'/);
+  assert.match(workflow, /default: '2\.15\.9'/);
+  assert.match(workflow, /test "\$CLI_VERSION" = '2\.15\.9'/);
   assert.doesNotMatch(workflow, /version:\s*(latest|'latest'|"latest")/);
   assert.match(workflow, /batch_size must be between 1 and 500/);
   assert.match(workflow, /dry_run_id/);
@@ -930,8 +960,10 @@ test('workflow is two-phase, exactly pinned, bounded, and never executes ordinar
   assert.match(workflow, /2\.11\.1\) boundary_audited='9aa6a6e15d249e52bed690049974d8312f3257c205025823a68d249cc5cc8367'/);
   assert.match(workflow, /2\.11\.2\) boundary_audited='c596ca3b6d27875fdcd231bfb889899f08ea8ae95217def7bf46de2aa3722b81'/);
   assert.match(workflow, /2\.11\.3\) boundary_audited='af5d2718c527d5228ce356182e1a80b9efba065b0a794888a79215666344b201'/);
+  assert.match(workflow, /2\.11\.4\) boundary_audited='236c0d3f5091d6cf15d3fa90a247706ab2419f7cfb672554fc5336f0f4212394'/);
+  assert.match(workflow, /2\.15\.9\) boundary_audited="\$execution_audited"/);
   assert.match(workflow, /test "\$boundary_actual" = "\$boundary_audited" && test "\$actual" = "\$execution_audited"/);
-  assert.ok((workflow.match(/236c0d3f5091d6cf15d3fa90a247706ab2419f7cfb672554fc5336f0f4212394/g) || []).length >= 2);
+  assert.ok((workflow.match(/9a980bbb9574dd3da976803264796dd3ba57d15bafde5645afe6fe5783e5e9ec/g) || []).length >= 2);
   assert.equal((workflow.match(/require-checksum: 'true'/g) || []).length, 2);
   assert.match(workflow, /--phase execute-preflight/);
   assert.match(workflow, /--current-inventory "\$RUNNER_TEMP\/current-inventory\.json"/);
