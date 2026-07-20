@@ -284,6 +284,10 @@ cat > "$summary" <<'SUMMARY'
 | Applied updated skills | 1 |
 | Failed selected updates | 0 |
 | Deferred updated skills | 0 |
+
+### Local Actions
+
+- updated: owner-one (skills/owner/one)
 SUMMARY
 `);
     chmodSync(fakeCli, 0o755);
