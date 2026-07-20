@@ -13,15 +13,15 @@ function sha256(bytes) {
 
 function fixture() {
   const root = mkdtempSync(join(tmpdir(), 'origin-boundary-'));
-  const rows = Array.from({ length: 70 }, (_, index) => ({
+  const rows = Array.from({ length: 54 }, (_, index) => ({
     slug: `owner-skill-${String(index).padStart(2, '0')}`,
     skillId: `00000000-0000-4000-8000-${String(index).padStart(12, '0')}`,
-    classificationRunId: String(1000 + (index % 7)),
+    classificationRunId: String(1000 + (index % 2)),
     path: `skills/owner/skill-${String(index).padStart(2, '0')}`,
     currentMarketplaceCommit: 'a'.repeat(40),
   }));
   const sourceBoundaries = [];
-  for (let index = 0; index < 7; index++) {
+  for (let index = 0; index < 2; index++) {
     const runId = String(1000 + index);
     const selected = rows.filter((row) => row.classificationRunId === runId).map((row) => ({
       id: row.skillId,
@@ -46,20 +46,20 @@ function fixture() {
       schemaVersion: 2,
       status: 'frozen_report_origin_cohort',
       repository: 'aiskillstore/marketplace',
-      selectedCount: 70,
+      selectedCount: 54,
       sourceBoundaries,
       rows,
     },
   };
 }
 
-test('builds and verifies only the exact 70 identities from seven hash-bound classifications', () => {
+test('builds and verifies only the exact 54 identities from two hash-bound classifications', () => {
   const item = fixture();
   try {
     const built = buildLegacyReportOriginBoundary({ cohort: item.cohort, boundariesRoot: item.root });
     const manifest = {
       status: 'legacy_report_origin_evidence_materialized',
-      selectedCount: 70,
+      selectedCount: 54,
       entries: item.cohort.rows,
     };
     const dryRunResults = [{
@@ -82,7 +82,7 @@ test('builds and verifies only the exact 70 identities from seven hash-bound cla
     }));
 
     const outside = structuredClone(manifest);
-    outside.selectedCount = 71;
+    outside.selectedCount = 55;
     outside.entries.push({ ...outside.entries[0], slug: 'outside-row' });
     assert.throws(() => verifyLegacyReportOriginDocuments({
       cohort: item.cohort,
@@ -90,7 +90,7 @@ test('builds and verifies only the exact 70 identities from seven hash-bound cla
       classification: built.classification,
       manifest: outside,
       dryRunResults,
-    }), /exactly the frozen 70-row cohort/);
+    }), /exactly the frozen cohort/);
 
     writeFileSync(join(item.root, '1000', 'classification.json'), '{"drift":true}\n');
     assert.throws(() => buildLegacyReportOriginBoundary({
@@ -109,19 +109,21 @@ test('workflow freezes and replays Git evidence with the audited CLI digest', ()
   ), 'utf8');
   const cohort = JSON.parse(readFileSync(resolve(
     import.meta.dirname,
-    '../data/legacy-report-origin-cohort-v1.json'
+    '../data/legacy-report-origin-v2-only-cohort-v1.json'
   ), 'utf8'));
-  assert.equal(cohort.selectedCount, 70);
-  assert.equal(cohort.rows.length, 70);
-  assert.equal(cohort.sourceBoundaries.length, 7);
+  assert.equal(cohort.selectedCount, 54);
+  assert.equal(cohort.rows.length, 54);
+  assert.equal(cohort.sourceBoundaries.length, 2);
+  assert.match(workflow, /ORIGIN_COHORT: scripts\/data\/legacy-report-origin-v2-only-cohort-v1\.json/);
+  assert.match(workflow, /ORIGIN_COHORT_SHA256: 7b9409e3eb748c9974e7e0c14a10b8507832ae0c22d2cc8b2171bf56d2292938/);
   assert.match(workflow, /ORIGIN_CLI_VERSION: '2\.15\.2'/);
   assert.match(workflow, /ORIGIN_CLI_SHA256: 'fceaa46ab5e8cb2b68398a49f1e6c041bfa4cc83abc00221ba7d1e2bf83a73e4'/);
   assert.equal((workflow.match(/version: '2\.15\.2'/g) || []).length, 4);
   assert.match(workflow, /\[\[ "\$ORIGIN_CLI_SHA256" =~ \^\[0-9a-f\]\{64\}\$ \]\]/);
-  assert.match(workflow, /\.workflowName == "Govern Legacy Report-Origin 70"/);
+  assert.match(workflow, /\.workflowName == "Govern Legacy Report-Origin V2-Only"/);
   assert.match(workflow, /sha256sum --check SHA256SUMS/);
   assert.match(workflow, /cmp "\$RUNNER_TEMP\/boundary\/origin-lineage\.json" "\$RUNNER_TEMP\/current-origin-lineage\.json"/);
-  assert.match(workflow, /--expected-count 70/);
+  assert.match(workflow, /--expected-count 54/);
   assert.equal(
     (workflow.match(/Normalize full checkout and verify report-origin runtime/g) || []).length,
     2

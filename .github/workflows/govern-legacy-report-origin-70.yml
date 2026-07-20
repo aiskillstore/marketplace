@@ -1,4 +1,4 @@
-name: Govern Legacy Report-Origin 70
+name: Govern Legacy Report-Origin V2-Only
 
 on:
   workflow_dispatch:
@@ -28,8 +28,8 @@ env:
   # Production is intentionally impossible until the released linux-x64 binary
   # has been audited and this placeholder is replaced by its exact SHA-256.
   ORIGIN_CLI_SHA256: 'fceaa46ab5e8cb2b68398a49f1e6c041bfa4cc83abc00221ba7d1e2bf83a73e4'
-  ORIGIN_COHORT: scripts/data/legacy-report-origin-cohort-v1.json
-  ORIGIN_COHORT_SHA256: d00f9af499ab9da6df52d0de76bac9021ffbf0401bfff85ad4ac26331c2a38af
+  ORIGIN_COHORT: scripts/data/legacy-report-origin-v2-only-cohort-v1.json
+  ORIGIN_COHORT_SHA256: 7b9409e3eb748c9974e7e0c14a10b8507832ae0c22d2cc8b2171bf56d2292938
 
 jobs:
   freeze-boundary:
@@ -73,12 +73,12 @@ jobs:
             test -f "$path" || { echo "::error file=$path::Missing report-origin runtime"; exit 1; }
           done
           test "$(sha256sum "$ORIGIN_COHORT" | awk '{print $1}')" = "$ORIGIN_COHORT_SHA256"
-          jq -e '.schemaVersion == 2 and .selectedCount == 70 and (.rows | length) == 70 and (.sourceBoundaries | length) == 7' "$ORIGIN_COHORT" >/dev/null
+          jq -e '.schemaVersion == 2 and .selectedCount == 54 and (.rows | length) == 54 and (.sourceBoundaries | length) == 2' "$ORIGIN_COHORT" >/dev/null
           [[ "$ORIGIN_CLI_SHA256" =~ ^[0-9a-f]{64}$ ]] || {
             echo '::error::CLI 2.15.2 audit digest is still a non-production placeholder'; exit 1;
           }
 
-      - name: Download and verify seven frozen drift classifications
+      - name: Download and verify two frozen drift classifications
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -104,7 +104,7 @@ jobs:
             }
           done < <(jq -c '.sourceBoundaries[]' "$ORIGIN_COHORT")
 
-      - name: Build exact 70-row drift classification and plan
+      - name: Build exact 54-row v2-only drift classification and plan
         run: |
           set -euo pipefail
           node scripts/build-legacy-report-origin-boundary.mjs \
@@ -118,7 +118,7 @@ jobs:
           set -euo pipefail
           node scripts/materialize-legacy-report-origin-evidence.mjs \
             --repository-root "$GITHUB_WORKSPACE" --cohort "$ORIGIN_COHORT" \
-            --expected-count 70 --origin-root "$RUNNER_TEMP/origin" \
+            --expected-count 54 --origin-root "$RUNNER_TEMP/origin" \
             --previous-report-root "$RUNNER_TEMP/previous" \
             --manifest "$RUNNER_TEMP/origin-lineage.json"
 
@@ -154,7 +154,7 @@ jobs:
           set -euo pipefail
           test "$(sha256sum "$GITHUB_WORKSPACE/skillstore-cli" | awk '{print $1}')" = "$ORIGIN_CLI_SHA256"
 
-      - name: Run exact 70-row administrator dry-run
+      - name: Run exact 54-row administrator dry-run
         env:
           PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
@@ -202,7 +202,7 @@ jobs:
       - name: Upload immutable report-origin boundary
         uses: actions/upload-artifact@v6
         with:
-          name: legacy-report-origin-70-boundary-${{ github.run_id }}
+          name: legacy-report-origin-v2-only-boundary-${{ github.run_id }}
           path: ${{ runner.temp }}/origin-boundary/
           if-no-files-found: error
           retention-days: 30
@@ -259,11 +259,11 @@ jobs:
           jq -e --argjson id "$DRY_RUN_ID" '
             .databaseId == $id and .conclusion == "success" and
             .event == "workflow_dispatch" and .headBranch == "main" and
-            .workflowName == "Govern Legacy Report-Origin 70"
+            .workflowName == "Govern Legacy Report-Origin V2-Only"
           ' <<< "$run_json" >/dev/null || { echo '::error::dry_run_id is not a successful origin dry-run'; exit 1; }
           mkdir -p "$RUNNER_TEMP/boundary"
           gh run download "$DRY_RUN_ID" --repo "$GITHUB_REPOSITORY" \
-            --name "legacy-report-origin-70-boundary-$DRY_RUN_ID" --dir "$RUNNER_TEMP/boundary"
+            --name "legacy-report-origin-v2-only-boundary-$DRY_RUN_ID" --dir "$RUNNER_TEMP/boundary"
           (cd "$RUNNER_TEMP/boundary" && sha256sum --check SHA256SUMS)
           test "$(jq -r .workflowCommit "$RUNNER_TEMP/boundary/boundary.json")" = "$(jq -r .headSha <<< "$run_json")"
           git merge-base --is-ancestor "$(jq -r .workflowCommit "$RUNNER_TEMP/boundary/boundary.json")" "$GITHUB_SHA"
@@ -274,7 +274,7 @@ jobs:
           test "$(sha256sum "$RUNNER_TEMP/boundary/cohort.json" | awk '{print $1}')" = "$ORIGIN_COHORT_SHA256"
           node scripts/materialize-legacy-report-origin-evidence.mjs \
             --repository-root "$GITHUB_WORKSPACE" --cohort "$RUNNER_TEMP/boundary/cohort.json" \
-            --expected-count 70 --origin-root "$RUNNER_TEMP/origin" \
+            --expected-count 54 --origin-root "$RUNNER_TEMP/origin" \
             --previous-report-root "$RUNNER_TEMP/previous" \
             --manifest "$RUNNER_TEMP/current-origin-lineage.json"
           cmp "$RUNNER_TEMP/boundary/origin-lineage.json" "$RUNNER_TEMP/current-origin-lineage.json" || {
@@ -322,7 +322,7 @@ jobs:
           actual=$(sha256sum "$GITHUB_WORKSPACE/skillstore-cli" | awk '{print $1}')
           test "$expected" = "$ORIGIN_CLI_SHA256" && test "$actual" = "$ORIGIN_CLI_SHA256"
 
-      - name: Execute only the frozen 70 rows
+      - name: Execute only the frozen 54 rows
         env:
           PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
@@ -348,7 +348,7 @@ jobs:
           done < <(jq -c '.groups[]' "$RUNNER_TEMP/boundary/plan.json")
           jq -s . "$RUNNER_TEMP/execution-results.jsonl" > "$RUNNER_TEMP/execution-results.json"
           jq -e '[.[].result.results[]] as $rows |
-            ($rows | length) == 70 and ($rows | map(.slug) | unique | length) == 70 and
+            ($rows | length) == 54 and ($rows | map(.slug) | unique | length) == 54 and
             ($rows | all(.mode == "execute" and .artifactRevision == 1))' \
             "$RUNNER_TEMP/execution-results.json" >/dev/null
 
@@ -356,7 +356,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v6
         with:
-          name: legacy-report-origin-70-execution-${{ github.run_id }}
+          name: legacy-report-origin-v2-only-execution-${{ github.run_id }}
           path: |
             ${{ runner.temp }}/boundary/
             ${{ runner.temp }}/current-origin-lineage.json

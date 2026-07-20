@@ -29,23 +29,25 @@ function canonicalIdentities(rows) {
 }
 
 export function verifyLegacyReportOriginDocuments({ cohort, plan, classification, manifest, dryRunResults }) {
+  const selectedCount = cohort?.selectedCount;
   if (
     cohort?.schemaVersion !== 2
     || cohort?.status !== 'frozen_report_origin_cohort'
-    || cohort?.selectedCount !== 70
-    || cohort?.rows?.length !== 70
+    || !Number.isSafeInteger(selectedCount)
+    || selectedCount < 1
+    || cohort?.rows?.length !== selectedCount
     || plan?.status !== 'frozen_report_origin_plan'
-    || plan?.selectedCount !== 70
+    || plan?.selectedCount !== selectedCount
     || manifest?.status !== 'legacy_report_origin_evidence_materialized'
-    || manifest?.selectedCount !== 70
+    || manifest?.selectedCount !== selectedCount
     || classification?.status !== 'classified'
-    || classification?.classifiedCount !== 70
+    || classification?.classifiedCount !== selectedCount
     || classification?.counts?.exact !== 0
     || classification?.counts?.legacy_algorithm_equivalent !== 0
-    || classification?.counts?.actual_or_unproven_drift !== 70
-    || classification?.cohorts?.actual_or_unproven_drift?.length !== 70
+    || classification?.counts?.actual_or_unproven_drift !== selectedCount
+    || classification?.cohorts?.actual_or_unproven_drift?.length !== selectedCount
     || !Array.isArray(dryRunResults)
-  ) fail('report-origin boundary must cover exactly the frozen 70-row cohort');
+  ) fail('report-origin boundary must cover exactly the frozen cohort');
 
   const expected = canonicalIdentities(cohort.rows);
   const fromPlan = canonicalIdentities(plan.identities || []);
@@ -73,7 +75,7 @@ export function verifyLegacyReportOriginDocuments({ cohort, plan, classification
   const drySlugs = dryRows.map((row) => row?.slug).sort();
   const expectedSlugs = expected.map((row) => row.slug).sort();
   if (
-    dryRows.length !== 70
+    dryRows.length !== selectedCount
     || JSON.stringify(drySlugs) !== JSON.stringify(expectedSlugs)
     || dryRows.some((row) => (
       row?.mode !== 'dry-run'
@@ -81,8 +83,8 @@ export function verifyLegacyReportOriginDocuments({ cohort, plan, classification
       || row?.artifactRevision !== null
       || row?.derivedAuditId !== null
     ))
-  ) fail('administrator dry-run does not cover exactly 70 no-write results');
-  return { identitySha256: plan.identitySha256 };
+  ) fail('administrator dry-run does not cover exactly the frozen no-write cohort');
+  return { identitySha256: plan.identitySha256, selectedCount };
 }
 
 export function freezeLegacyReportOriginBoundary(input) {
@@ -97,13 +99,13 @@ export function freezeLegacyReportOriginBoundary(input) {
   return {
     schemaVersion: 1,
     status: 'frozen',
-    workflow: 'govern-legacy-report-origin-70',
+    workflow: 'govern-legacy-report-origin-v2-only',
     runId: input.runId,
     repository: input.repository,
     workflowCommit: input.workflowCommit,
     cliVersion: input.cliVersion,
     cliSha256: input.cliSha256,
-    selectedCount: 70,
+    selectedCount: verified.selectedCount,
     identitySha256: verified.identitySha256,
     cohortSha256: input.cohortSha256,
     planSha256: input.planSha256,
@@ -175,13 +177,13 @@ export function main(argv = process.argv.slice(2)) {
     };
     if (
       boundary?.status !== 'frozen'
-      || boundary?.workflow !== 'govern-legacy-report-origin-70'
+      || boundary?.workflow !== 'govern-legacy-report-origin-v2-only'
       || boundary?.runId !== args['expected-run-id']
-      || boundary?.selectedCount !== 70
+      || boundary?.selectedCount !== verified.selectedCount
       || boundary?.identitySha256 !== verified.identitySha256
       || Object.entries(digests).some(([key, value]) => boundary[key] !== value)
     ) fail('execute inputs differ from the successful frozen boundary');
-    return { status: 'verified', selectedCount: 70 };
+    return { status: 'verified', selectedCount: verified.selectedCount };
   }
   fail(`unsupported phase: ${args.phase}`);
 }
