@@ -15,7 +15,7 @@ on:
         description: 'Exact audited skillstore-cli version'
         type: string
         required: true
-        default: '2.11.4'
+        default: '2.15.9'
       batch_size:
         description: 'Maximum Skills classified by a new dry-run boundary (1-500)'
         type: number
@@ -45,6 +45,10 @@ concurrency:
   group: artifact-version-backfill-production
   cancel-in-progress: false
 
+env:
+  DEFERRED_FILE: scripts/data/artifact-governance-deferred-v1.json
+  DEFERRED_SHA256: 065d31301818d991a6a525fef083611315ac73a746ee031b86fe5097230e388d
+
 jobs:
   freeze-boundary:
     if: inputs.mode == 'dry-run'
@@ -72,7 +76,8 @@ jobs:
             scripts/materialize-legacy-previous-reports.mjs \
             scripts/verify-artifact-version-classification.mjs \
             scripts/fetch-legacy-equivalent-governance-readback.mjs \
-            scripts/verify-legacy-equivalent-governance.mjs; do
+            scripts/verify-legacy-equivalent-governance.mjs \
+            "$DEFERRED_FILE"; do
             test -f "$path" || { echo "::error file=$path::Missing governance runtime"; exit 1; }
           done
 
@@ -86,7 +91,7 @@ jobs:
           DRY_RUN_ID: ${{ inputs.dry_run_id }}
         run: |
           set -euo pipefail
-          test "$CLI_VERSION" = '2.11.4' || { echo '::error::workflow is pinned to skillstore-cli 2.11.4'; exit 1; }
+          test "$CLI_VERSION" = '2.15.9' || { echo '::error::workflow is pinned to skillstore-cli 2.15.9'; exit 1; }
           test "$GITHUB_REF_NAME" = 'main' || { echo '::error::frozen boundaries may only be created from main'; exit 1; }
           [[ "$BATCH_SIZE" =~ ^[0-9]+$ ]] && [ "$BATCH_SIZE" -ge 1 ] && [ "$BATCH_SIZE" -le 500 ] || {
             echo '::error::batch_size must be between 1 and 500'; exit 1;
@@ -103,6 +108,35 @@ jobs:
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
         run: node scripts/fetch-artifact-version-inventory.mjs --skills-only --output "$RUNNER_TEMP/catalog.json"
 
+      - name: Exclude exact deferred cohort from ordinary governance
+        run: |
+          set -euo pipefail
+          actual=$(sha256sum "$DEFERRED_FILE" | awk '{print $1}')
+          test "$actual" = "$DEFERRED_SHA256" || {
+            echo '::error::deferred governance cohort differs from its audited contract'; exit 1;
+          }
+          jq -e '
+            .schemaVersion == 1 and
+            .status == "artifact_governance_deferred" and
+            .count == 25 and
+            (.slugs | type == "array" and length == 25) and
+            ([.slugs[] | select(type != "string" or length == 0)] | length == 0) and
+            (.slugs == (.slugs | sort)) and
+            ((.slugs | unique | length) == 25)
+          ' "$DEFERRED_FILE" >/dev/null || {
+            echo '::error::deferred governance cohort is malformed'; exit 1;
+          }
+          jq -e --slurpfile deferred "$DEFERRED_FILE" '
+            ([.rows[].slug] | unique) as $catalog |
+            (($deferred[0].slugs - $catalog) | length) == 0
+          ' "$RUNNER_TEMP/catalog.json" >/dev/null || {
+            echo '::error::deferred governance cohort is not present in the production catalog'; exit 1;
+          }
+          jq --slurpfile deferred "$DEFERRED_FILE" '
+            .rows = [.rows[] | select(.slug as $slug | ($deferred[0].slugs | index($slug) | not))] |
+            .count = (.rows | length)
+          ' "$RUNNER_TEMP/catalog.json" > "$RUNNER_TEMP/ordinary-catalog.json"
+
       - name: Build bounded deterministic plan
         id: plan
         env:
@@ -113,7 +147,7 @@ jobs:
           set -euo pipefail
           args=(
             --repository-root "$GITHUB_WORKSPACE"
-            --inventory "$RUNNER_TEMP/catalog.json"
+            --inventory "$RUNNER_TEMP/ordinary-catalog.json"
             --batch-size "$BATCH_SIZE"
             --output "$RUNNER_TEMP/plan.json"
             --paths-output "$RUNNER_TEMP/paths.txt"
@@ -145,15 +179,15 @@ jobs:
         uses: ./.github/actions/download-skillstore-cli
         with:
           token: ${{ steps.app-token.outputs.token }}
-          version: '2.11.4'
-          minimum-version: '2.11.4'
+          version: '2.15.9'
+          minimum-version: '2.15.9'
           require-checksum: 'true'
           cache-dir: /home/runner/_work/_cache/skillstore-cli
 
       - name: Verify audited binding-aware CLI binary identity
         run: |
           set -euo pipefail
-          expected='236c0d3f5091d6cf15d3fa90a247706ab2419f7cfb672554fc5336f0f4212394'
+          expected='9a980bbb9574dd3da976803264796dd3ba57d15bafde5645afe6fe5783e5e9ec'
           actual=$(sha256sum "$GITHUB_WORKSPACE/skillstore-cli" | awk '{print $1}')
           test "$actual" = "$expected" || {
             echo '::error::binding-aware CLI binary does not match the audited linux-x64 digest'; exit 1;
@@ -295,7 +329,7 @@ jobs:
             --source-evidence "$boundary/source-evidence.json" \
             --previous-report-manifest "$boundary/legacy-previous-report-manifest.json" \
             --run-id "$GITHUB_RUN_ID" --repository "$GITHUB_REPOSITORY" \
-            --workflow-commit "$GITHUB_SHA" --cli-version '2.11.4' \
+            --workflow-commit "$GITHUB_SHA" --cli-version '2.15.9' \
             --cli-sha256 "$(sha256sum "$GITHUB_WORKSPACE/skillstore-cli" | awk '{print $1}')" \
             --output "$boundary/boundary.json"
           (cd "$boundary" && sha256sum plan.json classification.json pre-inventory.json governance-dry-run.json source-evidence.json legacy-previous-report-manifest.json boundary.json > SHA256SUMS)
@@ -316,7 +350,7 @@ jobs:
           {
             echo '## Legacy-equivalent frozen boundary'
             echo "- Run ID: \`$GITHUB_RUN_ID\`"
-            echo "- CLI: \`2.11.4\`"
+            echo "- CLI: \`2.15.9\`"
             echo "- Selected: \`${{ steps.plan.outputs.selected_count }}\` (maximum 500)"
             echo "- Scan end: \`${{ steps.plan.outputs.last_selected }}\`"
             echo "- Hash-equivalent: \`$(jq -r .governance.hashEquivalentCount "$RUNNER_TEMP/classification.json")\`; governable: \`$(jq -r .governance.eligibleCount "$RUNNER_TEMP/classification.json")\`; source-audit unproven: \`$(jq -r .governance.unprovenCount "$RUNNER_TEMP/classification.json")\`"
@@ -374,7 +408,7 @@ jobs:
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
           git sparse-checkout disable
           git reset --hard HEAD
-          test "$CLI_VERSION" = '2.11.4' || { echo '::error::workflow is pinned to skillstore-cli 2.11.4'; exit 1; }
+          test "$CLI_VERSION" = '2.15.9' || { echo '::error::workflow is pinned to skillstore-cli 2.15.9'; exit 1; }
           test "$GITHUB_REF_NAME" = 'main' || { echo '::error::execute may only run from main'; exit 1; }
           [[ "$DRY_RUN_ID" =~ ^[1-9][0-9]*$ ]] || { echo '::error::execute requires a numeric dry_run_id'; exit 1; }
           [ -z "$START_AFTER$END_AT" ] || { echo '::error::execute uses only its frozen boundary'; exit 1; }
@@ -461,22 +495,23 @@ jobs:
         uses: ./.github/actions/download-skillstore-cli
         with:
           token: ${{ steps.app-token.outputs.token }}
-          version: '2.11.4'
-          minimum-version: '2.11.4'
+          version: '2.15.9'
+          minimum-version: '2.15.9'
           require-checksum: 'true'
           cache-dir: /home/runner/_work/_cache/skillstore-cli
 
       - name: Verify frozen CLI binary identity
         run: |
           set -euo pipefail
-          execution_audited='236c0d3f5091d6cf15d3fa90a247706ab2419f7cfb672554fc5336f0f4212394'
+          execution_audited='9a980bbb9574dd3da976803264796dd3ba57d15bafde5645afe6fe5783e5e9ec'
           boundary_version=$(jq -r .cliVersion "$RUNNER_TEMP/boundary/boundary.json")
           boundary_actual=$(jq -r .cliSha256 "$RUNNER_TEMP/boundary/boundary.json")
           case "$boundary_version" in
             2.11.1) boundary_audited='9aa6a6e15d249e52bed690049974d8312f3257c205025823a68d249cc5cc8367' ;;
             2.11.2) boundary_audited='c596ca3b6d27875fdcd231bfb889899f08ea8ae95217def7bf46de2aa3722b81' ;;
             2.11.3) boundary_audited='af5d2718c527d5228ce356182e1a80b9efba065b0a794888a79215666344b201' ;;
-            2.11.4) boundary_audited="$execution_audited" ;;
+            2.11.4) boundary_audited='236c0d3f5091d6cf15d3fa90a247706ab2419f7cfb672554fc5336f0f4212394' ;;
+            2.15.9) boundary_audited="$execution_audited" ;;
             *) echo '::error::frozen boundary CLI version is not executable'; exit 1 ;;
           esac
           actual=$(sha256sum "$GITHUB_WORKSPACE/skillstore-cli" | awk '{print $1}')
@@ -611,7 +646,7 @@ jobs:
           {
             echo '## Legacy-equivalent execution verified'
             echo "- Frozen boundary run: \`${{ inputs.dry_run_id }}\`"
-            echo '- CLI: `2.11.4`'
+            echo '- CLI: `2.15.9`'
             echo "- Executed: \`$(jq -r .executedCount "$RUNNER_TEMP/execution-verification.json")\`"
             echo '- Artifact, observation, derived audit, score binding, Pack timestamps, and no-attestation invariants passed.'
             echo '- Cache authorization was preflighted before writes; four workers execute independently budgeted cache plans and stop scheduling on failure.'
