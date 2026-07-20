@@ -131,7 +131,7 @@ function fixture() {
         tree_hash: skill.tree_hash,
         marketplace_commit_sha: skill.marketplace_commit_sha,
         source_path: skill.plugin_path,
-        snapshot_status: 'complete',
+        snapshot_status: 'exact',
       };
     }),
   };
