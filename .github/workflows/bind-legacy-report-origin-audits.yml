@@ -1,0 +1,286 @@
+name: Bind Legacy Report-Origin Audits 11
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Freeze a no-write binding boundary, or execute one successful boundary
+        type: choice
+        required: true
+        default: dry-run
+        options: [dry-run, execute]
+      dry_run_id:
+        description: Successful binding dry-run ID; execute only
+        type: string
+        required: false
+        default: ''
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: artifact-version-backfill-production
+  cancel-in-progress: false
+
+env:
+  BINDING_CLI_VERSION: '2.15.2'
+  BINDING_CLI_SHA256: 'fceaa46ab5e8cb2b68398a49f1e6c041bfa4cc83abc00221ba7d1e2bf83a73e4'
+  ORIGIN_COHORT: scripts/data/legacy-report-origin-cohort-v1.json
+  ORIGIN_COHORT_SHA256: d00f9af499ab9da6df52d0de76bac9021ffbf0401bfff85ad4ac26331c2a38af
+
+jobs:
+  bind:
+    runs-on: self-hosted
+    timeout-minutes: 120
+    steps:
+      - name: Checkout complete Marketplace history
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          clean: true
+          sparse-checkout: ''
+          sparse-checkout-cone-mode: false
+
+      - name: Normalize full checkout and validate immutable runtime
+        env:
+          MODE: ${{ inputs.mode }}
+          DRY_RUN_ID: ${{ inputs.dry_run_id }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git sparse-checkout disable
+          git reset --hard HEAD
+          test "$GITHUB_REF_NAME" = main
+          if [ "$MODE" = execute ]; then
+            [[ "$DRY_RUN_ID" =~ ^[1-9][0-9]*$ ]] || { echo '::error::execute requires dry_run_id'; exit 1; }
+          else
+            test -z "$DRY_RUN_ID" || { echo '::error::dry-run does not accept dry_run_id'; exit 1; }
+          fi
+          test "$(sha256sum "$ORIGIN_COHORT" | awk '{print $1}')" = "$ORIGIN_COHORT_SHA256"
+          jq -e '.schemaVersion == 2 and .selectedCount == 70 and (.rows | length) == 70 and (.sourceBoundaries | length) == 7' "$ORIGIN_COHORT" >/dev/null
+          for path in .github/actions/download-skillstore-cli/action.yml \
+            scripts/build-legacy-report-origin-boundary.mjs \
+            scripts/materialize-legacy-report-origin-evidence.mjs \
+            scripts/build-legacy-report-origin-audit-binding-plan.mjs \
+            scripts/fetch-legacy-equivalent-governance-readback.mjs \
+            scripts/fetch-artifact-version-inventory.mjs; do
+            test -f "$path" || { echo "::error file=$path::Missing binding runtime"; exit 1; }
+          done
+
+      - name: Generate GitHub App token
+        id: token
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ vars.APP_CLIENT_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+          repositories: marketplace,skillstore
+
+      - name: Download exact audited CLI
+        uses: ./.github/actions/download-skillstore-cli
+        with:
+          token: ${{ steps.token.outputs.token }}
+          version: '2.15.2'
+          minimum-version: '2.15.2'
+          cache-dir: /home/runner/_work/_cache/skillstore-cli
+
+      - name: Verify audited CLI binary identity
+        run: |
+          set -euo pipefail
+          test "$(sha256sum "$GITHUB_WORKSPACE/skillstore-cli" | awk '{print $1}')" = "$BINDING_CLI_SHA256"
+
+      - name: Authenticate exact successful binding dry-run
+        if: inputs.mode == 'execute'
+        env:
+          GH_TOKEN: ${{ steps.token.outputs.token }}
+          DRY_RUN_ID: ${{ inputs.dry_run_id }}
+        run: |
+          set -euo pipefail
+          run_json=$(gh run view "$DRY_RUN_ID" --repo "$GITHUB_REPOSITORY" \
+            --json databaseId,conclusion,event,headBranch,headSha,workflowName)
+          jq -e --arg id "$DRY_RUN_ID" '
+            (.databaseId | tostring) == $id and .conclusion == "success"
+            and .event == "workflow_dispatch" and .headBranch == "main"
+            and .workflowName == "Bind Legacy Report-Origin Audits 11"
+          ' <<< "$run_json" >/dev/null
+          mkdir -p "$RUNNER_TEMP/boundary"
+          gh run download "$DRY_RUN_ID" --repo "$GITHUB_REPOSITORY" \
+            --name "legacy-report-origin-audit-binding-boundary-$DRY_RUN_ID" \
+            --dir "$RUNNER_TEMP/boundary"
+          (cd "$RUNNER_TEMP/boundary" && sha256sum --check SHA256SUMS)
+          jq -e --arg runId "$DRY_RUN_ID" --arg repository "$GITHUB_REPOSITORY" \
+            --arg headSha "$(jq -r .headSha <<< "$run_json")" \
+            --arg cliSha "$BINDING_CLI_SHA256" '
+            .schemaVersion == 1 and .status == "report_origin_audit_binding_frozen"
+            and .runId == $runId and .repository == $repository
+            and .workflowCommit == $headSha and .cliVersion == "2.15.2"
+            and .cliSha256 == $cliSha and .selectedCount == 11
+          ' "$RUNNER_TEMP/boundary/boundary.json" >/dev/null
+          git merge-base --is-ancestor "$(jq -r .workflowCommit "$RUNNER_TEMP/boundary/boundary.json")" "$GITHUB_SHA"
+
+      - name: Download and verify seven frozen source boundaries
+        env:
+          GH_TOKEN: ${{ steps.token.outputs.token }}
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/current/source-boundaries"; mkdir -p "$root"
+          while IFS= read -r boundary; do
+            run_id=$(jq -r .runId <<< "$boundary")
+            expected=$(jq -r .classificationSha256 <<< "$boundary")
+            target="$root/$run_id"; mkdir -p "$target"
+            run_json=$(gh run view "$run_id" --repo "$GITHUB_REPOSITORY" \
+              --json databaseId,conclusion,event,headBranch,workflowName)
+            jq -e --argjson id "$run_id" '
+              .databaseId == $id and .conclusion == "success"
+              and .event == "workflow_dispatch" and .headBranch == "main"
+              and .workflowName == "Govern Legacy-Equivalent Artifacts"
+            ' <<< "$run_json" >/dev/null
+            gh run download "$run_id" --repo "$GITHUB_REPOSITORY" \
+              --name "legacy-equivalent-boundary-$run_id" --dir "$target"
+            (cd "$target" && sha256sum --check SHA256SUMS)
+            test "$(sha256sum "$target/classification.json" | awk '{print $1}')" = "$expected"
+          done < <(jq -c '.sourceBoundaries[]' "$ORIGIN_COHORT")
+
+      - name: Rebuild exact classification and Report-Origin Git proof
+        run: |
+          set -euo pipefail
+          work="$RUNNER_TEMP/current"
+          node scripts/build-legacy-report-origin-boundary.mjs \
+            --cohort "$ORIGIN_COHORT" --boundaries-root "$work/source-boundaries" \
+            --classification-output "$work/classification.json" \
+            --plan-output "$work/report-origin-plan.json"
+          node scripts/materialize-legacy-report-origin-evidence.mjs \
+            --repository-root "$GITHUB_WORKSPACE" --cohort "$ORIGIN_COHORT" \
+            --expected-count 70 --origin-root "$work/origin" \
+            --previous-report-root "$work/previous" \
+            --manifest "$work/origin-lineage.json"
+          if [ '${{ inputs.mode }}' = execute ]; then
+            cmp "$work/classification.json" "$RUNNER_TEMP/boundary/classification.json"
+            cmp "$work/report-origin-plan.json" "$RUNNER_TEMP/boundary/report-origin-plan.json"
+            cmp "$work/origin-lineage.json" "$RUNNER_TEMP/boundary/origin-lineage.json"
+          fi
+
+      - name: Freeze exact source, binding plan, and no-write inventory
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: |
+          set -euo pipefail
+          work="$RUNNER_TEMP/current"
+          node scripts/fetch-legacy-equivalent-governance-readback.mjs \
+            --classification "$work/classification.json" --include-drift true \
+            --output "$work/source-evidence.json"
+          node scripts/build-legacy-report-origin-audit-binding-plan.mjs \
+            --classification "$work/classification.json" \
+            --origin-lineage "$work/origin-lineage.json" \
+            --source-evidence "$work/source-evidence.json" \
+            --repository-root "$GITHUB_WORKSPACE" \
+            --expected-selected 11 --expected-v2 54 --expected-governed 5 \
+            --output "$work/binding-plan.json"
+          node scripts/fetch-artifact-version-inventory.mjs \
+            --scope-inventory "$ORIGIN_COHORT" --output "$work/inventory.json"
+          if [ '${{ inputs.mode }}' = execute ]; then
+            cmp "$work/source-evidence.json" "$RUNNER_TEMP/boundary/source-evidence.json"
+            cmp "$work/binding-plan.json" "$RUNNER_TEMP/boundary/binding-plan.json"
+            cmp "$work/inventory.json" "$RUNNER_TEMP/boundary/inventory.json"
+          fi
+
+      - name: Materialize and validate exactly 11 pinned reports
+        env:
+          PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: |
+          set -euo pipefail
+          work="$RUNNER_TEMP/current"; reports="$RUNNER_TEMP/reports"
+          jq -c '.entries[]' "$work/binding-plan.json" | while read -r row; do
+            commit=$(jq -r .marketplaceCommit <<< "$row"); path=$(jq -r .pluginPath <<< "$row")
+            mkdir -p "$reports/$path"
+            git show "$commit:$path/skill-report.json" > "$reports/$path/skill-report.json"
+          done
+          "$GITHUB_WORKSPACE/skillstore-cli" skill bind-legacy-audit \
+            --plan "$work/binding-plan.json" --root "$reports" --dry-run \
+            --concurrency 1 --result-file "$work/binding-dry-run.json"
+          jq -e '.success == true and .mode == "dry-run" and (.results | length) == 11 and all(.results[]; .status == "validated")' \
+            "$work/binding-dry-run.json" >/dev/null
+          if [ '${{ inputs.mode }}' = execute ]; then
+            cmp "$work/binding-dry-run.json" "$RUNNER_TEMP/boundary/binding-dry-run.json"
+          fi
+
+      - name: Freeze immutable 11-row binding boundary
+        if: inputs.mode == 'dry-run'
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/boundary"; work="$RUNNER_TEMP/current"; mkdir -p "$out"
+          cp "$ORIGIN_COHORT" "$out/cohort.json"
+          cp "$work/classification.json" "$work/report-origin-plan.json" \
+            "$work/origin-lineage.json" "$work/source-evidence.json" \
+            "$work/binding-plan.json" "$work/inventory.json" \
+            "$work/binding-dry-run.json" "$out/"
+          jq -n --arg runId "$GITHUB_RUN_ID" --arg repository "$GITHUB_REPOSITORY" \
+            --arg workflowCommit "$GITHUB_SHA" --arg cliVersion "$BINDING_CLI_VERSION" \
+            --arg cliSha256 "$BINDING_CLI_SHA256" \
+            '{schemaVersion:1,status:"report_origin_audit_binding_frozen",runId:$runId,
+              repository:$repository,workflowCommit:$workflowCommit,cliVersion:$cliVersion,
+              cliSha256:$cliSha256,selectedCount:11}' > "$out/boundary.json"
+          (cd "$out" && sha256sum cohort.json classification.json report-origin-plan.json \
+            origin-lineage.json source-evidence.json binding-plan.json inventory.json \
+            binding-dry-run.json boundary.json > SHA256SUMS)
+
+      - name: Upload immutable binding boundary
+        if: success() && inputs.mode == 'dry-run'
+        uses: actions/upload-artifact@v6
+        with:
+          name: legacy-report-origin-audit-binding-boundary-${{ github.run_id }}
+          path: ${{ runner.temp }}/boundary/
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Record exactly 11 append-only audit bindings
+        if: inputs.mode == 'execute'
+        env:
+          PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: |
+          set -euo pipefail
+          "$GITHUB_WORKSPACE/skillstore-cli" skill bind-legacy-audit \
+            --plan "$RUNNER_TEMP/current/binding-plan.json" --root "$RUNNER_TEMP/reports" \
+            --concurrency 1 --result-file "$RUNNER_TEMP/binding-execute.json"
+          jq -e '.success == true and .mode == "execute" and (.results | length) == 11 and all(.results[]; .status == "created")' \
+            "$RUNNER_TEMP/binding-execute.json" >/dev/null
+
+      - name: Prove only 11 append-only bindings changed
+        if: inputs.mode == 'execute'
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: |
+          set -euo pipefail
+          node scripts/fetch-legacy-equivalent-governance-readback.mjs \
+            --classification "$RUNNER_TEMP/current/classification.json" --include-drift true \
+            --output "$RUNNER_TEMP/post-source-evidence.json"
+          node scripts/fetch-artifact-version-inventory.mjs \
+            --scope-inventory "$ORIGIN_COHORT" --output "$RUNNER_TEMP/post-inventory.json"
+          jq -S 'del(.bindings)' "$RUNNER_TEMP/current/source-evidence.json" > "$RUNNER_TEMP/pre-without-bindings.json"
+          jq -S 'del(.bindings)' "$RUNNER_TEMP/post-source-evidence.json" > "$RUNNER_TEMP/post-without-bindings.json"
+          cmp "$RUNNER_TEMP/pre-without-bindings.json" "$RUNNER_TEMP/post-without-bindings.json"
+          cmp "$RUNNER_TEMP/current/inventory.json" "$RUNNER_TEMP/post-inventory.json"
+          test "$(jq '.bindings | length' "$RUNNER_TEMP/post-source-evidence.json")" = 11
+          jq -e --slurpfile plan "$RUNNER_TEMP/current/binding-plan.json" '
+            [.bindings[].source_audit_id] | sort == ([$plan[0].entries[].sourceAuditId] | sort)
+          ' "$RUNNER_TEMP/post-source-evidence.json" >/dev/null
+
+      - name: Upload binding execution evidence
+        if: always() && inputs.mode == 'execute'
+        uses: actions/upload-artifact@v6
+        with:
+          name: legacy-report-origin-audit-binding-execution-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/boundary/
+            ${{ runner.temp }}/current/source-evidence.json
+            ${{ runner.temp }}/current/binding-plan.json
+            ${{ runner.temp }}/current/inventory.json
+            ${{ runner.temp }}/binding-execute.json
+            ${{ runner.temp }}/post-source-evidence.json
+            ${{ runner.temp }}/post-inventory.json
+          if-no-files-found: error
+          retention-days: 30

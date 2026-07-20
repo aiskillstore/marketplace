@@ -116,13 +116,17 @@ export async function fetchLegacyGovernanceSourceEvidence({
   supabaseUrl,
   serviceKey,
   classification,
+  includeDrift = false,
   fetchImpl = fetch,
 }) {
   const legacy = classification?.cohorts?.legacy_algorithm_equivalent;
   if (!Array.isArray(legacy)) fail('classification lacks the legacy-equivalent cohort');
-  const skillIds = unique(legacy.map((row) => row.id));
-  const auditIds = unique(legacy.map((row) => row.publicEligibilityAuditId));
-  if (skillIds.length !== legacy.length || auditIds.length !== legacy.length) {
+  const drift = classification?.cohorts?.actual_or_unproven_drift;
+  if (includeDrift && !Array.isArray(drift)) fail('classification lacks the drift cohort');
+  const selected = includeDrift ? [...legacy, ...drift] : legacy;
+  const skillIds = unique(selected.map((row) => row.id));
+  const auditIds = unique(selected.map((row) => row.publicEligibilityAuditId));
+  if (skillIds.length !== selected.length || auditIds.length !== selected.length) {
     fail('classification contains duplicate or missing Skill/audit ids');
   }
   const request = (table, select, filter, values) => fetchRows({
@@ -137,14 +141,14 @@ export async function fetchLegacyGovernanceSourceEvidence({
   const [skills, audits, bindings] = await Promise.all([
     request(
       'skills',
-      'id,slug,name,description,author_name,supported_tools,file_structure,public_eligibility_audit_id',
+      'id,slug,name,description,author_name,supported_tools,file_structure,current_artifact_version_id,artifact_revision,content_hash,tree_hash,marketplace_commit_sha,plugin_path,public_eligible,public_eligibility_audit_id,published_at,updated_at,repository,source_ref,current_quality_score_snapshot_id,quality_score',
       'id',
       skillIds
     ),
     request('skill_security_audit', '*', 'id', auditIds),
     request('legacy_audit_subject_bindings', '*', 'source_audit_id', auditIds),
   ]);
-  if (skills.length !== legacy.length || audits.length !== legacy.length) {
+  if (skills.length !== selected.length || audits.length !== selected.length) {
     fail('source evidence readback is incomplete');
   }
   return {
@@ -170,6 +174,9 @@ function parseArgs(argv) {
 
 export async function main(argv = process.argv.slice(2)) {
   const args = parseArgs(argv);
+  if (args['include-drift'] !== undefined && !['true', 'false'].includes(args['include-drift'])) {
+    fail('--include-drift must be true or false');
+  }
   const supabaseUrl = process.env.SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_KEY;
   if (!supabaseUrl || !serviceKey) fail('SUPABASE_URL and SUPABASE_SERVICE_KEY are required');
@@ -178,6 +185,7 @@ export async function main(argv = process.argv.slice(2)) {
         supabaseUrl,
         serviceKey,
         classification: JSON.parse(readFileSync(resolve(args.classification), 'utf8')),
+        includeDrift: args['include-drift'] === 'true',
       })
     : await fetchLegacyGovernanceReadback({
         supabaseUrl,
