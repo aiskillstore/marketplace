@@ -10,10 +10,10 @@ on:
         default: dry-run
         options: [dry-run, execute, recover, recover-cache, recover-smoke]
       cohort_path:
-        description: 'Repository-relative lineage-unproven cohort JSON; dry-run only'
+        description: 'Exact repository-relative raw32 Fresh cohort JSON; dry-run only'
         type: string
         required: false
-        default: 'governance/fresh-canonical-audit/report-origin-raw32-v1.json'
+        default: 'governance/fresh-canonical-audit/raw32-exact62-v1.json'
       start_after:
         description: 'Exact prior batch end slug; dry-run only'
         type: string
@@ -53,7 +53,7 @@ on:
         description: 'Exact audited CLI version'
         type: string
         required: true
-        default: '2.15.5'
+        default: '2.15.10'
 
 permissions:
   actions: read
@@ -64,11 +64,10 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  FRESH_GOVERNANCE_CLI_VERSION: '2.15.5'
-  FRESH_GOVERNANCE_CLI_SHA256: 'b47de464e5a2d1469875988c4b815cdf6765731a24aade68b8a904ad87417189'
-  ORIGINAL_FRESH_COHORT: 'governance/fresh-canonical-audit/remaining-lineage.json'
-  REPORT_ORIGIN_FRESH_COHORT: 'governance/fresh-canonical-audit/report-origin-raw32-v1.json'
-  REPORT_ORIGIN_FRESH_COHORT_SHA256: '261604847b20ede3b31264c4500433692ba38269b32c48e84c78d4609d4568e6'
+  FRESH_GOVERNANCE_CLI_VERSION: '2.15.10'
+  FRESH_GOVERNANCE_CLI_SHA256: '2ea8ef90fcb890b83b1cf1bd772bd02da3fff98bc8f5162c481287552518bdd8'
+  REPORT_ORIGIN_FRESH_COHORT: 'governance/fresh-canonical-audit/raw32-exact62-v1.json'
+  REPORT_ORIGIN_FRESH_COHORT_SHA256: 'ad5938fa521d2c7bd5d3de95304d9e5e5eff74376b0ceab173628058efaf6539'
 
 jobs:
   freeze-boundary:
@@ -120,22 +119,21 @@ jobs:
           fi
           test -f "$COHORT_PATH" || { echo '::error::lineage-unproven cohort is missing'; exit 1; }
           case "$COHORT_PATH" in
-            "$ORIGINAL_FRESH_COHORT") ;;
             "$REPORT_ORIGIN_FRESH_COHORT")
               test "$(sha256sum "$COHORT_PATH" | awk '{print $1}')" = "$REPORT_ORIGIN_FRESH_COHORT_SHA256"
               jq -e '
                 .schemaVersion == 1 and .status == "lineage_unproven"
-                and .count == 11 and (.rows | length) == 11
-                and ([.rows[].slug] | unique | length) == 11
-                and ([.rows[].skillId] | unique | length) == 11
+                and .count == 62 and (.rows | length) == 62
+                and ([.rows[].slug] | unique | length) == 62
+                and ([.rows[].skillId] | unique | length) == 62
+                and ([.rows[].path] | unique | length) == 62
                 and all(.rows[];
-                  .marketplaceCommit == "820ccb93d2e2fe828678ed05433bafd1054e5000"
-                  and .remainingReason == "same_source_tree_unproven"
+                  .remainingReason == "same_source_tree_unproven"
                   and .governanceEligibleByLineage == false
-                  and .legacyReference.kind == "frozen_mutable_main"
-                  and .legacyReference.sourceRef == "main"
+                  and .legacyReference.kind == "frozen_commit_ref"
+                  and .legacyReference.sourceRef == .marketplaceCommit
                   and .legacyReference.skillReportUrl ==
-                    ("https://github.com/aiskillstore/marketplace/blob/main/" + .path + "/skill-report.json"))
+                    ("https://github.com/aiskillstore/marketplace/blob/" + .marketplaceCommit + "/" + .path + "/skill-report.json"))
               ' "$COHORT_PATH" >/dev/null
               ;;
             *) echo '::error::cohort_path is not an authenticated Fresh campaign'; exit 1 ;;
@@ -338,20 +336,20 @@ jobs:
           private-key: ${{ secrets.APP_PRIVATE_KEY }}
           repositories: marketplace,skillstore
 
-      - name: Download exact fresh-governance CLI 2.15.5
+      - name: Download exact fresh-governance CLI 2.15.10
         uses: ./.github/actions/download-skillstore-cli
         with:
           token: ${{ steps.app-token.outputs.token }}
-          version: '2.15.5'
-          minimum-version: '2.15.5'
+          version: '2.15.10'
+          minimum-version: '2.15.10'
           cache-dir: /home/runner/_work/_cache/skillstore-cli
 
       - name: Hard-block until the released Linux binary digest is audited
         run: |
           set -euo pipefail
           actual=$(sha256sum "$GITHUB_WORKSPACE/skillstore-cli" | awk '{print $1}')
-          [[ "$FRESH_GOVERNANCE_CLI_SHA256" =~ ^[0-9a-f]{64}$ ]] || { echo '::error::invalid CLI 2.15.5 digest'; exit 1; }
-          test "$actual" = "$FRESH_GOVERNANCE_CLI_SHA256" || { echo '::error::CLI 2.15.5 digest mismatch'; exit 1; }
+          [[ "$FRESH_GOVERNANCE_CLI_SHA256" =~ ^[0-9a-f]{64}$ ]] || { echo '::error::invalid CLI 2.15.10 digest'; exit 1; }
+          test "$actual" = "$FRESH_GOVERNANCE_CLI_SHA256" || { echo '::error::CLI 2.15.10 digest mismatch'; exit 1; }
 
       - name: Run genuinely fresh audits against each frozen commit
         env:
@@ -401,7 +399,7 @@ jobs:
             --result-file "$RUNNER_TEMP/fresh-boundary.json"
 
       - name: Prove Report-Origin raw32 audits are replacement pointers only
-        if: inputs.cohort_path == 'governance/fresh-canonical-audit/report-origin-raw32-v1.json'
+        if: inputs.cohort_path == 'governance/fresh-canonical-audit/raw32-exact62-v1.json'
         run: |
           set -euo pipefail
           jq -e --slurpfile selected "$RUNNER_TEMP/selected-cohort.json" '
@@ -670,12 +668,12 @@ jobs:
           private-key: ${{ secrets.APP_PRIVATE_KEY }}
           repositories: marketplace,skillstore
 
-      - name: Download exact audited CLI 2.15.5
+      - name: Download exact audited CLI 2.15.10
         uses: ./.github/actions/download-skillstore-cli
         with:
           token: ${{ steps.app-token.outputs.token }}
-          version: '2.15.5'
-          minimum-version: '2.15.5'
+          version: '2.15.10'
+          minimum-version: '2.15.10'
           cache-dir: /home/runner/_work/_cache/skillstore-cli
 
       - name: Verify frozen CLI identity
@@ -685,7 +683,7 @@ jobs:
           set -euo pipefail
           expected=$(jq -r .cliSha256 "$RUNNER_TEMP/boundary/metadata.json")
           actual=$(sha256sum "$GITHUB_WORKSPACE/skillstore-cli" | awk '{print $1}')
-          [[ "$FRESH_GOVERNANCE_CLI_SHA256" =~ ^[0-9a-f]{64}$ ]] || { echo '::error::invalid CLI 2.15.5 digest'; exit 1; }
+          [[ "$FRESH_GOVERNANCE_CLI_SHA256" =~ ^[0-9a-f]{64}$ ]] || { echo '::error::invalid CLI 2.15.10 digest'; exit 1; }
           if test "$DRY_RUN_ID" = '29646612265'; then
             test "$expected" = 'ecfaa49aa72d24b8ea6322c7dae24d4bbe9df174a5d009cc56d7d2a89e7ae05a'
           else
