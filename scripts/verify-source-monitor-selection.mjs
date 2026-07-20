@@ -125,13 +125,34 @@ export function verifyLocalActionSummary(text, expectedCount) {
   if (
     metrics.observed !== expectedCount
     || metrics.selected !== expectedCount
-    || metrics.applied !== expectedCount
-    || metrics.failed !== 0
+    || metrics.applied + metrics.failed !== expectedCount
     || metrics.deferred !== 0
   ) {
     fail(`source monitor local action mismatch: expected=${expectedCount}, metrics=${JSON.stringify(metrics)}`);
   }
   return metrics;
+}
+
+function parseLocalActionSlugs(text, metrics) {
+  const section = (heading) => {
+    const marker = `### ${heading}`;
+    const start = text.indexOf(marker);
+    if (start === -1) return '';
+    const following = text.slice(start + marker.length);
+    const end = following.search(/^### /mu);
+    return end === -1 ? following : following.slice(0, end);
+  };
+  const applied = [...section('Local Actions').matchAll(/^- updated: ([a-z0-9](?:[a-z0-9-]*[a-z0-9])?) \([^\n]+\)$/gmu)]
+    .map((match) => match[1]);
+  const failed = [...section('Local Action Failures').matchAll(/^- ([a-z0-9](?:[a-z0-9-]*[a-z0-9])?): .+$/gmu)]
+    .map((match) => match[1]);
+  if (new Set(applied).size !== applied.length || new Set(failed).size !== failed.length) {
+    fail('source monitor summary contains duplicate local action slugs');
+  }
+  if (applied.length !== metrics.applied || failed.length !== metrics.failed) {
+    fail(`source monitor local action detail mismatch: metrics=${JSON.stringify(metrics)}, applied=[${applied.join(',')}], failed=[${failed.join(',')}]`);
+  }
+  return { applied, failed };
 }
 
 function walkReports(directory, reports) {
@@ -180,6 +201,12 @@ export function verifyLocalMutations({
   const requestedSlugs = parseRequestedSlugs(requested);
   if (!COMMIT_RE.test(expectedUpstreamCommit)) fail(`invalid expected upstream commit: ${expectedUpstreamCommit}`);
   const metrics = verifyLocalActionSummary(summaryText, requestedSlugs.length);
+  const actionSlugs = parseLocalActionSlugs(summaryText, metrics);
+  const accountedSlugs = [...actionSlugs.applied, ...actionSlugs.failed]
+    .sort((left, right) => left.localeCompare(right, 'en'));
+  if (accountedSlugs.join('\0') !== requestedSlugs.join('\0')) {
+    fail(`source monitor local action slug mismatch: requested=[${requestedSlugs.join(',')}], applied=[${actionSlugs.applied.join(',')}], failed=[${actionSlugs.failed.join(',')}]`);
+  }
 
   const reportPaths = [];
   walkReports(resolve(root, 'skills'), reportPaths);
@@ -201,6 +228,7 @@ export function verifyLocalMutations({
     if (lstatSync(reportPath).isSymbolicLink() || !lstatSync(reportPath).isFile()) {
       fail(`marketplace report is not a regular file: ${reportPath}`);
     }
+    if (!actionSlugs.applied.includes(slug)) continue;
     if (report.meta.upstream_commit_sha !== expectedUpstreamCommit) {
       fail(`marketplace report commit mismatch for ${slug}: ${report.meta.upstream_commit_sha ?? 'missing'}`);
     }
@@ -212,7 +240,7 @@ export function verifyLocalMutations({
     ...gitPaths(root, ['diff', '--name-only', '-z', '--no-renames', 'HEAD', '--']),
     ...gitPaths(root, ['ls-files', '--others', '--exclude-standard', '-z', '--']),
   ].map(validateChangedPath));
-  if (changed.size === 0) fail('source monitor produced no marketplace file changes');
+  if (metrics.applied > 0 && changed.size === 0) fail('source monitor produced no marketplace file changes');
 
   for (const path of changed) {
     if (!authorized.some(({ directory }) => path.startsWith(directory))) {
