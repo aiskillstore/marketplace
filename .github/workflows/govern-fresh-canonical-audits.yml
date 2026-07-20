@@ -53,7 +53,7 @@ on:
         description: 'Exact audited CLI version'
         type: string
         required: true
-        default: '2.15.2'
+        default: '2.15.3'
 
 permissions:
   actions: read
@@ -64,11 +64,11 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  FRESH_GOVERNANCE_CLI_VERSION: '2.15.2'
-  FRESH_GOVERNANCE_CLI_SHA256: 'fceaa46ab5e8cb2b68398a49f1e6c041bfa4cc83abc00221ba7d1e2bf83a73e4'
+  FRESH_GOVERNANCE_CLI_VERSION: '2.15.3'
+  FRESH_GOVERNANCE_CLI_SHA256: '416229f67f2d0d97037ca2255795d65fe5943b7101b52783bc6929b01072be50'
   ORIGINAL_FRESH_COHORT: 'governance/fresh-canonical-audit/remaining-lineage.json'
   REPORT_ORIGIN_FRESH_COHORT: 'governance/fresh-canonical-audit/report-origin-raw32-v1.json'
-  REPORT_ORIGIN_FRESH_COHORT_SHA256: 'ac43e014ee21aa3038c82b341586e3b9aeb3fd47d7080fc683c2b90671bb80de'
+  REPORT_ORIGIN_FRESH_COHORT_SHA256: '261604847b20ede3b31264c4500433692ba38269b32c48e84c78d4609d4568e6'
 
 jobs:
   freeze-boundary:
@@ -131,7 +131,11 @@ jobs:
                 and all(.rows[];
                   .marketplaceCommit == "820ccb93d2e2fe828678ed05433bafd1054e5000"
                   and .remainingReason == "same_source_tree_unproven"
-                  and .governanceEligibleByLineage == false)
+                  and .governanceEligibleByLineage == false
+                  and .legacyReference.kind == "frozen_mutable_main"
+                  and .legacyReference.sourceRef == "main"
+                  and .legacyReference.skillReportUrl ==
+                    ("https://github.com/aiskillstore/marketplace/blob/main/" + .path + "/skill-report.json"))
               ' "$COHORT_PATH" >/dev/null
               ;;
             *) echo '::error::cohort_path is not an authenticated Fresh campaign'; exit 1 ;;
@@ -334,20 +338,20 @@ jobs:
           private-key: ${{ secrets.APP_PRIVATE_KEY }}
           repositories: marketplace,skillstore
 
-      - name: Download exact fresh-governance CLI 2.15.2
+      - name: Download exact fresh-governance CLI 2.15.3
         uses: ./.github/actions/download-skillstore-cli
         with:
           token: ${{ steps.app-token.outputs.token }}
-          version: '2.15.2'
-          minimum-version: '2.15.2'
+          version: '2.15.3'
+          minimum-version: '2.15.3'
           cache-dir: /home/runner/_work/_cache/skillstore-cli
 
       - name: Hard-block until the released Linux binary digest is audited
         run: |
           set -euo pipefail
           actual=$(sha256sum "$GITHUB_WORKSPACE/skillstore-cli" | awk '{print $1}')
-          [[ "$FRESH_GOVERNANCE_CLI_SHA256" =~ ^[0-9a-f]{64}$ ]] || { echo '::error::invalid CLI 2.15.2 digest'; exit 1; }
-          test "$actual" = "$FRESH_GOVERNANCE_CLI_SHA256" || { echo '::error::CLI 2.15.2 digest mismatch'; exit 1; }
+          [[ "$FRESH_GOVERNANCE_CLI_SHA256" =~ ^[0-9a-f]{64}$ ]] || { echo '::error::invalid CLI 2.15.3 digest'; exit 1; }
+          test "$actual" = "$FRESH_GOVERNANCE_CLI_SHA256" || { echo '::error::CLI 2.15.3 digest mismatch'; exit 1; }
 
       - name: Run genuinely fresh audits against each frozen commit
         env:
@@ -410,9 +414,13 @@ jobs:
               and .expectedSkill.artifact_revision == 0
               and .expectedSkill.current_artifact_version_id == null
               and .expectedSkill.public_eligibility_audit_id == .expectedLatestAudit.id
+              and .expectedSkill.source_ref == .row.legacyReference.sourceRef
+              and .expectedSkill.skill_report_url == .row.legacyReference.skillReportUrl
               and .rpcPayload.p_expected_latest_audit_id == .expectedLatestAudit.id
               and .rpcPayload.p_expected_latest_audit_version == .expectedLatestAudit.version
               and .rpcPayload.p_expected_latest_audit_content_hash == .expectedLatestAudit.content_hash
+              and .rpcPayload.p_expected_source_ref == .row.legacyReference.sourceRef
+              and .rpcPayload.p_expected_skill_report_url == .row.legacyReference.skillReportUrl
               and (.rpcPayload.p_audit_payload.content_hash | test("^[0-9a-f]{64}$"))
               and .rpcPayload.p_audit_payload.content_hash != .expectedLatestAudit.content_hash
               and .auditRunEvidence.previousReportSha256 != .auditRunEvidence.reportSha256)
@@ -572,12 +580,12 @@ jobs:
           private-key: ${{ secrets.APP_PRIVATE_KEY }}
           repositories: marketplace,skillstore
 
-      - name: Download exact audited CLI 2.15.2
+      - name: Download exact audited CLI 2.15.3
         uses: ./.github/actions/download-skillstore-cli
         with:
           token: ${{ steps.app-token.outputs.token }}
-          version: '2.15.2'
-          minimum-version: '2.15.2'
+          version: '2.15.3'
+          minimum-version: '2.15.3'
           cache-dir: /home/runner/_work/_cache/skillstore-cli
 
       - name: Verify frozen CLI identity
@@ -587,7 +595,7 @@ jobs:
           set -euo pipefail
           expected=$(jq -r .cliSha256 "$RUNNER_TEMP/boundary/metadata.json")
           actual=$(sha256sum "$GITHUB_WORKSPACE/skillstore-cli" | awk '{print $1}')
-          [[ "$FRESH_GOVERNANCE_CLI_SHA256" =~ ^[0-9a-f]{64}$ ]] || { echo '::error::invalid CLI 2.15.2 digest'; exit 1; }
+          [[ "$FRESH_GOVERNANCE_CLI_SHA256" =~ ^[0-9a-f]{64}$ ]] || { echo '::error::invalid CLI 2.15.3 digest'; exit 1; }
           if test "$DRY_RUN_ID" = '29646612265'; then
             test "$expected" = 'ecfaa49aa72d24b8ea6322c7dae24d4bbe9df174a5d009cc56d7d2a89e7ae05a'
           else

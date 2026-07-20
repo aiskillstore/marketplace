@@ -277,22 +277,24 @@ test('cursor requires both the immediately preceding boundary and a fully govern
 test('workflow is two-phase, CLI-pinned, resumable, and closes P0 channels', () => {
   const workflow = readFileSync(new URL('../../.github/workflows/govern-fresh-canonical-audits.yml', import.meta.url), 'utf8');
   assert.match(workflow, /options: \[dry-run, execute, recover, recover-cache, recover-smoke\]/);
-  assert.match(workflow, /default: '2\.15\.2'/);
+  assert.match(workflow, /default: '2\.15\.3'/);
   assert.match(workflow, /DRY_RUN_ID" = '29646612265'/);
   assert.match(workflow, /11101c85a06aaec0d8f0deda0a4aac82cf24899b/);
   assert.match(workflow, /sha256:4d5b40e20e59cd830125e572ed2ba888dcc2ce5309a62001793a87dd8464035b/);
   assert.match(workflow, /git show "11101c85a06aaec0d8f0deda0a4aac82cf24899b:\$path"/);
   assert.ok((workflow.match(/282cfb6103f580c1758674f6d407493b3039a2ca788c986297684180ae6f0dbb/g) || []).length >= 4);
-  assert.equal((workflow.match(/fceaa46ab5e8cb2b68398a49f1e6c041bfa4cc83abc00221ba7d1e2bf83a73e4/g) || []).length, 1);
+  assert.equal((workflow.match(/416229f67f2d0d97037ca2255795d65fe5943b7101b52783bc6929b01072be50/g) || []).length, 1);
   assert.equal((workflow.match(/296cab05576adec2c6613255b26663fab58e8f3fa585e2c085cd0367d8c7274f/g) || []).length, 2);
   assert.equal((workflow.match(/9b885943950c15555e8fbae522adf2cf9514ae74f63050a905c8e97694d52fcb/g) || []).length, 2);
   assert.equal((workflow.match(/ecfaa49aa72d24b8ea6322c7dae24d4bbe9df174a5d009cc56d7d2a89e7ae05a/g) || []).length, 4);
   assert.match(workflow, /\[\[ "\$FRESH_GOVERNANCE_CLI_SHA256" =~ \^\[0-9a-f\]\{64\}\$ \]\]/);
   assert.match(workflow, /REPORT_ORIGIN_FRESH_COHORT: 'governance\/fresh-canonical-audit\/report-origin-raw32-v1\.json'/);
-  assert.match(workflow, /REPORT_ORIGIN_FRESH_COHORT_SHA256: 'ac43e014ee21aa3038c82b341586e3b9aeb3fd47d7080fc683c2b90671bb80de'/);
+  assert.match(workflow, /REPORT_ORIGIN_FRESH_COHORT_SHA256: '261604847b20ede3b31264c4500433692ba38269b32c48e84c78d4609d4568e6'/);
   assert.match(workflow, /Prove Report-Origin raw32 audits are replacement pointers only/);
   assert.match(workflow, /expected_replaced_pointer_only/);
   assert.match(workflow, /p_expected_latest_audit_content_hash/);
+  assert.match(workflow, /p_expected_source_ref == \.row\.legacyReference\.sourceRef/);
+  assert.match(workflow, /p_expected_skill_report_url == \.row\.legacyReference\.skillReportUrl/);
   assert.match(workflow, /skill audit/);
   assert.match(workflow, /cd "\$RUNNER_TEMP\/materialized\/\$commit"/);
   assert.match(workflow, /skill audit skills --slugs "\$slugs"/);
@@ -370,7 +372,7 @@ test('Report-Origin Fresh-11 cohort is exact, immutable, and source-addressed', 
     '92bilal26-visual-asset-workflow',
   ];
   assert.equal(createHash('sha256').update(bytes).digest('hex'),
-    'ac43e014ee21aa3038c82b341586e3b9aeb3fd47d7080fc683c2b90671bb80de');
+    '261604847b20ede3b31264c4500433692ba38269b32c48e84c78d4609d4568e6');
   assert.equal(cohort.schemaVersion, 1);
   assert.equal(cohort.status, 'lineage_unproven');
   assert.equal(cohort.count, 11);
@@ -386,5 +388,10 @@ test('Report-Origin Fresh-11 cohort is exact, immutable, and source-addressed', 
     assert.match(row.canonicalArtifact.contentHash, /^[0-9a-f]{64}$/);
     assert.match(row.canonicalArtifact.treeHash, /^[0-9a-f]{64}$/);
     assert.notEqual(row.reportTreeHash, row.canonicalArtifact.treeHash);
+    assert.deepEqual(row.legacyReference, {
+      kind: 'frozen_mutable_main',
+      sourceRef: 'main',
+      skillReportUrl: `https://github.com/aiskillstore/marketplace/blob/main/${row.path}/skill-report.json`,
+    });
   }
 });
