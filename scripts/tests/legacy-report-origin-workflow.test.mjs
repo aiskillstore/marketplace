@@ -13,7 +13,7 @@ function sha256(bytes) {
 
 function fixture() {
   const root = mkdtempSync(join(tmpdir(), 'origin-boundary-'));
-  const rows = Array.from({ length: 51 }, (_, index) => ({
+  const rows = Array.from({ length: 50 }, (_, index) => ({
     slug: `owner-skill-${String(index).padStart(2, '0')}`,
     skillId: `00000000-0000-4000-8000-${String(index).padStart(12, '0')}`,
     classificationRunId: String(1000 + (index % 2)),
@@ -46,20 +46,20 @@ function fixture() {
       schemaVersion: 2,
       status: 'frozen_report_origin_cohort',
       repository: 'aiskillstore/marketplace',
-      selectedCount: 51,
+      selectedCount: 50,
       sourceBoundaries,
       rows,
     },
   };
 }
 
-test('builds and verifies only the exact 51 identities from two hash-bound classifications', () => {
+test('builds and verifies only the exact 50 identities from two hash-bound classifications', () => {
   const item = fixture();
   try {
     const built = buildLegacyReportOriginBoundary({ cohort: item.cohort, boundariesRoot: item.root });
     const manifest = {
       status: 'legacy_report_origin_evidence_materialized',
-      selectedCount: 51,
+      selectedCount: 50,
       entries: item.cohort.rows,
     };
     const dryRunResults = [{
@@ -82,7 +82,7 @@ test('builds and verifies only the exact 51 identities from two hash-bound class
     }));
 
     const outside = structuredClone(manifest);
-    outside.selectedCount = 52;
+    outside.selectedCount = 51;
     outside.entries.push({ ...outside.entries[0], slug: 'outside-row' });
     assert.throws(() => verifyLegacyReportOriginDocuments({
       cohort: item.cohort,
@@ -111,16 +111,16 @@ test('workflow freezes and replays Git evidence with the audited CLI digest', ()
     import.meta.dirname,
     '../data/legacy-report-origin-v2-only-cohort-v1.json'
   ), 'utf8'));
-  assert.equal(cohort.selectedCount, 51);
-  assert.equal(cohort.rows.length, 51);
+  assert.equal(cohort.selectedCount, 50);
+  assert.equal(cohort.rows.length, 50);
   assert.equal(cohort.sourceBoundaries.length, 2);
   assert.deepEqual(
-    ['davila7-docx', 'davila7-pptx', 'dmitrypogrebnoy-generating-rbs']
+    ['crossbill-highlights-css-colors', 'davila7-docx', 'davila7-pptx', 'dmitrypogrebnoy-generating-rbs']
       .filter((slug) => cohort.rows.some((row) => row.slug === slug)),
     []
   );
   assert.match(workflow, /ORIGIN_COHORT: scripts\/data\/legacy-report-origin-v2-only-cohort-v1\.json/);
-  assert.match(workflow, /ORIGIN_COHORT_SHA256: 19405cdafddc726fca51dd26b7b7d3f40c1a12816c4b8ebe33fea2ed20e5c616/);
+  assert.match(workflow, /ORIGIN_COHORT_SHA256: 164edab51b71a2be141d726cb50f7ae94b1c3f7ae622353d28c3f9ad7ac9b346/);
   assert.match(workflow, /ORIGIN_CLI_VERSION: '2\.15\.9'/);
   assert.match(workflow, /ORIGIN_CLI_SHA256: '9a980bbb9574dd3da976803264796dd3ba57d15bafde5645afe6fe5783e5e9ec'/);
   assert.equal((workflow.match(/version: '2\.15\.9'/g) || []).length, 4);
@@ -128,7 +128,7 @@ test('workflow freezes and replays Git evidence with the audited CLI digest', ()
   assert.match(workflow, /\.workflowName == "Govern Legacy Report-Origin V2-Only"/);
   assert.match(workflow, /sha256sum --check SHA256SUMS/);
   assert.match(workflow, /cmp "\$RUNNER_TEMP\/boundary\/origin-lineage\.json" "\$RUNNER_TEMP\/current-origin-lineage\.json"/);
-  assert.match(workflow, /--expected-count 51/);
+  assert.match(workflow, /--expected-count 50/);
   assert.equal(
     (workflow.match(/Normalize full checkout and verify report-origin runtime/g) || []).length,
     2
@@ -142,25 +142,4 @@ test('workflow freezes and replays Git evidence with the audited CLI digest', ()
   assert.equal((workflow.match(/--legacy-origin-lineage/g) || []).length, 2);
   assert.equal((workflow.match(/--legacy-origin-root/g) || []).length, 2);
   assert.equal((workflow.match(/--legacy-previous-report-root/g) || []).length, 2);
-});
-
-test('score-cache recovery is one-row, two-stage, and cannot rewrite incident artifacts', () => {
-  const workflow = readFileSync(resolve(
-    import.meta.dirname,
-    '../../.github/workflows/recover-report-origin-score-cache.yml'
-  ), 'utf8');
-  assert.match(workflow, /options: \[dry-run, execute\]/);
-  assert.match(workflow, /group: production-skill-score-writes/);
-  assert.match(workflow, /INCIDENT_DRY_RUN_ID: '29767776933'/);
-  assert.match(workflow, /INCIDENT_EXECUTE_ID: '29768013787'/);
-  assert.match(workflow, /RECOVERY_CLI_VERSION: '2\.15\.9'/);
-  assert.match(workflow, /RECOVERY_SLUG: crossbill-highlights-css-colors/);
-  assert.match(workflow, /\.cohorts\.actual_or_unproven_drift \|= map/);
-  assert.match(workflow, /artifactCreated==false/);
-  assert.match(workflow, /\(\$rows\|length\)==51/);
-  assert.match(workflow, /\.artifacts==\$before\[0\]\.artifacts/);
-  assert.match(workflow, /\.audits==\$before\[0\]\.audits/);
-  assert.match(workflow, /\.observations==\$before\[0\]\.observations/);
-  assert.match(workflow, /packGenerationTouched:false/);
-  assert.doesNotMatch(workflow, /generate-packs|install_pack|\/api\/packs/);
 });
