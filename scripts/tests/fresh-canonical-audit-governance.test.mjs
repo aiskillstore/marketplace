@@ -293,6 +293,12 @@ test('workflow is two-phase, CLI-pinned, resumable, and closes P0 channels', () 
   assert.match(workflow, /Prove Report-Origin raw32 audits are replacement pointers only/);
   assert.match(workflow, /auditReplacementMode == "expected_replaced_pointer_only"/);
   assert.match(workflow, /invalid Report-Origin replacement proof/);
+  assert.match(workflow, /fresh_audit_binding_v3/);
+  assert.match(workflow, /\^v3:\[0-9a-f\]\{40\}:\[0-9a-f\]\{64\}:\[0-9a-f\]\{64\}:\[0-9a-f\]\+:\[0-9a-f\]\{32\}\$/);
+  assert.match(workflow, /subject_marketplace_commit_sha == \$candidate\.row\.marketplaceCommit/);
+  assert.match(workflow, /subject_content_hash == \$candidate\.row\.canonicalArtifact\.contentHash/);
+  assert.match(workflow, /subject_tree_hash == \$candidate\.row\.canonicalArtifact\.treeHash/);
+  assert.match(workflow, /subject_plugin_path == \$candidate\.row\.path/);
   assert.match(workflow, /expected_replaced_pointer_only/);
   assert.match(workflow, /p_expected_latest_audit_content_hash/);
   assert.match(workflow, /p_expected_source_ref == \$candidate\.row\.legacyReference\.sourceRef/);
