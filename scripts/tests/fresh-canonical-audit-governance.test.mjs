@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -276,17 +277,22 @@ test('cursor requires both the immediately preceding boundary and a fully govern
 test('workflow is two-phase, CLI-pinned, resumable, and closes P0 channels', () => {
   const workflow = readFileSync(new URL('../../.github/workflows/govern-fresh-canonical-audits.yml', import.meta.url), 'utf8');
   assert.match(workflow, /options: \[dry-run, execute, recover, recover-cache, recover-smoke\]/);
-  assert.match(workflow, /default: '2\.15\.1'/);
+  assert.match(workflow, /default: '2\.15\.2'/);
   assert.match(workflow, /DRY_RUN_ID" = '29646612265'/);
   assert.match(workflow, /11101c85a06aaec0d8f0deda0a4aac82cf24899b/);
   assert.match(workflow, /sha256:4d5b40e20e59cd830125e572ed2ba888dcc2ce5309a62001793a87dd8464035b/);
   assert.match(workflow, /git show "11101c85a06aaec0d8f0deda0a4aac82cf24899b:\$path"/);
   assert.ok((workflow.match(/282cfb6103f580c1758674f6d407493b3039a2ca788c986297684180ae6f0dbb/g) || []).length >= 4);
-  assert.equal((workflow.match(/0d9b845310aed9f7213c6e384e86aa1a3eb8676894f3bfdec1309a840b413ad5/g) || []).length, 2);
+  assert.equal((workflow.match(/fceaa46ab5e8cb2b68398a49f1e6c041bfa4cc83abc00221ba7d1e2bf83a73e4/g) || []).length, 1);
   assert.equal((workflow.match(/296cab05576adec2c6613255b26663fab58e8f3fa585e2c085cd0367d8c7274f/g) || []).length, 2);
   assert.equal((workflow.match(/9b885943950c15555e8fbae522adf2cf9514ae74f63050a905c8e97694d52fcb/g) || []).length, 2);
   assert.equal((workflow.match(/ecfaa49aa72d24b8ea6322c7dae24d4bbe9df174a5d009cc56d7d2a89e7ae05a/g) || []).length, 4);
-  assert.match(workflow, /\[\[ "\$audited" =~ \^\[0-9a-f\]\{64\}\$ \]\]/);
+  assert.match(workflow, /\[\[ "\$FRESH_GOVERNANCE_CLI_SHA256" =~ \^\[0-9a-f\]\{64\}\$ \]\]/);
+  assert.match(workflow, /REPORT_ORIGIN_FRESH_COHORT: 'governance\/fresh-canonical-audit\/report-origin-raw32-v1\.json'/);
+  assert.match(workflow, /REPORT_ORIGIN_FRESH_COHORT_SHA256: 'ac43e014ee21aa3038c82b341586e3b9aeb3fd47d7080fc683c2b90671bb80de'/);
+  assert.match(workflow, /Prove Report-Origin raw32 audits are replacement pointers only/);
+  assert.match(workflow, /expected_replaced_pointer_only/);
+  assert.match(workflow, /p_expected_latest_audit_content_hash/);
   assert.match(workflow, /skill audit/);
   assert.match(workflow, /cd "\$RUNNER_TEMP\/materialized\/\$commit"/);
   assert.match(workflow, /skill audit skills --slugs "\$slugs"/);
@@ -343,4 +349,42 @@ test('workflow is two-phase, CLI-pinned, resumable, and closes P0 channels', () 
   assert.match(workflow, /elif type=="array" and all\(\.\[\]; type=="object" and \(\.jobs\|type\)=="array"\)/);
   const recovery = workflow.slice(workflow.indexOf('  recover-boundary:'));
   assert.doesNotMatch(recovery, /skill govern-fresh-canonical-audit|recalculate-scores|record_fresh_canonical_audit/);
+});
+
+test('Report-Origin Fresh-11 cohort is exact, immutable, and source-addressed', () => {
+  const bytes = readFileSync(new URL(
+    '../../governance/fresh-canonical-audit/report-origin-raw32-v1.json', import.meta.url
+  ));
+  const cohort = JSON.parse(bytes.toString('utf8'));
+  const expectedSlugs = [
+    '270aldo-ngx-hybrid-sales',
+    '5minfutures-architecture-reference',
+    '5minfutures-coding-standards',
+    '5minfutures-migration-tracker',
+    '5minfutures-portfolio-context',
+    '92bilal26-assessment-builder',
+    '92bilal26-code-example-generator',
+    '92bilal26-concept-scaffolding',
+    '92bilal26-exercise-designer',
+    '92bilal26-technical-clarity',
+    '92bilal26-visual-asset-workflow',
+  ];
+  assert.equal(createHash('sha256').update(bytes).digest('hex'),
+    'ac43e014ee21aa3038c82b341586e3b9aeb3fd47d7080fc683c2b90671bb80de');
+  assert.equal(cohort.schemaVersion, 1);
+  assert.equal(cohort.status, 'lineage_unproven');
+  assert.equal(cohort.count, 11);
+  assert.deepEqual(cohort.rows.map((row) => row.slug), expectedSlugs);
+  assert.equal(new Set(cohort.rows.map((row) => row.skillId)).size, 11);
+  assert.equal(new Set(cohort.rows.map((row) => row.path)).size, 11);
+  for (const row of cohort.rows) {
+    assert.equal(row.marketplaceCommit, '820ccb93d2e2fe828678ed05433bafd1054e5000');
+    assert.equal(row.remainingReason, 'same_source_tree_unproven');
+    assert.equal(row.governanceEligibleByLineage, false);
+    assert.match(row.reportContentHash, /^[0-9a-f]{64}$/);
+    assert.match(row.reportTreeHash, /^[0-9a-f]{64}$/);
+    assert.match(row.canonicalArtifact.contentHash, /^[0-9a-f]{64}$/);
+    assert.match(row.canonicalArtifact.treeHash, /^[0-9a-f]{64}$/);
+    assert.notEqual(row.reportTreeHash, row.canonicalArtifact.treeHash);
+  }
 });
