@@ -92,7 +92,7 @@ function fixture() {
       slug: row.slug,
       content_hash: index >= 65 ? row.evidence.artifact.contentHash : row.contentHash,
       tree_hash: index >= 65 ? row.evidence.artifact.treeHash : row.treeHash,
-      marketplace_commit_sha: commit,
+      marketplace_commit_sha: index >= 65 ? 'b'.repeat(40) : commit,
       plugin_path: row.path,
       public_eligible: true,
       public_eligibility_audit_id: index >= 65 ? uuid('2', index) : row.publicEligibilityAuditId,
