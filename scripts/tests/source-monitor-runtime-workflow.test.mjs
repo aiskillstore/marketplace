@@ -177,7 +177,7 @@ test('source monitor binds checkout and artifacts to immutable runtime evidence'
   assert.match(workflow, /ref: \$\{\{ github\.workflow_sha \}\}/);
   assert.match(workflow, /fetch-depth: 1/);
   assert.match(workflow, /persist-credentials: false/);
-  assert.match(workflow, /version: 2\.15\.0/);
+  assert.match(workflow, /version: 2\.15\.8/);
   assert.match(workflow, /minimum-version: 2\.14\.5/);
   assert.match(workflow, /require-checksum: true/);
   assert.match(workflow, /\$\{\{ runner\.temp \}\}\/source-monitor-diagnostics-\$\{\{ github\.run_id \}\}\//);
