@@ -33,12 +33,13 @@ function validateCohort(cohort) {
     || cohort.schemaVersion !== 2
     || cohort.status !== 'frozen_report_origin_cohort'
     || cohort.repository !== 'aiskillstore/marketplace'
-    || cohort.selectedCount !== 70
+    || !Number.isSafeInteger(cohort.selectedCount)
+    || cohort.selectedCount < 1
     || !Array.isArray(cohort.rows)
-    || cohort.rows.length !== 70
+    || cohort.rows.length !== cohort.selectedCount
     || !Array.isArray(cohort.sourceBoundaries)
-    || cohort.sourceBoundaries.length !== 7
-  ) fail('report-origin cohort must freeze exactly 70 rows and seven source boundaries');
+    || cohort.sourceBoundaries.length < 1
+  ) fail('report-origin cohort must freeze a positive exact row set and its source boundaries');
   const boundaries = new Map();
   for (const boundary of cohort.sourceBoundaries) {
     if (
@@ -77,6 +78,7 @@ function validateCohort(cohort) {
 
 export function buildLegacyReportOriginBoundary({ cohort, boundariesRoot }) {
   const expectedBoundaries = validateCohort(cohort);
+  const selectedCount = cohort.selectedCount;
   const classifications = new Map();
   for (const [runId, expectedSha256] of expectedBoundaries) {
     const path = join(resolve(boundariesRoot), runId, 'classification.json');
@@ -136,14 +138,14 @@ export function buildLegacyReportOriginBoundary({ cohort, boundariesRoot }) {
     classification: {
       schemaVersion: 1,
       status: 'classified',
-      classifiedCount: 70,
-      counts: { exact: 0, legacy_algorithm_equivalent: 0, actual_or_unproven_drift: 70 },
+      classifiedCount: selectedCount,
+      counts: { exact: 0, legacy_algorithm_equivalent: 0, actual_or_unproven_drift: selectedCount },
       cohorts: { exact: [], legacy_algorithm_equivalent: [], actual_or_unproven_drift: selected },
     },
     plan: {
       schemaVersion: 1,
       status: 'frozen_report_origin_plan',
-      selectedCount: 70,
+      selectedCount,
       identitySha256,
       sourceBoundaries: cohort.sourceBoundaries,
       identities,
@@ -176,7 +178,7 @@ export function main(argv = process.argv.slice(2)) {
   });
   writeFileSync(resolve(args['classification-output']), `${JSON.stringify(output.classification, null, 2)}\n`, { flag: 'wx' });
   writeFileSync(resolve(args['plan-output']), `${JSON.stringify(output.plan, null, 2)}\n`, { flag: 'wx' });
-  process.stdout.write(`${JSON.stringify({ status: output.plan.status, selectedCount: 70 })}\n`);
+  process.stdout.write(`${JSON.stringify({ status: output.plan.status, selectedCount: output.plan.selectedCount })}\n`);
 }
 
 if (process.argv[1] && pathToFileURL(resolve(process.argv[1])).href === import.meta.url) {
