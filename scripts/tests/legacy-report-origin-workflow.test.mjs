@@ -5,7 +5,10 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import test from 'node:test';
 import { buildLegacyReportOriginBoundary } from '../build-legacy-report-origin-boundary.mjs';
-import { verifyLegacyReportOriginDocuments } from '../verify-legacy-report-origin-boundary.mjs';
+import {
+  freezeLegacyReportOriginBoundary,
+  verifyLegacyReportOriginDocuments,
+} from '../verify-legacy-report-origin-boundary.mjs';
 
 function sha256(bytes) {
   return createHash('sha256').update(bytes).digest('hex');
@@ -80,6 +83,19 @@ test('builds and verifies only the exact 50 identities from two hash-bound class
       manifest,
       dryRunResults,
     }));
+    const frozen = freezeLegacyReportOriginBoundary({
+      cohort: item.cohort,
+      plan: built.plan,
+      classification: built.classification,
+      manifest,
+      dryRunResults,
+      runId: '29773180840',
+      repository: 'aiskillstore/marketplace',
+      workflowCommit: 'a'.repeat(40),
+      cliVersion: '2.15.9',
+      cliSha256: 'b'.repeat(64),
+    });
+    assert.equal(frozen.cliVersion, '2.15.9');
 
     const outside = structuredClone(manifest);
     outside.selectedCount = 51;
