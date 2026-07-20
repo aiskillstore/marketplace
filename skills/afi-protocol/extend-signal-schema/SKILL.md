@@ -216,8 +216,8 @@ error output, and surface it with minimal, clear commentary.
 When using this skill, you MUST NOT:
 
 - **Modify orchestration logic** in afi-reactor:
-  - Do NOT edit DAG wiring, pipeline execution, or orchestration code.
-  - Schema changes belong in afi-core; DAG wiring belongs in afi-reactor.
+  - Do NOT edit pipeline composition, pipeline execution, or orchestration code.
+  - Schema changes belong in afi-core; pipeline composition belongs in afi-reactor.
 
 - **Introduce PoI/PoInsight as signal fields**:
   - Do NOT add `poi`, `poinsight`, `proof_of_intelligence`, or similar fields.
@@ -292,8 +292,8 @@ exactly what changed and why.
 
 ### Do NOT Use This Skill For
 
-- "Wire the new schema into the DAG pipeline."
-  → Use `add-dag-node` skill in afi-reactor instead.
+- "Wire the new schema into the pipeline."
+  → Author the pipeline composition in afi-reactor (governed registries/manifests) instead.
 
 - "Add PoInsight as a field on Scored signals."
   → Violates PoI/PoInsight design (escalate to human).

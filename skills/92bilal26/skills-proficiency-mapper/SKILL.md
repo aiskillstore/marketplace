@@ -1,8 +1,3 @@
----
-name: skills-proficiency-mapper
-description: "Maps learning skills to CEFR, Bloom's Taxonomy, and DigComp levels with measurable indicators, prerequisites, and non-regressive progression."
----
-
 # Skills Proficiency Mapper Skill v3.0 (Reasoning-Activated)
 
 **Version**: 3.0.0 (Strengthened from v2.0 2/4 → 4/4)

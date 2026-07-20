@@ -1,5 +1,5 @@
 ---
-name: code-patterns-practices
+name: Code Patterns & Practices
 description: React Native coding patterns, best practices, and common solutions for mobile development. Use when implementing features or refactoring code.
 allowed-tools: Read, Write, Edit
 ---

@@ -1,5 +1,5 @@
 ---
-name: docusaurus-advanced
+name: Docusaurus Advanced
 description: Deep dive into the Docusaurus configuration, plugins, and custom fields.
 ---
 

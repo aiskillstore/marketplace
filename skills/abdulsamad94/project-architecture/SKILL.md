@@ -1,5 +1,5 @@
 ---
-name: project-architecture
+name: Project Architecture
 description: Overview of the project's tech stack, directory structure, and architectural patterns.
 ---
 

@@ -1,5 +1,5 @@
 ---
-name: performance-optimization
+name: Performance Optimization
 description: Full-stack performance analysis, optimization patterns, and monitoring strategies
 version: 1.0.0
 category: Quality & Optimization

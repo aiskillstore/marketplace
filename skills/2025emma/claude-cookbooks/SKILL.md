@@ -1,3 +1,4 @@
+TRANSLATED CONTENT:
 ---
 name: claude-cookbooks
 description: Claude AI cookbooks - code examples, tutorials, and best practices for using Claude API. Use when learning Claude API integration, building Claude-powered applications, or exploring Claude capabilities.
