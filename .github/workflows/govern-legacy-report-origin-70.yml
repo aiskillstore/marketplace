@@ -29,7 +29,10 @@ env:
   # has been audited and this placeholder is replaced by its exact SHA-256.
   ORIGIN_CLI_SHA256: 'fceaa46ab5e8cb2b68398a49f1e6c041bfa4cc83abc00221ba7d1e2bf83a73e4'
   ORIGIN_COHORT: scripts/data/legacy-report-origin-v2-only-cohort-v1.json
-  ORIGIN_COHORT_SHA256: 7b9409e3eb748c9974e7e0c14a10b8507832ae0c22d2cc8b2171bf56d2292938
+  # Dry-run 29765964455 proved davila7-docx has four packaged files missing
+  # from its install-snapshot inputs. Keep it deferred instead of weakening
+  # exact file-structure validation for the ordinary Report-Origin cohort.
+  ORIGIN_COHORT_SHA256: af23709e6068d69460e83c43e026d54b802706ad6d39e2e722a8c2ee5c961c6e
 
 jobs:
   freeze-boundary:
@@ -73,7 +76,7 @@ jobs:
             test -f "$path" || { echo "::error file=$path::Missing report-origin runtime"; exit 1; }
           done
           test "$(sha256sum "$ORIGIN_COHORT" | awk '{print $1}')" = "$ORIGIN_COHORT_SHA256"
-          jq -e '.schemaVersion == 2 and .selectedCount == 54 and (.rows | length) == 54 and (.sourceBoundaries | length) == 2' "$ORIGIN_COHORT" >/dev/null
+          jq -e '.schemaVersion == 2 and .selectedCount == 53 and (.rows | length) == 53 and (.sourceBoundaries | length) == 2' "$ORIGIN_COHORT" >/dev/null
           [[ "$ORIGIN_CLI_SHA256" =~ ^[0-9a-f]{64}$ ]] || {
             echo '::error::CLI 2.15.2 audit digest is still a non-production placeholder'; exit 1;
           }
@@ -104,7 +107,7 @@ jobs:
             }
           done < <(jq -c '.sourceBoundaries[]' "$ORIGIN_COHORT")
 
-      - name: Build exact 54-row v2-only drift classification and plan
+      - name: Build exact 53-row v2-only drift classification and plan
         run: |
           set -euo pipefail
           node scripts/build-legacy-report-origin-boundary.mjs \
@@ -118,7 +121,7 @@ jobs:
           set -euo pipefail
           node scripts/materialize-legacy-report-origin-evidence.mjs \
             --repository-root "$GITHUB_WORKSPACE" --cohort "$ORIGIN_COHORT" \
-            --expected-count 54 --origin-root "$RUNNER_TEMP/origin" \
+            --expected-count 53 --origin-root "$RUNNER_TEMP/origin" \
             --previous-report-root "$RUNNER_TEMP/previous" \
             --manifest "$RUNNER_TEMP/origin-lineage.json"
 
@@ -154,7 +157,7 @@ jobs:
           set -euo pipefail
           test "$(sha256sum "$GITHUB_WORKSPACE/skillstore-cli" | awk '{print $1}')" = "$ORIGIN_CLI_SHA256"
 
-      - name: Run exact 54-row administrator dry-run
+      - name: Run exact 53-row administrator dry-run
         env:
           PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
@@ -274,7 +277,7 @@ jobs:
           test "$(sha256sum "$RUNNER_TEMP/boundary/cohort.json" | awk '{print $1}')" = "$ORIGIN_COHORT_SHA256"
           node scripts/materialize-legacy-report-origin-evidence.mjs \
             --repository-root "$GITHUB_WORKSPACE" --cohort "$RUNNER_TEMP/boundary/cohort.json" \
-            --expected-count 54 --origin-root "$RUNNER_TEMP/origin" \
+            --expected-count 53 --origin-root "$RUNNER_TEMP/origin" \
             --previous-report-root "$RUNNER_TEMP/previous" \
             --manifest "$RUNNER_TEMP/current-origin-lineage.json"
           cmp "$RUNNER_TEMP/boundary/origin-lineage.json" "$RUNNER_TEMP/current-origin-lineage.json" || {
@@ -322,7 +325,7 @@ jobs:
           actual=$(sha256sum "$GITHUB_WORKSPACE/skillstore-cli" | awk '{print $1}')
           test "$expected" = "$ORIGIN_CLI_SHA256" && test "$actual" = "$ORIGIN_CLI_SHA256"
 
-      - name: Execute only the frozen 54 rows
+      - name: Execute only the frozen 53 rows
         env:
           PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
@@ -348,7 +351,7 @@ jobs:
           done < <(jq -c '.groups[]' "$RUNNER_TEMP/boundary/plan.json")
           jq -s . "$RUNNER_TEMP/execution-results.jsonl" > "$RUNNER_TEMP/execution-results.json"
           jq -e '[.[].result.results[]] as $rows |
-            ($rows | length) == 54 and ($rows | map(.slug) | unique | length) == 54 and
+            ($rows | length) == 53 and ($rows | map(.slug) | unique | length) == 53 and
             ($rows | all(.mode == "execute" and .artifactRevision == 1))' \
             "$RUNNER_TEMP/execution-results.json" >/dev/null
 
