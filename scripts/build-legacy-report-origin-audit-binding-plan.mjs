@@ -71,14 +71,7 @@ export function buildLegacyReportOriginAuditBindingPlan({
     const proof = lineage.get(row.slug);
     if (
       !skill || skill.slug !== row.slug
-      || skill.marketplace_commit_sha !== row.marketplaceCommit
-      || skill.plugin_path !== row.path
-      || skill.public_eligible !== true
       || !audit || audit.skill_id !== row.id || audit.id !== row.publicEligibilityAuditId
-      || !proof || proof.skillId !== row.id || proof.path !== row.path
-      || proof.currentMarketplaceCommit !== row.marketplaceCommit
-      || proof.currentReport?.contentHash !== row.contentHash
-      || proof.currentReport?.treeHash !== row.treeHash
     ) fail(`report-origin immutable identity changed for ${row.slug}`);
 
     if (skill.artifact_revision === 1 && UUID_RE.test(skill.current_artifact_version_id || '')) {
@@ -95,7 +88,14 @@ export function buildLegacyReportOriginAuditBindingPlan({
       || skill.current_artifact_version_id !== null
       || skill.content_hash !== row.contentHash
       || skill.tree_hash !== row.treeHash
+      || skill.marketplace_commit_sha !== row.marketplaceCommit
+      || skill.plugin_path !== row.path
+      || skill.public_eligible !== true
       || skill.public_eligibility_audit_id !== row.publicEligibilityAuditId
+      || !proof || proof.skillId !== row.id || proof.path !== row.path
+      || proof.currentMarketplaceCommit !== row.marketplaceCommit
+      || proof.currentReport?.contentHash !== row.contentHash
+      || proof.currentReport?.treeHash !== row.treeHash
     ) {
       fail(`report-origin artifact projection is inconsistent for ${row.slug}`);
     }
