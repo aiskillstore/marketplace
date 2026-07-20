@@ -9,19 +9,34 @@ const SHA256_RE = /^[0-9a-f]{64}$/;
 const COMMIT_RE = /^[0-9a-f]{40}$/;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const MAX_BATCH_SIZE = 10;
-const RECOVERY_PROOF_IDENTITY = Object.freeze({
-  executeRunId: '29668478921',
-  dryRunId: '29646612265',
-  failedExecuteRunId: '29666546406',
-  failedExecuteHeadSha: '3e7baf520a4d078047b53b95352156e3a3f74260',
-  workflowCommit: '7e58b46f1a1478773d6d1f5ef5eb4ae5d56d439c',
-  originalCliVersion: '2.8.0',
-  originalCliSha256: 'ecfaa49aa72d24b8ea6322c7dae24d4bbe9df174a5d009cc56d7d2a89e7ae05a',
-  failedCliVersion: '2.8.2',
-  failedCliSha256: '9b885943950c15555e8fbae522adf2cf9514ae74f63050a905c8e97694d52fcb',
-  cacheVersion: 'v7',
-  smokeCommit: 'e368da730951aceca17a7e5d9d5a9adc0e3efc2a',
-});
+const RECOVERY_PROOF_IDENTITIES = Object.freeze([
+  Object.freeze({
+    executeRunId: '29668478921',
+    dryRunId: '29646612265',
+    failedExecuteRunId: '29666546406',
+    failedExecuteHeadSha: '3e7baf520a4d078047b53b95352156e3a3f74260',
+    workflowCommit: '7e58b46f1a1478773d6d1f5ef5eb4ae5d56d439c',
+    originalCliVersion: '2.8.0',
+    originalCliSha256: 'ecfaa49aa72d24b8ea6322c7dae24d4bbe9df174a5d009cc56d7d2a89e7ae05a',
+    failedCliVersion: '2.8.2',
+    failedCliSha256: '9b885943950c15555e8fbae522adf2cf9514ae74f63050a905c8e97694d52fcb',
+    cacheVersion: 'v7',
+    smokeCommit: 'e368da730951aceca17a7e5d9d5a9adc0e3efc2a',
+  }),
+  Object.freeze({
+    executeRunId: '29691166740',
+    dryRunId: '29682699325',
+    failedExecuteRunId: '29684825610',
+    failedExecuteHeadSha: '2bfe0fd5cf25a967c5481dd83207b0de24997273',
+    workflowCommit: '15eac13abcacce4146ebfc3069898fe24fbc178d',
+    originalCliVersion: '2.8.4',
+    originalCliSha256: '282cfb6103f580c1758674f6d407493b3039a2ca788c986297684180ae6f0dbb',
+    failedCliVersion: '2.8.4',
+    failedCliSha256: '282cfb6103f580c1758674f6d407493b3039a2ca788c986297684180ae6f0dbb',
+    cacheVersion: 'v7',
+    smokeCommit: '0f78b2d983b0e233f6b7071e38ddf6b4f29c9168',
+  }),
+]);
 const SMOKE_RECOVERY_PROOF_IDENTITY = Object.freeze({
   dryRunId: '29669706395',
   failedExecuteRunId: '29671150631',
@@ -36,6 +51,19 @@ const SMOKE_RECOVERY_PROOF_IDENTITY = Object.freeze({
 const AUDIT_SCHEMA_PATH = 'schemas/skill-report.schema.json';
 
 function fail(message) { throw new Error(message); }
+function matchesRecoveryProofIdentity(execution, identity) {
+  return execution.executeRunId === identity.executeRunId
+    && execution.dryRunId === identity.dryRunId
+    && execution.failedExecuteRunId === identity.failedExecuteRunId
+    && execution.failedExecuteHeadSha === identity.failedExecuteHeadSha
+    && execution.workflowCommit === identity.workflowCommit
+    && execution.originalCli?.version === identity.originalCliVersion
+    && execution.originalCli?.sha256 === identity.originalCliSha256
+    && execution.failedExecutionCli?.version === identity.failedCliVersion
+    && execution.failedExecutionCli?.sha256 === identity.failedCliSha256
+    && execution.recoveryRuntime?.cacheVersion === identity.cacheVersion
+    && execution.recoveryRuntime?.smokeCommit === identity.smokeCommit;
+}
 function isSupportedExecutionProof(execution) {
   if (execution?.schemaVersion === 1) return true;
   if (execution?.schemaVersion !== 2) return false;
@@ -48,17 +76,7 @@ function isSupportedExecutionProof(execution) {
   ];
   if (!hashes.every((value) => typeof value === 'string' && SHA256_RE.test(value))) return false;
   if (execution.producerKind === 'fresh_canonical_audit_recovery') {
-    return execution.executeRunId === RECOVERY_PROOF_IDENTITY.executeRunId
-      && execution.dryRunId === RECOVERY_PROOF_IDENTITY.dryRunId
-      && execution.failedExecuteRunId === RECOVERY_PROOF_IDENTITY.failedExecuteRunId
-      && execution.failedExecuteHeadSha === RECOVERY_PROOF_IDENTITY.failedExecuteHeadSha
-      && execution.workflowCommit === RECOVERY_PROOF_IDENTITY.workflowCommit
-      && execution.originalCli?.version === RECOVERY_PROOF_IDENTITY.originalCliVersion
-      && execution.originalCli?.sha256 === RECOVERY_PROOF_IDENTITY.originalCliSha256
-      && execution.failedExecutionCli?.version === RECOVERY_PROOF_IDENTITY.failedCliVersion
-      && execution.failedExecutionCli?.sha256 === RECOVERY_PROOF_IDENTITY.failedCliSha256
-      && execution.recoveryRuntime?.cacheVersion === RECOVERY_PROOF_IDENTITY.cacheVersion
-      && execution.recoveryRuntime?.smokeCommit === RECOVERY_PROOF_IDENTITY.smokeCommit
+    return RECOVERY_PROOF_IDENTITIES.some((identity) => matchesRecoveryProofIdentity(execution, identity))
       && [execution.scoreTimestampEvidenceSha256, execution.cacheClosureEvidenceSha256,
         execution.cacheReadbackSha256]
         .every((value) => typeof value === 'string' && SHA256_RE.test(value));
