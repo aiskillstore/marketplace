@@ -125,18 +125,26 @@ test('workflow freezes and replays Git evidence with the audited CLI digest', ()
   ), 'utf8');
   const cohort = JSON.parse(readFileSync(resolve(
     import.meta.dirname,
-    '../data/legacy-report-origin-v2-only-cohort-v1.json'
+    '../data/ordinary-v2-report-origin-cohort-v1.json'
   ), 'utf8'));
-  assert.equal(cohort.selectedCount, 50);
-  assert.equal(cohort.rows.length, 50);
-  assert.equal(cohort.sourceBoundaries.length, 2);
+  const deferred = JSON.parse(readFileSync(resolve(
+    import.meta.dirname,
+    '../data/artifact-governance-deferred-v1.json'
+  ), 'utf8'));
+  assert.equal(cohort.selectedCount, 197);
+  assert.equal(cohort.rows.length, 197);
+  assert.deepEqual(cohort.sourceBoundaries, [{
+    runId: '29775654869',
+    classificationSha256: 'b3627fab08453788d08e4ddfa89726ad8260d28cb1bd55420b2b032691d4b07e',
+  }]);
+  assert.ok(cohort.rows.every((row) => row.classificationRunId === '29775654869'));
   assert.deepEqual(
-    ['crossbill-highlights-css-colors', 'davila7-docx', 'davila7-pptx', 'dmitrypogrebnoy-generating-rbs']
+    deferred.slugs
       .filter((slug) => cohort.rows.some((row) => row.slug === slug)),
     []
   );
-  assert.match(workflow, /ORIGIN_COHORT: scripts\/data\/legacy-report-origin-v2-only-cohort-v1\.json/);
-  assert.match(workflow, /ORIGIN_COHORT_SHA256: 164edab51b71a2be141d726cb50f7ae94b1c3f7ae622353d28c3f9ad7ac9b346/);
+  assert.match(workflow, /ORIGIN_COHORT: scripts\/data\/ordinary-v2-report-origin-cohort-v1\.json/);
+  assert.match(workflow, /ORIGIN_COHORT_SHA256: dfb78a0a55e4f534e6706396662de3bdfc116078b89a66c148177f630f0edac0/);
   assert.match(workflow, /ORIGIN_CLI_VERSION: '2\.15\.9'/);
   assert.match(workflow, /ORIGIN_CLI_SHA256: '9a980bbb9574dd3da976803264796dd3ba57d15bafde5645afe6fe5783e5e9ec'/);
   assert.equal((workflow.match(/version: '2\.15\.9'/g) || []).length, 4);
@@ -144,7 +152,7 @@ test('workflow freezes and replays Git evidence with the audited CLI digest', ()
   assert.match(workflow, /\.workflowName == "Govern Legacy Report-Origin V2-Only"/);
   assert.match(workflow, /sha256sum --check SHA256SUMS/);
   assert.match(workflow, /cmp "\$RUNNER_TEMP\/boundary\/origin-lineage\.json" "\$RUNNER_TEMP\/current-origin-lineage\.json"/);
-  assert.match(workflow, /--expected-count 50/);
+  assert.match(workflow, /--expected-count 197/);
   assert.equal(
     (workflow.match(/Normalize full checkout and verify report-origin runtime/g) || []).length,
     2
