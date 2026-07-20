@@ -151,7 +151,8 @@ test('workflow freezes and replays Git evidence with the audited CLI digest', ()
   assert.match(workflow, /RECOVERY_CLI_SHA256: '2ea8ef90fcb890b83b1cf1bd772bd02da3fff98bc8f5162c481287552518bdd8'/);
   assert.equal((workflow.match(/version: '2\.15\.9'/g) || []).length, 2);
   assert.equal((workflow.match(/version: '2\.15\.10'/g) || []).length, 2);
-  assert.match(workflow, /options: \[recover-post-score\]/);
+  assert.match(workflow, /options: \[retired\]/);
+  assert.match(workflow, /if: inputs\.mode == 'recover-post-score'/);
   assert.match(workflow, /INCIDENT_DRY_RUN_ID: '29781656344'/);
   assert.match(workflow, /INCIDENT_EXECUTE_RUN_ID: '29782034145'/);
   assert.match(workflow, /INCIDENT_EXECUTION_ARTIFACT_ID: '8477301225'/);
