@@ -131,8 +131,8 @@ test('workflow freezes and replays Git evidence with the audited CLI digest', ()
     import.meta.dirname,
     '../data/artifact-governance-deferred-v1.json'
   ), 'utf8'));
-  assert.equal(cohort.selectedCount, 197);
-  assert.equal(cohort.rows.length, 197);
+  assert.equal(cohort.selectedCount, 196);
+  assert.equal(cohort.rows.length, 196);
   assert.deepEqual(cohort.sourceBoundaries, [{
     runId: '29775654869',
     classificationSha256: 'b3627fab08453788d08e4ddfa89726ad8260d28cb1bd55420b2b032691d4b07e',
@@ -144,7 +144,7 @@ test('workflow freezes and replays Git evidence with the audited CLI digest', ()
     []
   );
   assert.match(workflow, /ORIGIN_COHORT: scripts\/data\/ordinary-v2-report-origin-cohort-v1\.json/);
-  assert.match(workflow, /ORIGIN_COHORT_SHA256: dfb78a0a55e4f534e6706396662de3bdfc116078b89a66c148177f630f0edac0/);
+  assert.match(workflow, /ORIGIN_COHORT_SHA256: 29e248eac74cce31454d167a46d7857fb9d43ac476f8e753b854cab1ce7e84cc/);
   assert.match(workflow, /ORIGIN_CLI_VERSION: '2\.15\.9'/);
   assert.match(workflow, /ORIGIN_CLI_SHA256: '9a980bbb9574dd3da976803264796dd3ba57d15bafde5645afe6fe5783e5e9ec'/);
   assert.equal((workflow.match(/version: '2\.15\.9'/g) || []).length, 4);
@@ -152,7 +152,11 @@ test('workflow freezes and replays Git evidence with the audited CLI digest', ()
   assert.match(workflow, /\.workflowName == "Govern Legacy Report-Origin V2-Only"/);
   assert.match(workflow, /sha256sum --check SHA256SUMS/);
   assert.match(workflow, /cmp "\$RUNNER_TEMP\/boundary\/origin-lineage\.json" "\$RUNNER_TEMP\/current-origin-lineage\.json"/);
-  assert.match(workflow, /--expected-count 197/);
+  assert.match(workflow, /--expected-count 196/);
+  assert.match(workflow, /done < <\(jq -r '\.slugs\[\]' <<< "\$group"\)/);
+  assert.match(workflow, /--root "\$RUNNER_TEMP\/current\/\$commit" --slugs "\$slug"/);
+  assert.match(workflow, /dry-run-failures\.jsonl/);
+  assert.match(workflow, /legacy-report-origin-v2-only-failed-dry-run-/);
   assert.equal(
     (workflow.match(/Normalize full checkout and verify report-origin runtime/g) || []).length,
     2
