@@ -67,7 +67,7 @@ env:
   FRESH_GOVERNANCE_CLI_VERSION: '2.15.10'
   FRESH_GOVERNANCE_CLI_SHA256: '2ea8ef90fcb890b83b1cf1bd772bd02da3fff98bc8f5162c481287552518bdd8'
   REPORT_ORIGIN_FRESH_COHORT: 'governance/fresh-canonical-audit/raw32-exact62-v1.json'
-  REPORT_ORIGIN_FRESH_COHORT_SHA256: 'ad5938fa521d2c7bd5d3de95304d9e5e5eff74376b0ceab173628058efaf6539'
+  REPORT_ORIGIN_FRESH_COHORT_SHA256: 'c8a2f173067a9064a693669db12db398de1324a044e8ae54176ab368aa3038c3'
 
 jobs:
   freeze-boundary:
@@ -130,10 +130,7 @@ jobs:
                 and all(.rows[];
                   .remainingReason == "same_source_tree_unproven"
                   and .governanceEligibleByLineage == false
-                  and .legacyReference.kind == "frozen_commit_ref"
-                  and .legacyReference.sourceRef == .marketplaceCommit
-                  and .legacyReference.skillReportUrl ==
-                    ("https://github.com/aiskillstore/marketplace/blob/" + .marketplaceCommit + "/" + .path + "/skill-report.json"))
+                  and (has("legacyReference") | not))
               ' "$COHORT_PATH" >/dev/null
               ;;
             *) echo '::error::cohort_path is not an authenticated Fresh campaign'; exit 1 ;;
@@ -410,14 +407,14 @@ jobs:
           failures=$(jq -r '
             .candidates[] as $candidate
             | [
-                { name: "replacement_mode", ok: ($candidate.auditReplacementMode == "expected_replaced_pointer_only") },
+                { name: "replacement_mode", ok: ($candidate.auditReplacementMode == "commit_addressed") },
                 { name: "legacy_audit_shape", ok: (($candidate.expectedLatestAudit | keys | sort) == ["content_hash", "id", "skill_id", "version"]) },
                 { name: "legacy_audit_raw32", ok: ($candidate.expectedLatestAudit.content_hash | test("^[0-9a-f]{32}$")) },
                 { name: "r0_skill", ok: ($candidate.expectedSkill.artifact_revision == 0 and $candidate.expectedSkill.current_artifact_version_id == null) },
                 { name: "legacy_pointer", ok: ($candidate.expectedSkill.public_eligibility_audit_id == $candidate.expectedLatestAudit.id) },
-                { name: "legacy_source_ref", ok: ($candidate.expectedSkill.source_ref == $candidate.row.legacyReference.sourceRef and $candidate.expectedSkill.skill_report_url == $candidate.row.legacyReference.skillReportUrl) },
+                { name: "commit_source_ref", ok: ($candidate.expectedSkill.source_ref == $candidate.row.marketplaceCommit and $candidate.expectedSkill.skill_report_url == ("https://github.com/aiskillstore/marketplace/blob/" + $candidate.row.marketplaceCommit + "/" + $candidate.row.path + "/skill-report.json")) },
                 { name: "rpc_expected_audit", ok: ($candidate.rpcPayload.p_expected_latest_audit_id == $candidate.expectedLatestAudit.id and $candidate.rpcPayload.p_expected_latest_audit_version == $candidate.expectedLatestAudit.version and $candidate.rpcPayload.p_expected_latest_audit_content_hash == $candidate.expectedLatestAudit.content_hash) },
-                { name: "rpc_expected_reference", ok: ($candidate.rpcPayload.p_expected_source_ref == $candidate.row.legacyReference.sourceRef and $candidate.rpcPayload.p_expected_skill_report_url == $candidate.row.legacyReference.skillReportUrl) },
+                { name: "rpc_expected_reference", ok: ($candidate.rpcPayload.p_expected_source_ref == $candidate.row.marketplaceCommit and $candidate.rpcPayload.p_expected_skill_report_url == ("https://github.com/aiskillstore/marketplace/blob/" + $candidate.row.marketplaceCommit + "/" + $candidate.row.path + "/skill-report.json")) },
                 { name: "fresh_audit_identity", ok: ($candidate.rpcPayload.p_audit_id == $candidate.auditId and $candidate.auditId != $candidate.expectedLatestAudit.id) },
                 { name: "fresh_audit_binding_v3", ok: (
                     ($candidate.rpcPayload.p_audit_payload.content_hash | test("^v3:[0-9a-f]{40}:[0-9a-f]{64}:[0-9a-f]{64}:[0-9a-f]+:[0-9a-f]{32}$"))
@@ -470,7 +467,7 @@ jobs:
             --arg previousExecuteRunId '${{ inputs.previous_execute_run_id }}' \
             --arg cohortSha256 "$(sha256sum "$COHORT_PATH" | awk '{print $1}')" \
             --arg preInventorySha256 "$(sha256sum "$RUNNER_TEMP/pre-inventory.json" | awk '{print $1}')" \
-            --arg auditReplacementMode "$(test "$COHORT_PATH" = "$REPORT_ORIGIN_FRESH_COHORT" && echo expected_replaced_pointer_only || echo standard)" \
+            --arg auditReplacementMode "$(test "$COHORT_PATH" = "$REPORT_ORIGIN_FRESH_COHORT" && echo commit_addressed_raw32_pointer_replacement || echo standard)" \
             '{schemaVersion:1,status:"fresh_canonical_audit_frozen",runId:$runId,repository:$repository,workflowCommit:$workflowCommit,cliVersion:$cliVersion,cliSha256:$cliSha256,cohortPath:$cohortPath,cohortSha256:$cohortSha256,auditReplacementMode:$auditReplacementMode,startAfter:$startAfter,lastSelected:$lastSelected,previousBoundaryRunId:$previousBoundaryRunId,previousExecuteRunId:$previousExecuteRunId,preInventorySha256:$preInventorySha256}' \
             > "$boundary/metadata.json"
           (cd "$boundary" && find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS)

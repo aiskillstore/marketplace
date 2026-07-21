@@ -292,9 +292,9 @@ test('workflow is two-phase, CLI-pinned, resumable, and closes P0 channels', () 
   assert.equal((workflow.match(/ecfaa49aa72d24b8ea6322c7dae24d4bbe9df174a5d009cc56d7d2a89e7ae05a/g) || []).length, 4);
   assert.match(workflow, /\[\[ "\$FRESH_GOVERNANCE_CLI_SHA256" =~ \^\[0-9a-f\]\{64\}\$ \]\]/);
   assert.match(workflow, /REPORT_ORIGIN_FRESH_COHORT: 'governance\/fresh-canonical-audit\/raw32-exact62-v1\.json'/);
-  assert.match(workflow, /REPORT_ORIGIN_FRESH_COHORT_SHA256: 'ad5938fa521d2c7bd5d3de95304d9e5e5eff74376b0ceab173628058efaf6539'/);
+  assert.match(workflow, /REPORT_ORIGIN_FRESH_COHORT_SHA256: 'c8a2f173067a9064a693669db12db398de1324a044e8ae54176ab368aa3038c3'/);
   assert.match(workflow, /Prove Report-Origin raw32 audits are replacement pointers only/);
-  assert.match(workflow, /auditReplacementMode == "expected_replaced_pointer_only"/);
+  assert.match(workflow, /auditReplacementMode == "commit_addressed"/);
   assert.match(workflow, /invalid Report-Origin replacement proof/);
   assert.match(workflow, /fresh_audit_binding_v3/);
   assert.match(workflow, /\^v3:\[0-9a-f\]\{40\}:\[0-9a-f\]\{64\}:\[0-9a-f\]\{64\}:\[0-9a-f\]\+:\[0-9a-f\]\{32\}\$/);
@@ -302,10 +302,10 @@ test('workflow is two-phase, CLI-pinned, resumable, and closes P0 channels', () 
   assert.match(workflow, /subject_content_hash == \$candidate\.row\.canonicalArtifact\.contentHash/);
   assert.match(workflow, /subject_tree_hash == \$candidate\.row\.canonicalArtifact\.treeHash/);
   assert.match(workflow, /subject_plugin_path == \$candidate\.row\.path/);
-  assert.match(workflow, /expected_replaced_pointer_only/);
+  assert.match(workflow, /commit_addressed_raw32_pointer_replacement/);
   assert.match(workflow, /p_expected_latest_audit_content_hash/);
-  assert.match(workflow, /p_expected_source_ref == \$candidate\.row\.legacyReference\.sourceRef/);
-  assert.match(workflow, /p_expected_skill_report_url == \$candidate\.row\.legacyReference\.skillReportUrl/);
+  assert.match(workflow, /p_expected_source_ref == \$candidate\.row\.marketplaceCommit/);
+  assert.match(workflow, /p_expected_skill_report_url == \("https:\/\/github\.com\/aiskillstore\/marketplace\/blob\/"/);
   assert.match(workflow, /skill audit/);
   assert.match(workflow, /cd "\$RUNNER_TEMP\/materialized\/\$commit"/);
   assert.match(workflow, /skill audit skills --slugs "\$slugs"/);
@@ -419,7 +419,7 @@ test('residual raw32 Fresh cohort is exact, commit-pinned, and replacement-only'
   ));
   const cohort = JSON.parse(bytes.toString('utf8'));
   assert.equal(createHash('sha256').update(bytes).digest('hex'),
-    'ad5938fa521d2c7bd5d3de95304d9e5e5eff74376b0ceab173628058efaf6539');
+    'c8a2f173067a9064a693669db12db398de1324a044e8ae54176ab368aa3038c3');
   assert.equal(cohort.schemaVersion, 1);
   assert.equal(cohort.status, 'lineage_unproven');
   assert.equal(cohort.count, 62);
@@ -439,10 +439,6 @@ test('residual raw32 Fresh cohort is exact, commit-pinned, and replacement-only'
     assert.match(row.reportTreeHash, /^[0-9a-f]{64}$/);
     assert.equal(row.reportContentHash, row.canonicalArtifact.contentHash);
     assert.equal(row.reportTreeHash, row.canonicalArtifact.treeHash);
-    assert.deepEqual(row.legacyReference, {
-      kind: 'frozen_commit_ref',
-      sourceRef: row.marketplaceCommit,
-      skillReportUrl: `https://github.com/aiskillstore/marketplace/blob/${row.marketplaceCommit}/${row.path}/skill-report.json`,
-    });
+    assert.equal(row.legacyReference, undefined);
   }
 });
