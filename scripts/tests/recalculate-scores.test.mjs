@@ -441,6 +441,7 @@ test('every workflow that invokes the score wrapper is enumerated and holds the 
 		.filter((name) => readFileSync(join(WORKFLOWS_DIR, name), 'utf8').includes('bash scripts/recalculate-scores.sh'))
 		.sort();
 	assert.deepEqual(writerWorkflows, [
+		'govern-fresh-canonical-audits.yml',
 		'recalculate-scores.yml',
 		'recover-score-cache-closure.yml',
 		'sync-to-supabase.yml',
