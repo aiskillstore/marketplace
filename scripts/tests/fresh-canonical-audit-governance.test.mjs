@@ -307,8 +307,13 @@ test('workflow is two-phase, CLI-pinned, resumable, and closes P0 channels', () 
   assert.match(workflow, /p_expected_source_ref == \$candidate\.row\.marketplaceCommit/);
   assert.match(workflow, /p_expected_skill_report_url == \("https:\/\/github\.com\/aiskillstore\/marketplace\/blob\/"/);
   assert.match(workflow, /skill audit/);
-  assert.match(workflow, /cd "\$RUNNER_TEMP\/materialized\/\$commit"/);
+  assert.match(workflow, /target="\$RUNNER_TEMP\/materialized\/\$commit"/);
   assert.match(workflow, /skill audit skills --slugs "\$slugs"/);
+  assert.match(workflow, /if \[ "\$audit_status" -eq 132 \]/);
+  assert.match(workflow, /rematerializing this local-only audit group for one bounded retry/);
+  assert.match(workflow, /rm -rf "\$target"/);
+  assert.match(workflow, /rm -f "\$checkpoint" "\$manifest"/);
+  assert.match(workflow, /elif \[ "\$audit_status" -ne 0 \]/);
   assert.doesNotMatch(workflow, /skill audit \\\n\s+"\$RUNNER_TEMP\/materialized\/\$commit\/skills"/);
   assert.match(workflow, /fresh-run-manifest-file/);
   assert.match(workflow, /fresh-audit-run\.json/);
