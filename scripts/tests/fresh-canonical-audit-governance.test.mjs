@@ -276,7 +276,8 @@ test('cursor requires both the immediately preceding boundary and a fully govern
 
 test('workflow is two-phase, CLI-pinned, resumable, and closes P0 channels', () => {
   const workflow = readFileSync(new URL('../../.github/workflows/govern-fresh-canonical-audits.yml', import.meta.url), 'utf8');
-  assert.match(workflow, /options: \[dry-run, execute, recover, recover-cache, recover-smoke, recover-deferred32-partial\]/);
+  assert.match(workflow, /options: \[dry-run, execute, recover, recover-cache, recover-smoke\]/);
+  assert.doesNotMatch(workflow, /options: \[[^\]]*recover-deferred32-partial/);
   assert.doesNotMatch(workflow, /options: \[[^\]]*recover-rpc-timeout/);
   assert.match(workflow, /execute-boundary:\n    if: inputs\.mode == 'execute'/);
   assert.match(workflow, /default: '2\.15\.10'/);
