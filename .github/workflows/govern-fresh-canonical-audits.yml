@@ -8,7 +8,7 @@ on:
         type: choice
         required: true
         default: dry-run
-        options: [dry-run, execute, recover, recover-cache, recover-smoke]
+        options: [dry-run, execute, recover, recover-cache, recover-smoke, recover-deferred32-partial]
       cohort_path:
         description: 'Exact authenticated repository-relative Fresh cohort JSON; dry-run only'
         type: string
@@ -576,7 +576,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
   execute-boundary:
-    if: inputs.mode == 'execute'
+    if: inputs.mode == 'execute' || inputs.mode == 'recover-deferred32-partial'
     concurrency:
       group: production-skill-score-writes
       cancel-in-progress: false
@@ -591,6 +591,14 @@ jobs:
       ZERO_WRITE_FAILED_RUN_SHA: 'd75b0863d962bc58cf69d554f8fa6ea67a5c040a'
       ZERO_WRITE_FAILED_ARTIFACT_ID: '8461872394'
       ZERO_WRITE_FAILED_ARTIFACT_DIGEST: 'sha256:e36360f2dd23fae710d9c6ea3a0f02e40b55b31fe18b57f354a62542b8560b50'
+      PARTIAL_DRY_RUN_ID: '29804024756'
+      PARTIAL_DRY_RUN_SHA: 'eba974f65fb16659a11b30fddcf6e4c6a768617c'
+      PARTIAL_DRY_ARTIFACT_ID: '8485192250'
+      PARTIAL_DRY_ARTIFACT_DIGEST: 'sha256:813ff0b9482006cbac5b99f0d0da640f4c6d4b701c7597149bdc7ee9563e5e62'
+      PARTIAL_FAILED_RUN_ID: '29805282909'
+      PARTIAL_FAILED_JOB_ID: '88554459298'
+      PARTIAL_FAILED_ARTIFACT_ID: '8485262988'
+      PARTIAL_FAILED_ARTIFACT_DIGEST: 'sha256:e73715f23896011f31d32e0a0734e953be30f9ee79b9cad56d9ae8692ff49de2'
     steps:
       - name: Checkout complete Marketplace history
         uses: actions/checkout@v5
@@ -610,6 +618,8 @@ jobs:
             .github/actions/download-skillstore-cli/action.yml \
             scripts/prepare-fresh-canonical-audit-batch.mjs \
             scripts/fetch-artifact-version-inventory.mjs \
+            scripts/recalculate-scores.sh \
+            scripts/score-cache-closure.mjs \
             scripts/verify-fresh-canonical-zero-write-recovery.mjs; do
             test -f "$path" || { echo "::error file=$path::Missing fresh governance runtime"; exit 1; }
           done
@@ -632,9 +642,13 @@ jobs:
           if test "$MODE" = 'recover-rpc-timeout'; then
             test "$DRY_RUN_ID" = "$ZERO_WRITE_DRY_RUN_ID"
             test "$FAILED_EXECUTE_RUN_ID" = "$ZERO_WRITE_FAILED_RUN_ID"
+          elif test "$MODE" = 'recover-deferred32-partial'; then
+            test "$DRY_RUN_ID" = "$PARTIAL_DRY_RUN_ID"
+            test "$FAILED_EXECUTE_RUN_ID" = "$PARTIAL_FAILED_RUN_ID"
           else
             [[ "$DRY_RUN_ID" =~ ^[1-9][0-9]*$ ]] || { echo '::error::numeric dry_run_id required'; exit 1; }
             test "$DRY_RUN_ID" != "$ZERO_WRITE_DRY_RUN_ID" || { echo '::error::sealed zero-write boundary cannot be executed'; exit 1; }
+            test "$DRY_RUN_ID" != "$PARTIAL_DRY_RUN_ID" || { echo '::error::sealed partial-write boundary cannot be executed'; exit 1; }
             test -z "$FAILED_EXECUTE_RUN_ID" || { echo '::error::execute cannot consume failed_execute_run_id'; exit 1; }
           fi
 
@@ -664,6 +678,14 @@ jobs:
               --arg name "fresh-canonical-audit-boundary-$ZERO_WRITE_DRY_RUN_ID" '
               [.artifacts[] | select(.id==$id and .name==$name and .expired==false and .digest==$digest)] | length==1
             ' <<< "$artifacts" >/dev/null
+          elif test "$DRY_RUN_ID" = "$PARTIAL_DRY_RUN_ID"; then
+            test "$(jq -r .headSha <<< "$run_json")" = "$PARTIAL_DRY_RUN_SHA"
+            artifacts=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$DRY_RUN_ID/artifacts?per_page=100")
+            jq -e --argjson id "$PARTIAL_DRY_ARTIFACT_ID" \
+              --arg digest "$PARTIAL_DRY_ARTIFACT_DIGEST" \
+              --arg name "fresh-canonical-audit-boundary-$PARTIAL_DRY_RUN_ID" '
+              [.artifacts[] | select(.id==$id and .name==$name and .expired==false and .digest==$digest)] | length==1
+            ' <<< "$artifacts" >/dev/null
           fi
           mkdir -p "$RUNNER_TEMP/boundary"
           gh run download "$DRY_RUN_ID" --repo "$GITHUB_REPOSITORY" \
@@ -687,6 +709,13 @@ jobs:
               .github/actions/download-skillstore-cli/action.yml \
               scripts/prepare-fresh-canonical-audit-batch.mjs; do
               git show "$ZERO_WRITE_DRY_RUN_SHA:$path" | cmp - "$RUNNER_TEMP/boundary/runtime/$path"
+            done
+          elif test "$DRY_RUN_ID" = "$PARTIAL_DRY_RUN_ID"; then
+            for path in \
+              .github/workflows/govern-fresh-canonical-audits.yml \
+              .github/actions/download-skillstore-cli/action.yml \
+              scripts/prepare-fresh-canonical-audit-batch.mjs; do
+              git show "$PARTIAL_DRY_RUN_SHA:$path" | cmp - "$RUNNER_TEMP/boundary/runtime/$path"
             done
           else
             cmp .github/workflows/govern-fresh-canonical-audits.yml \
@@ -740,6 +769,97 @@ jobs:
             --failed-jobs "$incident/failed-jobs.json" \
             > "$incident/verification.json"
 
+      - name: Authenticate partial-write incident and derive exact three-row recovery
+        if: inputs.mode == 'recover-deferred32-partial'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          incident="$RUNNER_TEMP/deferred32-partial-incident"
+          mkdir -p "$incident/failed-execution"
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$PARTIAL_FAILED_RUN_ID" > "$incident/failed-run.json"
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$PARTIAL_FAILED_RUN_ID/artifacts?per_page=100" > "$incident/failed-artifacts.json"
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$PARTIAL_FAILED_RUN_ID/jobs?filter=latest&per_page=100" > "$incident/failed-jobs.json"
+          jq -e --argjson id "$PARTIAL_FAILED_RUN_ID" --arg sha "$PARTIAL_DRY_RUN_SHA" '
+            .id==$id and .name=="Govern Fresh Canonical Audits" and .event=="workflow_dispatch"
+            and .head_branch=="main" and .head_sha==$sha and .conclusion=="failure"
+            and .run_attempt==1 and .actor.login=="mylukin"
+          ' "$incident/failed-run.json" >/dev/null
+          jq -e --argjson id "$PARTIAL_FAILED_ARTIFACT_ID" \
+            --arg digest "$PARTIAL_FAILED_ARTIFACT_DIGEST" \
+            --arg name "fresh-canonical-audit-execution-$PARTIAL_FAILED_RUN_ID" '
+            [.artifacts[] | select(.id==$id and .name==$name and .expired==false and .digest==$digest)] | length==1
+          ' "$incident/failed-artifacts.json" >/dev/null
+          jq -e --argjson id "$PARTIAL_FAILED_JOB_ID" '
+            [.jobs[] | select(.id==$id and .name=="execute-boundary"
+              and .runner_name=="docker-runner-199-4-6" and .conclusion=="failure"
+              and ([.steps[] | select(.name=="Execute resumable compound governance, score, and cache closure" and .conclusion=="failure")] | length)==1
+              and ([.steps[] | select(.name=="Fetch exact post-execution artifact and Pack evidence" and .conclusion=="skipped")] | length)==1
+            )] | length==1
+          ' "$incident/failed-jobs.json" >/dev/null
+          gh run download "$PARTIAL_FAILED_RUN_ID" --repo "$GITHUB_REPOSITORY" \
+            --name "fresh-canonical-audit-execution-$PARTIAL_FAILED_RUN_ID" \
+            --dir "$incident/failed-execution"
+          mapfile -t top_level < <(find "$incident/failed-execution" -mindepth 1 -maxdepth 1 -printf '%f\n' | sort)
+          test "${#top_level[@]}" = 1 && test "${top_level[0]}" = boundary
+          (cd "$incident/failed-execution/boundary" && sha256sum --check SHA256SUMS)
+          diff -qr "$RUNNER_TEMP/boundary" "$incident/failed-execution/boundary"
+
+          slugs='["davila7-docx","davila7-pptx","dmitrypogrebnoy-generating-rbs"]'
+          jq -e --argjson slugs "$slugs" '
+            [.rows[].slug]==$slugs
+            and [.rows[].skillId]==["bbdb6fc6-804c-4482-8efb-babd259b67c6","e70ad74d-85cc-410d-b502-30b100b9702a","6e6dc5b9-7093-421e-b9ff-d10d0e89b622"]
+          ' <(jq --argjson slugs "$slugs" '{rows:[.rows[] | select(.slug as $slug | $slugs | index($slug))]}' \
+            "$RUNNER_TEMP/boundary/selected-cohort.json") >/dev/null
+          jq -e --argjson slugs "$slugs" '
+            [.candidates[] | select(.row.slug as $slug | $slugs | index($slug)) | .auditId]
+            ==["6d5c3f67-bdc5-4419-b2be-d1df2b4d5e2d","a91a3791-d254-45ed-a6e5-f7b557921e0e","0c09aa1c-39de-4a01-994b-dc1a2b631107"]
+          ' "$RUNNER_TEMP/boundary/fresh-boundary.json" >/dev/null
+
+          jq --argjson slugs "$slugs" '
+            .rows=[.rows[] | select(.slug as $slug | $slugs | index($slug))]
+            | .groups=[.groups[] | select(.slugs==$slugs)]
+            | .count=3 | .counts.same_source_tree_unproven=3
+            | .lastSelected="dmitrypogrebnoy-generating-rbs" | .remaining=29
+          ' "$RUNNER_TEMP/boundary/selected-cohort.json" > "$incident/recovery-selected-cohort.json"
+          jq --argjson slugs "$slugs" '
+            {schemaVersion:1,candidates:[.candidates[] | select(.row.slug as $slug | $slugs | index($slug))]}
+          ' "$RUNNER_TEMP/boundary/fresh-boundary.json" > "$incident/recovery-expectations.json"
+          test "$(jq -r .count "$incident/recovery-selected-cohort.json")" = 3
+          test "$(jq -r '.candidates|length' "$incident/recovery-expectations.json")" = 3
+          jq -n --arg dryRunId "$PARTIAL_DRY_RUN_ID" --arg failedRunId "$PARTIAL_FAILED_RUN_ID" \
+            --arg originalManifestSha256 "$(sha256sum "$RUNNER_TEMP/boundary/SHA256SUMS" | awk '{print $1}')" \
+            --arg recoverySelectionSha256 "$(sha256sum "$incident/recovery-selected-cohort.json" | awk '{print $1}')" \
+            --arg recoveryExpectationsSha256 "$(sha256sum "$incident/recovery-expectations.json" | awk '{print $1}')" \
+            --argjson slugs "$slugs" \
+            '{schemaVersion:1,kind:"deferred32_partial_score_recovery",dryRunId:$dryRunId,failedRunId:$failedRunId,slugs:$slugs,originalManifestSha256:$originalManifestSha256,recoverySelectionSha256:$recoverySelectionSha256,recoveryExpectationsSha256:$recoveryExpectationsSha256}' \
+            > "$incident/recovery-derivation.json"
+
+      - name: Prove exact three-row pre-recovery state
+        if: inputs.mode == 'recover-deferred32-partial'
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: |
+          set -euo pipefail
+          incident="$RUNNER_TEMP/deferred32-partial-incident"
+          jq '{schemaVersion:1,scopedSkillIds:[.rows[].skillId],rows:.rows}' \
+            "$incident/recovery-selected-cohort.json" > "$incident/scope.json"
+          node scripts/fetch-artifact-version-inventory.mjs \
+            --scope-inventory "$incident/scope.json" --output "$incident/pre-recovery-inventory.json"
+          jq -e '
+            {"bbdb6fc6-804c-4482-8efb-babd259b67c6":["d267374b-b249-4b85-ba50-b5620857ed37","6d5c3f67-bdc5-4419-b2be-d1df2b4d5e2d"],
+             "e70ad74d-85cc-410d-b502-30b100b9702a":["c4094c6d-2093-4831-a987-b09e41626982","a91a3791-d254-45ed-a6e5-f7b557921e0e"],
+             "6e6dc5b9-7093-421e-b9ff-d10d0e89b622":["071ecf50-32cb-4c19-a244-cc954bf2111a","0c09aa1c-39de-4a01-994b-dc1a2b631107"]} as $expected
+            | [.rows[] | select($expected[.id] != null)] as $rows
+            | ($rows|length)==3 and all($rows[];
+                .artifact_revision==1 and .current_artifact_version_id==$expected[.id][0]
+                and .public_eligibility_audit_id==$expected[.id][1]
+                and .quality_score==null and .current_quality_score_snapshot_id==null)
+            and ([.artifacts[] | select($expected[.skill_id] != null)]|length)==3
+            and ([.observations[] | select($expected[.skill_id] != null)]|length)==3
+          ' "$incident/pre-recovery-inventory.json" >/dev/null
+
       - name: Generate GitHub App token
         id: app-token
         uses: actions/create-github-app-token@v3
@@ -772,6 +892,7 @@ jobs:
           test "$actual" = "$FRESH_GOVERNANCE_CLI_SHA256"
 
       - name: Rematerialize exact source and overlay only frozen fresh reports
+        if: inputs.mode == 'execute'
         run: |
           set -euo pipefail
           root="$RUNNER_TEMP/materialized"
@@ -788,6 +909,7 @@ jobs:
           done < <(jq -r '.rows[] | [.marketplaceCommit,.path] | @tsv' "$RUNNER_TEMP/boundary/selected-cohort.json")
 
       - name: Execute resumable compound governance, score, and cache closure
+        if: inputs.mode == 'execute'
         env:
           PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
@@ -800,20 +922,181 @@ jobs:
             --root "$RUNNER_TEMP/materialized" \
             --result-file "$RUNNER_TEMP/execution-results.json"
 
+      - name: Recalculate and timestamp-finalize exact partial-write rows
+        if: inputs.mode == 'recover-deferred32-partial'
+        env:
+          PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: |
+          set -euo pipefail
+          incident="$RUNNER_TEMP/deferred32-partial-incident"
+          score="$incident/score-recovery"
+          mkdir -p "$score"
+          jq -r '.rows[].slug' "$incident/recovery-selected-cohort.json" > "$score/requested-slugs.txt"
+          node scripts/score-cache-closure.mjs freeze-score-evidence \
+            --slugs-file "$score/requested-slugs.txt" --output "$score/before-score-evidence.json" \
+            --require-snapshot false
+          run_boundary=$(date -u +'%Y-%m-%dT%H:%M:%S.%3NZ')
+          printf '%s\n' "$run_boundary" > "$score/run-boundary.txt"
+          CACHE_INVALIDATE_SECRET= bash scripts/recalculate-scores.sh \
+            --cli "$GITHUB_WORKSPACE/skillstore-cli" \
+            --slugs-file "$score/requested-slugs.txt" \
+            --success-slugs-file "$score/successful-slugs.txt" \
+            --failed-slugs-file "$score/failed-slugs.txt" \
+            --concurrency 1 --max-attempts 1 --retry-base-seconds 5 --timeout-seconds 300 \
+            2>&1 | tee "$score/score-output.log"
+          test "$(sed '/^$/d' "$score/successful-slugs.txt" | wc -l | tr -d ' ')" = 3
+          test ! -s "$score/failed-slugs.txt"
+          diff -u <(sort "$score/requested-slugs.txt") <(sort "$score/successful-slugs.txt")
+          node scripts/score-cache-closure.mjs freeze-score-evidence \
+            --slugs-file "$score/successful-slugs.txt" --output "$score/expected-score-evidence.json" \
+            --require-snapshot true
+          node scripts/score-cache-closure.mjs verify-score-transitions \
+            --before "$score/before-score-evidence.json" --after "$score/expected-score-evidence.json" \
+            --run-boundary "$run_boundary" --output "$score/score-write-evidence.json"
+          test "$(jq -r .provenCount "$score/score-write-evidence.json")" = 3
+
+          while IFS=$'\t' read -r slug skill_id audit_id audit_version content_hash tree_hash commit path frozen_updated published_at; do
+            skill=$(curl --fail --silent --show-error --get "$PUBLIC_SUPABASE_URL/rest/v1/skills" \
+              -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
+              -H 'Accept-Profile: skillstore' \
+              --data-urlencode 'select=id,current_artifact_version_id,public_eligibility_audit_id,current_quality_score_snapshot_id,quality_score,updated_at,published_at' \
+              --data-urlencode "id=eq.$skill_id")
+            jq -e --arg id "$skill_id" --arg audit "$audit_id" '
+              length==1 and .[0].id==$id and .[0].public_eligibility_audit_id==$audit
+              and (.[0].current_artifact_version_id|type)=="string"
+              and (.[0].current_quality_score_snapshot_id|type)=="string"
+              and (.[0].quality_score|type)=="number"
+            ' <<< "$skill" >/dev/null
+            artifact_id=$(jq -r '.[0].current_artifact_version_id' <<< "$skill")
+            snapshot_id=$(jq -r '.[0].current_quality_score_snapshot_id' <<< "$skill")
+            current_updated=$(jq -r '.[0].updated_at' <<< "$skill")
+            snapshot=$(curl --fail --silent --show-error --get "$PUBLIC_SUPABASE_URL/rest/v1/skill_quality_score_snapshots" \
+              -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
+              -H 'Accept-Profile: skillstore' --data-urlencode 'select=id,skill_id,score_subject' \
+              --data-urlencode "id=eq.$snapshot_id")
+            jq -e --arg id "$snapshot_id" --arg skill "$skill_id" --arg audit "$audit_id" \
+              --argjson auditVersion "$audit_version" --arg content "$content_hash" --arg tree "$tree_hash" \
+              --arg commit "$commit" --arg path "$path" '
+              length==1 and .[0].id==$id and .[0].skill_id==$skill
+              and .[0].score_subject.auditId==$audit and .[0].score_subject.auditVersion==$auditVersion
+              and .[0].score_subject.contentHash==$content and .[0].score_subject.treeHash==$tree
+              and .[0].score_subject.marketplaceCommitSha==$commit and .[0].score_subject.pluginPath==$path
+            ' <<< "$snapshot" >/dev/null
+            payload=$(jq -n --arg skill "$skill_id" --arg artifact "$artifact_id" --arg audit "$audit_id" \
+              --arg snapshot "$snapshot_id" --arg current "$current_updated" --arg frozen "$frozen_updated" \
+              --arg published "$published_at" \
+              '{p_skill_id:$skill,p_expected_artifact_version_id:$artifact,p_expected_audit_id:$audit,p_expected_score_snapshot_id:$snapshot,p_expected_current_updated_at:$current,p_frozen_updated_at:$frozen,p_expected_published_at:$published}')
+            finalized=$(curl --fail --silent --show-error "$PUBLIC_SUPABASE_URL/rest/v1/rpc/finalize_fresh_canonical_audit_timestamp_v1" \
+              -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
+              -H 'Content-Profile: skillstore' -H 'Content-Type: application/json' --data "$payload")
+            test "$finalized" = true
+            readback=$(curl --fail --silent --show-error --get "$PUBLIC_SUPABASE_URL/rest/v1/skills" \
+              -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
+              -H 'Accept-Profile: skillstore' --data-urlencode 'select=id,updated_at,published_at,current_artifact_version_id,public_eligibility_audit_id,current_quality_score_snapshot_id' \
+              --data-urlencode "id=eq.$skill_id")
+            jq -e --arg id "$skill_id" --arg updated "$frozen_updated" --arg published "$published_at" \
+              --arg artifact "$artifact_id" --arg audit "$audit_id" --arg snapshot "$snapshot_id" '
+              length==1 and .[0].id==$id and .[0].updated_at==$updated and .[0].published_at==$published
+              and .[0].current_artifact_version_id==$artifact and .[0].public_eligibility_audit_id==$audit
+              and .[0].current_quality_score_snapshot_id==$snapshot
+            ' <<< "$readback" >/dev/null
+          done < <(jq -r '.candidates[] | [
+            .row.slug,.row.skillId,.auditId,(.expectedLatestAudit.version+1),
+            .row.canonicalArtifact.contentHash,.row.canonicalArtifact.treeHash,
+            .row.marketplaceCommit,.row.path,.expectedSkill.updated_at,.expectedSkill.published_at
+          ] | @tsv' "$incident/recovery-expectations.json")
+          (cd "$score" && find . -maxdepth 1 -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS)
+
+      - name: Invalidate exact partial-recovery cache scope
+        if: inputs.mode == 'recover-deferred32-partial'
+        id: partial-cache
+        uses: ./.github/actions/invalidate-cache
+        with:
+          type: skills
+          slugs-file: ${{ runner.temp }}/deferred32-partial-incident/score-recovery/successful-slugs.txt
+          site-url: https://skillstore.io
+          secret: ${{ secrets.CACHE_INVALIDATE_SECRET }}
+          batch-size: '1'
+          concurrency: '1'
+          invalidate-artifacts: 'false'
+          invalidate-dependent-packs: 'true'
+          fail-on-error: 'true'
+
+      - name: Verify exact partial-recovery cache readback
+        if: inputs.mode == 'recover-deferred32-partial'
+        run: |
+          set -euo pipefail
+          test '${{ steps.partial-cache.outputs.total_count }}' = 3
+          test '${{ steps.partial-cache.outputs.success_count }}' = 3
+          test '${{ steps.partial-cache.outputs.failed_count }}' = 0
+          test '${{ steps.partial-cache.outputs.list_version_bumped }}' = true
+          incident="$RUNNER_TEMP/deferred32-partial-incident"
+          node scripts/score-cache-closure.mjs readback \
+            --expected-score-evidence "$incident/score-recovery/expected-score-evidence.json" \
+            --evidence "$incident/cache-readback.json" --site-url https://skillstore.io \
+            --expected-cache-version v7 --concurrency 1 --attempts 3 --timeout-ms 30000
+
       - name: Fetch exact post-execution artifact and Pack evidence
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
         run: |
           set -euo pipefail
+          if test '${{ inputs.mode }}' = 'recover-deferred32-partial'; then
+            selection="$RUNNER_TEMP/deferred32-partial-incident/recovery-selected-cohort.json"
+          else
+            selection="$RUNNER_TEMP/boundary/selected-cohort.json"
+          fi
           jq '{schemaVersion:1,scopedSkillIds:[.rows[].skillId],rows:.rows}' \
-            "$RUNNER_TEMP/boundary/selected-cohort.json" > "$RUNNER_TEMP/scope.json"
+            "$selection" > "$RUNNER_TEMP/scope.json"
           node scripts/fetch-artifact-version-inventory.mjs \
             --scope-inventory "$RUNNER_TEMP/scope.json" --output "$RUNNER_TEMP/post-inventory.json"
           test "$(jq -r '[.artifacts[] | select(.artifact_revision==1)] | length' "$RUNNER_TEMP/post-inventory.json")" \
-            = "$(jq -r .count "$RUNNER_TEMP/boundary/selected-cohort.json")"
+            = "$(jq -r .count "$selection")"
           test "$(jq --slurpfile scope "$RUNNER_TEMP/scope.json" -r '[.rows[] as $row | select(($scope[0].scopedSkillIds | index($row.id)) != null) | select($row.artifact_revision==1 and $row.current_artifact_version_id!=null)] | length' "$RUNNER_TEMP/post-inventory.json")" \
-            = "$(jq -r .count "$RUNNER_TEMP/boundary/selected-cohort.json")"
+            = "$(jq -r .count "$selection")"
+          if test '${{ inputs.mode }}' = 'recover-deferred32-partial'; then
+            incident="$RUNNER_TEMP/deferred32-partial-incident"
+            jq -e --slurpfile scope "$incident/scope.json" '
+              [.rows[] | select(.id as $id | $scope[0].scopedSkillIds | index($id))] | length==3
+              and all(.[]; (.quality_score|type)=="number"
+                and (.current_quality_score_snapshot_id|type)=="string"
+                and (.quality_score_calculated_at|type)=="string")
+            ' "$RUNNER_TEMP/post-inventory.json" >/dev/null
+            jq --slurpfile scope "$incident/scope.json" -S '
+              [.artifacts[] | select(.skill_id as $id | $scope[0].scopedSkillIds | index($id))]
+            ' "$incident/pre-recovery-inventory.json" > "$incident/pre-artifacts.json"
+            jq --slurpfile scope "$incident/scope.json" -S '
+              [.artifacts[] | select(.skill_id as $id | $scope[0].scopedSkillIds | index($id))]
+            ' "$RUNNER_TEMP/post-inventory.json" > "$incident/post-artifacts.json"
+            cmp "$incident/pre-artifacts.json" "$incident/post-artifacts.json"
+            jq --slurpfile scope "$incident/scope.json" -S '
+              [.observations[] | select(.skill_id as $id | $scope[0].scopedSkillIds | index($id))]
+            ' "$incident/pre-recovery-inventory.json" > "$incident/pre-observations.json"
+            jq --slurpfile scope "$incident/scope.json" -S '
+              [.observations[] | select(.skill_id as $id | $scope[0].scopedSkillIds | index($id))]
+            ' "$RUNNER_TEMP/post-inventory.json" > "$incident/post-observations.json"
+            cmp "$incident/pre-observations.json" "$incident/post-observations.json"
+            jq --slurpfile scope "$incident/scope.json" -S '
+              [.rows[] | select(.id as $id | $scope[0].scopedSkillIds | index($id))
+                | del(.quality_score,.quality_tier,.quality_score_calculated_at,.current_quality_score_snapshot_id)]
+            ' "$incident/pre-recovery-inventory.json" > "$incident/pre-skill-cas.json"
+            jq --slurpfile scope "$incident/scope.json" -S '
+              [.rows[] | select(.id as $id | $scope[0].scopedSkillIds | index($id))
+                | del(.quality_score,.quality_tier,.quality_score_calculated_at,.current_quality_score_snapshot_id)]
+            ' "$RUNNER_TEMP/post-inventory.json" > "$incident/post-skill-cas.json"
+            cmp "$incident/pre-skill-cas.json" "$incident/post-skill-cas.json"
+            jq -n --slurpfile selection "$selection" --slurpfile inventory "$RUNNER_TEMP/post-inventory.json" '
+              $selection[0].rows as $rows | $inventory[0] as $inventory
+              | [$rows[] as $row
+                | ($inventory.rows[] | select(.id==$row.skillId)) as $skill
+                | {slug:$row.slug,skillId:$row.skillId,artifactVersionId:$skill.current_artifact_version_id,
+                   artifactRevision:$skill.artifact_revision,artifactCreated:false,
+                   auditId:$skill.public_eligibility_audit_id,scoreSnapshotId:$skill.current_quality_score_snapshot_id}]
+            ' > "$RUNNER_TEMP/execution-results.json"
+            test "$(jq length "$RUNNER_TEMP/execution-results.json")" = 3
+          fi
 
       - name: Checkout current Skillstore production smoke harness
         uses: actions/checkout@v5
@@ -840,15 +1123,20 @@ jobs:
         run: |
           set -euo pipefail
           expected=$(jq -r .count "$RUNNER_TEMP/boundary/selected-cohort.json")
+          last_selected=$(jq -r .lastSelected "$RUNNER_TEMP/boundary/selected-cohort.json")
+          if test '${{ inputs.mode }}' = 'recover-deferred32-partial'; then
+            expected=3
+            last_selected='dmitrypogrebnoy-generating-rbs'
+          fi
           test "$(jq length "$RUNNER_TEMP/execution-results.json")" = "$expected"
           proof="$RUNNER_TEMP/execution-proof"
           mkdir -p "$proof"
           jq -n \
             --arg executeRunId "$GITHUB_RUN_ID" --arg dryRunId '${{ inputs.dry_run_id }}' \
-            --arg producerKind '${{ inputs.mode == 'recover-rpc-timeout' && 'fresh_canonical_zero_write_recovery' || 'fresh_canonical_execute' }}' \
+            --arg producerKind '${{ inputs.mode == 'recover-deferred32-partial' && 'fresh_canonical_deferred32_partial_recovery' || (inputs.mode == 'recover-rpc-timeout' && 'fresh_canonical_zero_write_recovery' || 'fresh_canonical_execute') }}' \
             --arg failedExecuteRunId '${{ inputs.failed_execute_run_id }}' \
             --arg workflowCommit "$GITHUB_SHA" \
-            --arg lastSelected "$(jq -r .lastSelected "$RUNNER_TEMP/boundary/selected-cohort.json")" \
+            --arg lastSelected "$last_selected" \
             --arg cohortSha256 "$(jq -r .cohortSha256 "$RUNNER_TEMP/boundary/metadata.json")" \
             --arg executionResultsSha256 "$(sha256sum "$RUNNER_TEMP/execution-results.json" | awk '{print $1}')" \
             --arg postInventorySha256 "$(sha256sum "$RUNNER_TEMP/post-inventory.json" | awk '{print $1}')" \
@@ -868,6 +1156,7 @@ jobs:
             ${{ runner.temp }}/post-inventory.json
             ${{ runner.temp }}/execution-proof/
             ${{ runner.temp }}/zero-write-incident/
+            ${{ runner.temp }}/deferred32-partial-incident/
           include-hidden-files: true
           if-no-files-found: error
           retention-days: 30

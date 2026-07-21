@@ -276,7 +276,7 @@ test('cursor requires both the immediately preceding boundary and a fully govern
 
 test('workflow is two-phase, CLI-pinned, resumable, and closes P0 channels', () => {
   const workflow = readFileSync(new URL('../../.github/workflows/govern-fresh-canonical-audits.yml', import.meta.url), 'utf8');
-  assert.match(workflow, /options: \[dry-run, execute, recover, recover-cache, recover-smoke\]/);
+  assert.match(workflow, /options: \[dry-run, execute, recover, recover-cache, recover-smoke, recover-deferred32-partial\]/);
   assert.doesNotMatch(workflow, /options: \[[^\]]*recover-rpc-timeout/);
   assert.match(workflow, /execute-boundary:\n    if: inputs\.mode == 'execute'/);
   assert.match(workflow, /default: '2\.15\.10'/);
@@ -347,6 +347,23 @@ test('workflow is two-phase, CLI-pinned, resumable, and closes P0 channels', () 
   assert.match(workflow, /test "\$DRY_RUN_ID" != "\$ZERO_WRITE_DRY_RUN_ID" \|\| \{ echo '::error::sealed zero-write boundary cannot be executed'; exit 1; \}/);
   assert.match(workflow, /verify-fresh-canonical-zero-write-recovery\.mjs/);
   assert.match(workflow, /fresh_canonical_zero_write_recovery/);
+  assert.match(workflow, /PARTIAL_DRY_RUN_ID: '29804024756'/);
+  assert.match(workflow, /PARTIAL_DRY_ARTIFACT_ID: '8485192250'/);
+  assert.match(workflow, /sha256:813ff0b9482006cbac5b99f0d0da640f4c6d4b701c7597149bdc7ee9563e5e62/);
+  assert.match(workflow, /PARTIAL_FAILED_RUN_ID: '29805282909'/);
+  assert.match(workflow, /PARTIAL_FAILED_JOB_ID: '88554459298'/);
+  assert.match(workflow, /PARTIAL_FAILED_ARTIFACT_ID: '8485262988'/);
+  assert.match(workflow, /sha256:e73715f23896011f31d32e0a0734e953be30f9ee79b9cad56d9ae8692ff49de2/);
+  assert.match(workflow, /sealed partial-write boundary cannot be executed/);
+  assert.match(workflow, /deferred32_partial_score_recovery/);
+  assert.match(workflow, /fresh_canonical_deferred32_partial_recovery/);
+  assert.match(workflow, /Recalculate and timestamp-finalize exact partial-write rows/);
+  assert.match(workflow, /finalize_fresh_canonical_audit_timestamp_v1/);
+  assert.match(workflow, /invalidate-dependent-packs: 'true'/);
+  assert.match(workflow, /artifactCreated:false/);
+  assert.doesNotMatch(workflow.slice(workflow.indexOf('Recalculate and timestamp-finalize exact partial-write rows'), workflow.indexOf('Fetch exact post-execution artifact and Pack evidence')), /govern-fresh-canonical-audit|record_fresh_canonical_audit_artifact_v1/);
+  assert.match(workflow, /cmp "\$incident\/pre-artifacts\.json" "\$incident\/post-artifacts\.json"/);
+  assert.match(workflow, /cmp "\$incident\/pre-observations\.json" "\$incident\/post-observations\.json"/);
   assert.match(workflow, /skill govern-fresh-canonical-audit/);
   assert.match(workflow, /production-skill-score-writes/);
   assert.match(workflow, /CACHE_INVALIDATE_SECRET/);
