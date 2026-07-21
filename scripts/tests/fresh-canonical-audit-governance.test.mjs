@@ -294,8 +294,8 @@ test('workflow is two-phase, CLI-pinned, resumable, and closes P0 channels', () 
   assert.match(workflow, /\[\[ "\$FRESH_GOVERNANCE_CLI_SHA256" =~ \^\[0-9a-f\]\{64\}\$ \]\]/);
   assert.match(workflow, /REPORT_ORIGIN_FRESH_COHORT: 'governance\/fresh-canonical-audit\/raw32-exact62-v1\.json'/);
   assert.match(workflow, /REPORT_ORIGIN_FRESH_COHORT_SHA256: '5c0f8f7eafd327b25ce059839143dfad453d0b008431777e213b2e8387f6f6f5'/);
-  assert.match(workflow, /DEFERRED_V2_FRESH_COHORT: 'governance\/fresh-canonical-audit\/deferred-v2-exact32-v1\.json'/);
-  assert.match(workflow, /DEFERRED_V2_FRESH_COHORT_SHA256: '77a0b4ee301ef7d7d1513bb874b228bd18fc037db3b6550a2c34961b15cf6ffe'/);
+  assert.match(workflow, /DEFERRED_V2_FRESH_COHORT: 'governance\/fresh-canonical-audit\/deferred-v2-remaining29-v1\.json'/);
+  assert.match(workflow, /DEFERRED_V2_FRESH_COHORT_SHA256: '8483820e156058a2449482b346761a16f832202cee4f72614a6e0909ad81fc52'/);
   assert.match(workflow, /DEFERRED_V2_SOURCE_SHA256: 'e1856405c4a5239539a3301f9c5758b149fdb10d6c34bf1de0f2ae3c30772ede'/);
   assert.match(workflow, /Prove Report-Origin raw32 audits are replacement pointers only/);
   assert.match(workflow, /Prove deferred v2 audits are replacement pointers only/);
@@ -513,4 +513,20 @@ test('deferred v2 Fresh cohort is exact, immutable, and source-addressed', () =>
     execFileSync('git', ['cat-file', '-e', `${row.marketplaceCommit}:${row.path}/SKILL.md`]);
     execFileSync('git', ['cat-file', '-e', `${row.marketplaceCommit}:${row.path}/skill-report.json`]);
   }
+});
+
+test('deferred v2 remaining cohort excludes only the three recovered rows', () => {
+  const exact32 = JSON.parse(readFileSync(new URL(
+    '../../governance/fresh-canonical-audit/deferred-v2-exact32-v1.json', import.meta.url
+  ), 'utf8'));
+  const bytes = readFileSync(new URL(
+    '../../governance/fresh-canonical-audit/deferred-v2-remaining29-v1.json', import.meta.url
+  ));
+  const remaining29 = JSON.parse(bytes.toString('utf8'));
+  const recovered = new Set(['davila7-docx', 'davila7-pptx', 'dmitrypogrebnoy-generating-rbs']);
+  assert.equal(createHash('sha256').update(bytes).digest('hex'),
+    '8483820e156058a2449482b346761a16f832202cee4f72614a6e0909ad81fc52');
+  assert.equal(remaining29.count, 29);
+  assert.equal(remaining29.rows.length, 29);
+  assert.deepEqual(remaining29.rows, exact32.rows.filter((row) => !recovered.has(row.slug)));
 });
