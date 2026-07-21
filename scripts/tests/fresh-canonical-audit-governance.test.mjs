@@ -292,7 +292,7 @@ test('workflow is two-phase, CLI-pinned, resumable, and closes P0 channels', () 
   assert.equal((workflow.match(/ecfaa49aa72d24b8ea6322c7dae24d4bbe9df174a5d009cc56d7d2a89e7ae05a/g) || []).length, 4);
   assert.match(workflow, /\[\[ "\$FRESH_GOVERNANCE_CLI_SHA256" =~ \^\[0-9a-f\]\{64\}\$ \]\]/);
   assert.match(workflow, /REPORT_ORIGIN_FRESH_COHORT: 'governance\/fresh-canonical-audit\/raw32-exact62-v1\.json'/);
-  assert.match(workflow, /REPORT_ORIGIN_FRESH_COHORT_SHA256: 'c8a2f173067a9064a693669db12db398de1324a044e8ae54176ab368aa3038c3'/);
+  assert.match(workflow, /REPORT_ORIGIN_FRESH_COHORT_SHA256: '5c0f8f7eafd327b25ce059839143dfad453d0b008431777e213b2e8387f6f6f5'/);
   assert.match(workflow, /Prove Report-Origin raw32 audits are replacement pointers only/);
   assert.match(workflow, /auditReplacementMode == "commit_addressed"/);
   assert.match(workflow, /invalid Report-Origin replacement proof/);
@@ -424,7 +424,7 @@ test('residual raw32 Fresh cohort is exact, commit-pinned, and replacement-only'
   ));
   const cohort = JSON.parse(bytes.toString('utf8'));
   assert.equal(createHash('sha256').update(bytes).digest('hex'),
-    'c8a2f173067a9064a693669db12db398de1324a044e8ae54176ab368aa3038c3');
+    '5c0f8f7eafd327b25ce059839143dfad453d0b008431777e213b2e8387f6f6f5');
   assert.equal(cohort.schemaVersion, 1);
   assert.equal(cohort.status, 'lineage_unproven');
   assert.equal(cohort.count, 62);
@@ -442,8 +442,14 @@ test('residual raw32 Fresh cohort is exact, commit-pinned, and replacement-only'
     assert.equal(row.governanceEligibleByLineage, false);
     assert.match(row.reportContentHash, /^[0-9a-f]{64}$/);
     assert.match(row.reportTreeHash, /^[0-9a-f]{64}$/);
-    assert.equal(row.reportContentHash, row.canonicalArtifact.contentHash);
-    assert.equal(row.reportTreeHash, row.canonicalArtifact.treeHash);
+    assert.notDeepEqual(
+      { contentHash: row.reportContentHash, treeHash: row.reportTreeHash },
+      { contentHash: row.canonicalArtifact.contentHash, treeHash: row.canonicalArtifact.treeHash }
+    );
     assert.equal(row.legacyReference, undefined);
   }
+  assert.deepEqual(cohort.rows[0].canonicalArtifact, {
+    treeHash: 'fd4757df36e1ded6b35c798c4e892c07965d1e51f3caa8360cbfe681cf57d262',
+    contentHash: '3ae72e0e09ac76106c37a81955536e9c783ad6f961bf349c8da9ae3f1aba6039',
+  });
 });
