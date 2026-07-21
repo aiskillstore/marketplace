@@ -363,16 +363,33 @@ jobs:
             count=$(jq -r .count <<< "$group")
             model_args=()
             test -z "$MODEL" || model_args=(--model "$MODEL")
-            (
-              cd "$RUNNER_TEMP/materialized/$commit"
-              "$GITHUB_WORKSPACE/skillstore-cli" skill audit skills --slugs "$slugs" \
-                --checkpoint-file "$RUNNER_TEMP/audit-$commit.checkpoint.json" \
-                --correlation-id "$GITHUB_RUN_ID-$commit" \
-                --fresh-run-manifest-file "$RUNNER_TEMP/fresh-audit-manifests/$commit.json" \
-                --fresh-run-nonce "$run_nonce" --fresh-run-id "$GITHUB_RUN_ID" \
-                --fresh-run-started-at "$run_started_at" --fresh-selected-count "$count" \
-                "${model_args[@]}"
+            target="$RUNNER_TEMP/materialized/$commit"
+            checkpoint="$RUNNER_TEMP/audit-$commit.checkpoint.json"
+            manifest="$RUNNER_TEMP/fresh-audit-manifests/$commit.json"
+            audit_args=(
+              skill audit skills --slugs "$slugs"
+              --checkpoint-file "$checkpoint"
+              --correlation-id "$GITHUB_RUN_ID-$commit"
+              --fresh-run-manifest-file "$manifest"
+              --fresh-run-nonce "$run_nonce" --fresh-run-id "$GITHUB_RUN_ID"
+              --fresh-run-started-at "$run_started_at" --fresh-selected-count "$count"
+              "${model_args[@]}"
             )
+            set +e
+            (cd "$target" && "$GITHUB_WORKSPACE/skillstore-cli" "${audit_args[@]}")
+            audit_status=$?
+            set -e
+            if [ "$audit_status" -eq 132 ]; then
+              echo '::warning::Bun exited with SIGILL; rematerializing this local-only audit group for one bounded retry'
+              rm -rf "$target"
+              mkdir -p "$target"
+              mapfile -t paths < <(jq -r '.paths[]' <<< "$group")
+              git archive --format=tar "$commit" -- "${paths[@]}" | tar -xf - -C "$target"
+              rm -f "$checkpoint" "$manifest"
+              (cd "$target" && "$GITHUB_WORKSPACE/skillstore-cli" "${audit_args[@]}")
+            elif [ "$audit_status" -ne 0 ]; then
+              exit "$audit_status"
+            fi
           done < <(jq -c '.groups[]' "$RUNNER_TEMP/selected-cohort.json")
           jq -s --arg nonce "$run_nonce" --arg runId "$GITHUB_RUN_ID" --arg startedAt "$run_started_at" '
             if length == 0 or any(.runNonce != $nonce or .runId != $runId or .startedAt != $startedAt or .status != "fresh_audit_run_complete") then error("fresh audit group manifest mismatch") else {
