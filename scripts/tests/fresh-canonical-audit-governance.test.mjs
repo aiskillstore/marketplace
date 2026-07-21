@@ -293,7 +293,14 @@ test('workflow is two-phase, CLI-pinned, resumable, and closes P0 channels', () 
   assert.match(workflow, /\[\[ "\$FRESH_GOVERNANCE_CLI_SHA256" =~ \^\[0-9a-f\]\{64\}\$ \]\]/);
   assert.match(workflow, /REPORT_ORIGIN_FRESH_COHORT: 'governance\/fresh-canonical-audit\/raw32-exact62-v1\.json'/);
   assert.match(workflow, /REPORT_ORIGIN_FRESH_COHORT_SHA256: '5c0f8f7eafd327b25ce059839143dfad453d0b008431777e213b2e8387f6f6f5'/);
+  assert.match(workflow, /DEFERRED_V2_FRESH_COHORT: 'governance\/fresh-canonical-audit\/deferred-v2-exact32-v1\.json'/);
+  assert.match(workflow, /DEFERRED_V2_FRESH_COHORT_SHA256: '77a0b4ee301ef7d7d1513bb874b228bd18fc037db3b6550a2c34961b15cf6ffe'/);
+  assert.match(workflow, /DEFERRED_V2_SOURCE_SHA256: 'e1856405c4a5239539a3301f9c5758b149fdb10d6c34bf1de0f2ae3c30772ede'/);
   assert.match(workflow, /Prove Report-Origin raw32 audits are replacement pointers only/);
+  assert.match(workflow, /Prove deferred v2 audits are replacement pointers only/);
+  assert.match(workflow, /invalid deferred v2 replacement proof/);
+  assert.match(workflow, /commit_addressed_v2_pointer_replacement/);
+  assert.match(workflow, /snapshot_cas_separation/);
   assert.match(workflow, /auditReplacementMode == "commit_addressed"/);
   assert.match(workflow, /invalid Report-Origin replacement proof/);
   assert.match(workflow, /fresh_audit_binding_v3/);
@@ -452,4 +459,40 @@ test('residual raw32 Fresh cohort is exact, commit-pinned, and replacement-only'
     treeHash: 'fd4757df36e1ded6b35c798c4e892c07965d1e51f3caa8360cbfe681cf57d262',
     contentHash: '3ae72e0e09ac76106c37a81955536e9c783ad6f961bf349c8da9ae3f1aba6039',
   });
+});
+
+test('deferred v2 Fresh cohort is exact, immutable, and source-addressed', () => {
+  const bytes = readFileSync(new URL(
+    '../../governance/fresh-canonical-audit/deferred-v2-exact32-v1.json', import.meta.url
+  ));
+  const cohort = JSON.parse(bytes.toString('utf8'));
+  const deferred = JSON.parse(readFileSync(new URL(
+    '../data/artifact-governance-deferred-v1.json', import.meta.url
+  ), 'utf8'));
+  assert.equal(createHash('sha256').update(bytes).digest('hex'),
+    '77a0b4ee301ef7d7d1513bb874b228bd18fc037db3b6550a2c34961b15cf6ffe');
+  assert.equal(cohort.schemaVersion, 1);
+  assert.equal(cohort.status, 'lineage_unproven');
+  assert.equal(cohort.count, 32);
+  assert.equal(cohort.rows.length, 32);
+  assert.deepEqual(cohort.rows.map((row) => row.slug), [...deferred.slugs].sort());
+  assert.equal(new Set(cohort.rows.map((row) => row.slug)).size, 32);
+  assert.equal(new Set(cohort.rows.map((row) => row.skillId)).size, 32);
+  assert.equal(new Set(cohort.rows.map((row) => row.path)).size, 32);
+  for (const row of cohort.rows) {
+    assert.equal(row.remainingReason, 'same_source_tree_unproven');
+    assert.equal(row.governanceEligibleByLineage, false);
+    assert.match(row.marketplaceCommit, /^[0-9a-f]{40}$/);
+    assert.match(row.reportContentHash, /^[0-9a-f]{64}$/);
+    assert.match(row.reportTreeHash, /^[0-9a-f]{64}$/);
+    assert.match(row.canonicalArtifact.contentHash, /^[0-9a-f]{64}$/);
+    assert.match(row.canonicalArtifact.treeHash, /^[0-9a-f]{64}$/);
+    assert.notDeepEqual(
+      { contentHash: row.reportContentHash, treeHash: row.reportTreeHash },
+      { contentHash: row.canonicalArtifact.contentHash, treeHash: row.canonicalArtifact.treeHash }
+    );
+    assert.equal(row.legacyReference, undefined);
+    execFileSync('git', ['cat-file', '-e', `${row.marketplaceCommit}:${row.path}/SKILL.md`]);
+    execFileSync('git', ['cat-file', '-e', `${row.marketplaceCommit}:${row.path}/skill-report.json`]);
+  }
 });

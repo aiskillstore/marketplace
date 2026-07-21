@@ -10,7 +10,7 @@ on:
         default: dry-run
         options: [dry-run, execute, recover, recover-cache, recover-smoke]
       cohort_path:
-        description: 'Exact repository-relative raw32 Fresh cohort JSON; dry-run only'
+        description: 'Exact authenticated repository-relative Fresh cohort JSON; dry-run only'
         type: string
         required: false
         default: 'governance/fresh-canonical-audit/raw32-exact62-v1.json'
@@ -68,6 +68,9 @@ env:
   FRESH_GOVERNANCE_CLI_SHA256: '2ea8ef90fcb890b83b1cf1bd772bd02da3fff98bc8f5162c481287552518bdd8'
   REPORT_ORIGIN_FRESH_COHORT: 'governance/fresh-canonical-audit/raw32-exact62-v1.json'
   REPORT_ORIGIN_FRESH_COHORT_SHA256: '5c0f8f7eafd327b25ce059839143dfad453d0b008431777e213b2e8387f6f6f5'
+  DEFERRED_V2_FRESH_COHORT: 'governance/fresh-canonical-audit/deferred-v2-exact32-v1.json'
+  DEFERRED_V2_FRESH_COHORT_SHA256: '77a0b4ee301ef7d7d1513bb874b228bd18fc037db3b6550a2c34961b15cf6ffe'
+  DEFERRED_V2_SOURCE_SHA256: 'e1856405c4a5239539a3301f9c5758b149fdb10d6c34bf1de0f2ae3c30772ede'
 
 jobs:
   freeze-boundary:
@@ -132,6 +135,24 @@ jobs:
                   and .governanceEligibleByLineage == false
                   and (has("legacyReference") | not))
               ' "$COHORT_PATH" >/dev/null
+              ;;
+            "$DEFERRED_V2_FRESH_COHORT")
+              test "$(sha256sum "$COHORT_PATH" | awk '{print $1}')" = "$DEFERRED_V2_FRESH_COHORT_SHA256"
+              test "$(sha256sum scripts/data/artifact-governance-deferred-v1.json | awk '{print $1}')" = "$DEFERRED_V2_SOURCE_SHA256"
+              jq -e '
+                .schemaVersion == 1 and .status == "lineage_unproven"
+                and .count == 32 and (.rows | length) == 32
+                and ([.rows[].slug] | unique | length) == 32
+                and ([.rows[].skillId] | unique | length) == 32
+                and ([.rows[].path] | unique | length) == 32
+                and all(.rows[];
+                  .remainingReason == "same_source_tree_unproven"
+                  and .governanceEligibleByLineage == false
+                  and (has("legacyReference") | not))
+              ' "$COHORT_PATH" >/dev/null
+              diff -u \
+                <(jq -S '.slugs' scripts/data/artifact-governance-deferred-v1.json) \
+                <(jq -S '[.rows[].slug] | sort' "$COHORT_PATH")
               ;;
             *) echo '::error::cohort_path is not an authenticated Fresh campaign'; exit 1 ;;
           esac
@@ -450,6 +471,51 @@ jobs:
           ' "$RUNNER_TEMP/fresh-boundary.json")
           test -z "$failures" || { echo "::error::invalid Report-Origin replacement proof: $failures"; exit 1; }
 
+      - name: Prove deferred v2 audits are replacement pointers only
+        if: inputs.cohort_path == 'governance/fresh-canonical-audit/deferred-v2-exact32-v1.json'
+        run: |
+          set -euo pipefail
+          jq -e --slurpfile selected "$RUNNER_TEMP/selected-cohort.json" '
+            .status == "fresh_canonical_audit_frozen"
+            and (.candidates | length) == $selected[0].count
+            and (([.candidates[].row.slug] | sort) == ([$selected[0].rows[].slug] | sort))
+          ' "$RUNNER_TEMP/fresh-boundary.json" >/dev/null
+          failures=$(jq -r '
+            .candidates[] as $candidate
+            | ("v2:" + $candidate.row.marketplaceCommit + ":" + $candidate.row.reportContentHash + ":" + $candidate.row.reportTreeHash + ":") as $v2prefix
+            | [
+                { name: "replacement_mode", ok: ($candidate.auditReplacementMode == "commit_addressed") },
+                { name: "legacy_audit_shape", ok: (($candidate.expectedLatestAudit | keys | sort) == ["content_hash", "id", "skill_id", "version"]) },
+                { name: "legacy_audit_v2", ok: (
+                    ($candidate.expectedLatestAudit.content_hash | startswith($v2prefix))
+                    and (($candidate.expectedLatestAudit.content_hash | ltrimstr($v2prefix)) | test("^[0-9a-f]{32}$"))
+                  ) },
+                { name: "r0_skill", ok: ($candidate.expectedSkill.artifact_revision == 0 and $candidate.expectedSkill.current_artifact_version_id == null) },
+                { name: "legacy_pointer", ok: ($candidate.expectedSkill.public_eligibility_audit_id == $candidate.expectedLatestAudit.id) },
+                { name: "commit_source_ref", ok: ($candidate.expectedSkill.source_ref == $candidate.row.marketplaceCommit and $candidate.expectedSkill.skill_report_url == ("https://github.com/aiskillstore/marketplace/blob/" + $candidate.row.marketplaceCommit + "/" + $candidate.row.path + "/skill-report.json")) },
+                { name: "rpc_expected_audit", ok: ($candidate.rpcPayload.p_expected_latest_audit_id == $candidate.expectedLatestAudit.id and $candidate.rpcPayload.p_expected_latest_audit_version == $candidate.expectedLatestAudit.version and $candidate.rpcPayload.p_expected_latest_audit_content_hash == $candidate.expectedLatestAudit.content_hash) },
+                { name: "rpc_expected_reference", ok: ($candidate.rpcPayload.p_expected_source_ref == $candidate.row.marketplaceCommit and $candidate.rpcPayload.p_expected_skill_report_url == ("https://github.com/aiskillstore/marketplace/blob/" + $candidate.row.marketplaceCommit + "/" + $candidate.row.path + "/skill-report.json")) },
+                { name: "strict_legacy_hash_cas", ok: ($candidate.rpcPayload.p_expected_legacy_content_hash == $candidate.row.reportContentHash and $candidate.rpcPayload.p_expected_legacy_tree_hash == $candidate.row.reportTreeHash) },
+                { name: "canonical_artifact_identity", ok: ($candidate.rpcPayload.p_content_hash == $candidate.row.canonicalArtifact.contentHash and $candidate.rpcPayload.p_tree_hash == $candidate.row.canonicalArtifact.treeHash) },
+                { name: "snapshot_cas_separation", ok: (($candidate.rpcPayload.p_expected_file_structure | type) == "array" and ($candidate.rpcPayload.p_artifact_file_structure | type) == "array" and $candidate.rpcPayload.p_expected_file_structure == $candidate.expectedSkill.file_structure) },
+                { name: "fresh_audit_identity", ok: ($candidate.rpcPayload.p_audit_id == $candidate.auditId and $candidate.auditId != $candidate.expectedLatestAudit.id) },
+                { name: "fresh_audit_binding_v3", ok: (
+                    ($candidate.rpcPayload.p_audit_payload.content_hash | test("^v3:[0-9a-f]{40}:[0-9a-f]{64}:[0-9a-f]{64}:[0-9a-f]+:[0-9a-f]{32}$"))
+                    and $candidate.rpcPayload.p_audit_payload.content_hash != $candidate.expectedLatestAudit.content_hash
+                    and $candidate.rpcPayload.p_audit_payload.subject_marketplace_commit_sha == $candidate.row.marketplaceCommit
+                    and $candidate.rpcPayload.p_audit_payload.subject_content_hash == $candidate.row.canonicalArtifact.contentHash
+                    and $candidate.rpcPayload.p_audit_payload.subject_tree_hash == $candidate.row.canonicalArtifact.treeHash
+                    and $candidate.rpcPayload.p_audit_payload.subject_plugin_path == $candidate.row.path
+                    and ($candidate.rpcPayload.p_audit_payload.audit_payload_hash | test("^[0-9a-f]{32}$"))
+                  ) },
+                { name: "fresh_report", ok: ($candidate.auditRunEvidence.previousReportSha256 != $candidate.auditRunEvidence.reportSha256) }
+              ]
+            | map(select(.ok | not) | .name) as $failed
+            | select($failed | length > 0)
+            | "\($candidate.row.slug):\($failed | join(","))"
+          ' "$RUNNER_TEMP/fresh-boundary.json")
+          test -z "$failures" || { echo "::error::invalid deferred v2 replacement proof: $failures"; exit 1; }
+
       - name: Freeze exact audited reports and execution boundary
         env:
           COHORT_PATH: ${{ inputs.cohort_path }}
@@ -484,7 +550,7 @@ jobs:
             --arg previousExecuteRunId '${{ inputs.previous_execute_run_id }}' \
             --arg cohortSha256 "$(sha256sum "$COHORT_PATH" | awk '{print $1}')" \
             --arg preInventorySha256 "$(sha256sum "$RUNNER_TEMP/pre-inventory.json" | awk '{print $1}')" \
-            --arg auditReplacementMode "$(test "$COHORT_PATH" = "$REPORT_ORIGIN_FRESH_COHORT" && echo commit_addressed_raw32_pointer_replacement || echo standard)" \
+            --arg auditReplacementMode "$(if test "$COHORT_PATH" = "$REPORT_ORIGIN_FRESH_COHORT"; then echo commit_addressed_raw32_pointer_replacement; elif test "$COHORT_PATH" = "$DEFERRED_V2_FRESH_COHORT"; then echo commit_addressed_v2_pointer_replacement; else echo standard; fi)" \
             '{schemaVersion:1,status:"fresh_canonical_audit_frozen",runId:$runId,repository:$repository,workflowCommit:$workflowCommit,cliVersion:$cliVersion,cliSha256:$cliSha256,cohortPath:$cohortPath,cohortSha256:$cohortSha256,auditReplacementMode:$auditReplacementMode,startAfter:$startAfter,lastSelected:$lastSelected,previousBoundaryRunId:$previousBoundaryRunId,previousExecuteRunId:$previousExecuteRunId,preInventorySha256:$preInventorySha256}' \
             > "$boundary/metadata.json"
           (cd "$boundary" && find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS)
