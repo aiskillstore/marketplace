@@ -23,6 +23,7 @@ function runBlock(stepName) {
 const rebind = runBlock('Rebind reports to auto-fixed SKILL.md artifacts');
 const rebindReport = runBlock('Rebind reports to auto-fixed skill-report artifacts');
 const verifyReportHashContract = runBlock('Verify skill-report hash contract after auto-fix');
+const verifyChangedReportHashContract = runBlock('Verify changed skill-report hash contracts');
 const commitSkill = runBlock('Commit auto-fixed SKILL.md artifacts locally');
 const commitReport = runBlock('Commit auto-fixed skill-report.json files locally');
 const publish = runBlock('Publish validated auto-fixes');
@@ -50,6 +51,18 @@ test('report auto-fix rebinds every changed report and verifies its hash contrac
     workflow,
     /Commit auto-fixed skill-report\.json files locally\n        if: [^\n]*steps\.revalidate-report-hash-contract\.outcome == 'success'/,
   );
+});
+
+test('normal validation rejects changed reports that do not match packaged bytes', () => {
+  assert.match(verifyChangedReportHashContract, /github event|comparison SHA|VALIDATION_BASE_SHA/);
+  assert.match(verifyChangedReportHashContract, /git fetch --no-tags --depth=1 origin/);
+  assert.match(verifyChangedReportHashContract, /git diff --no-renames --name-only -z --diff-filter=ACMRT/);
+  assert.match(verifyChangedReportHashContract, /skills\/\*\*\/SKILL\.md/);
+  assert.match(verifyChangedReportHashContract, /pending\/\*\*\/SKILL\.md/);
+  assert.match(verifyChangedReportHashContract, /dirname\(path\).*skill-report\.json/);
+  assert.match(verifyChangedReportHashContract, /content_hash does not match packaged SKILL\.md bytes/);
+  assert.match(verifyChangedReportHashContract, /tree_hash does not match the packaged skill tree/);
+  assert.ok(verifyChangedReportHashContract.includes(String.raw`.split('\0')`));
 });
 
 test('report auto-fix restores erased hashes without changing source lineage', () => {

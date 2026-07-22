@@ -523,6 +523,51 @@ jobs:
             }
           "
 
+      - name: Verify changed skill-report hash contracts
+        working-directory: ${{ env.WORK_DIR }}
+        env:
+          VALIDATION_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          set -euo pipefail
+
+          if ! [[ "$VALIDATION_BASE_SHA" =~ ^[0-9a-f]{40}$ ]] \
+            || [ "$VALIDATION_BASE_SHA" = "0000000000000000000000000000000000000000" ]; then
+            echo "::notice::No immutable comparison SHA is available; changed report hash verification is not applicable"
+            exit 0
+          fi
+
+          git fetch --no-tags --depth=1 origin "$VALIDATION_BASE_SHA"
+          CHANGED_ARTIFACTS="$RUNNER_TEMP/changed-report-artifact-paths-${GITHUB_RUN_ID}.bin"
+          git diff --no-renames --name-only -z --diff-filter=ACMRT \
+            "$VALIDATION_BASE_SHA" HEAD -- \
+            'skills/**/SKILL.md' 'skills/**/skill-report.json' \
+            'pending/**/SKILL.md' 'pending/**/skill-report.json' > "$CHANGED_ARTIFACTS"
+
+          node --input-type=module - "$CHANGED_ARTIFACTS" <<'NODE'
+          import { createHash } from 'node:crypto';
+          import { existsSync, readFileSync } from 'node:fs';
+          import { dirname } from 'node:path';
+          import { calculateCanonicalTreeHash } from './scripts/resolve-approved-submission.mjs';
+
+          const changedPaths = readFileSync(process.argv[2], 'utf8').split('\0').filter(Boolean);
+          const reportPaths = [...new Set(changedPaths.map((path) => `${dirname(path)}/skill-report.json`))].sort();
+          for (const reportPath of reportPaths) {
+            const skillDirectory = dirname(reportPath);
+            const skillPath = `${skillDirectory}/SKILL.md`;
+            if (!existsSync(skillPath)) throw new Error(`${skillPath} is missing for changed report`);
+            const report = JSON.parse(readFileSync(reportPath, 'utf8'));
+            const contentHash = createHash('sha256').update(readFileSync(skillPath)).digest('hex');
+            const treeHash = calculateCanonicalTreeHash(process.cwd(), skillDirectory);
+            if (report?.meta?.content_hash !== contentHash) {
+              throw new Error(`${reportPath} content_hash does not match packaged SKILL.md bytes`);
+            }
+            if (report?.meta?.tree_hash !== treeHash) {
+              throw new Error(`${reportPath} tree_hash does not match the packaged skill tree`);
+            }
+          }
+          console.log(`Verified packaged hash contracts for ${reportPaths.length} changed report(s)`);
+          NODE
+
       - name: Auto-fix skill-report.json validation errors (with retry)
         if: steps.validate-skill-reports.outcome == 'failure' && env.AUTO_FIX_ENABLED == 'true'
         id: revalidate
