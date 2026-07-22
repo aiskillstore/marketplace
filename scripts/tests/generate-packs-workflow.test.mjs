@@ -351,7 +351,9 @@ test('pack production pins executable Actions and requires an independent CLI di
     cliDownloadAction.indexOf('    - name: Check local cache'),
     cliDownloadAction.indexOf('    - name: Cache CLI'),
   );
-  assert.match(localCache, /Ignoring an unpinned local CLI cache entry/);
-  assert.match(localCache, /cache-disabled=true/);
-  assert.doesNotMatch(localCache, /--version|CACHED_VERSION/);
+  assert.match(
+    localCache,
+    /if \[ "\$REQUIRE_CHECKSUM" != "true" \]; then[\s\S]*CACHED_VERSION=[\s\S]*rm -f "\$CACHE_FILE" "\$GITHUB_WORKSPACE\/skillstore-cli"/,
+  );
+  assert.match(localCache, /Checksum-required callers do not[\s\S]*execute these bytes until the checksum gate below succeeds/);
 });
