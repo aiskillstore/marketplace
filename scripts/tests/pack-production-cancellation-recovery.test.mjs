@@ -35,7 +35,7 @@ function event(overrides = {}) {
       path: '.github/workflows/generate-packs.yml',
       status: 'completed',
       conclusion: 'cancelled',
-      event: 'schedule',
+      event: 'workflow_run',
       head_branch: 'main',
       head_sha: SOURCE_SHA,
       run_started_at: '2026-07-16T01:00:00.000Z',
@@ -100,6 +100,7 @@ function artifact(name, id, size = 1024) {
     id,
     name,
     size_in_bytes: size,
+    digest: `sha256:${'d'.repeat(64)}`,
     expired: false,
     created_at: '2026-07-16T01:01:00.000Z',
     updated_at: '2026-07-16T01:01:01.000Z',
@@ -170,14 +171,14 @@ function createInput({ generationId = GENERATION_ID, artifacts, diagnostics = nu
   };
 }
 
-test('workflow_run inspection accepts only exact cancelled main schedule/dispatch runs', () => {
+test('workflow_run inspection accepts only exact cancelled main workflow_run/dispatch runs', () => {
   const inspected = inspectWorkflowRunEvent(event());
   assert.equal(inspected.runId, 12345);
   assert.equal(inspected.runAttempt, 2);
   assert.equal(inspected.commitSha, SOURCE_SHA);
   assert.equal(inspectWorkflowRunEvent(event({ event: 'workflow_dispatch' })).event, 'workflow_dispatch');
   assert.throws(() => inspectWorkflowRunEvent(event({ conclusion: 'failure' })), /only cancelled/);
-  assert.throws(() => inspectWorkflowRunEvent(event({ event: 'pull_request' })), /schedule or workflow_dispatch/);
+  assert.throws(() => inspectWorkflowRunEvent(event({ event: 'pull_request' })), /workflow_run or workflow_dispatch/);
   assert.throws(() => inspectWorkflowRunEvent(event({ head_branch: 'feature' })), /must run on main/);
   assert.throws(() => inspectWorkflowRunEvent({
     ...event(),
@@ -302,6 +303,12 @@ test('source attempt and artifact provenance are bound to the exact cancelled at
   );
 });
 
+test('recovery refuses artifacts without a GitHub digest before any extraction decision', async () => {
+  const input = createInput();
+  delete input.artifactIndex.artifacts[0].digest;
+  await assert.rejects(prepareCancellationRecovery(input), /no valid GitHub SHA-256 digest/);
+});
+
 test('existing evaluator or downstream evidence blocks candidate-null synthesis', async () => {
   for (const existing of [
     'pack-production-evaluation',
@@ -348,7 +355,7 @@ test('persistence performs one narrow POST and requires no Pack or enrichment', 
   const persisted = await persistCancellationRecovery({
     resultFile: join(input.outputDir, 'recovery-result.json'),
     evaluationFile: join(input.outputDir, 'candidate-null.evaluation.json'),
-    apiUrl: 'https://skillstore.example',
+    apiUrl: 'https://skillstore.io',
     token: 'narrow-test-token',
     outputFile,
     fetchImpl: async (url, init) => {
@@ -373,12 +380,127 @@ test('persistence performs one narrow POST and requires no Pack or enrichment', 
     },
   });
   assert.equal(calls.length, 1);
-  assert.equal(calls[0].url, 'https://skillstore.example/api/automation/packs/production');
+  assert.equal(calls[0].url, 'https://skillstore.io/api/automation/packs/production');
   assert.equal(calls[0].init.headers.Authorization, 'Bearer narrow-test-token');
   assert.equal(persisted.outcome, 'candidate_null_persisted');
   assert.equal(persisted.replayed, true);
   assert.equal(persisted.response.pack, null);
   assert.doesNotMatch(readFileSync(outputFile, 'utf8'), /narrow-test-token/);
+});
+
+test('persistence reconciles a lost candidate-null POST response with the exact recovery audit', async () => {
+  const input = createInput();
+  await prepareCancellationRecovery(input);
+  const evaluation = JSON.parse(readFileSync(join(input.outputDir, 'candidate-null.evaluation.json')));
+  const calls = [];
+  const persisted = await persistCancellationRecovery({
+    resultFile: join(input.outputDir, 'recovery-result.json'),
+    evaluationFile: join(input.outputDir, 'candidate-null.evaluation.json'),
+    apiUrl: 'https://skillstore.io',
+    token: 'narrow-test-token',
+    outputFile: join(input.outputDir, 'reconciled-persist-result.json'),
+    fetchImpl: async (url, init) => {
+      calls.push({ url: String(url), method: init.method });
+      if (init.method === 'POST') throw new Error('lost POST response');
+      return new Response(JSON.stringify({
+        data: {
+          attempt: {
+            generation_id: evaluation.generationId,
+            outcome: evaluation.outcome,
+            evaluation_outcome: evaluation.outcome,
+            evidence_digest: evaluation.evidenceDigest,
+            evidence: evaluation,
+            pack_id: null,
+            pack_slug: null,
+            content_dispatch_status: 'not_applicable',
+            translation_dispatch_status: 'not_applicable',
+            content_dispatch_nonce: null,
+          },
+          pack: null,
+        },
+      }), { status: 200, headers: { 'content-type': 'application/json' } });
+    },
+  });
+  assert.deepEqual(calls, [
+    { url: 'https://skillstore.io/api/automation/packs/production', method: 'POST' },
+    { url: `https://skillstore.io/api/automation/packs/production/${GENERATION_ID}`, method: 'GET' },
+  ]);
+  assert.equal(persisted.reconciled, true);
+  assert.equal(persisted.response.pack, null);
+});
+
+test('persistence rethrows the lost POST error when recovery readback evidence differs', async () => {
+  const input = createInput();
+  await prepareCancellationRecovery(input);
+  const evaluation = JSON.parse(readFileSync(join(input.outputDir, 'candidate-null.evaluation.json')));
+  const calls = [];
+  await assert.rejects(persistCancellationRecovery({
+    resultFile: join(input.outputDir, 'recovery-result.json'),
+    evaluationFile: join(input.outputDir, 'candidate-null.evaluation.json'),
+    apiUrl: 'https://skillstore.io',
+    token: 'narrow-test-token',
+    outputFile: join(input.outputDir, 'reconciled-persist-result.json'),
+    fetchImpl: async (url, init) => {
+      calls.push(init.method);
+      if (init.method === 'POST') throw new Error('lost POST response');
+      return new Response(JSON.stringify({
+        data: {
+          attempt: {
+            generation_id: evaluation.generationId,
+            outcome: evaluation.outcome,
+            evaluation_outcome: evaluation.outcome,
+            evidence_digest: '0'.repeat(64),
+            evidence: evaluation,
+            pack_id: null,
+            pack_slug: null,
+            content_dispatch_status: 'not_applicable',
+            translation_dispatch_status: 'not_applicable',
+            content_dispatch_nonce: null,
+          },
+          pack: null,
+        },
+      }), { status: 200, headers: { 'content-type': 'application/json' } });
+    },
+  }), /lost POST response/);
+  assert.deepEqual(calls, ['POST', 'GET']);
+});
+
+test('persistence does not reconcile an explicit candidate-null POST 4xx', async () => {
+  const input = createInput();
+  await prepareCancellationRecovery(input);
+  const calls = [];
+  await assert.rejects(persistCancellationRecovery({
+    resultFile: join(input.outputDir, 'recovery-result.json'),
+    evaluationFile: join(input.outputDir, 'candidate-null.evaluation.json'),
+    apiUrl: 'https://skillstore.io',
+    token: 'narrow-test-token',
+    outputFile: join(input.outputDir, 'persist-result.json'),
+    fetchImpl: async (url, init) => {
+      calls.push({ url: String(url), method: init.method });
+      return new Response(JSON.stringify({ message: 'audit rejected' }), { status: 422 });
+    },
+  }), /HTTP 422/);
+  assert.deepEqual(calls, [
+    { url: 'https://skillstore.io/api/automation/packs/production', method: 'POST' },
+  ]);
+});
+
+test('persistence never sends its bearer token to another HTTPS origin', async () => {
+  const input = createInput();
+  await prepareCancellationRecovery(input);
+  let called = false;
+  await assert.rejects(persistCancellationRecovery({
+    resultFile: join(input.outputDir, 'recovery-result.json'),
+    evaluationFile: join(input.outputDir, 'candidate-null.evaluation.json'),
+    apiUrl: 'https://skillstore.example',
+    token: 'narrow-test-token',
+    outputFile: join(input.outputDir, 'persist-result.json'),
+    fetchImpl: async () => {
+      called = true;
+      return new Response('{}');
+    },
+  }), /exact Skillstore production origin/);
+  assert.equal(called, false);
 });
 
 test('persistence rejects any response that creates a Pack or dispatches enrichment', async () => {
@@ -387,7 +509,7 @@ test('persistence rejects any response that creates a Pack or dispatches enrichm
   await assert.rejects(persistCancellationRecovery({
     resultFile: join(input.outputDir, 'recovery-result.json'),
     evaluationFile: join(input.outputDir, 'candidate-null.evaluation.json'),
-    apiUrl: 'https://skillstore.example',
+    apiUrl: 'https://skillstore.io',
     token: 'narrow-test-token',
     outputFile: join(input.outputDir, 'bad-persist-result.json'),
     fetchImpl: async () => new Response(JSON.stringify({
@@ -408,16 +530,20 @@ test('recovery workflow is secret-minimal, bounded, and retains evidence for 90 
   assert.match(WORKFLOW, /workflow_run:[\s\S]*workflows: \[Generate Pack\][\s\S]*types: \[completed\][\s\S]*branches: \[main\]/);
   assert.match(WORKFLOW, /permissions:\n  actions: read\n  contents: read/);
   assert.match(WORKFLOW, /github\.event\.workflow_run\.conclusion == 'cancelled'/);
-  assert.match(WORKFLOW, /workflow_run\.event == 'schedule'.*workflow_run\.event == 'workflow_dispatch'/s);
+  assert.match(WORKFLOW, /workflow_run\.event == 'workflow_run'.*workflow_run\.event == 'workflow_dispatch'/s);
   assert.match(WORKFLOW, /runs-on: ubuntu-latest/);
   assert.match(WORKFLOW, /persist-credentials: false/);
-  assert.equal((WORKFLOW.match(/run-id: \$\{\{ steps\.source\.outputs\.run_id \}\}/g) ?? []).length, 2);
+  assert.doesNotMatch(WORKFLOW, /actions\/download-artifact@/);
   assert.match(WORKFLOW, /artifacts\?per_page=100/);
   assert.match(WORKFLOW, /actions\/runs\/\$RUN_ID\/attempts\/\$RUN_ATTEMPT/);
   assert.match(WORKFLOW, /compare\/\$SOURCE_SHA\.\.\.\$GITHUB_SHA/);
   assert.match(WORKFLOW, /contents\/\.github\/workflows\/generate-packs\.yml\?ref=\$SOURCE_SHA/);
-  assert.match(WORKFLOW, /continue-on-error: true[\s\S]*name: pack-production-plan/);
-  assert.match(WORKFLOW, /continue-on-error: true[\s\S]*name: pack-production-diagnostics/);
+  assert.match(WORKFLOW, /actions\/artifacts\/\$artifact_id\/zip/);
+  assert.match(WORKFLOW, /expected_digest=.*\.digest/);
+  assert.match(WORKFLOW, /actual_digest=.*sha256sum/);
+  assert.match(WORKFLOW, /test "\$actual_digest" = "\$expected_digest"/);
+  assert.match(WORKFLOW, /ZIP contains a symbolic-link entry/);
+  assert.match(WORKFLOW, /unzip -q "\$archive" -d "\$destination"/);
   assert.match(WORKFLOW, /if: steps\.prepare\.outputs\.outcome == 'candidate_null_prepared'/);
   assert.match(WORKFLOW, /PACK_PRODUCTION_AUTOMATION_KEY: \$\{\{ secrets\.PACK_PRODUCTION_AUTOMATION_KEY \}\}/);
   assert.doesNotMatch(WORKFLOW, /PACK_EVALUATOR_HELM_API_KEY|HELM_API_KEY|SUPABASE_SERVICE_ROLE|APP_PRIVATE_KEY/);

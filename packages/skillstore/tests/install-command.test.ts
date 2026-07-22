@@ -48,6 +48,7 @@ vi.mock('../src/lib/plugin-api.js', () => ({
 vi.mock('../src/lib/plugin-download.js', () => ({
 	downloadAllSkills: vi.fn(),
 	printDownloadSummary: vi.fn(),
+	verifyInstalledPackMember: vi.fn(),
 }));
 
 vi.mock('../src/lib/plugin-logger.js', () => ({

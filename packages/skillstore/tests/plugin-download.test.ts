@@ -1,9 +1,10 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { createHash } from 'node:crypto';
-import { mkdir, rm, writeFile, access } from 'node:fs/promises';
+import { mkdir, rm, writeFile, lstat, rename } from 'node:fs/promises';
 import {
 	downloadAllSkills,
 	printDownloadSummary,
+	MAX_PACK_SKILLS,
 	type SkillDownloadResult,
 	type DownloadSummary,
 } from '../src/lib/plugin-download.js';
@@ -15,12 +16,14 @@ vi.mock('node:fs/promises', () => ({
 	mkdir: vi.fn(),
 	rm: vi.fn(),
 	writeFile: vi.fn(),
-	access: vi.fn(),
+	lstat: vi.fn(),
+	rename: vi.fn(),
 }));
 
 // Mock plugin-api
 vi.mock('../src/lib/plugin-api.js', () => ({
 	downloadSkillFile: vi.fn(),
+	MAX_ARTIFACT_FILE_BYTES: 10 * 1024 * 1024,
 }));
 
 // Mock plugin-verify
@@ -47,7 +50,8 @@ const mockVerifyContentHash = vi.mocked(verifyContentHash);
 const mockMkdir = vi.mocked(mkdir);
 const mockRm = vi.mocked(rm);
 const mockWriteFile = vi.mocked(writeFile);
-const mockAccess = vi.mocked(access);
+const mockLstat = vi.mocked(lstat);
+const mockRename = vi.mocked(rename);
 
 describe('plugin-download', () => {
 	let config: PluginConfig;
@@ -73,10 +77,21 @@ describe('plugin-download', () => {
 		mockMkdir.mockResolvedValue(undefined);
 		mockRm.mockResolvedValue(undefined);
 		mockWriteFile.mockResolvedValue(undefined);
-		mockAccess.mockRejectedValue(new Error('ENOENT')); // File doesn't exist
+		mockLstat.mockRejectedValue(Object.assign(new Error('ENOENT'), { code: 'ENOENT' }));
+		mockRename.mockResolvedValue(undefined);
 	});
 
 	describe('downloadAllSkills', () => {
+		it('rejects an oversized Pack before any download begins', async () => {
+			const tooMany = Array.from({ length: MAX_PACK_SKILLS + 1 }, (_, index) => ({
+				slug: `skill-${index}`,
+				name: `Skill ${index}`,
+				contentHash: '',
+				downloadUrl: `/dl/${index}`,
+			}));
+			await expect(downloadAllSkills(config, tooMany)).rejects.toThrow('too many Skills');
+			expect(mockDownloadSkillFile).not.toHaveBeenCalled();
+		});
 		it('should download all skills successfully', async () => {
 			const summary = await downloadAllSkills(config, testSkills);
 
@@ -97,29 +112,22 @@ describe('plugin-download', () => {
 		it('should create directories and write files', async () => {
 			await downloadAllSkills(config, testSkills);
 
-			expect(mockMkdir).toHaveBeenCalledTimes(3);
+			expect(mockMkdir).toHaveBeenCalled();
 			expect(mockWriteFile).toHaveBeenCalledTimes(3);
 		});
 
-		it('should skip existing files when overwrite is false', async () => {
-			mockAccess.mockResolvedValue(undefined); // File exists
-
-			const summary = await downloadAllSkills(config, testSkills, { overwrite: false });
-
-			expect(summary.skipped).toBe(3);
-			expect(summary.success).toBe(0);
-			expect(mockDownloadSkillFile).not.toHaveBeenCalled();
-		});
-
 		it('should overwrite existing files when overwrite is true', async () => {
-			mockAccess.mockResolvedValue(undefined); // File exists
+			mockLstat.mockResolvedValue({
+				isSymbolicLink: () => false,
+				isDirectory: () => true,
+			} as never);
 
 			const summary = await downloadAllSkills(config, testSkills, { overwrite: true });
 
 			expect(summary.success).toBe(3);
 			expect(summary.skipped).toBe(0);
 			expect(mockDownloadSkillFile).toHaveBeenCalledTimes(3);
-			expect(mockRm).toHaveBeenCalledWith('/test/skills/skill-1', { recursive: true, force: true });
+			expect(mockRename).toHaveBeenCalledWith('/test/skills/skill-1', expect.stringMatching(/\.backup-/));
 		});
 
 		it('should verify content hash when enabled', async () => {
@@ -160,8 +168,9 @@ describe('plugin-download', () => {
 
 			const summary = await downloadAllSkills(config, testSkills);
 
-			expect(summary.success).toBe(2);
-			expect(summary.failed).toBe(1);
+			expect(summary.success).toBe(0);
+			expect(summary.failed).toBe(3);
+			expect(summary.results.filter((result) => result.error === 'Pack download aborted because another member failed')).toHaveLength(2);
 		});
 
 		it('should respect maxConcurrent setting', async () => {
@@ -226,11 +235,13 @@ describe('plugin-download', () => {
 							path: 'SKILL.md',
 							url: '/files/SKILL.md',
 							sha256: createHash('sha256').update(skillMd).digest('hex'),
+							bytes: skillMd.byteLength,
 						},
 						{
 							path: 'references/guide.md',
 							url: '/files/references/guide.md',
 							sha256: createHash('sha256').update(reference).digest('hex'),
+							bytes: reference.byteLength,
 						},
 					],
 				},
@@ -242,8 +253,25 @@ describe('plugin-download', () => {
 			const summary = await downloadAllSkills(config, [artifactSkill]);
 
 			expect(summary.success).toBe(1);
-			expect(mockWriteFile).toHaveBeenCalledWith('/test/skills/artifact-skill/SKILL.md', skillMd);
-			expect(mockWriteFile).toHaveBeenCalledWith('/test/skills/artifact-skill/references/guide.md', reference);
+			expect(mockWriteFile).toHaveBeenCalledWith(expect.stringMatching(/\.artifact-skill\.stage-.*\/SKILL\.md$/), skillMd);
+			expect(mockWriteFile).toHaveBeenCalledWith(expect.stringMatching(/\.artifact-skill\.stage-.*\/references\/guide\.md$/), reference);
+		});
+
+		it('should reject an artifact file without an exact SHA-256 before download', async () => {
+			const unhashedSkill: ManifestSkill = {
+				slug: 'unhashed-artifact',
+				name: 'Unhashed Artifact',
+				contentHash: '',
+				downloadUrl: '/fallback',
+				artifact: {
+					type: 'skill-files',
+					files: [{ path: 'SKILL.md', url: '/files/SKILL.md', sha256: 'deadbeef' }],
+				},
+			};
+
+			await expect(downloadAllSkills(config, [unhashedSkill])).rejects.toThrow('Missing exact SHA-256');
+			expect(mockDownloadSkillFile).not.toHaveBeenCalled();
+			expect(mockWriteFile).not.toHaveBeenCalled();
 		});
 
 		it('should reject artifact paths outside the skill directory before writing files', async () => {
@@ -255,16 +283,13 @@ describe('plugin-download', () => {
 				artifact: {
 					type: 'skill-files',
 					files: [
-						{ path: 'SKILL.md', url: '/files/SKILL.md' },
-						{ path: '../outside.md', url: '/files/outside.md' },
+						{ path: 'SKILL.md', url: '/files/SKILL.md', sha256: 'a'.repeat(64), bytes: 1 },
+						{ path: '../outside.md', url: '/files/outside.md', sha256: 'b'.repeat(64), bytes: 1 },
 					],
 				},
 			};
 
-			const summary = await downloadAllSkills(config, [unsafeSkill]);
-
-			expect(summary.failed).toBe(1);
-			expect(summary.results[0].error).toContain('Invalid artifact path');
+			await expect(downloadAllSkills(config, [unsafeSkill])).rejects.toThrow('Invalid artifact path');
 			expect(mockDownloadSkillFile).not.toHaveBeenCalled();
 			expect(mockWriteFile).not.toHaveBeenCalled();
 		});

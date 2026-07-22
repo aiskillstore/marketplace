@@ -113,10 +113,10 @@ describe('pack-lock', () => {
 		expect(mocks.addToLock).not.toHaveBeenCalled();
 	});
 
-	it('does not lock a download skipped because it was already installed', async () => {
+	it('locks an already-present member after its fresh verified reuse check', async () => {
 		await expect(lockVerifiedPackMembers(config, [member], download({ skipped: true })))
-			.resolves.toEqual({ locked: 0, skipped: 0 });
-		expect(mocks.fetchSkillManifest).not.toHaveBeenCalled();
-		expect(mocks.addToLock).not.toHaveBeenCalled();
+			.resolves.toEqual({ locked: 1, skipped: 0 });
+		expect(mocks.fetchSkillManifest).toHaveBeenCalledWith(config, member.slug);
+		expect(mocks.addToLock).toHaveBeenCalled();
 	});
 });

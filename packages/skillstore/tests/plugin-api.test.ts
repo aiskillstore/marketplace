@@ -181,11 +181,13 @@ describe('plugin-api', () => {
 					kind: 'pack', version: '1.0', generatedAt: 'evil',
 					plugin: { slug: 'evil', name: 'Evil', version: '9.9.9' },
 					pack: { slug: 'evil', name: 'Evil', version: '9.9.9' },
+					executionBinding: { bindingDigest: 'evil' },
 					skills: [{ slug: 'evil', name: 'Evil', contentHash: 'evil', downloadUrl: 'https://evil.test' }],
 					signed: {
 						kind: 'pack', version: '1.0', generatedAt: 'safe',
 						pack: { slug: 'safe', name: 'Safe', version: '1.0.0', visibility: 'public' },
 						skills: [{ slug: 'safe-skill', name: 'Safe', contentHash: 'safe', downloadUrl: 'https://safe.test' }],
+						executionBinding: { bindingDigest: 'safe' },
 					},
 					signature: {
 						algorithm: 'Ed25519', keyId: 'k',
@@ -199,6 +201,7 @@ describe('plugin-api', () => {
 			expect(result.plugin.slug).toBe('safe');
 			expect(result.pack?.slug).toBe('safe');
 			expect(result.skills[0].slug).toBe('safe-skill');
+			expect(result.executionBinding).toEqual({ bindingDigest: 'safe' });
 			expect(result.generatedAt).toBe('safe');
 		});
 
@@ -510,33 +513,20 @@ describe('plugin-api', () => {
 				timeout: 5000,
 			});
 
-			mockFetch.mockResolvedValueOnce({
-				ok: true,
-				arrayBuffer: () => Promise.resolve(new TextEncoder().encode('# Skill Content').buffer),
-			});
+			mockFetch.mockResolvedValueOnce(new Response('# Skill Content'));
 
 			const result = await downloadSkill(downloadConfig, '/downloads/skill.md');
 
 			// apiBaseUrl.replace('/api', '') = 'https://skillstore.io'
-			expect(mockFetch).toHaveBeenCalledWith(
-				'https://skillstore.io/downloads/skill.md',
-				expect.any(Object)
-			);
+			expect(String(mockFetch.mock.calls[0][0])).toBe('https://skillstore.io/downloads/skill.md');
+			expect(mockFetch.mock.calls[0][1].redirect).toBe('error');
 			expect(result).toBe('# Skill Content');
 		});
 
-		it('should download skill with absolute URL', async () => {
-			mockFetch.mockResolvedValueOnce({
-				ok: true,
-				arrayBuffer: () => Promise.resolve(new TextEncoder().encode('# Content').buffer),
-			});
-
-			await downloadSkill(config, 'https://cdn.example.com/skill.md');
-
-			expect(mockFetch).toHaveBeenCalledWith(
-				'https://cdn.example.com/skill.md',
-				expect.any(Object)
-			);
+		it('rejects an absolute artifact URL from another origin before fetching', async () => {
+			await expect(downloadSkill(config, 'https://cdn.example.com/skill.md'))
+				.rejects.toThrow('outside the configured Skillstore origin');
+			expect(mockFetch).not.toHaveBeenCalled();
 		});
 
 		it('should throw error on download failure', async () => {
@@ -553,14 +543,29 @@ describe('plugin-api', () => {
 
 		it('should download raw skill file bytes', async () => {
 			const bytes = new Uint8Array([1, 2, 3]);
-			mockFetch.mockResolvedValueOnce({
-				ok: true,
-				arrayBuffer: () => Promise.resolve(bytes.buffer),
-			});
+			mockFetch.mockResolvedValueOnce(new Response(bytes));
 
 			const result = await downloadSkillFile(config, '/skill.bin');
 
 			expect(result).toEqual(bytes);
+		});
+
+		it('fails closed on redirects and signed-size mismatches', async () => {
+			mockFetch.mockResolvedValueOnce(new Response('abc', { headers: { 'content-length': '3' } }));
+			await expect(downloadSkillFile(config, '/skill.bin', { expectedBytes: 4, maxBytes: 10 }))
+				.rejects.toThrow('does not match signed manifest');
+			expect(String(mockFetch.mock.calls[0][0])).toBe('https://api.test.com/skill.bin');
+			expect(mockFetch.mock.calls[0][1].redirect).toBe('error');
+
+			mockFetch.mockResolvedValueOnce(new Response('abcd'));
+			await expect(downloadSkillFile(config, '/skill.bin', { maxBytes: 3 }))
+				.rejects.toThrow('exceeds 3 byte limit');
+		});
+
+		it('allows only an explicitly configured localhost test origin over HTTP', async () => {
+			const local = getPluginConfig({ apiBaseUrl: 'http://localhost:8787/api' });
+			mockFetch.mockResolvedValueOnce(new Response('ok'));
+			await expect(downloadSkillFile(local, 'http://localhost:8787/artifact')).resolves.toEqual(new TextEncoder().encode('ok'));
 		});
 	});
 

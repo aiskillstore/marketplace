@@ -7,6 +7,8 @@ import { fileURLToPath } from 'node:url';
 import {
   buildInfrastructureApiEvaluation,
   canonicalJson,
+  reconcileCandidateNullPersistReadback,
+  validateCandidateNullPersistResponse,
 } from './pack-production.mjs';
 
 const RECOVERY_SCHEMA = 'marketplace.pack-production-cancellation-recovery/v1';
@@ -129,8 +131,8 @@ export function inspectWorkflowRunEvent(event) {
   if (run.status !== 'completed' || run.conclusion !== 'cancelled') {
     fail('Recovery accepts only cancelled terminal Generate Pack runs');
   }
-  if (!['schedule', 'workflow_dispatch'].includes(run.event)) {
-    fail('Recovery rejects Generate Pack runs from any event except schedule or workflow_dispatch');
+  if (!['workflow_run', 'workflow_dispatch'].includes(run.event)) {
+    fail('Recovery rejects Generate Pack runs from any event except workflow_run or workflow_dispatch');
   }
   if (run.head_branch !== EXPECTED_BRANCH) fail('Recovery source must run on main');
   if (!SHA_RE.test(run.head_sha || '')) fail('Recovery source head SHA is invalid');
@@ -232,6 +234,9 @@ export function verifyArtifactIndex(index, source) {
     if (!Number.isSafeInteger(artifact.size_in_bytes) || artifact.size_in_bytes < 1) {
       fail(`Artifact ${artifact.name} has an invalid size`);
     }
+    if (typeof artifact.digest !== 'string' || !/^sha256:[0-9a-f]{64}$/.test(artifact.digest)) {
+      fail(`Artifact ${artifact.name} has no valid GitHub SHA-256 digest`);
+    }
     if (
       !Number.isFinite(Date.parse(artifact.created_at))
       || !Number.isFinite(Date.parse(artifact.updated_at))
@@ -272,9 +277,16 @@ export function verifyArtifactIndex(index, source) {
   }
   return {
     recoverable: true,
-    planArtifact: { id: plan[0].id, size: plan[0].size_in_bytes, createdAt: plan[0].created_at },
+    planArtifact: {
+      id: plan[0].id, size: plan[0].size_in_bytes, digest: plan[0].digest, createdAt: plan[0].created_at,
+    },
     diagnosticsArtifact: diagnostics[0]
-      ? { id: diagnostics[0].id, size: diagnostics[0].size_in_bytes, createdAt: diagnostics[0].created_at }
+      ? {
+        id: diagnostics[0].id,
+        size: diagnostics[0].size_in_bytes,
+        digest: diagnostics[0].digest,
+        createdAt: diagnostics[0].created_at,
+      }
       : null,
   };
 }
@@ -684,42 +696,24 @@ async function boundedResponse(response, maximumBytes = 1024 * 1024) {
   return Buffer.concat(chunks);
 }
 
-export async function persistCancellationRecovery({
-  resultFile,
-  evaluationFile,
-  apiUrl,
-  token,
-  outputFile,
-  fetchImpl = fetch,
-}) {
-  if (!apiUrl || !token) fail('Recovery API URL and narrow automation token are required');
-  const base = new URL(apiUrl);
-  if (base.protocol !== 'https:' && base.hostname !== '127.0.0.1') fail('Recovery API URL must use HTTPS');
-  const result = await readJson(resultFile, MAX_JSON_BYTES, 'prepared recovery result');
-  const evaluationBytes = await readBoundedFile(evaluationFile, MAX_JSON_BYTES, 'candidate-null evaluation');
-  let evaluation;
+function validateRecoveryCandidateNullResponse(data, evaluation) {
   try {
-    evaluation = JSON.parse(evaluationBytes.toString('utf8'));
+    validateCandidateNullPersistResponse({ data }, evaluation);
   } catch {
-    fail('Candidate-null evaluation is not valid JSON');
+    fail('Recovery API response did not prove an exact no-Pack, no-enrichment candidate-null write');
   }
-  validatePreparedRecovery(result, evaluation, evaluationBytes);
-  const endpoint = new URL('/api/automation/packs/production', `${base.toString().replace(/\/$/, '')}/`);
+  if (
+    data?.comparisonOf !== null
+    || data?.autoPublishEligible !== false
+  ) fail('Recovery API response did not prove an exact no-Pack, no-enrichment candidate-null write');
+}
+
+async function recoveryApiRequest(fetchImpl, url, options) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 30_000);
   let response;
   try {
-    response = await fetchImpl(endpoint, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${token}`,
-        Accept: 'application/json',
-        'Content-Type': 'application/json',
-      },
-      body: evaluationBytes,
-      redirect: 'error',
-      signal: controller.signal,
-    });
+    response = await fetchImpl(url, { ...options, redirect: 'error', signal: controller.signal });
   } finally {
     clearTimeout(timeout);
   }
@@ -730,19 +724,65 @@ export async function persistCancellationRecovery({
   } catch {
     fail(`Recovery API returned invalid JSON with HTTP ${response.status}`);
   }
-  if (!response.ok) fail(`Recovery API rejected candidate-null evidence with HTTP ${response.status}`);
-  const data = body?.data;
-  if (
-    data?.generationId !== evaluation.generationId
-    || data?.evaluationOutcome !== 'infrastructure_failed'
-    || data?.outcome !== 'infrastructure_failed'
-    || data?.pack !== null
-    || data?.comparisonOf !== null
-    || data?.autoPublishEligible !== false
-    || data?.enrichment?.content !== 'not_applicable'
-    || data?.enrichment?.translation !== 'not_applicable'
-    || data?.enrichment?.contentDispatchNonce !== null
-  ) fail('Recovery API response did not prove an exact no-Pack, no-enrichment candidate-null write');
+  if (!response.ok) {
+    const error = new Error(`Recovery API rejected candidate-null evidence with HTTP ${response.status}`);
+    error.status = response.status;
+    throw error;
+  }
+  return body;
+}
+
+export async function persistCancellationRecovery({
+  resultFile,
+  evaluationFile,
+  apiUrl,
+  token,
+  outputFile,
+  fetchImpl = fetch,
+}) {
+  if (!apiUrl || !token) fail('Recovery API URL and narrow automation token are required');
+  const base = new URL(apiUrl);
+  if (base.origin !== 'https://skillstore.io' || base.pathname !== '/') {
+    fail('Recovery API URL must be the exact Skillstore production origin');
+  }
+  const result = await readJson(resultFile, MAX_JSON_BYTES, 'prepared recovery result');
+  const evaluationBytes = await readBoundedFile(evaluationFile, MAX_JSON_BYTES, 'candidate-null evaluation');
+  let evaluation;
+  try {
+    evaluation = JSON.parse(evaluationBytes.toString('utf8'));
+  } catch {
+    fail('Candidate-null evaluation is not valid JSON');
+  }
+  validatePreparedRecovery(result, evaluation, evaluationBytes);
+  const endpoint = new URL('/api/automation/packs/production', `${base.toString().replace(/\/$/, '')}/`);
+  let data;
+  let reconciled = false;
+  try {
+    const body = await recoveryApiRequest(fetchImpl, endpoint, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+      },
+      body: evaluationBytes,
+    });
+    data = body?.data;
+    validateRecoveryCandidateNullResponse(data, evaluation);
+  } catch (postError) {
+    if (postError?.status >= 400 && postError.status < 500) throw postError;
+    try {
+      const body = await recoveryApiRequest(
+        fetchImpl,
+        new URL(`${endpoint.pathname}/${encodeURIComponent(evaluation.generationId)}`, endpoint),
+        { method: 'GET', headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' } },
+      );
+      data = reconcileCandidateNullPersistReadback({ data: body?.data }, evaluation);
+      reconciled = true;
+    } catch {
+      throw postError;
+    }
+  }
   const persisted = {
     schemaVersion: RECOVERY_SCHEMA,
     outcome: 'candidate_null_persisted',
@@ -752,6 +792,7 @@ export async function persistCancellationRecovery({
     evaluationSha256: result.evaluationSha256,
     persisted: true,
     replayed: data.replayed === true,
+    reconciled,
     response: {
       generationId: data.generationId,
       evaluationOutcome: data.evaluationOutcome,

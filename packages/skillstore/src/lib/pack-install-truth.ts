@@ -1,9 +1,15 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { homedir, platform } from 'node:os';
 import { isAbsolute, join, normalize, resolve, sep } from 'node:path';
 import type { ManifestSkill } from './plugin-api.js';
+import { verifyInstalledPackMember } from './plugin-download.js';
 import { getCanonicalSkillPath, sanitizeName } from './installer.js';
+import {
+	buildPackOrchestrationReceipt,
+	PACK_ORCHESTRATION_RECEIPT_FILE,
+	type PackOrchestration,
+} from './pack-orchestration.js';
 import { getLockEntry, type SkillLockEntry } from './skill-lock.js';
 import { CLI_VERSION } from './version.js';
 
@@ -37,6 +43,16 @@ export interface PackInstallReadback {
 	failedSkillCount: number;
 	readbackPassed: boolean;
 	failedSkillSlugs: string[];
+	orchestration?: {
+		slug: string;
+		canonicalId: string;
+		version: string;
+		contentHash: string;
+		treeHash: string;
+		bindingDigest: string;
+		agentPaths: string[];
+		readbackPassed: boolean;
+	};
 }
 
 export interface PackInstallReportResult {
@@ -221,11 +237,13 @@ function lockMatchesMember(lock: SkillLockEntry | undefined, member: ManifestSki
 interface ReadbackDependencies {
 	readPath: (path: string) => Promise<Uint8Array>;
 	readLockEntry: (slug: string) => Promise<SkillLockEntry | undefined>;
+	verifyMember?: (path: string, member: ManifestSkill) => Promise<void>;
 }
 
 const defaultReadbackDependencies: ReadbackDependencies = {
 	readPath: async (path) => readFile(path),
 	readLockEntry: getLockEntry,
+	verifyMember: verifyInstalledPackMember,
 };
 
 function getMemberArtifactPaths(member: ManifestSkill): string[] {
@@ -257,6 +275,7 @@ function resolveReadbackPath(root: string, filePath: string): string {
 export async function readbackPackInstall(
 	members: ManifestSkill[],
 	targetDirectories: string[],
+	orchestration?: PackOrchestration,
 	dependencies: ReadbackDependencies = defaultReadbackDependencies
 ): Promise<PackInstallReadback> {
 	const uniqueTargetDirectories = [...new Set(targetDirectories)];
@@ -265,6 +284,7 @@ export async function readbackPackInstall(
 	for (const member of members) {
 		try {
 			const canonicalRoot = getCanonicalSkillPath(member.slug);
+			await dependencies.verifyMember?.(canonicalRoot, member);
 			for (const artifactPath of getMemberArtifactPaths(member)) {
 				const canonicalBytes = await dependencies.readPath(resolveReadbackPath(canonicalRoot, artifactPath));
 				for (const targetDirectory of uniqueTargetDirectories) {
@@ -283,10 +303,58 @@ export async function readbackPackInstall(
 	}
 
 	const installedSkillCount = members.length - failedSkillSlugs.length;
+	const orchestrationReadback = orchestration
+		? await readbackPackOrchestration(orchestration, uniqueTargetDirectories, dependencies)
+		: undefined;
 	return {
 		installedSkillCount,
 		failedSkillCount: failedSkillSlugs.length,
-		readbackPassed: members.length > 0 && failedSkillSlugs.length === 0,
+		readbackPassed: members.length > 0
+			&& failedSkillSlugs.length === 0
+			&& (!orchestrationReadback || orchestrationReadback.readbackPassed),
 		failedSkillSlugs,
+		...(orchestrationReadback ? { orchestration: orchestrationReadback } : {}),
+	};
+}
+
+async function readbackPackOrchestration(
+	orchestration: PackOrchestration,
+	targetDirectories: string[],
+	dependencies: ReadbackDependencies
+): Promise<NonNullable<PackInstallReadback['orchestration']>> {
+	const canonicalRoot = getCanonicalSkillPath(orchestration.slug);
+	const agentPaths = targetDirectories.map((directory) => join(directory, sanitizeName(orchestration.slug)));
+	let readbackPassed = false;
+	try {
+		const expectedContent = Buffer.from(orchestration.content);
+		const expectedReceipt = buildPackOrchestrationReceipt(orchestration);
+		const roots = [canonicalRoot, ...agentPaths];
+		for (const root of roots) {
+			const content = Buffer.from(await dependencies.readPath(resolveReadbackPath(root, 'SKILL.md')));
+			if (!content.equals(expectedContent)) throw new Error('Pack workflow content mismatch');
+			if (createHash('sha256').update(content).digest('hex') !== orchestration.contentHash) {
+				throw new Error('Pack workflow content hash mismatch');
+			}
+			const receiptBytes = await dependencies.readPath(
+				resolveReadbackPath(root, PACK_ORCHESTRATION_RECEIPT_FILE)
+			);
+			const receipt = JSON.parse(Buffer.from(receiptBytes).toString('utf8')) as unknown;
+			if (JSON.stringify(receipt) !== JSON.stringify(expectedReceipt)) {
+				throw new Error('Pack workflow ownership receipt mismatch');
+			}
+		}
+		readbackPassed = true;
+	} catch {
+		readbackPassed = false;
+	}
+	return {
+		slug: orchestration.slug,
+		canonicalId: orchestration.slug,
+		version: orchestration.orchestrationVersion,
+		contentHash: orchestration.contentHash,
+		treeHash: orchestration.treeHash,
+		bindingDigest: orchestration.bindingDigest,
+		agentPaths,
+		readbackPassed,
 	};
 }

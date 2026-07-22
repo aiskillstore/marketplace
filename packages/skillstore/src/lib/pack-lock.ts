@@ -39,7 +39,7 @@ export async function lockVerifiedPackMembers(
 ): Promise<{ locked: number; skipped: number }> {
 	let locked = 0;
 	let skipped = 0;
-	const installed = download.results.filter((result) => result.success && !result.skipped);
+	const installed = download.results.filter((result) => result.success);
 
 	for (const result of installed) {
 		const member = packSkills.find((skill) => skill.slug === result.slug);

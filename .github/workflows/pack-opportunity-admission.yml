@@ -6,68 +6,206 @@ on:
   workflow_dispatch:
 
 permissions:
+  actions: read
   contents: read
+
+env:
+  # Replace together after the collector CLI release is published.
+  PACK_OPPORTUNITY_ADMISSION_CLI_VERSION: '__SET_AFTER_SKILLS_SH_CLI_RELEASE__'
+  PACK_OPPORTUNITY_ADMISSION_CLI_SHA256: '__SET_AFTER_PUBLIC_DEMAND_COLLECTOR_CLI_RELEASE_SHA256__'
 
 concurrency:
   group: pack-opportunity-admission
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   admission:
     name: Check the read-only opportunity queue
+    # Scheduled production remains inert until the post-canary activation step.
+    # workflow_dispatch stays available for one explicitly governed canary.
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'workflow_dispatch' || vars.PACK_PRODUCTION_AUTOMATION_ENABLED == 'true')
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Query one admitted scenario without production write credentials
+      - name: Checkout the admission handoff validator
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          filter: ''
+          clean: true
+          persist-credentials: false
+          sparse-checkout: |
+            scripts/pack-opportunity-handoff.mjs
+            .github/actions/download-skillstore-cli
+          sparse-checkout-cone-mode: false
+
+      - name: Refuse a second admission claim within 24 hours
+        id: cadence
         env:
-          SKILLSTORE_API_URL: ${{ secrets.SKILLSTORE_API_URL }}
-          PACK_PRODUCTION_PLANNER_KEY: ${{ secrets.PACK_PRODUCTION_PLANNER_KEY }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          API_BASE=${SKILLSTORE_API_URL%/}
-          case "$API_BASE" in
-            https://*) ;;
-            *) echo '::error::SKILLSTORE_API_URL must use HTTPS'; exit 1 ;;
-          esac
+          CUTOFF=$(date -u -d '24 hours ago' +%Y-%m-%dT%H:%M:%SZ)
+          ARTIFACTS=$(gh api "/repos/$GITHUB_REPOSITORY/actions/artifacts?name=pack-opportunity-admission&per_page=100")
+          if [ "$(jq '.artifacts | length' <<<"$ARTIFACTS")" -eq 100 ] && \
+             [[ ! "$(jq -r '.artifacts[-1].created_at' <<<"$ARTIFACTS")" < "$CUTOFF" ]]; then
+            echo '::error::More than 100 admission artifacts fall inside the 24-hour claim window'
+            exit 1
+          fi
+          CLAIMED_RUN_ID=''
+          while IFS=$'\t' read -r ARTIFACT_ID RUN_ID ARTIFACT_SIZE ARTIFACT_DIGEST; do
+            [ -n "$ARTIFACT_ID" ] || continue
+            [[ "$ARTIFACT_ID" =~ ^[0-9]+$ && "$RUN_ID" =~ ^[0-9]+$ ]]
+            RUN=$(gh api "/repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID")
+            jq -e --arg runId "$RUN_ID" --arg repository "$GITHUB_REPOSITORY" '
+              (.id | tostring) == $runId and
+              .conclusion == "success" and
+              .head_branch == "main" and
+              .head_repository.full_name == $repository and
+              .path == ".github/workflows/pack-opportunity-admission.yml" and
+              (.head_sha | type == "string" and test("^[0-9a-f]{40}$")) and
+              (.run_attempt | type == "number" and . >= 1 and floor == .) and
+              (.created_at | type == "string" and length > 0)
+            ' <<<"$RUN" >/dev/null
+            CREATED_AT=$(jq -r '.created_at' <<<"$RUN")
+            HEAD_SHA=$(jq -r '.head_sha' <<<"$RUN")
+            RUN_ATTEMPT=$(jq -r '.run_attempt' <<<"$RUN")
+            test "$ARTIFACT_SIZE" -gt 0 && test "$ARTIFACT_SIZE" -le 5242880
+            [[ "$ARTIFACT_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
+            ARCHIVE="$RUNNER_TEMP/admission-claim-$ARTIFACT_ID.zip"
+            ROOT="$RUNNER_TEMP/admission-claim-$ARTIFACT_ID"
+            gh api "/repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID/zip" > "$ARCHIVE"
+            test "$(stat -c%s "$ARCHIVE")" -eq "$ARTIFACT_SIZE"
+            test "sha256:$(sha256sum "$ARCHIVE" | awk '{print $1}')" = "$ARTIFACT_DIGEST"
+            test "$(unzip -Z1 "$ARCHIVE" | wc -l)" -eq 1
+            test "$(unzip -Z1 "$ARCHIVE")" = 'opportunities.json'
+            rm -rf "$ROOT" && mkdir -p "$ROOT"
+            unzip -q "$ARCHIVE" -d "$ROOT"
+            test -f "$ROOT/opportunities.json"
+            test -z "$(find "$ROOT" -type l -print -quit)"
+            node scripts/pack-opportunity-handoff.mjs validate-admission \
+              --input "$ROOT/opportunities.json" \
+              --source-run-id "$RUN_ID" \
+              --source-created-at "$CREATED_AT" \
+              --admission-head-sha "$HEAD_SHA" \
+              --admission-run-attempt "$RUN_ATTEMPT" \
+              --source-workflow-path '.github/workflows/pack-opportunity-admission.yml'
+            [ -n "$CLAIMED_RUN_ID" ] || CLAIMED_RUN_ID="$RUN_ID"
+          done < <(jq -r --arg cutoff "$CUTOFF" '
+            .artifacts[] |
+            select(.name == "pack-opportunity-admission" and .expired == false and .created_at >= $cutoff) |
+            [.id, .workflow_run.id, .size_in_bytes, .digest] | @tsv
+          ' <<<"$ARTIFACTS")
+          if [ -n "$CLAIMED_RUN_ID" ]; then
+            echo 'claimed=true' >> "$GITHUB_OUTPUT"
+            echo "Existing verified admission claim: $CLAIMED_RUN_ID" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          echo 'claimed=false' >> "$GITHUB_OUTPUT"
+
+      - name: Create a read-only token for the private Skillstore CLI release
+        if: steps.cadence.outputs.claimed != 'true'
+        id: cli-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
+        with:
+          client-id: ${{ vars.APP_CLIENT_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+          repositories: marketplace,skillstore
+          permission-contents: read
+
+      - name: Download the fixed public-discovery CLI
+        if: steps.cadence.outputs.claimed != 'true'
+        id: cli
+        uses: ./.github/actions/download-skillstore-cli
+        with:
+          version: ${{ env.PACK_OPPORTUNITY_ADMISSION_CLI_VERSION }}
+          minimum-version: ${{ env.PACK_OPPORTUNITY_ADMISSION_CLI_VERSION }}
+          require-checksum: 'true'
+          expected-sha256: ${{ env.PACK_OPPORTUNITY_ADMISSION_CLI_SHA256 }}
+          token: ${{ steps.cli-token.outputs.token }}
+
+      - name: Collect and post bounded public demand evidence
+        if: steps.cadence.outputs.claimed != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PACK_PRODUCTION_PLANNER_KEY: ${{ secrets.PACK_PRODUCTION_PLANNER_KEY }}
+          CLI: ${{ steps.cli.outputs.cli-path }}
+        run: |
+          set -euo pipefail
+          API_BASE=https://skillstore.io
           mkdir -p "$GITHUB_WORKSPACE/pack-admission"
-          RESPONSE=$(mktemp)
-          trap 'rm -f "$RESPONSE"' EXIT
+          SNAPSHOT="$GITHUB_WORKSPACE/pack-admission/skills-sh-public-snapshot.json"
+          DEMAND="$GITHUB_WORKSPACE/pack-admission/public-demand-snapshot.json"
+          DIAGNOSTICS="$GITHUB_WORKSPACE/pack-admission/public-demand-collector-diagnostics.json"
+          COMPOSITE="$GITHUB_WORKSPACE/pack-admission/public-demand-composite.json"
+          RESPONSE="$GITHUB_WORKSPACE/pack-admission/queue-response.json"
+          "$CLI" skill scrape-skills-sh --public-only --view trending --pages 5 --limit 1000 --output json > "$SNAPSHOT"
+          "$CLI" pack collect-public-demand --skills-sh "$SNAPSHOT" --source github --output json --diagnostics-file "$DIAGNOSTICS" > "$DEMAND"
+          jq -e '.schemaVersion == "skillstore.pack-demand-public-snapshot/v1" and .capturedAt == .skillsSh.capturedAt' "$DEMAND" >/dev/null
+          jq -e '.schemaVersion == "skillstore.pack-demand-public-collector-diagnostics/v1" and .capturedAt == $capturedAt' --arg capturedAt "$(jq -r .capturedAt "$DEMAND")" "$DIAGNOSTICS" >/dev/null
+          jq -cS . "$DEMAND" > "$COMPOSITE"
+          SNAPSHOT_SHA256=$(sha256sum "$SNAPSHOT" | awk '{print $1}')
+          SOURCE_CREATED_AT=$(gh api "/repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" --jq '.created_at')
           printf 'header = "Authorization: Bearer %s"\nheader = "Accept: application/json"\n' \
             "$PACK_PRODUCTION_PLANNER_KEY" | \
             curl --config - --fail --silent --show-error --max-time 30 --retry 0 \
-              --get "$API_BASE/api/automation/packs/production/queue" \
-              --data-urlencode 'limit=1' \
-              --data-urlencode 'lookbackDays=30' \
-              --data-urlencode 'cooldownDays=7' \
+              --request POST "$API_BASE/api/automation/packs/production/queue" \
+              --header 'Content-Type: application/json' \
+              --data-binary "@$COMPOSITE" \
               --output "$RESPONSE"
-          jq -e '
-            .data |
-            .schemaVersion == "pack-production-queue/v1" and
-            (.scenarios | type == "array" and length <= 1) and
-            ((.source == "signals" and (.scenarios | length) == 1) or
-             (.source == "no-op" and (.scenarios | length) == 0)) and
-            (all(.scenarios[];
-              (.capabilitySlots | length >= 1 and length <= 4) and
-              (.requiredArtifacts | length >= 1)
-            ))
-          ' "$RESPONSE" >/dev/null
-          jq '.data' "$RESPONSE" > "$GITHUB_WORKSPACE/pack-admission/queue.json"
-          COUNT=$(jq '.scenarios | length' "$GITHUB_WORKSPACE/pack-admission/queue.json")
-          {
-            echo '## Daily Pack Opportunity Admission'
-            echo ''
-            echo "- Admitted scenarios: $COUNT"
-            jq -r '.scenarios[]? | "- Ready: \(.id)@\(.version)"' \
-              "$GITHUB_WORKSPACE/pack-admission/queue.json"
-          } >> "$GITHUB_STEP_SUMMARY"
+          node scripts/pack-opportunity-handoff.mjs admit \
+            --input "$RESPONSE" \
+            --output "$GITHUB_WORKSPACE/pack-admission/opportunities.json" \
+            --source-run-id "$GITHUB_RUN_ID" \
+            --source-created-at "$SOURCE_CREATED_AT" \
+            --admission-head-sha "$GITHUB_SHA" \
+            --admission-run-attempt "$GITHUB_RUN_ATTEMPT" \
+            --source-workflow-path '.github/workflows/pack-opportunity-admission.yml' \
+            --skills-sh-snapshot-sha256 "$SNAPSHOT_SHA256"
+          node scripts/pack-opportunity-handoff.mjs select \
+            --input "$GITHUB_WORKSPACE/pack-admission/opportunities.json" \
+            --output "$GITHUB_WORKSPACE/pack-admission/selected/opportunities.json"
+          COUNT=$(jq '.rejectionSummary.admitted' "$GITHUB_WORKSPACE/pack-admission/opportunities.json")
+          jq -r --slurpfile diagnostics "$DIAGNOSTICS" '
+            .rejectionSummary as $summary |
+            $diagnostics[0] as $collector |
+            [
+              "## Daily Pack Opportunity Admission",
+              "",
+              "- Considered: \($summary.considered)",
+              "- Admitted: \($summary.admitted)",
+              "- Demand insufficient: \($summary.demandInsufficient)",
+              "- Template incompatible: \($summary.templateIncompatible)",
+              "- Duplicate: \($summary.duplicate)",
+              "- Cooldown: \($summary.cooldown)",
+              "- Supply incomplete: \($summary.supplyIncomplete)",
+              "- Ranking-only Skills: \($summary.rankingOnlySkills)",
+              "- Collector requests: \($collector.requestCount)",
+              "- Collector response bytes: \($collector.responseBytes)",
+              "- Collector no-op: \($collector.noOpReason)"
+            ] | .[]
+          ' "$GITHUB_WORKSPACE/pack-admission/opportunities.json" >> "$GITHUB_STEP_SUMMARY"
           if [ "$COUNT" -eq 0 ]; then
-            echo '::warning::No scenario currently meets the demand and cooldown admission gates'
+            echo '::warning::No Opportunity Brief currently meets the demand and cooldown admission gates'
           fi
 
-      - name: Upload admission evidence
-        uses: actions/upload-artifact@v6
+      - name: Upload discovery evidence
+        if: steps.cadence.outputs.claimed != 'true'
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
-          name: pack-opportunity-admission
+          name: pack-opportunity-admissions
           path: pack-admission/
           if-no-files-found: error
-          retention-days: 30
+          retention-days: 90
+
+      - name: Upload the single automatic admission
+        if: steps.cadence.outputs.claimed != 'true' && hashFiles('pack-admission/selected/opportunities.json') != ''
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: pack-opportunity-admission
+          path: pack-admission/selected/opportunities.json
+          if-no-files-found: error
+          retention-days: 90

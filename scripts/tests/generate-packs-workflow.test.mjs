@@ -1,913 +1,359 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const TEST_DIR = dirname(fileURLToPath(import.meta.url));
-const REPO_ROOT = resolve(TEST_DIR, '..', '..');
-const WORKFLOW = readFileSync(join(REPO_ROOT, '.github/workflows/generate-packs.yml'), 'utf8');
-const EVALUATOR_PREFLIGHT_PATH = join(REPO_ROOT, 'scripts/pack-evaluator-preflight.sh');
-const EVALUATOR_PREFLIGHT = readFileSync(EVALUATOR_PREFLIGHT_PATH, 'utf8');
-const DOWNLOAD_ACTION = readFileSync(join(REPO_ROOT, '.github/actions/download-skillstore-cli/action.yml'), 'utf8');
-const EVALUATOR_PROXY = readFileSync(join(REPO_ROOT, 'scripts/pack-evaluator-proxy.mjs'), 'utf8');
-const PACK_PRODUCTION = readFileSync(join(REPO_ROOT, 'scripts/pack-production.mjs'), 'utf8');
-const CONTRACT_SMOKE = readFileSync(join(REPO_ROOT, 'scripts/pack-evaluator-contract-smoke.mjs'), 'utf8');
-const ADMISSION_WORKFLOW = readFileSync(
-  join(REPO_ROOT, '.github/workflows/pack-opportunity-admission.yml'),
-  'utf8',
-);
-const SLO_WORKFLOW = readFileSync(join(REPO_ROOT, '.github/workflows/pack-production-slo.yml'), 'utf8');
-const GENERATE_CONTENT = readFileSync(join(REPO_ROOT, '.github/workflows/generate-content.yml'), 'utf8');
-const TRANSLATE_PACKS = readFileSync(join(REPO_ROOT, '.github/workflows/translate-packs.yml'), 'utf8');
-const TRANSLATE_SKILLS = readFileSync(join(REPO_ROOT, '.github/workflows/translate-skills.yml'), 'utf8');
+const root = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
+const workflow = (name) => readFileSync(join(root, '.github/workflows', name), 'utf8');
+const generate = workflow('generate-packs.yml');
+const admission = workflow('pack-opportunity-admission.yml');
+const publish = workflow('publish-pack-production-v4.yml');
+const recovery = workflow('recover-cancelled-pack-production.yml');
+const cliDownloadAction = readFileSync(join(root, '.github/actions/download-skillstore-cli/action.yml'), 'utf8');
+const pinnedActions = {
+  checkout: 'fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09',
+  upload: 'b7c566a772e6b6bfb58ed0dc250532a479d7789f',
+  download: '018cc2cf5baa6db3ef3c5f8a56943fffe632ef53',
+  appToken: 'bcd2ba49218906704ab6c1aa796996da409d3eb1',
+};
 
-function section(start, end) {
-  const startIndex = WORKFLOW.indexOf(start);
-  assert.notEqual(startIndex, -1, `missing workflow section ${start}`);
-  const endIndex = end ? WORKFLOW.indexOf(end, startIndex + start.length) : WORKFLOW.length;
-  assert.notEqual(endIndex, -1, `missing workflow boundary ${end}`);
-  return WORKFLOW.slice(startIndex, endIndex);
+function section(source, start, end) {
+  const from = source.indexOf(start);
+  assert.notEqual(from, -1, `missing ${start}`);
+  const to = end ? source.indexOf(end, from + start.length) : source.length;
+  assert.notEqual(to, -1, `missing ${end}`);
+  return source.slice(from, to);
 }
 
-test('production workflow has separate Plan, secret-free Evaluate, Persist, and production Readback jobs', () => {
-  assert.match(WORKFLOW, /  contract_smoke_only:/);
-  assert.match(WORKFLOW, /  plan:/);
-  assert.match(WORKFLOW, /  evaluate:/);
-  assert.match(WORKFLOW, /  persist:/);
-  assert.match(WORKFLOW, /  enrich_publish_readback:/);
-  assert.doesNotMatch(WORKFLOW, /  production_slo:/);
-  assert.match(WORKFLOW, /permissions:\n  contents: read/);
+function assertPinnedSecretActions(source) {
+  assert.match(source, new RegExp(`actions/checkout@${pinnedActions.checkout} # v5`));
+  assert.match(source, new RegExp(`actions/upload-artifact@${pinnedActions.upload} # v6`));
+  assert.doesNotMatch(source, /actions\/(?:checkout|upload-artifact|download-artifact|create-github-app-token)@v[0-9]/);
+}
+
+test('admission uses public demand evidence and a checksum-authenticated read-only CLI token', () => {
+  assert.match(admission, /permissions:\n  actions: read\n  contents: read/);
+  assert.match(admission, /github\.event_name == 'workflow_dispatch' \|\| vars\.PACK_PRODUCTION_AUTOMATION_ENABLED == 'true'/);
+  const token = section(admission, '      - name: Create a read-only token', '      - name: Download the fixed public-discovery CLI');
+  assert.match(token, new RegExp(`actions/create-github-app-token@${pinnedActions.appToken} # v3`));
+  assert.match(token, /repositories: marketplace,skillstore/);
+  assert.match(token, /permission-contents: read/);
+  const download = section(admission, '      - name: Download the fixed public-discovery CLI', '      - name: Collect and post');
+  assert.match(download, /require-checksum: 'true'/);
+  assert.match(download, /expected-sha256: \$\{\{ env\.PACK_OPPORTUNITY_ADMISSION_CLI_SHA256 \}\}/);
+  assert.match(download, /token: \$\{\{ steps\.cli-token\.outputs\.token \}\}/);
+  assert.match(admission, /skill scrape-skills-sh --public-only --view trending --pages 5 --limit 1000 --output json/);
+  assert.match(admission, /pack collect-public-demand --skills-sh "\$SNAPSHOT" --source github --output json --diagnostics-file "\$DIAGNOSTICS" > "\$DEMAND"/);
+  assert.match(admission, /public-demand-snapshot\.json/);
+  assert.match(admission, /Collector requests/);
+  assert.match(admission, /Collector response bytes/);
+  assert.match(admission, /Collector no-op/);
+  assert.match(admission, /--request POST[\s\S]*--data-binary "@\$COMPOSITE"/);
+  assert.match(admission, /--skills-sh-snapshot-sha256 "\$SNAPSHOT_SHA256"/);
+  assert.match(admission, /--source-created-at "\$SOURCE_CREATED_AT"/);
+  assert.match(admission, /pack-opportunity-handoff\.mjs select/);
+  assert.match(admission, /name: pack-opportunity-admissions/);
+  assert.match(admission, /name: pack-opportunity-admission/);
+  assert.match(admission, /group: pack-opportunity-admission\n  cancel-in-progress: false/);
+  assert.match(admission, /actions\/artifacts\?name=pack-opportunity-admission&per_page=100/);
+  assert.match(admission, /More than 100 admission artifacts fall inside the 24-hour claim window/);
+  assert.match(admission, /\.artifacts\[-1\]\.created_at/);
+  assert.match(admission, /\.created_at >= \$cutoff/);
+  assert.doesNotMatch(admission, /RUN_CUTOFF|actions\/workflows\/pack-opportunity-admission\.yml\/runs\?branch=main/);
+  assert.match(admission, /ARTIFACT_ID" =~ \^\[0-9\]\+\$ && "\$RUN_ID" =~ \^\[0-9\]\+\$/);
+  assert.match(admission, /actions\/runs\/\$RUN_ID/);
+  assert.match(admission, /\.head_repository\.full_name == \$repository/);
+  assert.match(admission, /\.path == "\.github\/workflows\/pack-opportunity-admission\.yml"/);
+  assert.match(admission, /\.run_attempt \| type == "number" and \. >= 1 and floor == \./);
+  assert.match(admission, /\^sha256:\[0-9a-f\]\{64\}\$/);
+  assert.match(admission, /sha256:\$\(sha256sum "\$ARCHIVE"/);
+  assert.match(admission, /test "\$\(stat -c%s "\$ARCHIVE"\)" -eq "\$ARTIFACT_SIZE"/);
+  assert.match(admission, /validate-admission/);
+  assert.match(admission, /Existing verified admission claim/);
+  assert.equal((admission.match(/retention-days: 90/g) ?? []).length, 2);
+  assert.doesNotMatch(admission, /SKILLSTORE_API_URL|SUPABASE|PACK_PRODUCTION_(?:AUTOMATION|MANUAL_PUBLISH|READBACK)_KEY/);
 });
 
-test('manual smoke-only dispatch cannot enter Queue, generation, or persistence', () => {
-  assert.match(WORKFLOW, /smoke_only:\n\s+description: 'Run exactly the Messages and Responses contract probes; never plan, generate, or persist'\n\s+type: boolean\n\s+default: false/);
-  const smoke = section('  contract_smoke_only:', '  plan:');
-  const plan = section('  plan:', '  evaluate:');
-  assert.match(smoke, /if: github\.event_name == 'workflow_dispatch' && inputs\.smoke_only == true/);
-  assert.match(smoke, /runs-on: ubuntu-latest/);
-  assert.match(smoke, /PACK_EVALUATOR_HELM_API_KEY: \$\{\{ secrets\.PACK_EVALUATOR_HELM_API_KEY \}\}/);
-  assert.match(smoke, /PACK_EVALUATOR_PROXY_URL=https:\/\/helm\.easymeta\.au/);
+test('generation starts only from one successful admission run or an explicit manual source run', () => {
+  assert.match(generate, /workflow_run:\n\s+workflows: \['Pack Opportunity Admission'\]\n\s+types: \[completed\]/);
+  const trigger = generate.slice(0, generate.indexOf('\npermissions:'));
+  assert.match(trigger, /source_run_id:[\s\S]*?required: true/);
+  assert.doesNotMatch(trigger, /opportunity_id:|brief_digest:|schedule:/);
+  assert.match(generate, /cancel-in-progress: false/);
+  const prepare = section(generate, '  prepare:', '  evaluate:');
+  assert.match(prepare, /github\.event_name == 'workflow_run'[\s\S]*vars\.PACK_PRODUCTION_AUTOMATION_ENABLED == 'true'[\s\S]*github\.event\.workflow_run\.conclusion == 'success'/);
+  assert.match(prepare, /github\.event\.workflow_run\.conclusion == 'success'/);
+  assert.match(prepare, /inputs\.smoke_only != true/);
+  const smoke = section(generate, '  contract_smoke_only:', '  prepare:');
+  assert.match(smoke, /github\.event_name == 'workflow_dispatch' && inputs\.smoke_only == true/);
   assert.match(smoke, /pack-evaluator-contract-smoke\.mjs/);
-  assert.match(smoke, /Upload sanitized contract diagnostics/);
-  assert.doesNotMatch(
-    smoke,
-    /SKILLSTORE_API_URL|PACK_PRODUCTION_(?:PLANNER|AUTOMATION)_KEY|SUPABASE|APP_PRIVATE_KEY|skillstore-cli|api\/automation\/packs\/production|pack-production\.mjs|generate-content/
-  );
-  assert.match(plan, /if: github\.event_name == 'schedule' \|\| inputs\.smoke_only != true/);
-  assert.match(section('  evaluate:', '  persist:'), /needs: plan/);
-  assert.match(section('  persist:', '  enrich_publish_readback:'), /needs: \[plan, evaluate\]/);
-  assert.match(section('  enrich_publish_readback:'), /needs: \[plan, persist\]/);
+  assert.doesNotMatch(smoke, /PACK_PRODUCTION_(?:PLANNER|AUTOMATION|MANUAL_PUBLISH|READBACK)_KEY|SUPABASE|APP_PRIVATE_KEY|pack-production\.mjs/);
 });
 
-test('evaluate job cannot interpolate production write credentials', () => {
-  const evaluate = section('  evaluate:', '  persist:');
-  assert.doesNotMatch(
-    evaluate,
-    /secrets\.(SUPABASE|APP_PRIVATE_KEY|AUTOMATION_API_KEY|SKILLSTORE_CALLBACK_TOKEN|CACHE_INVALIDATE_SECRET)/
-  );
-  assert.doesNotMatch(evaluate, /--write|continue-on-error/);
-  assert.match(evaluate, /set \+e[\s\S]*EVALUATOR_RC=\$\?[\s\S]*exit "\$EVALUATOR_RC"/);
-  assert.match(evaluate, /SKILLSTORE_AGENT_ENV_MODE=strict/);
-  assert.match(evaluate, /persist-credentials: false/);
+test('prepare authenticates and bounds the exact admission artifact before creating a generation binding', () => {
+  const prepare = section(generate, '  prepare:', '  evaluate:');
+  assert.match(prepare, /\.workflowName' <<<"\$RUN"\)" = 'Pack Opportunity Admission'/);
+  assert.match(prepare, /\.conclusion' <<<"\$RUN"\)" = 'success'/);
+  assert.match(prepare, /\.headBranch' <<<"\$RUN"\)" = main/);
+  assert.match(prepare, /\.headRepository\.nameWithOwner' <<<"\$RUN"\)" = "\$GITHUB_REPOSITORY"/);
+  assert.match(prepare, /test "\$RUN_PATH" = '\.github\/workflows\/pack-opportunity-admission\.yml'/);
+  assert.match(prepare, /select\(\.name == "pack-opportunity-admission" and \.expired == false\)/);
+  assert.match(prepare, /ARTIFACT_COUNT=\$\(jq 'length' <<<"\$ARTIFACTS"\)/);
+  assert.match(prepare, /Admission run is an already-claimed 24-hour cadence no-op/);
+  assert.match(prepare, /sha256:\$\(sha256sum "\$ARCHIVE"/);
+  assert.match(prepare, /Admission ZIP entry count exceeds 1024/);
+  assert.match(prepare, /Admission ZIP uncompressed size exceeds 128 MiB/);
+  assert.match(prepare, /Admission ZIP contains an unsafe path/);
+  assert.match(prepare, /Admission ZIP contains a symbolic-link entry/);
+  assert.match(prepare, /Admission ZIP contains a symbolic link/);
+  assert.match(prepare, /single admission required/);
+  for (const option of [
+    'opportunity-id', 'brief-digest', 'source-run-id', 'source-created-at',
+    'admission-head-sha', 'admission-run-attempt', 'source-workflow-path', 'generation-id',
+  ]) assert.match(prepare, new RegExp(`--${option}`));
+  assert.match(prepare, /opportunityBinding/);
+  assert.match(prepare, /retention-days: 90/);
 });
 
-test('evaluate runs on a disposable VM with a user-separated job-local inference proxy', () => {
-  const evaluateWorkflow = section('  evaluate:', '  persist:');
-  const evaluate = `${evaluateWorkflow}\n${EVALUATOR_PREFLIGHT}`;
-  assert.match(evaluateWorkflow, /scripts\/pack-evaluator-preflight\.sh/);
-  const continuation = String.fromCharCode(92);
-  const preflightCallLines = evaluateWorkflow
-    .split('\n')
-    .filter((line) => /^\s+(PACK_EVALUATOR_PROXY_TOKEN|PACK_DIAGNOSTICS_DIR)=/.test(line));
-  assert.ok(preflightCallLines.length >= 3);
-  assert.ok(preflightCallLines.every((line) => line.endsWith(` ${continuation}`)));
-  assert.ok(preflightCallLines.every((line) => !line.endsWith(` ${continuation}${continuation}`)));
+test('repeated manual admissions and replays cannot create another generation claim', () => {
+  const prepare = section(generate, '  prepare:', '  evaluate:');
+  const replayCheck = prepare.indexOf('PLANS=$(gh api');
+  const generationId = prepare.indexOf('randomUUID()');
+  assert.ok(replayCheck >= 0 && generationId > replayCheck, 'replay check must precede generation id creation');
+  assert.match(prepare, /actions\/artifacts\?name=pack-production-plan&per_page=100/);
+  assert.match(prepare, /More than 100 generation claims may overlap this admission window/);
+  assert.match(prepare, /select\(\.expired == false and \.created_at >= \$sourceCreatedAt\)/);
+  assert.match(prepare, /\.workflowName' <<<"\$PLAN_RUN"\)" = 'Generate Pack'/);
+  assert.match(prepare, /\.headBranch' <<<"\$PLAN_RUN"\)" = main/);
+  assert.match(prepare, /actions\/runs\/\$PLAN_RUN_ID" --jq '\.path'/);
+  assert.match(prepare, /validate-plan-claim/);
+  assert.match(prepare, /Existing exact generation claim/);
+  assert.match(prepare, /echo 'has_scenarios=false'/);
+  assert.match(prepare, /Upload immutable plan\n\s+if: steps\.handoff\.outputs\.has_scenarios == 'true'/);
+  assert.match(recovery, /download_artifact pack-production-plan/);
+  assert.match(recovery, /workflow_run\.conclusion == 'cancelled'/);
+});
+
+test('evaluation has only the approved CLI and Helm credentials behind the candidate boundary', () => {
+  const evaluate = section(generate, '  evaluate:', '  persist:');
+  assert.match(evaluate, /environment:\n\s+name: pack-production-candidate/);
   assert.match(evaluate, /runs-on: ubuntu-24\.04/);
-  assert.match(evaluate, /@anthropic-ai\/claude-code@2\.1\.210/);
-  assert.match(evaluate, /@openai\/codex@0\.139\.0/);
-  assert.match(
-    evaluate,
-    /apt-get install --yes --no-install-recommends[\s\\]+apparmor bubblewrap ffmpeg iptables poppler-utils ripgrep util-linux/,
-  );
-  assert.match(evaluate, /test "\$\(command -v bwrap\)" = \/usr\/bin\/bwrap/);
-  assert.match(evaluate, /command -v ffprobe/);
-  assert.match(evaluate, /command -v pdfinfo/);
-  assert.match(evaluate, /command -v pdftotext/);
-  assert.match(evaluate, /command -v rg/);
-  assert.match(evaluate, /test "\$\(command -v google-chrome\)" = \/usr\/bin\/google-chrome/);
-  assert.match(evaluate, /test -x \/usr\/bin\/google-chrome/);
-  assert.match(evaluate, /PACK_EVALUATOR_CHROMIUM_PATH=\/usr\/bin\/google-chrome/);
-  assert.match(evaluate, /SKILLSTORE_AGENT_ENV_ALLOWLIST=.*PACK_EVALUATOR_CHROMIUM_PATH/);
-  assert.match(evaluate, /useradd .*packproxy/);
-  assert.match(evaluate, /useradd .*packeval/);
-  assert.match(evaluate, /\/opt\/pack-evaluator\/bin\/node/);
-  assert.match(evaluate, /\/opt\/pack-evaluator\/runtime\/bin\/node/);
-  assert.match(evaluate, /\/opt\/pack-evaluator\/bin\/skillstore-cli/);
-  assert.match(evaluate, /\/opt\/pack-evaluator\/lib\/pack-evaluator-proxy\.mjs/);
-  assert.match(evaluate, /\/opt\/pack-evaluator\/lib\/pack-production\.mjs/);
-  assert.match(evaluate, /\/opt\/pack-evaluator\/input\/plan\.json/);
-  assert.match(evaluate, /\/opt\/pack-evaluator\/input\/skills/);
-  assert.match(evaluate, /\/opt\/pack-evaluator\/results/);
-  assert.match(evaluate, /npm install --global --prefix \/opt\/pack-evaluator\/runtime/);
-  assert.match(evaluate, /\/opt\/pack-evaluator\/runtime\/bin\/claude/);
-  assert.match(evaluate, /\/opt\/pack-evaluator\/runtime\/bin\/codex/);
-  assert.match(evaluate, /! test -w \/opt\/pack-evaluator\/runtime\/bin/);
-  assert.match(evaluate, /CODEX_HOME=\/opt\/pack-evaluator\/codex-home/);
-  assert.match(evaluate, /install -d -o root -g root -m 1777[\s\S]*\/opt\/pack-evaluator\/codex-home/);
-  assert.match(evaluate, /test -w \/opt\/pack-evaluator\/codex-home/);
-  assert.match(evaluate, /stat -c '%U:%G:%a' \/opt\/pack-evaluator\/codex-home/);
-  assert.match(evaluate, /! test -w \/opt\/pack-evaluator\/codex-home\/config\.toml/);
-  assert.match(evaluate, /PATH=\/opt\/pack-evaluator\/runtime\/bin:\/usr\/bin:\/bin/);
-  assert.doesNotMatch(evaluate, /PATH=\/usr\/local\/bin/);
-  assert.match(evaluate, /NODE_BIN=\/opt\/pack-evaluator\/bin\/node/);
-  assert.match(evaluate, /sha256sum \/opt\/pack-evaluator\/bin\/skillstore-cli/);
-  assert.match(evaluate, /sha256sum \/opt\/pack-evaluator\/bin\/node/);
-  assert.match(evaluate, /! test -w \/opt\/pack-evaluator\/bin/);
-  assert.match(evaluate, /! test -w \/opt\/pack-evaluator\/lib/);
-  assert.match(evaluate, /find \/opt\/pack-evaluator\/input\/skills -name skill-report\.json -print -quit/);
-  assert.match(evaluate, /marketplace-evaluate\/skills" -type l/);
-  assert.match(evaluate, /PACKEVAL_UID=\$\(id -u packeval\)/);
-  assert.match(evaluate, /PACKEVAL_GID=\$\(id -g packeval\)/);
-  assert.match(evaluate, /--evaluator-uid "\$PACKEVAL_UID"/);
-  assert.match(evaluate, /--evaluator-gid "\$PACKEVAL_GID"/);
-  assert.match(evaluate, /--evaluator-cwd \/home\/packeval/);
-  assert.match(evaluate, /--evaluator-runtime-root \/opt\/pack-evaluator\/generations/);
-  assert.match(evaluate, /! test -w \/opt\/pack-evaluator\/generations/);
+  assert.equal((evaluate.match(/\$\{\{\s*secrets\./g) ?? []).length, 2);
+  assert.match(evaluate, /secrets\.APP_PRIVATE_KEY/);
+  assert.match(evaluate, /repositories: marketplace,skillstore/);
+  assert.match(evaluate, /permission-contents: read/);
+  assert.match(evaluate, /require-checksum: 'true'/);
+  assert.match(evaluate, /expected-sha256: \$\{\{ env\.PACK_PRODUCTION_CLI_SHA256 \}\}/);
+  assert.match(evaluate, /npm install --global --ignore-scripts --prefix \/opt\/pack-evaluator\/runtime/);
+  assert.match(evaluate, /secrets\.PACK_EVALUATOR_HELM_API_KEY/);
+  assert.doesNotMatch(evaluate, /secrets\.(?:PACK_PRODUCTION_AUTOMATION_KEY|PACK_PRODUCTION_MANUAL_PUBLISH_KEY|PACK_PRODUCTION_READBACK_KEY|SUPABASE|SKILLSTORE_CALLBACK|CACHE_INVALIDATE)/);
   assert.match(evaluate, /sudo -u packproxy env -i/);
   assert.match(evaluate, /sudo -u packeval env -i/);
-  assert.match(evaluate, /! sudo -n true/);
-  assert.match(evaluate, /! test -r .*PROXY_PID.*environ/);
-  assert.match(evaluate, /PACK_EVALUATOR_HELM_API_KEY: \$\{\{ secrets\.PACK_EVALUATOR_HELM_API_KEY \}\}/);
-  assert.match(evaluate, /PACK_EVALUATOR_PROXY_TOKEN="\$LOCAL_TOKEN"/);
-  assert.match(evaluate, /supports_websockets = false/);
-  assert.match(evaluate, /! test -e \/home\/packeval\/\.codex\/auth\.json/);
-  assert.doesNotMatch(evaluate, /cp .*\.codex\/auth\.json|\/home\/runner\/_work\/_cache/);
-  assert.match(evaluate, /name: pack-production-cli/);
-  assert.match(evaluate, /sha256sum -c checksums\.txt/);
-  assert.match(evaluate, /Verify Plan CLI handoff before execution/);
-  assert.doesNotMatch(evaluate, /secrets\.APP_PRIVATE_KEY|steps\.cli-app-token/);
-  assert.match(EVALUATOR_PROXY, /127\.0\.0\.1/);
-  assert.match(EVALUATOR_PROXY, /ALLOWED_PATHS/);
-  assert.match(EVALUATOR_PROXY, /authorization.*Bearer.*upstreamKey/s);
-  assert.match(evaluate, /PACK_EVALUATOR_ALLOWED_MODELS=claude-sonnet-4\.6,claude-sonnet-4-6,claude-sonnet-5,sonnet,gpt-5\.5/);
-  assert.match(evaluate, /PACK_EVALUATOR_MAX_REQUESTS=256/);
-  assert.match(evaluate, /PACK_EVALUATOR_MAX_CONCURRENT=4/);
-  assert.equal(
-    (WORKFLOW.match(/^  PACK_EVALUATOR_MAX_OUTPUT_TOKENS: '16384'$/gm) ?? []).length,
-    1,
-    'the production workflow must define one output-token cap',
-  );
-  assert.match(
-    evaluateWorkflow,
-    /PACK_EVALUATOR_MAX_OUTPUT_TOKENS="\$PACK_EVALUATOR_MAX_OUTPUT_TOKENS"/,
-  );
-  assert.match(
-    evaluateWorkflow,
-    /CLAUDE_CODE_MAX_OUTPUT_TOKENS="\$PACK_EVALUATOR_MAX_OUTPUT_TOKENS"/,
-  );
-  assert.match(
-    evaluateWorkflow,
-    /SKILLSTORE_AGENT_ENV_ALLOWLIST=.*CLAUDE_CODE_MAX_OUTPUT_TOKENS/,
-  );
-  assert.match(EVALUATOR_PREFLIGHT, /PACK_EVALUATOR_MAX_OUTPUT_TOKENS is required/);
-  assert.match(EVALUATOR_PREFLIGHT, /PACK_EVALUATOR_MARKETPLACE_COMMIT_SHA is required/);
-  assert.match(EVALUATOR_PREFLIGHT, /PACK_EVALUATOR_CLI_SHA256 is required/);
-  assert.match(EVALUATOR_PREFLIGHT, /\^\[1-9\]\[0-9\]\*\$/);
-  assert.match(
-    EVALUATOR_PREFLIGHT,
-    /CLAUDE_CODE_MAX_OUTPUT_TOKENS="\$PACK_EVALUATOR_MAX_OUTPUT_TOKENS"/,
-  );
-  assert.match(evaluate, /PACK_EVALUATOR_ACTIVITY_FILE="\$PROXY_ACTIVITY"/);
-  assert.match(
-    evaluate,
-    /PACK_EVALUATOR_ACTIVITY_FILE="\$PROXY_ACTIVITY"[\s\S]*PACK_EVALUATOR_MARKETPLACE_COMMIT_SHA="\$GITHUB_SHA"[\s\S]*bash .*pack-evaluator-preflight\.sh/,
-  );
-  assert.match(evaluate, /PACK_EVALUATOR_CLI_SHA256="\$\(jq -r '\.sha256'/);
-  assert.match(evaluate, /sudo rm -f "\$PROXY_ACTIVITY"/);
-  assert.match(evaluate, /Pack evaluator proxy did not become healthy within 30 seconds/);
-  assert.match(evaluate, /proxy-diagnostics\.json/);
-  assert.match(evaluate, /pack-executor-preflight-a first and Skill pack-executor-preflight-b second/);
-  assert.match(evaluate, /PACK_EVALUATOR_READY and nothing else/);
-  assert.match(evaluate, /pack-evaluator-contract-smoke\.mjs/);
-  assert.match(evaluate, /PACK_EVALUATOR_CONTRACT_TIMEOUT_MS=30000/);
-  assert.match(evaluate, /contract-smoke\.json/);
-  assert.ok(evaluate.indexOf('pack-evaluator-contract-smoke.mjs') < evaluate.indexOf('pack-evaluator-preflight.sh'));
-  assert.match(CONTRACT_SMOKE, /path: '\/v1\/messages'/);
-  assert.match(CONTRACT_SMOKE, /path: '\/v1\/responses'/);
-  assert.match(CONTRACT_SMOKE, /max_tokens: 16/);
-  assert.match(CONTRACT_SMOKE, /max_output_tokens: 16/);
-  assert.match(CONTRACT_SMOKE, /model: 'claude-sonnet-5'/);
-  assert.equal((CONTRACT_SMOKE.match(/stream: true/g) ?? []).length, 2);
-  assert.match(CONTRACT_SMOKE, /content_block_delta/);
-  assert.match(CONTRACT_SMOKE, /response\.output_text\.delta/);
-  assert.match(evaluate, /readonly PREFLIGHT_TIMEOUT_SECONDS=420/);
-  assert.match(evaluate, /timeout --signal=TERM --kill-after=5s "\$\{PREFLIGHT_TIMEOUT_SECONDS\}s"/);
-  assert.match(evaluate, /setsid sudo env -i/);
-  assert.match(evaluate, /"\$NODE" "\$ORCHESTRATOR" executor-preflight/);
-  assert.match(evaluate, /--skill-a "\$PREFLIGHT_SKILL_A"/);
-  assert.match(evaluate, /--skill-b "\$PREFLIGHT_SKILL_B"/);
-  assert.match(evaluate, /--evaluator-runtime-root "\$RUNTIME_ROOT"/);
-  assert.match(evaluate, /--evaluator-uid "\$\(id -u packeval\)"/);
-  assert.match(evaluate, /--evaluator-gid "\$\(id -g packeval\)"/);
-  assert.match(evaluate, /--model sonnet/);
-  assert.match(evaluate, /--judge-model gpt-5\.5/);
-  assert.match(evaluate, /--agent-timeout-ms "\$AGENT_TIMEOUT_MS"/);
-  assert.match(evaluate, /--agent-max-retries 1/);
-  assert.match(evaluate, /PREFLIGHT_OUTCOME=command_failed/);
-  assert.match(evaluate, /PREFLIGHT_ERROR_CLASS=unknown/);
-  assert.match(evaluate, /for ATTEMPT in 1 2/);
-  assert.match(evaluate, /should_retry_preflight "\$PREFLIGHT_OUTCOME" "\$PREFLIGHT_ERROR_CLASS" "\$ATTEMPT"/);
-  assert.match(EVALUATOR_PREFLIGHT, /\[ "\$error_class" = 'retryable_http' \]/);
-  assert.match(EVALUATOR_PREFLIGHT, /\[ "\$attempt" -lt 2 \]/);
-  assert.match(evaluate, /cleanup_processes\(\)/);
-  assert.match(evaluate, /RETRY_CLEANUP_OUTCOME=passed/);
-  assert.match(evaluate, /sleep 5/);
-  assert.match(evaluate, /commandAttempts: \$commandAttempts/);
-  assert.match(evaluate, /agentExecutionEvidence: \$executionEvidence/);
-  assert.match(evaluate, /durationMs: \$durationMs/);
-  assert.doesNotMatch(evaluate, /connect\|connection\|transport\|request/);
-  assert.match(evaluate, /SKILLSTORE_AGENTS=codex,claude/);
-  assert.match(evaluate, /agent-preflight-diagnostics\.json/);
-  assert.match(evaluate, /PREFLIGHT_REASON=\$\(jq -r/);
-  assert.match(evaluate, /--arg reason "\$PREFLIGHT_REASON"/);
-  assert.match(evaluate, /PREFLIGHT_ERROR_CATEGORY=\$\(sudo jq -rs/);
-  assert.match(evaluate, /\.phase == "response"/);
-  assert.match(evaluate, /\| last as \$activity/);
-  for (const category of [
-    'request_body_too_large',
-    'model_not_allowed',
-    'invalid_output_token_limit',
-  ]) {
-    assert.match(evaluate, new RegExp(`"${category}"`));
-  }
-  assert.match(evaluate, /--arg errorCategory "\$PREFLIGHT_ERROR_CATEGORY"/);
-  assert.match(evaluate, /--argjson auxiliaryRejectedCount "\$PREFLIGHT_AUXILIARY_REJECTED_COUNT"/);
-  assert.match(
-    evaluate,
-    /errorCategory: \(if \$errorCategory == "" then null else \$errorCategory end\)/,
-  );
-  assert.match(evaluate, /auxiliaryRejectedCount: \$auxiliaryRejectedCount/);
-  assert.doesNotMatch(evaluate, /--arg errorCategory "\$PREFLIGHT_REASON"/);
-  assert.match(evaluate, /safe_execution_evidence\(\)/);
-  assert.match(evaluate, /state_storage/);
-  assert.match(evaluate, /authentication/);
-  assert.match(evaluate, /model_route/);
-  assert.match(evaluate, /upstream_transport/);
-  assert.match(evaluate, /schemaVersion: "marketplace\.pack-executor-preflight\/v1"/);
-  assert.match(evaluate, /cleanup: \{ outcome: \$cleanupOutcome, retryOutcome: \$retryCleanupOutcome \}/);
-  assert.match(evaluate, /CLEANUP_OUTCOME=\$\(/);
-  assert.match(evaluate, /CLEANUP_RC/);
-  assert.doesNotMatch(evaluate, /SKILLSTORE_AGENTS: \$\{\{ vars\.SKILLSTORE_AGENTS \}\}/);
-  assert.doesNotMatch(evaluate, /sed -E .*Bearer|proxy\.log|proxy-failure\.log/);
-  assert.match(evaluate, /evaluator-failure\.txt/);
-  assert.match(evaluate, /pkill -TERM -u packeval/);
-  assert.match(evaluate, /pkill -KILL -u packeval/);
-  assert.match(evaluate, /pkill -TERM -u packproxy -f pack-evaluator-proxy\.mjs/);
-  assert.match(evaluate, /pkill -KILL -u packproxy -f pack-evaluator-proxy\.mjs/);
-  assert.match(evaluate, /pgrep -u packproxy -f pack-evaluator-proxy\.mjs/);
-  assert.match(evaluate, /proxy-termination-failure\.txt/);
-  assert.match(evaluate, /EVALUATOR_PROCESSES_STOPPED=true/);
-  assert.match(evaluate, /process-termination-failure\.txt/);
+  assert.match(evaluate, /SKILLSTORE_AGENT_ENV_MODE=strict/);
+  assert.match(evaluate, /unset PACK_EVALUATOR_HELM_API_KEY/);
+  const runtimeInstall = evaluate.indexOf('Install evaluator runtimes before secrets are available');
+  const userSetup = evaluate.indexOf('Prepare disposable evaluator identities and filesystem');
+  const sandbox = evaluate.indexOf('Configure and prove scoped bubblewrap user namespaces before secrets');
+  const egress = evaluate.indexOf('Restrict and prove evaluator egress before secrets');
+  const helm = evaluate.indexOf('PACK_EVALUATOR_HELM_API_KEY: ${{ secrets.PACK_EVALUATOR_HELM_API_KEY }}');
+  assert.ok(runtimeInstall >= 0 && userSetup > runtimeInstall && sandbox > userSetup && egress > sandbox && helm > egress);
+});
+
+test('evaluation is bounded, uses exact canonical skills, and fails closed', () => {
+  const evaluate = section(generate, '  evaluate:', '  persist:');
+  assert.match(evaluate, /git -C "\$GITHUB_WORKSPACE\/marketplace-evaluate" archive "\$SOURCE_COMMIT"/);
+  assert.match(evaluate, /meta\.content_hash/);
+  assert.match(evaluate, /meta\.tree_hash/);
+  assert.match(evaluate, /test "\$CANDIDATE_COUNT" -ge 2/);
+  assert.match(evaluate, /test "\$CANDIDATE_COUNT" -le 3/);
+  assert.match(evaluate, /PACK_EVALUATOR_MAX_REQUESTS=160/);
+  assert.match(evaluate, /PACK_EVALUATOR_MAX_TOTAL_OUTPUT_TOKENS=120000/);
+  assert.match(evaluate, /PACK_EVALUATOR_MAX_COST_USD=10/);
+  assert.match(evaluate, /PACK_EVALUATOR_MAX_CONCURRENT=1/);
+  assert.match(evaluate, /timeout --signal=TERM --kill-after=30s 120m/);
+  assert.match(evaluate, /prlimit --nproc=256:256 --as=6442450944:6442450944/);
+  assert.match(evaluate, /EVALUATOR_RC=\$\?/);
+  assert.match(evaluate, /exit "\$EVALUATOR_RC"/);
+});
+
+test('pre-publication runtime acceptance executes one staged result as the isolated evaluator user', () => {
+  const evaluate = section(generate, '  evaluate:', '  persist:');
+  assert.match(evaluate, /mapfile -t EVALUATION_FILES < <\(find/);
+  assert.match(evaluate, /test "\$\{#EVALUATION_FILES\[@\]\}" -eq 1/);
+  assert.match(evaluate, /sudo -u packeval env -i[\s\S]*pack-runtime-stage\.mjs/);
+  assert.match(evaluate, /sudo -u packeval env -i[\s\S]*skillstore-cli pack runtime-accept/);
+  assert.match(evaluate, /--identity-file "\$RUNTIME_ROOT\/identities\.json"/);
+  assert.match(evaluate, /runtime-acceptance\.json/);
+  assert.match(generate, /PACK_PRODUCTION_CLI_VERSION: '__SET_AFTER_PACK_RUNTIME_ACCEPT_CLI_RELEASE__'/);
+  assert.match(generate, /PACK_PRODUCTION_CLI_SHA256: '__SET_AFTER_PACK_RUNTIME_ACCEPT_CLI_RELEASE_SHA256__'/);
+});
+
+test('evaluation checkpoints cancellation evidence and never uploads raw run logs', () => {
+  const evaluate = section(generate, '  evaluate:', '  persist:');
+  assert.match(evaluate, /checkpoint_loop\(\)/);
+  assert.match(evaluate, /flock -x 9/);
+  assert.match(evaluate, /evaluate-checkpoint\.json/);
+  assert.match(evaluate, /evaluator-interrupted\.txt/);
+  assert.match(evaluate, /trap 'terminate_step 143' TERM/);
+  assert.match(evaluate, /sudo kill -TERM -- "-\$EVALUATOR_PID"/);
   assert.match(evaluate, /RESULT_BYTES=.*du -sb \/opt\/pack-evaluator\/results/);
   assert.match(evaluate, /RESULT_FILES=.*find \/opt\/pack-evaluator\/results -type f/);
-  assert.match(evaluate, /find \/opt\/pack-evaluator\/results ! -type f ! -type d/);
-  assert.match(evaluate, /cp -a \/opt\/pack-evaluator\/results\/\./);
-  assert.match(evaluate, /find "\$GITHUB_WORKSPACE\/pack-harvest" -type d -exec chmod 0700/);
-  assert.match(evaluate, /find "\$GITHUB_WORKSPACE\/pack-harvest" -type f -exec chmod 0600/);
-  assert.match(evaluate, /find "\$GITHUB_WORKSPACE\/pack-harvest" ! -type f ! -type d/);
-  const preflightIndex = evaluateWorkflow.indexOf('scripts/pack-evaluator-preflight.sh');
-  const relaxedErrorIndex = evaluateWorkflow.indexOf('set +e', preflightIndex);
-  const evaluatorIndex = evaluateWorkflow.indexOf('sudo env -i', relaxedErrorIndex);
-  assert.ok(preflightIndex >= 0);
-  assert.ok(relaxedErrorIndex > preflightIndex);
-  assert.ok(evaluatorIndex > relaxedErrorIndex);
-  assert.match(evaluate, /pack-production\.mjs verify/);
-  assert.match(evaluate, /trusted evaluation closure verification failed/);
-  assert.match(evaluate, /timeout --signal=TERM --kill-after=30s 4h/);
-  assert.match(evaluate, /prlimit --nproc=256:256 --as=6442450944:6442450944/);
-  assert.match(EVALUATOR_PROXY, /evaluator proxy request budget exhausted/);
-  assert.match(EVALUATOR_PROXY, /evaluator proxy token has expired/);
-  assert.match(EVALUATOR_PROXY, /response\.once\('close', abortUpstream\)/);
-  assert.match(EVALUATOR_PROXY, /isDeterministicClientFailure/);
-  assert.match(EVALUATOR_PROXY, /phase: 'circuit_open'/);
-  assert.match(evaluate, /Reject plans outside the bounded evaluation budget/);
-  assert.match(evaluate, /MAX_CANDIDATES=2/);
-  assert.match(evaluate, /MAX_BEST_SINGLE_COMPETITORS=\$\(\(SLOT_COUNT \* MAX_CANDIDATES\)\)/);
-  assert.match(evaluate, /CONTRACT_PROBES=2/);
-  assert.match(evaluate, /MAX_CLI_PREFLIGHT_REQUESTS=4/);
-  assert.match(evaluate, /TOOL_LOOP_HEADROOM=64/);
-  assert.match(evaluate, /PROXY_REQUEST_BUDGET=256/);
-  assert.match(evaluate, /3 \* SLOT_COUNT \* MAX_CANDIDATES/);
-  assert.match(evaluate, /3 \* HIDDEN_VARIANTS \* MAX_BEST_SINGLE_COMPETITORS/);
-  assert.match(evaluate, /HIDDEN_VARIANTS \* MAX_PACK_SKILLS \* \(MAX_PACK_SKILLS \+ 1\)/);
-  assert.match(evaluate, /skillToolFollowupsIncluded: true/);
-  assert.match(evaluate, /maxBestSingleCompetitors: \$maxBestSingleCompetitors/);
-  assert.match(evaluate, /ESTIMATED_REQUESTS[\s\S]*PROXY_REQUEST_BUDGET/);
-  const maximumWireRequests = 2 + 4 + (3 * 4 * 2) + 3 + (3 * (4 + 2))
-    + (2 * 3) + (3 * 3 * 8) + (3 * 4 * (4 + 1));
-  assert.equal(maximumWireRequests, 189);
-  assert.equal(maximumWireRequests + 64, 253);
-  assert.ok(maximumWireRequests + 64 <= 256);
-  assert.match(evaluate, /SKILLSTORE_AGENT_SANDBOX_MODE=bwrap/);
-  assert.match(evaluate, /SKILLSTORE_AGENT_SANDBOX_RUNTIME_ROOT=\/opt\/pack-evaluator\/runtime/);
-  assert.match(evaluate, /SKILLSTORE_AGENT_SANDBOX_MODE=bwrap/);
-  assert.match(evaluate, /! test -r "\/proc\/\$PROXY_PID\/environ"/);
-  assert.doesNotMatch(evaluate, /PATH=\/opt\/pack-evaluator\/runtime\/bin:\/opt\/pack-evaluator\/bin/);
-});
-
-test('extracted evaluator preflight is valid bounded bash', () => {
-  const result = spawnSync('bash', ['-n', EVALUATOR_PREFLIGHT_PATH], { encoding: 'utf8' });
-  assert.equal(result.status, 0, result.stderr);
-  assert.match(EVALUATOR_PREFLIGHT, /for ATTEMPT in 1 2/);
-  assert.match(EVALUATOR_PREFLIGHT, /COMMAND_EXIT_CODE=\$\?/);
-  assert.match(EVALUATOR_PREFLIGHT, /COMMAND_ATTEMPTS=/);
-  assert.match(EVALUATOR_PREFLIGHT, /--argjson commandAttempts/);
-  assert.match(EVALUATOR_PREFLIGHT, /exitCode: \$exitCode/);
-  assert.match(EVALUATOR_PREFLIGHT, /PACK_DIAGNOSTICS_DIR\/agent-preflight-diagnostics\.json/);
-  assert.match(EVALUATOR_PREFLIGHT, /PACK_DIAGNOSTICS_DIR\/proxy-activity\.ndjson/);
-  assert.match(EVALUATOR_PREFLIGHT, /setsid sudo env -i/);
-  assert.match(EVALUATOR_PREFLIGHT, /prlimit --nproc=256:256 --as=6442450944:6442450944/);
-  assert.match(EVALUATOR_PREFLIGHT, /"\$NODE" "\$ORCHESTRATOR" executor-preflight/);
-  assert.match(EVALUATOR_PREFLIGHT, /--skill-a "\$PREFLIGHT_SKILL_A"/);
-  assert.match(EVALUATOR_PREFLIGHT, /--skill-b "\$PREFLIGHT_SKILL_B"/);
-  assert.match(EVALUATOR_PREFLIGHT, /safe_runner_trace_evidence\(\)/);
-  assert.match(EVALUATOR_PREFLIGHT, /safe_runner_trace_diagnostics\(\)/);
-  assert.match(EVALUATOR_PREFLIGHT, /runnerTraceDiagnostics: \$runnerTraceDiagnostics/);
-  assert.match(EVALUATOR_PREFLIGHT, /proofBinding:/);
-  assert.match(EVALUATOR_PREFLIGHT, /SKILLSTORE_AGENT_ENV_MODE=strict/);
-  assert.match(EVALUATOR_PREFLIGHT, /SKILLSTORE_AGENT_SANDBOX_MODE=bwrap/);
-  assert.match(EVALUATOR_PREFLIGHT, /safe_execution_evidence\(\)/);
-  assert.match(EVALUATOR_PREFLIGHT, /\]\[0:8\]/);
-  assert.match(EVALUATOR_PREFLIGHT, /spawnErrorCode/);
-  assert.doesNotMatch(EVALUATOR_PREFLIGHT, /command:|arguments:|environment:|rawStdout|rawStderr/);
-  assert.doesNotMatch(EVALUATOR_PREFLIGHT, /GITHUB_WORKSPACE/);
-});
-
-test('evaluator preflight rejects a non-positive Claude output-token cap before execution', () => {
-  const result = spawnSync('bash', [EVALUATOR_PREFLIGHT_PATH], {
-    encoding: 'utf8',
-    env: {
-      PATH: process.env.PATH,
-      PACK_PRODUCTION_CLI_VERSION: '2.14.6',
-      PACK_EVALUATOR_PROXY_TOKEN: 'local-token-that-is-longer-than-thirty-two-bytes',
-      PACK_DIAGNOSTICS_DIR: '/tmp',
-      PACK_EVALUATOR_MAX_OUTPUT_TOKENS: '0',
-    },
-  });
-  assert.equal(result.status, 1);
-  assert.match(result.stderr, /PACK_EVALUATOR_MAX_OUTPUT_TOKENS must be a positive integer/);
-});
-
-test('preflight HTTP monitoring separates inference failures from auxiliary rejections', () => {
-  const start = EVALUATOR_PREFLIGHT.indexOf('summarize_preflight_http_activity() {');
-  const end = EVALUATOR_PREFLIGHT.indexOf('\n}\n', start);
-  assert.ok(start >= 0 && end > start, 'HTTP activity summarizer must be extractable');
-  const summarizer = EVALUATOR_PREFLIGHT.slice(start, end + 3);
-  const summarize = (activities) => spawnSync(
-    'bash',
-    ['-c', `${summarizer}\nsummarize_preflight_http_activity`],
-    {
-      encoding: 'utf8',
-      input: `${activities.map((activity) => JSON.stringify(activity)).join('\n')}\n`,
-    },
-  );
-
-  const auxiliaryOnly = summarize([
-    { phase: 'response', path: '/v1/messages', status: 200 },
-    { phase: 'response', path: '/v1/responses', status: 200 },
-    { phase: 'response', path: 'not_allowed', status: 401, errorCategory: 'authentication_failed' },
-    { phase: 'response', path: '/v1/messages/count_tokens', status: 503 },
-    { phase: 'response', path: '/v1/responses/compact', status: 403 },
-  ]);
-  assert.equal(auxiliaryOnly.status, 0, auxiliaryOnly.stderr);
-  assert.deepEqual(JSON.parse(auxiliaryOnly.stdout), {
-    messages200: 1,
-    responses200: 1,
-    inferenceFatalStatus: null,
-    inferenceRetryableStatus: null,
-    auxiliaryRejectedCount: 1,
-  });
-
-  const inferenceFailures = summarize([
-    { phase: 'response', path: '/v1/messages', status: 401 },
-    { phase: 'response', path: '/v1/responses', status: 503 },
-    { phase: 'response', path: 'not_allowed', status: 403 },
-  ]);
-  assert.equal(inferenceFailures.status, 0, inferenceFailures.stderr);
-  assert.deepEqual(JSON.parse(inferenceFailures.stdout), {
-    messages200: 0,
-    responses200: 0,
-    inferenceFatalStatus: 401,
-    inferenceRetryableStatus: 503,
-    auxiliaryRejectedCount: 1,
-  });
-});
-
-test('preflight infrastructure evidence selects the last fatal response before category allowlisting', () => {
-  const prefix = "PREFLIGHT_ERROR_CATEGORY=$(sudo jq -rs '\n";
-  const suffix = "\n              ' \"$PROXY_ACTIVITY\" 2>/dev/null || true)";
-  const start = WORKFLOW.indexOf(prefix);
-  assert.notEqual(start, -1);
-  const filterStart = start + prefix.length;
-  const end = WORKFLOW.indexOf(suffix, filterStart);
-  assert.notEqual(end, -1);
-  const filter = WORKFLOW.slice(filterStart, end);
-  const extract = (activities) => spawnSync('jq', ['-rs', filter], {
-    encoding: 'utf8',
-    input: `${activities.map((activity) => JSON.stringify(activity)).join('\n')}\n`,
-  });
-
-  const allowed = extract([
-    { phase: 'response', path: 'not_allowed', status: 401, errorCategory: 'authentication_failed' },
-    { phase: 'response', path: '/v1/responses', status: 403, errorCategory: 'model_not_allowed' },
-    { phase: 'response', path: '/v1/messages', status: 400, errorCategory: 'invalid_output_token_limit' },
-    { phase: 'response', path: '/v1/responses', status: 503, errorCategory: 'other' },
-  ]);
-  assert.equal(allowed.status, 0, allowed.stderr);
-  assert.equal(allowed.stdout.trim(), 'invalid_output_token_limit');
-
-  const rejected = extract([
-    { phase: 'response', path: 'not_allowed', status: 401, errorCategory: 'authentication_failed' },
-    { phase: 'response', path: '/v1/responses', status: 403, errorCategory: 'model_not_allowed' },
-    { phase: 'response', path: '/v1/messages', status: 400, errorCategory: 'attacker_supplied_category' },
-  ]);
-  assert.equal(rejected.status, 0, rejected.stderr);
-  assert.equal(rejected.stdout, '');
-});
-
-test('evaluator preflight projects only fixed execution evidence fields', () => {
-  const start = EVALUATOR_PREFLIGHT.indexOf('safe_execution_evidence() {');
-  const end = EVALUATOR_PREFLIGHT.indexOf('\n}\n', start);
-  assert.ok(start >= 0 && end > start, 'safe evidence projector must be extractable');
-  const projector = EVALUATOR_PREFLIGHT.slice(start, end + 3);
-  const directory = mkdtempSync(join(tmpdir(), 'pack-preflight-projector-'));
-  const report = join(directory, 'report.json');
-  writeFileSync(report, JSON.stringify({
-    agentExecutionEvidence: [{
-      phase: 'run',
-      run: 1,
-      succeeded: false,
-      privatePhaseField: 'raw prompt',
-      attempts: [{
-        schemaVersion: 'skillstore.agent-execution-evidence/v1',
-        agent: 'claude',
-        attempt: 1,
-        sandboxed: true,
-        outcome: 'failed',
-        failureCategory: 'spawn_error',
-        spawnErrorCode: 'EAGAIN',
-        exitCode: null,
-        signal: null,
-        durationMs: 10,
-        stdoutBytes: 0,
-        stderrBytes: 0,
-        stdoutSha256: 'a'.repeat(64),
-        stderrSha256: 'b'.repeat(64),
-        rawStderr: 'private path and token',
-      }],
-    }],
-    errors: ['private error'],
-    verdicts: [{ reason: 'private judge text' }],
-  }));
-  const projected = spawnSync(
-    'bash',
-    ['-c', `${projector}\nsafe_execution_evidence "$1"`, 'projector', report],
-    { encoding: 'utf8' },
-  );
-  assert.equal(projected.status, 0, projected.stderr);
-  const value = JSON.parse(projected.stdout);
-  assert.deepEqual(value[0].attempts[0], {
-    schemaVersion: 'skillstore.agent-execution-evidence/v1',
-    agent: 'claude',
-    attempt: 1,
-    sandboxed: true,
-    outcome: 'failed',
-    failureCategory: 'spawn_error',
-    spawnErrorCode: 'EAGAIN',
-    exitCode: null,
-    signal: null,
-    durationMs: 10,
-    stdoutBytes: 0,
-    stderrBytes: 0,
-    stdoutSha256: 'a'.repeat(64),
-    stderrSha256: 'b'.repeat(64),
-  });
-  assert.doesNotMatch(projected.stdout, /private|rawStderr|errors|verdicts/);
-});
-
-test('invalid trace and outer summaries project explicit JSON fallbacks', () => {
-  const extractFunction = (name) => {
-    const start = EVALUATOR_PREFLIGHT.indexOf(`${name}() {`);
-    const end = EVALUATOR_PREFLIGHT.indexOf('\n}\n', start);
-    assert.ok(start >= 0 && end > start, `${name} must be extractable`);
-    return EVALUATOR_PREFLIGHT.slice(start, end + 3);
-  };
-  const directory = mkdtempSync(join(tmpdir(), 'pack-preflight-invalid-projection-'));
-  const report = join(directory, 'report.json');
-  writeFileSync(report, JSON.stringify({
-    runnerTraceEvidence: { schemaVersion: 'attacker-schema', bindingDigest: 'private path' },
-    runnerTraceDiagnostics: {
-      schemaVersion: 'marketplace.pack-executor-preflight-diagnostics/v1',
-      cliOutcome: 'failed',
-      verification: {
-        passed: false,
-        verdictCount: 1,
-        errorCount: 0,
-        usedSkill: true,
-        usedSkillCount: 2,
-        taskCompleted: true,
-        envBlocked: false,
-      },
-      traceCount: 1,
-      tracesTruncated: false,
-      traces: [{
-        schemaValid: false,
-        agent: 'claude',
-        source: 'claude-stream-json-v1',
-        deterministic: true,
-        eventCount: 2,
-        eventsTruncated: false,
-        failureReason: 'private attacker reason',
-      }],
-    },
-    outerExecution: {
-      durationMs: 430001,
-      rawStderr: 'private process detail',
-    },
-  }));
-  const script = [
-    extractFunction('safe_runner_trace_evidence'),
-    extractFunction('safe_runner_trace_diagnostics'),
-    extractFunction('safe_outer_execution'),
-    'trace=$(safe_runner_trace_evidence "$1")',
-    'diagnostics=$(safe_runner_trace_diagnostics "$1")',
-    'outer=$(safe_outer_execution "$1")',
-    'jq -cn --argjson trace "$trace" --argjson diagnostics "$diagnostics" --argjson outer "$outer" "{trace: \\$trace, diagnostics: \\$diagnostics, outer: \\$outer}"',
-  ].join('\n');
-  const result = spawnSync('bash', ['-c', script, 'invalid-projection', report], { encoding: 'utf8' });
-
-  assert.equal(result.status, 0, result.stderr);
-  assert.deepEqual(JSON.parse(result.stdout), { trace: null, diagnostics: null, outer: {} });
-  assert.doesNotMatch(result.stdout, /private|rawStderr|attacker/);
-});
-
-test('evaluator preflight retains bounded Agent evidence across an outer retry', () => {
-  const extractFunction = (name) => {
-    const start = EVALUATOR_PREFLIGHT.indexOf(`${name}() {`);
-    const end = EVALUATOR_PREFLIGHT.indexOf('\n}\n', start);
-    assert.ok(start >= 0 && end > start, `${name} must be extractable`);
-    return EVALUATOR_PREFLIGHT.slice(start, end + 3);
-  };
-  const append = extractFunction('append_command_attempt');
-  const mark = extractFunction('mark_recovered_command_attempts');
-  const attempt = (number, outcome, errorClass, agentEvidence) => ({
-    attempt: number,
-    outcome,
-    errorClass,
-    exitCode: outcome === 'passed' ? 0 : 1,
-    durationMs: number === 1 ? 429000 : 10,
-    stdoutBytes: 1,
-    stderrBytes: 0,
-    stdoutSha256: 'a'.repeat(64),
-    stderrSha256: 'b'.repeat(64),
-    outerExecution: { exitCode: outcome === 'passed' ? 0 : 1 },
-    agentExecutionEvidence: agentEvidence,
-    rawSecret: 'must not survive',
-  });
-  const failedEvidence = [{
-    phase: 'run',
-    run: 1,
-    succeeded: false,
-    attempts: [{ spawnErrorCode: 'EAGAIN', failureCategory: 'spawn_error' }],
-  }];
-  const passedEvidence = [{
-    phase: 'run',
-    run: 1,
-    succeeded: true,
-    attempts: [{ spawnErrorCode: null, failureCategory: 'none' }],
-  }];
-  const script = [
-    append,
-    mark,
-    'history=\"[]\"',
-    'history=$(append_command_attempt \"$history\" \"$1\")',
-    'history=$(append_command_attempt \"$history\" \"$2\")',
-    'mark_recovered_command_attempts \"$history\" passed',
-  ].join('\n');
-  const result = spawnSync('bash', ['-c', script, 'retry-history',
-    JSON.stringify(attempt(1, 'command_failed', 'retryable_http', failedEvidence)),
-    JSON.stringify(attempt(2, 'passed', 'none', passedEvidence)),
-  ], { encoding: 'utf8' });
-
-  assert.equal(result.status, 0, result.stderr);
-  const history = JSON.parse(result.stdout);
-  assert.equal(history.length, 2);
-  assert.equal(history[0].recovered, true);
-  assert.equal(history[0].durationMs, 429000);
-  assert.equal(history[0].agentExecutionEvidence[0].attempts[0].spawnErrorCode, 'EAGAIN');
-  assert.equal(history[1].recovered, false);
-  assert.doesNotMatch(result.stdout, /must not survive|rawSecret/);
-});
-
-test('evaluator preflight retries only an exact bounded HTTP failure once', () => {
-  const start = EVALUATOR_PREFLIGHT.indexOf('should_retry_preflight() {');
-  const end = EVALUATOR_PREFLIGHT.indexOf('\n}\n', start);
-  assert.ok(start >= 0 && end > start, 'retry policy function must be extractable');
-  const policy = EVALUATOR_PREFLIGHT.slice(start, end + 3);
-
-  for (const errorClass of ['retryable_http']) {
-    const result = spawnSync(
-      'bash',
-      ['-c', `${policy}\nshould_retry_preflight "$1" "$2" "$3"`, 'policy', 'command_failed', errorClass, '1'],
-      { encoding: 'utf8' }
-    );
-    assert.equal(result.status, 0, `${errorClass} should receive one retry`);
-  }
-  for (const errorClass of [
-    'authentication',
-    'model_route',
-    'cli_arguments',
-    'state_storage',
-    'deterministic_http',
-    'upstream_transport',
-    'timeout',
-    'unknown',
-  ]) {
-    const result = spawnSync(
-      'bash',
-      ['-c', `${policy}\nshould_retry_preflight "$1" "$2" "$3"`, 'policy', 'command_failed', errorClass, '1'],
-      { encoding: 'utf8' }
-    );
-    assert.equal(result.status, 1, `${errorClass} must fail closed without retry`);
-  }
-  assert.equal(
-    spawnSync(
-      'bash',
-      ['-c', `${policy}\nshould_retry_preflight "$1" "$2" "$3"`, 'policy', 'command_failed', 'retryable_http', '2'],
-      { encoding: 'utf8' }
-    ).status,
-    1,
-    'the second retryable HTTP failure must stop'
-  );
-  assert.equal(
-    spawnSync(
-      'bash',
-      ['-c', `${policy}\nshould_retry_preflight "$1" "$2" "$3"`, 'policy', 'invalid_response', 'unknown', '1'],
-      { encoding: 'utf8' }
-    ).status,
-    1,
-    'invalid responses must not be retried'
-  );
-});
-
-test('evaluate emits bounded progress and checkpoints cancellation-safe evidence', () => {
-  const evaluate = section('  evaluate:', '  persist:');
-  assert.match(evaluate, /checkpoint_loop\(\)/);
-  assert.match(evaluate, /checkpoint_loop\(\) \{\n\s+trap - EXIT INT TERM/);
-  assert.match(evaluate, /flock -x 9/);
-  assert.match(evaluate, /\.tmp\.\$\{BASHPID\}/);
-  assert.match(evaluate, /mv -f "\$temporary"/);
-  assert.match(evaluate, /sleep 30/);
-  assert.match(evaluate, /evaluate-progress\.ndjson/);
-  assert.match(evaluate, /evaluate-checkpoint\.json/);
-  assert.match(evaluate, /evaluate-summary\.json/);
-  assert.match(evaluate, /evaluator-interrupted\.txt/);
-  assert.doesNotMatch(evaluate, /proxy-interrupted\.log/);
-  assert.match(evaluate, /EVALUATOR_FINISHED=false/);
-  assert.match(evaluate, /EVALUATOR_PID=\$!/);
-  assert.match(evaluate, /wait "\$EVALUATOR_PID"/);
-  assert.match(evaluate, /trap 'terminate_step 143' TERM/);
-  assert.match(evaluate, /trap 'terminate_step 130' INT/);
-  assert.match(evaluate, /trap 'terminate_step 129' HUP/);
-  assert.match(evaluate, /for _ in \$\(seq 1 40\)/);
-  assert.match(evaluate, /for _ in \$\(seq 1 10\)/);
-  assert.match(evaluate, /timeout --signal=TERM --kill-after=0\.2s 1s bash -c 'checkpoint_progress'/);
-  const cleanupIndex = evaluate.indexOf('cleanup() {');
-  const markerIndex = evaluate.indexOf('write_interrupted_marker', cleanupIndex);
-  const snapshotIndex = evaluate.indexOf('bounded_checkpoint_progress', cleanupIndex);
-  const terminateIndex = evaluate.indexOf('sudo kill -TERM -- "-$EVALUATOR_PID"', cleanupIndex);
-  assert.ok(cleanupIndex >= 0 && markerIndex > cleanupIndex);
-  assert.ok(snapshotIndex > markerIndex && terminateIndex > snapshotIndex);
-  assert.match(evaluate, /if \[ -n "\$EVALUATOR_PID" \] && \[ "\$EVALUATOR_FINISHED" != "true" \]; then/);
-  assert.match(evaluate, /setsid sudo env -i/);
-  assert.match(evaluate, /sudo ps -o stat= -g "\$EVALUATOR_PID"/);
-  assert.match(evaluate, /sudo kill -TERM -- "-\$EVALUATOR_PID"/);
-  assert.doesNotMatch(evaluate, /pgrep -f '\/opt\/pack-evaluator\/lib\/pack-production\.mjs evaluate'/);
-  assert.match(evaluate, /--model sonnet/);
-  assert.match(evaluate, /--judge-model gpt-5\.5/);
-  assert.match(evaluate, /--max-candidates 2/);
-  assert.match(evaluate, /--agent-timeout-ms 360000/);
-  assert.match(evaluate, /--agent-max-retries 1/);
-  assert.match(evaluate, /--evaluation-budget-ms 13800000/);
-  assert.match(evaluate, /--scenario-timeout-ms 7200000/);
-  assert.match(evaluate, /--minimum-fallback-ms 2700000/);
-  assert.match(evaluate, /--scenario-idle-timeout-ms 1200000/);
-  assert.match(evaluate, /--proxy-activity-file "\$PROXY_ACTIVITY"/);
+  assert.match(evaluate, /rm -f "\$run_log"/);
+  assert.match(evaluate, /proxy-activity\.jsonl/);
+  assert.match(evaluate, /evaluation-budget\.json/);
+  assert.match(evaluate, /Raw evaluator run logs survived bounded summarization/);
   assert.match(evaluate, /name: Upload trusted evaluation evidence\n\s+if: success\(\)/);
   assert.match(evaluate, /name: Upload bounded evaluation diagnostics\n\s+if: always\(\)/);
-  assert.match(evaluate, /name: pack-production-diagnostics/);
-  assert.match(evaluate, /if-no-files-found: warn/);
-  assert.match(evaluate, /path: pack-trusted\//);
-  assert.match(evaluate, /path: pack-diagnostics\//);
-  assert.doesNotMatch(evaluate, /path: pack-harvest\//);
-  assert.doesNotMatch(evaluate, /pack-diagnostics\/.*stdout\.(?:partial|json)/);
-  assert.doesNotMatch(evaluate, /(?:cp|install|mv)[^\n]*\.run\.log/);
-  assert.doesNotMatch(evaluate, /-name '\*\.run\.log'[\s\\]+-exec (?:cp|install|mv)/);
   assert.doesNotMatch(evaluate, /path:[^\n]*\.run\.log/);
-  assert.match(evaluate, /marketplace\.pack-production-run-log-summaries\/v1/);
-  assert.match(evaluate, /\{basename: \$basename, bytes: \$bytes, sha256: \$sha256\}/);
-  assert.match(evaluate, /rm -f "\$run_log"/);
-  assert.match(evaluate, /Raw evaluator run logs survived bounded summarization/);
-  assert.match(evaluate, /run-log-summaries\.json/);
-  const checkpointIndex = evaluate.indexOf('checkpoint_loop &');
-  const evaluatorIndex = evaluate.indexOf('"$NODE_BIN" /opt/pack-evaluator/lib/pack-production.mjs evaluate', checkpointIndex);
-  const finishIndex = evaluate.indexOf('EVALUATOR_FINISHED=true', evaluatorIndex);
-  assert.ok(checkpointIndex >= 0 && evaluatorIndex > checkpointIndex && finishIndex > evaluatorIndex);
-  assert.match(evaluate, /infrastructure-failure\.json/);
-  assert.match(evaluate, /CONTRACT_RC=\$\?/);
-  assert.match(evaluate, /PREFLIGHT_RC=\$\?/);
-  assert.match(evaluate, /--infrastructure-failure-file/);
-  assert.match(PACK_PRODUCTION, /buildInfrastructureCliReport/);
-  assert.match(PACK_PRODUCTION, /outcome: 'infrastructure_failed'/);
-  assert.match(PACK_PRODUCTION, /infrastructureAudit: true/);
 });
 
-test('planning uses a read-only API and admits at most one artifact scenario', () => {
-  const plan = section('  plan:', '  evaluate:');
-  assert.match(plan, /permission-contents: read/);
-  assert.match(plan, /production\/queue/);
-  assert.match(plan, /PACK_PRODUCTION_PLANNER_KEY/);
-  assert.match(plan, /--data-urlencode 'limit=1'/);
-  assert.doesNotMatch(plan, /SUPABASE_SERVICE|PUBLIC_SUPABASE|scenario-queue/);
-  assert.match(plan, /requiredArtifacts \| length >= 1/);
-  assert.match(plan, /\.source == "signals"/);
-  assert.match(plan, /\.source == "no-op"/);
-  assert.match(plan, /marketplace\.pack-production-noop\/v1/);
-  assert.match(plan, /repository: "aiskillstore\/marketplace"/);
-  assert.match(plan, /runId: \$runId/);
-  assert.match(plan, /commitSha: \$commitSha/);
-  assert.match(plan, /has_scenarios=false/);
-  assert.match(plan, /require\('node:crypto'\)\.randomUUID\(\)/);
-  assert.match(plan, /\.scenarios\[0\]\.generationId = \$generationId/);
-  assert.match(plan, /workflow: "Generate Pack"/);
-  assert.match(plan, /runAttempt: \$runAttempt/);
-  assert.match(plan, /scenarioId: \.scenarios\[0\]\.id/);
-  assert.match(plan, /\(has\("generationId"\) \| not\)/);
-  assert.match(plan, /\(has\("workflowBinding"\) \| not\)/);
-  const allocationIndex = plan.indexOf('.scenarios[0].generationId = $generationId');
-  const uploadIndex = plan.indexOf('name: Upload immutable plan');
-  assert.ok(allocationIndex >= 0 && uploadIndex > allocationIndex);
-  const noOpStart = plan.indexOf('if [ "$SCENARIO_COUNT" -eq 0 ]; then');
-  const noOpEnd = plan.indexOf('\n          else', noOpStart);
-  assert.ok(noOpStart >= 0 && noOpEnd > noOpStart);
-  assert.doesNotMatch(
-    plan.slice(noOpStart, noOpEnd),
-    /randomUUID|\.scenarios\[[^\]]+\]\.generationId\s*=|\.workflowBinding\s*=/,
-  );
-  assert.doesNotMatch(PACK_PRODUCTION, /randomUUID/);
-  assert.match(PACK_PRODUCTION, /const generationId = scenario\.generationId/);
-  assert.match(PACK_PRODUCTION, /Evaluate summary generation id differs from the immutable plan/);
-  const evaluate = section('  evaluate:', '  persist:');
-  const persist = section('  persist:', '  enrich_publish_readback:');
-  const finalize = section('  enrich_publish_readback:');
-  assert.match(evaluate, /if: needs\.plan\.outputs\.has_scenarios == 'true'/);
-  assert.match(persist, /if: needs\.plan\.outputs\.has_scenarios == 'true'/);
-  assert.match(finalize, /if: needs\.plan\.outputs\.has_scenarios == 'true'/);
-  assert.match(WORKFLOW, /group: generate-pack-production-v4/);
-  assert.match(WORKFLOW, /cron: '17 19 \* \* 1,3,5'/);
-  assert.match(WORKFLOW, /PACK_PRODUCTION_CLI_VERSION: '2\.14\.6'/);
-  assert.doesNotMatch(WORKFLOW, /2\.12\.0|RELEASE BLOCKER/);
-  assert.equal((WORKFLOW.match(/require-checksum: 'true'/g) ?? []).length, 1);
-  assert.match(plan, /actions\/create-github-app-token@v3/);
-  assert.match(plan, /repositories: marketplace,skillstore/);
-  assert.match(plan, /name: pack-production-cli/);
-  assert.match(plan, /retention-days: 1/);
-  assert.doesNotMatch(WORKFLOW, /version: latest|cli_version:/);
-});
-
-test('trusted phases use the Automation API and retain full evidence for 90 days', () => {
-  const persist = section('  persist:', '  enrich_publish_readback:');
-  const finalize = section('  enrich_publish_readback:');
-  assert.match(persist, /pack-production\.mjs persist/);
+test('only trusted writer jobs persist and automatic publication stays disabled', () => {
+  const persist = section(generate, '  persist:', '  enrich_publish_readback:');
+  const finalize = section(generate, '  enrich_publish_readback:');
+  assert.match(persist, /needs: \[prepare, evaluate\]/);
+  assert.match(persist, /needs\.evaluate\.result == 'success'/);
+  assert.match(persist, /environment:\n\s+name: pack-production-writer/);
   assert.match(persist, /PACK_PRODUCTION_AUTOMATION_KEY: \$\{\{ secrets\.PACK_PRODUCTION_AUTOMATION_KEY \}\}/);
-  assert.match(finalize, /pack-production\.mjs finalize/);
-  assert.match(finalize, /final-result\.json/);
-  assert.match(finalize, /pack-production\.mjs finalize/);
-  assert.equal((WORKFLOW.match(/retention-days: 90/g) ?? []).length, 5);
-  assert.match(finalize, /PACK_PRODUCTION_AUTO_PUBLISH_ENABLED == 'true'/);
-  assert.match(finalize, /--poll-seconds 60/);
-  assert.match(finalize, /--max-poll-seconds 180/);
-  assert.match(PACK_PRODUCTION, /nextPollSeconds = Math\.min\(maxPollSeconds, nextPollSeconds \* 2\)/);
-  assert.match(PACK_PRODUCTION, /buildHardDisabledReviewPendingResult/);
-  assert.match(PACK_PRODUCTION, /publicationMode: 'manual_only'/);
-  const finalizeImplementation = PACK_PRODUCTION.slice(
-    PACK_PRODUCTION.indexOf('async function finalize(args)'),
-    PACK_PRODUCTION.indexOf('async function reportSlo(args)'),
+  assert.match(finalize, /needs: \[prepare, persist\]/);
+  assert.match(finalize, /needs\.persist\.result == 'success'/);
+  assert.match(finalize, /environment:\n\s+name: pack-production-writer/);
+  assert.match(finalize, /AUTO_PUBLISH: 'false'/);
+  assert.match(finalize, /--auto-publish "\$AUTO_PUBLISH"/);
+  assert.doesNotMatch(generate, /PACK_PRODUCTION_MANUAL_PUBLISH_KEY|PACK_PRODUCTION_READBACK_KEY/);
+  assert.equal((generate.match(/retention-days: 90/g) ?? []).length, 5);
+});
+
+test('manual publication authenticates and bounds one final generation artifact', () => {
+  const prepare = section(publish, '  prepare:', '  publish:');
+  const publishJob = section(publish, '  publish:', '  runtime:');
+  assert.match(publish, /workflow_dispatch:\n\s+inputs:\n\s+source_run_id:/);
+  const inputs = publish.slice(publish.indexOf('    inputs:'), publish.indexOf('\npermissions:'));
+  assert.doesNotMatch(inputs, /generation_id:|pack_slug:|binding_digest:|nonce:/);
+  assert.match(prepare, /PACK_PRODUCTION_AUTO_PUBLISH_ENABLED/);
+  assert.match(prepare, /source_run_id must be a GitHub Actions run id/);
+  assert.match(prepare, /expected one exact pack-production-final artifact/);
+  assert.match(prepare, /select\(\.expired == false\)/);
+  assert.match(prepare, /artifact digest mismatch/);
+  assert.match(prepare, /compressed size is invalid or exceeds 32 MiB/);
+  assert.match(prepare, /entry count exceeds 1024/);
+  assert.match(prepare, /uncompressed size exceeds 128 MiB/);
+  assert.match(prepare, /contains an unsafe ZIP path/);
+  assert.match(prepare, /contains a symbolic link/);
+  assert.match(prepare, /--source-run-file[\s\S]*--workflow-file[\s\S]*--artifact-file/);
+  assert.match(prepare, /Quality override: \*\*forbidden\*\*/);
+  const cliPreflight = section(
+    publishJob,
+    '      - name: Preflight the exact public Marketplace CLI release',
+    '      - name: Download the reviewed immutable approval handoff',
   );
-  assert.doesNotMatch(finalizeImplementation, /\/api\/automation\/packs\/[^\n]+\/publish/);
-  assert.match(WORKFLOW, /auto_publish:[\s\S]*?default: false/);
-  assert.match(PACK_PRODUCTION, /skillstore\.pack-evaluation\/v4/);
-  assert.match(PACK_PRODUCTION, /candidate_ready evidence is incomplete; persistence and enrichment are forbidden/);
-  assert.match(PACK_PRODUCTION, /auditOnly: true/);
-  assert.match(PACK_PRODUCTION, /candidateNullPosts/);
-  assert.match(PACK_PRODUCTION, /Persist response did not bind the exact candidate-null v4 audit outcome/);
-  assert.match(PACK_PRODUCTION, /bestSingle/);
-  assert.match(PACK_PRODUCTION, /executionDag/);
-  assert.match(PACK_PRODUCTION, /usageProvenance/);
-});
-
-test('daily admission and SLO observation are independent and read-only', () => {
-  assert.match(ADMISSION_WORKFLOW, /cron: '47 18 \* \* \*'/);
-  assert.match(ADMISSION_WORKFLOW, /PACK_PRODUCTION_PLANNER_KEY/);
-  assert.match(ADMISSION_WORKFLOW, /--data-urlencode 'limit=1'/);
-  assert.doesNotMatch(ADMISSION_WORKFLOW, /PACK_PRODUCTION_AUTOMATION_KEY|SUPABASE|method: 'POST'/);
-  assert.match(SLO_WORKFLOW, /cron: '47 20 \* \* \*'/);
-  assert.match(SLO_WORKFLOW, /pack-production\.mjs slo/);
-  assert.match(SLO_WORKFLOW, /PACK_PRODUCTION_PLANNER_KEY/);
-  assert.match(SLO_WORKFLOW, /::warning::Rolling 7-day Pack production SLO is below target/);
-  assert.doesNotMatch(SLO_WORKFLOW, /PACK_PRODUCTION_AUTOMATION_KEY|::error::Rolling|exit 1/);
-  assert.match(PACK_PRODUCTION, /::warning::Rolling 7-day Pack production SLO is below target/);
-  assert.doesNotMatch(PACK_PRODUCTION, /::error::Rolling 7-day Pack production SLO is below target/);
-});
-
-test('checkouts use isolated directories and never persist tokens', () => {
-  assert.match(WORKFLOW, /marketplace-plan/);
-  assert.match(WORKFLOW, /marketplace-evaluate/);
-  assert.ok((WORKFLOW.match(/filter: ''/g) ?? []).length >= 1);
-  assert.ok((WORKFLOW.match(/persist-credentials: false/g) ?? []).length >= 4);
-  const persist = section('  persist:', '  enrich_publish_readback:');
-  const finalize = section('  enrich_publish_readback:');
-  assert.match(persist, /sparse-checkout: scripts\/pack-production\.mjs\n\s+sparse-checkout-cone-mode: false/);
-  assert.match(finalize, /sparse-checkout: scripts\/pack-production\.mjs\n\s+sparse-checkout-cone-mode: false/);
-  assert.match(SLO_WORKFLOW, /sparse-checkout: scripts\/pack-production\.mjs\n\s+sparse-checkout-cone-mode: false/);
-});
-
-test('CLI downloader verifies checksum before execution and shared-cache writes', () => {
-  assert.match(DOWNLOAD_ACTION, /require-checksum:/);
-  assert.match(DOWNLOAD_ACTION, /--pattern checksums\.txt/);
-  assert.match(DOWNLOAD_ACTION, /CLI checksum mismatch/);
-  assert.match(DOWNLOAD_ACTION, /cli-sha256=/);
-  const checksumIndex = DOWNLOAD_ACTION.indexOf('    - name: Verify release checksum before execution');
-  const executeIndex = DOWNLOAD_ACTION.indexOf('    - name: Verify CLI');
-  const saveIndex = DOWNLOAD_ACTION.indexOf('    - name: Save verified CLI to local cache');
-  assert.ok(checksumIndex >= 0 && executeIndex > checksumIndex && saveIndex > executeIndex);
-  const cacheReadSection = DOWNLOAD_ACTION.slice(
-    DOWNLOAD_ACTION.indexOf('    - name: Check local cache'),
-    checksumIndex,
+  assert.match(cliPreflight, /MARKETPLACE_CLI_VERSION: '__SET_AFTER_MARKETPLACE_CLI_RELEASE__'/);
+  assert.match(cliPreflight, /must be an exact non-placeholder semver release/);
+  assert.match(cliPreflight, /npm view --registry=https:\/\/registry\.npmjs\.org "skillstore@\$MARKETPLACE_CLI_VERSION" --json/);
+  assert.match(cliPreflight, /\.dist\.integrity[\s\S]*sha512-/);
+  assert.ok(
+    publishJob.indexOf('Preflight the exact public Marketplace CLI release')
+      < publishJob.indexOf('Publish through the nonce-bound manual API'),
+    'the release placeholder must fail before the production publish POST',
   );
-  assert.match(cacheReadSection, /REQUIRE_CHECKSUM: \$\{\{ inputs\.require-checksum \}\}/);
+});
+
+test('published Pack runtime uses the exact installed CLI and installed identities without write credentials', () => {
+  const runtime = section(publish, '  runtime:', '  complete:');
+  assert.match(runtime, /needs: \[prepare, publish\]/);
+  assert.match(runtime, /environment:\n\s+name: pack-production-runtime/);
+  assert.match(runtime, new RegExp(`actions/create-github-app-token@${pinnedActions.appToken} # v3`));
+  assert.match(runtime, /repositories: marketplace,skillstore/);
+  assert.match(runtime, /permission-contents: read/);
+  assert.match(runtime, /require-checksum: 'true'/);
+  assert.match(runtime, /expected-sha256: \$\{\{ needs\.prepare\.outputs\.cli_sha256 \}\}/);
+  assert.match(runtime, /steps\.evaluation-cli\.outputs\.cli-sha256[\s\S]*\.runtimeCli\.sha256/);
+  assert.match(runtime, /MARKETPLACE_CLI_VERSION: \$\{\{ needs\.publish\.outputs\.marketplace_cli_version \}\}/);
+  assert.match(runtime, /MARKETPLACE_CLI_INTEGRITY: \$\{\{ needs\.publish\.outputs\.marketplace_cli_integrity \}\}/);
+  assert.match(runtime, /npm install --ignore-scripts --save-exact "skillstore@\$MARKETPLACE_CLI_VERSION"/);
+  assert.match(runtime, /package-lock\.json[\s\S]*MARKETPLACE_CLI_INTEGRITY/);
+  assert.match(runtime, /npm audit signatures --json/);
+  assert.match(runtime, /skillstore add "@\$PACK_SLUG" --agent codex --overwrite/);
+  assert.match(runtime, /install-readback[\s\S]*installed-runtime-identities/);
+  assert.match(runtime, /--identity-file "\$PACK_RUNTIME_EVIDENCE\/installed-identities\.json"/);
+  assert.match(runtime, /runtime-acceptance-installed\.json/);
+  assert.match(runtime, /runtime-readback/);
+  assert.match(runtime, /if env \| grep -Eq 'PACK_PRODUCTION_MANUAL_PUBLISH_KEY\|PACK_PRODUCTION_AUTOMATION_KEY\|SUPABASE_SERVICE\|SKILLSTORE_CALLBACK\|CACHE_INVALIDATE'/);
+  assert.doesNotMatch(runtime, /secrets\.(?:PACK_PRODUCTION_MANUAL_PUBLISH_KEY|PACK_PRODUCTION_AUTOMATION_KEY|PACK_PRODUCTION_READBACK_KEY|SKILLSTORE_API_URL|SUPABASE)/);
+  const install = runtime.indexOf('Install the exact registry-authenticated CLI and published Pack before inference credentials');
+  const egress = runtime.indexOf('Prove bubblewrap and restrict evaluator egress before the Helm key exists');
+  const helm = runtime.indexOf('PACK_EVALUATOR_HELM_API_KEY: ${{ secrets.PACK_EVALUATOR_HELM_API_KEY }}');
+  assert.ok(install >= 0 && egress > install && helm > egress);
+});
+
+test('production success requires public, install, and installed-runtime readback; failures stay failed', () => {
+  const complete = section(publish, '  complete:');
+  assert.match(complete, /needs: \[prepare, publish, runtime\]/);
+  assert.doesNotMatch(complete, /environment:\n\s+name: pack-production-readback/);
+  const succeeded = section(complete, '      - name: Record exact production acceptance', '      - name: Record terminal publish');
+  for (const proof of [
+    "needs.publish.result == 'success'", "needs.runtime.result == 'success'",
+    "steps.public-proof.outcome == 'success'", "steps.runtime-proof.outcome == 'success'",
+  ]) assert.ok(succeeded.includes(proof));
+  assert.match(succeeded, /--status succeeded/);
+  assert.match(succeeded, /--public-readback[\s\S]*--install-readback[\s\S]*--runtime-readback/);
+  const failed = section(complete, '      - name: Record terminal publish', '      - name: Upload completed production evidence');
+  assert.match(failed, /always\(\)/);
+  assert.match(failed, /needs\.publish\.result != 'success'/);
+  assert.match(failed, /needs\.runtime\.result != 'success'/);
+  assert.match(failed, /steps\.public-proof\.outcome != 'success'/);
+  assert.match(failed, /steps\.runtime-proof\.outcome != 'success'/);
+  assert.match(failed, /--status failed/);
+  assert.doesNotMatch(failed, /--status succeeded|--runtime-readback/);
+});
+
+test('cancelled generation recovery is exact, candidate-null only, and secret-minimal', () => {
+  assert.match(recovery, /workflow_run:[\s\S]*workflows: \[Generate Pack\][\s\S]*types: \[completed\][\s\S]*branches: \[main\]/);
+  assert.match(recovery, /workflow_run\.conclusion == 'cancelled'/);
+  assert.match(recovery, /workflow_run\.event == 'workflow_run'.*workflow_run\.event == 'workflow_dispatch'/s);
+  assert.match(recovery, /environment:\n\s+name: pack-production-writer/);
+  assert.match(recovery, /actions\/runs\/\$RUN_ID\/attempts\/\$RUN_ATTEMPT/);
+  assert.match(recovery, /compare\/\$SOURCE_SHA\.\.\.\$GITHUB_SHA/);
+  assert.match(recovery, /generate-packs\.yml\?ref=\$SOURCE_SHA/);
+  assert.match(recovery, /artifacts\?per_page=100/);
+  assert.match(recovery, /actions\/artifacts\/\$artifact_id\/zip/);
+  assert.match(recovery, /actual_digest=.*sha256sum/);
+  assert.match(recovery, /test "\$actual_digest" = "\$expected_digest"/);
+  assert.match(recovery, /ZIP contains an unsafe path/);
+  assert.match(recovery, /if: steps\.prepare\.outputs\.outcome == 'candidate_null_prepared'/);
+  assert.match(recovery, /PACK_PRODUCTION_AUTOMATION_KEY: \$\{\{ secrets\.PACK_PRODUCTION_AUTOMATION_KEY \}\}/);
+  assert.doesNotMatch(recovery, /PACK_EVALUATOR_HELM_API_KEY|PACK_PRODUCTION_MANUAL_PUBLISH_KEY|PACK_PRODUCTION_READBACK_KEY|SUPABASE_SERVICE_ROLE|APP_PRIVATE_KEY/);
+  const writeToken = recovery.indexOf('PACK_PRODUCTION_AUTOMATION_KEY:');
+  assert.ok(writeToken > recovery.indexOf('Persist the exact candidate-null cancellation audit'));
+  assert.match(recovery, /Never re-upload source evaluator stdout, stderr, run logs, or raw/);
+  assert.match(recovery, /retention-days: 90/);
+});
+
+test('all workflow checkouts drop persisted Git credentials', () => {
+  for (const [name, source] of Object.entries({ admission, generate, publish, recovery })) {
+    const checkouts = (source.match(/uses: actions\/checkout@(?:v5|fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09)/g) ?? []).length;
+    const disabled = (source.match(/persist-credentials: false/g) ?? []).length;
+    assert.ok(checkouts > 0, `${name} has no checkout`);
+    assert.equal(disabled, checkouts, `${name} checkout credential isolation drifted`);
+  }
+});
+
+test('pack production pins executable Actions and requires an independent CLI digest contract', () => {
+  for (const source of [admission, generate, publish, recovery]) assertPinnedSecretActions(source);
+  assert.match(cliDownloadAction, /expected-sha256:/);
   assert.match(
-    cacheReadSection,
-    /if \[ "\$REQUIRE_CHECKSUM" != "true" \]; then[\s\S]*CACHED_VERSION=/,
+    cliDownloadAction,
+    /- name: Verify release checksum before execution[\s\S]*?env:[\s\S]*?EXPECTED_SHA256: \$\{\{ inputs\.expected-sha256 \}\}[\s\S]*?run:/,
   );
-  assert.match(DOWNLOAD_ACTION, /TEMP_CACHE_FILE=/);
-  assert.match(DOWNLOAD_ACTION, /mv -f "\$TEMP_CACHE_FILE" "\$CACHE_FILE"/);
-});
-
-test('production content is nonce-bound and never dispatches the legacy translation writer', () => {
-  const contentIndex = GENERATE_CONTENT.indexOf('      - name: Generate content');
-  assert.ok(contentIndex >= 0);
-  assert.doesNotMatch(GENERATE_CONTENT, /Dispatch translation after content is complete/);
-  assert.doesNotMatch(GENERATE_CONTENT, /event_type:\"translate-packs\"/);
-  assert.match(GENERATE_CONTENT, /if \[ -n "\$GENERATION_ID" \]; then/);
-  assert.match(GENERATE_CONTENT, /version: '2\.14\.2'/);
-  assert.match(GENERATE_CONTENT, /minimum-version: '2\.14\.2'/);
-  assert.match(GENERATE_CONTENT, /bindingDigest/);
-  assert.match(GENERATE_CONTENT, /usageGuideMarker/);
-  assert.match(GENERATE_CONTENT, /github\.event\.client_payload\.contentDispatchNonce/);
-  assert.match(GENERATE_CONTENT, /--generation-id \"\$GENERATION_ID\"/);
-  assert.match(GENERATE_CONTENT, /--content-dispatch-nonce \"\$CONTENT_DISPATCH_NONCE\"/);
-  assert.match(GENERATE_CONTENT, /--execution-binding-digest \"\$BINDING_DIGEST\"/);
-  assert.match(GENERATE_CONTENT, /--usage-guide-marker \"\$USAGE_GUIDE_MARKER\"/);
-  assert.match(GENERATE_CONTENT, /SKILLSTORE_API_URL: \$\{\{ secrets\.SKILLSTORE_API_URL \}\}/);
-  assert.match(GENERATE_CONTENT, /PACK_PRODUCTION_AUTOMATION_KEY: \$\{\{ secrets\.PACK_PRODUCTION_AUTOMATION_KEY \}\}/);
-  assert.doesNotMatch(GENERATE_CONTENT, /2\.12\.0|RELEASE BLOCKER/);
-  assert.match(GENERATE_CONTENT, /require-checksum: 'true'/);
-  assert.match(GENERATE_CONTENT, /name: Mark failed or cancelled production enrichment/);
-  assert.match(GENERATE_CONTENT, /\(failure\(\) \|\| cancelled\(\)\).*generationId != ''/);
-  assert.match(GENERATE_CONTENT, /--request PATCH/);
-  assert.match(GENERATE_CONTENT, /--max-time 15 --retry 0/);
-  assert.match(GENERATE_CONTENT, /outcome: "enrichment_failed"/);
-  assert.match(GENERATE_CONTENT, /contentDispatchNonce: \$contentDispatchNonce/);
-  assert.match(GENERATE_CONTENT, /contentStatus: "failed"/);
-  assert.match(GENERATE_CONTENT, /translationStatus: null/);
-  assert.match(GENERATE_CONTENT, /\.data\.content_dispatch_nonce/);
-  assert.match(GENERATE_CONTENT, /\.data\.content_dispatch_status == "failed"/);
-  assert.match(TRANSLATE_PACKS, /github\.event\.client_payload\.cli_version/);
-  assert.match(TRANSLATE_PACKS, /require-checksum: \$\{\{ github\.event\.client_payload\.source_generation_id/);
-  assert.match(TRANSLATE_PACKS, /SKILLSTORE_AGENT_ENV_MODE: strict/);
-  assert.equal(
-    (TRANSLATE_PACKS.match(/SKILLSTORE_TRANSLATION_CODEX_API_KEY: \$\{\{ secrets\.SKILLSTORE_TRANSLATION_CODEX_API_KEY \}\}/g) ?? []).length,
-    1,
+  assert.match(cliDownloadAction, /independently recorded expected digest/);
+  assert.match(cliDownloadAction, /actions\/cache@0057852bfaa89a56745cba8c7296529d2fc39830/);
+  const localCache = cliDownloadAction.slice(
+    cliDownloadAction.indexOf('    - name: Check local cache'),
+    cliDownloadAction.indexOf('    - name: Cache CLI'),
   );
-  assert.equal(
-    (TRANSLATE_SKILLS.match(/SKILLSTORE_TRANSLATION_CODEX_API_KEY: \$\{\{ secrets\.SKILLSTORE_TRANSLATION_CODEX_API_KEY \}\}/g) ?? []).length,
-    2,
+  assert.match(
+    localCache,
+    /if \[ "\$REQUIRE_CHECKSUM" != "true" \]; then[\s\S]*CACHED_VERSION=[\s\S]*rm -f "\$CACHE_FILE" "\$GITHUB_WORKSPACE\/skillstore-cli"/,
   );
-  assert.equal((TRANSLATE_SKILLS.match(/SKILLSTORE_AGENT_ENV_MODE: strict/g) ?? []).length, 2);
-  assert.doesNotMatch(TRANSLATE_PACKS, /HELM_API_KEY:\s*\$\{\{ secrets\.HELM_API_KEY \}\}/);
-  assert.doesNotMatch(TRANSLATE_SKILLS, /HELM_API_KEY:\s*\$\{\{ secrets\.HELM_API_KEY \}\}/);
+  assert.match(localCache, /Checksum-required callers do not[\s\S]*execute these bytes until the checksum gate below succeeds/);
 });
