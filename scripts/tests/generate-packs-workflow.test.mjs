@@ -191,6 +191,12 @@ test('pre-publication runtime acceptance executes one staged result as the isola
 
 test('evaluation checkpoints cancellation evidence and never uploads raw run logs', () => {
   const evaluate = section(generate, '  evaluate:', '  persist:');
+  const evaluationShell = section(evaluate, '      - name: Evaluate the single admitted scenario', '      - name: Upload trusted evaluation evidence');
+  const runScalar = evaluationShell.slice(evaluationShell.indexOf('        run: |'));
+  assert.doesNotMatch(runScalar, /\$\{\{/);
+  assert.match(evaluationShell, /--run-id "\$GITHUB_RUN_ID"/);
+  assert.match(evaluationShell, /--run-attempt "\$GITHUB_RUN_ATTEMPT"/);
+  assert.match(evaluationShell, /--commit-sha "\$GITHUB_SHA"/);
   assert.match(evaluate, /checkpoint_loop\(\)/);
   assert.match(evaluate, /flock -x 9/);
   assert.match(evaluate, /evaluate-checkpoint\.json/);
