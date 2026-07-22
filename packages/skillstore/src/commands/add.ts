@@ -494,10 +494,10 @@ async function addPlugin(slug: string, options: AddOptions): Promise<void> {
 			verifyHash: !skipVerify,
 		});
 		const downloadResult = memberTransaction.summary;
+		printDownloadSummary(downloadResult);
 		if (!dryRun && downloadResult.failed > 0) {
 			throw new Error(`Failed to stage ${downloadResult.failed} Pack member${downloadResult.failed === 1 ? '' : 's'}`);
 		}
-		printDownloadSummary(downloadResult);
 
 		// Step 5: Link canonical skills into each selected agent directory.
 		const successfulSkillSlugs = downloadResult.results.filter((r) => r.success).map((r) => r.slug);

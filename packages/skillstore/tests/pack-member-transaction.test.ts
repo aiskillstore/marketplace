@@ -1,9 +1,13 @@
-import { mkdtemp, mkdir, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises';
+import { chmod, mkdtemp, mkdir, readFile, readdir, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { stagePackSkillDownloads, stagePackTargetLinks } from '../src/lib/plugin-download.js';
+import {
+	stagePackSkillDownloads,
+	stagePackTargetLinks,
+	verifyInstalledPackMember,
+} from '../src/lib/plugin-download.js';
 import type { PluginConfig } from '../src/lib/plugin-config.js';
 import type { ManifestSkill } from '../src/lib/plugin-api.js';
 
@@ -136,6 +140,54 @@ describe('Pack member transaction', () => {
 
 		expect(transaction.summary).toMatchObject({ success: 0, skipped: 1, failed: 0 });
 		expect(mocks.downloadSkillFile).not.toHaveBeenCalled();
+		await transaction.rollback();
+	});
+
+	it('derives and applies legacy executable modes only when they match the signed tree hash', async () => {
+		const { config, members } = await fixture();
+		const skillMd = new TextEncoder().encode('# Skill');
+		const script = new TextEncoder().encode('#!/usr/bin/env python3\nprint("ok")\n');
+		const files = [
+			{ path: 'SKILL.md', url: '/skill', bytes: skillMd, mode: '100644' },
+			{ path: 'scripts/run.py', url: '/script', bytes: script, mode: '100755' },
+		] as const;
+		const member: ManifestSkill = {
+			...members[0],
+			contentHash: createHash('sha256').update(skillMd).digest('hex'),
+			treeHash: createHash('sha256').update([...files]
+				.sort((left, right) => left.path.localeCompare(right.path, 'en', { sensitivity: 'variant' }))
+				.map((file) => JSON.stringify({
+					path: file.path,
+					mode: file.mode,
+					sha256: createHash('sha256').update(file.bytes).digest('hex'),
+					size: file.bytes.byteLength,
+				})).join('\n')).digest('hex'),
+			artifact: {
+				type: 'skill-files',
+				files: files.map((file) => ({
+					path: file.path,
+					url: file.url,
+					sha256: createHash('sha256').update(file.bytes).digest('hex'),
+					bytes: file.bytes.byteLength,
+				})),
+			},
+		};
+		mocks.downloadSkillFile.mockImplementation(async (_config: PluginConfig, url: string) =>
+			url === '/skill' ? skillMd : script
+		);
+
+		const transaction = await stagePackSkillDownloads(config, [member]);
+		expect(transaction.summary).toMatchObject({ success: 1, failed: 0 });
+		await transaction.activate();
+		const scriptPath = join(config.installDir, member.slug, 'scripts/run.py');
+		await expect(verifyInstalledPackMember(join(config.installDir, member.slug), member)).resolves.toBeUndefined();
+		if (process.platform !== 'win32') {
+			expect((await stat(join(config.installDir, member.slug, 'SKILL.md'))).mode & 0o777).toBe(0o644);
+			expect((await stat(scriptPath)).mode & 0o777).toBe(0o755);
+			await chmod(scriptPath, 0o644);
+			await expect(verifyInstalledPackMember(join(config.installDir, member.slug), member))
+				.rejects.toThrow('file modes do not match signed manifest');
+		}
 		await transaction.rollback();
 	});
 

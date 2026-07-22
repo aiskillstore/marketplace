@@ -529,6 +529,18 @@ describe('plugin-api', () => {
 			expect(mockFetch).not.toHaveBeenCalled();
 		});
 
+		it('allows only an exact, explicitly approved immutable raw GitHub URL', async () => {
+			const url = 'https://raw.githubusercontent.com/aiskillstore/marketplace/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/skills/example/SKILL.md';
+			mockFetch.mockResolvedValueOnce(new Response('ok'));
+			await expect(downloadSkillFile(config, url, { approvedExternalUrl: url }))
+				.resolves.toEqual(new TextEncoder().encode('ok'));
+			expect(String(mockFetch.mock.calls[0][0])).toBe(url);
+
+			await expect(downloadSkillFile(config, url, {
+				approvedExternalUrl: url.replace('SKILL.md', 'OTHER.md'),
+			})).rejects.toThrow('outside the configured Skillstore origin');
+		});
+
 		it('should throw error on download failure', async () => {
 			mockFetch.mockResolvedValueOnce({
 				ok: false,
@@ -560,6 +572,18 @@ describe('plugin-api', () => {
 			mockFetch.mockResolvedValueOnce(new Response('abcd'));
 			await expect(downloadSkillFile(config, '/skill.bin', { maxBytes: 3 }))
 				.rejects.toThrow('exceeds 3 byte limit');
+		});
+
+		it('compares limits and signed bytes with the decoded body when Content-Length describes compression', async () => {
+			mockFetch.mockResolvedValueOnce(new Response('abcd', {
+				headers: {
+					'content-encoding': 'gzip',
+					'content-length': '11',
+				},
+			}));
+
+			await expect(downloadSkillFile(config, '/skill.bin', { expectedBytes: 4, maxBytes: 10 }))
+				.resolves.toEqual(new TextEncoder().encode('abcd'));
 		});
 
 		it('allows only an explicitly configured localhost test origin over HTTP', async () => {

@@ -1,8 +1,12 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { mkdir, rm, writeFile, lstat, readFile, readdir, readlink, rename } from 'node:fs/promises';
+import { chmod, mkdir, rm, writeFile, lstat, readFile, readdir, readlink, rename } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, join, normalize, relative, resolve, sep } from 'node:path';
 import type { PluginConfig } from './plugin-config.js';
-import type { ManifestSkill, ManifestSkillArtifactFile } from './plugin-api.js';
+import type {
+	ManifestSkill,
+	ManifestSkillArtifactFile,
+	ManifestSkillArtifactSource,
+} from './plugin-api.js';
 import { downloadSkillFile, MAX_ARTIFACT_FILE_BYTES } from './plugin-api.js';
 import { verifyContentHash } from './plugin-verify.js';
 import { logger } from './plugin-logger.js';
@@ -36,6 +40,9 @@ export interface DownloadSummary {
 export const MAX_PACK_SKILLS = 100;
 export const MAX_PACK_ARTIFACT_FILES = 256;
 export const MAX_PACK_ARTIFACT_BYTES = 50 * 1024 * 1024;
+const MAX_LEGACY_UNSIGNED_MODE_FILES = 12;
+const MARKETPLACE_GITHUB_OWNER = 'aiskillstore';
+const MARKETPLACE_GITHUB_REPO = 'marketplace';
 
 interface StagedSkill {
 	skillDir: string;
@@ -130,15 +137,116 @@ function getArtifactFiles(skill: ManifestSkill): ManifestSkillArtifactFile[] {
 	}];
 }
 
+function githubSourcePath(source: ManifestSkillArtifactSource): string {
+	if (source.type !== 'github') throw new Error('Unsupported Pack artifact source type');
+	if (!/^[A-Za-z0-9_.-]+$/.test(source.owner) || !/^[A-Za-z0-9_.-]+$/.test(source.repo)) {
+		throw new Error('Invalid GitHub Pack artifact owner or repository');
+	}
+	if (source.owner !== MARKETPLACE_GITHUB_OWNER || source.repo !== MARKETPLACE_GITHUB_REPO) {
+		throw new Error('Pack artifact source is outside the approved Marketplace mirror');
+	}
+	if (!/^[0-9a-f]{40}$/.test(source.commit) || source.ref !== source.commit) {
+		throw new Error('Pack artifact source must use one immutable GitHub commit');
+	}
+	if (
+		!source.path
+		|| source.path.includes('\\')
+		|| /[\u0000-\u001f\u007f]/u.test(source.path)
+		|| source.path.split('/').some((segment) => !segment || segment === '.' || segment === '..')
+	) {
+		throw new Error('Invalid GitHub Pack artifact source path');
+	}
+	return source.path.split('/').map(encodeURIComponent).join('/');
+}
+
+function approvedExternalArtifactUrl(
+	config: PluginConfig,
+	skill: ManifestSkill,
+	file: ManifestSkillArtifactFile
+): string | undefined {
+	const apiOrigin = new URL(config.apiBaseUrl).origin;
+	const url = new URL(file.url, apiOrigin);
+	if (url.origin === apiOrigin) return undefined;
+	if (url.origin !== 'https://raw.githubusercontent.com') {
+		throw new Error(`Refusing Pack artifact URL outside approved origins: ${file.url}`);
+	}
+	const source = skill.artifact?.source;
+	if (!source) throw new Error(`External Pack artifact is missing signed GitHub provenance: ${file.path}`);
+	const sourcePath = githubSourcePath(source);
+	const artifactPath = normalizedArtifactPath(file.path).split('/').map(encodeURIComponent).join('/');
+	const expected = new URL(
+		`https://raw.githubusercontent.com/${encodeURIComponent(source.owner)}/${encodeURIComponent(source.repo)}/${source.commit}/${sourcePath}/${artifactPath}`
+	);
+	if (url.href !== expected.href || url.search || url.hash || url.username || url.password) {
+		throw new Error(`Pack artifact URL does not match signed GitHub provenance: ${file.path}`);
+	}
+	return expected.href;
+}
+
 function normalizedArtifactPath(filePath: string): string {
-	return resolveSkillFilePath('/skill-root', filePath).slice('/skill-root/'.length).split(sep).join('/');
+	const rootPath = resolve('/skill-root');
+	const targetPath = resolveSkillFilePath(rootPath, filePath);
+	return relative(rootPath, targetPath).split(sep).join('/');
 }
 
 function treeHash(entries: Array<{ path: string; mode: string; sha256: string; size: number }>): string {
-	return createHash('sha256').update(entries
+	return createHash('sha256').update([...entries]
 		.sort((left, right) => left.path.localeCompare(right.path, 'en', { sensitivity: 'variant' }))
 		.map((entry) => JSON.stringify(entry))
 		.join('\n')).digest('hex');
+}
+
+interface DownloadedArtifactEntry {
+	file: ManifestSkillArtifactFile;
+	targetPath: string;
+	content: Uint8Array;
+}
+
+function resolveSignedArtifactModes(
+	skill: ManifestSkill,
+	entries: DownloadedArtifactEntry[]
+): Array<'100644' | '100755'> {
+	if (!/^[0-9a-f]{64}$/.test(skill.treeHash ?? '')) {
+		throw new Error(`Pack member is missing an exact signed tree hash: ${skill.slug}`);
+	}
+	const unresolved = entries
+		.map((entry, index) => ({ entry, index }))
+		.filter(({ entry }) => entry.file.mode === undefined);
+	if (unresolved.length > MAX_LEGACY_UNSIGNED_MODE_FILES) {
+		throw new Error(`Pack member file modes are not signed and cannot be derived safely: ${skill.slug}`);
+	}
+
+	let matched: Array<'100644' | '100755'> | null = null;
+	const combinations = 2 ** unresolved.length;
+	for (let mask = 0; mask < combinations; mask += 1) {
+		let bit = 0;
+		const modes = entries.map((entry): '100644' | '100755' => {
+			if (entry.file.mode) return entry.file.mode;
+			const mode = (mask & (1 << bit)) === 0 ? '100644' : '100755';
+			bit += 1;
+			return mode;
+		});
+		const digest = treeHash(entries.map((entry, index) => ({
+			path: normalizedArtifactPath(entry.file.path),
+			mode: modes[index],
+			sha256: sha256Hex(entry.content),
+			size: entry.content.byteLength,
+		})));
+		if (digest !== skill.treeHash) continue;
+		if (matched) throw new Error(`Pack member file modes are ambiguous: ${skill.slug}`);
+		matched = modes;
+	}
+	if (!matched) throw new Error(`Pack member file modes do not match signed tree hash: ${skill.slug}`);
+	return matched;
+}
+
+async function applySignedArtifactModes(skill: ManifestSkill, entries: DownloadedArtifactEntry[]): Promise<void> {
+	const modes = resolveSignedArtifactModes(skill, entries);
+	if (process.platform === 'win32') return;
+	await Promise.all(entries.map((entry, index) => chmod(
+		entry.targetPath,
+		modes[index] === '100755' ? 0o755 : 0o644
+	)));
 }
 
 /**
@@ -157,13 +265,16 @@ export async function verifyInstalledPackMember(skillDir: string, skill: Manifes
 			throw new Error(`Existing skill cannot be reused without signed file hashes: ${skill.slug}`);
 		}
 		if (expected.has(path)) throw new Error(`Existing skill has duplicate signed artifact path: ${skill.slug}`);
+		if (file.mode !== undefined && file.mode !== '100644' && file.mode !== '100755') {
+			throw new Error(`Existing skill has an invalid signed file mode: ${skill.slug}`);
+		}
 		expected.set(path, file);
 	}
 	if (skill.contentHash !== expected.get('SKILL.md')?.sha256) {
 		throw new Error(`Existing skill content identity does not match signed manifest: ${skill.slug}`);
 	}
 
-	const entries: Array<{ path: string; mode: string; sha256: string; size: number }> = [];
+	const entries: Array<{ path: string; mode: '100644' | '100755'; sha256: string; size: number; content: Uint8Array }> = [];
 	const root = resolve(skillDir);
 	const walk = async (directory: string): Promise<void> => {
 		const children = await readdir(directory, { withFileTypes: true });
@@ -184,6 +295,7 @@ export async function verifyInstalledPackMember(skillDir: string, skill: Manifes
 				mode: (stat.mode & 0o111) === 0 ? '100644' : '100755',
 				sha256: sha256Hex(bytes),
 				size: bytes.byteLength,
+				content: bytes,
 			});
 		}
 	};
@@ -191,16 +303,31 @@ export async function verifyInstalledPackMember(skillDir: string, skill: Manifes
 
 	if (entries.length !== expected.size || entries.some((entry) => {
 		const signed = expected.get(entry.path);
-		return !signed || signed.sha256 !== entry.sha256 || signed.bytes !== entry.size;
+		return !signed
+			|| signed.sha256 !== entry.sha256
+			|| signed.bytes !== entry.size;
 	})) {
 		throw new Error(`Existing skill does not match signed artifact files: ${skill.slug}`);
 	}
-	if (treeHash(entries) !== skill.treeHash) {
+	const signedModes = resolveSignedArtifactModes(skill, entries.map((entry) => ({
+		file: expected.get(entry.path)!,
+		targetPath: '',
+		content: entry.content,
+	})));
+	if (process.platform !== 'win32' && entries.some((entry, index) => entry.mode !== signedModes[index])) {
+		throw new Error(`Existing skill file modes do not match signed manifest: ${skill.slug}`);
+	}
+	if (treeHash(entries.map((entry, index) => ({
+		path: entry.path,
+		mode: signedModes[index],
+		sha256: entry.sha256,
+		size: entry.size,
+	}))) !== skill.treeHash) {
 		throw new Error(`Existing skill tree hash does not match signed manifest: ${skill.slug}`);
 	}
 }
 
-function validatePackManifest(skills: ManifestSkill[]): void {
+function validatePackManifest(config: PluginConfig, skills: ManifestSkill[]): void {
 	if (skills.length > MAX_PACK_SKILLS) {
 		throw new Error(`Pack has too many Skills (maximum ${MAX_PACK_SKILLS})`);
 	}
@@ -227,6 +354,10 @@ function validatePackManifest(skills: ManifestSkill[]): void {
 			if (!Number.isSafeInteger(file.bytes) || file.bytes! < 0 || file.bytes! > MAX_ARTIFACT_FILE_BYTES) {
 				throw new Error(`Invalid signed byte count for artifact file ${file.path}`);
 			}
+			if (file.mode !== undefined && file.mode !== '100644' && file.mode !== '100755') {
+				throw new Error(`Invalid signed mode for artifact file ${file.path}`);
+			}
+			approvedExternalArtifactUrl(config, skill, file);
 			declaredBytes += file.bytes!;
 			if (declaredBytes > MAX_PACK_ARTIFACT_BYTES) {
 				throw new Error(`Pack artifacts exceed ${MAX_PACK_ARTIFACT_BYTES} byte limit`);
@@ -282,7 +413,7 @@ export async function stagePackSkillDownloads(
 	} = {}
 ): Promise<PackSkillDownloadTransaction> {
 	const { overwrite = false, verifyHash = true } = options;
-	validatePackManifest(skills);
+	validatePackManifest(config, skills);
 	const results: SkillDownloadResult[] = [];
 	const staged: StagedSkill[] = [];
 	let success = 0;
@@ -435,12 +566,15 @@ async function stageSingleSkill(
 		await mkdir(parent, { recursive: true });
 		await mkdir(stageDir, { recursive: false, mode: 0o700 });
 
+		const downloadedEntries: DownloadedArtifactEntry[] = [];
 		for (const { file, targetPath } of artifactFiles) {
 			const expectedBytes = skill.artifact ? file.bytes : undefined;
+			const approvedExternalUrl = approvedExternalArtifactUrl(config, skill, file);
 			const content = await downloadSkillFile(config, file.url, {
 				maxBytes: expectedBytes ?? MAX_ARTIFACT_FILE_BYTES,
 				expectedBytes,
 				onBytes: consumeBytes,
+				approvedExternalUrl,
 			});
 
 			if (options.verifyHash) {
@@ -457,7 +591,9 @@ async function stageSingleSkill(
 
 			await mkdir(dirname(targetPath), { recursive: true });
 			await writeFile(targetPath, content);
+			downloadedEntries.push({ file, targetPath, content });
 		}
+		if (skill.artifact) await applySignedArtifactModes(skill, downloadedEntries);
 
 		return {
 			result: { slug: skill.slug, success: true, path: skillDir },

@@ -20,14 +20,25 @@ export interface ManifestSkillArtifactFile {
 	url: string;
 	sha256?: string;
 	bytes?: number;
+	mode?: '100644' | '100755';
 }
 
 export const MAX_ARTIFACT_FILE_BYTES = 10 * 1024 * 1024;
+
+export interface ManifestSkillArtifactSource {
+	type: 'github';
+	owner: string;
+	repo: string;
+	ref: string;
+	commit: string;
+	path: string;
+}
 
 export interface ManifestSkillArtifact {
 	type?: string;
 	files?: ManifestSkillArtifactFile[];
 	sha256?: string;
+	source?: ManifestSkillArtifactSource;
 }
 
 export interface ManifestSkill {
@@ -442,6 +453,7 @@ export async function downloadSkillFile(
 		maxBytes?: number;
 		expectedBytes?: number;
 		onBytes?: (bytes: number) => void;
+		approvedExternalUrl?: string;
 	} = {}
 ): Promise<Uint8Array> {
 	const apiUrl = new URL(config.apiBaseUrl);
@@ -449,7 +461,17 @@ export async function downloadSkillFile(
 	const isLoopback = fullUrl.hostname === 'localhost'
 		|| fullUrl.hostname === '127.0.0.1'
 		|| fullUrl.hostname === '[::1]';
-	if (fullUrl.origin !== apiUrl.origin || (fullUrl.protocol !== 'https:' && !isLoopback)) {
+	const approvedExternalUrl = limits.approvedExternalUrl
+		? new URL(limits.approvedExternalUrl)
+		: null;
+	const isApprovedExternal = approvedExternalUrl?.href === fullUrl.href
+		&& fullUrl.origin === 'https://raw.githubusercontent.com'
+		&& fullUrl.protocol === 'https:'
+		&& !fullUrl.username
+		&& !fullUrl.password;
+	const isApprovedSameOrigin = fullUrl.origin === apiUrl.origin
+		&& (fullUrl.protocol === 'https:' || isLoopback);
+	if (!isApprovedSameOrigin && !isApprovedExternal) {
 		throw new Error(`Refusing artifact URL outside the configured Skillstore origin: ${downloadUrl}`);
 	}
 	const maxBytes = limits.maxBytes ?? MAX_ARTIFACT_FILE_BYTES;
@@ -482,11 +504,13 @@ export async function downloadSkillFile(
 			throw new Error('Invalid artifact Content-Length');
 		}
 		const length = Number(contentLength);
-		if (!Number.isSafeInteger(length) || length > maxBytes) {
+		const contentEncoding = response.headers.get('content-encoding')?.trim().toLowerCase();
+		const hasEncodedRepresentation = !!contentEncoding && contentEncoding !== 'identity';
+		if (!Number.isSafeInteger(length) || (!hasEncodedRepresentation && length > maxBytes)) {
 			controller.abort();
 			throw new Error(`Artifact exceeds ${maxBytes} byte limit`);
 		}
-		if (limits.expectedBytes !== undefined && length !== limits.expectedBytes) {
+		if (!hasEncodedRepresentation && limits.expectedBytes !== undefined && length !== limits.expectedBytes) {
 			controller.abort();
 			throw new Error(`Artifact byte count does not match signed manifest: expected ${limits.expectedBytes}, got ${length}`);
 		}
