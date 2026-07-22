@@ -34,7 +34,7 @@ const RUN_ID = '123456789';
 const SOURCE_SHA = 'a'.repeat(40);
 const ARTIFACT_DIGEST = `sha256:${'b'.repeat(64)}`;
 const SKILL_CONTENTS = [Buffer.from('# Skill one\n'), Buffer.from('# Skill two\n')];
-const CLI_VERSION = '__SET_AFTER_MARKETPLACE_CLI_RELEASE__';
+const CLI_VERSION = '0.1.13';
 const CLI_PACKAGE = `skillstore@${CLI_VERSION}`;
 
 function registryProofFixture() {
@@ -1055,7 +1055,7 @@ test('workflow separates public authority, credential-free runtime, and hosted c
     publish.indexOf('      - name: Preflight the exact public Marketplace CLI release'),
     publish.indexOf('      - name: Download the reviewed immutable approval handoff'),
   );
-  assert.match(cliPreflight, /MARKETPLACE_CLI_VERSION: '__SET_AFTER_MARKETPLACE_CLI_RELEASE__'/);
+  assert.match(cliPreflight, /MARKETPLACE_CLI_VERSION: '0\.1\.13'/);
   assert.match(cliPreflight, /\^\(0\|\[1-9\]\[0-9\]\*\)\\\.\(0\|\[1-9\]\[0-9\]\*\)\\\.\(0\|\[1-9\]\[0-9\]\*\)\$/);
   assert.match(cliPreflight, /npm view --registry=https:\/\/registry\.npmjs\.org "skillstore@\$MARKETPLACE_CLI_VERSION" --json/);
   assert.match(cliPreflight, /\.dist\.integrity[\s\S]*sha512-/);
@@ -1125,7 +1125,8 @@ test('workflow separates public authority, credential-free runtime, and hosted c
   assert.match(completion, /Upload completed production evidence\n\s+if: always\(\)/);
   assert.match(workflow, /Upload exact public publication evidence\n\s+if: always\(\)/);
   const publisher = readFileSync(join(REPO_ROOT, 'scripts/pack-production-manual-publish.mjs'), 'utf8');
-  assert.match(publisher, /CLI_PACKAGE = 'skillstore@__SET_AFTER_MARKETPLACE_CLI_RELEASE__'/);
+  assert.match(publisher, /CLI_PACKAGE = 'skillstore@0\.1\.13'/);
+  assert.doesNotMatch(publisher, /__SET_AFTER_/);
   assert.doesNotMatch(publisher, /skillstore@0\.1\.11/);
   const production = readFileSync(join(REPO_ROOT, 'scripts/pack-production.mjs'), 'utf8');
   const finalize = production.slice(
