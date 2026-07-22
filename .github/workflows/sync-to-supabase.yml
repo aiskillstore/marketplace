@@ -1011,34 +1011,64 @@ jobs:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           SYNCED_SKILL_COUNT: ${{ needs.sync.outputs.synced_skill_count }}
           ENGLISH_CACHE_FINALIZER_RESULT: ${{ needs.finalize-english-cache.result }}
+          CACHE_FINALIZER_MAX_SKILLS: ${{ vars.CACHE_FINALIZER_MAX_SKILLS || '5' }}
         run: |
-          SLUG_COUNT="$SYNCED_SKILL_COUNT"
-          THRESHOLD=500
+          set -euo pipefail
 
-          echo "🌍 Triggering translation for $SLUG_COUNT synced skills"
-
-          if [ "$SLUG_COUNT" -le "$THRESHOLD" ]; then
-            # Small batch: pass slugs directly in payload
-            SYNCED_SLUGS=$(paste -sd, ./translation-plan/synced-slugs.txt)
-            echo "   Mode: direct (≤$THRESHOLD slugs)"
-            gh api repos/${{ github.repository }}/dispatches \
-              --method POST \
-              -f event_type=translate-skills \
-              -f "client_payload[skill_slugs]=$SYNCED_SLUGS" \
-              -f "client_payload[triggered_by]=sync-to-supabase" \
-              -f "client_payload[english_cache_finalizer_failed]=$([ "$ENGLISH_CACHE_FINALIZER_RESULT" = success ] && echo false || echo true)"
-            MODE="direct"
-          else
-            # Large batch: use artifact to avoid payload size limits
-            echo "   Mode: artifact (>$THRESHOLD slugs)"
-            gh api repos/${{ github.repository }}/dispatches \
-              --method POST \
-              -f event_type=translate-skills \
-              -f "client_payload[source_run_id]=${{ github.run_id }}" \
-              -f "client_payload[triggered_by]=sync-to-supabase" \
-              -f "client_payload[english_cache_finalizer_failed]=$([ "$ENGLISH_CACHE_FINALIZER_RESULT" = success ] && echo false || echo true)"
-            MODE="artifact (source: ${{ github.run_id }})"
+          SLUG_FILE=./translation-plan/synced-slugs.txt
+          if [[ ! "$SYNCED_SKILL_COUNT" =~ ^[1-9][0-9]*$ ]]; then
+            echo "::error::Invalid synced skill count: $SYNCED_SKILL_COUNT"
+            exit 1
+          fi
+          if [[ ! "$CACHE_FINALIZER_MAX_SKILLS" =~ ^[1-9][0-9]*$ ]] ||
+             [ "$CACHE_FINALIZER_MAX_SKILLS" -gt 25 ]; then
+            echo "::error::CACHE_FINALIZER_MAX_SKILLS must be an integer from 1 to 25"
+            exit 1
+          fi
+          if [ ! -f "$SLUG_FILE" ]; then
+            echo "::error::Synced slug plan not found: $SLUG_FILE"
+            exit 1
           fi
 
-          echo "✅ Translation workflow triggered (mode: $MODE)"
+          SYNCED_SLUGS=()
+          while IFS= read -r SLUG || [ -n "$SLUG" ]; do
+            SYNCED_SLUGS+=("$SLUG")
+          done < "$SLUG_FILE"
+          if [ "${#SYNCED_SLUGS[@]}" -ne "$SYNCED_SKILL_COUNT" ]; then
+            echo "::error::Synced slug plan has ${#SYNCED_SLUGS[@]} entries; expected $SYNCED_SKILL_COUNT"
+            exit 1
+          fi
+
+          SEEN_SLUGS=$'\n'
+          for SLUG in "${SYNCED_SLUGS[@]}"; do
+            if [[ ! "$SLUG" =~ ^[a-z0-9/_-]+$ ]]; then
+              echo "::error::Invalid slug in synced plan: $SLUG"
+              exit 1
+            fi
+            if [[ "$SEEN_SLUGS" == *$'\n'"$SLUG"$'\n'* ]]; then
+              echo "::error::Duplicate slug in synced plan: $SLUG"
+              exit 1
+            fi
+            SEEN_SLUGS="${SEEN_SLUGS}${SLUG}"$'\n'
+          done
+
+          BATCH_COUNT=$(( (SYNCED_SKILL_COUNT + CACHE_FINALIZER_MAX_SKILLS - 1) / CACHE_FINALIZER_MAX_SKILLS ))
+          ENGLISH_CACHE_FAILED=$([ "$ENGLISH_CACHE_FINALIZER_RESULT" = success ] && echo false || echo true)
+          echo "🌍 Triggering translation for $SYNCED_SKILL_COUNT synced skills in $BATCH_COUNT bounded batch(es)"
+
+          for ((OFFSET=0, BATCH_NUMBER=1; OFFSET<SYNCED_SKILL_COUNT; OFFSET+=CACHE_FINALIZER_MAX_SKILLS, BATCH_NUMBER++)); do
+            BATCH=("${SYNCED_SLUGS[@]:OFFSET:CACHE_FINALIZER_MAX_SKILLS}")
+            printf -v BATCH_SLUGS '%s,' "${BATCH[@]}"
+            BATCH_SLUGS=${BATCH_SLUGS%,}
+
+            echo "   Batch $BATCH_NUMBER/$BATCH_COUNT: ${#BATCH[@]} skill(s)"
+            gh api repos/${{ github.repository }}/dispatches \
+              --method POST \
+              -f event_type=translate-skills \
+              -f "client_payload[skill_slugs]=$BATCH_SLUGS" \
+              -f "client_payload[triggered_by]=sync-to-supabase" \
+              -f "client_payload[english_cache_finalizer_failed]=$ENGLISH_CACHE_FAILED"
+          done
+
+          echo "✅ Triggered $BATCH_COUNT bounded translation workflow run(s)"
           echo "   Monitor at: https://github.com/${{ github.repository }}/actions/workflows/translate-skills.yml"

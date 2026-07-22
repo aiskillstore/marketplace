@@ -1,6 +1,15 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import {
+  chmodSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
+import { tmpdir } from 'node:os';
 import { dirname, resolve } from 'node:path';
+import { spawnSync } from 'node:child_process';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
@@ -14,6 +23,22 @@ import {
 } from '../finalize-translation-cache.mjs';
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
+
+function workflowRunScript(workflow, stepName) {
+  const marker = `      - name: ${stepName}\n`;
+  const start = workflow.indexOf(marker);
+  assert.notEqual(start, -1, `workflow step not found: ${stepName}`);
+  const runMarker = '        run: |\n';
+  const runStart = workflow.indexOf(runMarker, start);
+  assert.notEqual(runStart, -1, `run block not found: ${stepName}`);
+  const bodyStart = runStart + runMarker.length;
+  const nextStep = workflow.indexOf('\n      - name:', bodyStart);
+  const body = workflow.slice(bodyStart, nextStep === -1 ? workflow.length : nextStep);
+  return body
+    .split('\n')
+    .map((line) => line.startsWith('          ') ? line.slice(10) : line)
+    .join('\n');
+}
 
 function jsonResponse(payload, status = 200) {
   return new Response(JSON.stringify(payload), {
@@ -294,6 +319,57 @@ test('workflow DAG has one serialized finalizer and no fire-and-forget warm', ()
   assert.match(warm, /^      locales:/m);
   assert.match(warm, /default: 'en'/);
   assert.match(warm, /Unsupported locale/);
+});
+
+test('sync dispatches translations in bounded complete batches', () => {
+  const workflow = readFileSync(
+    resolve(REPO_ROOT, '.github/workflows/sync-to-supabase.yml'),
+    'utf8'
+  );
+  const script = workflowRunScript(workflow, 'Trigger translation workflow')
+    .replaceAll('${{ github.repository }}', 'aiskillstore/marketplace');
+  const temp = mkdtempSync(resolve(tmpdir(), 'translation-dispatch-'));
+
+  try {
+    const planDir = resolve(temp, 'translation-plan');
+    mkdirSync(planDir);
+    const slugs = Array.from({ length: 20 }, (_, index) => `owner-skill-${index + 1}`);
+    writeFileSync(resolve(planDir, 'synced-slugs.txt'), `${slugs.join('\n')}\n`);
+
+    const fakeGh = resolve(temp, 'gh');
+    writeFileSync(fakeGh, '#!/usr/bin/env bash\nprintf \'%s\\n\' "$*" >> "$GH_CALLS"\n');
+    chmodSync(fakeGh, 0o755);
+
+    const result = spawnSync('bash', ['-c', script], {
+      cwd: temp,
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        PATH: `${temp}:${process.env.PATH}`,
+        GH_CALLS: resolve(temp, 'gh-calls.txt'),
+        SYNCED_SKILL_COUNT: '20',
+        CACHE_FINALIZER_MAX_SKILLS: '5',
+        ENGLISH_CACHE_FINALIZER_RESULT: 'success',
+      },
+    });
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+
+    const calls = readFileSync(resolve(temp, 'gh-calls.txt'), 'utf8').trim().split('\n');
+    assert.equal(calls.length, 4);
+    const dispatched = calls.flatMap((call) => {
+      assert.match(call, /client_payload\[triggered_by\]=sync-to-supabase/);
+      assert.match(call, /client_payload\[english_cache_finalizer_failed\]=false/);
+      const match = call.match(/client_payload\[skill_slugs\]=([^ ]+)/);
+      assert.ok(match, `missing skill payload: ${call}`);
+      const batch = match[1].split(',');
+      assert.equal(batch.length, 5);
+      return batch;
+    });
+    assert.deepEqual(dispatched, slugs);
+    assert.equal(new Set(dispatched).size, slugs.length);
+  } finally {
+    rmSync(temp, { recursive: true, force: true });
+  }
 });
 
 test('translation mutation gate is fail-closed for automation and rollout caps', () => {
