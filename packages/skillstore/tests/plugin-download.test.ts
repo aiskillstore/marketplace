@@ -13,6 +13,7 @@ import type { ManifestSkill } from '../src/lib/plugin-api.js';
 
 // Mock fs/promises
 vi.mock('node:fs/promises', () => ({
+	chmod: vi.fn(),
 	mkdir: vi.fn(),
 	rm: vi.fn(),
 	writeFile: vi.fn(),
@@ -52,6 +53,18 @@ const mockRm = vi.mocked(rm);
 const mockWriteFile = vi.mocked(writeFile);
 const mockLstat = vi.mocked(lstat);
 const mockRename = vi.mocked(rename);
+
+function artifactTreeHash(files: Array<{ path: string; mode: '100644' | '100755'; bytes: Uint8Array }>): string {
+	return createHash('sha256').update([...files]
+		.sort((left, right) => left.path.localeCompare(right.path, 'en', { sensitivity: 'variant' }))
+		.map((file) => JSON.stringify({
+			path: file.path,
+			mode: file.mode,
+			sha256: createHash('sha256').update(file.bytes).digest('hex'),
+			size: file.bytes.byteLength,
+		}))
+		.join('\n')).digest('hex');
+}
 
 describe('plugin-download', () => {
 	let config: PluginConfig;
@@ -223,10 +236,15 @@ describe('plugin-download', () => {
 		it('should install all artifact files under the skill directory', async () => {
 			const skillMd = new TextEncoder().encode('# Skill');
 			const reference = new TextEncoder().encode('Reference');
+			const treeFiles = [
+				{ path: 'SKILL.md', mode: '100644' as const, bytes: skillMd },
+				{ path: 'references/guide.md', mode: '100644' as const, bytes: reference },
+			];
 			const artifactSkill: ManifestSkill = {
 				slug: 'artifact-skill',
 				name: 'Artifact Skill',
-				contentHash: '',
+				contentHash: createHash('sha256').update(skillMd).digest('hex'),
+				treeHash: artifactTreeHash(treeFiles),
 				downloadUrl: '/fallback',
 				artifact: {
 					type: 'skill-files',
@@ -236,12 +254,14 @@ describe('plugin-download', () => {
 							url: '/files/SKILL.md',
 							sha256: createHash('sha256').update(skillMd).digest('hex'),
 							bytes: skillMd.byteLength,
+							mode: '100644',
 						},
 						{
 							path: 'references/guide.md',
 							url: '/files/references/guide.md',
 							sha256: createHash('sha256').update(reference).digest('hex'),
 							bytes: reference.byteLength,
+							mode: '100644',
 						},
 					],
 				},
@@ -272,6 +292,50 @@ describe('plugin-download', () => {
 			await expect(downloadAllSkills(config, [unhashedSkill])).rejects.toThrow('Missing exact SHA-256');
 			expect(mockDownloadSkillFile).not.toHaveBeenCalled();
 			expect(mockWriteFile).not.toHaveBeenCalled();
+		});
+
+		it('downloads raw GitHub files only when URL and signed provenance match exactly', async () => {
+			const commit = 'a'.repeat(40);
+			const bytes = new TextEncoder().encode('# verified');
+			const sha256 = createHash('sha256').update(bytes).digest('hex');
+			const url = `https://raw.githubusercontent.com/aiskillstore/marketplace/${commit}/skills/example/SKILL.md`;
+			const skill: ManifestSkill = {
+				slug: 'example',
+				name: 'Example',
+				contentHash: sha256,
+				treeHash: artifactTreeHash([{ path: 'SKILL.md', mode: '100644', bytes }]),
+				downloadUrl: url,
+				artifact: {
+					type: 'skill-files',
+					source: {
+						type: 'github',
+						owner: 'aiskillstore',
+						repo: 'marketplace',
+						ref: commit,
+						commit,
+						path: 'skills/example',
+					},
+					files: [{ path: 'SKILL.md', url, sha256, bytes: bytes.byteLength, mode: '100644' }],
+				},
+			};
+			mockDownloadSkillFile.mockResolvedValue(bytes);
+
+			await expect(downloadAllSkills(config, [skill])).resolves.toMatchObject({ success: 1, failed: 0 });
+			expect(mockDownloadSkillFile).toHaveBeenCalledWith(config, url, expect.objectContaining({
+				approvedExternalUrl: url,
+				expectedBytes: bytes.byteLength,
+			}));
+
+			const mismatched = structuredClone(skill);
+			mismatched.artifact!.source!.commit = 'b'.repeat(40);
+			mismatched.artifact!.source!.ref = 'b'.repeat(40);
+			await expect(downloadAllSkills(config, [mismatched]))
+				.rejects.toThrow('does not match signed GitHub provenance');
+
+			const outsideMirror = structuredClone(skill);
+			outsideMirror.artifact!.source!.owner = 'someone-else';
+			await expect(downloadAllSkills(config, [outsideMirror]))
+				.rejects.toThrow('outside the approved Marketplace mirror');
 		});
 
 		it('should reject artifact paths outside the skill directory before writing files', async () => {
