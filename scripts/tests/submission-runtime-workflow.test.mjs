@@ -16,6 +16,9 @@ import { test } from 'node:test';
 
 const reusable = readFileSync('.github/workflows/reusable-process-skills.yml', 'utf8');
 const caller = readFileSync('.github/workflows/process-submission.yml', 'utf8');
+const approvalCaller = readFileSync('.github/workflows/approve-submission.yml', 'utf8');
+const cliCompatibilityDescription =
+  'Reserved compatibility input; submission processing is pinned to CLI 2.15.12';
 const runtimeFiles = [
   'schemas/skill-report.schema.json',
   'governance/submission-slug-aliases.json',
@@ -70,6 +73,23 @@ function extractRunBlock(workflow, stepName) {
     body.push(line.length > runIndent + 2 ? line.slice(runIndent + 2) : '');
   }
   return body.join('\n');
+}
+
+function extractNamedBlock(workflow, name) {
+  const lines = workflow.split('\n');
+  const nameIndex = lines.findIndex((line) => line.trim() === name);
+  assert.notEqual(nameIndex, -1, `missing workflow block: ${name}`);
+
+  const blockIndent = lines[nameIndex].search(/\S/);
+  let endIndex = lines.length;
+  for (let index = nameIndex + 1; index < lines.length; index += 1) {
+    const indent = lines[index].search(/\S/);
+    if (indent !== -1 && indent <= blockIndent) {
+      endIndex = index;
+      break;
+    }
+  }
+  return lines.slice(nameIndex, endIndex).join('\n');
 }
 
 function createFixture() {
@@ -202,8 +222,8 @@ test('all submission entrypoints and the aggregation import closure are immutabl
   assert.match(reusable, /node "\$GITHUB_WORKSPACE\/scripts\/aggregate-submission-shards\.mjs"/);
   assert.match(reusable, /node "\$GITHUB_WORKSPACE\/scripts\/classify-submission-targets\.mjs"/);
   assert.match(reusable, /require-checksum: true/);
-  assert.match(reusable, /minimum-version: 2\.15\.7/);
-  assert.match(reusable, /Rollout pin: selection-plan processing requires the exact 2\.15\.7 contract/);
+  assert.match(reusable, /minimum-version: 2\.15\.12/);
+  assert.match(reusable, /Dependency gate: do not merge before cli-v2\.15\.12 is released/);
   assert.match(reusable, /trap cleanup_input_plan EXIT/);
   assert.match(reusable, /--slug-aliases-file "\$GITHUB_WORKSPACE\/governance\/submission-slug-aliases\.json"/);
   assert.match(reusable, /--selection-plan "\$INPUT_PLAN"/);
@@ -217,6 +237,73 @@ test('all submission entrypoints and the aggregation import closure are immutabl
     readFileSync('scripts/aggregate-submission-shards.mjs', 'utf8'),
     /from '\.\/resolve-approved-submission\.mjs'/,
   );
+});
+
+test('all submission audit entrypoints pass the existing HELM credential through the reusable secret contract', () => {
+  for (const [name, workflow] of [
+    ['repository dispatch', caller],
+    ['manual approval', approvalCaller],
+  ]) {
+    const processJob = extractNamedBlock(workflow, 'process-skills:');
+    const forwardedSecrets = extractNamedBlock(processJob, 'secrets:');
+    assert.match(processJob, /uses: \.\/\.github\/workflows\/reusable-process-skills\.yml/);
+    assert.match(
+      forwardedSecrets,
+      /^\s*HELM_API_KEY: \$\{\{ secrets\.HELM_API_KEY \}\}$/m,
+      `${name} must forward the repository HELM_API_KEY`,
+    );
+    assert.equal(
+      (workflow.match(/secrets\.HELM_API_KEY/g) ?? []).length,
+      1,
+      `${name} must expose HELM_API_KEY only to the reusable workflow call`,
+    );
+  }
+
+  const workflowCall = extractNamedBlock(reusable, 'workflow_call:');
+  const secretContract = extractNamedBlock(workflowCall, 'secrets:');
+  const helmContract = extractNamedBlock(secretContract, 'HELM_API_KEY:');
+  assert.match(helmContract, /^\s*HELM_API_KEY:\n\s+required: true$/);
+});
+
+test('HELM credential is injected only into the Process shard step environment', () => {
+  const processShard = extractNamedBlock(reusable, '- name: Process shard ${{ matrix.shard }}');
+  const processEnvironment = extractNamedBlock(processShard, 'env:');
+
+  assert.match(
+    processEnvironment,
+    /^\s*HELM_API_KEY: \$\{\{ secrets\.HELM_API_KEY \}\}$/m,
+  );
+  assert.equal(
+    (reusable.match(/secrets\.HELM_API_KEY/g) ?? []).length,
+    1,
+    'only the Process shard step may read the reusable HELM secret',
+  );
+  assert.equal(
+    (reusable.match(/^\s*HELM_API_KEY:/gm) ?? []).length,
+    2,
+    'HELM_API_KEY may appear only in workflow_call.secrets and the Process shard env',
+  );
+});
+
+test('submission processing compatibility inputs and CLI download are pinned to 2.15.12', () => {
+  for (const [name, workflow] of [
+    ['repository dispatch', caller],
+    ['manual approval', approvalCaller],
+    ['reusable workflow', reusable],
+  ]) {
+    const cliInput = extractNamedBlock(workflow, 'cli_version:');
+    assert.match(
+      cliInput,
+      new RegExp(`description: '${cliCompatibilityDescription.replaceAll('.', '\\.')}'`),
+      `${name} compatibility input must describe the fixed CLI dependency`,
+    );
+    assert.match(cliInput, /default: '2\.15\.12'/);
+  }
+
+  const download = extractNamedBlock(reusable, '- name: Download Skillstore CLI');
+  assert.match(download, /version: '2\.15\.12'/);
+  assert.match(download, /minimum-version: 2\.15\.12/);
+  assert.doesNotMatch(download, /inputs\.cli_version|version: ['"]?latest/);
 });
 
 test('clone step accepts repository-root false and explicit-path true without weakening type validation', () => {
