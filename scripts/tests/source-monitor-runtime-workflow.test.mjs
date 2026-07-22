@@ -20,6 +20,7 @@ const workflow = readFileSync('.github/workflows/monitor-skill-sources.yml', 'ut
 const runtimeFiles = [
   '.github/actions/download-skillstore-cli/action.yml',
   '.github/workflows/monitor-skill-sources.yml',
+  'scripts/rebind-skill-report-hashes.mjs',
   'scripts/verify-source-monitor-selection.mjs',
 ];
 
@@ -78,6 +79,7 @@ function createFixture() {
   const files = {
     '.github/actions/download-skillstore-cli/action.yml': 'name: fixture action\n',
     '.github/workflows/monitor-skill-sources.yml': 'name: fixture workflow\n',
+    'scripts/rebind-skill-report-hashes.mjs': 'export const fixture = true;\n',
     'scripts/verify-source-monitor-selection.mjs': 'export const fixture = true;\n',
     'README.md': 'fixture\n',
   };
@@ -198,6 +200,21 @@ test('source monitor verifies every explicit requested slug before later workflo
   assert.ok(
     monitor.indexOf('verify-source-monitor-selection.mjs') < monitor.indexOf('jsonl_file=$JSONL_FILE'),
     'explicit selection verification must run before publishing step outputs',
+  );
+});
+
+test('source monitor binds every changed report to its packaged tree before creating a PR', () => {
+  const binding = extractRunBlock('Bind source monitor reports to packaged trees');
+  assert.match(binding, /git diff --no-renames --name-only -z --diff-filter=ACMRT HEAD/);
+  assert.match(binding, /skills\/\*\*\/SKILL\.md/);
+  assert.match(binding, /skills\/\*\*\/skill-report\.json/);
+  assert.match(binding, /scripts\/rebind-skill-report-hashes\.mjs/);
+  assert.match(binding, /--skill-paths-file/);
+  assert.match(binding, /--diff-filter=D/);
+  assert.ok(
+    workflow.indexOf('name: Bind source monitor reports to packaged trees')
+      < workflow.indexOf('name: Create source monitor PR'),
+    'packaged report hashes must be rebound before the source monitor PR is created',
   );
 });
 

@@ -168,6 +168,7 @@ jobs:
           REQUIRED_RUNTIME_FILES=(
             ".github/actions/download-skillstore-cli/action.yml"
             ".github/workflows/monitor-skill-sources.yml"
+            "scripts/rebind-skill-report-hashes.mjs"
             "scripts/verify-source-monitor-selection.mjs"
           )
           {
@@ -358,6 +359,55 @@ jobs:
 
           echo "jsonl_file=$JSONL_FILE" >> "$GITHUB_OUTPUT"
           echo "summary_file=$SUMMARY_FILE" >> "$GITHUB_OUTPUT"
+
+      - name: Bind source monitor reports to packaged trees
+        env:
+          DRY_RUN: ${{ github.event_name == 'schedule' && 'false' || inputs.dry_run }}
+          CREATE_PR: ${{ github.event_name == 'schedule' && 'true' || inputs.create_pr }}
+        run: |
+          set -euo pipefail
+
+          if [ "$DRY_RUN" = "true" ] || [ "$CREATE_PR" != "true" ]; then
+            echo "Packaged tree hash binding skipped because no update PR will be created."
+            exit 0
+          fi
+
+          CHANGED_ARTIFACTS="$RUNNER_TEMP/source-monitor-changed-artifacts-${GITHUB_RUN_ID}.bin"
+          CHANGED_SKILLS="$RUNNER_TEMP/source-monitor-changed-skills-${GITHUB_RUN_ID}.bin"
+
+          if ! git diff --no-renames --quiet --diff-filter=D HEAD -- 'skills/**/skill-report.json'; then
+            echo "::error::Source monitor deleted a published report; refusing an unbound update PR"
+            exit 1
+          fi
+
+          git diff --no-renames --name-only -z --diff-filter=ACMRT HEAD -- \
+            'skills/**/SKILL.md' 'skills/**/skill-report.json' > "$CHANGED_ARTIFACTS"
+          : > "$CHANGED_SKILLS"
+          while IFS= read -r -d '' artifact_path; do
+            case "$artifact_path" in
+              skills/*/skill-report.json)
+                printf '%s\0' "${artifact_path%/skill-report.json}/SKILL.md" >> "$CHANGED_SKILLS"
+                ;;
+              skills/*/SKILL.md)
+                printf '%s\0' "$artifact_path" >> "$CHANGED_SKILLS"
+                ;;
+              *)
+                echo "::error::Unexpected source monitor artifact path: $artifact_path"
+                exit 1
+                ;;
+            esac
+          done < "$CHANGED_ARTIFACTS"
+
+          if [ ! -s "$CHANGED_SKILLS" ]; then
+            echo "No changed published reports require packaged tree hash binding."
+            exit 0
+          fi
+
+          LC_ALL=C sort -z -u "$CHANGED_SKILLS" -o "$CHANGED_SKILLS"
+          node scripts/rebind-skill-report-hashes.mjs \
+            --repo-root "$PWD" \
+            --skill-paths-file "$CHANGED_SKILLS"
+          echo "::notice::Bound source monitor report hashes to the exact packaged Marketplace trees"
 
       - name: Generate Fresh GitHub App Token for PR
         id: pr-app-token
