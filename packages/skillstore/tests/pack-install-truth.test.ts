@@ -140,7 +140,7 @@ describe('Pack install reporting', () => {
 			attemptId: attempt?.attemptId,
 			status: 'complete',
 			targetAgents: ['codex'],
-			cliVersion: '0.1.10',
+			cliVersion: CLI_VERSION,
 		});
 	});
 
