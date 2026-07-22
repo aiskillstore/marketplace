@@ -92,6 +92,16 @@ export async function addToLock(entry: Omit<SkillLockEntry, 'updatedAt'>): Promi
 	const now = new Date().toISOString();
 
 	const existing = lock.skills[entry.slug];
+	const identityUnchanged = existing
+		&& existing.slug === entry.slug
+		&& existing.version === entry.version
+		&& (existing.authorVersion ?? null) === (entry.authorVersion ?? null)
+		&& (existing.skillstoreRevision ?? null) === (entry.skillstoreRevision ?? null)
+		&& (existing.versionStatus ?? '') === (entry.versionStatus ?? '')
+		&& (existing.treeHash ?? null) === (entry.treeHash ?? null)
+		&& existing.zipHash === entry.zipHash
+		&& existing.source === entry.source;
+	if (identityUnchanged) return;
 
 	lock.skills[entry.slug] = {
 		...entry,
