@@ -1054,21 +1054,25 @@ jobs:
 
           BATCH_COUNT=$(( (SYNCED_SKILL_COUNT + CACHE_FINALIZER_MAX_SKILLS - 1) / CACHE_FINALIZER_MAX_SKILLS ))
           ENGLISH_CACHE_FAILED=$([ "$ENGLISH_CACHE_FINALIZER_RESULT" = success ] && echo false || echo true)
-          echo "🌍 Triggering translation for $SYNCED_SKILL_COUNT synced skills in $BATCH_COUNT bounded batch(es)"
+          FIRST_BATCH=("${SYNCED_SLUGS[@]:0:CACHE_FINALIZER_MAX_SKILLS}")
+          printf -v BATCH_SLUGS '%s,' "${FIRST_BATCH[@]}"
+          BATCH_SLUGS=${BATCH_SLUGS%,}
 
-          for ((OFFSET=0, BATCH_NUMBER=1; OFFSET<SYNCED_SKILL_COUNT; OFFSET+=CACHE_FINALIZER_MAX_SKILLS, BATCH_NUMBER++)); do
-            BATCH=("${SYNCED_SLUGS[@]:OFFSET:CACHE_FINALIZER_MAX_SKILLS}")
-            printf -v BATCH_SLUGS '%s,' "${BATCH[@]}"
-            BATCH_SLUGS=${BATCH_SLUGS%,}
+          REMAINING_SLUGS=""
+          if [ "$SYNCED_SKILL_COUNT" -gt "$CACHE_FINALIZER_MAX_SKILLS" ]; then
+            REMAINING=("${SYNCED_SLUGS[@]:CACHE_FINALIZER_MAX_SKILLS}")
+            printf -v REMAINING_SLUGS '%s,' "${REMAINING[@]}"
+            REMAINING_SLUGS=${REMAINING_SLUGS%,}
+          fi
 
-            echo "   Batch $BATCH_NUMBER/$BATCH_COUNT: ${#BATCH[@]} skill(s)"
-            gh api repos/${{ github.repository }}/dispatches \
-              --method POST \
-              -f event_type=translate-skills \
-              -f "client_payload[skill_slugs]=$BATCH_SLUGS" \
-              -f "client_payload[triggered_by]=sync-to-supabase" \
-              -f "client_payload[english_cache_finalizer_failed]=$ENGLISH_CACHE_FAILED"
-          done
+          echo "🌍 Triggering batch 1/$BATCH_COUNT with ${#FIRST_BATCH[@]} skill(s)"
+          gh api repos/${{ github.repository }}/dispatches \
+            --method POST \
+            -f event_type=translate-skills \
+            -f "client_payload[skill_slugs]=$BATCH_SLUGS" \
+            -f "client_payload[remaining_skill_slugs]=$REMAINING_SLUGS" \
+            -f "client_payload[triggered_by]=sync-to-supabase" \
+            -f "client_payload[english_cache_finalizer_failed]=$ENGLISH_CACHE_FAILED"
 
-          echo "✅ Triggered $BATCH_COUNT bounded translation workflow run(s)"
+          echo "✅ Triggered the first of $BATCH_COUNT bounded translation workflow run(s); each successful run dispatches the next batch"
           echo "   Monitor at: https://github.com/${{ github.repository }}/actions/workflows/translate-skills.yml"

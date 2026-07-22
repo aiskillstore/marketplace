@@ -805,6 +805,83 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
 
+  dispatch-next-batch:
+    needs: [translate, merge-results, finalize-cache]
+    if: >-
+      always() &&
+      github.event_name == 'repository_dispatch' &&
+      vars.CACHE_FINALIZER_AUTOMATION_ENABLED == 'true' &&
+      github.event.client_payload.remaining_skill_slugs != '' &&
+      needs.translate.result == 'success' &&
+      needs.merge-results.result == 'success' &&
+      needs.merge-results.outputs.total_errors == '0' &&
+      (needs.finalize-cache.result == 'success' || needs.finalize-cache.result == 'skipped')
+    runs-on: self-hosted
+    timeout-minutes: 15
+    steps:
+      - name: Generate GitHub App Token
+        id: app-token
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ vars.APP_CLIENT_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+
+      - name: Dispatch next bounded translation batch
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          REMAINING_SKILL_SLUGS: ${{ github.event.client_payload.remaining_skill_slugs }}
+          ENGLISH_CACHE_FINALIZER_FAILED: ${{ github.event.client_payload.english_cache_finalizer_failed }}
+          CACHE_FINALIZER_MAX_SKILLS: ${{ vars.CACHE_FINALIZER_MAX_SKILLS || '5' }}
+        run: |
+          set -euo pipefail
+
+          if [[ ! "$CACHE_FINALIZER_MAX_SKILLS" =~ ^[1-9][0-9]*$ ]] ||
+             [ "$CACHE_FINALIZER_MAX_SKILLS" -gt 25 ]; then
+            echo "::error::CACHE_FINALIZER_MAX_SKILLS must be an integer from 1 to 25"
+            exit 1
+          fi
+          if [[ ! "$REMAINING_SKILL_SLUGS" =~ ^[a-z0-9/_-]+(,[a-z0-9/_-]+)*$ ]]; then
+            echo "::error::Invalid remaining translation slug queue"
+            exit 1
+          fi
+          case "$ENGLISH_CACHE_FINALIZER_FAILED" in
+            true|false) ;;
+            *)
+              echo "::error::Invalid English cache finalizer result"
+              exit 1
+              ;;
+          esac
+
+          IFS=',' read -r -a QUEUED_SLUGS <<< "$REMAINING_SKILL_SLUGS"
+          SEEN_SLUGS=$'\n'
+          for SLUG in "${QUEUED_SLUGS[@]}"; do
+            if [[ "$SEEN_SLUGS" == *$'\n'"$SLUG"$'\n'* ]]; then
+              echo "::error::Duplicate slug in remaining translation queue: $SLUG"
+              exit 1
+            fi
+            SEEN_SLUGS="${SEEN_SLUGS}${SLUG}"$'\n'
+          done
+
+          NEXT_BATCH=("${QUEUED_SLUGS[@]:0:CACHE_FINALIZER_MAX_SKILLS}")
+          printf -v NEXT_BATCH_SLUGS '%s,' "${NEXT_BATCH[@]}"
+          NEXT_BATCH_SLUGS=${NEXT_BATCH_SLUGS%,}
+
+          REST_SLUGS=""
+          if [ "${#QUEUED_SLUGS[@]}" -gt "$CACHE_FINALIZER_MAX_SKILLS" ]; then
+            REST=("${QUEUED_SLUGS[@]:CACHE_FINALIZER_MAX_SKILLS}")
+            printf -v REST_SLUGS '%s,' "${REST[@]}"
+            REST_SLUGS=${REST_SLUGS%,}
+          fi
+
+          echo "🌍 Dispatching the next bounded translation batch with ${#NEXT_BATCH[@]} skill(s)"
+          gh api repos/${{ github.repository }}/dispatches \
+            --method POST \
+            -f event_type=translate-skills \
+            -f "client_payload[skill_slugs]=$NEXT_BATCH_SLUGS" \
+            -f "client_payload[remaining_skill_slugs]=$REST_SLUGS" \
+            -f "client_payload[triggered_by]=sync-to-supabase" \
+            -f "client_payload[english_cache_finalizer_failed]=$ENGLISH_CACHE_FINALIZER_FAILED"
+
   notify:
     needs: [detect-and-plan, translate, merge-results, finalize-cache]
     if: always() && needs.detect-and-plan.outputs.has_changes == 'true'

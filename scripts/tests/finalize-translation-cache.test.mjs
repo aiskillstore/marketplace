@@ -32,8 +32,9 @@ function workflowRunScript(workflow, stepName) {
   const runStart = workflow.indexOf(runMarker, start);
   assert.notEqual(runStart, -1, `run block not found: ${stepName}`);
   const bodyStart = runStart + runMarker.length;
-  const nextStep = workflow.indexOf('\n      - name:', bodyStart);
-  const body = workflow.slice(bodyStart, nextStep === -1 ? workflow.length : nextStep);
+  const tail = workflow.slice(bodyStart);
+  const boundary = tail.search(/\n(?:      - name:|  [a-zA-Z][a-zA-Z0-9_-]*:)/);
+  const body = tail.slice(0, boundary === -1 ? tail.length : boundary);
   return body
     .split('\n')
     .map((line) => line.startsWith('          ') ? line.slice(10) : line)
@@ -321,12 +322,18 @@ test('workflow DAG has one serialized finalizer and no fire-and-forget warm', ()
   assert.match(warm, /Unsupported locale/);
 });
 
-test('sync dispatches translations in bounded complete batches', () => {
-  const workflow = readFileSync(
+test('sync chains bounded translation batches without concurrent pending runs', () => {
+  const syncWorkflow = readFileSync(
     resolve(REPO_ROOT, '.github/workflows/sync-to-supabase.yml'),
     'utf8'
   );
-  const script = workflowRunScript(workflow, 'Trigger translation workflow')
+  const translationWorkflow = readFileSync(
+    resolve(REPO_ROOT, '.github/workflows/translate-skills.yml'),
+    'utf8'
+  );
+  const initialScript = workflowRunScript(syncWorkflow, 'Trigger translation workflow')
+    .replaceAll('${{ github.repository }}', 'aiskillstore/marketplace');
+  const nextScript = workflowRunScript(translationWorkflow, 'Dispatch next bounded translation batch')
     .replaceAll('${{ github.repository }}', 'aiskillstore/marketplace');
   const temp = mkdtempSync(resolve(tmpdir(), 'translation-dispatch-'));
 
@@ -340,21 +347,39 @@ test('sync dispatches translations in bounded complete batches', () => {
     writeFileSync(fakeGh, '#!/usr/bin/env bash\nprintf \'%s\\n\' "$*" >> "$GH_CALLS"\n');
     chmodSync(fakeGh, 0o755);
 
-    const result = spawnSync('bash', ['-c', script], {
+    const baseEnv = {
+      ...process.env,
+      PATH: `${temp}:${process.env.PATH}`,
+      GH_CALLS: resolve(temp, 'gh-calls.txt'),
+      CACHE_FINALIZER_MAX_SKILLS: '5',
+      ENGLISH_CACHE_FINALIZER_FAILED: 'false',
+    };
+    const result = spawnSync('bash', ['-c', initialScript], {
       cwd: temp,
       encoding: 'utf8',
       env: {
-        ...process.env,
-        PATH: `${temp}:${process.env.PATH}`,
-        GH_CALLS: resolve(temp, 'gh-calls.txt'),
+        ...baseEnv,
         SYNCED_SKILL_COUNT: '20',
-        CACHE_FINALIZER_MAX_SKILLS: '5',
         ENGLISH_CACHE_FINALIZER_RESULT: 'success',
       },
     });
     assert.equal(result.status, 0, result.stderr || result.stdout);
 
-    const calls = readFileSync(resolve(temp, 'gh-calls.txt'), 'utf8').trim().split('\n');
+    let calls = readFileSync(resolve(temp, 'gh-calls.txt'), 'utf8').trim().split('\n');
+    assert.equal(calls.length, 1, 'sync must dispatch only one run into the concurrency group');
+    while (true) {
+      const remaining = calls.at(-1).match(/client_payload\[remaining_skill_slugs\]=([^ ]*)/);
+      assert.ok(remaining, `missing remaining queue: ${calls.at(-1)}`);
+      if (remaining[1] === '') break;
+      const chained = spawnSync('bash', ['-c', nextScript], {
+        cwd: temp,
+        encoding: 'utf8',
+        env: { ...baseEnv, REMAINING_SKILL_SLUGS: remaining[1] },
+      });
+      assert.equal(chained.status, 0, chained.stderr || chained.stdout);
+      calls = readFileSync(resolve(temp, 'gh-calls.txt'), 'utf8').trim().split('\n');
+    }
+
     assert.equal(calls.length, 4);
     const dispatched = calls.flatMap((call) => {
       assert.match(call, /client_payload\[triggered_by\]=sync-to-supabase/);
