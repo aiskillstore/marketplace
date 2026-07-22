@@ -274,6 +274,12 @@ test('workflow DAG has one serialized finalizer and no fire-and-forget warm', ()
   assert.match(translation, /CACHE_FINALIZER_AUTOMATION_ENABLED/);
   assert.match(translation, /CACHE_FINALIZER_MAX_SKILLS/);
   assert.match(translation, /github\.event_name == 'workflow_dispatch'/);
+  assert.match(translation, /translate_audits:/);
+  assert.match(
+    translation,
+    /github\.event_name != 'workflow_dispatch' \|\| inputs\.translate_audits/
+  );
+  assert.match(translation, /skill translate-audit[\s\S]*--batch-size 50[\s\S]*--max-jobs 50/);
   assert.match(
     translation,
     /fromJSON\(vars\.CACHE_FINALIZER_MAX_SKILLS \|\| '5'\) >= 1/

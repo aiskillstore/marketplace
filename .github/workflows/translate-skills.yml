@@ -28,6 +28,10 @@ on:
         description: "Force re-translation of existing translations"
         type: boolean
         default: false
+      translate_audits:
+        description: "Also process one bounded batch of queued security-audit translations"
+        type: boolean
+        default: true
       locale:
         description: "Optional single locale for a bounded canary (for example zh-hans); empty translates all target locales"
         type: string
@@ -573,7 +577,11 @@ jobs:
           fi
 
       - name: Translate queued security audits
-        if: always() && matrix.shard == 0 && inputs.locale == ''
+        if: >-
+          always() &&
+          matrix.shard == 0 &&
+          inputs.locale == '' &&
+          (github.event_name != 'workflow_dispatch' || inputs.translate_audits)
         continue-on-error: true
         env:
           PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
@@ -595,6 +603,8 @@ jobs:
           set +e
           AUDIT_RESULT=$("$GITHUB_WORKSPACE/skillstore-cli" skill translate-audit \
             --concurrency "$CONCURRENCY" \
+            --batch-size 50 \
+            --max-jobs 50 \
             --output json \
             $MODEL_FLAG)
           AUDIT_EXIT=$?
