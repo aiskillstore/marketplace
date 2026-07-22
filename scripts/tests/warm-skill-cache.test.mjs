@@ -1146,7 +1146,7 @@ test('workflow checks out scripts, requires bounded skill scope, and has no reti
   assert.match(workflow, /default: '20971520'/);
   assert.match(workflow, /concurrency must be a positive integer no greater than 4/);
   assert.match(workflow, /request_budget must be an integer between 1 and 128/);
-  assert.match(workflow, /byte_budget must be an integer between 1 and 20971520/);
+  assert.match(workflow, /byte_budget must be an integer between 1 and 33554432/);
   assert.match(workflow, /CACHE_WRITE_HEADER: x-kv-write/);
   assert.match(workflow, /CACHE_KEY_HEADER: x-kv-key/);
   assert.match(workflow, /CACHE_VERSION_HEADER: x-kv-version/);
@@ -1215,6 +1215,16 @@ test('workflow rejects oversized and underbudget force invalidation before the i
       INPUT_SLUGS: Array.from({ length: 21 }, (_, index) => `skill-${index + 1}`).join('\n'),
     });
     assert.equal(exactBudget.status, 0, `${exactBudget.stdout}\n${exactBudget.stderr}`);
+
+    const expandedByteBudget = runScope({ BYTE_BUDGET: '33554432' });
+    assert.equal(expandedByteBudget.status, 0, `${expandedByteBudget.stdout}\n${expandedByteBudget.stderr}`);
+
+    const oversizedByteBudget = runScope({ BYTE_BUDGET: '33554433' });
+    assert.equal(oversizedByteBudget.status, 1);
+    assert.match(
+      `${oversizedByteBudget.stdout}\n${oversizedByteBudget.stderr}`,
+      /byte_budget must be an integer between 1 and 33554432/
+    );
 
     const forceZip = runScope({ WARM_ZIP: 'true' });
     assert.equal(forceZip.status, 1);
