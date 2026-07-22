@@ -16,15 +16,15 @@ def run_command(args):
         return -1, "", str(e)
 
 def install_via_npm():
-    """Attempt to install @rollinggo/hotel-global via npm."""
+    """Attempt to install @rollinggo/hotel via npm."""
     print("Checking npm environment...")
     npm_cmd = "npm.cmd" if platform.system() == "Windows" else "npm"
     
     # Try global installation
-    print("Attempting to install @rollinggo/hotel-global globally via npm...")
-    code, stdout, stderr = run_command([npm_cmd, "install", "-g", "@rollinggo/hotel-global@latest"])
+    print("Attempting to install @rollinggo/hotel globally via npm...")
+    code, stdout, stderr = run_command([npm_cmd, "install", "-g", "@rollinggo/hotel@latest"])
     if code == 0:
-        print("✅ Successfully installed @rollinggo/hotel-global globally via npm!")
+        print("✅ Successfully installed @rollinggo/hotel globally via npm!")
         return True
     
     print("⚠️ npm global installation failed (might need administrator/sudo permissions).")
@@ -62,7 +62,7 @@ def shutil_copy(response, out_file):
 
 def get_latest_release_assets():
     """Query GitHub API for the latest release assets."""
-    api_url = "https://api.github.com/repos/RollingGo-AI/oauth-hotel-cli-overseas/releases/latest"
+    api_url = "https://api.github.com/repos/RollingGo-AI/oauth-hotel-cli/releases/latest"
     req = urllib.request.Request(
         api_url,
         headers={'User-Agent': 'RollingGo-Installer/1.0'}
@@ -92,7 +92,7 @@ def main():
         
     if has_node:
         if install_via_npm():
-            print("Done! You can run 'rgg' from anywhere.")
+            print("Done! You can run 'rgh' from anywhere.")
             return 0
     else:
         print("Node.js/npm not found. Proceeding with standalone binary installation...")
@@ -105,11 +105,11 @@ def main():
     
     # Map OS to file name patterns
     asset_keyword = ""
-    bin_name = "rgg"
+    bin_name = "rgh"
     
     if system == "windows":
         asset_keyword = "win"
-        bin_name = "rgg.exe"
+        bin_name = "rgh.exe"
     elif system == "darwin":
         asset_keyword = "macos"
     elif system == "linux":
@@ -146,18 +146,18 @@ def main():
     if not download_url:
         print("Using hardcoded fallback download URL...")
         if system == "windows":
-            download_url = "https://github.com/RollingGo-AI/oauth-hotel-cli-overseas/releases/latest/download/rgg-win.exe"
+            download_url = "https://github.com/RollingGo-AI/oauth-hotel-cli/releases/latest/download/rgh-win.exe"
         elif system == "darwin":
-            download_url = "https://github.com/RollingGo-AI/oauth-hotel-cli-overseas/releases/latest/download/rgg-macos"
+            download_url = "https://github.com/RollingGo-AI/oauth-hotel-cli/releases/latest/download/rgh-macos"
         else:
-            download_url = "https://github.com/RollingGo-AI/oauth-hotel-cli-overseas/releases/latest/download/rgg-linux"
+            download_url = "https://github.com/RollingGo-AI/oauth-hotel-cli/releases/latest/download/rgh-linux"
             
     success = download_binary(download_url, dest_path)
     
     if not success and assets and system == "windows":
         # Extra fallback for windows naming differences (win vs windows)
         print("Retrying with alternative Windows asset name...")
-        download_url = "https://github.com/RollingGo-AI/oauth-hotel-cli-overseas/releases/latest/download/rgg-windows.exe"
+        download_url = "https://github.com/RollingGo-AI/oauth-hotel-cli/releases/latest/download/rgh-windows.exe"
         success = download_binary(download_url, dest_path)
         
     if success:
@@ -176,11 +176,11 @@ def main():
         print("==================================================")
         print("To run the CLI, use the absolute path or add the bin directory to your PATH:")
         print(f"  {dest_path} --help")
-        print("\nNote: The Agent skill is configured to locate rgg at this path automatically.")
+        print("\nNote: The Agent skill is configured to locate rgh at this path automatically.")
         return 0
     else:
         print("\n❌ Installation failed. Please check your internet connection or install manually from:")
-        print("https://github.com/RollingGo-AI/oauth-hotel-cli-overseas/releases/latest")
+        print("https://github.com/RollingGo-AI/oauth-hotel-cli/releases/latest")
         return 1
 
 if __name__ == "__main__":
