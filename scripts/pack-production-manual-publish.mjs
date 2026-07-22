@@ -14,8 +14,8 @@ const REPOSITORY = 'aiskillstore/marketplace';
 const WORKFLOW_NAME = 'Generate Pack';
 const WORKFLOW_PATH = '.github/workflows/generate-packs.yml';
 const SOURCE_ARTIFACT_NAME = 'pack-production-final';
-// Release sequencing gate: replace only after this exact npm package is public.
-const CLI_PACKAGE = 'skillstore@__SET_AFTER_MARKETPLACE_CLI_RELEASE__';
+// Exact public npm release; registry integrity and provenance are rechecked at runtime.
+const CLI_PACKAGE = 'skillstore@0.1.13';
 const CLI_VERSION = CLI_PACKAGE.slice('skillstore@'.length);
 const INSTALL_READBACK_SCHEMA = 'marketplace.pack-production-install-readback/v1';
 const RUNTIME_READBACK_SCHEMA = 'marketplace.pack-production-runtime-readback/v1';

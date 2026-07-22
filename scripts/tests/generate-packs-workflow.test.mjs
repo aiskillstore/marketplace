@@ -35,6 +35,8 @@ function assertPinnedSecretActions(source) {
 test('admission uses public demand evidence and a checksum-authenticated read-only CLI token', () => {
   assert.match(admission, /permissions:\n  actions: read\n  contents: read/);
   assert.match(admission, /github\.event_name == 'workflow_dispatch' \|\| vars\.PACK_PRODUCTION_AUTOMATION_ENABLED == 'true'/);
+  assert.match(admission, /PACK_OPPORTUNITY_ADMISSION_CLI_VERSION: '2\.16\.0'/);
+  assert.match(admission, /PACK_OPPORTUNITY_ADMISSION_CLI_SHA256: 'af5d54e0db3524e33e97a538bb84da2c4d36113ec72823a3f5530a111d2f467f'/);
   const token = section(admission, '      - name: Create a read-only token', '      - name: Download the fixed public-discovery CLI');
   assert.match(token, new RegExp(`actions/create-github-app-token@${pinnedActions.appToken} # v3`));
   assert.match(token, /repositories: marketplace,skillstore/);
@@ -185,8 +187,9 @@ test('pre-publication runtime acceptance executes one staged result as the isola
   assert.match(evaluate, /sudo -u packeval env -i[\s\S]*skillstore-cli pack runtime-accept/);
   assert.match(evaluate, /--identity-file "\$RUNTIME_ROOT\/identities\.json"/);
   assert.match(evaluate, /runtime-acceptance\.json/);
-  assert.match(generate, /PACK_PRODUCTION_CLI_VERSION: '__SET_AFTER_PACK_RUNTIME_ACCEPT_CLI_RELEASE__'/);
-  assert.match(generate, /PACK_PRODUCTION_CLI_SHA256: '__SET_AFTER_PACK_RUNTIME_ACCEPT_CLI_RELEASE_SHA256__'/);
+  assert.match(generate, /PACK_PRODUCTION_CLI_VERSION: '2\.16\.0'/);
+  assert.match(generate, /PACK_PRODUCTION_CLI_SHA256: 'af5d54e0db3524e33e97a538bb84da2c4d36113ec72823a3f5530a111d2f467f'/);
+  assert.doesNotMatch(generate, /__SET_AFTER_/);
 });
 
 test('evaluation checkpoints cancellation evidence and never uploads raw run logs', () => {
@@ -253,7 +256,7 @@ test('manual publication authenticates and bounds one final generation artifact'
     '      - name: Preflight the exact public Marketplace CLI release',
     '      - name: Download the reviewed immutable approval handoff',
   );
-  assert.match(cliPreflight, /MARKETPLACE_CLI_VERSION: '__SET_AFTER_MARKETPLACE_CLI_RELEASE__'/);
+  assert.match(cliPreflight, /MARKETPLACE_CLI_VERSION: '0\.1\.13'/);
   assert.match(cliPreflight, /must be an exact non-placeholder semver release/);
   assert.match(cliPreflight, /npm view --registry=https:\/\/registry\.npmjs\.org "skillstore@\$MARKETPLACE_CLI_VERSION" --json/);
   assert.match(cliPreflight, /\.dist\.integrity[\s\S]*sha512-/);
