@@ -20,6 +20,10 @@ export interface VerifyResult {
  */
 const DEFAULT_VERIFICATION_KEY = '3d2b8f367783854cbdb6f81c9a39d586201c8d898ec8737bfa464162a9177943';
 
+const TRUSTED_ED25519_KEYS: Readonly<Record<string, string>> = Object.freeze({
+	EP0Myk7rTk_J0RdG1fvpkP: '2tbC6eNY4T9sx4Pvuo_NwHlXGyWWz95WAtHyHUTqzs8',
+});
+
 /**
  * Get the signing key for manifest verification
  * Uses built-in key by default, can be overridden via environment variable
@@ -94,6 +98,8 @@ function isManifestSignatureInfo(value: unknown): value is ManifestSignatureInfo
 	return !!value
 		&& typeof value === 'object'
 		&& (value as ManifestSignatureInfo).algorithm === 'Ed25519'
+		&& typeof (value as ManifestSignatureInfo).keyId === 'string'
+		&& !!(value as ManifestSignatureInfo).keyId
 		&& !!(value as ManifestSignatureInfo).value
 		&& (value as ManifestSignatureInfo).publicKeyJwk?.kty === 'OKP'
 		&& (value as ManifestSignatureInfo).publicKeyJwk?.crv === 'Ed25519'
@@ -101,6 +107,9 @@ function isManifestSignatureInfo(value: unknown): value is ManifestSignatureInfo
 }
 
 function decodeBase64Url(value: string): ArrayBuffer {
+	if (!/^[A-Za-z0-9_-]+$/.test(value)) {
+		throw new Error('Signature is not base64url');
+	}
 	const padded = value.replace(/-/g, '+').replace(/_/g, '/') + '='.repeat((4 - value.length % 4) % 4);
 	const buffer = Buffer.from(padded, 'base64');
 	return buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength) as ArrayBuffer;
@@ -119,10 +128,19 @@ async function verifyEd25519Envelope(manifest: {
 			return { valid: false, error: 'Manifest is missing signed payload' };
 		}
 
+		const trustedPublicKey = TRUSTED_ED25519_KEYS[manifest.signature.keyId];
+		if (!trustedPublicKey || manifest.signature.publicKeyJwk.x !== trustedPublicKey) {
+			return { valid: false, error: 'Ed25519 signature key is not trusted' };
+		}
+
 		const subtle = globalThis.crypto?.subtle || webcrypto.subtle;
 		const verifyKey = await subtle.importKey(
 			'jwk',
-			manifest.signature.publicKeyJwk,
+			{
+				kty: 'OKP',
+				crv: 'Ed25519',
+				x: trustedPublicKey,
+			},
 			{ name: 'Ed25519' },
 			false,
 			['verify']
@@ -168,11 +186,9 @@ function timingSafeEqual(a: string, b: string): boolean {
  * Ensures downloaded skill content matches the hash in the manifest.
  */
 export function verifyContentHash(content: string, expectedHash: string): boolean {
+	if (!/^[0-9a-f]{64}$/.test(expectedHash)) return false;
 	const actualHash = createHash('sha256').update(content).digest('hex');
-
-	// Content hash might be truncated, compare common length
-	const compareLength = Math.min(actualHash.length, expectedHash.length);
-	return actualHash.substring(0, compareLength) === expectedHash.substring(0, compareLength);
+	return timingSafeEqual(actualHash, expectedHash);
 }
 
 /**

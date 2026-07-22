@@ -19,12 +19,14 @@ jobs:
     name: Persist a provable candidate-null cancellation audit
     if: >-
       github.event.workflow_run.conclusion == 'cancelled' &&
-      (github.event.workflow_run.event == 'schedule' || github.event.workflow_run.event == 'workflow_dispatch')
+      (github.event.workflow_run.event == 'workflow_run' || github.event.workflow_run.event == 'workflow_dispatch')
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    environment:
+      name: pack-production-writer
     steps:
       - name: Checkout only the trusted recovery runtime
-        uses: actions/checkout@v5
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           ref: ${{ github.sha }}
           sparse-checkout: |
@@ -79,25 +81,65 @@ jobs:
             "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID/artifacts?per_page=100" \
             > "$ROOT/artifact-index.json"
 
-      - name: Download the immutable source plan
-        id: plan_artifact
-        continue-on-error: true
-        uses: actions/download-artifact@v6
-        with:
-          name: pack-production-plan
-          path: ${{ runner.temp }}/pack-production-cancellation-recovery/plan
-          github-token: ${{ github.token }}
-          run-id: ${{ steps.source.outputs.run_id }}
-
-      - name: Download bounded cancellation diagnostics when present
-        id: diagnostics_artifact
-        continue-on-error: true
-        uses: actions/download-artifact@v6
-        with:
-          name: pack-production-diagnostics
-          path: ${{ runner.temp }}/pack-production-cancellation-recovery/diagnostics
-          github-token: ${{ github.token }}
-          run-id: ${{ steps.source.outputs.run_id }}
+      - name: Download and authenticate bounded source artifacts before extraction
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          ROOT="$RUNNER_TEMP/pack-production-cancellation-recovery"
+          INDEX="$ROOT/source/artifact-index.json"
+          download_artifact() {
+            local name="$1" destination="$2" maximum_bytes="$3"
+            local artifact artifact_id expected_digest expected_size archive actual_digest actual_size
+            artifact=$(jq -ec --arg name "$name" '
+              [.artifacts[] | select(.name == $name and .expired == false)] |
+              if length == 1 then .[0] else error("expected one artifact") end
+            ' "$INDEX")
+            artifact_id=$(jq -er '.id' <<<"$artifact")
+            expected_digest=$(jq -er '.digest | select(test("^sha256:[0-9a-f]{64}$")) | sub("^sha256:"; "")' <<<"$artifact")
+            expected_size=$(jq -er '.size_in_bytes | select(type == "number" and . > 0)' <<<"$artifact")
+            if [ "$expected_size" -gt "$maximum_bytes" ]; then
+              echo "::error::$name exceeds its compressed byte bound"
+              exit 1
+            fi
+            archive="$ROOT/${name}.zip"
+            gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$artifact_id/zip" > "$archive"
+            actual_size=$(stat -c '%s' "$archive")
+            test "$actual_size" -eq "$expected_size"
+            actual_digest=$(sha256sum "$archive" | awk '{print $1}')
+            test "$actual_digest" = "$expected_digest"
+            ZIP_TOTALS=$(LC_ALL=C zipinfo -t "$archive")
+            ENTRY_COUNT=$(awk '{print $1}' <<<"$ZIP_TOTALS")
+            UNCOMPRESSED_BYTES=$(awk '{print $3}' <<<"$ZIP_TOTALS")
+            if ! [[ "$ENTRY_COUNT" =~ ^[0-9]+$ && "$UNCOMPRESSED_BYTES" =~ ^[0-9]+$ ]]; then
+              echo "::error::$name ZIP totals are invalid"
+              exit 1
+            fi
+            if [ "$ENTRY_COUNT" -lt 1 ] || [ "$ENTRY_COUNT" -gt 1024 ] || \
+               [ "$UNCOMPRESSED_BYTES" -lt 1 ] || [ "$UNCOMPRESSED_BYTES" -gt 134217728 ]; then
+              echo "::error::$name ZIP exceeds extraction bounds"
+              exit 1
+            fi
+            if unzip -Z1 "$archive" | grep -Eq '(^/|(^|/)\.\.(/|$)|\\)'; then
+              echo "::error::$name ZIP contains an unsafe path"
+              exit 1
+            fi
+            if LC_ALL=C zipinfo -l "$archive" | awk '$1 ~ /^l/ { found=1 } END { exit found ? 0 : 1 }'; then
+              echo "::error::$name ZIP contains a symbolic-link entry"
+              exit 1
+            fi
+            rm -rf "$destination"
+            mkdir -p "$destination"
+            unzip -q "$archive" -d "$destination"
+            if [ -n "$(find "$destination" -type l -print -quit)" ]; then
+              echo "::error::$name ZIP contains a symbolic link"
+              exit 1
+            fi
+          }
+          download_artifact pack-production-plan "$ROOT/plan" 5242880
+          if jq -e '[.artifacts[] | select(.name == "pack-production-diagnostics" and .expired == false)] | length == 1' "$INDEX" >/dev/null; then
+            download_artifact pack-production-diagnostics "$ROOT/diagnostics" 67108864
+          fi
 
       - name: Prepare only a fully bound sanitized candidate-null record
         id: prepare
@@ -130,7 +172,7 @@ jobs:
       - name: Persist the exact candidate-null cancellation audit
         if: steps.prepare.outputs.outcome == 'candidate_null_prepared'
         env:
-          SKILLSTORE_API_URL: ${{ secrets.SKILLSTORE_API_URL }}
+          SKILLSTORE_API_URL: https://skillstore.io
           PACK_PRODUCTION_AUTOMATION_KEY: ${{ secrets.PACK_PRODUCTION_AUTOMATION_KEY }}
         run: |
           set -euo pipefail
@@ -160,7 +202,7 @@ jobs:
 
       - name: Upload immutable recovery evidence
         if: always() && steps.source.outcome == 'success'
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: pack-production-cancellation-recovery-${{ steps.source.outputs.run_id }}-${{ steps.source.outputs.run_attempt }}
           # Never re-upload source evaluator stdout, stderr, run logs, or raw

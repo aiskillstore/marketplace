@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 import { spawn, spawnSync } from 'node:child_process';
 import { createWriteStream, readFileSync, statSync } from 'node:fs';
 import { chmod, chown, copyFile, mkdir, readFile, readdir, rename, writeFile } from 'node:fs/promises';
-import { basename, resolve } from 'node:path';
+import { basename, dirname, resolve } from 'node:path';
 import { finished } from 'node:stream/promises';
 import { fileURLToPath } from 'node:url';
 
@@ -32,11 +32,31 @@ const KNOWN_CLI_EXIT = new Map([
   ['infrastructure_failed', 30],
 ]);
 const EVALUATOR_OUTPUT_LIMIT_BYTES = 16 * 1024 * 1024;
+const MAX_CANDIDATE_WALL_MS = 120 * 60_000;
+const MAX_EVALUATOR_REQUESTS = 160;
+const MAX_EVALUATOR_INPUT_TOKENS = 600_000;
+const MAX_EVALUATOR_OUTPUT_TOKENS = 120_000;
+const MAX_EVALUATOR_COST_USD = 10;
 const EXECUTOR_PREFLIGHT_CLI_SCHEMA = 'skillstore.pack-executor-preflight/v1';
 const EXECUTOR_PREFLIGHT_TRACE_SCHEMA = 'marketplace.pack-executor-trace-evidence/v1';
 const EXPECTED_REPOSITORY = 'aiskillstore/marketplace';
 const EXPECTED_WORKFLOW = 'Generate Pack';
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const OPPORTUNITY_BINDING_KEYS = [
+  'opportunityId',
+  'briefDigest',
+  'sourceRunId',
+  'sourceRunAttempt',
+  'sourceCreatedAt',
+  'sourceHeadSha',
+  'sourceWorkflowPath',
+  'evaluationTemplateId',
+  'candidateSkills',
+];
+const OPPORTUNITY_CANDIDATE_SKILL_KEYS = [
+  'canonicalId', 'contentHash', 'treeHash', 'version', 'sourceCommit',
+  'canonicalPath', 'slotIds', 'safeToPublish', 'license',
+];
 
 function fail(message) {
   throw new Error(message);
@@ -115,7 +135,7 @@ export function normalizeEvaluatorProgressLine(line) {
   if (line === '[6/7] running every viable unique finalist end-to-end for the true best-single baseline') {
     return '[6/7] running true best-single tournament';
   }
-  match = line.match(/^\[7\/7\] running one leave-one-out comparison for each of ([2-4]) members$/);
+  match = line.match(/^\[7\/7\] running one leave-one-out comparison for each of ([2-3]) members$/);
   if (match) return `[7/7] running ${match[1]} leave-one-out comparisons`;
   match = line.match(/^\s{0,12}slot ([a-z0-9][a-z0-9-]{0,79}): finding candidates for [A-Za-z0-9 .,+_\/-]{1,200}$/);
   if (match) return `slot ${match[1]}: finding candidates`;
@@ -127,7 +147,7 @@ export function normalizeEvaluatorProgressLine(line) {
     /^\s{0,12}slot ([a-z0-9][a-z0-9-]{0,79}): winner ([a-z0-9][a-z0-9-]{0,159}) after evaluating all ([1-2]) bounded candidates$/,
   );
   if (match) return `slot ${match[1]}: winner ${match[2]} after ${match[3]} candidates`;
-  match = line.match(/^\s{0,12}pack ([a-z0-9][a-z0-9-]{0,85}): [a-z0-9-]+(?:, [a-z0-9-]+){1,3}$/);
+  match = line.match(/^\s{0,12}pack ([a-z0-9][a-z0-9-]{0,85}): [a-z0-9-]+(?:, [a-z0-9-]+){1,2}$/);
   if (match) return `pack ${match[1]}: composition selected`;
   match = line.match(/^run ([1-9][0-9]*)\/([1-9][0-9]*): (executing task\.\.\.|judging output\.\.\.)$/);
   if (match) return `run ${match[1]}/${match[2]}: ${match[3]}`;
@@ -180,6 +200,7 @@ const INFRASTRUCTURE_FAILURE_REASONS = new Set([
   'contract_failed',
   'preflight_failed',
   'cancelled',
+  'budget_exhausted',
 ]);
 const INFRASTRUCTURE_ERROR_CATEGORIES = new Set([
   'unknown_model_or_lane',
@@ -330,6 +351,42 @@ export function deterministicHttpFailureFromActivity(contents) {
   return null;
 }
 
+export function evaluatorBudgetFromActivity(contents) {
+  if (typeof contents !== 'string') return null;
+  let latest = null;
+  for (const line of contents.split('\n').filter(Boolean)) {
+    let activity;
+    try {
+      activity = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    if (activity?.phase !== 'budget') continue;
+    const { modelRequests, inputTokens, outputTokens, costUsd } = activity;
+    const valid = Number.isSafeInteger(modelRequests) && modelRequests >= 0
+      && Number.isSafeInteger(inputTokens) && inputTokens >= 0
+      && Number.isSafeInteger(outputTokens) && outputTokens >= 0
+      && Number.isFinite(costUsd) && costUsd >= 0;
+    latest = {
+      status: ['within', 'exhausted', 'unbillable'].includes(activity.status)
+        ? activity.status : 'invalid',
+      billable: activity.billable === true,
+      modelRequests: valid ? modelRequests : null,
+      inputTokens: valid ? inputTokens : null,
+      outputTokens: valid ? outputTokens : null,
+      costUsd: valid ? costUsd : null,
+      compliant: valid
+        && activity.status === 'within'
+        && activity.billable === true
+        && modelRequests <= MAX_EVALUATOR_REQUESTS
+        && inputTokens <= MAX_EVALUATOR_INPUT_TOKENS
+        && outputTokens <= MAX_EVALUATOR_OUTPUT_TOKENS
+        && costUsd <= MAX_EVALUATOR_COST_USD,
+    };
+  }
+  return latest;
+}
+
 function terminateEvaluatorProcesses(uid) {
   const userId = String(uid);
   spawnSync('/usr/bin/pkill', ['-TERM', '-u', userId], { stdio: 'ignore' });
@@ -409,6 +466,7 @@ export async function runEvaluatorProcess(command, commandArgs, options) {
   let stalled = false;
   let interruptedSignal = null;
   let deterministicHttpFailure = null;
+  let evaluatorBudget = null;
   let stderrRemainder = '';
   let killTimer = null;
   let terminationRequested = false;
@@ -562,9 +620,15 @@ export async function runEvaluatorProcess(command, commandArgs, options) {
             requestTermination('scenario.activity_limit_exceeded');
             return;
           }
-          deterministicHttpFailure = deterministicHttpFailureFromActivity(
-            readFileSync(options.externalActivityFile, 'utf8'),
-          );
+          const activityContents = readFileSync(options.externalActivityFile, 'utf8');
+          deterministicHttpFailure = deterministicHttpFailureFromActivity(activityContents);
+          evaluatorBudget = evaluatorBudgetFromActivity(activityContents);
+          if (evaluatorBudget && !evaluatorBudget.compliant) {
+            if (requestTermination('scenario.evaluator_budget_failed')) {
+              onProgress(`[pack-evaluator] scenario=${label} stopped by the cumulative evaluator budget`);
+            }
+            return;
+          }
           if (deterministicHttpFailure && requestTermination('scenario.deterministic_http_failure')) {
             writeProgressEvent({
               event: 'scenario.http_circuit_opened',
@@ -630,6 +694,7 @@ export async function runEvaluatorProcess(command, commandArgs, options) {
       errorCode: error?.code ?? null,
     });
   } finally {
+    probeExternalActivity();
     signalProcessGroup('SIGTERM');
     await new Promise((resolveWait) => setTimeout(resolveWait, 50));
     signalProcessGroup('SIGKILL');
@@ -656,6 +721,7 @@ export async function runEvaluatorProcess(command, commandArgs, options) {
       stderrSha256: stderrDigest.digest('hex'),
       interruptedSignal,
       deterministicHttpFailure,
+      evaluatorBudget,
     });
     stdoutStream.end();
     stderrStream.end();
@@ -677,6 +743,7 @@ export async function runEvaluatorProcess(command, commandArgs, options) {
     outputExceeded,
     interruptedSignal,
     deterministicHttpFailure,
+    evaluatorBudget,
     stdoutBytes,
     stderrBytes,
     durationMs: Date.now() - startedAt,
@@ -881,6 +948,7 @@ function apiExecutionDag(raw, manifestSkills, slotAssignments, requiredSlots) {
     return {
       canonicalId,
       contentHash: nonEmptyString(binding.content_hash, `candidate_ready execution DAG binding ${canonicalId} content hash`, /^[0-9a-f]{64}$/),
+      treeHash: nonEmptyString(binding.tree_hash, `candidate_ready execution DAG binding ${canonicalId} tree hash`, /^[0-9a-f]{64}$/),
       version: nonEmptyString(binding.version, `candidate_ready execution DAG binding ${canonicalId} version`),
       slotIds,
     };
@@ -916,6 +984,7 @@ function apiExecutionDag(raw, manifestSkills, slotAssignments, requiredSlots) {
     skill_bindings: skillBindings.map((binding) => ({
       canonical_id: binding.canonicalId,
       content_hash: binding.contentHash,
+      tree_hash: binding.treeHash,
       version: binding.version,
       slot_ids: binding.slotIds,
     })),
@@ -944,7 +1013,7 @@ function validateCandidateTournament(raw, requiredSlots) {
   const viableSkills = [];
   for (const slotId of requiredSlots) {
     const tournament = bySlot.get(slotId);
-    if (!tournament || !Array.isArray(tournament.candidates) || tournament.candidates.length < 1 || tournament.candidates.length > 4) {
+    if (!tournament || !Array.isArray(tournament.candidates) || tournament.candidates.length < 1 || tournament.candidates.length > 3) {
       fail(`candidate_ready slot ${slotId} must retain one to four bounded candidate results`);
     }
     const candidateSlugs = [];
@@ -1012,6 +1081,9 @@ function apiBestSingle(raw, packScore, executionDag, tournamentViableSkills, eva
       `candidate_ready best-single competitor ${skill} deterministic passes`,
       3
     );
+    if (deterministicPasses.some((passed, runIndex) => passed && !artifactPasses[runIndex])) {
+      fail(`candidate_ready best-single competitor ${skill} cannot pass deterministic validation when its artifact failed`);
+    }
     const variantIds = exactStrings(
       verification.deterministicValidations?.map((run) => run?.variantId),
       `candidate_ready best-single competitor ${skill} variant ids`,
@@ -1128,7 +1200,7 @@ function apiAblation(raw, manifestSkills, executionDag, runs) {
   return result;
 }
 
-function apiEvaluationSuite(raw) {
+function apiEvaluationSuite(raw, requiredSlots) {
   const source = object(raw.evaluationSuiteEvidence, 'candidate_ready evaluation suite');
   if (source.schemaVersion !== 'skillstore.pack-evaluation-suite/v1' || source.executed !== true) {
     fail('candidate_ready must execute the v1 paired evaluation suite');
@@ -1149,6 +1221,20 @@ function apiEvaluationSuite(raw) {
   if (new Set(taskDigests).size !== 1 || new Set(validatorDigests).size !== 1) {
     fail('candidate_ready paired variants must use identical task and validator contracts');
   }
+  const validations = raw.packVerification?.deterministicValidations;
+  if (!Array.isArray(validations) || validations.length !== variantIds.length) {
+    fail('candidate_ready deterministic artifact validator must cover every paired variant');
+  }
+  validations.forEach((validation, index) => {
+    if (
+      validation?.variantId !== variantIds[index]
+      || validation.passed !== true
+      || validation.taskDigest !== taskDigests[index]
+      || validation.fixtureDigest !== fixtureDigests[index]
+      || validation.validatorDigest !== validatorDigests[index]
+      || requiredSlots.some((slotId) => validation.slotPasses?.[slotId] !== true)
+    ) fail(`candidate_ready deterministic artifact validator failed variant ${variantIds[index]}`);
+  });
   return {
     schemaVersion: 'skillstore.pack-evaluation-suite/v1',
     executed: true,
@@ -1168,19 +1254,23 @@ function apiUsageProvenance(raw, executionDag, evaluationSuite) {
   if (!Array.isArray(source.traces) || source.traces.length !== evaluationSuite.variantIds.length) {
     fail('candidate_ready usage provenance must cover every paired variant');
   }
-  const bindingById = new Map(executionDag.skillBindings.map((binding) => [binding.canonicalId, binding]));
   const traces = source.traces.map((value, traceIndex) => {
     const trace = object(value, `candidate_ready usage trace ${traceIndex + 1}`);
-    if (trace.variantId !== evaluationSuite.variantIds[traceIndex] || !Array.isArray(trace.events) || trace.events.length < 1) {
+    if (
+      trace.variantId !== evaluationSuite.variantIds[traceIndex]
+      || !Array.isArray(trace.events)
+      || trace.events.length !== executionDag.skillBindings.length
+    ) {
       fail(`candidate_ready usage trace ${traceIndex + 1} is missing or out of order`);
     }
     const events = trace.events.map((value, eventIndex) => {
       const event = object(value, `candidate_ready usage trace ${traceIndex + 1} event ${eventIndex + 1}`);
       const canonicalId = nonEmptyString(event.canonicalId, 'candidate_ready usage event canonical id');
-      const binding = bindingById.get(canonicalId);
+      const binding = executionDag.skillBindings[eventIndex];
       if (
-        !binding
+        canonicalId !== binding.canonicalId
         || event.contentHash !== binding.contentHash
+        || event.treeHash !== binding.treeHash
         || event.version !== binding.version
         || event.sequence !== eventIndex + 1
       ) {
@@ -1189,14 +1279,11 @@ function apiUsageProvenance(raw, executionDag, evaluationSuite) {
       return {
         canonicalId,
         contentHash: binding.contentHash,
+        treeHash: binding.treeHash,
         version: binding.version,
         sequence: event.sequence,
       };
     });
-    const observed = new Set(events.map((event) => event.canonicalId));
-    if (executionDag.skillBindings.some((binding) => !observed.has(binding.canonicalId))) {
-      fail(`candidate_ready usage trace ${trace.variantId} did not execute every bound Skill`);
-    }
     return { variantId: trace.variantId, events };
   });
   return { deterministic: true, source: 'runner-trace-v1', traces };
@@ -1575,6 +1662,11 @@ export function buildApiEvaluation(raw, context) {
   if (!KNOWN_CLI_EXIT.has(raw.outcome)) fail(`Unsupported CLI outcome: ${raw.outcome}`);
   if (raw.generationId !== context.generationId) fail('CLI report generationId changed during evaluation');
   if (raw.scenario?.id !== context.scenarioId) fail('CLI report scenario differs from the queue plan');
+  const opportunityBinding = normalizeOpportunityBinding(context.opportunityBinding);
+  if (opportunityBinding.opportunityId !== context.scenarioId
+    || raw.scenario?.evaluationTemplateId !== opportunityBinding.evaluationTemplateId) {
+    fail('Opportunity binding differs from the dynamic queue scenario or evaluator template');
+  }
 
   const requiredSlots = requiredCapabilitySlots(raw);
 
@@ -1591,12 +1683,13 @@ export function buildApiEvaluation(raw, context) {
     const produced = artifactKind === 'file' ? references.length > 0 : summary.taskCompletedRate === 1;
     const manifestSkills = Array.isArray(raw.manifest.skills) ? raw.manifest.skills.map(String) : [];
     const manifestSkillSet = new Set(manifestSkills);
-    if (manifestSkills.length < 2 || manifestSkills.length > 4 || manifestSkillSet.size !== manifestSkills.length) {
-      fail('candidate_ready report must contain two to four distinct manifest Skills');
+    if (manifestSkills.length < 2 || manifestSkills.length > 3 || manifestSkillSet.size !== manifestSkills.length) {
+      fail('candidate_ready report must contain two to three distinct manifest Skills');
     }
     const slotAssignments = apiSlotAssignments(raw, manifestSkills, requiredSlots);
     const tournamentViableSkills = validateCandidateTournament(raw, requiredSlots);
     const executionDag = apiExecutionDag(raw, manifestSkills, slotAssignments, requiredSlots);
+    assertOpportunityCandidateSkillsMatchDag(opportunityBinding.candidateSkills, executionDag);
     if (verdicts.length !== 3) fail('candidate_ready report must contain exactly three final-run verdicts');
     verdicts.forEach((verdict, index) => {
       if (verdict.usedSkill !== (verdict.usedSkills.length > 0)) {
@@ -1679,7 +1772,7 @@ export function buildApiEvaluation(raw, context) {
     ) {
       fail('candidate_ready full Pack and plan-only baseline must use the same neutral execution DAG');
     }
-    const evaluationSuite = apiEvaluationSuite(raw);
+    const evaluationSuite = apiEvaluationSuite(raw, requiredSlots);
     const usageProvenance = apiUsageProvenance(raw, executionDag, evaluationSuite);
     const ablation = apiAblation(raw, manifestSkills, executionDag, verdicts.length);
     const bestSingle = apiBestSingle(
@@ -1756,6 +1849,7 @@ export function buildApiEvaluation(raw, context) {
   const unsigned = {
     schemaVersion: API_SCHEMA,
     generationId: context.generationId,
+    opportunityBinding,
     workflow: {
       repository: 'aiskillstore/marketplace',
       runId: context.runId,
@@ -1787,7 +1881,7 @@ export function buildApiEvaluation(raw, context) {
   return { ...unsigned, evidenceDigest: sha256(canonicalJson(unsigned)) };
 }
 
-function workflowContext(args, generationId, scenarioId, cli, version, checksum) {
+function workflowContext(args, generationId, scenarioId, cli, version, checksum, opportunityBinding) {
   const runId = required(args, 'run-id');
   if (!/^[1-9][0-9]*$/.test(runId)) fail('--run-id must be a GitHub Actions numeric run id');
   const runAttempt = positiveInteger(args['run-attempt'], 'run-attempt', 1);
@@ -1796,6 +1890,7 @@ function workflowContext(args, generationId, scenarioId, cli, version, checksum)
   return {
     generationId,
     scenarioId,
+    opportunityBinding: normalizeOpportunityBinding(opportunityBinding),
     runId,
     runAttempt,
     commitSha,
@@ -1812,7 +1907,102 @@ function exactObjectKeys(value, expected) {
     && canonicalJson(Object.keys(value).sort()) === canonicalJson([...expected].sort());
 }
 
+function normalizeOpportunityBinding(value) {
+  if (!exactObjectKeys(value, OPPORTUNITY_BINDING_KEYS)) {
+    fail('Immutable opportunity binding has unexpected or missing fields');
+  }
+  if (
+    !/^[a-z0-9][a-z0-9-]{0,79}$/.test(value.opportunityId)
+    || !/^[0-9a-f]{64}$/.test(value.briefDigest)
+    || typeof value.sourceRunId !== 'string'
+    || !/^[1-9][0-9]*$/.test(value.sourceRunId)
+    || !Number.isSafeInteger(value.sourceRunAttempt)
+    || value.sourceRunAttempt < 1
+    || typeof value.sourceCreatedAt !== 'string'
+    || !Number.isFinite(Date.parse(value.sourceCreatedAt))
+    || new Date(value.sourceCreatedAt).toISOString() !== value.sourceCreatedAt
+    || !/^[0-9a-f]{40}$/.test(value.sourceHeadSha)
+    || !/^\.github\/workflows\/[A-Za-z0-9._-]+\.ya?ml$/.test(value.sourceWorkflowPath)
+    || !/^[a-z0-9][a-z0-9-]{0,79}$/.test(value.evaluationTemplateId)
+  ) fail('Immutable opportunity binding is invalid');
+  if (!Array.isArray(value.candidateSkills) || value.candidateSkills.length < 2 || value.candidateSkills.length > 3) {
+    fail('Immutable opportunity binding must contain two to three candidate Skills');
+  }
+  const candidateSkills = value.candidateSkills.map((skill, index) => {
+    if (
+      !exactObjectKeys(skill, OPPORTUNITY_CANDIDATE_SKILL_KEYS)
+      || !/^[a-z0-9][a-z0-9-]{0,79}$/.test(skill.canonicalId)
+      || !/^[0-9a-f]{64}$/.test(skill.contentHash)
+      || !/^[0-9a-f]{64}$/.test(skill.treeHash)
+      || typeof skill.version !== 'string' || !skill.version
+      || !/^[0-9a-f]{40}$/.test(skill.sourceCommit)
+      || !/^[A-Za-z0-9][A-Za-z0-9._/-]*$/.test(skill.canonicalPath)
+      || skill.canonicalPath.includes('..')
+      || !Array.isArray(skill.slotIds) || skill.slotIds.length === 0
+      || new Set(skill.slotIds).size !== skill.slotIds.length
+      || skill.slotIds.some((slotId) => !/^[a-z0-9][a-z0-9-]{0,79}$/.test(slotId))
+      || skill.safeToPublish !== true
+      || typeof skill.license !== 'string' || !skill.license.trim() || skill.license.length > 200
+    ) fail(`Immutable opportunity candidate Skill ${index + 1} is invalid`);
+    return {
+      canonicalId: skill.canonicalId,
+      contentHash: skill.contentHash,
+      treeHash: skill.treeHash,
+      version: skill.version,
+      sourceCommit: skill.sourceCommit,
+      canonicalPath: skill.canonicalPath,
+      slotIds: [...skill.slotIds],
+      safeToPublish: skill.safeToPublish,
+      license: skill.license,
+    };
+  });
+  if (new Set(candidateSkills.map((skill) => skill.canonicalId)).size !== candidateSkills.length) {
+    fail('Immutable opportunity candidate Skills must have distinct canonical ids');
+  }
+  return { ...Object.fromEntries(OPPORTUNITY_BINDING_KEYS.map((key) => [key, value[key]])), candidateSkills };
+}
+
+function assertOpportunityCandidateSkillsMatchDag(candidateSkills, executionDag) {
+  const dagSkills = executionDag?.skillBindings;
+  if (!Array.isArray(dagSkills) || candidateSkills.length !== dagSkills.length || canonicalJson(
+    candidateSkills.map(({ canonicalId, contentHash, treeHash, version, slotIds }) => ({
+      canonicalId, contentHash, treeHash, version, slotIds,
+    })),
+  ) !== canonicalJson(dagSkills.map(({ canonicalId, contentHash, treeHash, version, slotIds }) => ({
+    canonicalId, contentHash, treeHash, version, slotIds,
+  })))) fail('Opportunity candidate Skills differ from the ordered execution DAG bindings');
+}
+
+function opportunityBriefFromScenario(scenario) {
+  const keys = [
+    'schemaVersion', 'opportunityId', 'briefDigest', 'evaluationTemplateId', 'task',
+    'name', 'slug', 'keywords', 'capabilitySlots', 'requiredArtifacts', 'candidateSkills',
+  ];
+  return Object.fromEntries(keys.map((key) => [key, scenario?.[key]]));
+}
+
+async function exactOpportunityFile(planFile, plan) {
+  if (plan.opportunityFile !== 'opportunity.json') {
+    fail('Immutable opportunity file must be opportunity.json');
+  }
+  const file = resolve(dirname(planFile), plan.opportunityFile);
+  const brief = await readJson(file);
+  if (canonicalJson(brief) !== canonicalJson(opportunityBriefFromScenario(plan.scenarios[0]))) {
+    fail('Immutable opportunity file differs from the bound Opportunity Brief');
+  }
+  return file;
+}
+
 export function validateImmutableProductionPlan(plan, args) {
+  const planKeys = [
+    'opportunityBinding', 'opportunityFile', 'planDigest', 'scenarios',
+    'schemaVersion', 'source', 'workflowBinding',
+  ];
+  if (!exactObjectKeys(plan, planKeys)) fail('Immutable plan has unexpected or missing fields');
+  const { planDigest, ...unsignedPlan } = plan;
+  if (!/^[0-9a-f]{64}$/.test(planDigest || '') || sha256(canonicalJson(unsignedPlan)) !== planDigest) {
+    fail('Immutable plan digest is invalid');
+  }
   if (plan?.schemaVersion !== 'pack-production-queue/v1') {
     fail(`Unsupported plan schema: ${plan?.schemaVersion}`);
   }
@@ -1823,6 +2013,21 @@ export function validateImmutableProductionPlan(plan, args) {
   if (!/^[a-z0-9][a-z0-9-]{0,79}$/.test(scenario?.id || '')) fail(`Unsafe scenario id: ${scenario?.id}`);
   if (!UUID_RE.test(scenario.generationId || '')) {
     fail(`Immutable plan generation id is invalid for ${scenario.id}`);
+  }
+  const opportunityBinding = normalizeOpportunityBinding(plan.opportunityBinding);
+  if (plan.opportunityFile !== 'opportunity.json') {
+    fail('Immutable opportunity file must be opportunity.json');
+  }
+  if (
+    scenario.id !== opportunityBinding.opportunityId
+    || scenario.evaluationTemplateId !== opportunityBinding.evaluationTemplateId
+    || scenario.opportunityId !== opportunityBinding.opportunityId
+    || scenario.briefDigest !== opportunityBinding.briefDigest
+    || canonicalJson(scenario.candidateSkills) !== canonicalJson(opportunityBinding.candidateSkills)
+  ) fail('Immutable scenario differs from the exact opportunity binding');
+  const { briefDigest: _briefDigest, ...unsignedBrief } = opportunityBriefFromScenario(scenario);
+  if (sha256(canonicalJson(unsignedBrief)) !== opportunityBinding.briefDigest) {
+    fail('Immutable Opportunity Brief digest is invalid');
   }
   const binding = plan.workflowBinding;
   const bindingKeys = ['repository', 'workflow', 'runId', 'runAttempt', 'commitSha', 'scenarioId'];
@@ -1893,6 +2098,7 @@ function exactExecutorPreflightTraceEvidence(raw, expectedBindings) {
       event?.sequence !== index + 1
       || event.canonicalId !== binding.canonicalId
       || event.contentHash !== binding.contentHash
+      || event.treeHash !== binding.treeHash
       || event.version !== binding.version
     ) return null;
   }
@@ -2143,26 +2349,29 @@ export async function executorPreflight(args) {
 
 async function evaluate(args) {
   const cli = resolve(required(args, 'cli'));
-  const plan = await readJson(resolve(required(args, 'plan')));
+  const planFile = resolve(required(args, 'plan'));
+  const plan = await readJson(planFile);
   const resultsDir = resolve(required(args, 'results-dir'));
   const skillsDir = resolve(required(args, 'skills-dir'));
   validateImmutableProductionPlan(plan, args);
+  const opportunityBinding = normalizeOpportunityBinding(plan.opportunityBinding);
+  const opportunityFile = await exactOpportunityFile(planFile, plan);
   await mkdir(resultsDir, { recursive: true });
 
   const version = cliVersion(cli);
   const expectedVersion = required(args, 'expected-cli-version');
   if (version !== expectedVersion) fail(`CLI version mismatch: expected ${expectedVersion}, got ${version}`);
   const checksum = await sha256File(cli);
-  const evaluationBudgetMs = positiveInteger(
+  const evaluationBudgetMs = Math.min(MAX_CANDIDATE_WALL_MS, positiveInteger(
     args['evaluation-budget-ms'],
     'evaluation-budget-ms',
-    230 * 60_000,
-  );
-  const maxScenarioMs = positiveInteger(
+    MAX_CANDIDATE_WALL_MS,
+  ));
+  const maxScenarioMs = Math.min(MAX_CANDIDATE_WALL_MS, positiveInteger(
     args['scenario-timeout-ms'],
     'scenario-timeout-ms',
-    120 * 60_000,
-  );
+    MAX_CANDIDATE_WALL_MS,
+  ));
   const scenarioIdleTimeoutMs = positiveInteger(
     args['scenario-idle-timeout-ms'],
     'scenario-idle-timeout-ms',
@@ -2240,14 +2449,22 @@ async function evaluate(args) {
     }
     const ordinal = String(scenarioIndex + 1).padStart(2, '0');
     const generationId = scenario.generationId;
-    const context = workflowContext(args, generationId, scenario.id, cli, version, checksum);
+    const context = workflowContext(
+      args,
+      generationId,
+      scenario.id,
+      cli,
+      version,
+      checksum,
+      opportunityBinding,
+    );
     const commandArgs = [
       'pack', 'generate',
-      '--scenario', scenario.id,
+      '--opportunity-file', opportunityFile,
       '--generation-id', generationId,
       '--skills-dir', skillsDir,
-      '--max-candidates', args['max-candidates'] ?? '3',
-      '--pick', args.pick ?? '4',
+      '--max-candidates', args['max-candidates'] ?? '2',
+      '--pick', args.pick ?? '3',
       '--model', context.model,
       '--judge-model', context.judgeModel,
       '--runs', args.runs ?? '1',
@@ -2377,6 +2594,13 @@ async function evaluate(args) {
       }, attempt);
       break;
     }
+    if (result.evaluatorBudget && !result.evaluatorBudget.compliant) {
+      await recordInfrastructureFailure({
+        stage: 'evaluation',
+        reason: 'budget_exhausted',
+      }, attempt);
+      break;
+    }
     if (result.timedOut) {
       await recordInfrastructureFailure({
         stage: 'evaluation',
@@ -2405,6 +2629,13 @@ async function evaluate(args) {
         stage: 'evaluation',
         reason: 'terminal_report_missing',
         diagnosticSha256: sha256(stdout),
+      }, attempt);
+      break;
+    }
+    if (raw.outcome === 'candidate_ready' && !result.evaluatorBudget?.compliant) {
+      await recordInfrastructureFailure({
+        stage: 'evaluation',
+        reason: 'budget_exhausted',
       }, attempt);
       break;
     }
@@ -2445,10 +2676,13 @@ async function evaluate(args) {
 
 async function verifyEvaluation(args) {
   const cli = resolve(required(args, 'cli'));
-  const plan = await readJson(resolve(required(args, 'plan')));
+  const planFile = resolve(required(args, 'plan'));
+  const plan = await readJson(planFile);
   const resultsDir = resolve(required(args, 'results-dir'));
   const summary = await readJson(resolve(resultsDir, 'evaluate-summary.json'));
   validateImmutableProductionPlan(plan, args);
+  const opportunityBinding = normalizeOpportunityBinding(plan.opportunityBinding);
+  await exactOpportunityFile(planFile, plan);
   if (summary.schemaVersion !== 'marketplace.pack-production-evaluate/v1') {
     fail(`Unsupported evaluate summary schema: ${summary.schemaVersion}`);
   }
@@ -2518,7 +2752,15 @@ async function verifyEvaluation(args) {
     ) {
       fail(`Evaluate summary outcome differs from stdout for ${scenario.id}`);
     }
-    const context = workflowContext(args, report.generationId, scenario.id, cli, version, checksum);
+    const context = workflowContext(
+      args,
+      report.generationId,
+      scenario.id,
+      cli,
+      version,
+      checksum,
+      opportunityBinding,
+    );
     const rebuilt = buildApiEvaluation(raw, context);
     const recorded = await readJson(resolve(resultsDir, evaluationFile));
     if (canonicalJson(recorded) !== canonicalJson(rebuilt)) {
@@ -2612,6 +2854,7 @@ export function planTrustedPersistence(evaluations, selectedGenerationId) {
   }
   const candidate = candidates[0];
   const evaluation = candidate.evaluation;
+  const opportunityBinding = normalizeOpportunityBinding(evaluation.opportunityBinding);
   if (
     selectedGenerationId !== evaluation.generationId
     || evaluation.schemaVersion !== API_SCHEMA
@@ -2625,6 +2868,7 @@ export function planTrustedPersistence(evaluations, selectedGenerationId) {
     || evaluation.candidate.fitness.errors.length > 0
     || !Array.isArray(evaluation.candidate?.fitness?.baseline?.errors)
     || evaluation.candidate.fitness.baseline.errors.length > 0
+    || opportunityBinding.opportunityId !== evaluation.scenario?.id
   ) {
     fail('candidate_ready evidence is incomplete; persistence and enrichment are forbidden');
   }
@@ -2654,6 +2898,154 @@ export function validateCandidateNullPersistResponse(response, evaluation) {
   return data;
 }
 
+export function reconcileCandidateNullPersistReadback(response, evaluation) {
+  const attempt = response?.data?.attempt;
+  if (
+    evaluation?.schemaVersion !== API_SCHEMA
+    || evaluation?.outcome === 'candidate_ready'
+    || evaluation?.candidate !== null
+    || attempt?.generation_id !== evaluation.generationId
+    || attempt?.evaluation_outcome !== evaluation.outcome
+    || attempt?.outcome !== evaluation.outcome
+    || attempt?.evidence_digest !== evaluation.evidenceDigest
+    || canonicalJson(attempt?.evidence) !== canonicalJson(evaluation)
+    || attempt?.pack_id !== null
+    || attempt?.pack_slug !== null
+    || attempt?.content_dispatch_status !== 'not_applicable'
+    || attempt?.translation_dispatch_status !== 'not_applicable'
+    || attempt?.content_dispatch_nonce !== null
+    || response?.data?.pack !== null
+  ) {
+    fail('Persist reconciliation readback did not match the exact candidate-null audit');
+  }
+  return {
+    generationId: attempt.generation_id,
+    outcome: attempt.outcome,
+    evaluationOutcome: attempt.evaluation_outcome,
+    pack: null,
+    enrichment: {
+      content: 'not_applicable',
+      translation: 'not_applicable',
+      contentDispatchNonce: null,
+    },
+  };
+}
+
+export function validateCandidatePersistResponse(response, evaluation) {
+  const data = response?.data;
+  if (
+    data?.generationId !== evaluation?.generationId
+    || data?.evaluationOutcome !== 'candidate_ready'
+    || !data?.pack?.id
+    || !data?.pack?.slug
+    || data?.enrichment?.content !== 'dispatched'
+    || !UUID_RE.test(data?.enrichment?.contentDispatchNonce ?? '')
+  ) {
+    fail('Persist response did not bind and dispatch the exact complete candidate');
+  }
+  return data;
+}
+
+export function reconcileCandidatePersistReadback(response, evaluation) {
+  const readback = response?.data;
+  const attempt = readback?.attempt;
+  const pack = readback?.pack;
+  const readiness = readback?.readiness;
+  const executionDag = evaluation?.candidate?.manifest?.executionDag;
+  const reconciledOutcomes = new Set(['candidate_ready', 'review_pending', 'published']);
+  const advanced = attempt?.outcome === 'review_pending' || attempt?.outcome === 'published';
+  const expectedContentStatus = advanced ? 'succeeded' : 'dispatched';
+  const publishedReadinessOnly = attempt?.outcome === 'published'
+    && Array.isArray(readiness?.blockers)
+    && readiness.blockers.every((blocker) => blocker === 'review_status is approved');
+  if (
+    attempt?.generation_id !== evaluation?.generationId
+    || attempt?.evaluation_outcome !== 'candidate_ready'
+    || !reconciledOutcomes.has(attempt?.outcome)
+    || !attempt?.pack_id
+    || !attempt?.pack_slug
+    || (attempt?.outcome !== 'published' && attempt.pack_slug !== evaluation?.scenario?.slug)
+    || pack?.id !== attempt.pack_id
+    || pack?.slug !== attempt.pack_slug
+    || attempt?.content_dispatch_status !== expectedContentStatus
+    || (advanced && attempt?.translation_dispatch_status !== 'succeeded')
+    || !UUID_RE.test(attempt?.content_dispatch_nonce ?? '')
+    || attempt?.evidence_digest !== evaluation?.evidenceDigest
+    || canonicalJson(attempt?.evidence) !== canonicalJson(evaluation)
+    || canonicalJson(attempt?.evidence?.candidate?.manifest?.executionDag) !== canonicalJson(executionDag)
+    || (advanced && (
+      readiness?.contentReady !== true
+      || readiness?.translationReady !== true
+      || !Array.isArray(readiness?.blockers)
+      || (attempt?.outcome === 'review_pending'
+        && (readiness?.reviewReady !== true || readiness.blockers.length !== 0))
+      || (attempt?.outcome === 'published'
+        && (pack?.review_status !== 'approved' || !publishedReadinessOnly))
+    ))
+  ) {
+    fail('Persist reconciliation readback did not match the exact complete candidate');
+  }
+  return {
+    generationId: attempt.generation_id,
+    outcome: attempt.outcome,
+    evaluationOutcome: attempt.evaluation_outcome,
+    pack: { id: pack.id, slug: pack.slug },
+    enrichment: {
+      content: expectedContentStatus,
+      translation: advanced || attempt.translation_dispatch_status === 'dispatched' ? 'dispatched' : 'not_applicable',
+      contentDispatchNonce: attempt.content_dispatch_nonce,
+    },
+  };
+}
+
+async function persistCandidateWithReconciliation(base, token, evaluation) {
+  const persistUrl = `${base}/api/automation/packs/production`;
+  try {
+    const response = await apiRequest(persistUrl, token, {
+      method: 'POST',
+      body: JSON.stringify(evaluation),
+    });
+    validateCandidatePersistResponse(response, evaluation);
+    return { response, reconciled: false };
+  } catch (postError) {
+    if (postError?.status >= 400 && postError.status < 500) throw postError;
+    try {
+      const response = await apiRequest(
+        `${persistUrl}/${encodeURIComponent(evaluation.generationId)}`,
+        token,
+      );
+      const data = reconcileCandidatePersistReadback(response, evaluation);
+      return { response: { data }, reconciled: true };
+    } catch {
+      throw postError;
+    }
+  }
+}
+
+async function persistCandidateNullWithReconciliation(base, token, evaluation) {
+  const persistUrl = `${base}/api/automation/packs/production`;
+  try {
+    const response = await apiRequest(persistUrl, token, {
+      method: 'POST',
+      body: JSON.stringify(evaluation),
+    });
+    validateCandidateNullPersistResponse(response, evaluation);
+    return { response, reconciled: false };
+  } catch (postError) {
+    if (postError?.status >= 400 && postError.status < 500) throw postError;
+    try {
+      const response = await apiRequest(
+        `${persistUrl}/${encodeURIComponent(evaluation.generationId)}`,
+        token,
+      );
+      const data = reconcileCandidateNullPersistReadback(response, evaluation);
+      return { response: { data }, reconciled: true };
+    } catch {
+      throw postError;
+    }
+  }
+}
+
 export function buildPublicReadbackExpectation(persisted, selected, publicSlug) {
   const generationId = selected?.generationId;
   const packId = selected?.pack?.id;
@@ -2670,6 +3062,7 @@ export function buildPublicReadbackExpectation(persisted, selected, publicSlug) 
     (item) => item?.request?.generationId === generationId,
   );
   const evaluation = persistedAttempt?.request;
+  const opportunityBinding = normalizeOpportunityBinding(evaluation?.opportunityBinding);
   const manifest = persistedAttempt?.request?.candidate?.manifest;
   const skillSlugs = manifest?.skills;
   const executionDag = manifest?.executionDag;
@@ -2693,6 +3086,7 @@ export function buildPublicReadbackExpectation(persisted, selected, publicSlug) 
       || typeof binding?.version !== 'string'
       || !binding.version
       || !/^[0-9a-f]{64}$/.test(binding?.contentHash || '')
+      || !/^[0-9a-f]{64}$/.test(binding?.treeHash || '')
     ) {
       fail(`Persisted candidate Skill binding ${index + 1} is incomplete`);
     }
@@ -2700,6 +3094,7 @@ export function buildPublicReadbackExpectation(persisted, selected, publicSlug) 
       slug: binding.canonicalId,
       version: binding.version,
       contentHash: binding.contentHash,
+      treeHash: binding.treeHash,
     };
   });
   return {
@@ -2712,6 +3107,7 @@ export function buildPublicReadbackExpectation(persisted, selected, publicSlug) 
     workflowDigest: executionDag.workflowDigest,
     bindingDigest: executionDag.bindingDigest,
     usageGuideMarker: executionDag.usageGuideMarker,
+    opportunityBinding,
     executionBinding: {
       schemaVersion: 'skillstore.pack-execution-binding/v1',
       generationId,
@@ -2720,6 +3116,7 @@ export function buildPublicReadbackExpectation(persisted, selected, publicSlug) 
       bindingDigest: executionDag.bindingDigest,
       usageGuideMarker: executionDag.usageGuideMarker,
       marketplaceCommitSha: evaluation.workflow?.commitSha,
+      opportunityBinding,
       skills: executionDag.skillBindings,
       executionDag,
     },
@@ -2762,6 +3159,9 @@ export function validatePublicPackReadback(pack, expected) {
     if (canonicalJson(executionBinding.skills) !== canonicalJson(expected.executionBinding.skills)) {
       mismatches.push('Pack executionBinding Skills differ from the evaluated identities');
     }
+    if (canonicalJson(executionBinding.opportunityBinding) !== canonicalJson(expected.opportunityBinding)) {
+      mismatches.push('Pack executionBinding opportunity binding differs from the evaluated demand');
+    }
   }
   if (
     !executionBinding?.executionDag
@@ -2778,6 +3178,7 @@ export function validatePublicPackReadback(pack, expected) {
       slug: skill?.slug,
       version: skill?.version,
       contentHash: skill?.contentHash,
+      treeHash: skill?.treeHash,
     }))
     : [];
   const actualSkillSlugs = actualSkillBindings.map((binding) => binding.slug);
@@ -2792,7 +3193,7 @@ export function validatePublicPackReadback(pack, expected) {
     );
   }
   if (canonicalJson(actualSkillBindings) !== canonicalJson(expected.skillBindings)) {
-    mismatches.push('Pack Skill version/contentHash bindings differ from the evaluated identities');
+    mismatches.push('Pack Skill version/content/treeHash bindings differ from the evaluated identities');
   }
   return { matched: mismatches.length === 0, mismatches, actualSkillSlugs, actualSkillBindings };
 }
@@ -2862,45 +3263,29 @@ async function persist(args) {
     persistedRemotely: false,
   }));
   for (const { file, evaluation } of persistencePlan.candidateNullPosts) {
-    const response = await apiRequest(`${base}/api/automation/packs/production`, token, {
-      method: 'POST',
-      body: JSON.stringify(evaluation),
-    });
-    validateCandidateNullPersistResponse(response, evaluation);
+    const { response, reconciled } = await persistCandidateNullWithReconciliation(base, token, evaluation);
     persisted.push({
       file,
       request: evaluation,
       response,
       auditOnly: true,
       persistedRemotely: true,
+      reconciled,
     });
   }
 
   let selected = null;
   if (persistencePlan.candidate) {
     const { file, evaluation } = persistencePlan.candidate;
-    const response = await apiRequest(`${base}/api/automation/packs/production`, token, {
-      method: 'POST',
-      body: JSON.stringify(evaluation),
-    });
+    const { response, reconciled } = await persistCandidateWithReconciliation(base, token, evaluation);
     selected = response?.data;
-    if (
-      selected?.generationId !== evaluation.generationId
-      || selected?.evaluationOutcome !== 'candidate_ready'
-      || !selected?.pack?.id
-      || !selected?.pack?.slug
-      || selected?.enrichment?.content !== 'dispatched'
-      || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
-        .test(selected?.enrichment?.contentDispatchNonce ?? '')
-    ) {
-      fail('Persist response did not bind and dispatch the exact complete candidate');
-    }
     persisted.push({
       file,
       request: evaluation,
       response,
       auditOnly: false,
       persistedRemotely: true,
+      reconciled,
     });
   }
   const summary = {
@@ -2940,7 +3325,7 @@ export function buildSloResult(value, checkedAt = new Date().toISOString()) {
   const target = Number(value.target);
   const publishedReadbackPassed = Number(value.publishedReadbackPassed);
   if (windowDays !== 7) fail(`Pack production SLO window must be 7 days, got ${value.windowDays}`);
-  if (target !== 2) fail(`Pack production SLO target must be 2, got ${value.target}`);
+  if (target !== 1) fail(`Pack production SLO target must be 1, got ${value.target}`);
   if (!Number.isSafeInteger(publishedReadbackPassed) || publishedReadbackPassed < 0) {
     fail('Pack production SLO published count is invalid');
   }
@@ -3014,6 +3399,9 @@ async function finalize(args) {
   const persistedCandidate = persisted.persisted.find(
     (item) => item?.request?.generationId === selected.generationId,
   );
+  const opportunityBinding = normalizeOpportunityBinding(
+    persistedCandidate?.request?.opportunityBinding,
+  );
   if (
     persistedCandidate?.auditOnly !== false
     || persistedCandidate?.request?.outcome !== 'candidate_ready'
@@ -3024,6 +3412,7 @@ async function finalize(args) {
     || !Array.isArray(persistedCandidate?.request?.candidate?.fitness?.ablation)
     || persistedCandidate?.request?.candidate?.fitness?.evaluationSuite?.executed !== true
     || persistedCandidate?.request?.candidate?.fitness?.usageProvenance?.deterministic !== true
+    || opportunityBinding.opportunityId !== persistedCandidate?.request?.scenario?.id
     || persistedCandidate?.response?.data?.enrichment?.contentDispatchNonce
       !== selected?.enrichment?.contentDispatchNonce
   ) {

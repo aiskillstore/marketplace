@@ -1,5 +1,7 @@
 import { defineCommand } from 'citty';
-import { join } from 'node:path';
+import { randomUUID } from 'node:crypto';
+import { lstat, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { basename, dirname, join } from 'node:path';
 import { getPluginConfig } from '../lib/plugin-config.js';
 import {
 	fetchManifest,
@@ -16,7 +18,13 @@ import {
 	SkillApiError,
 } from '../lib/skill-api.js';
 import { verifyManifest, verifySkillManifest, verifyZipHash } from '../lib/plugin-verify.js';
-import { downloadAllSkills, printDownloadSummary } from '../lib/plugin-download.js';
+import {
+	printDownloadSummary,
+	stagePackSkillDownloads,
+	stagePackTargetLinks,
+	type PackSkillDownloadTransaction,
+	type PackTargetLinkTransaction,
+} from '../lib/plugin-download.js';
 import { logger } from '../lib/plugin-logger.js';
 import {
 	agents,
@@ -24,6 +32,7 @@ import {
 	getAgentsByIds,
 	isValidAgentId,
 	CANONICAL_SKILLS_DIR,
+	LOCK_FILE_PATH,
 	type AgentConfig,
 } from '../lib/agents.js';
 import { addToLock, getLockEntry } from '../lib/skill-lock.js';
@@ -34,6 +43,11 @@ import {
 	readbackPackInstall,
 } from '../lib/pack-install-truth.js';
 import { extractSkillZip, installToAgents, getCanonicalSkillPath } from '../lib/installer.js';
+import {
+	buildPackOrchestration,
+	stagePackOrchestration,
+	type PackOrchestrationTransaction,
+} from '../lib/pack-orchestration.js';
 
 /**
  * Normalize skill/plugin slug
@@ -158,6 +172,45 @@ function getPluginInstallTargets(targetAgents: AgentConfig[], isGlobal: boolean)
 		agent,
 		installDir: isGlobal ? agent.globalPath : join(process.cwd(), agent.projectPath),
 	}));
+}
+
+type LockSnapshot = Uint8Array | undefined;
+
+async function snapshotLock(): Promise<LockSnapshot> {
+	try {
+		const stat = await lstat(LOCK_FILE_PATH);
+		if (!stat.isFile() || stat.isSymbolicLink()) {
+			throw new Error(`Refusing to replace unsafe lock path: ${LOCK_FILE_PATH}`);
+		}
+		return await readFile(LOCK_FILE_PATH);
+	} catch (error) {
+		if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined;
+		throw error;
+	}
+}
+
+async function restoreLock(snapshot: LockSnapshot): Promise<void> {
+	try {
+		const stat = await lstat(LOCK_FILE_PATH);
+		if (!stat.isFile() || stat.isSymbolicLink()) {
+			throw new Error(`Refusing to restore unsafe lock path: ${LOCK_FILE_PATH}`);
+		}
+	} catch (error) {
+		if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+	}
+	if (!snapshot) {
+		await rm(LOCK_FILE_PATH, { force: true });
+		return;
+	}
+	const lockDir = dirname(LOCK_FILE_PATH);
+	const stagePath = join(lockDir, `.${basename(LOCK_FILE_PATH)}.restore-${randomUUID()}`);
+	await mkdir(lockDir, { recursive: true });
+	try {
+		await writeFile(stagePath, snapshot, { mode: 0o600 });
+		await rename(stagePath, LOCK_FILE_PATH);
+	} finally {
+		await rm(stagePath, { force: true });
+	}
 }
 
 async function linkDownloadedSkillsToAgents(
@@ -379,6 +432,11 @@ async function addPlugin(slug: string, options: AddOptions): Promise<void> {
 		reportTargetAgents
 	);
 	let expectedSkillCount = 0;
+	let memberTransaction: PackSkillDownloadTransaction | undefined;
+	let targetTransaction: PackTargetLinkTransaction | undefined;
+	let orchestrationTransaction: PackOrchestrationTransaction | undefined;
+	let lockSnapshot: LockSnapshot;
+	let hasLockSnapshot = false;
 
 	logger.info(`Adding plugin: @${slug}`);
 	logger.info(`Target agents: ${targetAgents.map((a) => a.name).join(', ')}`);
@@ -420,27 +478,44 @@ async function addPlugin(slug: string, options: AddOptions): Promise<void> {
 		}
 
 		// Step 3: Show plugin info
+		const orchestration = skipVerify ? null : buildPackOrchestration(manifest);
 		logger.box(`Plugin: ${manifest.plugin.name}`, [
 			`Version: ${manifest.plugin.version}`,
 			`Skills: ${manifest.skills.length}`,
+			...(orchestration ? [`Workflow: ${orchestration.slug}`] : []),
 			`Generated: ${new Date(manifest.generatedAt).toLocaleDateString()}`,
 		]);
+		if (dryRun && orchestration) logger.info(`Would install verified workflow: ${orchestration.slug}`);
 
 		// Step 4: Download skills once to the canonical skills directory.
 		logger.info('');
-		const downloadResult = await downloadAllSkills(config, manifest.skills, {
+		memberTransaction = await stagePackSkillDownloads(config, manifest.skills, {
 			overwrite,
 			verifyHash: !skipVerify,
 		});
+		const downloadResult = memberTransaction.summary;
+		if (!dryRun && downloadResult.failed > 0) {
+			throw new Error(`Failed to stage ${downloadResult.failed} Pack member${downloadResult.failed === 1 ? '' : 's'}`);
+		}
 		printDownloadSummary(downloadResult);
 
 		// Step 5: Link canonical skills into each selected agent directory.
 		const successfulSkillSlugs = downloadResult.results.filter((r) => r.success).map((r) => r.slug);
 		if (!dryRun && downloadResult.failed === 0 && successfulSkillSlugs.length > 0) {
+			lockSnapshot = await snapshotLock();
+			hasLockSnapshot = true;
+			await memberTransaction.activate();
+			targetTransaction = await stagePackTargetLinks(
+				successfulSkillSlugs,
+				installTargets.map((target) => target.installDir),
+				config.installDir
+			);
+			await targetTransaction.activate();
 			logger.startSpinner('Linking skills to agents...');
 			const linkResult = await linkDownloadedSkillsToAgents(successfulSkillSlugs, targetAgents, isGlobal);
 			if (linkResult.failCount > 0) {
 				logger.spinnerError(`Linked with ${linkResult.failCount} failure${linkResult.failCount > 1 ? 's' : ''}`);
+				throw new Error('Pack member agent linking failed');
 			} else {
 				logger.spinnerSuccess(
 					`Linked ${successfulSkillSlugs.length} skill${successfulSkillSlugs.length > 1 ? 's' : ''} to ${targetAgents.length} agent${targetAgents.length > 1 ? 's' : ''}`
@@ -448,7 +523,18 @@ async function addPlugin(slug: string, options: AddOptions): Promise<void> {
 			}
 			const lockResult = await lockVerifiedPackMembers(config, manifest.skills, downloadResult);
 			if (lockResult.skipped > 0) {
-				logger.warn(`${lockResult.skipped} pack member${lockResult.skipped > 1 ? 's were' : ' was'} installed but left unlocked`);
+				throw new Error(`${lockResult.skipped} Pack member${lockResult.skipped > 1 ? 's were' : ' was'} left unlocked`);
+			}
+			const memberReadback = await readbackPackInstall(
+				manifest.skills,
+				installTargets.map((target) => target.installDir)
+			);
+			if (!memberReadback.readbackPassed) {
+				throw new Error(`Pack member readback failed for: ${memberReadback.failedSkillSlugs.join(', ') || 'unknown member state'}`);
+			} else if (orchestration) {
+				logger.startSpinner('Installing verified Pack workflow...');
+				orchestrationTransaction = await stagePackOrchestration(orchestration, targetAgents, isGlobal);
+				logger.spinnerSuccess(`Installed workflow ${orchestration.slug}`);
 			}
 		}
 
@@ -470,7 +556,8 @@ async function addPlugin(slug: string, options: AddOptions): Promise<void> {
 		if (!dryRun && downloadResult.failed === 0) {
 			const readback = await readbackPackInstall(
 				manifest.skills,
-				installTargets.map((target) => target.installDir)
+				installTargets.map((target) => target.installDir),
+				orchestration ?? undefined
 			);
 			installOutcome = derivePackInstallOutcome(
 				expectedSkillCount,
@@ -480,6 +567,23 @@ async function addPlugin(slug: string, options: AddOptions): Promise<void> {
 			if (readback.failedSkillSlugs.length > 0) {
 				logger.warn(`Install readback failed for: ${readback.failedSkillSlugs.join(', ')}`);
 			}
+			if (readback.orchestration && !readback.orchestration.readbackPassed) {
+				logger.warn(`Pack workflow readback failed: ${readback.orchestration.slug}`);
+			}
+		}
+		if (!dryRun && installOutcome.status !== 'complete') {
+			throw new Error(`Pack installation readback failed: ${installOutcome.failedSkillCount} member failure${installOutcome.failedSkillCount === 1 ? '' : 's'}`);
+		}
+		if (!dryRun) {
+			const cleanupErrors = [
+				...(await memberTransaction.commit()),
+				...(await targetTransaction?.commit() ?? []),
+				...(await orchestrationTransaction?.commit() ?? []),
+			];
+			memberTransaction = undefined;
+			targetTransaction = undefined;
+			orchestrationTransaction = undefined;
+			for (const error of cleanupErrors) logger.warn(`Pack backup cleanup failed: ${error.message}`);
 		}
 		if (!dryRun) {
 			const reported = await installTruth?.report(installOutcome);
@@ -487,15 +591,44 @@ async function addPlugin(slug: string, options: AddOptions): Promise<void> {
 		}
 
 		// Final status
-		if (!dryRun && installOutcome.status !== 'complete') {
-			logger.warn(`Installation did not complete: ${installOutcome.failedSkillCount} member failure${installOutcome.failedSkillCount === 1 ? '' : 's'}`);
-			process.exit(1);
-		} else if (dryRun) {
+		if (dryRun) {
 			logger.success('Dry run complete - no files were written');
 		} else {
 			logger.success(`Plugin "@${manifest.plugin.slug}" added successfully!`);
 		}
-	} catch (err) {
+	} catch (caught) {
+		const rollbackErrors: unknown[] = [];
+		if (orchestrationTransaction) {
+			try {
+				await orchestrationTransaction.rollback();
+			} catch (error) {
+				rollbackErrors.push(error);
+			}
+		}
+		if (targetTransaction) {
+			try {
+				await targetTransaction.rollback();
+			} catch (error) {
+				rollbackErrors.push(error);
+			}
+		}
+		if (memberTransaction) {
+			try {
+				await memberTransaction.rollback();
+			} catch (error) {
+				rollbackErrors.push(error);
+			}
+		}
+		if (hasLockSnapshot) {
+			try {
+				await restoreLock(lockSnapshot);
+			} catch (error) {
+				rollbackErrors.push(error);
+			}
+		}
+		const err = rollbackErrors.length > 0
+			? new AggregateError([caught, ...rollbackErrors], 'Pack installation and rollback failed')
+			: caught;
 		logger.stopSpinner();
 		await installTruth?.report(derivePackInstallOutcome(expectedSkillCount, 0, false));
 

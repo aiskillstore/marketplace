@@ -95,7 +95,14 @@ test('production configures and proves bwrap before the only Helm secret step', 
   assert.ok(helperIndex > userIndex);
   assert.ok(secretStepIndex > helperIndex);
   assert.ok(helperIndex > helperInputIndex);
-  assert.doesNotMatch(evaluate.slice(0, secretStepIndex), /secrets\./);
+  const preHelmBoundary = evaluate.slice(0, secretStepIndex);
+  assert.match(preHelmBoundary, /actions\/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3/);
+  assert.match(preHelmBoundary, /repositories: marketplace,skillstore/);
+  assert.match(preHelmBoundary, /permission-contents: read/);
+  assert.doesNotMatch(
+    preHelmBoundary,
+    /secrets\.(?:PACK_EVALUATOR_HELM_API_KEY|PACK_PRODUCTION_|PACK_PRODUCTION_MANUAL_PUBLISH_KEY|PACK_PRODUCTION_READBACK_KEY|SUPABASE|SKILLSTORE_CALLBACK|CACHE_INVALIDATE)/,
+  );
 });
 
 test('hosted proof is manually gated, read-only, pinned, and invokes the production helper', () => {

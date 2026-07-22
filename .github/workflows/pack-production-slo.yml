@@ -15,11 +15,14 @@ concurrency:
 jobs:
   report:
     name: Observe rolling seven-day Pack production
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      vars.PACK_PRODUCTION_AUTOMATION_ENABLED == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
       - name: Checkout the read-only SLO reporter
-        uses: actions/checkout@v5
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           path: marketplace-slo
           ref: ${{ github.sha }}
@@ -48,12 +51,13 @@ jobs:
             echo "- Published + readback passed: $ACTUAL/$TARGET"
           } >> "$GITHUB_STEP_SUMMARY"
           if [ "$(jq -r '.met' "$SLO")" != 'true' ]; then
-            echo "::warning::Rolling 7-day Pack production SLO is below target: $ACTUAL/$TARGET"
+            echo "::error::Rolling 7-day Pack production SLO is below target: $ACTUAL/$TARGET"
+            exit 1
           fi
 
       - name: Upload independent SLO evidence
         if: always()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: pack-production-slo
           path: pack-slo/

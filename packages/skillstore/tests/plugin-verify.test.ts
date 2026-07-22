@@ -171,13 +171,12 @@ describe('plugin-verify', () => {
 			expect(verifyContentHash(content, wrongHash)).toBe(false);
 		});
 
-		it('should handle truncated hash comparison', () => {
+		it('should reject truncated hashes', () => {
 			const content = 'Test content';
 			const fullHash = createHash('sha256').update(content).digest('hex');
 			const truncatedHash = fullHash.substring(0, 16);
 
-			// Should match when comparing common length
-			expect(verifyContentHash(content, truncatedHash)).toBe(true);
+			expect(verifyContentHash(content, truncatedHash)).toBe(false);
 		});
 
 		it('should handle empty content', () => {
@@ -325,7 +324,7 @@ describe('plugin-verify', () => {
 				.resolves.toMatchObject({ valid: true });
 		});
 
-		it('should validate a canonical pack manifest with Ed25519 signature', async () => {
+		it('should reject a self-signed canonical Pack manifest', async () => {
 			const subtle = globalThis.crypto?.subtle || webcrypto.subtle;
 			const keyPair = await subtle.generateKey({ name: 'Ed25519' }, true, ['sign', 'verify']);
 			const privateJwk = await subtle.exportKey('jwk', keyPair.privateKey);
@@ -379,7 +378,52 @@ describe('plugin-verify', () => {
 
 			const result = await verifyManifest(manifest);
 
-			expect(result.valid).toBe(true);
+			expect(result).toEqual({
+				valid: false,
+				error: 'Ed25519 signature key is not trusted',
+			});
+		});
+
+		it('should reject an unknown Ed25519 key id even when it claims the production public key', async () => {
+			const manifest = createValidManifest() as PluginManifest;
+			manifest.signed = { kind: 'pack', version: '1.0', skills: manifest.skills };
+			manifest.signature = {
+				algorithm: 'Ed25519',
+				keyId: 'unknown-key',
+				publicKeyJwk: {
+					kty: 'OKP',
+					crv: 'Ed25519',
+					x: '2tbC6eNY4T9sx4Pvuo_NwHlXGyWWz95WAtHyHUTqzs8',
+				},
+				signedAt: '2026-07-22T00:00:00.000Z',
+				value: 'AA',
+			};
+
+			await expect(verifyManifest(manifest)).resolves.toEqual({
+				valid: false,
+				error: 'Ed25519 signature key is not trusted',
+			});
+		});
+
+		it('should verify signatures with the built-in production public key, not manifest key material', async () => {
+			const manifest = createValidManifest() as PluginManifest;
+			manifest.signed = { kind: 'pack', version: '1.0', skills: manifest.skills };
+			manifest.signature = {
+				algorithm: 'Ed25519',
+				keyId: 'EP0Myk7rTk_J0RdG1fvpkP',
+				publicKeyJwk: {
+					kty: 'OKP',
+					crv: 'Ed25519',
+					x: '2tbC6eNY4T9sx4Pvuo_NwHlXGyWWz95WAtHyHUTqzs8',
+				},
+				signedAt: '2026-07-22T00:00:00.000Z',
+				value: 'AA',
+			};
+
+			await expect(verifyManifest(manifest)).resolves.toEqual({
+				valid: false,
+				error: 'Signature verification failed',
+			});
 		});
 
 		it('should use built-in key when env not set', async () => {
@@ -538,7 +582,7 @@ describe('plugin-verify', () => {
 			expect(result.error).toBe('Missing zipHash or artifact.sha256 in manifest');
 		});
 
-		it('should validate a canonical skill manifest with Ed25519 signature', async () => {
+		it('should reject a self-signed canonical Skill manifest', async () => {
 			const subtle = globalThis.crypto?.subtle || webcrypto.subtle;
 			const keyPair = await subtle.generateKey({ name: 'Ed25519' }, true, ['sign', 'verify']);
 			const privateJwk = await subtle.exportKey('jwk', keyPair.privateKey);
@@ -584,7 +628,10 @@ describe('plugin-verify', () => {
 
 			const result = await verifySkillManifest(manifest);
 
-			expect(result.valid).toBe(true);
+			expect(result).toEqual({
+				valid: false,
+				error: 'Ed25519 signature key is not trusted',
+			});
 		});
 
 		it('should skip signature verification when option is set', async () => {

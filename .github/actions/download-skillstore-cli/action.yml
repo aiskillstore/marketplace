@@ -21,6 +21,10 @@ inputs:
     description: 'Require and verify checksums.txt from the immutable CLI release'
     required: false
     default: 'false'
+  expected-sha256:
+    description: 'Optional independently recorded SHA-256 for skillstore-cli-linux-x64; checked when require-checksum=true'
+    required: false
+    default: ''
 
 outputs:
   cli-path:
@@ -81,24 +85,14 @@ runs:
         if [ -f "$CACHE_FILE" ]; then
           echo "✅ Found local cache: $CACHE_FILE"
           echo "📋 Cache file size: $(du -h "$CACHE_FILE" | cut -f1)"
+          if [ "$REQUIRE_CHECKSUM" != "true" ]; then
+            echo "::warning::Ignoring an unpinned local CLI cache entry; downloading fresh release bytes"
+            echo "cache-hit=false" >> "$GITHUB_OUTPUT"
+            echo "cache-disabled=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           cp "$CACHE_FILE" "$GITHUB_WORKSPACE/skillstore-cli"
           chmod +x "$GITHUB_WORKSPACE/skillstore-cli"
-
-          # Legacy callers do not require a release checksum, so retain their
-          # stale-cache self-healing behavior. Checksum-required callers must
-          # never execute cache bytes before the checksum gate below.
-          if [ "$REQUIRE_CHECKSUM" != "true" ]; then
-            EXPECTED_VERSION=${RELEASE_TAG#cli-v}
-            CACHED_VERSION=$("$GITHUB_WORKSPACE/skillstore-cli" --version 2>&1 | grep -Eo '[0-9]+([.][0-9]+){1,3}([-+][0-9A-Za-z._-]+)?' | head -n1 || true)
-            if [ "$CACHED_VERSION" != "$EXPECTED_VERSION" ]; then
-              echo "::warning::Local CLI cache version mismatch: expected $EXPECTED_VERSION, got ${CACHED_VERSION:-unknown}. Invalidating cache entry."
-              rm -f "$CACHE_FILE" "$GITHUB_WORKSPACE/skillstore-cli"
-              echo "cache-hit=false" >> "$GITHUB_OUTPUT"
-              echo "cache-file=$CACHE_FILE" >> "$GITHUB_OUTPUT"
-              exit 0
-            fi
-          fi
-
           echo "cache-hit=true" >> $GITHUB_OUTPUT
         else
           echo "❌ No cached version found for $RELEASE_TAG"
@@ -122,7 +116,8 @@ runs:
     - name: Cache CLI (GitHub-hosted runners)
       id: cache-cli
       if: inputs.cache-dir == ''
-      uses: actions/cache@v4
+      # v4
+      uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
       with:
         path: ${{ github.workspace }}/skillstore-cli
         key: skillstore-cli-${{ steps.resolve.outputs.release-tag }}-${{ runner.os }}-${{ runner.arch }}
@@ -136,6 +131,7 @@ runs:
         GH_TOKEN: ${{ inputs.token }}
         CLI_REPO: aiskillstore/skillstore
         RELEASE_TAG: ${{ steps.resolve.outputs.release-tag }}
+        EXPECTED_SHA256: ${{ inputs.expected-sha256 }}
       run: |
         echo "Downloading skillstore-cli ($RELEASE_TAG)..."
 
@@ -164,6 +160,7 @@ runs:
         GH_TOKEN: ${{ inputs.token }}
         CLI_REPO: aiskillstore/skillstore
         RELEASE_TAG: ${{ steps.resolve.outputs.release-tag }}
+        EXPECTED_SHA256: ${{ inputs.expected-sha256 }}
       run: |
         CHECKSUM_DIR=$(mktemp -d)
         trap 'rm -rf "$CHECKSUM_DIR"' EXIT
@@ -177,6 +174,16 @@ runs:
           echo "::error::Release $RELEASE_TAG has no valid checksum for skillstore-cli-linux-x64"
           exit 1
         fi
+        if [ -n "$EXPECTED_SHA256" ]; then
+          if ! [[ "$EXPECTED_SHA256" =~ ^[0-9a-f]{64}$ ]]; then
+            echo '::error::expected-sha256 must be a lowercase 64-character SHA-256 digest'
+            exit 1
+          fi
+          if [ "$EXPECTED" != "$EXPECTED_SHA256" ]; then
+            echo "::error::Release $RELEASE_TAG checksum does not match the independently recorded expected digest"
+            exit 1
+          fi
+        fi
         if command -v sha256sum >/dev/null 2>&1; then
           ACTUAL=$(sha256sum "$GITHUB_WORKSPACE/skillstore-cli" | awk '{ print $1 }')
         else
@@ -184,6 +191,10 @@ runs:
         fi
         if [ "$ACTUAL" != "$EXPECTED" ]; then
           echo "::error::CLI checksum mismatch for $RELEASE_TAG: expected $EXPECTED, got $ACTUAL"
+          exit 1
+        fi
+        if [ -n "$EXPECTED_SHA256" ] && [ "$ACTUAL" != "$EXPECTED_SHA256" ]; then
+          echo "::error::CLI digest does not match the independently recorded expected digest for $RELEASE_TAG"
           exit 1
         fi
         echo "cli-sha256=$ACTUAL" >> "$GITHUB_OUTPUT"

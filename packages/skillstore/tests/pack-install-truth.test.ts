@@ -1,8 +1,14 @@
+import { createHash } from 'node:crypto';
 import { mkdtemp, readFile, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ManifestSkill } from '../src/lib/plugin-api.js';
+import {
+	buildPackOrchestrationReceipt,
+	PACK_ORCHESTRATION_RECEIPT_FILE,
+	type PackOrchestration,
+} from '../src/lib/pack-orchestration.js';
 import type { SkillLockEntry } from '../src/lib/skill-lock.js';
 import { CLI_VERSION } from '../src/lib/version.js';
 import {
@@ -199,7 +205,7 @@ describe('Pack install readback', () => {
 
 	it('requires canonical files, every actual target directory, and matching locks', async () => {
 		const readPath = vi.fn(async () => new Uint8Array([1, 2, 3]));
-		const result = await readbackPackInstall(members, ['/targets/codex', '/targets/claude'], {
+		const result = await readbackPackInstall(members, ['/targets/codex', '/targets/claude'], undefined, {
 			readPath,
 			readLockEntry: async (slug) => lockFor(members.find((member) => member.slug === slug)!),
 		});
@@ -221,7 +227,7 @@ describe('Pack install readback', () => {
 	});
 
 	it('counts only members whose final lock and filesystem state read back', async () => {
-		const result = await readbackPackInstall(members, ['/targets/codex'], {
+		const result = await readbackPackInstall(members, ['/targets/codex'], undefined, {
 			readPath: async () => new Uint8Array([1, 2, 3]),
 			readLockEntry: async (slug) => slug === members[0].slug ? lockFor(members[0]) : undefined,
 		});
@@ -231,6 +237,103 @@ describe('Pack install readback', () => {
 			failedSkillCount: 1,
 			readbackPassed: false,
 			failedSkillSlugs: ['owner-two'],
+		});
+	});
+
+	it('binds formal Pack readback to orchestration content, digest, receipt, and agent paths', async () => {
+		const content = '# Verified workflow\n';
+		const orchestration: PackOrchestration = {
+			slug: 'skillstore-pack-business-review',
+			packSlug: 'business-review',
+			packVersion: '1.0.0',
+			orchestrationVersion: '1.0.0',
+		content,
+		contentHash: createHash('sha256').update(content).digest('hex'),
+		treeHash: createHash('sha256').update(JSON.stringify({
+			path: 'SKILL.md', mode: '100644',
+			sha256: createHash('sha256').update(content).digest('hex'), size: Buffer.byteLength(content),
+		})).digest('hex'),
+		bindingDigest: 'c'.repeat(64),
+		};
+		const receipt = Buffer.from(JSON.stringify(buildPackOrchestrationReceipt(orchestration)));
+		const result = await readbackPackInstall(
+			members,
+			['/targets/codex', '/targets/claude'],
+			orchestration,
+			{
+				readPath: async (path) => {
+					if (path.endsWith(PACK_ORCHESTRATION_RECEIPT_FILE)) return receipt;
+					if (path.includes(orchestration.slug)) return Buffer.from(content);
+					return new Uint8Array([1, 2, 3]);
+				},
+				readLockEntry: async (slug) => lockFor(members.find((member) => member.slug === slug)!),
+			}
+		);
+
+		expect(result).toMatchObject({
+			installedSkillCount: 2,
+			failedSkillCount: 0,
+			readbackPassed: true,
+			orchestration: {
+				slug: orchestration.slug,
+				canonicalId: orchestration.slug,
+				version: orchestration.orchestrationVersion,
+				contentHash: orchestration.contentHash,
+				bindingDigest: orchestration.bindingDigest,
+				agentPaths: [
+					'/targets/codex/skillstore-pack-business-review',
+					'/targets/claude/skillstore-pack-business-review',
+				],
+				readbackPassed: true,
+			},
+		});
+	});
+
+	it('fails formal Pack readback when one agent orchestration receipt differs', async () => {
+		const content = '# Verified workflow\n';
+		const orchestration: PackOrchestration = {
+			slug: 'skillstore-pack-business-review',
+			packSlug: 'business-review',
+			packVersion: '1.0.0',
+			orchestrationVersion: '1.0.0',
+		content,
+		contentHash: createHash('sha256').update(content).digest('hex'),
+		treeHash: createHash('sha256').update(JSON.stringify({
+			path: 'SKILL.md', mode: '100644',
+			sha256: createHash('sha256').update(content).digest('hex'), size: Buffer.byteLength(content),
+		})).digest('hex'),
+		bindingDigest: 'c'.repeat(64),
+		};
+		const receipt = buildPackOrchestrationReceipt(orchestration);
+		const result = await readbackPackInstall(
+			members,
+			['/targets/codex', '/targets/claude'],
+			orchestration,
+			{
+				readPath: async (path) => {
+					if (path.endsWith(PACK_ORCHESTRATION_RECEIPT_FILE)) {
+						return Buffer.from(JSON.stringify(
+							path.includes('/targets/claude/')
+								? { ...receipt, orchestrationVersion: '2.0.0' }
+								: receipt
+						));
+					}
+					if (path.includes(orchestration.slug)) return Buffer.from(content);
+					return new Uint8Array([1, 2, 3]);
+				},
+				readLockEntry: async (slug) => lockFor(members.find((member) => member.slug === slug)!),
+			}
+		);
+
+		expect(result).toMatchObject({
+			installedSkillCount: 2,
+			failedSkillCount: 0,
+			readbackPassed: false,
+			orchestration: {
+				canonicalId: orchestration.slug,
+				version: orchestration.orchestrationVersion,
+				readbackPassed: false,
+			},
 		});
 	});
 });

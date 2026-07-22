@@ -30,6 +30,11 @@ const STRIPPED_HEADERS = new Set([
 const MAX_BODY_BYTES = 32 * 1024 * 1024;
 const MAX_ERROR_DIAGNOSTIC_BYTES = 64 * 1024;
 const MAX_AUTH_REJECTION_DIAGNOSTICS = 8;
+const HARD_MAX_REQUESTS = 160;
+const HARD_MAX_CONCURRENT = 1;
+const HARD_MAX_INPUT_TOKENS = 600_000;
+const HARD_MAX_OUTPUT_TOKENS = 120_000;
+const HARD_MAX_COST_MICRO_USD = 10_000_000;
 const TRACE_HEADERS = [
   'cf-ray',
   'request-id',
@@ -188,6 +193,73 @@ function positiveInteger(value, name, fallback) {
   return parsed;
 }
 
+function positiveNumber(value, name, fallback) {
+  if (value == null || value === '') return fallback;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) fail(`${name} must be a positive number`);
+  return parsed;
+}
+
+function usageFromPayload(payload) {
+  const candidates = [payload?.usage, payload?.response?.usage, payload?.message?.usage]
+    .filter((usage) => usage && typeof usage === 'object' && !Array.isArray(usage));
+  if (candidates.length === 0) return null;
+  const result = { inputTokens: null, outputTokens: null, costMicroUsd: null };
+  for (const usage of candidates) {
+    const input = usage.input_tokens ?? usage.prompt_tokens;
+    const output = usage.output_tokens ?? usage.completion_tokens;
+    if (Number.isSafeInteger(input) && input >= 0) {
+      const cache = [usage.cache_creation_input_tokens, usage.cache_read_input_tokens]
+        .filter((value) => value != null);
+      if (cache.every((value) => Number.isSafeInteger(value) && value >= 0)) {
+        const total = input + cache.reduce((sum, value) => sum + value, 0);
+        if (Number.isSafeInteger(total)) result.inputTokens = Math.max(result.inputTokens ?? 0, total);
+      }
+    }
+    if (Number.isSafeInteger(output) && output >= 0) {
+      result.outputTokens = Math.max(result.outputTokens ?? 0, output);
+    }
+    const costs = [usage.cost_usd, usage.total_cost_usd]
+      .filter((cost) => Number.isFinite(Number(cost)) && Number(cost) >= 0)
+      .map((cost) => Math.ceil(Number(cost) * 1_000_000));
+    if (costs.length > 0) result.costMicroUsd = Math.max(result.costMicroUsd ?? 0, ...costs);
+  }
+  return result;
+}
+
+async function responseUsage(upstream, stream) {
+  const body = await boundedResponseBody(upstream.clone(), MAX_BODY_BYTES);
+  if (!body) return null;
+  const payloads = [];
+  if (!stream) {
+    try {
+      payloads.push(JSON.parse(body.toString('utf8')));
+    } catch {
+      return null;
+    }
+  } else {
+    for (const line of body.toString('utf8').split(/\r?\n/)) {
+      const value = line.startsWith('data:') ? line.slice(5).trim() : line.trim();
+      if (!value || value === '[DONE]') continue;
+      try {
+        payloads.push(JSON.parse(value));
+      } catch {
+        // Non-data SSE fields and partial diagnostics are not usage evidence.
+      }
+    }
+  }
+  let merged = null;
+  for (const payload of payloads) {
+    const usage = usageFromPayload(payload);
+    if (!usage) continue;
+    merged ??= { inputTokens: null, outputTokens: null, costMicroUsd: null };
+    for (const field of Object.keys(merged)) {
+      if (usage[field] != null) merged[field] = Math.max(merged[field] ?? 0, usage[field]);
+    }
+  }
+  return merged;
+}
+
 function allowedModelSet(value = DEFAULT_ALLOWED_MODELS) {
   const models = value instanceof Set
     ? value
@@ -218,14 +290,27 @@ function boundedInferenceBody(body, pathname, allowedModels, maxOutputTokens) {
       reject(`${field} must be between 1 and ${maxOutputTokens}`, 400, 'invalid_output_token_limit');
     }
   }
+  if (pathname === '/v1/messages' && payload.max_output_tokens != null) {
+    reject('max_output_tokens is not allowed for the Messages API', 400, 'invalid_output_token_limit');
+  }
+  if ((pathname === '/v1/responses' || pathname === '/v1/responses/compact')
+    && payload.max_tokens != null) {
+    reject('max_tokens is not allowed for the Responses API', 400, 'invalid_output_token_limit');
+  }
   if (pathname === '/v1/messages' && payload.max_tokens == null) payload.max_tokens = maxOutputTokens;
-  if (pathname === '/v1/responses' && payload.max_output_tokens == null) {
+  if ((pathname === '/v1/responses' || pathname === '/v1/responses/compact')
+    && payload.max_output_tokens == null) {
     payload.max_output_tokens = maxOutputTokens;
   }
   return {
     body: Buffer.from(JSON.stringify(payload)),
     model,
     stream: payload.stream === true,
+    outputReservation: pathname === '/v1/messages'
+      ? payload.max_tokens
+      : (pathname === '/v1/responses' || pathname === '/v1/responses/compact')
+        ? payload.max_output_tokens
+        : 0,
   };
 }
 
@@ -264,9 +349,14 @@ export function createPackEvaluatorProxy({
   upstreamBaseUrl,
   fetchImpl = fetch,
   allowedModels = DEFAULT_ALLOWED_MODELS,
-  maxRequests = 256,
-  maxConcurrent = 4,
+  maxRequests = HARD_MAX_REQUESTS,
+  maxConcurrent = HARD_MAX_CONCURRENT,
   maxOutputTokens = 65_536,
+  maxInputTokens = HARD_MAX_INPUT_TOKENS,
+  maxTotalOutputTokens = HARD_MAX_OUTPUT_TOKENS,
+  maxCostUsd = 10,
+  maxInputCostPerMillionUsd = 15,
+  maxOutputCostPerMillionUsd = 75,
   ttlMs = 4 * 60 * 60 * 1000,
   requestTimeoutMs = 10 * 60 * 1000,
   onActivity = () => {},
@@ -274,15 +364,50 @@ export function createPackEvaluatorProxy({
   if (!localToken || localToken.length < 32) fail('PACK_EVALUATOR_LOCAL_TOKEN must be at least 32 characters');
   if (!upstreamKey) fail('PACK_EVALUATOR_UPSTREAM_KEY is required');
   const modelAllowlist = allowedModelSet(allowedModels);
-  const requestLimit = positiveInteger(maxRequests, 'maxRequests', 256);
-  const concurrencyLimit = positiveInteger(maxConcurrent, 'maxConcurrent', 4);
-  const outputTokenLimit = positiveInteger(maxOutputTokens, 'maxOutputTokens', 65_536);
+  const requestLimit = Math.min(HARD_MAX_REQUESTS, positiveInteger(maxRequests, 'maxRequests', HARD_MAX_REQUESTS));
+  const concurrencyLimit = Math.min(
+    HARD_MAX_CONCURRENT,
+    positiveInteger(maxConcurrent, 'maxConcurrent', HARD_MAX_CONCURRENT),
+  );
+  const outputTokenLimit = Math.min(
+    HARD_MAX_OUTPUT_TOKENS,
+    positiveInteger(maxOutputTokens, 'maxOutputTokens', 65_536),
+  );
+  const inputTokenLimit = Math.min(
+    HARD_MAX_INPUT_TOKENS,
+    positiveInteger(maxInputTokens, 'maxInputTokens', HARD_MAX_INPUT_TOKENS),
+  );
+  const totalOutputTokenLimit = Math.min(
+    HARD_MAX_OUTPUT_TOKENS,
+    positiveInteger(maxTotalOutputTokens, 'maxTotalOutputTokens', HARD_MAX_OUTPUT_TOKENS),
+  );
+  const costLimitMicroUsd = Math.min(
+    HARD_MAX_COST_MICRO_USD,
+    Math.floor(positiveNumber(maxCostUsd, 'maxCostUsd', 10) * 1_000_000),
+  );
+  const inputCostCeiling = positiveNumber(
+    maxInputCostPerMillionUsd,
+    'maxInputCostPerMillionUsd',
+    15,
+  );
+  const outputCostCeiling = positiveNumber(
+    maxOutputCostPerMillionUsd,
+    'maxOutputCostPerMillionUsd',
+    75,
+  );
   const lifetimeMs = positiveInteger(ttlMs, 'ttlMs', 4 * 60 * 60 * 1000);
   const timeoutMs = positiveInteger(requestTimeoutMs, 'requestTimeoutMs', 10 * 60 * 1000);
   const expiresAt = Date.now() + lifetimeMs;
   let requestsStarted = 0;
   let activityRequestSequence = 0;
   let activeRequests = 0;
+  let inputTokens = 0;
+  let outputTokens = 0;
+  let costMicroUsd = 0;
+  let reservedInputTokens = 0;
+  let reservedOutputTokens = 0;
+  let reservedCostMicroUsd = 0;
+  let budgetFailure = null;
   let authRejectionDiagnostics = 0;
   let circuitFailure = null;
   const recordActivity = (activity) => {
@@ -292,6 +417,17 @@ export function createPackEvaluatorProxy({
       process.stderr.write(`Pack evaluator activity marker failed: ${error?.code ?? 'unknown'}\n`);
     }
   };
+  const recordBudget = (status, reason = null) => recordActivity({
+    phase: 'budget',
+    status,
+    reason,
+    modelRequests: requestsStarted,
+    inputTokens,
+    outputTokens,
+    costUsd: costMicroUsd / 1_000_000,
+    reservedCostUsd: reservedCostMicroUsd / 1_000_000,
+    billable: status !== 'unbillable',
+  });
   const upstreamBase = new URL(upstreamBaseUrl);
   if (upstreamBase.protocol !== 'https:' && upstreamBase.hostname !== '127.0.0.1') {
     fail('PACK_EVALUATOR_UPSTREAM_URL must use HTTPS');
@@ -328,7 +464,14 @@ export function createPackEvaluatorProxy({
         json(response, 403, { error: 'evaluator proxy token has expired' });
         return;
       }
+      if (budgetFailure) {
+        recordBudget(budgetFailure === 'usage_unavailable' ? 'unbillable' : 'exhausted', budgetFailure);
+        json(response, 429, { error: 'evaluator proxy cumulative budget is not admissible' });
+        return;
+      }
       if (requestsStarted >= requestLimit) {
+        budgetFailure = 'request_limit';
+        recordBudget('exhausted', budgetFailure);
         json(response, 429, { error: 'evaluator proxy request budget exhausted' });
         return;
       }
@@ -378,8 +521,39 @@ export function createPackEvaluatorProxy({
         json(response, 424, { error: 'upstream deterministic client failure opened the evaluator circuit' });
         return;
       }
+      const inputReservation = incomingBody.length;
+      if (inputTokens + reservedInputTokens + inputReservation > inputTokenLimit) {
+        budgetFailure = 'input_token_limit';
+        recordBudget('exhausted', budgetFailure);
+        json(response, 429, { error: 'evaluator proxy input token budget exhausted' });
+        return;
+      }
+      const outputReservation = incoming.pathname === '/v1/messages/count_tokens'
+        ? 0
+        : bounded.outputReservation || outputTokenLimit;
+      if (outputTokens + reservedOutputTokens + outputReservation > totalOutputTokenLimit) {
+        budgetFailure = 'output_token_limit';
+        recordBudget('exhausted', budgetFailure);
+        json(response, 429, { error: 'evaluator proxy output token budget exhausted' });
+        return;
+      }
+      // The request body byte count is a conservative upper bound for input
+      // tokens. Reserve against explicit worst-case per-model price ceilings
+      // before forwarding so one in-flight request cannot cross the USD cap.
+      const costReservationMicroUsd = incoming.pathname === '/v1/messages/count_tokens'
+        ? 0
+        : Math.ceil(inputReservation * inputCostCeiling + outputReservation * outputCostCeiling);
+      if (costMicroUsd + reservedCostMicroUsd + costReservationMicroUsd > costLimitMicroUsd) {
+        budgetFailure = 'cost_limit';
+        recordBudget('exhausted', budgetFailure);
+        json(response, 429, { error: 'evaluator proxy worst-case cost reservation exceeds budget' });
+        return;
+      }
       requestsStarted += 1;
       activeRequests += 1;
+      reservedInputTokens += inputReservation;
+      reservedOutputTokens += outputReservation;
+      reservedCostMicroUsd += costReservationMicroUsd;
       recordActivity({ phase: 'started', requestNumber, ...requestDiagnostics });
       const upstreamController = new AbortController();
       const upstreamTimeout = setTimeout(() => upstreamController.abort(), timeoutMs);
@@ -396,6 +570,10 @@ export function createPackEvaluatorProxy({
           redirect: 'error',
           signal: upstreamController.signal,
         });
+        const isModelRequest = incoming.pathname !== '/v1/messages/count_tokens';
+        const usagePromise = upstream.ok && isModelRequest
+          ? responseUsage(upstream, bounded.stream)
+          : Promise.resolve(null);
         const upstreamDiagnostics = await errorDiagnostics(upstream);
         if (isDeterministicClientFailure(upstream.status)) {
           circuitFailure = { status: upstream.status, requestNumber };
@@ -411,6 +589,10 @@ export function createPackEvaluatorProxy({
         response.writeHead(upstream.status, responseHeaders(upstream));
         if (!upstream.body) {
           response.end();
+          if (upstream.ok && isModelRequest) {
+            budgetFailure = 'usage_unavailable';
+            recordBudget('unbillable', budgetFailure);
+          }
           return;
         }
         const reader = upstream.body.getReader();
@@ -422,6 +604,25 @@ export function createPackEvaluatorProxy({
           }
         }
         response.end();
+        if (upstream.ok && isModelRequest) {
+          const usage = await usagePromise;
+          if (
+            usage?.inputTokens == null
+            || usage.outputTokens == null
+            || usage.costMicroUsd == null
+          ) {
+            budgetFailure = 'usage_unavailable';
+            recordBudget('unbillable', budgetFailure);
+          } else {
+            inputTokens += usage.inputTokens;
+            outputTokens += usage.outputTokens;
+            costMicroUsd += usage.costMicroUsd;
+            if (inputTokens > inputTokenLimit) budgetFailure = 'input_token_limit';
+            else if (outputTokens > totalOutputTokenLimit) budgetFailure = 'output_token_limit';
+            else if (costMicroUsd > costLimitMicroUsd) budgetFailure = 'cost_limit';
+            recordBudget(budgetFailure ? 'exhausted' : 'within', budgetFailure);
+          }
+        }
       } catch (error) {
         recordActivity({
           phase: 'error',
@@ -433,12 +634,19 @@ export function createPackEvaluatorProxy({
           errorCategory: classifyUpstreamErrorMessage(error instanceof Error ? error.message : null),
           errorMessageSha256: error instanceof Error ? sha256(error.message) : null,
         });
+        if (!budgetFailure && incoming.pathname !== '/v1/messages/count_tokens') {
+          budgetFailure = 'usage_unavailable';
+          recordBudget('unbillable', budgetFailure);
+        }
         throw error;
       } finally {
         clearTimeout(upstreamTimeout);
         request.off('aborted', abortUpstream);
         response.off('close', abortUpstream);
         activeRequests -= 1;
+        reservedInputTokens -= inputReservation;
+        reservedOutputTokens -= outputReservation;
+        reservedCostMicroUsd -= costReservationMicroUsd;
         recordActivity({ phase: 'completed', requestNumber });
       }
     } catch (error) {
@@ -460,6 +668,11 @@ export async function startPackEvaluatorProxy(environment = process.env) {
     maxRequests: environment.PACK_EVALUATOR_MAX_REQUESTS,
     maxConcurrent: environment.PACK_EVALUATOR_MAX_CONCURRENT,
     maxOutputTokens: environment.PACK_EVALUATOR_MAX_OUTPUT_TOKENS,
+    maxInputTokens: environment.PACK_EVALUATOR_MAX_INPUT_TOKENS,
+    maxTotalOutputTokens: environment.PACK_EVALUATOR_MAX_TOTAL_OUTPUT_TOKENS,
+    maxCostUsd: environment.PACK_EVALUATOR_MAX_COST_USD,
+    maxInputCostPerMillionUsd: environment.PACK_EVALUATOR_MAX_INPUT_COST_PER_MILLION_USD,
+    maxOutputCostPerMillionUsd: environment.PACK_EVALUATOR_MAX_OUTPUT_COST_PER_MILLION_USD,
     ttlMs: environment.PACK_EVALUATOR_TTL_MS,
     requestTimeoutMs: environment.PACK_EVALUATOR_REQUEST_TIMEOUT_MS,
     onActivity: environment.PACK_EVALUATOR_ACTIVITY_FILE

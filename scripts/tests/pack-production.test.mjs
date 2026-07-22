@@ -28,6 +28,7 @@ import {
   buildSloResult,
   canonicalJson,
   deterministicHttpFailureFromActivity,
+  evaluatorBudgetFromActivity,
   exactExecutorPreflightClosure,
   isSafeEvaluatorProgressLine,
   normalizeEvaluatorProgressLine,
@@ -103,8 +104,8 @@ export function cliReport() {
     handoffs,
   })).digest('hex');
   const skillBindings = [
-    { canonical_id: 'spreadsheet-skill', content_hash: '1'.repeat(64), version: '1.0.0', slot_ids: ['workbook'] },
-    { canonical_id: 'workbook-validator', content_hash: '2'.repeat(64), version: '2.0.0', slot_ids: ['validation'] },
+    { canonical_id: 'spreadsheet-skill', content_hash: '1'.repeat(64), tree_hash: '3'.repeat(64), version: '1.0.0', slot_ids: ['workbook'] },
+    { canonical_id: 'workbook-validator', content_hash: '2'.repeat(64), tree_hash: '4'.repeat(64), version: '2.0.0', slot_ids: ['validation'] },
   ];
   const bindingDigest = createHash('sha256').update(canonicalJson({
     workflow_digest: workflowDigest,
@@ -125,6 +126,7 @@ export function cliReport() {
     events: skillBindings.map((binding, index) => ({
       canonicalId: binding.canonical_id,
       contentHash: binding.content_hash,
+      treeHash: binding.tree_hash,
       version: binding.version,
       sequence: index + 1,
     })),
@@ -138,7 +140,9 @@ export function cliReport() {
     outcomeReason: 'passed',
     autoPublishEligible: true,
     scenario: {
-      id: 'excel-dashboard',
+      id: 'opp-excel-dashboard',
+      opportunityId: 'opp-excel-dashboard',
+      evaluationTemplateId: 'excel-dashboard',
       slug: 'monthly-sales-excel-workbook',
       name: 'Monthly Sales Excel Dashboard',
       version: '1.0.0',
@@ -220,7 +224,7 @@ export function cliReport() {
           workflowDigest,
           verification: {
             summary: { ...summary, scores: [6, 6, 7], medianScore: 6, minimumScore: 6 },
-            artifactEvidence: [true, false, false].map((passed) => ({ passed })),
+            artifactEvidence: [true, true, true].map((passed) => ({ passed })),
             deterministicValidations,
             errors: [],
           },
@@ -235,13 +239,13 @@ export function cliReport() {
           verification: {
             summary: { ...summary, scores: [5, 5, 6], medianScore: 5, minimumScore: 5 },
             artifactEvidence: [false, false, false].map((passed) => ({ passed })),
-            deterministicValidations: deterministicValidations.map((validation, index) => ({
+            deterministicValidations: deterministicValidations.map((validation) => ({
               ...validation,
-              passed: index < 2,
+              passed: false,
             })),
             errors: [],
           },
-          deterministicPassCount: 2,
+          deterministicPassCount: 0,
           artifactPassCount: 0,
         },
       ],
@@ -310,7 +314,7 @@ export function cliReport() {
 
 export const context = {
   generationId: 'a43f792e-92ac-4b9d-b0fe-eafe4855d3a0',
-  scenarioId: 'excel-dashboard',
+  scenarioId: 'opp-excel-dashboard',
   runId: '123456789',
   runAttempt: 1,
   commitSha: 'a'.repeat(40),
@@ -318,22 +322,112 @@ export const context = {
   cliSha256: 'b'.repeat(64),
   model: 'sonnet',
   judgeModel: 'gpt-5.5',
+  opportunityBinding: {
+    opportunityId: 'opp-excel-dashboard',
+    briefDigest: 'c'.repeat(64),
+    sourceRunId: '987654321',
+    sourceRunAttempt: 2,
+    sourceCreatedAt: '2026-07-15T09:30:00.000Z',
+    sourceHeadSha: 'd'.repeat(40),
+    sourceWorkflowPath: '.github/workflows/pack-opportunity-admission.yml',
+    evaluationTemplateId: 'excel-dashboard',
+    candidateSkills: [
+      {
+        canonicalId: 'spreadsheet-skill', contentHash: '1'.repeat(64), treeHash: '3'.repeat(64), version: '1.0.0',
+        sourceCommit: '1'.repeat(40), canonicalPath: 'skills/spreadsheet-skill', slotIds: ['workbook'], safeToPublish: true, license: 'MIT',
+      },
+      {
+        canonicalId: 'workbook-validator', contentHash: '2'.repeat(64), treeHash: '4'.repeat(64), version: '2.0.0',
+        sourceCommit: '2'.repeat(40), canonicalPath: 'skills/workbook-validator', slotIds: ['validation'], safeToPublish: true, license: 'Apache-2.0',
+      },
+    ],
+  },
 };
 
 function immutableProductionPlan(scenario, generationId = context.generationId) {
-  return {
+  const candidateSkills = [
+    {
+      canonicalId: 'spreadsheet-skill', contentHash: '1'.repeat(64), treeHash: '3'.repeat(64), version: '1.0.0',
+      sourceCommit: '1'.repeat(40), canonicalPath: 'skills/spreadsheet-skill',
+      slotIds: ['workbook'], safeToPublish: true, license: 'MIT',
+    },
+    {
+      canonicalId: 'workbook-validator', contentHash: '2'.repeat(64), treeHash: '4'.repeat(64), version: '2.0.0',
+      sourceCommit: '2'.repeat(40), canonicalPath: 'skills/workbook-validator',
+      slotIds: ['validation'], safeToPublish: true, license: 'Apache-2.0',
+    },
+  ];
+  const unsignedBrief = {
+    schemaVersion: 'skillstore.pack-opportunity-brief/v1',
+    opportunityId: context.opportunityBinding.opportunityId,
+    evaluationTemplateId: scenario.evaluationTemplateId ?? scenario.id,
+    task: scenario.task,
+    name: scenario.name,
+    slug: scenario.slug,
+    keywords: scenario.keywords,
+    capabilitySlots: scenario.capabilitySlots,
+    requiredArtifacts: scenario.requiredArtifacts,
+    candidateSkills,
+  };
+  const briefDigest = createHash('sha256').update(canonicalJson(unsignedBrief)).digest('hex');
+  const boundScenario = {
+    ...unsignedBrief,
+    briefDigest,
+    id: context.opportunityBinding.opportunityId,
+    version: scenario.version,
+    tags: scenario.tags,
+    generationId,
+  };
+  const opportunityBinding = {
+    ...context.opportunityBinding,
+    briefDigest,
+    evaluationTemplateId: unsignedBrief.evaluationTemplateId,
+    candidateSkills,
+  };
+  const plan = {
     schemaVersion: 'pack-production-queue/v1',
     source: 'signals',
-    scenarios: [{ ...scenario, generationId }],
+    opportunityBinding,
+    opportunityFile: 'opportunity.json',
+    scenarios: [{
+      ...boundScenario,
+      generationId,
+      opportunityId: opportunityBinding.opportunityId,
+      briefDigest: opportunityBinding.briefDigest,
+      evaluationTemplateId: opportunityBinding.evaluationTemplateId,
+    }],
     workflowBinding: {
       repository: 'aiskillstore/marketplace',
       workflow: 'Generate Pack',
       runId: context.runId,
       runAttempt: context.runAttempt,
       commitSha: context.commitSha,
-      scenarioId: scenario.id,
+      scenarioId: boundScenario.id,
     },
   };
+  return {
+    ...plan,
+    planDigest: createHash('sha256').update(canonicalJson(plan)).digest('hex'),
+  };
+}
+
+function resignPlan(plan) {
+  const { planDigest: _planDigest, ...unsigned } = plan;
+  return {
+    ...unsigned,
+    planDigest: createHash('sha256').update(canonicalJson(unsigned)).digest('hex'),
+  };
+}
+
+function writePlanFixture(file, scenario, generationId = context.generationId) {
+  const plan = immutableProductionPlan(scenario, generationId);
+  writeFileSync(file, `${JSON.stringify(plan)}\n`);
+  const brief = Object.fromEntries([
+    'schemaVersion', 'opportunityId', 'briefDigest', 'evaluationTemplateId', 'task',
+    'name', 'slug', 'keywords', 'capabilitySlots', 'requiredArtifacts', 'candidateSkills',
+  ].map((key) => [key, plan.scenarios[0][key]]));
+  writeFileSync(join(file, '..', plan.opportunityFile), `${JSON.stringify(brief)}\n`);
+  return plan;
 }
 
 const workflowArgs = {
@@ -348,12 +442,15 @@ function verificationFixture(report = cliReport()) {
   writeFileSync(cli, '#!/bin/sh\necho "skillstore-cli 2.10.0"\n');
   chmodSync(cli, 0o755);
   const cliSha256 = createHash('sha256').update(readFileSync(cli)).digest('hex');
-  const fixtureContext = { ...context, cliSha256 };
+  const prefix = '01-opp-excel-dashboard';
+  const plan = writePlanFixture(join(directory, 'plan.json'), report.scenario, report.generationId);
+  const fixtureContext = {
+    ...context,
+    cliSha256,
+    scenarioId: plan.scenarios[0].id,
+    opportunityBinding: plan.opportunityBinding,
+  };
   const evaluation = buildApiEvaluation(report, fixtureContext);
-  const prefix = '01-excel-dashboard';
-  writeFileSync(join(directory, 'plan.json'), `${JSON.stringify(
-    immutableProductionPlan(report.scenario, report.generationId),
-  )}\n`);
   writeFileSync(join(directory, `${prefix}.stdout.json`), `${JSON.stringify(report)}\n`);
   writeFileSync(join(directory, `${prefix}.evaluation.json`), `${JSON.stringify(evaluation)}\n`);
   writeFileSync(join(directory, 'evaluate-summary.json'), `${JSON.stringify({
@@ -407,25 +504,32 @@ test('immutable production plan binds one generation id to the exact workflow in
   const plan = immutableProductionPlan(report.scenario, report.generationId);
   assert.equal(validateImmutableProductionPlan(plan, workflowArgs).generationId, report.generationId);
   assert.throws(
-    () => validateImmutableProductionPlan({
+    () => validateImmutableProductionPlan(resignPlan({
       ...plan,
       scenarios: [{ ...plan.scenarios[0], generationId: undefined }],
-    }, workflowArgs),
+    }), workflowArgs),
     /generation id is invalid/,
   );
   assert.throws(
-    () => validateImmutableProductionPlan({
+    () => validateImmutableProductionPlan(resignPlan({
       ...plan,
       workflowBinding: { ...plan.workflowBinding, runAttempt: 2 },
-    }, workflowArgs),
+    }), workflowArgs),
     /differs from this workflow invocation/,
   );
   assert.throws(
-    () => validateImmutableProductionPlan({
+    () => validateImmutableProductionPlan(resignPlan({
       ...plan,
       workflowBinding: { ...plan.workflowBinding, injected: true },
-    }, workflowArgs),
+    }), workflowArgs),
     /unexpected fields/,
+  );
+  assert.throws(
+    () => validateImmutableProductionPlan(resignPlan({
+      ...plan,
+      opportunityBinding: { ...plan.opportunityBinding, injected: true },
+    }), workflowArgs),
+    /opportunity binding has unexpected or missing fields/,
   );
 });
 
@@ -439,8 +543,8 @@ test('v4 causal stages are allowlisted as bounded evaluator progress', () => {
     '[6/7] running true best-single tournament',
   );
   assert.equal(
-    normalizeEvaluatorProgressLine('[7/7] running one leave-one-out comparison for each of 4 members'),
-    '[7/7] running 4 leave-one-out comparisons',
+    normalizeEvaluatorProgressLine('[7/7] running one leave-one-out comparison for each of 3 members'),
+    '[7/7] running 3 leave-one-out comparisons',
   );
   assert.equal(
     normalizeEvaluatorProgressLine('      slot workbook: winner spreadsheet-skill after evaluating all 2 bounded candidates'),
@@ -489,6 +593,33 @@ test('deterministic HTTP activity is scoped to exact inference paths', () => {
     errorCategory: 'unknown_model_or_lane',
     errorMessageSha256: 'a'.repeat(64),
   });
+});
+
+test('cumulative evaluator budget accepts only complete billable usage within hard caps', () => {
+  const line = (value) => JSON.stringify({ phase: 'budget', ...value });
+  assert.deepEqual(evaluatorBudgetFromActivity(line({
+    status: 'within', billable: true, modelRequests: 128,
+    inputTokens: 600_000, outputTokens: 120_000, costUsd: 10,
+  })), {
+    status: 'within', billable: true, modelRequests: 128,
+    inputTokens: 600_000, outputTokens: 120_000, costUsd: 10, compliant: true,
+  });
+  assert.equal(evaluatorBudgetFromActivity(line({
+    status: 'unbillable', billable: false, modelRequests: 1,
+    inputTokens: 1, outputTokens: 1, costUsd: 0,
+  })).compliant, false);
+  assert.equal(evaluatorBudgetFromActivity(line({
+    status: 'within', billable: true, modelRequests: 161,
+    inputTokens: 1, outputTokens: 1, costUsd: 0,
+  })).compliant, false);
+  assert.equal(evaluatorBudgetFromActivity(line({
+    status: 'within', billable: true, modelRequests: 1,
+    inputTokens: 1, outputTokens: 1, costUsd: 10.01,
+  })).compliant, false);
+  assert.equal(evaluatorBudgetFromActivity(line({
+    status: 'within', billable: true, modelRequests: null,
+    inputTokens: 1, outputTokens: 1, costUsd: 0,
+  })).compliant, false);
 });
 
 test('infrastructure audit reports retain only bounded operational evidence', () => {
@@ -1206,7 +1337,8 @@ const args = process.argv.slice(2);
 if (args.includes('--version')) { console.log('skillstore-cli 2.10.0'); process.exit(0); }
 require('node:fs').writeFileSync(${JSON.stringify(cliArgsFile)}, JSON.stringify(args));
 const value = (name) => args[args.indexOf(name) + 1];
-const scenarioId = value('--scenario');
+const opportunity = JSON.parse(require('node:fs').readFileSync(value('--opportunity-file'), 'utf8'));
+const scenarioId = opportunity.evaluationTemplateId;
 if (scenarioId === 'slow') {
   setInterval(() => {}, 1000);
 } else {
@@ -1220,7 +1352,7 @@ if (scenarioId === 'slow') {
     outcome: 'quality_rejected',
     outcomeReason: 'fixture rejection',
     autoPublishEligible: false,
-    scenario: scenarios[scenarioId],
+    scenario: { ...scenarios[scenarioId], id: opportunity.opportunityId, evaluationTemplateId: scenarioId },
     slotEvaluations: [],
     manifest: null,
     composition: null,
@@ -1236,7 +1368,7 @@ if (scenarioId === 'slow') {
   chmodSync(cli, 0o755);
   const planFile = join(directory, 'plan.json');
   const resultsDir = join(directory, 'results');
-  writeFileSync(planFile, `${JSON.stringify(immutableProductionPlan(scenarios.slow))}\n`);
+  writePlanFixture(planFile, scenarios.slow);
 
   const common = [
     '--plan', planFile,
@@ -1266,12 +1398,17 @@ if (scenarioId === 'slow') {
   assert.equal(summary.attempts[0].generationId, context.generationId);
   assert.equal(summary.attempts[0].infrastructureAudit, true);
   assert.equal(summary.reports[0].outcome, 'infrastructure_failed');
-  assert.equal(readFileSync(join(resultsDir, '01-slow.run.log'), 'utf8'), '');
+  assert.equal(readFileSync(join(resultsDir, '01-opp-excel-dashboard.run.log'), 'utf8'), '');
   const forwardedArgs = JSON.parse(readFileSync(cliArgsFile, 'utf8'));
   assert.equal(forwardedArgs[forwardedArgs.indexOf('--generation-id') + 1], context.generationId);
   assert.equal(forwardedArgs[forwardedArgs.indexOf('--agent-timeout-ms') + 1], '1234');
   assert.equal(forwardedArgs[forwardedArgs.indexOf('--agent-max-retries') + 1], '2');
-  const audit = JSON.parse(readFileSync(join(resultsDir, '01-slow.evaluation.json'), 'utf8'));
+  const opportunityFile = forwardedArgs[forwardedArgs.indexOf('--opportunity-file') + 1];
+  const opportunity = JSON.parse(readFileSync(opportunityFile, 'utf8'));
+  assert.equal(opportunity.opportunityId, context.opportunityBinding.opportunityId);
+  assert.equal(opportunity.id, undefined);
+  assert.equal(opportunity.generationId, undefined);
+  const audit = JSON.parse(readFileSync(join(resultsDir, '01-opp-excel-dashboard.evaluation.json'), 'utf8'));
   assert.equal(audit.outcome, 'infrastructure_failed');
   assert.equal(audit.candidate, null);
   assert.equal(audit.evidence.cliReport.infrastructureFailure.reason, 'timeout');
@@ -1302,7 +1439,7 @@ exit 99
   const planFile = join(directory, 'plan.json');
   const resultsDir = join(directory, 'results');
   const failureFile = join(directory, 'infrastructure-failure.json');
-  writeFileSync(planFile, `${JSON.stringify(immutableProductionPlan(report.scenario))}\n`);
+  writePlanFixture(planFile, report.scenario);
   writeFileSync(failureFile, `${JSON.stringify({
     schemaVersion: 'marketplace.pack-production-infrastructure-failure/v1',
     stage: 'agent_preflight',
@@ -1329,7 +1466,7 @@ exit 99
 
   assert.equal(result.status, 0, result.stderr);
   assert.equal(existsSync(invoked), false);
-  const audit = JSON.parse(readFileSync(join(resultsDir, '01-excel-dashboard.evaluation.json'), 'utf8'));
+  const audit = JSON.parse(readFileSync(join(resultsDir, '01-opp-excel-dashboard.evaluation.json'), 'utf8'));
   assert.equal(audit.generationId, context.generationId);
   assert.equal(audit.outcome, 'infrastructure_failed');
   assert.equal(audit.candidate, null);
@@ -1362,7 +1499,7 @@ exit 99
   ], { encoding: 'utf8' });
   assert.equal(replay.status, 0, replay.stderr);
   assert.equal(
-    JSON.parse(readFileSync(join(replayResultsDir, '01-excel-dashboard.evaluation.json'), 'utf8')).generationId,
+    JSON.parse(readFileSync(join(replayResultsDir, '01-opp-excel-dashboard.evaluation.json'), 'utf8')).generationId,
     context.generationId,
   );
 });
@@ -1425,11 +1562,22 @@ test('Marketplace reconstruction exactly matches the Skillstore v4 golden JSON u
 test('adapter rejects one-Skill or incomplete candidate_ready evidence before persistence', () => {
   const oneSkill = cliReport();
   oneSkill.manifest.skills = ['spreadsheet-skill'];
-  assert.throws(() => buildApiEvaluation(oneSkill, context), /two to four distinct manifest Skills/);
+  assert.throws(() => buildApiEvaluation(oneSkill, context), /two to three distinct manifest Skills/);
 
-  const fiveSkills = cliReport();
-  fiveSkills.manifest.skills = ['one', 'two', 'three', 'four', 'five'];
-  assert.throws(() => buildApiEvaluation(fiveSkills, context), /two to four distinct manifest Skills/);
+  const fourSkills = cliReport();
+  fourSkills.manifest.skills = ['one', 'two', 'three', 'four'];
+  assert.throws(() => buildApiEvaluation(fourSkills, context), /two to three distinct manifest Skills/);
+
+  const bindingDrift = structuredClone(context);
+  bindingDrift.opportunityBinding.candidateSkills[0].contentHash = '0'.repeat(64);
+  assert.throws(
+    () => buildApiEvaluation(cliReport(), bindingDrift),
+    /candidate Skills differ from the ordered execution DAG bindings/,
+  );
+
+  const unsafeCandidate = structuredClone(context);
+  unsafeCandidate.opportunityBinding.candidateSkills[0].safeToPublish = false;
+  assert.throws(() => buildApiEvaluation(cliReport(), unsafeCandidate), /candidate Skill 1 is invalid/);
 
   const incomplete = cliReport();
   incomplete.packVerification.verdicts[1].artifact_requirements_met = false;
@@ -1442,6 +1590,13 @@ test('adapter rejects one-Skill or incomplete candidate_ready evidence before pe
   const missingSlot = cliReport();
   delete missingSlot.manifest.slot_assignments.validation;
   assert.throws(() => buildApiEvaluation(missingSlot, context), /required slot validation is not assigned/);
+
+  const contradictoryBestSingle = cliReport();
+  contradictoryBestSingle.bestSingleEvidence.competitors[0].verification.artifactEvidence[1].passed = false;
+  assert.throws(
+    () => buildApiEvaluation(contradictoryBestSingle, context),
+    /cannot pass deterministic validation when its artifact failed/,
+  );
 
   const extraSlot = cliReport();
   extraSlot.manifest.slot_assignments.unplanned = ['spreadsheet-skill'];
@@ -1475,6 +1630,16 @@ test('adapter rejects one-Skill or incomplete candidate_ready evidence before pe
   const judgeOnlyUsage = cliReport();
   judgeOnlyUsage.usageProvenance = { deterministic: false, source: 'judge-only', traces: [] };
   assert.throws(() => buildApiEvaluation(judgeOnlyUsage, context), /deterministic runner Skill usage provenance/);
+
+  const duplicateTraceEvent = cliReport();
+  duplicateTraceEvent.usageProvenance.traces[0].events.push(
+    duplicateTraceEvent.usageProvenance.traces[0].events[0],
+  );
+  assert.throws(() => buildApiEvaluation(duplicateTraceEvent, context), /usage trace 1 is missing or out of order/);
+
+  const failedValidator = cliReport();
+  failedValidator.packVerification.deterministicValidations[1].passed = false;
+  assert.throws(() => buildApiEvaluation(failedValidator, context), /deterministic artifact validator failed/);
 
   const malformedRootErrors = cliReport();
   malformedRootErrors.errors = { secret: 'must not be stringified' };
@@ -1553,7 +1718,7 @@ test('complete v4 non-candidates reach only the candidate-null POST plan', () =>
   rejectedReport.baselineVerification = null;
   const rejected = buildApiEvaluation(rejectedReport, context);
   const auditPlan = planTrustedPersistence([
-    { file: '01-excel-dashboard.evaluation.json', evaluation: rejected },
+    { file: '01-opp-excel-dashboard.evaluation.json', evaluation: rejected },
   ], null);
   assert.equal(auditPlan.candidate, null);
   assert.equal(auditPlan.candidateNullPosts.length, 1);
@@ -1576,7 +1741,7 @@ test('complete v4 non-candidates reach only the candidate-null POST plan', () =>
   const candidate = buildApiEvaluation(cliReport(), context);
   delete candidate.candidate.fitness.bestSingle.competitors;
   assert.throws(() => planTrustedPersistence([
-    { file: '01-excel-dashboard.evaluation.json', evaluation: candidate },
+    { file: '01-opp-excel-dashboard.evaluation.json', evaluation: candidate },
   ], candidate.generationId), /persistence and enrichment are forbidden/);
 });
 
@@ -1586,6 +1751,312 @@ test('finalize fails closed when a newer content dispatch supersedes its nonce',
   assert.throws(() => validateCurrentContentDispatchNonce({
     content_dispatch_nonce: '33333333-3333-4333-8333-333333333333',
   }, expected, 'generation-1'), /was superseded/);
+});
+
+function candidatePersistFixture() {
+  const directory = mkdtempSync(join(tmpdir(), 'pack-production-persist-candidate-'));
+  const evaluation = buildApiEvaluation(cliReport(), context);
+  const file = '01-opp-excel-dashboard.evaluation.json';
+  writeFileSync(join(directory, file), `${JSON.stringify(evaluation, null, 2)}\n`);
+  writeFileSync(join(directory, 'evaluation-verification.json'), `${JSON.stringify({
+    schemaVersion: 'marketplace.pack-production-evaluation-verification/v1',
+    selectedGenerationId: evaluation.generationId,
+    files: [{
+      file,
+      sha256: createHash('sha256').update(readFileSync(join(directory, file))).digest('hex'),
+    }],
+  })}\n`);
+  return { directory, evaluation };
+}
+
+function candidateNullPersistFixture() {
+  const directory = mkdtempSync(join(tmpdir(), 'pack-production-persist-candidate-null-'));
+  const report = cliReport();
+  report.outcome = 'quality_rejected';
+  report.manifest = null;
+  report.packVerification = null;
+  report.baselineVerification = null;
+  const evaluation = buildApiEvaluation(report, context);
+  const file = '01-opp-excel-dashboard.evaluation.json';
+  writeFileSync(join(directory, file), `${JSON.stringify(evaluation, null, 2)}\n`);
+  writeFileSync(join(directory, 'evaluation-verification.json'), `${JSON.stringify({
+    schemaVersion: 'marketplace.pack-production-evaluation-verification/v1',
+    selectedGenerationId: null,
+    files: [{
+      file,
+      sha256: createHash('sha256').update(readFileSync(join(directory, file))).digest('hex'),
+    }],
+  })}\n`);
+  return { directory, evaluation };
+}
+
+function candidatePersistReadback(evaluation, outcome = 'candidate_ready') {
+  const advanced = outcome === 'review_pending' || outcome === 'published';
+  const slug = outcome === 'published' ? `${evaluation.scenario.slug}-public` : evaluation.scenario.slug;
+  return {
+    data: {
+      attempt: {
+        generation_id: evaluation.generationId,
+        outcome,
+        evaluation_outcome: 'candidate_ready',
+        evidence_digest: evaluation.evidenceDigest,
+        evidence: evaluation,
+        pack_id: 'pack-123',
+        pack_slug: slug,
+        content_dispatch_status: advanced ? 'succeeded' : 'dispatched',
+        translation_dispatch_status: advanced ? 'succeeded' : 'not_applicable',
+        content_dispatch_nonce: '22222222-2222-4222-8222-222222222222',
+      },
+      pack: { id: 'pack-123', slug, review_status: outcome === 'published' ? 'approved' : 'generated' },
+      readiness: advanced ? {
+        contentReady: true,
+        translationReady: true,
+        reviewReady: outcome !== 'published',
+        blockers: outcome === 'published' ? ['review_status is approved'] : [],
+      } : {
+        contentReady: false,
+        translationReady: false,
+        reviewReady: false,
+        blockers: ['content is still processing'],
+      },
+    },
+  };
+}
+
+function candidateNullPersistReadback(evaluation) {
+  return {
+    data: {
+      attempt: {
+        generation_id: evaluation.generationId,
+        outcome: evaluation.outcome,
+        evaluation_outcome: evaluation.outcome,
+        evidence_digest: evaluation.evidenceDigest,
+        evidence: evaluation,
+        pack_id: null,
+        pack_slug: null,
+        content_dispatch_status: 'not_applicable',
+        translation_dispatch_status: 'not_applicable',
+        content_dispatch_nonce: null,
+      },
+      pack: null,
+    },
+  };
+}
+
+async function runCandidatePersistServer(fixture, handler) {
+  const server = createServer(handler);
+  server.listen(0, '127.0.0.1');
+  await once(server, 'listening');
+  const address = server.address();
+  const child = spawn(process.execPath, [
+    PACK_PRODUCTION,
+    'persist',
+    '--results-dir', fixture.directory,
+    '--api-url', `http://127.0.0.1:${address.port}`,
+    '--token', 'test-token',
+  ], { stdio: ['ignore', 'pipe', 'pipe'] });
+  let stdout = '';
+  let stderr = '';
+  child.stdout.on('data', (chunk) => { stdout += chunk; });
+  child.stderr.on('data', (chunk) => { stderr += chunk; });
+  const [status] = await once(child, 'close');
+  server.close();
+  await once(server, 'close');
+  return { status, stdout, stderr };
+}
+
+test('persist reconciles a lost candidate POST response against exact readback evidence', async () => {
+  const fixture = candidatePersistFixture();
+  const observed = [];
+  const result = await runCandidatePersistServer(fixture, (request, response) => {
+    observed.push({ method: request.method, url: request.url });
+    if (request.method === 'POST') {
+      request.resume();
+      request.on('end', () => response.destroy());
+      return;
+    }
+    response.writeHead(200, { 'content-type': 'application/json' });
+    response.end(JSON.stringify(candidatePersistReadback(fixture.evaluation)));
+  });
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.deepEqual(observed, [
+    { method: 'POST', url: '/api/automation/packs/production' },
+    { method: 'GET', url: `/api/automation/packs/production/${fixture.evaluation.generationId}` },
+  ]);
+  const summary = JSON.parse(result.stdout);
+  assert.equal(summary.selected.generationId, fixture.evaluation.generationId);
+  assert.equal(summary.persisted[0].reconciled, true);
+  assert.equal(summary.persisted[0].response.data.enrichment.content, 'dispatched');
+});
+
+test('persist reconciles a lost POST after the candidate has advanced to published', async () => {
+  const fixture = candidatePersistFixture();
+  const result = await runCandidatePersistServer(fixture, (request, response) => {
+    if (request.method === 'POST') {
+      request.resume();
+      request.on('end', () => response.destroy());
+      return;
+    }
+    response.writeHead(200, { 'content-type': 'application/json' });
+    response.end(JSON.stringify(candidatePersistReadback(fixture.evaluation, 'published')));
+  });
+
+  assert.equal(result.status, 0, result.stderr);
+  const summary = JSON.parse(result.stdout);
+  assert.equal(summary.selected.pack.slug, `${fixture.evaluation.scenario.slug}-public`);
+  assert.equal(summary.persisted[0].response.data.enrichment.content, 'succeeded');
+});
+
+test('persist rejects a response-loss readback whose current Pack drifted', async () => {
+  const fixture = candidatePersistFixture();
+  const result = await runCandidatePersistServer(fixture, (request, response) => {
+    if (request.method === 'POST') {
+      request.resume();
+      request.on('end', () => response.destroy());
+      return;
+    }
+    const readback = candidatePersistReadback(fixture.evaluation);
+    readback.data.pack.slug = 'different-current-pack';
+    response.writeHead(200, { 'content-type': 'application/json' });
+    response.end(JSON.stringify(readback));
+  });
+
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /fetch failed/);
+});
+
+test('persist rejects an advanced response-loss readback with current readiness blockers', async () => {
+  const fixture = candidatePersistFixture();
+  const result = await runCandidatePersistServer(fixture, (request, response) => {
+    if (request.method === 'POST') {
+      request.resume();
+      request.on('end', () => response.destroy());
+      return;
+    }
+    const readback = candidatePersistReadback(fixture.evaluation, 'review_pending');
+    readback.data.readiness.blockers = ['current Pack identity drift'];
+    response.writeHead(200, { 'content-type': 'application/json' });
+    response.end(JSON.stringify(readback));
+  });
+
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /fetch failed/);
+});
+
+test('persist rejects a response-loss readback whose exact evidence binding differs', async () => {
+  const fixture = candidatePersistFixture();
+  const observed = [];
+  const result = await runCandidatePersistServer(fixture, (request, response) => {
+    observed.push({ method: request.method, url: request.url });
+    if (request.method === 'POST') {
+      request.resume();
+      request.on('end', () => response.destroy());
+      return;
+    }
+    const readback = JSON.parse(JSON.stringify(candidatePersistReadback(fixture.evaluation)));
+    readback.data.attempt.evidence.candidate.manifest.executionDag.bindingDigest = '0'.repeat(64);
+    response.writeHead(200, { 'content-type': 'application/json' });
+    response.end(JSON.stringify(readback));
+  });
+
+  assert.equal(result.status, 1);
+  assert.deepEqual(observed.map((item) => item.method), ['POST', 'GET']);
+  assert.match(result.stderr, /fetch failed/);
+});
+
+test('persist rejects a response-loss readback with an invalid generation outcome', async () => {
+  const fixture = candidatePersistFixture();
+  const observed = [];
+  const result = await runCandidatePersistServer(fixture, (request, response) => {
+    observed.push({ method: request.method, url: request.url });
+    if (request.method === 'POST') {
+      request.resume();
+      request.on('end', () => response.destroy());
+      return;
+    }
+    const readback = candidatePersistReadback(fixture.evaluation);
+    readback.data.attempt.outcome = 'infrastructure_failed';
+    response.writeHead(200, { 'content-type': 'application/json' });
+    response.end(JSON.stringify(readback));
+  });
+
+  assert.equal(result.status, 1);
+  assert.deepEqual(observed.map((item) => item.method), ['POST', 'GET']);
+  assert.match(result.stderr, /fetch failed/);
+});
+
+test('persist does not reconcile an explicit candidate POST 4xx', async () => {
+  const fixture = candidatePersistFixture();
+  const observed = [];
+  const result = await runCandidatePersistServer(fixture, (request, response) => {
+    observed.push({ method: request.method, url: request.url });
+    response.writeHead(422, { 'content-type': 'application/json' });
+    response.end(JSON.stringify({ message: 'candidate rejected' }));
+  });
+
+  assert.equal(result.status, 1);
+  assert.deepEqual(observed.map((item) => item.method), ['POST']);
+  assert.match(result.stderr, /HTTP 422/);
+});
+
+test('persist reconciles a lost candidate-null POST response against its exact audit readback', async () => {
+  const fixture = candidateNullPersistFixture();
+  const observed = [];
+  const result = await runCandidatePersistServer(fixture, (request, response) => {
+    observed.push({ method: request.method, url: request.url });
+    if (request.method === 'POST') {
+      request.resume();
+      request.on('end', () => response.destroy());
+      return;
+    }
+    response.writeHead(200, { 'content-type': 'application/json' });
+    response.end(JSON.stringify(candidateNullPersistReadback(fixture.evaluation)));
+  });
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.deepEqual(observed, [
+    { method: 'POST', url: '/api/automation/packs/production' },
+    { method: 'GET', url: `/api/automation/packs/production/${fixture.evaluation.generationId}` },
+  ]);
+  const summary = JSON.parse(result.stdout);
+  assert.equal(summary.persisted[0].reconciled, true);
+  assert.equal(summary.persisted[0].response.data.pack, null);
+});
+
+test('persist rethrows a lost candidate-null POST error when audit readback binding differs', async () => {
+  const fixture = candidateNullPersistFixture();
+  const observed = [];
+  const result = await runCandidatePersistServer(fixture, (request, response) => {
+    observed.push(request.method);
+    if (request.method === 'POST') {
+      request.resume();
+      request.on('end', () => response.destroy());
+      return;
+    }
+    const readback = candidateNullPersistReadback(fixture.evaluation);
+    readback.data.attempt.evidence_digest = '0'.repeat(64);
+    response.writeHead(200, { 'content-type': 'application/json' });
+    response.end(JSON.stringify(readback));
+  });
+
+  assert.equal(result.status, 1);
+  assert.deepEqual(observed, ['POST', 'GET']);
+  assert.match(result.stderr, /fetch failed/);
+});
+
+test('persist does not reconcile an explicit candidate-null POST 4xx', async () => {
+  const fixture = candidateNullPersistFixture();
+  const observed = [];
+  const result = await runCandidatePersistServer(fixture, (request, response) => {
+    observed.push(request.method);
+    response.writeHead(422, { 'content-type': 'application/json' });
+    response.end(JSON.stringify({ message: 'audit rejected' }));
+  });
+
+  assert.equal(result.status, 1);
+  assert.deepEqual(observed, ['POST']);
+  assert.match(result.stderr, /HTTP 422/);
 });
 
 test('persist POSTs every verified v4 candidate-null outcome and creates no Pack', async () => {
@@ -1699,13 +2170,14 @@ test('finalize binds public readback to the selected Pack and candidate Skill or
     publicSlug: 'monthly-sales-excel-workbook',
     skillSlugs: ['spreadsheet-skill', 'workbook-validator'],
     skillBindings: [
-      { slug: 'spreadsheet-skill', version: '1.0.0', contentHash: '1'.repeat(64) },
-      { slug: 'workbook-validator', version: '2.0.0', contentHash: '2'.repeat(64) },
+      { slug: 'spreadsheet-skill', version: '1.0.0', contentHash: '1'.repeat(64), treeHash: '3'.repeat(64) },
+      { slug: 'workbook-validator', version: '2.0.0', contentHash: '2'.repeat(64), treeHash: '4'.repeat(64) },
     ],
     executionDag: request.candidate.manifest.executionDag,
     workflowDigest: request.candidate.manifest.executionDag.workflowDigest,
     bindingDigest: request.candidate.manifest.executionDag.bindingDigest,
     usageGuideMarker: request.candidate.manifest.executionDag.usageGuideMarker,
+    opportunityBinding: request.opportunityBinding,
     executionBinding: {
       schemaVersion: 'skillstore.pack-execution-binding/v1',
       generationId: request.generationId,
@@ -1714,6 +2186,7 @@ test('finalize binds public readback to the selected Pack and candidate Skill or
       bindingDigest: request.candidate.manifest.executionDag.bindingDigest,
       usageGuideMarker: request.candidate.manifest.executionDag.usageGuideMarker,
       marketplaceCommitSha: request.workflow.commitSha,
+      opportunityBinding: request.opportunityBinding,
       skills: request.candidate.manifest.executionDag.skillBindings,
       executionDag: request.candidate.manifest.executionDag,
     },
@@ -1769,15 +2242,15 @@ test('exact public readback rejects wrong identity, snake_case status, and chang
   assert.match(result.mismatches.join('\n'), /reviewStatus is missing/);
   assert.match(result.mismatches.join('\n'), /Pack Skill slugs mismatch/);
   assert.match(result.mismatches.join('\n'), /executionDag differs/);
-  assert.match(result.mismatches.join('\n'), /version\/contentHash/);
+  assert.match(result.mismatches.join('\n'), /version\/content\/treeHash/);
 });
 
 test('terminal SLO evidence is fixed to seven days and internally consistent', () => {
   const result = buildSloResult({
     windowDays: 7,
     windowStartedAt: '2026-07-09T00:00:00.000Z',
-    target: 2,
-    publishedReadbackPassed: 1,
+    target: 1,
+    publishedReadbackPassed: 0,
     met: false,
   }, '2026-07-16T00:00:00.000Z');
 
@@ -1786,13 +2259,13 @@ test('terminal SLO evidence is fixed to seven days and internally consistent', (
     checkedAt: '2026-07-16T00:00:00.000Z',
     windowDays: 7,
     windowStartedAt: '2026-07-09T00:00:00.000Z',
-    target: 2,
-    publishedReadbackPassed: 1,
+    target: 1,
+    publishedReadbackPassed: 0,
     met: false,
   });
   assert.throws(() => buildSloResult({ ...result, met: true }), /met flag is inconsistent/);
   assert.throws(() => buildSloResult({ ...result, windowDays: 30 }), /must be 7 days/);
-  assert.throws(() => buildSloResult({ ...result, target: 1, met: true }), /target must be 2/);
+  assert.throws(() => buildSloResult({ ...result, target: 2, met: false }), /target must be 1/);
 });
 
 test('trusted verification accepts only the exact reconstructed evaluation closure', () => {
@@ -1801,7 +2274,7 @@ test('trusted verification accepts only the exact reconstructed evaluation closu
   assert.equal(result.status, 0, result.stderr);
   const verification = JSON.parse(readFileSync(join(fixture.directory, 'evaluation-verification.json'), 'utf8'));
   assert.equal(verification.schemaVersion, 'marketplace.pack-production-evaluation-verification/v1');
-  assert.deepEqual(verification.files.map((entry) => entry.file), ['01-excel-dashboard.evaluation.json']);
+  assert.deepEqual(verification.files.map((entry) => entry.file), ['01-opp-excel-dashboard.evaluation.json']);
 });
 
 test('trusted verification removes raw secrets from evaluation, rewritten stdout, and summary', () => {
@@ -1811,7 +2284,7 @@ test('trusted verification removes raw secrets from evaluation, rewritten stdout
   report.composition.errors = [secret];
   report.errors = [secret];
   const fixture = verificationFixture(report);
-  const stdoutFile = join(fixture.directory, '01-excel-dashboard.stdout.json');
+  const stdoutFile = join(fixture.directory, '01-opp-excel-dashboard.stdout.json');
   const summaryFile = join(fixture.directory, 'evaluate-summary.json');
 
   assert.doesNotMatch(readFileSync(fixture.evaluationFile, 'utf8'), new RegExp(secret));
@@ -1843,7 +2316,7 @@ touch ${JSON.stringify(marker)}
 while :; do sleep 1; done
 `);
   chmodSync(cli, 0o755);
-  writeFileSync(planFile, `${JSON.stringify(immutableProductionPlan(cliReport().scenario))}\n`);
+  writePlanFixture(planFile, cliReport().scenario);
   const common = [
     '--plan', planFile,
     '--results-dir', resultsDir,
@@ -1880,7 +2353,7 @@ while :; do sleep 1; done
   assert.equal(signal, null);
 
   const evaluation = JSON.parse(readFileSync(
-    join(resultsDir, '01-excel-dashboard.evaluation.json'),
+    join(resultsDir, '01-opp-excel-dashboard.evaluation.json'),
     'utf8',
   ));
   assert.equal(evaluation.outcome, 'infrastructure_failed');
@@ -1901,7 +2374,7 @@ while :; do sleep 1; done
     null,
   );
   const rewrittenStdout = JSON.parse(readFileSync(
-    join(resultsDir, '01-excel-dashboard.stdout.json'),
+    join(resultsDir, '01-opp-excel-dashboard.stdout.json'),
     'utf8',
   ));
   assert.equal(rewrittenStdout.schemaVersion, 'marketplace.pack-production-cli-evidence/v1');

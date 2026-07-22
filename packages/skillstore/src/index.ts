@@ -22,7 +22,19 @@ export {
 	type PluginListItem,
 	type PluginListResponse,
 	type InstallReportResponse,
+	type PackExecutionDag,
+	type PackExecutionBinding,
 } from './lib/plugin-api.js';
+
+export {
+	buildPackOrchestration,
+	installPackOrchestration,
+	type PackOrchestration,
+	type PackOrchestrationReceipt,
+	type PackOrchestrationInstallResult,
+} from './lib/pack-orchestration.js';
+
+export { getAgentById, type AgentConfig } from './lib/agents.js';
 
 export type {
 	PackInstallStatus,

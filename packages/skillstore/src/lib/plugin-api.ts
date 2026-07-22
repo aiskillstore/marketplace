@@ -22,6 +22,8 @@ export interface ManifestSkillArtifactFile {
 	bytes?: number;
 }
 
+export const MAX_ARTIFACT_FILE_BYTES = 10 * 1024 * 1024;
+
 export interface ManifestSkillArtifact {
 	type?: string;
 	files?: ManifestSkillArtifactFile[];
@@ -54,6 +56,44 @@ export interface ManifestSignatureInfo {
 	value: string;
 }
 
+export interface PackExecutionDag {
+	schemaVersion: 'skillstore.pack-execution-dag/v1';
+	workflowDigest: string;
+	bindingDigest: string;
+	nodes: Array<{
+		id: string;
+		instruction: string;
+		dependsOn: string[];
+		artifactIds: string[];
+	}>;
+	handoffs: Array<{
+		from: string;
+		to: string;
+		artifactIds: string[];
+		contract: 'validated-artifacts-only';
+	}>;
+	skillBindings: Array<{
+		canonicalId: string;
+		contentHash: string;
+		treeHash: string;
+		version: string;
+		slotIds: string[];
+	}>;
+	usageGuideMarker: string;
+}
+
+export interface PackExecutionBinding {
+	schemaVersion: 'skillstore.pack-execution-binding/v1';
+	generationId: string;
+	evidenceDigest: string;
+	executionDag: PackExecutionDag;
+	workflowDigest: string;
+	bindingDigest: string;
+	usageGuideMarker: string;
+	marketplaceCommitSha: string;
+	skills: PackExecutionDag['skillBindings'];
+}
+
 /** Plugin manifest response */
 export interface PluginManifest {
 	version: '1.0' | '1.1';
@@ -70,6 +110,7 @@ export interface PluginManifest {
 		visibility?: 'public' | 'private';
 	};
 	skills: ManifestSkill[];
+	executionBinding?: PackExecutionBinding;
 	signature: string | ManifestSignatureInfo;
 	generatedAt: string;
 	schemaVersion?: '2.0';
@@ -190,6 +231,12 @@ function normalizeManifest(rawManifest: unknown): PluginManifest {
 		manifest.skills = signed.skills;
 	} else if (!manifest.skills && signed && Array.isArray(signed.skills)) {
 		manifest.skills = signed.skills;
+	}
+
+	if (hasEd25519Envelope) {
+		manifest.executionBinding = signed?.executionBinding;
+	} else if (!manifest.executionBinding && signed?.executionBinding) {
+		manifest.executionBinding = signed.executionBinding;
 	}
 
 	if (hasEd25519Envelope && signedVersion) {
@@ -390,16 +437,35 @@ export async function downloadSkill(
  */
 export async function downloadSkillFile(
 	config: PluginConfig,
-	downloadUrl: string
+	downloadUrl: string,
+	limits: {
+		maxBytes?: number;
+		expectedBytes?: number;
+		onBytes?: (bytes: number) => void;
+	} = {}
 ): Promise<Uint8Array> {
-	// downloadUrl is relative, construct full URL
-	const fullUrl = downloadUrl.startsWith('http')
-		? downloadUrl
-		: `${config.apiBaseUrl.replace('/api', '')}${downloadUrl}`;
+	const apiUrl = new URL(config.apiBaseUrl);
+	const fullUrl = new URL(downloadUrl, apiUrl.origin);
+	const isLoopback = fullUrl.hostname === 'localhost'
+		|| fullUrl.hostname === '127.0.0.1'
+		|| fullUrl.hostname === '[::1]';
+	if (fullUrl.origin !== apiUrl.origin || (fullUrl.protocol !== 'https:' && !isLoopback)) {
+		throw new Error(`Refusing artifact URL outside the configured Skillstore origin: ${downloadUrl}`);
+	}
+	const maxBytes = limits.maxBytes ?? MAX_ARTIFACT_FILE_BYTES;
+	if (!Number.isSafeInteger(maxBytes) || maxBytes < 0) {
+		throw new Error('Invalid artifact size limit');
+	}
+	if (limits.expectedBytes !== undefined && (!Number.isSafeInteger(limits.expectedBytes) || limits.expectedBytes < 0)) {
+		throw new Error('Invalid signed artifact byte count');
+	}
+	const controller = new AbortController();
+	const signal = AbortSignal.any([AbortSignal.timeout(config.timeout), controller.signal]);
 
 	const response = await fetch(fullUrl, {
 		method: 'GET',
-		signal: AbortSignal.timeout(config.timeout),
+		redirect: 'error',
+		signal,
 	});
 
 	if (!response.ok) {
@@ -409,7 +475,62 @@ export async function downloadSkillFile(
 		);
 	}
 
-	return new Uint8Array(await response.arrayBuffer());
+	const contentLength = response.headers.get('content-length');
+	if (contentLength !== null) {
+		if (!/^\d+$/.test(contentLength)) {
+			controller.abort();
+			throw new Error('Invalid artifact Content-Length');
+		}
+		const length = Number(contentLength);
+		if (!Number.isSafeInteger(length) || length > maxBytes) {
+			controller.abort();
+			throw new Error(`Artifact exceeds ${maxBytes} byte limit`);
+		}
+		if (limits.expectedBytes !== undefined && length !== limits.expectedBytes) {
+			controller.abort();
+			throw new Error(`Artifact byte count does not match signed manifest: expected ${limits.expectedBytes}, got ${length}`);
+		}
+	}
+	if (!response.body) {
+		controller.abort();
+		throw new Error('Artifact response has no readable body');
+	}
+
+	const reader = response.body.getReader();
+	const chunks: Uint8Array[] = [];
+	let total = 0;
+	try {
+		for (;;) {
+			const { done, value } = await reader.read();
+			if (done) break;
+			total += value.byteLength;
+			if (total > maxBytes) {
+				controller.abort();
+				await reader.cancel('artifact exceeds byte limit');
+				throw new Error(`Artifact exceeds ${maxBytes} byte limit`);
+			}
+			try {
+				limits.onBytes?.(value.byteLength);
+			} catch (error) {
+				controller.abort();
+				await reader.cancel('Pack artifact budget exceeded');
+				throw error;
+			}
+			chunks.push(value);
+		}
+	} finally {
+		reader.releaseLock();
+	}
+	if (limits.expectedBytes !== undefined && total !== limits.expectedBytes) {
+		throw new Error(`Artifact byte count does not match signed manifest: expected ${limits.expectedBytes}, got ${total}`);
+	}
+	const bytes = new Uint8Array(total);
+	let offset = 0;
+	for (const chunk of chunks) {
+		bytes.set(chunk, offset);
+		offset += chunk.byteLength;
+	}
+	return bytes;
 }
 
 /**

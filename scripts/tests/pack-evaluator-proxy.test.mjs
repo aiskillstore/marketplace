@@ -28,7 +28,7 @@ before(async () => {
       body: Buffer.concat(chunks).toString('utf8'),
     };
     response.writeHead(200, { 'content-type': 'application/json', 'set-cookie': 'secret=bad' });
-    response.end('{"ok":true}');
+    response.end('{"ok":true,"usage":{"input_tokens":1,"output_tokens":1,"cost_usd":0.001}}');
   });
   upstream.listen(0, '127.0.0.1');
   await once(upstream, 'listening');
@@ -105,6 +105,40 @@ test('bounds unauthenticated activity diagnostics independently of request budge
   }
 });
 
+test('hard-clamps requested request and concurrency limits to the cumulative budget', async () => {
+  let upstreamCalls = 0;
+  const boundedProxy = createPackEvaluatorProxy({
+    localToken: LOCAL_TOKEN,
+    upstreamKey: UPSTREAM_KEY,
+    upstreamBaseUrl: upstreamUrl,
+    maxRequests: 999,
+    maxConcurrent: 999,
+    maxOutputTokens: 1,
+    fetchImpl: async () => {
+      upstreamCalls += 1;
+      return new Response('{"usage":{"input_tokens":1,"output_tokens":1,"cost_usd":0.001}}', {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    },
+  });
+  boundedProxy.listen(0, '127.0.0.1');
+  await once(boundedProxy, 'listening');
+  const url = `http://127.0.0.1:${boundedProxy.address().port}`;
+  const request = () => fetch(`${url}/v1/responses`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${LOCAL_TOKEN}`, 'content-type': 'application/json' },
+    body: JSON.stringify({ model: 'gpt-5.5', max_output_tokens: 1, input: 'bounded' }),
+  });
+  try {
+    for (let index = 0; index < 160; index += 1) assert.equal((await request()).status, 200);
+    assert.equal((await request()).status, 429);
+    assert.equal(upstreamCalls, 160);
+  } finally {
+    await new Promise((resolve) => boundedProxy.close(resolve));
+  }
+});
+
 test('allows only the explicit inference endpoint allowlist', async () => {
   const activityCount = activities.length;
   const response = await fetch(`${proxyUrl}/admin/api/keys`, {
@@ -131,7 +165,10 @@ test('replaces local credentials with the bounded upstream credential', async ()
     body: JSON.stringify({ model: 'gpt-5.5', input: 'ok' }),
   });
   assert.equal(response.status, 200);
-  assert.deepEqual(await response.json(), { ok: true });
+  assert.deepEqual(await response.json(), {
+    ok: true,
+    usage: { input_tokens: 1, output_tokens: 1, cost_usd: 0.001 },
+  });
   assert.equal(observed.method, 'POST');
   assert.equal(observed.url, '/v1/responses?trace=1');
   assert.equal(observed.authorization, `Bearer ${UPSTREAM_KEY}`);
@@ -140,16 +177,16 @@ test('replaces local credentials with the bounded upstream credential', async ()
   assert.equal(response.headers.has('set-cookie'), false);
   assert.equal(JSON.parse(observed.body).max_output_tokens, 16384);
   assert.deepEqual(
-    activities.slice(-3).map((activity) => activity.phase),
-    ['started', 'response', 'completed']
+    activities.slice(-4).map((activity) => activity.phase),
+    ['started', 'response', 'budget', 'completed']
   );
   assert.deepEqual(
     {
-      path: activities.at(-2).path,
-      model: activities.at(-2).model,
-      requestBytes: activities.at(-2).requestBytes,
-      stream: activities.at(-2).stream,
-      status: activities.at(-2).status,
+      path: activities.at(-3).path,
+      model: activities.at(-3).model,
+      requestBytes: activities.at(-3).requestBytes,
+      stream: activities.at(-3).stream,
+      status: activities.at(-3).status,
     },
     {
       path: '/v1/responses',
@@ -159,6 +196,141 @@ test('replaces local credentials with the bounded upstream credential', async ()
       status: 200,
     },
   );
+});
+
+test('accounts cumulative usage and fails closed when USD cost is unavailable', async () => {
+  const recorded = [];
+  let calls = 0;
+  const bounded = createPackEvaluatorProxy({
+    localToken: LOCAL_TOKEN,
+    upstreamKey: UPSTREAM_KEY,
+    upstreamBaseUrl: upstreamUrl,
+    maxOutputTokens: 8,
+    fetchImpl: async () => {
+      calls += 1;
+      return new Response(calls === 1
+        ? '{"usage":{"input_tokens":11,"output_tokens":3,"cost_usd":0.25}}'
+        : '{"usage":{"input_tokens":1,"output_tokens":1}}', {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    },
+    onActivity: (activity) => recorded.push(activity),
+  });
+  bounded.listen(0, '127.0.0.1');
+  await once(bounded, 'listening');
+  const url = `http://127.0.0.1:${bounded.address().port}`;
+  const request = () => fetch(`${url}/v1/responses`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${LOCAL_TOKEN}`, 'content-type': 'application/json' },
+    body: JSON.stringify({ model: 'gpt-5.5', max_output_tokens: 8, input: 'bounded' }),
+  });
+  try {
+    assert.equal((await request()).status, 200);
+    assert.deepEqual(recorded.find((activity) => activity.phase === 'budget'), {
+      phase: 'budget', status: 'within', reason: null, modelRequests: 1,
+      inputTokens: 11, outputTokens: 3, costUsd: 0.25,
+      reservedCostUsd: 0.001485, billable: true,
+    });
+    assert.equal((await request()).status, 200);
+    assert.equal(recorded.filter((activity) => activity.phase === 'budget').at(-1).status, 'unbillable');
+    assert.equal((await request()).status, 429);
+    assert.equal(calls, 2);
+  } finally {
+    await new Promise((resolve) => bounded.close(resolve));
+  }
+});
+
+test('accounts split streaming usage from the terminal SSE evidence', async () => {
+  const recorded = [];
+  const bounded = createPackEvaluatorProxy({
+    localToken: LOCAL_TOKEN,
+    upstreamKey: UPSTREAM_KEY,
+    upstreamBaseUrl: upstreamUrl,
+    maxOutputTokens: 8,
+    fetchImpl: async () => new Response([
+      'event: message_start',
+      'data: {"message":{"usage":{"input_tokens":9,"output_tokens":0}}}',
+      '',
+      'event: message_delta',
+      'data: {"usage":{"output_tokens":4,"cost_usd":0.5}}',
+      '',
+    ].join('\n'), { status: 200, headers: { 'content-type': 'text/event-stream' } }),
+    onActivity: (activity) => recorded.push(activity),
+  });
+  bounded.listen(0, '127.0.0.1');
+  await once(bounded, 'listening');
+  try {
+    const response = await fetch(`http://127.0.0.1:${bounded.address().port}/v1/messages`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${LOCAL_TOKEN}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ model: 'sonnet', max_tokens: 8, stream: true, messages: [] }),
+    });
+    assert.equal(response.status, 200);
+    await response.text();
+    assert.deepEqual(recorded.find((activity) => activity.phase === 'budget'), {
+      phase: 'budget', status: 'within', reason: null, modelRequests: 1,
+      inputTokens: 9, outputTokens: 4, costUsd: 0.5,
+      reservedCostUsd: 0.001515, billable: true,
+    });
+  } finally {
+    await new Promise((resolve) => bounded.close(resolve));
+  }
+});
+
+test('reserves worst-case cost before forwarding any inference request', async () => {
+  let upstreamCalls = 0;
+  const bounded = createPackEvaluatorProxy({
+    localToken: LOCAL_TOKEN,
+    upstreamKey: UPSTREAM_KEY,
+    upstreamBaseUrl: upstreamUrl,
+    maxOutputTokens: 8,
+    maxCostUsd: 0.0001,
+    fetchImpl: async () => {
+      upstreamCalls += 1;
+      return new Response('{"usage":{"input_tokens":1,"output_tokens":1,"cost_usd":0.00001}}');
+    },
+  });
+  bounded.listen(0, '127.0.0.1');
+  await once(bounded, 'listening');
+  try {
+    const response = await fetch(`http://127.0.0.1:${bounded.address().port}/v1/responses`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${LOCAL_TOKEN}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ model: 'gpt-5.5', max_output_tokens: 8, input: 'bounded' }),
+    });
+    assert.equal(response.status, 429);
+    assert.equal(upstreamCalls, 0);
+  } finally {
+    await new Promise((resolve) => bounded.close(resolve));
+  }
+});
+
+test('rejects protocol-irrelevant output limits before cost reservation', async () => {
+  let upstreamCalls = 0;
+  const bounded = createPackEvaluatorProxy({
+    localToken: LOCAL_TOKEN,
+    upstreamKey: UPSTREAM_KEY,
+    upstreamBaseUrl: upstreamUrl,
+    maxOutputTokens: 16_384,
+    fetchImpl: async () => {
+      upstreamCalls += 1;
+      return new Response('{}');
+    },
+  });
+  bounded.listen(0, '127.0.0.1');
+  await once(bounded, 'listening');
+  try {
+    const response = await fetch(`http://127.0.0.1:${bounded.address().port}/v1/responses`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${LOCAL_TOKEN}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ model: 'gpt-5.5', max_tokens: 1, input: 'x' }),
+    });
+    assert.equal(response.status, 400);
+    assert.equal(upstreamCalls, 0);
+  } finally {
+    await new Promise((resolve) => bounded.close(resolve));
+  }
 });
 
 test('records exact redacted upstream error diagnostics without response text or credentials', async () => {
@@ -401,7 +573,9 @@ test('policy rejections use monotonic activity ids without spending the forwardi
 
   assert.equal(upstreamCalls, 1);
   assert.deepEqual(
-    recorded.map(({ phase, requestNumber }) => ({ phase, requestNumber })),
+    recorded
+      .filter(({ phase }) => phase !== 'budget')
+      .map(({ phase, requestNumber }) => ({ phase, requestNumber })),
     [
       { phase: 'response', requestNumber: 1 },
       { phase: 'response', requestNumber: 2 },
@@ -410,6 +584,7 @@ test('policy rejections use monotonic activity ids without spending the forwardi
       { phase: 'completed', requestNumber: 3 },
     ],
   );
+  assert.equal(recorded.filter(({ phase }) => phase === 'budget').at(-1).status, 'unbillable');
   await new Promise((resolve) => bounded.close(resolve));
 });
 
