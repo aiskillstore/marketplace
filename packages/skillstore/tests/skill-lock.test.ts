@@ -223,6 +223,21 @@ describe('skill-lock', () => {
 			expect(parsed.skills['test-skill'].version).toBe('2.0.0');
 			expect(parsed.skills['test-skill'].installedAt).toBe('2024-01-01T00:00:00Z'); // Original preserved
 		});
+
+		it('should not rewrite an unchanged lock identity', async () => {
+			vi.mocked(readFile).mockResolvedValue(JSON.stringify(mockLock));
+
+			await addToLock({
+				slug: mockLockEntry.slug,
+				version: mockLockEntry.version,
+				zipHash: mockLockEntry.zipHash,
+				source: mockLockEntry.source,
+				installedAt: '2026-07-23T00:00:00Z',
+			});
+
+			expect(mkdir).not.toHaveBeenCalled();
+			expect(writeFile).not.toHaveBeenCalled();
+		});
 	});
 
 	describe('removeFromLock', () => {
