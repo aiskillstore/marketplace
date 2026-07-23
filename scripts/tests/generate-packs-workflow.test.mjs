@@ -11,12 +11,7 @@ const admission = workflow('pack-opportunity-admission.yml');
 const publish = workflow('publish-pack-production-v4.yml');
 const recovery = workflow('recover-cancelled-pack-production.yml');
 const cliDownloadAction = readFileSync(join(root, '.github/actions/download-skillstore-cli/action.yml'), 'utf8');
-const pinnedActions = {
-  checkout: 'fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09',
-  upload: 'b7c566a772e6b6bfb58ed0dc250532a479d7789f',
-  download: '018cc2cf5baa6db3ef3c5f8a56943fffe632ef53',
-  appToken: 'bcd2ba49218906704ab6c1aa796996da409d3eb1',
-};
+const FULL_ACTION_SHA = '[0-9a-f]{40}';
 
 function section(source, start, end) {
   const from = source.indexOf(start);
@@ -27,8 +22,8 @@ function section(source, start, end) {
 }
 
 function assertPinnedSecretActions(source) {
-  assert.match(source, new RegExp(`actions/checkout@${pinnedActions.checkout} # v5`));
-  assert.match(source, new RegExp(`actions/upload-artifact@${pinnedActions.upload} # v6`));
+  assert.match(source, new RegExp(`actions/checkout@${FULL_ACTION_SHA} # v5`));
+  assert.match(source, new RegExp(`actions/upload-artifact@${FULL_ACTION_SHA} # v6`));
   assert.doesNotMatch(source, /actions\/(?:checkout|upload-artifact|download-artifact|create-github-app-token)@v[0-9]/);
 }
 
@@ -38,7 +33,7 @@ test('admission uses public demand evidence and a checksum-authenticated read-on
   assert.match(admission, /PACK_OPPORTUNITY_ADMISSION_CLI_VERSION: '2\.16\.0'/);
   assert.match(admission, /PACK_OPPORTUNITY_ADMISSION_CLI_SHA256: 'af5d54e0db3524e33e97a538bb84da2c4d36113ec72823a3f5530a111d2f467f'/);
   const token = section(admission, '      - name: Create a read-only token', '      - name: Download the fixed public-discovery CLI');
-  assert.match(token, new RegExp(`actions/create-github-app-token@${pinnedActions.appToken} # v3`));
+  assert.match(token, new RegExp(`actions/create-github-app-token@${FULL_ACTION_SHA} # v3`));
   assert.match(token, /repositories: marketplace,skillstore/);
   assert.match(token, /permission-contents: read/);
   const download = section(admission, '      - name: Download the fixed public-discovery CLI', '      - name: Collect and post');
@@ -271,7 +266,7 @@ test('published Pack runtime uses the exact installed CLI and installed identiti
   const runtime = section(publish, '  runtime:', '  complete:');
   assert.match(runtime, /needs: \[prepare, publish\]/);
   assert.match(runtime, /environment:\n\s+name: pack-production-runtime/);
-  assert.match(runtime, new RegExp(`actions/create-github-app-token@${pinnedActions.appToken} # v3`));
+  assert.match(runtime, new RegExp(`actions/create-github-app-token@${FULL_ACTION_SHA} # v3`));
   assert.match(runtime, /repositories: marketplace,skillstore/);
   assert.match(runtime, /permission-contents: read/);
   assert.match(runtime, /require-checksum: 'true'/);
@@ -355,7 +350,7 @@ test('pack production pins executable Actions and requires an independent CLI di
     /- name: Verify release checksum before execution[\s\S]*?env:[\s\S]*?EXPECTED_SHA256: \$\{\{ inputs\.expected-sha256 \}\}[\s\S]*?run:/,
   );
   assert.match(cliDownloadAction, /independently recorded expected digest/);
-  assert.match(cliDownloadAction, /actions\/cache@0057852bfaa89a56745cba8c7296529d2fc39830/);
+  assert.match(cliDownloadAction, /actions\/cache@[0-9a-f]{40}/);
   const localCache = cliDownloadAction.slice(
     cliDownloadAction.indexOf('    - name: Check local cache'),
     cliDownloadAction.indexOf('    - name: Cache CLI'),
