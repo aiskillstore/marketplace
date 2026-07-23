@@ -1072,7 +1072,7 @@ test('workflow separates public authority, credential-free runtime, and hosted c
   assert.match(workflow, /package-lock\.json[\s\S]*MARKETPLACE_CLI_INTEGRITY/);
   assert.match(workflow, /\.\/node_modules\/\.bin\/skillstore add "@\$PACK_SLUG" --agent codex --overwrite/);
   assert.match(workflow, /uses: \.\/\.github\/actions\/download-skillstore-cli/);
-  assert.match(workflow, /actions\/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3/);
+  assert.match(workflow, /actions\/create-github-app-token@[0-9a-f]{40} # v3/);
   assert.match(workflow, /repositories: marketplace,skillstore/);
   assert.match(workflow, /permission-contents: read/);
   assert.match(workflow, /token: \$\{\{ steps\.evaluation-cli-token\.outputs\.token \}\}/);

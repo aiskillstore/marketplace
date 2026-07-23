@@ -42,5 +42,19 @@ test('host guard can reclaim shared Docker build cache before Actions setup', ()
   assert.match(timer, /Persistent=true/);
   assert.match(testWorkflow, /- "scripts\/runner-disk-guard\.sh"/);
   assert.match(testWorkflow, /- "ops\/systemd\/\*\*"/);
-  assert.match(testWorkflow, /sparse-checkout: \|\n\s+\.github\n\s+governance\/fresh-canonical-audit\n\s+ops\/systemd\n\s+scripts/);
+  const sparseCheckout = testWorkflow.match(
+    /sparse-checkout: \|\n((?:\s{12}[^\n]+\n)+)/,
+  )?.[1];
+  assert.ok(sparseCheckout, 'test workflow must define sparse checkout inputs');
+  for (const requiredPath of [
+    '.github',
+    'governance/fresh-canonical-audit',
+    'ops/systemd',
+    'package.json',
+    'package-lock.json',
+    'scripts',
+    'schemas',
+  ]) {
+    assert.match(sparseCheckout, new RegExp(`^\\s+${requiredPath.replaceAll('.', '\\.')}\\s*$`, 'm'));
+  }
 });

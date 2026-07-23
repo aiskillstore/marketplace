@@ -892,7 +892,9 @@ test('workflow is bounded, exact-only, cursor-safe, and evidence-producing', () 
   assert.match(workflow, /sparse-checkout-cone-mode: false/);
   const checkoutGuard = workflow.indexOf('name: Normalize full checkout and verify backfill runtime');
   const firstProductionRead = workflow.indexOf('name: Fetch exact production Skill catalog');
-  assert.ok(checkoutGuard > workflow.indexOf('uses: actions/checkout@v5'));
+  const pinnedCheckout = workflow.match(/uses: actions\/checkout@[0-9a-f]{40} # v5/)?.[0];
+  assert.ok(pinnedCheckout, 'checkout must use a full commit SHA');
+  assert.ok(checkoutGuard > workflow.indexOf(pinnedCheckout));
   assert.ok(checkoutGuard < firstProductionRead);
   const checkoutGuardBlock = workflow.slice(checkoutGuard, firstProductionRead);
   assert.match(checkoutGuardBlock, /checked_out_sha=\$\(git rev-parse HEAD\)/);
@@ -923,6 +925,6 @@ test('workflow is bounded, exact-only, cursor-safe, and evidence-producing', () 
   assert.match(workflow, /\.evidence\[\]\.slug/);
   assert.match(inventoryFetcher, /hash_provenance/);
   assert.match(inventoryFetcher, /packMemberships/);
-  assert.match(workflow, /actions\/upload-artifact@v6/);
+  assert.match(workflow, /actions\/upload-artifact@[0-9a-f]{40} # v6/);
   assert.doesNotMatch(workflow, /calculate-scores|trigger-translate|warm-cache/);
 });
