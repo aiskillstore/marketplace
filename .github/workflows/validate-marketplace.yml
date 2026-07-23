@@ -8,8 +8,9 @@ on:
       - "skills/**/SKILL.md"
       - "skills/**/skill-report.json"
       - "skills/**/SKILL.md"
-      - ".github/workflows/on-pr-merge.yml"
-      - ".github/workflows/reusable-process-skills.yml"
+      - ".github/workflows/**"
+      - ".github/dependabot.yml"
+      - "scripts/check-workflow-action-pins.mjs"
       - "scripts/resolve-approved-submission.mjs"
       - "scripts/detect-changed-skills.mjs"
       - "scripts/resolve-manual-skills.mjs"
@@ -28,8 +29,9 @@ on:
       - "pending/**/SKILL.md"
       - "pending/**/skill-report.json"
       - "pending/**/SKILL.md"
-      - ".github/workflows/on-pr-merge.yml"
-      - ".github/workflows/reusable-process-skills.yml"
+      - ".github/workflows/**"
+      - ".github/dependabot.yml"
+      - "scripts/check-workflow-action-pins.mjs"
       - "scripts/resolve-approved-submission.mjs"
       - "scripts/detect-changed-skills.mjs"
       - "scripts/resolve-manual-skills.mjs"
@@ -45,7 +47,24 @@ env:
   AUTO_FIX_ENABLED: ${{ contains(fromJSON('["pull_request", "push", "workflow_dispatch"]'), github.event_name) }}
 
 jobs:
+  action-pin-policy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+
+      - name: Test workflow action pin policy
+        run: node --test scripts/tests/workflow-action-pin-policy.test.mjs
+
+      - name: Enforce workflow action pin policy
+        run: node scripts/check-workflow-action-pins.mjs
+
   validate:
+    needs: action-pin-policy
     runs-on: self-hosted
     timeout-minutes: 1440 # 24 hours
     permissions:
@@ -54,7 +73,7 @@ jobs:
     steps:
       - name: Generate GitHub App Token
         id: app-token
-        uses: actions/create-github-app-token@v3
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
         with:
           client-id: ${{ vars.APP_CLIENT_ID }}
           private-key: ${{ secrets.APP_PRIVATE_KEY }}
@@ -111,7 +130,7 @@ jobs:
           echo "✅ Workspace setup complete"
 
       - name: Setup Node.js
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           node-version: "24"
 
@@ -140,9 +159,10 @@ jobs:
       # Download CLI once at start - used by both SKILL.md and skill-report.json auto-fix steps
       - name: Checkout for CLI download action
         if: env.AUTO_FIX_ENABLED == 'true'
-        uses: actions/checkout@v5
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           path: marketplace-repo
+          persist-credentials: false
 
       - name: Download skillstore CLI for auto-fix
         if: env.AUTO_FIX_ENABLED == 'true'

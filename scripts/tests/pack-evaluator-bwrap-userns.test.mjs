@@ -123,7 +123,7 @@ test('hosted proof is manually gated, read-only, pinned, and invokes the product
   assert.match(HOSTED_CI, /scripts\/pack-evaluator-preflight-mock\.mjs/);
   assert.match(HOSTED_CI, /scripts\/pack-evaluator-preflight\.sh/);
   assert.match(HOSTED_CI, /if: github\.event_name == 'workflow_dispatch'/);
-  assert.match(HOSTED_CI, /actions\/create-github-app-token@v3/);
+  assert.match(HOSTED_CI, /actions\/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3/);
   assert.match(HOSTED_CI, /repositories: skillstore/);
   assert.match(HOSTED_CI, /permission-contents: read/);
   assert.match(HOSTED_CI, /PACK_PRODUCTION_CLI_VERSION: '2\.14\.2'/);
