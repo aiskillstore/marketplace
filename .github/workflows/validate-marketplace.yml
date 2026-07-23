@@ -11,7 +11,10 @@ on:
       - ".github/workflows/**"
       - ".github/actions/**"
       - ".github/dependabot.yml"
+      - "package.json"
+      - "package-lock.json"
       - "scripts/check-workflow-action-pins.mjs"
+      - "scripts/check-workflow-runner-safety.mjs"
       - "scripts/resolve-approved-submission.mjs"
       - "scripts/detect-changed-skills.mjs"
       - "scripts/resolve-manual-skills.mjs"
@@ -33,7 +36,10 @@ on:
       - ".github/workflows/**"
       - ".github/actions/**"
       - ".github/dependabot.yml"
+      - "package.json"
+      - "package-lock.json"
       - "scripts/check-workflow-action-pins.mjs"
+      - "scripts/check-workflow-runner-safety.mjs"
       - "scripts/resolve-approved-submission.mjs"
       - "scripts/detect-changed-skills.mjs"
       - "scripts/resolve-manual-skills.mjs"
@@ -44,9 +50,12 @@ on:
       - "scripts/tests/**"
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 env:
-  # Auto-fix only trusted same-repository refs; fork PRs stay read-only.
-  AUTO_FIX_ENABLED: ${{ contains(fromJSON('["pull_request", "push", "workflow_dispatch"]'), github.event_name) && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
+  # Auto-fix only default-branch trusted events; every PR stays read-only.
+  AUTO_FIX_ENABLED: ${{ (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main' }}
 
 jobs:
   action-pin-policy:
@@ -54,27 +63,43 @@ jobs:
     permissions:
       contents: read
     steps:
-      - name: Checkout repository
+      - name: Checkout exact untrusted head read-only
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
+          repository: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name || github.repository }}
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
 
-      - name: Test workflow action pin policy
-        run: node --test scripts/tests/workflow-action-pin-policy.test.mjs
+      - name: Setup Node.js
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: 22
 
-      - name: Enforce workflow action pin policy
+      - name: Install workflow policy dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Test workflow security policies
+        run: >-
+          node --test
+          scripts/tests/workflow-action-pin-policy.test.mjs
+          scripts/tests/workflow-runner-safety.test.mjs
+
+      - name: Enforce immutable workflow action references
         run: node scripts/check-workflow-action-pins.mjs
+
+      - name: Enforce pull request runner isolation
+        run: node scripts/check-workflow-runner-safety.mjs
 
   validate:
     needs: action-pin-policy
-    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-latest' || 'self-hosted' }}
+    runs-on: ubuntu-latest
     timeout-minutes: 1440 # 24 hours
     permissions:
-      contents: write  # Required for git push operations
-      pull-requests: write  # Required for PR operations if any
+      contents: read
+      pull-requests: read
     steps:
       - name: Generate GitHub App Token
-        if: env.AUTO_FIX_ENABLED == 'true'
+        if: env.AUTO_FIX_ENABLED == 'true' && github.event_name != 'pull_request'
         id: app-token
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
         with:
@@ -117,9 +142,9 @@ jobs:
           rm -rf "$WORK_DIR"
           mkdir -p "$WORK_DIR"
 
-          # Fork PRs must never receive the App token or execute on a self-hosted runner.
-          if [ "$EVENT_NAME" = "pull_request" ] && [ "$HEAD_REPOSITORY" != "$REPOSITORY" ]; then
-            echo "📦 Fetching fork pull request head read-only..."
+          # Every PR is read-only and fetched by exact event head on GitHub-hosted.
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            echo "📦 Fetching pull request head read-only..."
             [[ "$HEAD_SHA" =~ ^[0-9a-f]{40}$ ]] || {
               echo "::error::Fork pull request head is not a full commit SHA"
               exit 1
@@ -159,7 +184,7 @@ jobs:
 
       - name: Install dependencies
         working-directory: ${{ env.WORK_DIR }}
-        run: npm install ajv ajv-formats gray-matter
+        run: npm ci --ignore-scripts
 
       - name: Validate submission scope contracts
         working-directory: ${{ env.WORK_DIR }}

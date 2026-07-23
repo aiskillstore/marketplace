@@ -1,11 +1,21 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  cpSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { test } from 'node:test';
 import {
+  findWorkflowUsesReferences,
   findWorkflowUsesViolations,
   scanWorkflowDirectory,
 } from '../check-workflow-action-pins.mjs';
@@ -42,7 +52,7 @@ test('rejects mutable external uses in YAML flow-style mappings', () => {
   assert.equal(violations[0].file, 'flow-style.yml');
   assert.equal(violations[0].line, 1);
   assert.equal(violations[0].uses, 'actions/checkout@v5');
-  assert.match(violations[0].message, /Flow-style/);
+  assert.match(violations[0].message, /40-character commit SHA/);
 });
 
 test('validates block-style uses keys with whitespace before the colon', () => {
@@ -80,25 +90,24 @@ steps:
   );
 });
 
-test('rejects multiline quoted mapping keys that can decode to uses', () => {
+test('fails closed for multiline quoted mapping keys', () => {
   const workflow = String.raw`steps:
   - "u\
       ses": actions/checkout@v5
 `;
   const violations = findWorkflowUsesViolations(workflow, 'multiline-key.yml');
 
-  assert.deepEqual(
-    violations.map(({ line, uses }) => ({ line, uses })),
-    [{ line: 2, uses: '<multiline-key>' }],
-  );
-  assert.match(violations[0].message, /Multiline quoted mapping/);
+  assert.ok(violations.length > 0);
+  assert.equal(violations[0].line, 2);
+  assert.equal(violations[0].uses, '<yaml-parse-error>');
+  assert.match(violations[0].message, /YAML parse error/);
 });
 
 test('cannot hide mutable uses behind YAML properties or explicit mapping keys', () => {
   const workflow = `
 steps:
   - &checkout uses: actions/checkout@v5
-  - !!map uses: actions/setup-node@main
+  - !!str uses: actions/setup-node@main
   - ? uses
     : actions/github-script@v8
   - ? >-
@@ -112,12 +121,51 @@ steps:
     [
       { line: 3, uses: 'actions/checkout@v5' },
       { line: 4, uses: 'actions/setup-node@main' },
-      { line: 5, uses: 'uses' },
-      { line: 7, uses: '<explicit-key>' },
+      { line: 5, uses: 'actions/github-script@v8' },
+      { line: 7, uses: 'actions/upload-artifact@v4' },
     ],
   );
-  assert.match(violations[2].message, /Explicit mapping/);
-  assert.match(violations[3].message, /Explicit mapping/);
+});
+
+test('flow anchor and tagged mapping keys are structurally recognized as uses', () => {
+  const workflow = [
+    'jobs:',
+    '  test:',
+    '    steps: [ { &action_key uses: actions/checkout@v5 }, { !!str uses: actions/setup-node@main } ]',
+  ].join('\n');
+  const violations = findWorkflowUsesViolations(workflow, 'flow-properties.yml');
+
+  assert.deepEqual(
+    violations.map(({ line, uses }) => ({ line, uses })),
+    [
+      { line: 3, uses: 'actions/checkout@v5' },
+      { line: 3, uses: 'actions/setup-node@main' },
+    ],
+  );
+});
+
+test('malformed YAML fails closed with file and line diagnostics', () => {
+  const violations = findWorkflowUsesViolations('jobs:\n  test:\n    runs: [', 'broken.yml');
+
+  assert.ok(violations.length > 0);
+  assert.equal(violations[0].file, 'broken.yml');
+  assert.equal(violations[0].line, 3);
+  assert.match(violations[0].message, /YAML parse error/i);
+});
+
+test('dynamic and non-scalar uses values fail closed', () => {
+  const workflow = [
+    'jobs:',
+    '  test:',
+    '    steps:',
+    '      - uses: ${{ matrix.action }}',
+    '      - uses: [actions/checkout@v5]',
+  ].join('\n');
+  const violations = findWorkflowUsesViolations(workflow, 'dynamic.yml');
+
+  assert.equal(violations.length, 2);
+  assert.match(violations[0].message, /dynamic|literal|owner\/repository|full 40-character commit SHA/i);
+  assert.match(violations[1].message, /non-scalar/i);
 });
 
 test('ignores comments and shell strings in block scalar run steps', () => {
@@ -209,16 +257,70 @@ test('CLI scans workflows and local action manifests by default', () => {
   }
 });
 
-test('validate-marketplace gates write-capable validation on the read-only pin policy', () => {
+for (const fixture of [
+  {
+    name: 'manifest symlink',
+    link: '.github/actions/demo/action.yml',
+    target: '../../../../support/action.yml',
+    targetPath: 'support/action.yml',
+    targetSource: `name: demo\nruns:\n  using: composite\n  steps:\n    - uses: actions/checkout@${FULL_SHA}\n`,
+  },
+  {
+    name: 'directory symlink',
+    link: '.github/actions/linked',
+    target: '../../support/action-dir',
+    targetPath: 'support/action-dir/action.yml',
+    targetSource: `name: demo\nruns:\n  using: composite\n  steps:\n    - uses: actions/checkout@${FULL_SHA}\n`,
+  },
+  {
+    name: 'dangling symlink',
+    link: '.github/workflows/dangling.yml',
+    target: '../../missing.yml',
+  },
+]) {
+  test(`${fixture.name} fails closed with its concrete path`, () => {
+    const root = mkdtempSync(join(tmpdir(), 'workflow-action-pin-policy-symlink-'));
+    try {
+      const linkPath = join(root, fixture.link);
+      mkdirSync(dirname(linkPath), { recursive: true });
+      if (fixture.targetPath) {
+        const targetPath = join(root, fixture.targetPath);
+        mkdirSync(dirname(targetPath), { recursive: true });
+        writeFileSync(targetPath, fixture.targetSource);
+      }
+      symlinkSync(fixture.target, linkPath);
+
+      const result = spawnSync(process.execPath, [CHECKER], {
+        cwd: root,
+        encoding: 'utf8',
+      });
+
+      assert.notEqual(result.status, 0);
+      assert.match(`${result.stdout}\n${result.stderr}`, new RegExp(fixture.link.replaceAll('.', '\\.')));
+      assert.match(`${result.stdout}\n${result.stderr}`, /symlink/i);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+}
+
+test('pull_request validation executes fork head only on GitHub-hosted read-only jobs', () => {
   const workflow = readFileSync(
     join(REPO_ROOT, '.github', 'workflows', 'validate-marketplace.yml'),
+    'utf8',
+  );
+  const recalculateTests = readFileSync(
+    join(REPO_ROOT, '.github', 'workflows', 'test-recalculate-scores.yml'),
     'utf8',
   );
   const requiredPaths = [
     '.github/workflows/**',
     '.github/actions/**',
     '.github/dependabot.yml',
+    'package.json',
+    'package-lock.json',
     'scripts/check-workflow-action-pins.mjs',
+    'scripts/check-workflow-runner-safety.mjs',
     'scripts/tests/**',
   ];
 
@@ -235,76 +337,160 @@ test('validate-marketplace gates write-capable validation on the read-only pin p
     }
   }
 
+  assert.doesNotMatch(workflow, /^  pull_request_target:/m);
+  assert.match(workflow, /^permissions:\n  contents: read$/m);
   assert.match(
     workflow,
-    /^  AUTO_FIX_ENABLED: \$\{\{ contains\(fromJSON\('\["pull_request", "push", "workflow_dispatch"\]'\), github\.event_name\) && \(github\.event_name != 'pull_request' \|\| github\.event\.pull_request\.head\.repo\.full_name == github\.repository\) \}\}$/m,
+    /^  AUTO_FIX_ENABLED: \$\{\{ \(github\.event_name == 'push' \|\| github\.event_name == 'workflow_dispatch'\) && github\.ref == 'refs\/heads\/main' \}\}$/m,
   );
 
   const policyJob = workflow.match(/^  action-pin-policy:\n[\s\S]*?(?=^  \S)/m)?.[0];
   assert.ok(policyJob, 'missing action-pin-policy job');
-  assert.equal(policyJob.match(/^    permissions:/gm)?.length, 1);
-  assert.match(policyJob, /^    permissions:\n      contents: read\n    steps:$/m);
+  assert.match(policyJob, /^    runs-on: ubuntu-latest$/m);
+  assert.match(policyJob, /uses: actions\/checkout@[0-9a-f]{40} # v5/);
   assert.match(
     policyJob,
-    /^      - name: Checkout repository\n        uses: actions\/checkout@[0-9a-f]{40} # v5\n        with:\n          persist-credentials: false$/m,
+    /repository: \$\{\{ github\.event_name == 'pull_request' && github\.event\.pull_request\.head\.repo\.full_name \|\| github\.repository \}\}/,
   );
   assert.match(
     policyJob,
-    /^      - name: Test workflow action pin policy\n        run: node --test scripts\/tests\/workflow-action-pin-policy\.test\.mjs$/m,
+    /ref: \$\{\{ github\.event_name == 'pull_request' && github\.event\.pull_request\.head\.sha \|\| github\.sha \}\}/,
   );
-  assert.match(
-    policyJob,
-    /^      - name: Enforce workflow action pin policy\n        run: node scripts\/check-workflow-action-pins\.mjs$/m,
-  );
+  assert.match(policyJob, /persist-credentials: false/);
+  assert.match(policyJob, /uses: actions\/setup-node@[0-9a-f]{40} # v5/);
+  assert.match(policyJob, /run: npm ci --ignore-scripts/);
+  assert.match(policyJob, /scripts\/tests\/workflow-action-pin-policy\.test\.mjs/);
+  assert.match(policyJob, /scripts\/tests\/workflow-runner-safety\.test\.mjs/);
+  assert.match(policyJob, /run: node scripts\/check-workflow-action-pins\.mjs/);
+  assert.match(policyJob, /run: node scripts\/check-workflow-runner-safety\.mjs/);
 
   const validateJob = workflow.match(/^  validate:\n[\s\S]*/m)?.[0];
   assert.ok(validateJob, 'missing validate job');
   assert.match(validateJob, /^  validate:\n    needs: action-pin-policy$/m);
+  assert.match(validateJob, /^    runs-on: ubuntu-latest$/m);
+  assert.match(validateJob, /^    permissions:\n      contents: read\n      pull-requests: read$/m);
   assert.match(
     validateJob,
-    /^    runs-on: \$\{\{ github\.event_name == 'pull_request' && github\.event\.pull_request\.head\.repo\.full_name != github\.repository && 'ubuntu-latest' \|\| 'self-hosted' \}\}$/m,
-  );
-  assert.match(
-    validateJob,
-    /^    permissions:\n      contents: write(?:\s+#.*)?\n      pull-requests: write(?:\s+#.*)?$/m,
-  );
-  assert.match(
-    validateJob,
-    /^      - name: Generate GitHub App Token\n        if: env\.AUTO_FIX_ENABLED == 'true'\n        id: app-token\n        uses: actions\/create-github-app-token@[0-9a-f]{40}(?: #.*)?$/m,
+    /^      - name: Generate GitHub App Token\n        if: env\.AUTO_FIX_ENABLED == 'true' && github\.event_name != 'pull_request'\n/m,
   );
   const workspaceSetup = validateJob.match(
     /^      - name: Setup isolated temporary workspace\n[\s\S]*?(?=^      - name:)/m,
   )?.[0];
   assert.ok(workspaceSetup, 'missing isolated workspace setup');
-  assert.match(workspaceSetup, /HEAD_REPOSITORY: \$\{\{ github\.event\.pull_request\.head\.repo\.full_name \}\}/);
-  assert.match(workspaceSetup, /HEAD_SHA: \$\{\{ github\.event\.pull_request\.head\.sha \}\}/);
-  assert.match(workspaceSetup, /if \[ "\$EVENT_NAME" = "pull_request" \] && \[ "\$HEAD_REPOSITORY" != "\$REPOSITORY" \]; then/);
-  assert.match(workspaceSetup, /remote add origin "https:\/\/github\.com\/\$\{REPOSITORY\}\.git"/);
-  assert.match(workspaceSetup, /remote add pull-head "https:\/\/github\.com\/\$\{HEAD_REPOSITORY\}\.git"/);
+  assert.match(workspaceSetup, /if \[ "\$EVENT_NAME" = "pull_request" \]; then/);
   assert.match(workspaceSetup, /fetch --no-tags --depth 1 pull-head "\$HEAD_SHA"/);
-  assert.match(workspaceSetup, /test "\$\(git -C "\$WORK_DIR" rev-parse FETCH_HEAD\)" = "\$HEAD_SHA"/);
   assert.match(workspaceSetup, /checkout --detach "\$HEAD_SHA"/);
+
+  assert.match(recalculateTests, /^  pull_request:/m);
+  assert.doesNotMatch(recalculateTests, /^  pull_request_target:/m);
+  assert.match(recalculateTests, /^permissions:\n  contents: read$/m);
+  assert.match(recalculateTests, /^    runs-on: ubuntu-latest$/m);
+  assert.match(
+    recalculateTests,
+    /repository: \$\{\{ github\.event_name == 'pull_request' && github\.event\.pull_request\.head\.repo\.full_name \|\| github\.repository \}\}/,
+  );
+  assert.match(
+    recalculateTests,
+    /ref: \$\{\{ github\.event_name == 'pull_request' && github\.event\.pull_request\.head\.sha \|\| github\.sha \}\}/,
+  );
+  assert.match(recalculateTests, /persist-credentials: false/);
 });
 
-test('workflow contract tests do not freeze Dependabot-managed action SHAs', () => {
+test('workflow contract tests do not contain any current Dependabot-managed action SHA', () => {
+  const manifestRoots = [
+    join(REPO_ROOT, '.github', 'workflows'),
+    join(REPO_ROOT, '.github', 'actions'),
+  ];
+  const manifestFiles = [];
+  const walk = (directory) => {
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      const path = join(directory, entry.name);
+      if (entry.isDirectory()) walk(path);
+      else if (entry.isFile() && /\.ya?ml$/i.test(entry.name)) manifestFiles.push(path);
+    }
+  };
+  for (const root of manifestRoots) walk(root);
+
+  const currentShas = new Set();
+  for (const file of manifestFiles) {
+    const source = readFileSync(file, 'utf8');
+    for (const reference of findWorkflowUsesReferences(source, file)) {
+      if (reference.uses.startsWith('./') || reference.uses.startsWith('docker://')) continue;
+      const match = reference.uses.match(/@([0-9a-f]{40})$/i);
+      if (match) currentShas.add(match[1].toLowerCase());
+    }
+  }
+  assert.ok(currentShas.size > 0, 'expected current external Action pins');
+
   const contractTests = readdirSync(TEST_DIR, { withFileTypes: true })
     .filter((entry) => entry.isFile() && entry.name.endsWith('.test.mjs'))
     .map((entry) => entry.name);
-
   for (const file of contractTests) {
-    const source = readFileSync(join(TEST_DIR, file), 'utf8').replaceAll('\\/', '/');
-    assert.doesNotMatch(
-      source,
-      /actions\/[A-Za-z0-9_-]+@[0-9a-f]{40}/i,
-      `${file} must validate the full-SHA shape without freezing the current digest`,
-    );
-    assert.doesNotMatch(
-      source,
-      /const CHECKOUT_SHA\s*=\s*'[0-9a-f]{40}'/i,
-      `${file} must not freeze the checkout digest in a test constant`,
-    );
+    const source = readFileSync(join(TEST_DIR, file), 'utf8')
+      .replaceAll('\\/', '/')
+      .toLowerCase();
+    for (const sha of currentShas) {
+      assert.equal(
+        source.includes(sha),
+        false,
+        `${file} must validate the full-SHA shape without freezing current pin ${sha}`,
+      );
+    }
   }
 });
+
+test(
+  'bulk checkout pin replacement keeps workflow contract tests green',
+  { skip: process.env.ACTION_PIN_MUTATION_CHILD === '1' },
+  () => {
+    const root = mkdtempSync(join(tmpdir(), 'workflow-action-pin-mutation-'));
+    try {
+      for (const relativePath of ['.github', 'governance', 'ops', 'schemas', 'scripts']) {
+        cpSync(join(REPO_ROOT, relativePath), join(root, relativePath), { recursive: true });
+      }
+      for (const file of ['package.json', 'package-lock.json']) {
+        cpSync(join(REPO_ROOT, file), join(root, file));
+      }
+      symlinkSync(join(REPO_ROOT, 'node_modules'), join(root, 'node_modules'), 'dir');
+
+      const replacementSha = 'f'.repeat(40);
+      const rewritePins = (directory) => {
+        for (const entry of readdirSync(directory, { withFileTypes: true })) {
+          const path = join(directory, entry.name);
+          if (entry.isDirectory()) rewritePins(path);
+          else if (entry.isFile() && /\.ya?ml$/i.test(entry.name)) {
+            const content = readFileSync(path, 'utf8');
+            writeFileSync(
+              path,
+              content.replace(/actions\/checkout@[0-9a-f]{40}/gi, `actions/checkout@${replacementSha}`),
+            );
+          }
+        }
+      };
+      rewritePins(join(root, '.github'));
+
+      const result = spawnSync(
+        process.execPath,
+        [
+          '--test',
+          'scripts/tests/artifact-version-backfill.test.mjs',
+          'scripts/tests/generate-packs-workflow.test.mjs',
+          'scripts/tests/pack-evaluator-bwrap-userns.test.mjs',
+          'scripts/tests/score-cache-closure.test.mjs',
+          'scripts/tests/workflow-action-pin-policy.test.mjs',
+        ],
+        {
+          cwd: root,
+          encoding: 'utf8',
+          env: { ...process.env, ACTION_PIN_MUTATION_CHILD: '1' },
+        },
+      );
+      assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  },
+);
 
 test('Dependabot updates root GitHub Actions pins weekly', () => {
   const dependabot = readFileSync(

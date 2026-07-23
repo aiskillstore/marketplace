@@ -335,7 +335,7 @@ test('cancelled generation recovery is exact, candidate-null only, and secret-mi
 
 test('all workflow checkouts drop persisted Git credentials', () => {
   for (const [name, source] of Object.entries({ admission, generate, publish, recovery })) {
-    const checkouts = (source.match(/uses: actions\/checkout@(?:v5|fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09)/g) ?? []).length;
+    const checkouts = (source.match(/uses: actions\/checkout@[0-9a-f]{40} # v5/g) ?? []).length;
     const disabled = (source.match(/persist-credentials: false/g) ?? []).length;
     assert.ok(checkouts > 0, `${name} has no checkout`);
     assert.equal(disabled, checkouts, `${name} checkout credential isolation drifted`);
