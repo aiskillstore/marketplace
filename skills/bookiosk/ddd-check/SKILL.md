@@ -1,6 +1,8 @@
 ---
 name: ddd-check
-description: DDD compliance check for Java projects. Incremental mode scans git diff changes — fast, pre-commit. Full mode audits every Java file — architecture review. Validates layer isolation, base class usage, naming conventions, dependency direction, and anti-patterns.
+description: DDD compliance check for Java projects with auto mode detection. Use when user mentions "DDD check", "DDD audit", "check my changes", "architecture review", "pre-commit check", "DDD compliance", "review this code", or "check entire project".
+license: Apache-2.0
+metadata: {"version": "2.0", "skill-author": "bookiosk"}
 model: claude-sonnet-4-20250514
 allowed-tools: Read, Grep, Glob, Bash
 user-invocable: true
@@ -8,104 +10,70 @@ user-invocable: true
 
 # DDD Compliance Check
 
-Validate Java projects against Domain-Driven Design layer rules. Supports two modes:
+Two-mode DDD compliance validation for Java projects. Auto-detects mode from user's trigger phrase.
 
-- **Incremental** (`ddd-check`, "check my changes") — scans only changed/new Java files via git diff
-- **Full** (`ddd-check-full`, "full audit") — audits every Java file in the project
+## Mode Detection
 
-## DDD Layer Rules
+| Trigger Phrases | Mode | Scope |
+|---|---|---|
+| "check my changes", "pre-commit", "review this code", "validate my code" | **Incremental** | `git diff` only |
+| "full audit", "architecture review", "DDD compliance report", "check entire project", "pre-release" | **Full** | All Java files |
 
-Rules are in `rules/` directory. Each file defines structural, naming, and dependency constraints for one layer:
+## Incremental Mode
 
-| Rule File | Layer |
+### Workflow
+
+1. **Find changed files**: `git diff --cached --name-only --diff-filter=ACMR | grep '\.java$'` (also check unstaged and HEAD diff)
+2. **Classify by layer**: Map package path to layer using layer rule files in `references/`.
+3. **Load relevant rules**: Only load rule files matching changed layers. Always load `references/anti-patterns.md`.
+4. **Check each file**: Validate structural rules (base class, package, naming), dependency rules (no forbidden imports), anti-patterns.
+5. **Report**: Per-file violations with severity and fix. Skip "looks good" for clean files.
+
+If no Java files changed: "No Java files changed — nothing to check."
+
+## Full Mode
+
+### Workflow
+
+1. **Discover**: `find . -name "*.java" -not -path "*/target/*" -not -path "*/test/*" | sort`
+2. **Load all rules**: Read every layer rule file in `references/`. Load `references/base-classes-reference.md` and `references/exception-handling.md` as needed.
+3. **Layer-by-layer audit**: Group by layer, check package, base class, naming, dependencies, structure, exception mode.
+4. **Cross-layer**: Verify dependency direction (`grep -r "import org\.bookiosk\.ddd\."`), detect anemic models, check exception boundaries.
+5. **Report**: Executive summary with compliance score, per-layer breakdown, anti-patterns section, dependency graph, ranked recommendations.
+
+See `examples/violation-report.md` for sample output.
+
+## Layer Checklists
+
+See `references/shared-checks.md` for the complete severity table (CRITICAL/HIGH/MEDIUM/LOW) and per-layer checklists.
+
+## Red Flags
+
+These thoughts mean STOP — you're about to make a mistake:
+
+| Thought | Reality |
 |---|---|
-| `rules/domain-layer.md` | Domain — aggregate, entity, value object, repository, domain service |
-| `rules/application-layer.md` | Application — command/query services, executors, DTOs |
-| `rules/adaptor-layer.md` | Adaptor — controllers, converters, gateways |
-| `rules/infrastructure-layer.md` | Infrastructure — repository impls, PO, mapper, RPC clients |
-| `rules/client-layer.md` | Client — public API DTOs, facades |
-| `rules/model-layer.md` | Model — shared enums, constants, shared types |
-| `rules/anti-patterns.md` | Anti-patterns — anemic model, service overuse, wrong dependencies |
+| "This import looks wrong but the code compiles" | Compilation ≠ architecture compliance. Check the layer dependency rules. |
+| "It's just one setter, what's the harm?" | Public setId on aggregates breaks identity protection. Every violation matters. |
+| "I'll skip the cross-layer check, the file looks fine" | Domain→infrastructure imports are invisible without explicit grep. |
+| "This exception pattern is different but it works" | Wrong exception mode breaks the entire error handling contract. |
+| "The design pattern makes the code cleaner" | Design patterns in domain layer are FORBIDDEN — no exceptions. |
+| "I'll report 'looks good' for files with no issues" | Only report problems. Silence means clean. |
+| "A perfect score isn't possible, so I'll be lenient" | Architectural decay accelerates. Flag every real violation. |
 
-Reference docs in `references/` are educational, not checked against code.
+## Common Mistakes
 
-## Workflow
+- **Flagging intentional violations as CRITICAL** — verify with author before escalating
+- **Skipping cross-layer dependency check** — domain→infrastructure is the #1 architecture decay vector
+- **Ignoring exception mode mismatch** — 阻断型 layer throwing to 分支型 caller breaks error handling contract
+- **Incremental mode checking unchanged files** — only touch `git diff` output
 
-### Determine Mode
+## Quality Checklist
 
-Ask user: "Incremental check or full audit?"
-
-If user says "incremental", "check changes", "pre-commit", "my code" → **Incremental mode**.
-If user says "full", "audit", "architecture review", "entire project" → **Full mode**.
-
-Default to incremental if unclear.
-
-### Incremental Mode
-
-1. Find changed Java files:
-   ```bash
-   git diff HEAD --name-only --diff-filter=ACMR | grep '\.java$'
-   ```
-2. If no Java files changed: "No Java files changed — nothing to check."
-3. Classify each file by layer (match package path to layer name).
-4. Read only the rule files matching changed layers + always `anti-patterns.md`.
-5. Check each file: correct package → correct base class → naming conventions → forbidden imports → anti-patterns.
-6. Report:
-
-```
-## DDD Check: {branch} → {n} files changed
-
-### {FilePath}.java — {Layer}
-🔴 CRITICAL: {problem}. {fix}.
-🟡 HIGH: {problem}. {fix}.
-
-### Summary
-- {n} files checked, {x} violations (C: {a}, H: {b}, M: {c}, L: {d})
-```
-
-### Full Mode
-
-1. Discover all Java files:
-   ```bash
-   find . -name "*.java" -not -path "*/target/*" -not -path "*/test/*" | sort
-   ```
-2. Load all 7 rule files + `base-classes-reference.md`.
-3. Group files by layer. For each layer: package check → base class check → naming check → dependency check → structural check.
-4. Cross-layer: verify dependency direction via import grep, detect anemic models, find empty layers.
-5. Report with executive summary, per-layer tables, dependency graph, anti-patterns list, prioritized recommendations.
-
-## Severity
-
-| Level | Criteria |
-|---|---|
-| **CRITICAL** | Architecture violation — wrong layer dependency, missing base class, domain depends on infrastructure |
-| **HIGH** | Rule violation — wrong naming, public identity setter, domain service with no behavior |
-| **MEDIUM** | Convention deviation — anemic entity, missing Field wrapper, no JavaDoc on public API |
-| **LOW** | Style — inconsistent formatting, missing @Override |
-
-## Key Checks by Layer
-
-**Domain (MOST CRITICAL):**
-- Aggregates extend `BaseAggregate<ID>`, entities extend `BaseEntity<ID>`, value objects extend `BaseValue`
-- `setId()` is `protected`, not `public`
-- No infrastructure imports (no Mapper, JPA, SQL)
-- Repository interfaces extend `AggregateRepository<T, ID, Q>`
-- External calls through `GatewayI` interfaces
-- Design patterns FORBIDDEN in domain (Strategy, Factory, etc.)
-
-**Application:**
-- Cmd services extend `ApplicationCmdService`, Qry services extend `ApplicationQueryService`
-- Each use case has dedicated Executor
-
-**Infrastructure:**
-- Repository impls in correct package, PO classes separate from domain objects
-
-**Client:**
-- All DTOs extend `BaseDTO`, no domain classes exposed
-
-## Important
-
-- Reference specific rule sections when flagging violations (e.g. "domain-layer.md Section A.3")
-- Suggest exact fix, not just problem
-- Do NOT check unchanged files in incremental mode
-- Only report real problems — no "looks good" padding
+Before finalizing:
+- [ ] Mode correctly detected from user's trigger phrase
+- [ ] Only relevant rule files loaded (incremental) or all layers covered (full)
+- [ ] Every violation references the specific rule file and section heading
+- [ ] Each violation includes the exact fix, not just the problem
+- [ ] CRITICAL issues listed first, prioritized by blast radius
+- [ ] Anti-patterns cross-checked against `references/anti-patterns.md`
