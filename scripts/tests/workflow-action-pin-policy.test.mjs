@@ -235,6 +235,11 @@ test('validate-marketplace gates write-capable validation on the read-only pin p
     }
   }
 
+  assert.match(
+    workflow,
+    /^  AUTO_FIX_ENABLED: \$\{\{ contains\(fromJSON\('\["pull_request", "push", "workflow_dispatch"\]'\), github\.event_name\) && \(github\.event_name != 'pull_request' \|\| github\.event\.pull_request\.head\.repo\.full_name == github\.repository\) \}\}$/m,
+  );
+
   const policyJob = workflow.match(/^  action-pin-policy:\n[\s\S]*?(?=^  \S)/m)?.[0];
   assert.ok(policyJob, 'missing action-pin-policy job');
   assert.equal(policyJob.match(/^    permissions:/gm)?.length, 1);
@@ -257,12 +262,28 @@ test('validate-marketplace gates write-capable validation on the read-only pin p
   assert.match(validateJob, /^  validate:\n    needs: action-pin-policy$/m);
   assert.match(
     validateJob,
+    /^    runs-on: \$\{\{ github\.event_name == 'pull_request' && github\.event\.pull_request\.head\.repo\.full_name != github\.repository && 'ubuntu-latest' \|\| 'self-hosted' \}\}$/m,
+  );
+  assert.match(
+    validateJob,
     /^    permissions:\n      contents: write(?:\s+#.*)?\n      pull-requests: write(?:\s+#.*)?$/m,
   );
   assert.match(
     validateJob,
-    /^      - name: Generate GitHub App Token\n        id: app-token\n        uses: actions\/create-github-app-token@[0-9a-f]{40}(?: #.*)?$/m,
+    /^      - name: Generate GitHub App Token\n        if: env\.AUTO_FIX_ENABLED == 'true'\n        id: app-token\n        uses: actions\/create-github-app-token@[0-9a-f]{40}(?: #.*)?$/m,
   );
+  const workspaceSetup = validateJob.match(
+    /^      - name: Setup isolated temporary workspace\n[\s\S]*?(?=^      - name:)/m,
+  )?.[0];
+  assert.ok(workspaceSetup, 'missing isolated workspace setup');
+  assert.match(workspaceSetup, /HEAD_REPOSITORY: \$\{\{ github\.event\.pull_request\.head\.repo\.full_name \}\}/);
+  assert.match(workspaceSetup, /HEAD_SHA: \$\{\{ github\.event\.pull_request\.head\.sha \}\}/);
+  assert.match(workspaceSetup, /if \[ "\$EVENT_NAME" = "pull_request" \] && \[ "\$HEAD_REPOSITORY" != "\$REPOSITORY" \]; then/);
+  assert.match(workspaceSetup, /remote add origin "https:\/\/github\.com\/\$\{REPOSITORY\}\.git"/);
+  assert.match(workspaceSetup, /remote add pull-head "https:\/\/github\.com\/\$\{HEAD_REPOSITORY\}\.git"/);
+  assert.match(workspaceSetup, /fetch --no-tags --depth 1 pull-head "\$HEAD_SHA"/);
+  assert.match(workspaceSetup, /test "\$\(git -C "\$WORK_DIR" rev-parse FETCH_HEAD\)" = "\$HEAD_SHA"/);
+  assert.match(workspaceSetup, /checkout --detach "\$HEAD_SHA"/);
 });
 
 test('workflow contract tests do not freeze Dependabot-managed action SHAs', () => {
