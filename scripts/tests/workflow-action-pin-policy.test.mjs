@@ -492,13 +492,13 @@ test(
   },
 );
 
-test('Dependabot updates root GitHub Actions pins weekly', () => {
+test('Dependabot updates root GitHub Actions pins weekly without automatic major upgrades', () => {
   const dependabot = readFileSync(
     join(REPO_ROOT, '.github', 'dependabot.yml'),
     'utf8',
   );
   assert.match(
     dependabot,
-    /^version: 2\nupdates:\n  - package-ecosystem: "github-actions"\n    directory: "\/"\n    schedule:\n      interval: "weekly"$/m,
+    /^version: 2\nupdates:\n  - package-ecosystem: "github-actions"\n    directory: "\/"\n    schedule:\n      interval: "weekly"\n    ignore:\n      - dependency-name: "\*"\n        update-types:\n          - "version-update:semver-major"$/m,
   );
 });
