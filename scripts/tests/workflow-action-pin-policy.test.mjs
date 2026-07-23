@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -15,6 +15,7 @@ const REPO_ROOT = resolve(TEST_DIR, '..', '..');
 const CHECKER = join(REPO_ROOT, 'scripts', 'check-workflow-action-pins.mjs');
 const FULL_SHA = '0123456789abcdef0123456789abcdef01234567';
 const DOCKER_DIGEST = 'a'.repeat(64);
+const CHECKOUT_SHA = 'fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09';
 
 function violationsFor(uses) {
   return findWorkflowUsesViolations(`jobs:\n  test:\n    uses: ${uses}\n`, 'fixture.yml');
@@ -139,4 +140,71 @@ test('CLI defaults to .github/workflows and exits nonzero with actionable diagno
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+test('validate-marketplace gates write-capable validation on the read-only pin policy', () => {
+  const workflow = readFileSync(
+    join(REPO_ROOT, '.github', 'workflows', 'validate-marketplace.yml'),
+    'utf8',
+  );
+  const requiredPaths = [
+    '.github/workflows/**',
+    '.github/dependabot.yml',
+    'scripts/check-workflow-action-pins.mjs',
+    'scripts/tests/**',
+  ];
+
+  for (const event of ['push', 'pull_request']) {
+    const paths = workflow.match(
+      new RegExp(`^  ${event}:\\n[\\s\\S]*?^    paths:\\n([\\s\\S]*?)(?=^  \\S)`, 'm'),
+    )?.[1];
+    assert.ok(paths, `missing ${event}.paths`);
+    for (const requiredPath of requiredPaths) {
+      assert.ok(
+        paths.includes(`      - "${requiredPath}"`),
+        `${event}.paths must include ${requiredPath}`,
+      );
+    }
+  }
+
+  const policyJob = workflow.match(/^  action-pin-policy:\n[\s\S]*?(?=^  \S)/m)?.[0];
+  assert.ok(policyJob, 'missing action-pin-policy job');
+  assert.equal(policyJob.match(/^    permissions:/gm)?.length, 1);
+  assert.match(policyJob, /^    permissions:\n      contents: read\n    steps:$/m);
+  const checkoutStep = `      - name: Checkout repository
+        uses: actions/checkout@${CHECKOUT_SHA} # v5
+        with:
+          persist-credentials: false`;
+  assert.ok(policyJob.includes(checkoutStep));
+  assert.match(
+    policyJob,
+    /^      - name: Test workflow action pin policy\n        run: node --test scripts\/tests\/workflow-action-pin-policy\.test\.mjs$/m,
+  );
+  assert.match(
+    policyJob,
+    /^      - name: Enforce workflow action pin policy\n        run: node scripts\/check-workflow-action-pins\.mjs$/m,
+  );
+
+  const validateJob = workflow.match(/^  validate:\n[\s\S]*/m)?.[0];
+  assert.ok(validateJob, 'missing validate job');
+  assert.match(validateJob, /^  validate:\n    needs: action-pin-policy$/m);
+  assert.match(
+    validateJob,
+    /^    permissions:\n      contents: write(?:\s+#.*)?\n      pull-requests: write(?:\s+#.*)?$/m,
+  );
+  assert.match(
+    validateJob,
+    /^      - name: Generate GitHub App Token\n        id: app-token\n        uses: actions\/create-github-app-token@[0-9a-f]{40}(?: #.*)?$/m,
+  );
+});
+
+test('Dependabot updates root GitHub Actions pins weekly', () => {
+  const dependabot = readFileSync(
+    join(REPO_ROOT, '.github', 'dependabot.yml'),
+    'utf8',
+  );
+  assert.match(
+    dependabot,
+    /^version: 2\nupdates:\n  - package-ecosystem: "github-actions"\n    directory: "\/"\n    schedule:\n      interval: "weekly"$/m,
+  );
 });
