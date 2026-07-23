@@ -1,5 +1,22 @@
 # Client Layer Specification
 
+
+## 目录
+- [1. Package Structure](#1-package-structure)
+- [2. Dependency Rules](#2-dependency-rules)
+- [3. AppService Interface Definitions](#3-appservice-interface-definitions)
+  - [3.1 Write Mode Interface](#31-write-mode-interface)
+  - [3.2 Read Mode Interface](#32-read-mode-interface)
+  - [3.3 Pure Calculate Mode Interface](#33-pure-calculate-mode-interface)
+  - [3.4 Rule+Calculate Mode Interface](#34-rule+calculate-mode-interface)
+- [4. Model Package — Shared Nested DTOs](#4-model-package-—-shared-nested-dtos)
+  - [4.1 Purpose](#41-purpose)
+  - [4.2 Naming and Inheritance](#42-naming-and-inheritance)
+  - [4.3 Reuse Guidelines](#43-reuse-guidelines)
+  - [4.4 Template](#44-template)
+- [5. RequestDTO Specification](#5-requestdto-specification)
+- [6. ResponseDTO Specification](#6-responsedto-specification)
+
 ## 1. Package Structure
 
 ```

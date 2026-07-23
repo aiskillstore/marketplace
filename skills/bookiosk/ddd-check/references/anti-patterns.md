@@ -1,5 +1,36 @@
 # Anti-Patterns Reference
 
+
+## 目录
+- [Domain Layer](#domain-layer)
+  - [AP-D-01: Design Patterns in Domain Layer](#ap-d-01-design-patterns-in-domain-layer)
+  - [AP-D-02: Plain Types Instead of Field\<T\> in Entities](#ap-d-02-plain-types-instead-of-field\<t\>-in-entities)
+  - [AP-D-03: Mutable Value Objects](#ap-d-03-mutable-value-objects)
+  - [AP-D-04: Generic Technical Method Names on Aggregates](#ap-d-04-generic-technical-method-names-on-aggregates)
+  - [AP-D-05: Wrong Exception Mode in DomainService](#ap-d-05-wrong-exception-mode-in-domainservice)
+  - [AP-D-06: DomainService Directly Depending on Adaptor](#ap-d-06-domainservice-directly-depending-on-adaptor)
+- [Application Layer](#application-layer)
+  - [AP-A-01: Core Business Logic in AppService](#ap-a-01-core-business-logic-in-appservice)
+  - [AP-A-02: Direct Database or External Service Access](#ap-a-02-direct-database-or-external-service-access)
+  - [AP-A-03: Validation Logic in AppService Instead of requestDTO.check()](#ap-a-03-validation-logic-in-appservice-instead-of-requestdtocheck)
+  - [AP-A-04: Using Primitive Types or Map as Parameters](#ap-a-04-using-primitive-types-or-map-as-parameters)
+  - [AP-A-05: Command Calling Query (CQRS Violation)](#ap-a-05-command-calling-query-cqrs-violation)
+  - [AP-A-06: APP Throwing Exceptions to Adaptor](#ap-a-06-app-throwing-exceptions-to-adaptor)
+- [Adaptor Layer](#adaptor-layer)
+  - [AP-AD-01: Adaptor Interface Defined by 3rd-Party API Shape](#ap-ad-01-adaptor-interface-defined-by-3rd-party-api-shape)
+  - [AP-AD-02: Business Logic in Adaptor](#ap-ad-02-business-logic-in-adaptor)
+- [Infrastructure Layer](#infrastructure-layer)
+  - [AP-I-01: Business Logic in RepositoryImpl](#ap-i-01-business-logic-in-repositoryimpl)
+  - [AP-I-02: Business Logic in Converter](#ap-i-02-business-logic-in-converter)
+  - [AP-I-03: Direct Technical Exception Propagation](#ap-i-03-direct-technical-exception-propagation)
+  - [AP-I-04: PO Exposed to Domain or Application Layer](#ap-i-04-po-exposed-to-domain-or-application-layer)
+  - [AP-I-05: External Service Calls from Infrastructure](#ap-i-05-external-service-calls-from-infrastructure)
+- [Client Layer](#client-layer)
+  - [AP-C-01: Client Depending on Model Layer](#ap-c-01-client-depending-on-model-layer)
+  - [AP-C-02: Over-Reusing DTOs](#ap-c-02-over-reusing-dtos)
+  - [AP-C-03: Flat Package Structure in Client](#ap-c-03-flat-package-structure-in-client)
+- [Quick Reference: Severity Summary](#quick-reference-severity-summary)
+
 Consolidated list of all forbidden patterns across every layer. Each entry shows the wrong approach, why it's wrong, and the correct alternative.
 
 ---

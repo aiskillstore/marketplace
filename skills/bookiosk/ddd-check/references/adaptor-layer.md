@@ -1,5 +1,34 @@
 # Adaptor Layer Specification
 
+
+## 目录
+- [Part A: Base Rules (All Modes)](#part-a-base-rules-all-modes)
+  - [A.1 Role](#a1-role)
+  - [A.2 Package Structure](#a2-package-structure)
+  - [A.3 Layer Responsibilities](#a3-layer-responsibilities)
+  - [A.4 Adaptor Interface Design — CRITICAL](#a4-adaptor-interface-design-—-critical)
+  - [A.5 Implementation Constraints](#a5-implementation-constraints)
+  - [A.6 Design Patterns ALLOWED in Adaptor Layer](#a6-design-patterns-allowed-in-adaptor-layer)
+  - [A.7 Call Chain Control](#a7-call-chain-control)
+  - [A.8 Naming](#a8-naming)
+  - [A.9 Input Adaptor Entry Types](#a9-input-adaptor-entry-types)
+- [Part B: Write Mode](#part-b-write-mode)
+  - [B.1 Call Chain](#b1-call-chain)
+  - [B.2 Input Adaptor](#b2-input-adaptor)
+  - [B.3 Output Adaptor](#b3-output-adaptor)
+- [Part C: Read Mode](#part-c-read-mode)
+  - [C.1 Call Chain](#c1-call-chain)
+  - [C.2 Input Adaptor](#c2-input-adaptor)
+  - [C.3 Output Adaptor — Example](#c3-output-adaptor-—-example)
+- [Part D: Pure Calculate Mode](#part-d-pure-calculate-mode)
+  - [D.1 Call Chain](#d1-call-chain)
+  - [D.2 Input Adaptor](#d2-input-adaptor)
+  - [D.3 Output Adaptor](#d3-output-adaptor)
+- [Part E: Rule+Calculate Mode](#part-e-rule+calculate-mode)
+  - [E.1 Call Chain](#e1-call-chain)
+  - [E.2 Input Adaptor](#e2-input-adaptor)
+  - [E.3 Output Adaptor](#e3-output-adaptor)
+
 ## Part A: Base Rules (All Modes)
 
 ### A.1 Role

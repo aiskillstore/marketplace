@@ -1,5 +1,19 @@
 # Exception Handling — Two-Mode Philosophy
 
+
+## 目录
+- [Core Principle](#core-principle)
+- [Layer Responsibilities](#layer-responsibilities)
+  - [Domain Layer](#domain-layer)
+  - [outAdaptor Layer](#outadaptor-layer)
+  - [APP Layer (Exception Boundary)](#app-layer-exception-boundary)
+  - [inAdaptor Layer](#inadaptor-layer)
+- [Examples](#examples)
+  - [阻断型: Order Confirm](#阻断型-order-confirm)
+  - [分支型: Duplicate Check](#分支型-duplicate-check)
+- [Decision Flow](#decision-flow)
+- [Anti-Patterns](#anti-patterns)
+
 ## Core Principle
 
 Domain 和 outAdaptor 根据 **上游是否需要失败数据** 选择异常机制：

@@ -1,5 +1,38 @@
 # Application Layer Specification
 
+
+## 目录
+- [Part A: Base Rules (All Modes)](#part-a-base-rules-all-modes)
+  - [A.1 Package Structure](#a1-package-structure)
+  - [A.2 Core Positioning](#a2-core-positioning)
+  - [A.3 CQRS (Command Query Responsibility Segregation)](#a3-cqrs-command-query-responsibility-segregation)
+  - [A.4 Exception Boundary — APP as Unified Catch Point](#a4-exception-boundary-—-app-as-unified-catch-point)
+  - [A.5 Parameters and Return Values](#a5-parameters-and-return-values)
+  - [A.6 DTO Location](#a6-dto-location)
+  - [A.7 Dependency Rules](#a7-dependency-rules)
+  - [A.8 Behavior Constraints](#a8-behavior-constraints)
+  - [A.9 Assembler](#a9-assembler)
+- [Part B: Write Mode](#part-b-write-mode)
+  - [B.1 Naming](#b1-naming)
+  - [B.2 Call Chain](#b2-call-chain)
+  - [B.3 Orchestration Steps](#b3-orchestration-steps)
+  - [B.4 Template](#b4-template)
+- [Part C: Read Mode](#part-c-read-mode)
+  - [C.1 Naming](#c1-naming)
+  - [C.2 Data Sources](#c2-data-sources)
+  - [C.3 Template (Hybrid Query)](#c3-template-hybrid-query)
+- [Part D: Pure Calculate Mode](#part-d-pure-calculate-mode)
+  - [D.1 Core Principle](#d1-core-principle)
+  - [D.2 Naming](#d2-naming)
+  - [D.3 Call Chain](#d3-call-chain)
+  - [D.4 Orchestration Steps](#d4-orchestration-steps)
+  - [D.5 Template](#d5-template)
+- [Part E: Rule+Calculate Mode](#part-e-rule+calculate-mode)
+  - [E.1 Core Principle](#e1-core-principle)
+  - [E.2 Naming](#e2-naming)
+  - [E.3 Call Chain](#e3-call-chain)
+  - [E.4 Template](#e4-template)
+
 ## Part A: Base Rules (All Modes)
 
 ### A.1 Package Structure

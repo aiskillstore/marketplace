@@ -1,20 +1,22 @@
 # ddd-check
 
-DDD compliance check skill for Claude Code. Validates Java projects against Domain-Driven Design layer rules.
+DDD compliance check skill for Claude Code. Auto-detects incremental vs full mode from trigger phrase.
+
+[![agentskills.io](https://img.shields.io/badge/agentskills.io-compliant-6e3bf0)](https://agentskills.io)
 
 ## Install
 
 ```bash
-npx skillstore add bookiosk/ddd-check
+git clone https://github.com/bookiosk/ddd-check.git
 ```
 
-Or add to `.claude/settings.json`:
+Add to `.claude/settings.json`:
 
 ```json
 {
   "skills": {
     "ddd-check": {
-      "path": "ddd-check-skill/SKILL.md"
+      "path": "ddd-check/SKILL.md"
     }
   }
 }
@@ -23,19 +25,13 @@ Or add to `.claude/settings.json`:
 ## Usage
 
 ```
-# Incremental — check changed files only
-/ddd-check
-
-# Full — audit entire project
-/ddd-check-full
+/ddd-check     # Auto-detects mode from your prompt
 ```
 
-## Modes
-
-| Mode | Scope | Speed | Use Case |
-|---|---|---|---|
-| Incremental | git diff Java files | Fast | Pre-commit, PR review |
-| Full | All Java files | Slow | Architecture review, pre-release |
+| Say this | Does this |
+|---|---|
+| "check my changes" / "pre-commit check" | **Incremental** — git diff only |
+| "full DDD audit" / "architecture review" | **Full** — every Java file |
 
 ## What It Checks
 
@@ -44,27 +40,34 @@ Or add to `.claude/settings.json`:
 - Naming conventions (Cmd, Qry, Exe, ExtPt, etc.)
 - Dependency direction (domain → infrastructure = CRITICAL)
 - Identity protection (setId must be protected)
-- Anti-patterns (anemic model, service overuse)
+- Exception handling mode (阻断 throw vs 分支 ResultDO)
+- Anti-patterns (anemic model, service overuse, wrong exception mode)
 
 ## File Layout
 
 ```
-ddd-check-skill/
-├── SKILL.md                  # Main skill definition
-├── rules/                    # DDD layer rules (checked against code)
+ddd-check/
+├── SKILL.md                        # Skill entry point
+├── references/                     # DDD rules + guides (loaded on demand)
 │   ├── domain-layer.md
 │   ├── application-layer.md
 │   ├── adaptor-layer.md
 │   ├── infrastructure-layer.md
 │   ├── client-layer.md
 │   ├── model-layer.md
-│   └── anti-patterns.md
-├── references/               # Education and onboarding (not checked)
-│   ├── overview.md
+│   ├── anti-patterns.md
+│   ├── shared-checks.md
 │   ├── base-classes-reference.md
+│   ├── exception-handling.md
+│   ├── overview.md
 │   ├── anemic-vs-ddd.md
 │   └── quick-start-tutorial.md
-└── README.md
+├── evals/
+│   └── evals.json
+├── examples/
+│   └── violation-report.md
+├── README.md
+└── LICENSE
 ```
 
 ## License

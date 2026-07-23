@@ -1,5 +1,29 @@
 # Infrastructure Layer Specification
 
+
+## 目录
+- [Part A: Base Rules (All Modes)](#part-a-base-rules-all-modes)
+  - [A.1 Package Structure](#a1-package-structure)
+  - [A.2 Core Positioning](#a2-core-positioning)
+  - [A.3 Repository Implementation Naming](#a3-repository-implementation-naming)
+  - [A.4 Allowed vs Forbidden](#a4-allowed-vs-forbidden)
+  - [A.5 Exception Handling](#a5-exception-handling)
+  - [A.6 PO (Persistent Object)](#a6-po-persistent-object)
+  - [A.7 Mapper Interface](#a7-mapper-interface)
+  - [A.8 Converter](#a8-converter)
+- [Part B: Write Mode](#part-b-write-mode)
+  - [B.1 Core Responsibilities](#b1-core-responsibilities)
+  - [B.2 Return Values](#b2-return-values)
+  - [B.3 Template](#b3-template)
+- [Part C: Read Mode](#part-c-read-mode)
+  - [C.1 Core Responsibilities](#c1-core-responsibilities)
+  - [C.2 Return Values](#c2-return-values)
+  - [C.3 Template](#c3-template)
+- [Part D: Rule+Calculate Mode](#part-d-rule+calculate-mode)
+  - [D.1 Core Responsibilities](#d1-core-responsibilities)
+  - [D.2 Return Values](#d2-return-values)
+  - [D.3 Template](#d3-template)
+
 ## Part A: Base Rules (All Modes)
 
 ### A.1 Package Structure

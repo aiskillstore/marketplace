@@ -1,5 +1,32 @@
 # Base Classes & Core Types Reference
 
+
+## 目录
+- [1. ResultDO\<T\> — Universal Result Wrapper](#1-resultdo\<t\>-—-universal-result-wrapper)
+- [2. Domain Layer Base Classes](#2-domain-layer-base-classes)
+  - [2.1 BaseParam](#21-baseparam)
+  - [2.2 BaseResult](#22-baseresult)
+  - [2.3 BaseAggregate\<ID\>](#23-baseaggregate\<id\>)
+  - [2.4 BaseEntity\<ID\>](#24-baseentity\<id\>)
+  - [2.5 BaseValue](#25-basevalue)
+- [3. Field\<T\>, FieldSet\<T\>, FieldList\<T\> — Immutable Property Wrappers](#3-field\<t\>-fieldset\<t\>-fieldlist\<t\>-—-immutable-property-wrappers)
+  - [3.1 Field\<T\> — Single Value Wrapper](#31-field\<t\>-—-single-value-wrapper)
+  - [3.2 FieldSet\<T\> — Set Wrapper](#32-fieldset\<t\>-—-set-wrapper)
+  - [3.3 FieldList\<T\> — List Wrapper](#33-fieldlist\<t\>-—-list-wrapper)
+- [4. Repository Base Interface](#4-repository-base-interface)
+  - [4.1 AggregateRepository\<T, ID\>](#41-aggregaterepository\<t-id\>)
+- [5. Application Layer Base Interfaces](#5-application-layer-base-interfaces)
+  - [5.1 ApplicationCmdService](#51-applicationcmdservice)
+  - [5.2 ApplicationQueryService](#52-applicationqueryservice)
+- [6. DTO Base Class](#6-dto-base-class)
+  - [6.1 BaseDTO](#61-basedto)
+- [7. Exception Classes](#7-exception-classes)
+  - [7.1 AggregateException](#71-aggregateexception)
+  - [7.2 BizException](#72-bizexception)
+- [8. LevelLock — Distributed Lock](#8-levellock-—-distributed-lock)
+- [9. Quick Reference Table](#9-quick-reference-table)
+- [10. Inheritance Chain Diagram](#10-inheritance-chain-diagram)
+
 This document defines all base classes, interfaces, and core types referenced throughout the DDD layer specifications. These form the framework foundation that all layers build upon.
 
 ---

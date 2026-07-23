@@ -1,5 +1,31 @@
 # Domain Layer Specification
 
+
+## 目录
+- [Part A: Base Rules (All Modes)](#part-a-base-rules-all-modes)
+  - [A.1 Package Structure](#a1-package-structure)
+  - [A.2 Domain Layer Isolation](#a2-domain-layer-isolation)
+  - [A.3 Design Patterns — FORBIDDEN in Domain Layer](#a3-design-patterns-—-forbidden-in-domain-layer)
+  - [A.4 Param Objects](#a4-param-objects)
+  - [A.5 Result Objects](#a5-result-objects)
+  - [A.6 Exception Handling — Two Modes](#a6-exception-handling-—-two-modes)
+  - [A.7 Repository Interface](#a7-repository-interface)
+  - [A.8 Lazy-Loading External Data in DomainService](#a8-lazy-loading-external-data-in-domainservice)
+- [Part B: Write Mode](#part-b-write-mode)
+  - [B.1 DomainService — Write Mode](#b1-domainservice-—-write-mode)
+  - [B.2 Aggregate Root — Write Mode](#b2-aggregate-root-—-write-mode)
+  - [B.3 Entity — Write Mode](#b3-entity-—-write-mode)
+  - [B.4 Value Object — Write Mode](#b4-value-object-—-write-mode)
+  - [B.5 Repository — Write Mode](#b5-repository-—-write-mode)
+- [Part C: Read Mode](#part-c-read-mode)
+  - [C.1 Repository — Read Mode](#c1-repository-—-read-mode)
+- [Part D: Pure Calculate Mode](#part-d-pure-calculate-mode)
+  - [D.1 DomainService — Pure Calculate Mode](#d1-domainservice-—-pure-calculate-mode)
+  - [D.2 Result — Pure Calculate Mode](#d2-result-—-pure-calculate-mode)
+- [Part E: Rule+Calculate Mode](#part-e-rule+calculate-mode)
+  - [E.1 DomainService — Rule+Calculate Mode](#e1-domainservice-—-rule+calculate-mode)
+  - [E.2 Rule Aggregate — Rule+Calculate Mode](#e2-rule-aggregate-—-rule+calculate-mode)
+
 ## Part A: Base Rules (All Modes)
 
 ### A.1 Package Structure
@@ -18,6 +44,20 @@ domain/
 ```
 
 **Constraint:** Domain layer may ONLY contain the above types. No Utils, constants, config classes, or non-domain concepts.
+
+**DDD 数据流（区别于 MVC 的 PO 直改）：**
+```
+DB → PO → (Infrastructure) PO→Entity → Entity → Aggregate
+                      ↑                   ↑ 有生命周期，需持久化
+                      ↑                    ↑ 持有 ValueObject（属性片段）
+                      ↑
+             Repository 负责转换
+             Aggregate 不直接接触 PO
+```
+- **PO** 在 Infrastructure 层，是 DB 行映射，Domain 不可见
+- **Entity** 是领域对象，有完整生命周期（创建→修改→归档），需持久化
+- **ValueObject** 是 Entity 的属性片段，无生命周期，不独立持久化
+- **Aggregate** 只持有 Entity，业务方法委托 Entity 执行
 
 ### A.2 Domain Layer Isolation
 
@@ -320,7 +360,19 @@ public ResultDO<OrderAggregate> checkDuplicate(CheckDuplicateParam param) {
 ### B.2 Aggregate Root — Write Mode
 
 #### Definition
-Aggregate root is the core domain model object. It maintains business consistency and integrity boundaries for a group of related entities and value objects. External access to internal objects MUST go through aggregate root methods only.
+Aggregate root is the core domain model object. It maintains business consistency and integrity boundaries for a group of related **entities**. Aggregate methods express business intent and delegate to entity business methods — never directly mutate entity state.
+
+**Key distinction from MVC:** In MVC, you load PO → modify PO → save PO. In DDD:
+```
+DB → PO → (Infrastructure: PO→Entity) → Entity → Aggregate
+                                               ↑ 有完整生命周期
+                                               ↑ 需要持久化
+     Aggregate 持有 Entity，业务方法调 Entity 方法
+     Entity 持有 ValueObject（属性片段，无生命周期）
+     Aggregate 不直接接触 PO
+```
+
+External access to internal objects MUST go through aggregate root methods only.
 
 #### Design Principles
 1. **Single responsibility:** One aggregate = one core business concept
@@ -339,24 +391,24 @@ Aggregate root is the core domain model object. It maintains business consistenc
 
 #### Four Method Types
 
-**1. Write (state-modifying):** validate params + validate business rules + modify state
+**1. Write (state-modifying):** validate params → delegate to entity business methods
 ```java
 public void cancelOrder(CancelOrderParam param) {
     if (param == null) {
         throw new AggregateException("Param must not be null");
     }
-    if (!this.status.canCancel()) {
-        throw new AggregateException("Current status cannot be cancelled");
+    // 委托实体执行 —— 聚合根不直接改属性
+    for (OrderItemEntity item : this.items) {
+        item.cancel();
     }
-    this.status = OrderStatus.CANCELLED;
 }
 ```
 
-**2. Calculate (no state change):**
+**2. Calculate (no state change):** 聚合根遍历实体，调实体计算
 ```java
 public BigDecimal calculateTotalAmount() {
     return items.stream()
-        .map(item -> item.getPrice().multiply(item.getQuantity()))
+        .map(OrderItemEntity::calculateSubtotal)
         .reduce(BigDecimal.ZERO, BigDecimal::add);
 }
 ```
@@ -372,11 +424,11 @@ public OrderItemEntity findItemById(Long itemId) {
 }
 ```
 
-**4. Judge (no state change):**
+**4. Judge (no state change):** 聚合根遍历实体状态做判断
 ```java
 @JSONField(serialize = false)
-public boolean isPaymentConfirmed() {
-    return OrderStatus.PAID.equals(this.status);
+public boolean isFullyPaid() {
+    return this.items.stream().allMatch(OrderItemEntity::isPaid);
 }
 ```
 
@@ -400,31 +452,56 @@ For query/judge methods that bloat the aggregate:
 
 ### B.3 Entity — Write Mode
 
+#### Definition
+Entity has **完整生命周期** — created, modified, eventually archived/deleted. This is why it needs persistence (PO in Infrastructure layer). Repository loads PO → converts to Entity → returns to Domain. Aggregate holds Entity, calls its business methods.
+
+**Entity vs PO vs VO:**
+```
+Infrastructure          Domain
+     PO        →        Entity        →        Aggregate 持有
+     (DB行)              (有生命周期)            (业务入口)
+                           │
+                           └── 属性用 ValueObject（无生命周期，实体片段）
+```
+
 Entities follow aggregate root conventions with these differences:
 
 | Rule | Spec | Example |
 |------|------|---------|
 | Class name | `{Noun}Entity extends BaseEntity` | `OrderItemEntity` |
-| Method naming | MUST be verbs | `updatePrice` |
+| Method naming | MUST use business verbs, NOT technical CRUD | `confirmPayment`, NOT `updateStatus` |
 | Parameter | `{MethodName}Param extends BaseParam` or primitive type | — |
 | Return | Primitive type | — |
-| **Property types** | **MUST use `Field<T>`, `FieldSet<T>`, `FieldList<T>`** | — |
+| **Property types** | **MUST use `Field<T>`, `FieldSet<T>`, `FieldList<T>` wrapping ValueObject** | `Field<MoneyValue>` |
 | Exception | Throw `AggregateException` | — |
 
+**Entity 属性 = ValueObject，非基础类型：**
 ```java
 @Data
 @EqualsAndHashCode(callSuper = true)
 public class OrderItemEntity extends BaseEntity<Long> {
-    private Field<Long> orderId;
-    private Field<String> productName;
-    private Field<Long> price;
-    private Field<DomesticIntlEnum> domesticIntl;
+    private Field<MoneyValue> price;        // ValueObject，非 Long
+    private Field<ItemStatusValue> status;  // ValueObject，非 String
+    private Field<String> productName;      // 简单值允许基础类型
 
-    public void updatePrice(Long newPrice) {
-        if (newPrice == null || newPrice <= 0) {
-            throw new AggregateException("Price must be greater than 0");
+    // 业务方法，非 CRUD setter
+    public void confirmPayment(String channel, MoneyValue amount) {
+        if (!this.status.get().canPay()) {
+            throw new AggregateException("Item " + getId() + " cannot be paid");
         }
-        this.price = Field.of(newPrice);
+        this.status = Field.of(ItemStatusValue.PAID);
+    }
+
+    public void cancel() {
+        if (!this.status.get().canCancel()) {
+            throw new AggregateException("Item " + getId() + " cannot be cancelled");
+        }
+        this.status = Field.of(ItemStatusValue.CANCELLED);
+    }
+
+    // 计算 —— 无副作用
+    public MoneyValue calculateSubtotal() {
+        return this.price.get().multiply(/* quantity */);
     }
 }
 ```
@@ -432,11 +509,16 @@ public class OrderItemEntity extends BaseEntity<Long> {
 ### B.4 Value Object — Write Mode
 
 #### Core Characteristics
+
+ValueObject 是 Entity 的属性片段，无独立生命周期，不独立持久化。Entity 被 Repository 持久化时，VO 作为 Entity 的一部分存入 DB。
+
 | Feature | Value Object | Entity |
 |---------|-------------|--------|
 | Identity | None | Has unique ID |
 | Equality | By attribute values | By ID |
-| Lifecycle | Created/destroyed freely | Has explicit lifecycle |
+| Lifecycle | None — created/destroyed with Entity | Full lifecycle (create→modify→archive) |
+| Persistence | As part of Entity, never alone | Independent persistence (PO in Infrastructure) |
+| Owner | Entity (as property) | Aggregate (held in collection) |
 | Mutability | **Immutable** | Mutable (Write mode) |
 
 #### Naming
@@ -448,25 +530,28 @@ public class OrderItemEntity extends BaseEntity<Long> {
 | Return | Primitive type | — |
 
 #### Architectural Position
-- Domain layer core model
-- May appear in: Aggregate internals (as properties), DomainService params/returns, Repository query results (as part of aggregate)
+- Domain layer core model — Entity 的属性片段
+- May appear in: Entity internals (as Field-wrapped properties), DomainService params/returns
+- Persisted as part of Entity, never independently
+- NOT held directly by Aggregate — Aggregate holds Entity, Entity holds VO
 
 ```java
-public class PassengerValue extends BaseValue {
-    private Integer age;
-    private Date birthday;
+/** Money — 不可变值对象，无生命周期，不独立持久化 */
+public final class MoneyValue extends BaseValue {
+    private final BigDecimal amount;
+    private final String currency;
 
-    /** Calculate passenger age, fallback to 0 if invalid */
-    public Integer passengerAge() {
-        if (this.age != null) {
-            return this.age;
-        }
-        if (this.birthday == null) {
-            return 0;
-        }
-        int calculatedAge = DateUtil.ageOfNow(this.birthday);
-        return (calculatedAge < 0 || calculatedAge > 120) ? 0 : calculatedAge;
+    public MoneyValue(BigDecimal amount, String currency) {
+        this.amount = amount;
+        this.currency = currency;
     }
+
+    public MoneyValue multiply(int n) {
+        return new MoneyValue(this.amount.multiply(BigDecimal.valueOf(n)), this.currency);
+    }
+
+    public BigDecimal getAmount() { return amount; }
+    public String getCurrency() { return currency; }
 }
 ```
 

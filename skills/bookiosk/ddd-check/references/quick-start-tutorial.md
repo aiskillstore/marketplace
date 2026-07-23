@@ -1,5 +1,33 @@
 # Quick-Start Tutorial — End-to-End "Create Order"
 
+
+## 目录
+- [Scenario](#scenario)
+- [File Manifest](#file-manifest)
+- [Step 1: Client Layer — Request DTO](#step-1-client-layer-—-request-dto)
+- [Step 2: Domain Layer — Aggregate, DomainService, Repository Interface](#step-2-domain-layer-—-aggregate-domainservice-repository-interface)
+  - [Aggregate](#aggregate)
+  - [Entity](#entity)
+  - [Param](#param)
+  - [DomainService Interface](#domainservice-interface)
+  - [DomainService Implementation](#domainservice-implementation)
+  - [Repository Interface](#repository-interface)
+- [Step 3: Application Layer — Scene Orchestration](#step-3-application-layer-—-scene-orchestration)
+  - [Adaptor Interfaces (defined in Application, per Application needs)](#adaptor-interfaces-defined-in-application-per-application-needs)
+  - [AppService Interface](#appservice-interface)
+  - [AppService Implementation](#appservice-implementation)
+  - [Assembler](#assembler)
+- [Step 4: Infrastructure Layer — Persistence](#step-4-infrastructure-layer-—-persistence)
+  - [PO](#po)
+  - [Mapper](#mapper)
+  - [Converter](#converter)
+  - [Repository Implementation](#repository-implementation)
+- [Step 5: Adaptor Layer — Input & Output](#step-5-adaptor-layer-—-input-&-output)
+  - [Input Adaptor — HTTP Entry Point](#input-adaptor-—-http-entry-point)
+  - [Output Adaptor — External Service Calls](#output-adaptor-—-external-service-calls)
+- [Step 6: Data Flow Summary](#step-6-data-flow-summary)
+- [How to Add a New Scene](#how-to-add-a-new-scene)
+
 Walk through building a complete "create online order" feature across all 6 layers. Copy-paste ready.
 
 ---

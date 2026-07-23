@@ -1,5 +1,23 @@
 # DDD Architecture Overview
 
+
+## 目录
+- [1. Hexagonal Architecture — Core Design Principles](#1-hexagonal-architecture-—-core-design-principles)
+  - [1.1 Layer Dependency Rules](#11-layer-dependency-rules)
+  - [1.2 Domain Layer Isolation](#12-domain-layer-isolation)
+- [2. Project Structure](#2-project-structure)
+- [3. Four DDD Development Modes](#3-four-ddd-development-modes)
+  - [3.1 Mode Comparison](#31-mode-comparison)
+  - [3.2 Mode Selection Decision Tree](#32-mode-selection-decision-tree)
+  - [3.3 Call Chain Sequence Diagrams](#33-call-chain-sequence-diagrams)
+  - [3.4 Deprecated (text-only call chains)](#34-deprecated-text-only-call-chains)
+- [4. Spec File Usage by Mode](#4-spec-file-usage-by-mode)
+  - [4.1 Write Mode — Required Specs](#41-write-mode-—-required-specs)
+  - [4.2 Read Mode — Required Specs](#42-read-mode-—-required-specs)
+  - [4.3 Pure Calculate Mode — Required Specs](#43-pure-calculate-mode-—-required-specs)
+  - [4.4 Rule+Calculate Mode — Required Specs](#44-rule+calculate-mode-—-required-specs)
+- [5. Document Index](#5-document-index)
+
 ## 1. Hexagonal Architecture — Core Design Principles
 
 ### 1.1 Layer Dependency Rules

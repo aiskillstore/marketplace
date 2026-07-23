@@ -1,5 +1,19 @@
 # Anemic Model vs DDD — Side-by-Side Comparison
 
+
+## 目录
+- [Scenario](#scenario)
+- [Anemic Model (Common Anti-Pattern)](#anemic-model-common-anti-pattern)
+  - [Entity — Data Bag Only](#entity-—-data-bag-only)
+  - [Service — All Logic in Procedural Code](#service-—-all-logic-in-procedural-code)
+  - [Problems](#problems)
+- [DDD Model (This Framework)](#ddd-model-this-framework)
+  - [Domain Layer — Business Logic Encapsulated](#domain-layer-—-business-logic-encapsulated)
+  - [Application Layer — Scene Orchestration Only](#application-layer-—-scene-orchestration-only)
+- [Side-by-Side Comparison](#side-by-side-comparison)
+- [When Anemic Model Hurts Most](#when-anemic-model-hurts-most)
+- [Migration Path (Anemic → DDD)](#migration-path-anemic-→-ddd)
+
 Same business scenario implemented both ways: **"Create an order and confirm payment"** — with inventory validation and price verification.
 
 ---
