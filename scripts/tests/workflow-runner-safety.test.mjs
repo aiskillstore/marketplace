@@ -132,6 +132,49 @@ test('trusted main push may use self-hosted without making it pull_request reach
   );
 });
 
+test('tag and release workflows cannot require a non-default-ref self-hosted runner grant', () => {
+  withWorkflow(
+    [
+      'name: unsafe tag release',
+      'on:',
+      '  push:',
+      '    tags: ["v*"]',
+      '  release:',
+      '    types: [published]',
+      'jobs:',
+      '  publish:',
+      '    runs-on: self-hosted',
+      '    steps:',
+      '      - run: echo unsafe-dynamic-tag-ref',
+    ].join('\n'),
+    (root) => {
+      const result = runChecker(root);
+      assert.notEqual(result.status, 0);
+      assert.match(`${result.stdout}\n${result.stderr}`, /tag\/release.*GitHub-hosted/i);
+    },
+  );
+});
+
+test('tag release jobs pass on a literal GitHub-hosted runner', () => {
+  withWorkflow(
+    [
+      'name: hosted tag release',
+      'on:',
+      '  push:',
+      '    tags: ["v*"]',
+      'jobs:',
+      '  publish:',
+      '    runs-on: ubuntu-latest',
+      '    steps:',
+      '      - run: echo hosted-tag-release',
+    ].join('\n'),
+    (root) => {
+      const result = runChecker(root);
+      assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
+    },
+  );
+});
+
 test('pull_request_target is forbidden even when fork head is fetched indirectly', () => {
   withWorkflow(
     [

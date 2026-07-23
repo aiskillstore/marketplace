@@ -49,6 +49,15 @@ function pullRequestTypes(config) {
   return Array.isArray(types) ? types : [];
 }
 
+function hasTagTrigger(config) {
+  return Boolean(
+    config
+    && typeof config === 'object'
+    && !Array.isArray(config)
+    && (Object.hasOwn(config, 'tags') || Object.hasOwn(config, 'tags-ignore'))
+  );
+}
+
 function trustedClosedMergeMetadataJob(pullRequest, job) {
   const types = pullRequestTypes(pullRequest);
   if (types.length !== 1 || types[0] !== 'closed') return false;
@@ -110,6 +119,8 @@ function inspectWorkflow(root, path) {
   const workflow = document.toJS({ maxAliasCount: 100 });
   const pullRequest = eventConfig(workflow.on, 'pull_request');
   const pullRequestTarget = eventConfig(workflow.on, 'pull_request_target');
+  const push = eventConfig(workflow.on, 'push');
+  const tagOrRelease = hasTagTrigger(push) || eventConfig(workflow.on, 'release') !== null;
   const jobs = workflow.jobs && typeof workflow.jobs === 'object' ? workflow.jobs : {};
 
   if (pullRequestTarget !== null) {
@@ -124,6 +135,15 @@ function inspectWorkflow(root, path) {
   for (const [jobName, job] of Object.entries(jobs)) {
     if (!job || typeof job !== 'object') continue;
     const jobLine = lineOf(document, lineCounter, ['jobs', jobName]);
+
+    if (tagOrRelease && !isGithubHosted(job['runs-on'])) {
+      add(
+        violations,
+        file,
+        jobLine,
+        `tag/release job ${jobName} must use a literal GitHub-hosted runner so the self-hosted group can remain default-branch-only`,
+      );
+    }
 
     if (pullRequest !== null) {
       const trustedMetadata = trustedClosedMergeMetadataJob(pullRequest, job);
