@@ -321,8 +321,8 @@ test('readback rejects a freshly stored cache body that disagrees with frozen DB
 
 test('bounded manual workflow moves score cache closure to a fail-closed hosted job', () => {
   assert.match(RECALCULATE, /cache-closure:[\s\S]*runs-on: ubuntu-latest/);
-  assert.match(RECALCULATE, /actions\/upload-artifact@v4[\s\S]*score-closure-\$\{\{ github\.run_id \}\}/);
-  assert.match(RECALCULATE, /actions\/download-artifact@v5[\s\S]*score-closure-\$\{\{ github\.run_id \}\}/);
+  assert.match(RECALCULATE, /actions\/upload-artifact@[0-9a-f]{40} # v4[\s\S]*score-closure-\$\{\{ github\.run_id \}\}/);
+  assert.match(RECALCULATE, /actions\/download-artifact@[0-9a-f]{40} # v5[\s\S]*score-closure-\$\{\{ github\.run_id \}\}/);
   assert.match(RECALCULATE, /Verify every production API cache readback/);
   assert.match(RECALCULATE, /freeze-score-evidence/);
   assert.match(RECALCULATE, /--expected-score-evidence/);
@@ -386,7 +386,7 @@ test('every single-file score closure sparse checkout disables cone mode', () =>
     ['recovery', RECOVERY],
   ]) {
     const checkoutBlocks = [...workflow.matchAll(
-      /uses: actions\/checkout@v5\n\s{8}with:\n((?:\s{10,}[^\n]*\n)*)/g,
+      /uses: actions\/checkout@[0-9a-f]{40} # v5\n\s{8}with:\n((?:\s{10,}[^\n]*\n)*)/g,
     )]
       .map((match) => match[1])
       .filter((block) => block.includes('scripts/score-cache-closure.mjs'));

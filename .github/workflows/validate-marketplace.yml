@@ -8,8 +8,13 @@ on:
       - "skills/**/SKILL.md"
       - "skills/**/skill-report.json"
       - "skills/**/SKILL.md"
-      - ".github/workflows/on-pr-merge.yml"
-      - ".github/workflows/reusable-process-skills.yml"
+      - ".github/workflows/**"
+      - ".github/actions/**"
+      - ".github/dependabot.yml"
+      - "package.json"
+      - "package-lock.json"
+      - "scripts/check-workflow-action-pins.mjs"
+      - "scripts/check-workflow-runner-safety.mjs"
       - "scripts/resolve-approved-submission.mjs"
       - "scripts/detect-changed-skills.mjs"
       - "scripts/resolve-manual-skills.mjs"
@@ -28,8 +33,13 @@ on:
       - "pending/**/SKILL.md"
       - "pending/**/skill-report.json"
       - "pending/**/SKILL.md"
-      - ".github/workflows/on-pr-merge.yml"
-      - ".github/workflows/reusable-process-skills.yml"
+      - ".github/workflows/**"
+      - ".github/actions/**"
+      - ".github/dependabot.yml"
+      - "package.json"
+      - "package-lock.json"
+      - "scripts/check-workflow-action-pins.mjs"
+      - "scripts/check-workflow-runner-safety.mjs"
       - "scripts/resolve-approved-submission.mjs"
       - "scripts/detect-changed-skills.mjs"
       - "scripts/resolve-manual-skills.mjs"
@@ -40,21 +50,58 @@ on:
       - "scripts/tests/**"
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 env:
-  # Enable auto-fix for push, PRs, and manual triggers (set to 'false' to disable)
-  AUTO_FIX_ENABLED: ${{ contains(fromJSON('["pull_request", "push", "workflow_dispatch"]'), github.event_name) }}
+  # Auto-fix only default-branch trusted events; every PR stays read-only.
+  AUTO_FIX_ENABLED: ${{ (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main' }}
 
 jobs:
+  action-pin-policy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout exact untrusted head read-only
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          repository: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name || github.repository }}
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: 22
+
+      - name: Install workflow policy dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Test workflow security policies
+        run: >-
+          node --test
+          scripts/tests/workflow-action-pin-policy.test.mjs
+          scripts/tests/workflow-runner-safety.test.mjs
+
+      - name: Enforce immutable workflow action references
+        run: node scripts/check-workflow-action-pins.mjs
+
+      - name: Enforce pull request runner isolation
+        run: node scripts/check-workflow-runner-safety.mjs
+
   validate:
-    runs-on: self-hosted
+    needs: action-pin-policy
+    runs-on: ubuntu-latest
     timeout-minutes: 1440 # 24 hours
     permissions:
-      contents: write  # Required for git push operations
-      pull-requests: write  # Required for PR operations if any
+      contents: read
+      pull-requests: read
     steps:
       - name: Generate GitHub App Token
+        if: env.AUTO_FIX_ENABLED == 'true' && github.event_name != 'pull_request'
         id: app-token
-        uses: actions/create-github-app-token@v3
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
         with:
           client-id: ${{ vars.APP_CLIENT_ID }}
           private-key: ${{ secrets.APP_PRIVATE_KEY }}
@@ -66,6 +113,8 @@ jobs:
           RUN_ID: ${{ github.run_id }}
           EVENT_NAME: ${{ github.event_name }}
           HEAD_REF: ${{ github.head_ref }}
+          HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           REF_NAME: ${{ github.ref_name }}
           REPOSITORY: ${{ github.repository }}
           APP_TOKEN: ${{ steps.app-token.outputs.token }}
@@ -93,11 +142,29 @@ jobs:
           rm -rf "$WORK_DIR"
           mkdir -p "$WORK_DIR"
 
-          # Clone repository to temporary workspace
-          echo "📦 Cloning repository..."
-          git clone --depth 1 --branch "$BRANCH" \
-            "https://x-access-token:${APP_TOKEN}@github.com/${REPOSITORY}.git" \
-            "$WORK_DIR"
+          # Every PR is read-only and fetched by exact event head on GitHub-hosted.
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            echo "📦 Fetching pull request head read-only..."
+            [[ "$HEAD_SHA" =~ ^[0-9a-f]{40}$ ]] || {
+              echo "::error::Fork pull request head is not a full commit SHA"
+              exit 1
+            }
+            git init "$WORK_DIR"
+            git -C "$WORK_DIR" remote add origin "https://github.com/${REPOSITORY}.git"
+            git -C "$WORK_DIR" remote add pull-head "https://github.com/${HEAD_REPOSITORY}.git"
+            git -C "$WORK_DIR" fetch --no-tags --depth 1 pull-head "$HEAD_SHA"
+            test "$(git -C "$WORK_DIR" rev-parse FETCH_HEAD)" = "$HEAD_SHA"
+            git -C "$WORK_DIR" checkout --detach "$HEAD_SHA"
+          else
+            echo "📦 Cloning trusted repository ref..."
+            test -n "$APP_TOKEN" || {
+              echo "::error::GitHub App token is required for trusted auto-fix validation"
+              exit 1
+            }
+            git clone --depth 1 --branch "$BRANCH" \
+              "https://x-access-token:${APP_TOKEN}@github.com/${REPOSITORY}.git" \
+              "$WORK_DIR"
+          fi
 
           cd "$WORK_DIR"
 
@@ -111,13 +178,13 @@ jobs:
           echo "✅ Workspace setup complete"
 
       - name: Setup Node.js
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           node-version: "24"
 
       - name: Install dependencies
         working-directory: ${{ env.WORK_DIR }}
-        run: npm install ajv ajv-formats gray-matter
+        run: npm ci --ignore-scripts
 
       - name: Validate submission scope contracts
         working-directory: ${{ env.WORK_DIR }}
@@ -140,9 +207,10 @@ jobs:
       # Download CLI once at start - used by both SKILL.md and skill-report.json auto-fix steps
       - name: Checkout for CLI download action
         if: env.AUTO_FIX_ENABLED == 'true'
-        uses: actions/checkout@v5
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           path: marketplace-repo
+          persist-credentials: false
 
       - name: Download skillstore CLI for auto-fix
         if: env.AUTO_FIX_ENABLED == 'true'
