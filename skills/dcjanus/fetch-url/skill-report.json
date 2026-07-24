@@ -1,7 +1,7 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-07-10T15:44:27.817Z",
+    "generated_at": "2026-07-23T16:57:15.886Z",
     "slug": "dcjanus-fetch-url",
     "source_url": "https://github.com/DCjanus/prompts/tree/master/skills/fetch-url",
     "source_ref": "master",
@@ -23,15 +23,14 @@
   },
   "skill": {
     "name": "fetch-url",
-    "description": "Fetches HTTP and HTTPS pages, extracts main content, and supports Markdown, structured formats, browser rendering, Jina Reader, and X post handling.",
-    "summary": "Fetch and extract readable web content with several strategies and output formats.",
+    "description": "Fetches web pages and extracts readable content, with Markdown output, configurable strategies, and dedicated X/Twitter status handling.",
+    "summary": "Fetch web content into clean Markdown or other supported formats.",
     "icon": "📦",
-    "version": "1.0.1",
     "author": "DCjanus",
     "license": "MIT",
     "tags": [
-      "url-fetching",
       "web-content",
+      "url-fetching",
       "markdown",
       "content-extraction",
       "twitter"
@@ -53,36 +52,21 @@
     "is_blocked": false,
     "safe_to_publish": false,
     "analysis_status": "ok",
-    "summary": "Most static high findings are expected Jina authentication, and the SKILL.md backtick matches are documentation. Real risks include unrestricted URLs, arbitrary file output, user-selected executables, untrusted fetched content, third-party disclosure, and unbounded response reads.",
+    "summary": "Most static alerts are false positives caused by Markdown backticks, example URLs, status identifiers, and scoped JINA_API_KEY handling. Confirmed behavior includes arbitrary URL fetching and fixed third-party services. Semantic review found SSRF exposure, automatic URL disclosure to Jina Reader, and untrusted content entering agent output without a safety boundary.",
     "remediation": [
       {
-        "issue": "Unrestricted URL access can reach private services.",
-        "suggestion": "Resolve every destination and redirect, then block loopback, link-local, private, multicast, and cloud metadata addresses unless explicitly allowed.",
+        "issue": "Caller-supplied URLs can target local, private, link-local, or cloud metadata services.",
+        "suggestion": "Resolve every destination and redirect, reject non-public addresses, and consider a domain allowlist before urllib or browser navigation.",
         "severity": "high"
       },
       {
-        "issue": "The output path can overwrite arbitrary files.",
-        "suggestion": "Restrict writes to an approved workspace, reject existing files by default, and require explicit confirmation before overwriting.",
+        "issue": "Fetched pages can inject instructions into the consuming agent context.",
+        "suggestion": "Wrap output as untrusted data and instruct agents never to follow commands, disclose secrets, or invoke tools based only on fetched content.",
         "severity": "high"
       },
       {
-        "issue": "The browser path can select an arbitrary executable.",
-        "suggestion": "Remove the option or validate resolved paths against known Chromium binaries in approved directories.",
-        "severity": "high"
-      },
-      {
-        "issue": "Fetched text can contain indirect prompt injection.",
-        "suggestion": "Label all remote content as untrusted data and prevent it from changing tool permissions, system instructions, or execution plans.",
-        "severity": "high"
-      },
-      {
-        "issue": "Jina Reader and FxTwitter receive user request data.",
-        "suggestion": "Disclose each third-party request, require consent, and avoid sending sensitive or private URLs through proxy services.",
-        "severity": "medium"
-      },
-      {
-        "issue": "Response bodies have no size limit.",
-        "suggestion": "Stream responses with a strict byte cap, validate Content-Length, and stop reading when the limit is reached.",
+        "issue": "Automatic mode forwards complete target URLs to Jina Reader.",
+        "suggestion": "Require explicit consent before third-party fallback, reject credential-bearing URLs, and clearly disclose which service receives each target.",
         "severity": "medium"
       }
     ],
@@ -929,365 +913,365 @@
       {
         "id": "network:scripts/fetch_url.py:521:fetch-api-call",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "Line 521 defines a Typer command named fetch. It is not a browser Fetch API call or an independent network operation."
+        "confidence": 0.99,
+        "reason": "The token is a Python command-function declaration named fetch, not a Fetch API invocation; actual network behavior is adjudicated separately."
       },
       {
         "id": "network:scripts/fetch_url.py:23:python-http-libraries",
         "verdict": "confirmed",
         "confidence": 0.99,
-        "severity": "low",
-        "reason": "The imported urllib request APIs are used for outbound requests to user URLs and fixed external services. Network access is an intentional capability."
+        "reason": "The urllib classes are used to fetch caller-supplied URLs and fixed external services, so outbound network access is real core behavior.",
+        "severity": "low"
       },
       {
         "id": "network:scripts/fetch_url.py:48:hardcoded-url",
         "verdict": "confirmed",
         "confidence": 0.99,
-        "severity": "low",
-        "reason": "This fixed HTTPS endpoint sends X status identifiers to the third-party FxTwitter service. The external dependency creates a real disclosure and availability risk."
+        "reason": "This fixed FxTwitter API endpoint is contacted for supported X status URLs, which shares the requested status identifier with a third party.",
+        "severity": "low"
       },
       {
         "id": "network:scripts/fetch_url.py:49:hardcoded-url",
         "verdict": "confirmed",
         "confidence": 0.99,
-        "severity": "medium",
-        "reason": "The Jina endpoint receives the complete target URL and may receive a Jina API token. This is an intentional third-party disclosure path."
+        "reason": "This fixed Jina Reader endpoint is used by explicit and automatic strategies and receives the complete caller-supplied target URL.",
+        "severity": "low"
       },
       {
         "id": "network:scripts/fetch_url.py:59:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The URL appears only in a source attribution comment. It is not requested or used as runtime data."
+        "confidence": 0.99,
+        "reason": "The URL appears only in a source attribution comment and is never requested by this line."
       },
       {
         "id": "network:scripts/fetch_url.py:210:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The URL is embedded only in a User-Agent identification string. It is not a request destination and does not receive data."
+        "confidence": 0.99,
+        "reason": "The URL is attribution text inside a User-Agent header, not a request destination or credential receiver."
       },
       {
         "id": "network:scripts/fetch_url.py:249:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The URL is embedded only in a User-Agent identification string. It is not a request destination and does not receive data."
+        "confidence": 0.99,
+        "reason": "The repository URL is attribution text in the User-Agent header; the separately defined Jina endpoint determines the destination."
       },
       {
         "id": "network:scripts/fetch_url.py:335:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The URL is embedded only in a User-Agent identification string. It is not a request destination and does not receive data."
+        "confidence": 0.99,
+        "reason": "The repository URL is attribution text in the FxTwitter request User-Agent and is not contacted as a destination."
       },
       {
         "id": "env_access:scripts/fetch_url.py:246:python-getenv-function",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The code reads only the documented JINA_API_KEY variable for Jina authentication. It does not enumerate or transmit unrelated environment values."
+        "confidence": 0.97,
+        "reason": "The code reads only the documented JINA_API_KEY variable and uses it solely to authenticate with the fixed Jina Reader service."
       },
       {
         "id": "env_access:scripts/fetch_url.py:246:getenv-function-call",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The code reads only the documented JINA_API_KEY variable for Jina authentication. It does not enumerate or transmit unrelated environment values."
+        "confidence": 0.97,
+        "reason": "This scoped getenv call retrieves the documented Jina credential, not arbitrary environment data, and the value is not logged."
       },
       {
         "id": "env_access:scripts/fetch_url.py:50:generic-api-secret-keys",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "This line defines the documented environment variable name. It contains no credential value and performs no secret access."
+        "confidence": 0.99,
+        "reason": "This is the public name of an optional environment variable, not a hardcoded credential or secret value."
       },
       {
         "id": "env_access:scripts/fetch_url.py:246:generic-api-secret-keys",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The code reads the documented Jina credential for its intended service. No evidence shows access to unrelated secrets or unauthorized transmission."
+        "confidence": 0.96,
+        "reason": "The optional key is deliberately loaded for its matching Jina service and is neither printed nor sent to caller-selected hosts."
       },
       {
         "id": "env_access:scripts/fetch_url.py:251:generic-api-secret-keys",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "This line only checks whether the documented Jina credential is present. It neither reveals the value nor accesses another secret."
+        "confidence": 0.99,
+        "reason": "This line only checks whether the optional Jina key exists; it does not expose or transform the credential."
       },
       {
         "id": "env_access:scripts/fetch_url.py:252:generic-api-secret-keys",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The credential is placed in the standard Authorization header for the fixed Jina endpoint. This is expected authentication, not credential exfiltration."
+        "confidence": 0.95,
+        "reason": "The credential is placed in a standard Bearer header only for the fixed HTTPS Jina Reader endpoint, matching its documented purpose."
       },
       {
         "id": "env_access:scripts/fetch_url.py:255:generic-api-secret-keys",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The diagnostic message reports only whether Jina authentication is enabled. It does not print or expose the credential value."
+        "confidence": 0.99,
+        "reason": "The diagnostic string reports only the environment variable name and presence state; it never includes the key value."
       },
       {
         "id": "env_access:scripts/fetch_url.py:604:generic-api-secret-keys",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "This error message names the documented environment variable. It does not read, print, or transmit a secret."
+        "confidence": 0.99,
+        "reason": "This error guidance names the documented environment variable without reading or revealing any credential."
       },
       {
         "id": "blocker:scripts/fetch_url.py:69:system-reconnaissance",
         "verdict": "false_positive",
         "confidence": 0.98,
-        "reason": "The function checks a fixed list of common browser paths to locate Chromium. It does not inventory the system or transmit path information."
+        "reason": "The function performs a bounded existence check for common browser executables to support Playwright and does not collect or transmit system information."
       },
       {
         "id": "blocker:scripts/fetch_url.py:306:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "This line parses the supplied URL hostname to recognize supported X domains. It does not inspect the host system."
+        "confidence": 0.99,
+        "reason": "This parses the hostname of the requested URL solely to recognize supported X/Twitter domains, not to inspect the local system."
       },
       {
         "id": "blocker:scripts/fetch_url.py:331:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "This line constructs a request to a fixed FxTwitter endpoint with a numeric status identifier. It is not system reconnaissance."
+        "confidence": 0.99,
+        "reason": "This constructs a request to a fixed FxTwitter HTTPS endpoint using a numeric post identifier; it does not perform system reconnaissance."
       },
       {
         "id": "blocker:scripts/fetch_url.py:397:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The code reads post identifiers from an FxTwitter response for rendering and deduplication. It does not collect host or system identifiers."
+        "confidence": 0.99,
+        "reason": "The id field is an X/Twitter thread item identifier from an API response, not a machine or user identity probe."
       },
       {
         "id": "blocker:scripts/fetch_url.py:398:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The code reads post identifiers from an FxTwitter response for rendering and deduplication. It does not collect host or system identifiers."
+        "confidence": 0.99,
+        "reason": "This condition deduplicates X/Twitter thread item identifiers and has no interaction with host or account information."
       },
       {
         "id": "blocker:scripts/fetch_url.py:410:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The code reads post identifiers from an FxTwitter response for rendering and deduplication. It does not collect host or system identifiers."
+        "confidence": 0.99,
+        "reason": "This formats a remote post identifier for Markdown output and does not inspect any local system property."
       },
       {
         "id": "blocker:scripts/fetch_url.py:471:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The code reads post identifiers from an FxTwitter response for rendering and deduplication. It does not collect host or system identifiers."
+        "confidence": 0.99,
+        "reason": "The value is the root X/Twitter status identifier used for thread deduplication, not reconnaissance data."
       },
       {
         "id": "blocker:scripts/fetch_url.py:558:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The code extracts an X status identifier from the user URL to select a fetch path. It performs no host reconnaissance."
+        "confidence": 0.99,
+        "reason": "This extracts a public X/Twitter status identifier from the requested URL and does not query the local environment."
       },
       {
         "id": "blocker:scripts/fetch_url.py:594:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "This line is a user-facing fallback error message. It does not inspect or report system information."
+        "confidence": 0.99,
+        "reason": "This is a static extraction failure message that neither probes nor reports system information."
       },
       {
         "id": "blocker:scripts/fetch_url.py:603:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "This line is a user-facing fallback error message. It does not inspect or report system information."
+        "confidence": 0.99,
+        "reason": "This is a static Jina failure message and contains no system discovery operation."
       },
       {
         "id": "external_commands:SKILL.md:6:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "This is documentation showing how to invoke the bundled CLI. Inline Markdown backticks do not perform Ruby or shell execution."
+        "confidence": 0.99,
+        "reason": "Backticks provide Markdown formatting for the documented local command and protocol names; no Ruby or shell backtick operator is present."
       },
       {
         "id": "external_commands:SKILL.md:9:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "This is documentation showing how to invoke the bundled CLI. Inline Markdown backticks do not perform Ruby or shell execution."
+        "confidence": 0.99,
+        "reason": "Backticks format command names in explanatory documentation and do not execute those strings."
       },
       {
         "id": "external_commands:SKILL.md:10:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The match is a Markdown code fence around usage examples. A code fence does not execute a command."
+        "confidence": 0.99,
+        "reason": "This is an opening Markdown code-fence delimiter around a usage example, not executable backtick syntax."
       },
       {
         "id": "external_commands:SKILL.md:12:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The match is a Markdown code fence around usage examples. A code fence does not execute a command."
+        "confidence": 0.99,
+        "reason": "This is a closing Markdown code-fence delimiter and has no execution semantics."
       },
       {
         "id": "external_commands:SKILL.md:14:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The match is a Markdown code fence around usage examples. A code fence does not execute a command."
+        "confidence": 0.99,
+        "reason": "This is an opening Markdown code fence for examples labeled as incorrect, not a command substitution."
       },
       {
         "id": "external_commands:SKILL.md:17:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The match is a Markdown code fence around usage examples. A code fence does not execute a command."
+        "confidence": 0.99,
+        "reason": "This is a closing Markdown code fence and cannot invoke Ruby or a shell."
       },
       {
         "id": "external_commands:SKILL.md:21:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The match is a Markdown code fence around usage examples. A code fence does not execute a command."
+        "confidence": 0.99,
+        "reason": "The line opens a Markdown code block documenting Playwright installation; the fence itself is not shell execution."
       },
       {
         "id": "external_commands:SKILL.md:23:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The match is a Markdown code fence around usage examples. A code fence does not execute a command."
+        "confidence": 0.99,
+        "reason": "The line closes a Markdown code block and does not contain an execution operator."
       },
       {
         "id": "external_commands:SKILL.md:26:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The match is inline Markdown documenting command options and strategy names. Backticks format text and do not invoke a shell."
+        "confidence": 0.99,
+        "reason": "Backticks format the --output option name in a parameter list and do not execute a command."
       },
       {
         "id": "external_commands:SKILL.md:27:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The match is inline Markdown documenting command options and strategy names. Backticks format text and do not invoke a shell."
+        "confidence": 0.99,
+        "reason": "Backticks format the --timeout-ms option name in documentation and have no shell meaning."
       },
       {
         "id": "external_commands:SKILL.md:28:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The match is inline Markdown documenting command options and strategy names. Backticks format text and do not invoke a shell."
+        "confidence": 0.99,
+        "reason": "Backticks format the --browser-path option name in documentation and do not execute it."
       },
       {
         "id": "external_commands:SKILL.md:29:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The match is inline Markdown documenting command options and strategy names. Backticks format text and do not invoke a shell."
+        "confidence": 0.99,
+        "reason": "All backticks on this line mark CLI option and format literals in Markdown, not shell substitution."
       },
       {
         "id": "external_commands:SKILL.md:30:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The match is inline Markdown documenting command options and strategy names. Backticks format text and do not invoke a shell."
+        "confidence": 0.99,
+        "reason": "The backticks mark the fetch-strategy option and accepted values as inline code; no command is evaluated."
       },
       {
         "id": "external_commands:SKILL.md:32:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The match is inline Markdown documenting command options and strategy names. Backticks format text and do not invoke a shell."
+        "confidence": 0.99,
+        "reason": "This line uses inline Markdown code to name a CLI option and contains no execution expression."
       },
       {
         "id": "external_commands:SKILL.md:33:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The match is inline Markdown documenting command options and strategy names. Backticks format text and do not invoke a shell."
+        "confidence": 0.99,
+        "reason": "The auto value is formatted as inline code in a documentation list and is not executed."
       },
       {
         "id": "external_commands:SKILL.md:34:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The match is inline Markdown documenting command options and strategy names. Backticks format text and do not invoke a shell."
+        "confidence": 0.99,
+        "reason": "The agent strategy name is formatted as inline Markdown code and has no command semantics."
       },
       {
         "id": "external_commands:SKILL.md:35:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The match is inline Markdown documenting command options and strategy names. Backticks format text and do not invoke a shell."
+        "confidence": 0.99,
+        "reason": "The jina strategy name is only an inline code label in documentation, not a backtick execution operator."
       },
       {
         "id": "external_commands:SKILL.md:36:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The match is inline Markdown documenting command options and strategy names. Backticks format text and do not invoke a shell."
+        "confidence": 0.99,
+        "reason": "The browser strategy name is formatted as inline code and does not cause command execution."
       },
       {
         "id": "external_commands:SKILL.md:39:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "This is a documented command example using a placeholder Jina token. The Markdown text does not execute or expose a real credential."
+        "confidence": 0.99,
+        "reason": "Backticks format a documented environment-variable example with a placeholder token; they are not shell command-substitution syntax."
       },
       {
         "id": "external_commands:SKILL.md:43:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The match is a Markdown code fence around usage examples. A code fence does not execute a command."
+        "confidence": 0.99,
+        "reason": "This is an opening Markdown code fence around command examples, not an executable backtick expression."
       },
       {
         "id": "external_commands:SKILL.md:50:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The match is a Markdown code fence around usage examples. A code fence does not execute a command."
+        "confidence": 0.99,
+        "reason": "This line closes the Markdown example block and does not execute its contents."
       },
       {
         "id": "network:SKILL.md:11:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The URL appears in a documentation example and uses example.com or a public sample X post. The Markdown file does not request it automatically."
+        "confidence": 0.99,
+        "reason": "The URL is a public example target inside usage documentation and is not a hidden or unsolicited request destination."
       },
       {
         "id": "network:SKILL.md:15:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The URL appears in a documentation example and uses example.com or a public sample X post. The Markdown file does not request it automatically."
+        "confidence": 0.99,
+        "reason": "The URL is a public example target inside usage documentation and is not a hidden or unsolicited request destination."
       },
       {
         "id": "network:SKILL.md:16:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The URL appears in a documentation example and uses example.com or a public sample X post. The Markdown file does not request it automatically."
+        "confidence": 0.99,
+        "reason": "The URL is a public example target inside usage documentation and is not a hidden or unsolicited request destination."
       },
       {
         "id": "network:SKILL.md:44:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The URL appears in a documentation example and uses example.com or a public sample X post. The Markdown file does not request it automatically."
+        "confidence": 0.99,
+        "reason": "The URL is a public example target inside usage documentation and is not a hidden or unsolicited request destination."
       },
       {
         "id": "network:SKILL.md:45:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The URL appears in a documentation example and uses example.com or a public sample X post. The Markdown file does not request it automatically."
+        "confidence": 0.99,
+        "reason": "The URL is a public example target inside usage documentation and is not a hidden or unsolicited request destination."
       },
       {
         "id": "network:SKILL.md:46:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The URL appears in a documentation example and uses example.com or a public sample X post. The Markdown file does not request it automatically."
+        "confidence": 0.99,
+        "reason": "The URL is a public example target inside usage documentation and is not a hidden or unsolicited request destination."
       },
       {
         "id": "network:SKILL.md:47:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The URL appears in a documentation example and uses example.com or a public sample X post. The Markdown file does not request it automatically."
+        "confidence": 0.99,
+        "reason": "The URL is a public example target inside usage documentation and is not a hidden or unsolicited request destination."
       },
       {
         "id": "network:SKILL.md:48:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The URL appears in a documentation example and uses example.com or a public sample X post. The Markdown file does not request it automatically."
+        "confidence": 0.99,
+        "reason": "The URL is a public example target inside usage documentation and is not a hidden or unsolicited request destination."
       },
       {
         "id": "network:SKILL.md:49:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The URL appears in a documentation example and uses example.com or a public sample X post. The Markdown file does not request it automatically."
+        "confidence": 0.99,
+        "reason": "The URL is a public example target inside usage documentation and is not a hidden or unsolicited request destination."
       },
       {
         "id": "env_access:SKILL.md:39:generic-api-secret-keys",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The documentation uses a placeholder token for the documented Jina variable. No real secret is embedded or accessed by the Markdown file."
+        "confidence": 0.99,
+        "reason": "The documentation names the optional JINA_API_KEY variable and uses a clear placeholder, not a real embedded secret."
       },
       {
         "id": "env_access:SKILL.md:46:generic-api-secret-keys",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The documentation uses a placeholder token for the documented Jina variable. No real secret is embedded or accessed by the Markdown file."
+        "confidence": 0.99,
+        "reason": "The command example uses the literal placeholder your-token and does not disclose an API credential."
       }
     ],
     "semantic_findings": [
       {
-        "title": "Server-Side Request Forgery and Local Network Access",
-        "description": "User-controlled HTTP URLs reach urllib or Playwright after scheme-only validation, allowing requests to localhost, private networks, and cloud metadata endpoints.",
+        "title": "Unrestricted URL Fetching Enables SSRF",
+        "description": "The command accepts any HTTP or HTTPS host without blocking loopback, private, link-local, or metadata addresses. Direct urllib and browser navigation can therefore access services available from the agent host.",
         "severity": "high",
         "locations": [
           {
             "file": "scripts/fetch_url.py",
-            "line_start": 123,
-            "line_end": 128
+            "line_start": 546,
+            "line_end": 548
           },
           {
             "file": "scripts/fetch_url.py",
@@ -1296,105 +1280,62 @@
           },
           {
             "file": "scripts/fetch_url.py",
-            "line_start": 546,
-            "line_end": 548
+            "line_start": 123,
+            "line_end": 128
           }
         ],
-        "confidence": 0.98,
-        "confidence_reasoning": "The code validates only the URL scheme before direct network and browser navigation, with no private-address or redirect controls."
+        "confidence": 0.97,
+        "confidence_reasoning": "The only target validation checks the scheme, and the accepted URL is passed directly to urllib or Playwright with no host or redirect restrictions."
       },
       {
-        "title": "Arbitrary File Overwrite",
-        "description": "The output option accepts any writable path and uses write_text, so a generated command can overwrite files without path restrictions or confirmation.",
-        "severity": "high",
-        "locations": [
-          {
-            "file": "scripts/fetch_url.py",
-            "line_start": 523,
-            "line_end": 525
-          },
-          {
-            "file": "scripts/fetch_url.py",
-            "line_start": 650,
-            "line_end": 652
-          }
-        ],
-        "confidence": 0.98,
-        "confidence_reasoning": "The user-supplied Path is written directly with write_text and no allowed directory, existence check, or overwrite confirmation."
-      },
-      {
-        "title": "User-Selected Executable Launch",
-        "description": "The browser-path option is passed to Playwright as executable_path, allowing the caller to select a local executable for launch.",
-        "severity": "high",
-        "locations": [
-          {
-            "file": "scripts/fetch_url.py",
-            "line_start": 111,
-            "line_end": 123
-          },
-          {
-            "file": "scripts/fetch_url.py",
-            "line_start": 529,
-            "line_end": 531
-          }
-        ],
-        "confidence": 0.94,
-        "confidence_reasoning": "A caller-controlled path reaches the browser launch configuration without validation that it is an approved Chromium binary."
-      },
-      {
-        "title": "Indirect Prompt Injection Through Fetched Content",
-        "description": "Fetched Markdown and rendered page content are returned without trust boundaries, allowing hostile page text to inject instructions into the consuming agent.",
-        "severity": "high",
-        "locations": [
-          {
-            "file": "scripts/fetch_url.py",
-            "line_start": 576,
-            "line_end": 623
-          },
-          {
-            "file": "scripts/fetch_url.py",
-            "line_start": 650,
-            "line_end": 654
-          }
-        ],
-        "confidence": 0.95,
-        "confidence_reasoning": "Remote content is emitted directly to stdout or files and may be treated as trusted instructions by an agent."
-      },
-      {
-        "title": "Unbounded Response Consumption",
-        "description": "Network responses are read fully without byte limits, so a large or endless response can exhaust memory or delay the process.",
+        "title": "Automatic Third-Party URL Disclosure",
+        "description": "Automatic Markdown mode sends the complete target URL to Jina Reader after direct negotiation fails. Query credentials, signed links, and private resource names can be disclosed without separate confirmation.",
         "severity": "medium",
         "locations": [
           {
             "file": "scripts/fetch_url.py",
-            "line_start": 214,
-            "line_end": 224
+            "line_start": 245,
+            "line_end": 266
           },
           {
             "file": "scripts/fetch_url.py",
-            "line_start": 265,
-            "line_end": 268
-          },
-          {
-            "file": "scripts/fetch_url.py",
-            "line_start": 338,
-            "line_end": 340
+            "line_start": 578,
+            "line_end": 587
           }
         ],
-        "confidence": 0.97,
-        "confidence_reasoning": "Each urllib response uses an unrestricted read call, and no Content-Length or cumulative byte limit is enforced."
+        "confidence": 0.98,
+        "confidence_reasoning": "The code concatenates the full caller URL into the fixed Jina Reader URL, and auto mode invokes that path without an explicit per-request opt-in."
+      },
+      {
+        "title": "Untrusted Web Content Lacks an Agent Safety Boundary",
+        "description": "Remote Markdown is returned to the agent without labeling embedded instructions as untrusted. A hostile page can place prompt-injection text into the agent context.",
+        "severity": "high",
+        "locations": [
+          {
+            "file": "scripts/fetch_url.py",
+            "line_start": 221,
+            "line_end": 232
+          },
+          {
+            "file": "scripts/fetch_url.py",
+            "line_start": 653,
+            "line_end": 654
+          }
+        ],
+        "confidence": 0.93,
+        "confidence_reasoning": "Caller-selected remote Markdown is returned unchanged and printed as the command result, while the skill provides no instruction to treat fetched directives as data."
       }
     ],
     "critical_findings": [],
     "high_findings": [
       {
-        "title": "Server-Side Request Forgery and Local Network Access",
-        "description": "User-controlled HTTP URLs reach urllib or Playwright after scheme-only validation, allowing requests to localhost, private networks, and cloud metadata endpoints.",
+        "title": "Unrestricted URL Fetching Enables SSRF",
+        "description": "The command accepts any HTTP or HTTPS host without blocking loopback, private, link-local, or metadata addresses. Direct urllib and browser navigation can therefore access services available from the agent host.",
         "locations": [
           {
             "file": "scripts/fetch_url.py",
-            "line_start": 123,
-            "line_end": 128
+            "line_start": 546,
+            "line_end": 548
           },
           {
             "file": "scripts/fetch_url.py",
@@ -1403,122 +1344,59 @@
           },
           {
             "file": "scripts/fetch_url.py",
-            "line_start": 546,
-            "line_end": 548
+            "line_start": 123,
+            "line_end": 128
           }
         ],
         "review_kind": "security",
         "source_category": "semantic",
         "source_severity": "high",
-        "confidence": 0.98,
-        "confidence_reasoning": "The code validates only the URL scheme before direct network and browser navigation, with no private-address or redirect controls."
+        "confidence": 0.97,
+        "confidence_reasoning": "The only target validation checks the scheme, and the accepted URL is passed directly to urllib or Playwright with no host or redirect restrictions."
       },
       {
-        "title": "Arbitrary File Overwrite",
-        "description": "The output option accepts any writable path and uses write_text, so a generated command can overwrite files without path restrictions or confirmation.",
+        "title": "Untrusted Web Content Lacks an Agent Safety Boundary",
+        "description": "Remote Markdown is returned to the agent without labeling embedded instructions as untrusted. A hostile page can place prompt-injection text into the agent context.",
         "locations": [
           {
             "file": "scripts/fetch_url.py",
-            "line_start": 523,
-            "line_end": 525
+            "line_start": 221,
+            "line_end": 232
           },
           {
             "file": "scripts/fetch_url.py",
-            "line_start": 650,
-            "line_end": 652
-          }
-        ],
-        "review_kind": "security",
-        "source_category": "semantic",
-        "source_severity": "high",
-        "confidence": 0.98,
-        "confidence_reasoning": "The user-supplied Path is written directly with write_text and no allowed directory, existence check, or overwrite confirmation."
-      },
-      {
-        "title": "User-Selected Executable Launch",
-        "description": "The browser-path option is passed to Playwright as executable_path, allowing the caller to select a local executable for launch.",
-        "locations": [
-          {
-            "file": "scripts/fetch_url.py",
-            "line_start": 111,
-            "line_end": 123
-          },
-          {
-            "file": "scripts/fetch_url.py",
-            "line_start": 529,
-            "line_end": 531
-          }
-        ],
-        "review_kind": "security",
-        "source_category": "semantic",
-        "source_severity": "high",
-        "confidence": 0.94,
-        "confidence_reasoning": "A caller-controlled path reaches the browser launch configuration without validation that it is an approved Chromium binary."
-      },
-      {
-        "title": "Indirect Prompt Injection Through Fetched Content",
-        "description": "Fetched Markdown and rendered page content are returned without trust boundaries, allowing hostile page text to inject instructions into the consuming agent.",
-        "locations": [
-          {
-            "file": "scripts/fetch_url.py",
-            "line_start": 576,
-            "line_end": 623
-          },
-          {
-            "file": "scripts/fetch_url.py",
-            "line_start": 650,
+            "line_start": 653,
             "line_end": 654
           }
         ],
         "review_kind": "security",
         "source_category": "semantic",
         "source_severity": "high",
-        "confidence": 0.95,
-        "confidence_reasoning": "Remote content is emitted directly to stdout or files and may be treated as trusted instructions by an agent."
+        "confidence": 0.93,
+        "confidence_reasoning": "Caller-selected remote Markdown is returned unchanged and printed as the command result, while the skill provides no instruction to treat fetched directives as data."
       }
     ],
     "medium_findings": [
       {
-        "title": "Hardcoded URL",
-        "description": "JINA_READER_API_ROOT = \"https://r.jina.ai/\"",
+        "title": "Automatic Third-Party URL Disclosure",
+        "description": "Automatic Markdown mode sends the complete target URL to Jina Reader after direct negotiation fails. Query credentials, signed links, and private resource names can be disclosed without separate confirmation.",
         "locations": [
           {
             "file": "scripts/fetch_url.py",
-            "line_start": 49,
-            "line_end": 49
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "network",
-        "source_severity": "low",
-        "confidence": 0.99,
-        "confidence_reasoning": "The Jina endpoint receives the complete target URL and may receive a Jina API token. This is an intentional third-party disclosure path."
-      },
-      {
-        "title": "Unbounded Response Consumption",
-        "description": "Network responses are read fully without byte limits, so a large or endless response can exhaust memory or delay the process.",
-        "locations": [
-          {
-            "file": "scripts/fetch_url.py",
-            "line_start": 214,
-            "line_end": 224
+            "line_start": 245,
+            "line_end": 266
           },
           {
             "file": "scripts/fetch_url.py",
-            "line_start": 265,
-            "line_end": 268
-          },
-          {
-            "file": "scripts/fetch_url.py",
-            "line_start": 338,
-            "line_end": 340
+            "line_start": 578,
+            "line_end": 587
           }
         ],
         "review_kind": "security",
         "source_category": "semantic",
         "source_severity": "medium",
-        "confidence": 0.97,
-        "confidence_reasoning": "Each urllib response uses an unrestricted read call, and no Content-Length or cumulative byte limit is enforced."
+        "confidence": 0.98,
+        "confidence_reasoning": "The code concatenates the full caller URL into the fixed Jina Reader URL, and auto mode invokes that path without an explicit per-request opt-in."
       }
     ],
     "low_findings": [
@@ -1536,7 +1414,7 @@
         "source_category": "network",
         "source_severity": "low",
         "confidence": 0.99,
-        "confidence_reasoning": "The imported urllib request APIs are used for outbound requests to user URLs and fixed external services. Network access is an intentional capability."
+        "confidence_reasoning": "The urllib classes are used to fetch caller-supplied URLs and fixed external services, so outbound network access is real core behavior."
       },
       {
         "title": "Hardcoded URL",
@@ -1552,133 +1430,148 @@
         "source_category": "network",
         "source_severity": "low",
         "confidence": 0.99,
-        "confidence_reasoning": "This fixed HTTPS endpoint sends X status identifiers to the third-party FxTwitter service. The external dependency creates a real disclosure and availability risk."
+        "confidence_reasoning": "This fixed FxTwitter API endpoint is contacted for supported X status URLs, which shares the requested status identifier with a third party."
+      },
+      {
+        "title": "Hardcoded URL",
+        "description": "JINA_READER_API_ROOT = \"https://r.jina.ai/\"",
+        "locations": [
+          {
+            "file": "scripts/fetch_url.py",
+            "line_start": 49,
+            "line_end": 49
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "network",
+        "source_severity": "low",
+        "confidence": 0.99,
+        "confidence_reasoning": "This fixed Jina Reader endpoint is used by explicit and automatic strategies and receives the complete caller-supplied target URL."
       }
     ],
     "dangerous_patterns": [],
     "files_scanned": 2,
     "total_lines": 712,
     "audit_model": "codex",
-    "audited_at": "2026-07-10T15:44:27.817Z",
+    "audited_at": "2026-07-23T16:57:15.886Z",
     "agent_auto_install_policy": "confirmation_required",
     "manual_install_policy": "allowed"
   },
   "content": {
-    "user_title": "Fetch and Extract Web Content",
-    "value_statement": "Web pages often contain navigation, scripts, and blocked content that complicate clean extraction. This skill fetches URLs and returns focused content in several formats.",
+    "user_title": "Fetch Web Pages as Clean Content",
+    "value_statement": "Web pages can be difficult for agents to read and extract consistently. This skill retrieves a URL and returns focused content in several formats.",
     "seo_keywords": [
-      "Claude URL fetch skill",
-      "Codex web content extraction",
-      "Claude Code web scraper",
+      "Claude web content extraction",
+      "Codex URL fetcher",
+      "Claude Code web research",
       "URL to Markdown",
-      "web page text extraction",
+      "web page extractor",
+      "X Twitter post fetcher",
       "Playwright content extraction",
       "Jina Reader integration",
-      "X Twitter thread extraction",
-      "HTML to Markdown",
-      "AI research tool"
+      "Trafilatura extraction"
     ],
     "actual_capabilities": [
-      "Fetches HTTP and HTTPS pages through Markdown negotiation, Jina Reader, or Playwright.",
-      "Extracts main page content with formatting and links through trafilatura.",
-      "Produces Markdown, text, HTML, CSV, JSON, XML, XML-TEI, or raw HTML.",
-      "Retrieves supported X posts and threads through the FxTwitter API.",
-      "Writes extracted content to standard output or a selected file.",
-      "Supports browser selection, navigation timeout, fetch strategy, and verbose diagnostics."
+      "Fetches caller-supplied HTTP and HTTPS URLs.",
+      "Negotiates Markdown before using Jina Reader or browser rendering.",
+      "Extracts main page content with Trafilatura.",
+      "Returns Markdown, CSV, HTML, JSON, text, XML, XML-TEI, or rendered HTML.",
+      "Handles supported X/Twitter status URLs through FxTwitter in automatic Markdown mode.",
+      "Writes results to standard output or a selected output file."
     ],
     "limitations": [
-      "Only HTTP and HTTPS URLs are accepted.",
-      "Jina and FxTwitter strategies send request data to third-party services.",
-      "Browser rendering requires Playwright and an available Chromium installation.",
-      "Protected, authenticated, very large, or heavily dynamic pages may fail or return incomplete content."
+      "Requires Python 3.14 or newer, uv, and runtime dependencies. Browser fallback also requires compatible Chromium support.",
+      "Automatic mode may send the complete target URL to Jina Reader.",
+      "HTTP and HTTPS targets are accepted without blocking private, loopback, or metadata endpoints.",
+      "Authenticated browser sessions and custom target request headers are not supported."
     ],
     "use_cases": [
       {
-        "title": "Collect Research Articles",
-        "description": "Extract readable article text and links for review, notes, or citation preparation.",
-        "target_user": "Research analysts"
+        "title": "Extract Research Articles",
+        "description": "Convert public articles into focused Markdown for notes, comparison, or citation review.",
+        "target_user": "Researchers"
       },
       {
-        "title": "Convert Technical Pages",
-        "description": "Turn documentation pages into Markdown or text for local search and reference workflows.",
-        "target_user": "Software developers"
+        "title": "Prepare Web Content",
+        "description": "Produce text, HTML, or XML inputs for documentation and data-processing workflows.",
+        "target_user": "Developers"
       },
       {
-        "title": "Archive Public X Threads",
-        "description": "Capture public post text, author details, statistics, media links, and thread entries.",
+        "title": "Review Public X Posts",
+        "description": "Retrieve supported X/Twitter posts, media links, statistics, and available thread entries.",
         "target_user": "Social media analysts"
       }
     ],
     "prompt_templates": [
       {
-        "title": "Fetch a Page",
-        "prompt": "Fetch {url} and return the main content as Markdown.",
-        "scenario": "Basic page extraction"
+        "title": "Fetch an Article",
+        "prompt": "Fetch {URL} and return the main page content as Markdown.",
+        "scenario": "Basic extraction from a public article."
       },
       {
-        "title": "Render and Save",
-        "prompt": "Fetch {url} with the browser strategy, save the extracted Markdown to {output_path}, and report navigation or extraction errors.",
-        "scenario": "Dynamic page extraction"
+        "title": "Save Extracted Content",
+        "prompt": "Fetch {URL}, extract readable text, and save it to {OUTPUT_PATH} using the default strategy.",
+        "scenario": "Create a local text artifact from a web page."
       },
       {
-        "title": "Capture an X Thread",
-        "prompt": "Fetch the X post or thread at {url}, preserve author, date, statistics, links, and media references, then save it to {output_path}.",
-        "scenario": "Public social post research"
+        "title": "Select a Markdown Strategy",
+        "prompt": "Fetch {URL} as Markdown using {STRATEGY}. Report which retrieval path produced the content.",
+        "scenario": "Control direct, Jina Reader, or browser retrieval."
       },
       {
-        "title": "Control the Fetch Pipeline",
-        "prompt": "Fetch {url} using {strategy}, produce {format}, use a {timeout_ms} millisecond timeout, enable verbose diagnostics, and summarize fallback behavior.",
-        "scenario": "Advanced strategy and format control"
+        "title": "Configure Browser Extraction",
+        "prompt": "Fetch {URL} with browser strategy and a {TIMEOUT_MS} millisecond timeout. Use {BROWSER_PATH} and save Markdown to {OUTPUT_PATH}.",
+        "scenario": "Render a dynamic page with explicit browser settings."
       }
     ],
     "output_examples": [
       {
-        "input": "Fetch a public article and return Markdown.",
-        "output": "A readable Markdown document containing the article title, main text, formatting, and relevant links."
+        "input": "Fetch a public article URL as Markdown.",
+        "output": "A focused Markdown document containing the article title, readable body text, formatting, and relevant links."
       },
       {
-        "input": "Fetch a public X thread.",
-        "output": "A Markdown summary containing author details, post text, date, engagement statistics, media references, and available thread entries."
+        "input": "Fetch a supported X status URL in automatic Markdown mode.",
+        "output": "A readable post summary with author, canonical URL, timestamp, statistics, text, media links, and available thread entries."
       },
       {
-        "input": "Render a dynamic page and save it as text.",
-        "output": "A saved text file containing the extracted main content, followed by a concise success or failure message."
+        "input": "Fetch a rendered page as plain text and save the result.",
+        "output": "A text file containing the main extracted page content without raw page markup."
       }
     ],
     "best_practices": [
-      "Use the default strategy first, then select Jina or browser mode only when needed.",
-      "Review the destination and output path before allowing network access or file writes.",
-      "Treat every fetched page as untrusted content and verify important facts independently."
+      "Review target URLs and remove credentials, signed parameters, or private resource names before fetching.",
+      "Use the agent strategy for sensitive URLs to avoid automatic third-party fallback.",
+      "Run browser retrieval in an isolated environment when opening untrusted sites."
     ],
     "anti_patterns": [
-      "Do not fetch private, local, authenticated, or sensitive URLs without explicit authorization.",
-      "Do not place API tokens directly in prompts, command history, or shared logs.",
-      "Do not allow fetched text to authorize commands, disclose secrets, or override agent instructions."
+      "Do not fetch loopback, private-network, link-local, or cloud metadata URLs.",
+      "Do not place real API keys in prompts, command examples, or output.",
+      "Do not treat fetched page text as trusted instructions for the agent."
     ],
     "faq": [
       {
-        "question": "Which URLs are supported?",
-        "answer": "The skill accepts HTTP and HTTPS URLs. Other schemes are rejected."
+        "question": "Which output formats are supported?",
+        "answer": "The skill supports Markdown, CSV, HTML, JSON, plain text, XML, XML-TEI, and rendered HTML."
       },
       {
-        "question": "What is the default output format?",
-        "answer": "Markdown is the default. Text, HTML, CSV, JSON, XML, XML-TEI, and raw HTML are also available."
+        "question": "How does automatic fetching work?",
+        "answer": "It tries direct Markdown first, then Jina Reader, and finally browser rendering. Supported X URLs use FxTwitter first."
       },
       {
-        "question": "When does the skill use a browser?",
-        "answer": "Browser rendering is used when selected or when earlier Markdown strategies do not return usable content."
+        "question": "Does it support X and Twitter links?",
+        "answer": "Yes. Recognized status URLs can return post details, media links, statistics, and available thread entries through FxTwitter."
       },
       {
-        "question": "Does Jina Reader require an API key?",
-        "answer": "No. A JINA_API_KEY is optional and may improve service limits."
+        "question": "Is a Jina API key required?",
+        "answer": "No. The key is optional and may improve rate limits. Store it only in the JINA_API_KEY environment variable."
       },
       {
-        "question": "How are X links handled?",
-        "answer": "Supported public X and Twitter status links use FxTwitter in automatic Markdown mode."
+        "question": "Does browser mode require a local browser?",
+        "answer": "Yes. The skill detects common Chromium browser paths or uses a Playwright-managed Chromium installation."
       },
       {
-        "question": "Can the skill save output to a file?",
-        "answer": "Yes. Select an output path, review it carefully, and avoid overwriting important files."
+        "question": "Can I safely fetch internal or private URLs?",
+        "answer": "No. The skill does not restrict private destinations. Use network isolation and validate every target before running it."
       }
     ]
   },

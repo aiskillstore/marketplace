@@ -1,7 +1,7 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-07-10T15:23:34.421Z",
+    "generated_at": "2026-07-23T16:37:06.362Z",
     "slug": "davila7-xlsx",
     "source_url": "https://github.com/davila7/claude-code-templates/tree/main/cli-tool/components/skills/scientific/document-skills/xlsx",
     "source_ref": "main",
@@ -23,19 +23,18 @@
   },
   "skill": {
     "name": "xlsx",
-    "description": "Create, edit, analyze, format, and validate XLSX or CSV files with pandas, openpyxl, and optional LibreOffice formula recalculation.",
-    "summary": "Build and validate spreadsheets with formulas, formatting, analysis, and error checks.",
+    "description": "Create, edit, analyze, format, and verify XLSX and CSV files with pandas, openpyxl, and LibreOffice formula recalculation.",
+    "summary": "Build and validate polished spreadsheets with formulas, formatting, analysis, and recalculation.",
     "icon": "📦",
-    "version": "1.0.1",
     "author": "davila7",
     "license": "Proprietary. LICENSE.txt has complete terms",
     "category": "office",
     "tags": [
-      "xlsx",
       "spreadsheets",
-      "openpyxl",
-      "pandas",
-      "formula-validation"
+      "xlsx",
+      "csv",
+      "data-analysis",
+      "financial-modeling"
     ],
     "supported_tools": [
       "claude",
@@ -49,25 +48,20 @@
     ]
   },
   "security_audit": {
-    "risk_level": "medium",
+    "risk_level": "high",
     "is_blocked": false,
-    "safe_to_publish": true,
+    "safe_to_publish": false,
     "analysis_status": "ok",
-    "summary": "Most static findings are Markdown syntax, spreadsheet notation, or list-based subprocess calls without shell injection. Confirmed risks include persistent LibreOffice profile changes, an unbundled script command, and unbounded workbook scans that may exhaust resources.",
+    "summary": "Most static findings are false positives caused by Markdown formatting, inline code, XML namespace text, and fixed subprocess argument lists. The genuine concern is that recalc.py creates and may overwrite a persistent LibreOffice macro in the user's profile. No prompt injection or data exfiltration intent was found.",
     "remediation": [
       {
-        "issue": "The recalculation helper writes a persistent macro into the user's LibreOffice profile.",
-        "suggestion": "Use an isolated temporary LibreOffice profile and remove it after recalculation. Never overwrite an existing user macro module.",
+        "issue": "The recalculation setup can replace an existing LibreOffice Module1.xba file.",
+        "suggestion": "Use an isolated LibreOffice user profile or a dedicated module, and preserve or back up any existing macro file before writing.",
         "severity": "high"
       },
       {
-        "issue": "The documentation instructs agents to run a schematic script that is not included in this skill.",
-        "suggestion": "Remove the command or bundle the referenced script with a fixed path and documented integrity checks.",
-        "severity": "medium"
-      },
-      {
-        "issue": "Workbook validation scans every populated cell without file size, cell count, memory, or runtime limits.",
-        "suggestion": "Reject oversized files and enforce row, column, cell, memory, and wall-clock limits before full workbook scans.",
+        "issue": "Formula recalculation installs executable macro content in the user's persistent LibreOffice profile.",
+        "suggestion": "Request confirmation before profile changes, disclose the exact path, and remove temporary configuration after recalculation.",
         "severity": "medium"
       }
     ],
@@ -779,305 +773,309 @@
       {
         "id": "external_commands:recalc.py:31:python-subprocess-run",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "This runs the fixed soffice executable with hardcoded arguments in a list and does not use a shell or user-controlled command text."
+        "confidence": 0.97,
+        "reason": "The call launches the fixed soffice executable with fixed arguments and does not use a shell or user-controlled command text."
       },
       {
         "id": "external_commands:recalc.py:84:python-subprocess-run",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "This is a fixed availability check for gtimeout using list arguments, with no shell expansion or user-controlled values."
+        "reason": "The call only probes the fixed gtimeout executable with the fixed --version argument and does not use a shell."
       },
       {
         "id": "external_commands:recalc.py:92:python-subprocess-run",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The command is assembled as a list from fixed executable names, a numeric timeout, and a filename argument, so shell command injection is not present."
+        "confidence": 0.94,
+        "reason": "The argument list is built from fixed executable names, an integer timeout, and an absolute file path, with shell execution disabled."
       },
       {
         "id": "network:recalc.py:37:hardcoded-url",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "The value is an XML namespace inside LibreOffice macro content, not a network request or remote endpoint."
+        "reason": "The URL is an XML namespace identifier embedded in hardcoded LibreOffice macro content, not a network request."
       },
       {
         "id": "filesystem:recalc.py:21:hidden-file-in-home-directory",
         "verdict": "confirmed",
         "confidence": 0.98,
-        "reason": "The helper targets the user's hidden LibreOffice configuration directory and later creates or replaces a persistent application macro there.",
+        "reason": "The path targets the persistent user LibreOffice macro profile, where later logic writes executable macro content and can replace Module1.xba.",
         "severity": "high"
       },
       {
         "id": "filesystem:recalc.py:21:hidden-file-access",
         "verdict": "confirmed",
         "confidence": 0.98,
-        "reason": "The path accesses a hidden per-user application profile outside the requested workbook location, creating an unexpected persistent side effect.",
-        "severity": "medium"
+        "reason": "The script intentionally accesses a hidden per-user configuration directory to install a persistent LibreOffice macro.",
+        "severity": "high"
       },
       {
         "id": "filesystem:recalc.py:46:python-file-write-append",
         "verdict": "confirmed",
         "confidence": 0.99,
-        "reason": "The code opens Module1.xba with write mode and can replace an existing LibreOffice macro module that lacks the expected marker.",
-        "severity": "medium"
+        "reason": "The write replaces Module1.xba in the user's LibreOffice profile when the expected marker is absent, risking loss of existing macros.",
+        "severity": "high"
       },
       {
         "id": "filesystem:recalc.py:33:python-os-file-operations",
         "verdict": "confirmed",
-        "confidence": 0.98,
-        "reason": "The code creates directories in the user's persistent LibreOffice profile as part of an automatic setup process.",
+        "confidence": 0.96,
+        "reason": "The operation creates a directory inside the persistent LibreOffice user profile as part of installing executable macro content.",
         "severity": "medium"
       },
       {
         "id": "external_commands:SKILL.md:81:ruby-shell-backtick-execution",
-        "verdict": "confirmed",
-        "confidence": 0.94,
-        "reason": "The documentation instructs agents to execute scripts/generate_schematic.py, but that script is not included in the reported three-file package.",
-        "severity": "medium"
+        "verdict": "false_positive",
+        "confidence": 0.99,
+        "reason": "The matched text is the opening delimiter of a Markdown bash example, not Ruby backtick execution."
       },
       {
         "id": "external_commands:SKILL.md:83:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "This location is the closing delimiter of a Markdown code block and contains no executable backtick expression."
+        "reason": "The matched text is the closing delimiter of a Markdown code block and cannot execute a command."
       },
       {
         "id": "external_commands:SKILL.md:105:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "This is prose naming the bundled recalc.py script with inline Markdown formatting, not shell or Ruby backtick execution."
+        "reason": "The line is prose describing the recalc.py script, with inline Markdown formatting rather than executable backticks."
       },
       {
         "id": "external_commands:SKILL.md:112:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "This is an opening Markdown fence for a Python example and does not execute a command."
+        "reason": "The matched text opens a Python documentation example and is not an executable shell construct."
       },
       {
         "id": "external_commands:SKILL.md:126:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "This is a closing Markdown code fence and does not contain command execution."
+        "reason": "The matched text closes a Markdown code example and performs no command execution."
       },
       {
         "id": "external_commands:SKILL.md:135:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "This is an opening Markdown fence for an explanatory Python example, not a backtick execution construct."
+        "reason": "The matched text opens a Python example showing an anti-pattern and is documentation only."
       },
       {
         "id": "external_commands:SKILL.md:147:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "This location closes a Markdown code block and contains no executable command."
+        "reason": "The matched text is a Markdown code-fence delimiter, not shell or Ruby execution."
       },
       {
         "id": "external_commands:SKILL.md:150:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "This is an opening Markdown fence for Python spreadsheet formulas and is not shell execution."
+        "reason": "The line opens a Python formula example and contains no executable shell command."
       },
       {
         "id": "external_commands:SKILL.md:159:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "This is a closing Markdown code fence with no command or backtick expression."
+        "reason": "The matched text closes a Markdown code block and has no runtime behavior."
       },
       {
         "id": "external_commands:SKILL.md:169:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "This fenced example invokes the bundled recalc.py with a fixed output filename and does not create a command injection vector."
+        "confidence": 0.99,
+        "reason": "The matched text is the opening fence for a documented bash invocation, not backtick command substitution."
       },
       {
         "id": "external_commands:SKILL.md:171:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "This is the closing delimiter of a Markdown command example, not executable backtick syntax."
+        "reason": "The matched text is the closing fence of a Markdown bash example and does not execute."
       },
       {
         "id": "external_commands:SKILL.md:174:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "Inline backticks format a JSON status field name in prose and do not execute a command."
+        "reason": "The backticks format output field names in prose and are not a command execution mechanism."
       },
       {
         "id": "external_commands:SKILL.md:177:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "Inline backticks format the Excel error token #REF! and have no execution semantics."
+        "reason": "The backticks format the Excel #REF! error token in documentation and do not execute code."
       },
       {
         "id": "external_commands:SKILL.md:178:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "Inline backticks format the Excel error token #DIV/0! and do not invoke a shell."
+        "reason": "The backticks format the Excel #DIV/0! error token in documentation and do not execute code."
       },
       {
         "id": "external_commands:SKILL.md:179:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "Inline backticks format the Excel error token #VALUE! and are ordinary Markdown."
+        "reason": "The backticks format the Excel #VALUE! error token in documentation and do not execute code."
       },
       {
         "id": "external_commands:SKILL.md:180:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "Inline backticks format the Excel error token #NAME? and do not execute code."
+        "reason": "The backticks format the Excel #NAME? error token in documentation and do not execute code."
       },
       {
         "id": "external_commands:SKILL.md:184:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "This is an opening Markdown fence for a Python workbook example, not Ruby or shell execution."
+        "reason": "The line opens a Python example for workbook creation and is only a Markdown delimiter."
       },
       {
         "id": "external_commands:SKILL.md:209:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "This is a closing Markdown code fence and contains no executable construct."
+        "reason": "The matched text closes a Python documentation example and has no execution semantics."
       },
       {
         "id": "external_commands:SKILL.md:213:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "This is an opening Markdown fence for a Python editing example and does not itself execute code."
+        "reason": "The line opens a Python workbook-editing example and is not Ruby or shell execution."
       },
       {
         "id": "external_commands:SKILL.md:236:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "This is a closing Markdown code fence with no command execution."
+        "reason": "The matched text is the closing delimiter of a Markdown code block."
       },
       {
         "id": "external_commands:SKILL.md:240:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "Inline backticks format the recalc.py filename in explanatory prose and do not execute it."
+        "reason": "The backticks format the recalc.py filename in explanatory prose and do not invoke it."
       },
       {
         "id": "external_commands:SKILL.md:242:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "This opens a fenced usage example for the bundled helper and is not a Ruby backtick expression."
+        "confidence": 0.99,
+        "reason": "The matched text opens a documented bash usage block and is not backtick execution."
       },
       {
         "id": "external_commands:SKILL.md:244:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "This is a closing Markdown command fence and contains no executable expression."
+        "reason": "The matched text closes a Markdown bash block and has no runtime behavior."
       },
       {
         "id": "external_commands:SKILL.md:247:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "This opens a fenced example using the bundled recalculation helper with fixed arguments and no injection mechanism."
+        "confidence": 0.99,
+        "reason": "The line opens a bash example for the documented recalculation command and is not command substitution."
       },
       {
         "id": "external_commands:SKILL.md:249:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "This closes a Markdown command example and is not command substitution."
+        "reason": "The matched text is a closing Markdown code fence and cannot execute commands."
       },
       {
         "id": "external_commands:SKILL.md:268:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "Inline backticks format the pandas function pd.notna() in a checklist and do not execute it."
+        "reason": "The backticks format a pandas function name in a checklist and are not executable syntax."
       },
       {
         "id": "external_commands:SKILL.md:271:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "Inline backticks format the division operator in formula guidance and have no command semantics."
+        "reason": "The backticks format an arithmetic operator in spreadsheet guidance and do not execute a command."
       },
       {
         "id": "external_commands:SKILL.md:282:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "This is an opening Markdown fence for sample JSON output, not executable code."
+        "reason": "The line opens a JSON output example and is a Markdown delimiter only."
       },
       {
         "id": "external_commands:SKILL.md:294:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "This is a closing Markdown JSON fence and contains no command."
+        "reason": "The matched text closes a JSON documentation example and does not execute."
       },
       {
         "id": "external_commands:SKILL.md:304:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "Inline backticks display a Python load_workbook example in prose and do not run it."
+        "reason": "The backticks present an inline openpyxl example in prose; SKILL.md does not execute the example."
       },
       {
         "id": "external_commands:SKILL.md:305:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "Inline backticks identify a Python option in a data-loss warning and are not execution syntax."
+        "reason": "The backticks format the data_only option in a warning and do not represent shell execution."
       },
       {
         "id": "external_commands:SKILL.md:306:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "Inline backticks format openpyxl mode options and do not invoke external commands."
+        "reason": "The backticks format openpyxl option names in documentation and have no execution behavior."
       },
       {
         "id": "external_commands:SKILL.md:310:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "Inline backticks present a pandas reading example and have no shell or Ruby execution behavior."
+        "reason": "The backticks present an inline pandas example in Markdown rather than executing a command."
       },
       {
         "id": "external_commands:SKILL.md:311:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "Inline backticks present another pandas reading example and do not execute a command."
+        "reason": "The backticks present an inline pandas column-selection example and are not executable."
       },
       {
         "id": "filesystem:SKILL.md:3:hidden-file-access",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "The detector matched the .xlsx and .csv filename extensions in metadata, not access to a hidden file."
+        "reason": "The line is YAML description text mentioning .xlsx and .csv extensions, not hidden-file access."
       },
       {
         "id": "blocker:SKILL.md:177:system-reconnaissance",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "The line defines the Excel #REF! error and performs no host, account, network, or system discovery."
+        "reason": "The line defines the #REF! spreadsheet error and contains no host discovery or reconnaissance instruction."
       },
       {
         "id": "blocker:SKILL.md:310:system-reconnaissance",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "The line is a pandas data-type example and does not inspect the operating system or environment."
+        "reason": "The line documents pandas data-type selection and does not inspect the host system."
       },
       {
         "id": "blocker:SKILL.md:317:system-reconnaissance",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "This is code-style advice about variable names and redundant operations, with no reconnaissance behavior."
+        "reason": "The line is code-style guidance about variable names and contains no reconnaissance behavior."
       },
       {
         "id": "blocker:SKILL.md:318:system-reconnaissance",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "This is code-style advice about print statements and contains no system discovery instruction."
+        "reason": "The line discourages unnecessary print statements and does not collect system information."
       }
     ],
     "semantic_findings": [
       {
-        "title": "Unbounded Workbook Scanning",
-        "description": "The helper scans every cell twice without file size, cell count, memory, or wall-clock limits, allowing oversized workbooks to exhaust resources.",
-        "severity": "medium",
+        "title": "Existing LibreOffice Macro Can Be Overwritten",
+        "description": "If Module1.xba lacks the expected marker, setup writes a complete replacement instead of preserving it. This can destroy unrelated user macros.",
+        "severity": "high",
         "locations": [
           {
             "file": "recalc.py",
-            "line_start": 101,
-            "line_end": 148
+            "line_start": 23,
+            "line_end": 28
+          },
+          {
+            "file": "recalc.py",
+            "line_start": 45,
+            "line_end": 47
           }
         ],
-        "confidence": 0.93,
-        "confidence_reasoning": "The code explicitly iterates all rows and cells in two workbook loads, while its timeout only applies to the external LibreOffice command."
+        "confidence": 0.98,
+        "confidence_reasoning": "The existence check returns only when the marker is present, while the later write uses replacement mode for the same fixed file."
       }
     ],
     "critical_findings": [],
@@ -1096,10 +1094,8 @@
         "source_category": "filesystem",
         "source_severity": "high",
         "confidence": 0.98,
-        "confidence_reasoning": "The helper targets the user's hidden LibreOffice configuration directory and later creates or replaces a persistent application macro there."
-      }
-    ],
-    "medium_findings": [
+        "confidence_reasoning": "The path targets the persistent user LibreOffice macro profile, where later logic writes executable macro content and can replace Module1.xba."
+      },
       {
         "title": "Hidden file access",
         "description": "macro_dir = os.path.expanduser('~/.config/libreoffice/4/user/basic/Standard')",
@@ -1114,7 +1110,7 @@
         "source_category": "filesystem",
         "source_severity": "medium",
         "confidence": 0.98,
-        "confidence_reasoning": "The path accesses a hidden per-user application profile outside the requested workbook location, creating an unexpected persistent side effect."
+        "confidence_reasoning": "The script intentionally accesses a hidden per-user configuration directory to install a persistent LibreOffice macro."
       },
       {
         "title": "Python file write/append",
@@ -1130,8 +1126,31 @@
         "source_category": "filesystem",
         "source_severity": "medium",
         "confidence": 0.99,
-        "confidence_reasoning": "The code opens Module1.xba with write mode and can replace an existing LibreOffice macro module that lacks the expected marker."
+        "confidence_reasoning": "The write replaces Module1.xba in the user's LibreOffice profile when the expected marker is absent, risking loss of existing macros."
       },
+      {
+        "title": "Existing LibreOffice Macro Can Be Overwritten",
+        "description": "If Module1.xba lacks the expected marker, setup writes a complete replacement instead of preserving it. This can destroy unrelated user macros.",
+        "locations": [
+          {
+            "file": "recalc.py",
+            "line_start": 23,
+            "line_end": 28
+          },
+          {
+            "file": "recalc.py",
+            "line_start": 45,
+            "line_end": 47
+          }
+        ],
+        "review_kind": "security",
+        "source_category": "semantic",
+        "source_severity": "high",
+        "confidence": 0.98,
+        "confidence_reasoning": "The existence check returns only when the marker is present, while the later write uses replacement mode for the same fixed file."
+      }
+    ],
+    "medium_findings": [
       {
         "title": "Python os file operations",
         "description": "os.makedirs(macro_dir, exist_ok=True)",
@@ -1145,40 +1164,8 @@
         "review_kind": "capability",
         "source_category": "filesystem",
         "source_severity": "medium",
-        "confidence": 0.98,
-        "confidence_reasoning": "The code creates directories in the user's persistent LibreOffice profile as part of an automatic setup process."
-      },
-      {
-        "title": "Ruby/shell backtick execution",
-        "description": "```bash",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 81,
-            "line_end": 83
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "external_commands",
-        "source_severity": "medium",
-        "confidence": 0.94,
-        "confidence_reasoning": "The documentation instructs agents to execute scripts/generate_schematic.py, but that script is not included in the reported three-file package."
-      },
-      {
-        "title": "Unbounded Workbook Scanning",
-        "description": "The helper scans every cell twice without file size, cell count, memory, or wall-clock limits, allowing oversized workbooks to exhaust resources.",
-        "locations": [
-          {
-            "file": "recalc.py",
-            "line_start": 101,
-            "line_end": 148
-          }
-        ],
-        "review_kind": "security",
-        "source_category": "semantic",
-        "source_severity": "medium",
-        "confidence": 0.93,
-        "confidence_reasoning": "The code explicitly iterates all rows and cells in two workbook loads, while its timeout only applies to the external LibreOffice command."
+        "confidence": 0.96,
+        "confidence_reasoning": "The operation creates a directory inside the persistent LibreOffice user profile as part of installing executable macro content."
       }
     ],
     "low_findings": [],
@@ -1186,13 +1173,13 @@
     "files_scanned": 3,
     "total_lines": 532,
     "audit_model": "codex",
-    "audited_at": "2026-07-10T15:23:34.421Z",
-    "agent_auto_install_policy": "allowed",
+    "audited_at": "2026-07-23T16:37:06.362Z",
+    "agent_auto_install_policy": "confirmation_required",
     "manual_install_policy": "allowed"
   },
   "content": {
-    "user_title": "Build and Validate Excel Workbooks",
-    "value_statement": "Spreadsheet work often loses formulas, formatting, or data quality. This skill guides creation, editing, analysis, recalculation, and formula error checks.",
+    "user_title": "Build and Validate Excel Spreadsheets",
+    "value_statement": "Spreadsheet work often requires formulas, formatting, analysis, and verification across several libraries. This skill guides Claude, Codex, and Claude Code through reliable XLSX and CSV workflows.",
     "seo_keywords": [
       "Claude",
       "Codex",
@@ -1201,111 +1188,114 @@
       "XLSX editing",
       "CSV analysis",
       "openpyxl",
-      "pandas",
+      "pandas spreadsheets",
       "formula recalculation",
-      "spreadsheet validation"
+      "financial modeling"
     ],
     "actual_capabilities": [
-      "Create XLSX workbooks with data, formulas, formatting, comments, and multiple sheets.",
-      "Edit existing workbooks while preserving established styles and formulas.",
-      "Analyze XLSX and CSV data with pandas.",
-      "Recalculate formula results with LibreOffice through the included helper.",
-      "Scan calculated cells for common Excel error values.",
-      "Report formula counts, error types, and affected cell locations."
+      "Create XLSX workbooks with values, formulas, styles, sheets, and column sizing through openpyxl.",
+      "Edit existing workbooks while preserving established formatting and formula conventions.",
+      "Read, summarize, transform, and export spreadsheet data with pandas.",
+      "Recalculate formulas through LibreOffice and report common Excel errors with cell locations.",
+      "Apply financial-model formatting conventions and document assumptions and data sources."
     ],
     "limitations": [
-      "Full workflows require Python, openpyxl, pandas, and LibreOffice.",
-      "The recalculation helper modifies the user's LibreOffice profile unless it is isolated.",
-      "openpyxl preserves formulas but does not calculate their results.",
-      "Large workbooks may require substantial memory and processing time because every cell is scanned."
+      "Formula recalculation requires local LibreOffice and writes a macro into the user's LibreOffice profile.",
+      "The recalculation script supports Linux and macOS, not Windows.",
+      "openpyxl does not calculate formulas and may not preserve every advanced Excel feature.",
+      "Large or malformed workbooks can consume substantial memory because verification scans every used cell."
     ],
     "use_cases": [
       {
-        "title": "Build a financial model",
-        "description": "Create a structured workbook with assumptions, formulas, financial formatting, sources, and formula validation.",
-        "target_user": "Financial analyst"
+        "title": "Build a Financial Model",
+        "description": "Create a formula-driven workbook with assumptions, projections, source notes, and consistent financial formatting.",
+        "target_user": "Financial analysts"
       },
       {
-        "title": "Update an operating report",
-        "description": "Modify an existing template while preserving its layout, styles, formulas, and worksheet conventions.",
-        "target_user": "Operations specialist"
+        "title": "Clean an Operations Export",
+        "description": "Inspect CSV or XLSX data, correct types and missing values, then produce a formatted workbook.",
+        "target_user": "Operations teams"
       },
       {
-        "title": "Validate exported data",
-        "description": "Analyze spreadsheet exports, identify data issues, summarize results, and produce a reviewed workbook.",
-        "target_user": "Data engineer"
+        "title": "Validate a Reporting Workbook",
+        "description": "Recalculate formulas, locate spreadsheet errors, and verify references before distributing a recurring report.",
+        "target_user": "Data and reporting engineers"
       }
     ],
     "prompt_templates": [
       {
-        "title": "Create a basic workbook",
-        "prompt": "Create an XLSX workbook from [data]. Add clear headers, useful number formats, filters, and a summary sheet. Save it as [filename].",
-        "scenario": "Beginner creation task"
+        "title": "Summarize a Workbook",
+        "prompt": "Open [workbook path]. List each sheet, summarize its columns and row count, identify missing values, and make no changes.",
+        "scenario": "Beginner workbook inspection"
       },
       {
-        "title": "Edit an existing template",
-        "prompt": "Update [workbook] with [changes]. Preserve its current layout, formulas, styles, merged cells, and naming conventions. Report the modified sheets.",
-        "scenario": "Intermediate template editing"
+        "title": "Create a Report from CSV",
+        "prompt": "Convert [CSV path] into [output path]. Add clear headers, appropriate number formats, filters, frozen panes, and a summary sheet.",
+        "scenario": "Structured report creation"
       },
       {
-        "title": "Analyze spreadsheet data",
-        "prompt": "Analyze [workbook or CSV] for [business question]. Clean data carefully, calculate summary metrics, create suitable charts, and document important assumptions.",
-        "scenario": "Advanced data analysis"
+        "title": "Update a Financial Model",
+        "prompt": "Update [workbook path] with [new data]. Preserve existing styles, use formulas for calculations, document sources, and save as [output path].",
+        "scenario": "Formula-driven workbook editing"
       },
       {
-        "title": "Build and validate a model",
-        "prompt": "Build a multi-sheet [model type] using referenced assumptions and Excel formulas. Recalculate results, test edge cases, and resolve every formula error.",
-        "scenario": "Advanced modeling and validation"
+        "title": "Audit and Recalculate Formulas",
+        "prompt": "Audit [workbook path] for broken references, inconsistent formulas, circular-reference risks, and division errors. Recalculate safely and report every correction.",
+        "scenario": "Advanced workbook quality assurance"
       }
     ],
     "output_examples": [
       {
-        "input": "Create a monthly sales workbook from transaction data.",
-        "output": "Created sales-report.xlsx with cleaned transactions, monthly summaries, regional totals, filters, consistent currency formats, and a trend chart."
+        "input": "Summarize the quarterly sales workbook without changing it.",
+        "output": [
+          "Four sheets reviewed: Summary, North, South, and Products.",
+          "Sales totals are complete, but 18 product category values are missing.",
+          "The Summary sheet contains two formulas that reference blank cells."
+        ]
       },
       {
-        "input": "Update the budget template with revised assumptions.",
-        "output": "Updated the assumptions and forecast sheets while preserving existing formulas, colors, number formats, and worksheet structure."
+        "input": "Create a formatted expense report from the CSV export.",
+        "output": "Created an Excel workbook with normalized dates, currency formatting, filters, frozen headers, and a category summary."
       },
       {
-        "input": "Check a workbook for formula errors.",
-        "output": "Validation found two broken references on the Forecast sheet and one division-by-zero error on the Summary sheet."
+        "input": "Recalculate the forecast workbook and check formula errors.",
+        "output": "Recalculation completed. Two division errors were found in the Forecast sheet, and their cell locations were reported for correction."
       }
     ],
     "best_practices": [
-      "Keep assumptions in dedicated cells and reference them from formulas.",
-      "Preserve the established layout and formatting when editing existing workbooks.",
-      "Recalculate formulas and review every reported error before delivery."
+      "Work on a copy when editing an existing workbook, and preserve its established structure and formatting.",
+      "Use cell references and formulas for derived values, then recalculate and inspect reported errors.",
+      "Specify data types, date handling, and selected columns when importing large or ambiguous datasets."
     ],
     "anti_patterns": [
-      "Do not replace dynamic formulas with hardcoded calculated values.",
-      "Do not save a workbook loaded with data-only mode when formulas must remain.",
-      "Do not process large or untrusted workbooks without resource limits and isolation."
+      "Do not replace formulas with hardcoded calculated values when the workbook must remain updateable.",
+      "Do not save a workbook loaded with data_only enabled because formulas can be permanently replaced.",
+      "Do not modify a user template before reviewing its existing styles, conventions, and dependent sheets."
     ],
     "faq": [
       {
-        "question": "Can this skill create new Excel files?",
-        "answer": "Yes. It can create workbooks with sheets, formulas, formatting, comments, and charts."
+        "question": "Which spreadsheet formats does this skill support?",
+        "answer": "It focuses on XLSX and CSV workflows using openpyxl and pandas."
       },
       {
-        "question": "Can it edit an existing workbook?",
-        "answer": "Yes. It guides targeted edits while preserving existing styles, formulas, and structure."
+        "question": "Can it calculate Excel formulas by itself?",
+        "answer": "No. openpyxl stores formulas, while the included script uses LibreOffice to recalculate values."
       },
       {
-        "question": "Does openpyxl calculate formulas?",
-        "answer": "No. openpyxl stores formulas, while LibreOffice is used to calculate and save results."
+        "question": "Does formula recalculation require additional software?",
+        "answer": "Yes. LibreOffice must be installed and available through the soffice command."
       },
       {
-        "question": "Which file types are supported?",
-        "answer": "The guidance focuses on XLSX workbooks and CSV data used through pandas."
+        "question": "Can it preserve an existing workbook's formatting?",
+        "answer": "It is designed to preserve established conventions, but advanced Excel features may require manual verification."
       },
       {
-        "question": "How are formula errors checked?",
-        "answer": "The helper recalculates the workbook and scans cells for common Excel error values."
+        "question": "Does the recalculation script change user configuration?",
+        "answer": "Yes. It writes a macro into the user's LibreOffice profile, which should be reviewed before use."
       },
       {
-        "question": "What should I review before delivery?",
-        "answer": "Review formulas, assumptions, formats, data sources, edge cases, and all reported error locations."
+        "question": "Is the skill suitable for large workbooks?",
+        "answer": "It can process large files, but full-cell verification may require substantial memory and time."
       }
     ]
   },
