@@ -1,7 +1,7 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-07-07T21:39:35.153Z",
+    "generated_at": "2026-07-23T06:28:32.276Z",
     "slug": "agentsecops-sast-bandit",
     "source_url": "https://github.com/AgentSecOps/SecOpsAgentKit/tree/main/skills/appsec/sast-bandit",
     "source_ref": "main",
@@ -23,10 +23,10 @@
   },
   "skill": {
     "name": "sast-bandit",
-    "description": "Scan Python projects with Bandit SAST, map findings to CWE and OWASP, and guide remediation for common Python security issues.",
-    "summary": "Bandit SAST workflow for Python vulnerability scanning and remediation.",
+    "description": "Guide Bandit SAST scans for Python projects, triage findings by severity and confidence, and map remediation to CWE and OWASP guidance.",
+    "summary": "Run and interpret Bandit security scans for Python code and CI workflows.",
     "icon": "📦",
-    "version": "0.1.1",
+    "version": "0.1.0",
     "author": "AgentSecOps",
     "license": "MIT",
     "category": "security",
@@ -35,7 +35,7 @@
       "bandit",
       "sast",
       "owasp",
-      "secure-coding"
+      "cwe"
     ],
     "supported_tools": [
       "claude",
@@ -51,20 +51,35 @@
     ]
   },
   "security_audit": {
-    "risk_level": "safe",
+    "risk_level": "high",
     "is_blocked": false,
-    "safe_to_publish": true,
+    "safe_to_publish": false,
     "analysis_status": "ok",
-    "summary": "The static findings are explained by Bandit configuration, pre-commit templates, and Markdown remediation examples. No evidence found of malicious intent, prompt injection, active secret access, or hidden data exfiltration in the reviewed files.",
+    "summary": "Most static matches are false positives from configuration lists, Markdown formatting, references, and labeled vulnerable examples. Confirmed risks include unsafe eval suppression, unvalidated subprocess guidance, fragile xargs filename handling, and unsafe pickle suppression. Third-party hooks and actions also use mutable references.",
     "remediation": [
       {
-        "issue": "External command examples require user control.",
-        "suggestion": "Keep install and scan commands framed as user-approved actions, especially when installing packages or running pre-commit hooks.",
-        "severity": "low"
+        "issue": "The examples suppress Bandit warnings around eval and pickle deserialization.",
+        "suggestion": "Remove these suppression examples. Use a structured parser, or enforce strict trusted-source and integrity controls when replacement is impossible.",
+        "severity": "high"
       },
       {
-        "issue": "Vulnerable examples may trigger automated scanners.",
-        "suggestion": "Continue labeling vulnerable snippets clearly and prefer no-code report output when scans may include sensitive source excerpts.",
+        "issue": "A safe-labeled subprocess example accepts an unvalidated filename.",
+        "suggestion": "Resolve the path within an approved directory, reject traversal and option-like values, and prefer direct file APIs over cat.",
+        "severity": "high"
+      },
+      {
+        "issue": "The changed-file pipeline passes repository filenames through unsafe xargs parsing.",
+        "suggestion": "Use null-delimited filenames, terminate options explicitly, and reject paths that Bandit could interpret as command options.",
+        "severity": "medium"
+      },
+      {
+        "issue": "Remote hooks and actions use mutable version tags.",
+        "suggestion": "Pin executable dependencies to reviewed commit hashes and use automated updates to keep those hashes current.",
+        "severity": "medium"
+      },
+      {
+        "issue": "The skill references scripts/bandit_analyzer.py, but the file is absent.",
+        "suggestion": "Bundle and audit the script, or remove claims that depend on enhanced reporting and ticket creation.",
         "severity": "low"
       }
     ],
@@ -336,61 +351,6 @@
             "file": "SKILL.md",
             "line_start": 265,
             "line_end": 266
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 266,
-            "line_end": 267
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 267,
-            "line_end": 272
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 272,
-            "line_end": 272
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 274,
-            "line_end": 279
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 279,
-            "line_end": 280
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 280,
-            "line_end": 282
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 282,
-            "line_end": 287
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 287,
-            "line_end": 289
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 289,
-            "line_end": 295
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 295,
-            "line_end": 297
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 274,
-            "line_end": 274
           }
         ]
       },
@@ -2230,921 +2190,1055 @@
     "finding_verdicts": [
       {
         "id": "scripts:assets/bandit_config.yaml:204:dynamic-code-evaluation-with-eval",
-        "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This appears in Bandit configuration or a commented suppression example, not executable skill code. It configures scanner behavior or documents a finding type, so it does not create code execution."
+        "verdict": "confirmed",
+        "confidence": 0.88,
+        "reason": "The line is non-executable, but it presents eval() with a # nosec suppression and no validation. Copying this guidance can introduce arbitrary code execution.",
+        "severity": "high"
       },
       {
         "id": "external_commands:assets/bandit_config.yaml:117:python-subprocess-run",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This appears in Bandit configuration or a commented suppression example, not executable skill code. It configures scanner behavior or documents a finding type, so it does not create code execution."
+        "confidence": 0.98,
+        "reason": "This YAML lists function names for Bandit's shell-injection detector. It does not invoke a subprocess or pass any command arguments."
       },
       {
         "id": "external_commands:assets/bandit_config.yaml:112:python-subprocess-popen",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This appears in Bandit configuration or a commented suppression example, not executable skill code. It configures scanner behavior or documents a finding type, so it does not create code execution."
+        "confidence": 0.98,
+        "reason": "This YAML lists function names for Bandit's shell-injection detector. It does not invoke a subprocess or pass any command arguments."
       },
       {
         "id": "external_commands:assets/bandit_config.yaml:116:python-subprocess-popen",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This appears in Bandit configuration or a commented suppression example, not executable skill code. It configures scanner behavior or documents a finding type, so it does not create code execution."
+        "confidence": 0.98,
+        "reason": "This YAML lists function names for Bandit's shell-injection detector. It does not invoke a subprocess or pass any command arguments."
       },
       {
         "id": "external_commands:assets/bandit_config.yaml:112:python-subprocess-call",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This appears in Bandit configuration or a commented suppression example, not executable skill code. It configures scanner behavior or documents a finding type, so it does not create code execution."
+        "confidence": 0.98,
+        "reason": "This YAML lists function names for Bandit's shell-injection detector. It does not invoke a subprocess or pass any command arguments."
       },
       {
         "id": "external_commands:assets/bandit_config.yaml:115:python-subprocess-call",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This appears in Bandit configuration or a commented suppression example, not executable skill code. It configures scanner behavior or documents a finding type, so it does not create code execution."
+        "confidence": 0.98,
+        "reason": "This YAML lists function names for Bandit's shell-injection detector. It does not invoke a subprocess or pass any command arguments."
       },
       {
         "id": "filesystem:assets/bandit_config.yaml:8:hidden-file-access",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "This is an exclude_dirs entry for virtual environment, cache, VCS, or IDE folders. It prevents scanning those paths and is not hidden file access."
+        "confidence": 0.98,
+        "reason": "This value is an exclusion pattern for a directory that Bandit should not scan. It does not read, copy, or expose hidden-file contents."
       },
       {
         "id": "filesystem:assets/bandit_config.yaml:10:hidden-file-access",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "This is an exclude_dirs entry for virtual environment, cache, VCS, or IDE folders. It prevents scanning those paths and is not hidden file access."
+        "confidence": 0.98,
+        "reason": "This value is an exclusion pattern for a directory that Bandit should not scan. It does not read, copy, or expose hidden-file contents."
       },
       {
         "id": "filesystem:assets/bandit_config.yaml:12:hidden-file-access",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "This is an exclude_dirs entry for virtual environment, cache, VCS, or IDE folders. It prevents scanning those paths and is not hidden file access."
+        "confidence": 0.98,
+        "reason": "This value is an exclusion pattern for a directory that Bandit should not scan. It does not read, copy, or expose hidden-file contents."
       },
       {
         "id": "filesystem:assets/bandit_config.yaml:19:hidden-file-access",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "This is an exclude_dirs entry for virtual environment, cache, VCS, or IDE folders. It prevents scanning those paths and is not hidden file access."
+        "confidence": 0.98,
+        "reason": "This value is an exclusion pattern for a directory that Bandit should not scan. It does not read, copy, or expose hidden-file contents."
       },
       {
         "id": "filesystem:assets/bandit_config.yaml:20:hidden-file-access",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "This is an exclude_dirs entry for virtual environment, cache, VCS, or IDE folders. It prevents scanning those paths and is not hidden file access."
+        "confidence": 0.98,
+        "reason": "This value is an exclusion pattern for a directory that Bandit should not scan. It does not read, copy, or expose hidden-file contents."
       },
       {
         "id": "filesystem:assets/bandit_config.yaml:23:hidden-file-access",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "This is an exclude_dirs entry for virtual environment, cache, VCS, or IDE folders. It prevents scanning those paths and is not hidden file access."
+        "confidence": 0.98,
+        "reason": "This value is an exclusion pattern for a directory that Bandit should not scan. It does not read, copy, or expose hidden-file contents."
       },
       {
         "id": "filesystem:assets/bandit_config.yaml:27:hidden-file-access",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "This is an exclude_dirs entry for virtual environment, cache, VCS, or IDE folders. It prevents scanning those paths and is not hidden file access."
+        "confidence": 0.98,
+        "reason": "This value is an exclusion pattern for a directory that Bandit should not scan. It does not read, copy, or expose hidden-file contents."
       },
       {
         "id": "filesystem:assets/bandit_config.yaml:28:hidden-file-access",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "This is an exclude_dirs entry for virtual environment, cache, VCS, or IDE folders. It prevents scanning those paths and is not hidden file access."
+        "confidence": 0.98,
+        "reason": "This value is an exclusion pattern for a directory that Bandit should not scan. It does not read, copy, or expose hidden-file contents."
       },
       {
         "id": "filesystem:assets/bandit_config.yaml:29:hidden-file-access",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "This is an exclude_dirs entry for virtual environment, cache, VCS, or IDE folders. It prevents scanning those paths and is not hidden file access."
+        "confidence": 0.98,
+        "reason": "This value is an exclusion pattern for a directory that Bandit should not scan. It does not read, copy, or expose hidden-file contents."
       },
       {
         "id": "filesystem:assets/bandit_config.yaml:30:hidden-file-access",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "This is an exclude_dirs entry for virtual environment, cache, VCS, or IDE folders. It prevents scanning those paths and is not hidden file access."
+        "confidence": 0.98,
+        "reason": "This value is an exclusion pattern for a directory that Bandit should not scan. It does not read, copy, or expose hidden-file contents."
       },
       {
         "id": "filesystem:assets/bandit_config.yaml:31:hidden-file-access",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "This is an exclude_dirs entry for virtual environment, cache, VCS, or IDE folders. It prevents scanning those paths and is not hidden file access."
+        "confidence": 0.98,
+        "reason": "This value is an exclusion pattern for a directory that Bandit should not scan. It does not read, copy, or expose hidden-file contents."
       },
       {
         "id": "filesystem:assets/bandit_config.yaml:75:temp-file-creation",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This is a commented Bandit test identifier for mktemp detection. It is not a call that creates temporary files."
+        "confidence": 0.98,
+        "reason": "The line is a commented Bandit test identifier describing mktemp detection. It does not create a temporary file."
       },
       {
         "id": "sensitive:assets/bandit_config.yaml:10:environment-file-access",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "This is an exclude_dirs entry for .env in a Bandit configuration file. It does not open environment files or read secrets."
+        "confidence": 0.98,
+        "reason": "The .env path is an exclusion entry, so the configuration avoids scanning that directory. No environment file is opened or read."
       },
       {
         "id": "network:assets/pre-commit-config.yaml:20:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "This is a pre-commit repository reference pinned by revision for optional developer tooling. It is not an exfiltration endpoint or hidden network call."
+        "confidence": 0.94,
+        "reason": "The URL identifies a declared pre-commit hook repository, not an exfiltration endpoint. The separate mutable-reference finding covers its supply-chain risk."
       },
       {
         "id": "network:assets/pre-commit-config.yaml:26:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "This is a pre-commit repository reference pinned by revision for optional developer tooling. It is not an exfiltration endpoint or hidden network call."
+        "confidence": 0.94,
+        "reason": "The URL identifies a declared pre-commit hook repository, not an exfiltration endpoint. The separate mutable-reference finding covers its supply-chain risk."
       },
       {
         "id": "network:assets/pre-commit-config.yaml:32:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "This is a pre-commit repository reference pinned by revision for optional developer tooling. It is not an exfiltration endpoint or hidden network call."
+        "confidence": 0.94,
+        "reason": "The URL identifies a declared pre-commit hook repository, not an exfiltration endpoint. The separate mutable-reference finding covers its supply-chain risk."
       },
       {
         "id": "network:assets/pre-commit-config.yaml:39:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "This is a pre-commit repository reference pinned by revision for optional developer tooling. It is not an exfiltration endpoint or hidden network call."
+        "confidence": 0.94,
+        "reason": "The URL identifies a declared pre-commit hook repository, not an exfiltration endpoint. The separate mutable-reference finding covers its supply-chain risk."
       },
       {
         "id": "network:assets/pre-commit-config.yaml:68:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "This is a pre-commit repository reference pinned by revision for optional developer tooling. It is not an exfiltration endpoint or hidden network call."
+        "confidence": 0.94,
+        "reason": "The URL identifies a declared pre-commit hook repository, not an exfiltration endpoint. The separate mutable-reference finding covers its supply-chain risk."
       },
       {
         "id": "network:assets/pre-commit-config.yaml:100:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "This is a pre-commit repository reference pinned by revision for optional developer tooling. It is not an exfiltration endpoint or hidden network call."
+        "confidence": 0.94,
+        "reason": "The URL identifies a declared pre-commit hook repository, not an exfiltration endpoint. The separate mutable-reference finding covers its supply-chain risk."
       },
       {
         "id": "network:assets/pre-commit-config.yaml:137:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "This is a pre-commit repository reference pinned by revision for optional developer tooling. It is not an exfiltration endpoint or hidden network call."
+        "confidence": 0.94,
+        "reason": "The URL identifies a declared pre-commit hook repository, not an exfiltration endpoint. The separate mutable-reference finding covers its supply-chain risk."
       },
       {
         "id": "network:assets/pre-commit-config.yaml:144:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "This is a pre-commit repository reference pinned by revision for optional developer tooling. It is not an exfiltration endpoint or hidden network call."
+        "confidence": 0.94,
+        "reason": "The URL identifies a declared pre-commit hook repository, not an exfiltration endpoint. The separate mutable-reference finding covers its supply-chain risk."
       },
       {
         "id": "sensitive:assets/pre-commit-config.yaml:110:crypto-seed-private-key-mention",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "This line names the detect-private-key pre-commit hook. It does not contain private key material or access secrets."
+        "confidence": 0.98,
+        "reason": "The text is the identifier and comment for a hook that detects private keys. It contains no key material, seed, or credential."
       },
       {
         "id": "scripts:references/cwe_owasp_mapping.md:61:dynamic-import-expression",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "This is a static reference table mapping Bandit tests to CWE and OWASP categories. The flagged text is documentation, not executable behavior."
+        "confidence": 0.98,
+        "reason": "The line is a Markdown table row naming Bandit test B410 and lxml imports. It contains no dynamic import expression or executable code."
       },
       {
         "id": "filesystem:references/cwe_owasp_mapping.md:23:temp-file-creation",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "This is a static reference table mapping Bandit tests to CWE and OWASP categories. The flagged text is documentation, not executable behavior."
+        "confidence": 0.98,
+        "reason": "The line documents Bandit test B306 and the mktemp weakness in a reference table. It does not create a file."
       },
       {
         "id": "blocker:references/cwe_owasp_mapping.md:76:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "This is a static reference table mapping Bandit tests to CWE and OWASP categories. The flagged text is documentation, not executable behavior."
+        "confidence": 0.98,
+        "reason": "The matched text is defensive remediation prose about avoiding unsafe input handling. It performs no system discovery or execution."
       },
       {
         "id": "blocker:references/cwe_owasp_mapping.md:102:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "This is a static reference table mapping Bandit tests to CWE and OWASP categories. The flagged text is documentation, not executable behavior."
+        "confidence": 0.98,
+        "reason": "The matched text is defensive remediation prose about avoiding unsafe input handling. It performs no system discovery or execution."
       },
       {
         "id": "external_commands:references/remediation_guide.md:187:python-subprocess-run",
-        "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This appears inside a secure remediation example that uses argument lists and validation. It is documentation, not active command execution."
+        "verdict": "confirmed",
+        "confidence": 0.96,
+        "reason": "The example labels this call safe although filename comes directly from request.GET. An attacker can select arbitrary readable paths or inject options into cat.",
+        "severity": "high"
       },
       {
         "id": "external_commands:references/remediation_guide.md:204:python-subprocess-run",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This appears inside a secure remediation example that uses argument lists and validation. It is documentation, not active command execution."
+        "confidence": 0.98,
+        "reason": "This educational example validates the filename and containment path before using a fixed executable with shell disabled. It is not package runtime behavior."
       },
       {
         "id": "external_commands:references/remediation_guide.md:209:python-subprocess-run",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This appears inside a secure remediation example that uses argument lists and validation. It is documentation, not active command execution."
+        "confidence": 0.98,
+        "reason": "This educational example splits a hardcoded command string and runs it without a shell. No untrusted command input is present."
       },
       {
         "id": "external_commands:references/remediation_guide.md:228:python-subprocess-run",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This appears inside a secure remediation example that uses argument lists and validation. It is documentation, not active command execution."
+        "confidence": 0.98,
+        "reason": "This educational example uses an allowlisted command, validates the target, disables shell execution, and sets a timeout. It is not package runtime behavior."
       },
       {
         "id": "external_commands:references/remediation_guide.md:169:python-subprocess-call",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "This appears in a remediation guide as a labeled vulnerable or secure example. It is Markdown documentation and is not executed by the skill."
+        "confidence": 0.98,
+        "reason": "The command appears only in a section explicitly labeled Vulnerable Code and is followed by safer alternatives. The package does not execute it."
       },
       {
         "id": "external_commands:references/remediation_guide.md:176:python-subprocess-call",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "This appears in a remediation guide as a labeled vulnerable or secure example. It is Markdown documentation and is not executed by the skill."
+        "confidence": 0.98,
+        "reason": "The command appears only in a section explicitly labeled Vulnerable Code and is followed by safer alternatives. The package does not execute it."
       },
       {
         "id": "external_commands:references/remediation_guide.md:172:python-os-system",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "This appears in a remediation guide as a labeled vulnerable or secure example. It is Markdown documentation and is not executed by the skill."
+        "confidence": 0.98,
+        "reason": "The command appears only in a section explicitly labeled Vulnerable Code and is followed by safer alternatives. The package does not execute it."
       },
       {
         "id": "network:references/remediation_guide.md:321:python-http-libraries",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This is a remediation example showing network or server configuration patterns. It is documentation and does not perform network access."
+        "confidence": 0.98,
+        "reason": "The request is an explicitly labeled vulnerable TLS example used for instruction. It is not executed by the skill."
       },
       {
         "id": "network:references/remediation_guide.md:338:python-http-libraries",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This is a remediation example showing network or server configuration patterns. It is documentation and does not perform network access."
+        "confidence": 0.98,
+        "reason": "The HTTP call or import is a documentation example for verified TLS handling. It is not package runtime behavior or an exfiltration request."
       },
       {
         "id": "network:references/remediation_guide.md:341:python-http-libraries",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This is a remediation example showing network or server configuration patterns. It is documentation and does not perform network access."
+        "confidence": 0.98,
+        "reason": "The HTTP call or import is a documentation example for verified TLS handling. It is not package runtime behavior or an exfiltration request."
       },
       {
         "id": "network:references/remediation_guide.md:344:python-http-libraries",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This is a remediation example showing network or server configuration patterns. It is documentation and does not perform network access."
+        "confidence": 0.98,
+        "reason": "The HTTP call or import is a documentation example for verified TLS handling. It is not package runtime behavior or an exfiltration request."
       },
       {
         "id": "network:references/remediation_guide.md:348:python-http-libraries",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This is a remediation example showing network or server configuration patterns. It is documentation and does not perform network access."
+        "confidence": 0.98,
+        "reason": "The HTTP call or import is a documentation example for verified TLS handling. It is not package runtime behavior or an exfiltration request."
       },
       {
         "id": "network:references/remediation_guide.md:321:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This is a remediation example showing network or server configuration patterns. It is documentation and does not perform network access."
+        "confidence": 0.98,
+        "reason": "The example.com URL is a reserved documentation endpoint inside a TLS example. The skill does not contact it."
       },
       {
         "id": "network:references/remediation_guide.md:338:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This is a remediation example showing network or server configuration patterns. It is documentation and does not perform network access."
+        "confidence": 0.98,
+        "reason": "The example.com URL is a reserved documentation endpoint inside a TLS example. The skill does not contact it."
       },
       {
         "id": "network:references/remediation_guide.md:341:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This is a remediation example showing network or server configuration patterns. It is documentation and does not perform network access."
+        "confidence": 0.98,
+        "reason": "The example.com URL is a reserved documentation endpoint inside a TLS example. The skill does not contact it."
       },
       {
         "id": "network:references/remediation_guide.md:347:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This is a remediation example showing network or server configuration patterns. It is documentation and does not perform network access."
+        "confidence": 0.98,
+        "reason": "The example.com URL is a reserved documentation endpoint inside a TLS example. The skill does not contact it."
       },
       {
         "id": "network:references/remediation_guide.md:499:hardcoded-ip-address",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This is a remediation example showing network or server configuration patterns. It is documentation and does not perform network access."
+        "confidence": 0.98,
+        "reason": "The wildcard bind is inside an explicitly labeled vulnerable Flask example. It is not an active service configuration."
       },
       {
         "id": "network:references/remediation_guide.md:523:hardcoded-ip-address",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This is a remediation example showing network or server configuration patterns. It is documentation and does not perform network access."
+        "confidence": 0.98,
+        "reason": "The address is part of defensive deployment guidance or a loopback development example. The skill does not open a listener."
       },
       {
         "id": "network:references/remediation_guide.md:526:hardcoded-ip-address",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This is a remediation example showing network or server configuration patterns. It is documentation and does not perform network access."
+        "confidence": 0.98,
+        "reason": "The address is part of defensive deployment guidance or a loopback development example. The skill does not open a listener."
       },
       {
         "id": "env_access:references/remediation_guide.md:43:python-environment-access",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This is an example in a security remediation guide showing how to handle configuration or secrets. It does not read local secrets from the skill environment."
+        "confidence": 0.98,
+        "reason": "This is a documentation example showing how an application can load configuration without hardcoding secrets. The skill does not access the host environment."
       },
       {
         "id": "env_access:references/remediation_guide.md:49:python-environment-access",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This is an example in a security remediation guide showing how to handle configuration or secrets. It does not read local secrets from the skill environment."
+        "confidence": 0.98,
+        "reason": "This is a documentation example showing how an application can load configuration without hardcoding secrets. The skill does not access the host environment."
       },
       {
         "id": "env_access:references/remediation_guide.md:50:python-environment-access",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This is an example in a security remediation guide showing how to handle configuration or secrets. It does not read local secrets from the skill environment."
+        "confidence": 0.98,
+        "reason": "This is a documentation example showing how an application can load configuration without hardcoding secrets. The skill does not access the host environment."
       },
       {
         "id": "env_access:references/remediation_guide.md:393:python-environment-access",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This is an example in a security remediation guide showing how to handle configuration or secrets. It does not read local secrets from the skill environment."
+        "confidence": 0.98,
+        "reason": "This is a documentation example showing how an application can load configuration without hardcoding secrets. The skill does not access the host environment."
       },
       {
         "id": "env_access:references/remediation_guide.md:510:python-environment-access",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This is an example in a security remediation guide showing how to handle configuration or secrets. It does not read local secrets from the skill environment."
+        "confidence": 0.98,
+        "reason": "This is a documentation example showing how an application can load configuration without hardcoding secrets. The skill does not access the host environment."
       },
       {
         "id": "env_access:references/remediation_guide.md:511:python-environment-access",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This is an example in a security remediation guide showing how to handle configuration or secrets. It does not read local secrets from the skill environment."
+        "confidence": 0.98,
+        "reason": "This is a documentation example showing how an application can load configuration without hardcoding secrets. The skill does not access the host environment."
       },
       {
         "id": "env_access:references/remediation_guide.md:518:python-environment-access",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This is an example in a security remediation guide showing how to handle configuration or secrets. It does not read local secrets from the skill environment."
+        "confidence": 0.98,
+        "reason": "This is a documentation example showing how an application can load configuration without hardcoding secrets. The skill does not access the host environment."
       },
       {
         "id": "env_access:references/remediation_guide.md:37:dotenv-library",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This is an example in the hardcoded credentials remediation section showing environment-based configuration. It does not load a real .env file from the skill environment."
+        "confidence": 0.98,
+        "reason": "This is a documentation example showing how an application can load configuration without hardcoding secrets. The skill does not access the host environment."
       },
       {
         "id": "env_access:references/remediation_guide.md:40:dotenv-library",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This is an example in the hardcoded credentials remediation section showing environment-based configuration. It does not load a real .env file from the skill environment."
+        "confidence": 0.98,
+        "reason": "This is a documentation example showing how an application can load configuration without hardcoding secrets. The skill does not access the host environment."
       },
       {
         "id": "env_access:references/remediation_guide.md:37:python-dotenv-loader",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This is an example in the hardcoded credentials remediation section showing environment-based configuration. It does not load a real .env file from the skill environment."
+        "confidence": 0.98,
+        "reason": "This is a documentation example showing how an application can load configuration without hardcoding secrets. The skill does not access the host environment."
       },
       {
         "id": "env_access:references/remediation_guide.md:40:python-dotenv-loader",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This is an example in the hardcoded credentials remediation section showing environment-based configuration. It does not load a real .env file from the skill environment."
+        "confidence": 0.98,
+        "reason": "This is a documentation example showing how an application can load configuration without hardcoding secrets. The skill does not access the host environment."
       },
       {
         "id": "env_access:references/remediation_guide.md:50:database-connection-strings",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This is an example in a security remediation guide showing how to handle configuration or secrets. It does not read local secrets from the skill environment."
+        "confidence": 0.98,
+        "reason": "The line reads a password from a named environment variable in a defensive example. It contains no connection string or credential value."
       },
       {
         "id": "env_access:references/remediation_guide.md:301:generic-api-secret-keys",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This is an example in a security remediation guide showing how to handle configuration or secrets. It does not read local secrets from the skill environment."
+        "confidence": 0.98,
+        "reason": "The identifier is a placeholder variable used in HMAC or Flask guidance. No literal secret, API key, or credential is embedded."
       },
       {
         "id": "env_access:references/remediation_guide.md:304:generic-api-secret-keys",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This is an example in a security remediation guide showing how to handle configuration or secrets. It does not read local secrets from the skill environment."
+        "confidence": 0.98,
+        "reason": "The identifier is a placeholder variable used in HMAC or Flask guidance. No literal secret, API key, or credential is embedded."
       },
       {
         "id": "env_access:references/remediation_guide.md:393:generic-api-secret-keys",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This is an example in a security remediation guide showing how to handle configuration or secrets. It does not read local secrets from the skill environment."
+        "confidence": 0.98,
+        "reason": "The identifier is a placeholder variable used in HMAC or Flask guidance. No literal secret, API key, or credential is embedded."
       },
       {
         "id": "env_access:references/remediation_guide.md:398:generic-api-secret-keys",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This is an example in a security remediation guide showing how to handle configuration or secrets. It does not read local secrets from the skill environment."
+        "confidence": 0.98,
+        "reason": "The identifier is a placeholder variable used in HMAC or Flask guidance. No literal secret, API key, or credential is embedded."
       },
       {
         "id": "env_access:references/remediation_guide.md:406:generic-api-secret-keys",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This is an example in a security remediation guide showing how to handle configuration or secrets. It does not read local secrets from the skill environment."
+        "confidence": 0.98,
+        "reason": "The identifier is a placeholder variable used in HMAC or Flask guidance. No literal secret, API key, or credential is embedded."
       },
       {
         "id": "env_access:references/remediation_guide.md:416:generic-api-secret-keys",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This is an example in a security remediation guide showing how to handle configuration or secrets. It does not read local secrets from the skill environment."
+        "confidence": 0.98,
+        "reason": "The identifier is a placeholder variable used in HMAC or Flask guidance. No literal secret, API key, or credential is embedded."
       },
       {
         "id": "env_access:references/remediation_guide.md:518:generic-api-secret-keys",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This is an example in a security remediation guide showing how to handle configuration or secrets. It does not read local secrets from the skill environment."
+        "confidence": 0.98,
+        "reason": "The identifier is a placeholder variable used in HMAC or Flask guidance. No literal secret, API key, or credential is embedded."
       },
       {
         "id": "obfuscation:references/remediation_guide.md:369:python-pickle-deserialization-rce-risk",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "This appears in a remediation guide as a labeled vulnerable or secure example. It is Markdown documentation and is not executed by the skill."
+        "confidence": 0.98,
+        "reason": "This call is in a section explicitly labeled Vulnerable Code and demonstrates what users should avoid. It is not executed by the package."
       },
       {
         "id": "obfuscation:references/remediation_guide.md:411:python-pickle-deserialization-rce-risk",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "This appears in a remediation guide as a labeled vulnerable or secure example. It is Markdown documentation and is not executed by the skill."
+        "confidence": 0.9,
+        "reason": "This reference example verifies an HMAC before deserialization and is not executed by the package. The separate skill-level suppression example remains unsafe."
       },
       {
         "id": "sensitive:references/remediation_guide.md:70:environment-file-access",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This is an example in a security remediation guide showing how to handle configuration or secrets. It does not read local secrets from the skill environment."
+        "confidence": 0.98,
+        "reason": "The sentence advises users never to commit .env files. It does not open, read, or transmit an environment file."
       },
       {
         "id": "sensitive:references/remediation_guide.md:341:certificate-key-files",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This is an example in a security remediation guide showing how to handle configuration or secrets. It does not read local secrets from the skill environment."
+        "confidence": 0.98,
+        "reason": "The path is a placeholder for a public CA certificate bundle used to verify TLS. It is not a private key or credential."
       },
       {
         "id": "sensitive:references/remediation_guide.md:135:sqlite-database-file",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This is an example in a security remediation guide showing how to handle configuration or secrets. It does not read local secrets from the skill environment."
+        "confidence": 0.98,
+        "reason": "The scanner matched the django.db module name in an ORM example. No SQLite file path or database file access is present."
       },
       {
         "id": "sensitive:references/remediation_guide.md:144:sqlite-database-file",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This is an example in a security remediation guide showing how to handle configuration or secrets. It does not read local secrets from the skill environment."
+        "confidence": 0.98,
+        "reason": "The scanner matched the django.db module name in an ORM example. No SQLite file path or database file access is present."
       },
       {
         "id": "blocker:references/remediation_guide.md:251:weak-cryptographic-algorithm",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "This appears in a remediation guide as a labeled vulnerable or secure example. It is Markdown documentation and is not executed by the skill."
+        "confidence": 0.98,
+        "reason": "The MD5 call is inside an explicitly labeled Vulnerable Code example and is followed by strong alternatives. It is not executed by the package."
       },
       {
         "id": "blocker:references/remediation_guide.md:84:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "The line is part of a defensive example or remediation text. It does not perform reconnaissance or collect system information."
+        "confidence": 0.98,
+        "reason": "The matched line is defensive sample code or remediation prose. It performs no host, account, process, or network reconnaissance."
       },
       {
         "id": "blocker:references/remediation_guide.md:85:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "The line is part of a defensive example or remediation text. It does not perform reconnaissance or collect system information."
+        "confidence": 0.98,
+        "reason": "The matched line is defensive sample code or remediation prose. It performs no host, account, process, or network reconnaissance."
       },
       {
         "id": "blocker:references/remediation_guide.md:102:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "The line is part of a defensive example or remediation text. It does not perform reconnaissance or collect system information."
+        "confidence": 0.98,
+        "reason": "The matched line is defensive sample code or remediation prose. It performs no host, account, process, or network reconnaissance."
       },
       {
         "id": "blocker:references/remediation_guide.md:103:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "The line is part of a defensive example or remediation text. It does not perform reconnaissance or collect system information."
+        "confidence": 0.98,
+        "reason": "The matched line is defensive sample code or remediation prose. It performs no host, account, process, or network reconnaissance."
       },
       {
         "id": "blocker:references/remediation_guide.md:172:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "The line is part of a defensive example or remediation text. It does not perform reconnaissance or collect system information."
+        "confidence": 0.98,
+        "reason": "The matched line is defensive sample code or remediation prose. It performs no host, account, process, or network reconnaissance."
       },
       {
         "id": "blocker:references/remediation_guide.md:194:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "The line is part of a defensive example or remediation text. It does not perform reconnaissance or collect system information."
+        "confidence": 0.98,
+        "reason": "The matched line is defensive sample code or remediation prose. It performs no host, account, process, or network reconnaissance."
       },
       {
         "id": "blocker:references/remediation_guide.md:223:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "The line is part of a defensive example or remediation text. It does not perform reconnaissance or collect system information."
+        "confidence": 0.98,
+        "reason": "The matched line is defensive sample code or remediation prose. It performs no host, account, process, or network reconnaissance."
       },
       {
         "id": "blocker:references/remediation_guide.md:225:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "The line is part of a defensive example or remediation text. It does not perform reconnaissance or collect system information."
+        "confidence": 0.98,
+        "reason": "The matched line is defensive sample code or remediation prose. It performs no host, account, process, or network reconnaissance."
       },
       {
         "id": "blocker:references/remediation_guide.md:409:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "The line is part of a defensive example or remediation text. It does not perform reconnaissance or collect system information."
+        "confidence": 0.98,
+        "reason": "The matched line is defensive sample code or remediation prose. It performs no host, account, process, or network reconnaissance."
       },
       {
         "id": "blocker:references/remediation_guide.md:426:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "The line is part of a defensive example or remediation text. It does not perform reconnaissance or collect system information."
+        "confidence": 0.98,
+        "reason": "The matched line is defensive sample code or remediation prose. It performs no host, account, process, or network reconnaissance."
       },
       {
         "id": "external_commands:SKILL.md:34:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "The finding is triggered by Markdown code fences or inline code in usage documentation. The skill describes user-approved Bandit commands rather than hidden shell execution."
+        "confidence": 0.98,
+        "reason": "The matched backticks are Markdown code delimiters around documentation. They are not shell command substitution and the package does not execute them automatically."
       },
       {
         "id": "external_commands:SKILL.md:49:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "The finding is triggered by Markdown code fences or inline code in usage documentation. The skill describes user-approved Bandit commands rather than hidden shell execution."
+        "confidence": 0.98,
+        "reason": "The matched backticks are Markdown code delimiters around documentation. They are not shell command substitution and the package does not execute them automatically."
       },
       {
         "id": "external_commands:SKILL.md:57:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "The finding is triggered by Markdown code fences or inline code in usage documentation. The skill describes user-approved Bandit commands rather than hidden shell execution."
+        "confidence": 0.98,
+        "reason": "The matched backticks are Markdown code delimiters around documentation. They are not shell command substitution and the package does not execute them automatically."
       },
       {
         "id": "external_commands:SKILL.md:59:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "The finding is triggered by Markdown code fences or inline code in usage documentation. The skill describes user-approved Bandit commands rather than hidden shell execution."
+        "confidence": 0.98,
+        "reason": "The matched backticks are Markdown code delimiters around documentation. They are not shell command substitution and the package does not execute them automatically."
       },
       {
         "id": "external_commands:SKILL.md:61:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "The finding is triggered by Markdown code fences or inline code in usage documentation. The skill describes user-approved Bandit commands rather than hidden shell execution."
+        "confidence": 0.98,
+        "reason": "The matched backticks are Markdown code delimiters around documentation. They are not shell command substitution and the package does not execute them automatically."
       },
       {
         "id": "external_commands:SKILL.md:63:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "The finding is triggered by Markdown code fences or inline code in usage documentation. The skill describes user-approved Bandit commands rather than hidden shell execution."
+        "confidence": 0.98,
+        "reason": "The matched backticks are Markdown code delimiters around documentation. They are not shell command substitution and the package does not execute them automatically."
       },
       {
         "id": "external_commands:SKILL.md:79:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "The finding is triggered by Markdown code fences or inline code in usage documentation. The skill describes user-approved Bandit commands rather than hidden shell execution."
+        "confidence": 0.98,
+        "reason": "The matched backticks are Markdown code delimiters around documentation. They are not shell command substitution and the package does not execute them automatically."
       },
       {
         "id": "external_commands:SKILL.md:85:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "The finding is triggered by Markdown code fences or inline code in usage documentation. The skill describes user-approved Bandit commands rather than hidden shell execution."
+        "confidence": 0.98,
+        "reason": "The matched backticks are Markdown code delimiters around documentation. They are not shell command substitution and the package does not execute them automatically."
       },
       {
         "id": "external_commands:SKILL.md:97:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "The finding is triggered by Markdown code fences or inline code in usage documentation. The skill describes user-approved Bandit commands rather than hidden shell execution."
+        "confidence": 0.98,
+        "reason": "The matched backticks are Markdown code delimiters around documentation. They are not shell command substitution and the package does not execute them automatically."
       },
       {
         "id": "external_commands:SKILL.md:110:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "The finding is triggered by Markdown code fences or inline code in usage documentation. The skill describes user-approved Bandit commands rather than hidden shell execution."
+        "confidence": 0.98,
+        "reason": "The matched backticks are Markdown code delimiters around documentation. They are not shell command substitution and the package does not execute them automatically."
       },
       {
         "id": "external_commands:SKILL.md:115:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "The finding is triggered by Markdown code fences or inline code in usage documentation. The skill describes user-approved Bandit commands rather than hidden shell execution."
+        "confidence": 0.98,
+        "reason": "The matched backticks are Markdown code delimiters around documentation. They are not shell command substitution and the package does not execute them automatically."
       },
       {
         "id": "external_commands:SKILL.md:128:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "The finding is triggered by Markdown code fences or inline code in usage documentation. The skill describes user-approved Bandit commands rather than hidden shell execution."
+        "confidence": 0.98,
+        "reason": "The matched backticks are Markdown code delimiters around documentation. They are not shell command substitution and the package does not execute them automatically."
       },
       {
         "id": "external_commands:SKILL.md:132:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "The finding is triggered by Markdown code fences or inline code in usage documentation. The skill describes user-approved Bandit commands rather than hidden shell execution."
+        "confidence": 0.98,
+        "reason": "The matched backticks are Markdown code delimiters around documentation. They are not shell command substitution and the package does not execute them automatically."
       },
       {
         "id": "external_commands:SKILL.md:140:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "The finding is triggered by Markdown code fences or inline code in usage documentation. The skill describes user-approved Bandit commands rather than hidden shell execution."
+        "confidence": 0.98,
+        "reason": "The matched backticks are Markdown code delimiters around documentation. They are not shell command substitution and the package does not execute them automatically."
       },
       {
         "id": "external_commands:SKILL.md:159:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "The finding is triggered by Markdown code fences or inline code in usage documentation. The skill describes user-approved Bandit commands rather than hidden shell execution."
+        "confidence": 0.98,
+        "reason": "The matched backticks are Markdown code delimiters around documentation. They are not shell command substitution and the package does not execute them automatically."
       },
       {
         "id": "external_commands:SKILL.md:161:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "The finding is triggered by Markdown code fences or inline code in usage documentation. The skill describes user-approved Bandit commands rather than hidden shell execution."
+        "confidence": 0.98,
+        "reason": "The matched backticks are Markdown code delimiters around documentation. They are not shell command substitution and the package does not execute them automatically."
       },
       {
         "id": "external_commands:SKILL.md:165:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "The finding is triggered by Markdown code fences or inline code in usage documentation. The skill describes user-approved Bandit commands rather than hidden shell execution."
+        "confidence": 0.98,
+        "reason": "The matched backticks are Markdown code delimiters around documentation. They are not shell command substitution and the package does not execute them automatically."
       },
       {
         "id": "external_commands:SKILL.md:173:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "The finding is triggered by Markdown code fences or inline code in usage documentation. The skill describes user-approved Bandit commands rather than hidden shell execution."
+        "confidence": 0.98,
+        "reason": "The matched backticks are Markdown code delimiters around documentation. They are not shell command substitution and the package does not execute them automatically."
       },
       {
         "id": "external_commands:SKILL.md:177:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "The finding is triggered by Markdown code fences or inline code in usage documentation. The skill describes user-approved Bandit commands rather than hidden shell execution."
+        "confidence": 0.98,
+        "reason": "The matched backticks are Markdown code delimiters around documentation. They are not shell command substitution and the package does not execute them automatically."
       },
       {
         "id": "external_commands:SKILL.md:179:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "The finding is triggered by Markdown code fences or inline code in usage documentation. The skill describes user-approved Bandit commands rather than hidden shell execution."
+        "confidence": 0.98,
+        "reason": "The matched backticks are Markdown code delimiters around documentation. They are not shell command substitution and the package does not execute them automatically."
       },
       {
         "id": "external_commands:SKILL.md:181:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "The finding is triggered by Markdown code fences or inline code in usage documentation. The skill describes user-approved Bandit commands rather than hidden shell execution."
+        "confidence": 0.98,
+        "reason": "The matched backticks are Markdown code delimiters around documentation. They are not shell command substitution and the package does not execute them automatically."
       },
       {
         "id": "external_commands:SKILL.md:183:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "The finding is triggered by Markdown code fences or inline code in usage documentation. The skill describes user-approved Bandit commands rather than hidden shell execution."
+        "confidence": 0.98,
+        "reason": "The matched backticks are Markdown code delimiters around documentation. They are not shell command substitution and the package does not execute them automatically."
       },
       {
         "id": "external_commands:SKILL.md:185:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "The finding is triggered by Markdown code fences or inline code in usage documentation. The skill describes user-approved Bandit commands rather than hidden shell execution."
+        "confidence": 0.98,
+        "reason": "The matched backticks are Markdown code delimiters around documentation. They are not shell command substitution and the package does not execute them automatically."
       },
       {
         "id": "external_commands:SKILL.md:187:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "The finding is triggered by Markdown code fences or inline code in usage documentation. The skill describes user-approved Bandit commands rather than hidden shell execution."
+        "confidence": 0.98,
+        "reason": "The matched backticks are Markdown code delimiters around documentation. They are not shell command substitution and the package does not execute them automatically."
       },
       {
         "id": "external_commands:SKILL.md:189:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "The finding is triggered by Markdown code fences or inline code in usage documentation. The skill describes user-approved Bandit commands rather than hidden shell execution."
+        "confidence": 0.98,
+        "reason": "The matched backticks are Markdown code delimiters around documentation. They are not shell command substitution and the package does not execute them automatically."
       },
       {
         "id": "external_commands:SKILL.md:191:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "The finding is triggered by Markdown code fences or inline code in usage documentation. The skill describes user-approved Bandit commands rather than hidden shell execution."
+        "confidence": 0.98,
+        "reason": "The matched backticks are Markdown code delimiters around documentation. They are not shell command substitution and the package does not execute them automatically."
       },
       {
         "id": "external_commands:SKILL.md:199:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "The finding is triggered by Markdown code fences or inline code in usage documentation. The skill describes user-approved Bandit commands rather than hidden shell execution."
+        "confidence": 0.98,
+        "reason": "The matched backticks are Markdown code delimiters around documentation. They are not shell command substitution and the package does not execute them automatically."
       },
       {
         "id": "external_commands:SKILL.md:206:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "The finding is triggered by Markdown code fences or inline code in usage documentation. The skill describes user-approved Bandit commands rather than hidden shell execution."
+        "confidence": 0.98,
+        "reason": "The matched backticks are Markdown code delimiters around documentation. They are not shell command substitution and the package does not execute them automatically."
       },
       {
         "id": "external_commands:SKILL.md:212:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "The finding is triggered by Markdown code fences or inline code in usage documentation. The skill describes user-approved Bandit commands rather than hidden shell execution."
+        "confidence": 0.98,
+        "reason": "The matched backticks are Markdown code delimiters around documentation. They are not shell command substitution and the package does not execute them automatically."
       },
       {
         "id": "external_commands:SKILL.md:219:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "The finding is triggered by Markdown code fences or inline code in usage documentation. The skill describes user-approved Bandit commands rather than hidden shell execution."
+        "confidence": 0.98,
+        "reason": "The matched backticks are Markdown code delimiters around documentation. They are not shell command substitution and the package does not execute them automatically."
       },
       {
         "id": "external_commands:SKILL.md:225:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "The finding is triggered by Markdown code fences or inline code in usage documentation. The skill describes user-approved Bandit commands rather than hidden shell execution."
+        "confidence": 0.98,
+        "reason": "The matched backticks are Markdown code delimiters around documentation. They are not shell command substitution and the package does not execute them automatically."
       },
       {
         "id": "external_commands:SKILL.md:234:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "The finding is triggered by Markdown code fences or inline code in usage documentation. The skill describes user-approved Bandit commands rather than hidden shell execution."
+        "confidence": 0.98,
+        "reason": "The matched backticks are Markdown code delimiters around documentation. They are not shell command substitution and the package does not execute them automatically."
       },
       {
         "id": "external_commands:SKILL.md:240:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "The finding is triggered by Markdown code fences or inline code in usage documentation. The skill describes user-approved Bandit commands rather than hidden shell execution."
+        "confidence": 0.98,
+        "reason": "The matched backticks are Markdown code delimiters around documentation. They are not shell command substitution and the package does not execute them automatically."
       },
       {
         "id": "external_commands:SKILL.md:247:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "The finding is triggered by Markdown code fences or inline code in usage documentation. The skill describes user-approved Bandit commands rather than hidden shell execution."
+        "confidence": 0.98,
+        "reason": "The matched backticks are Markdown code delimiters around documentation. They are not shell command substitution and the package does not execute them automatically."
       },
       {
         "id": "external_commands:SKILL.md:251:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "The finding is triggered by Markdown code fences or inline code in usage documentation. The skill describes user-approved Bandit commands rather than hidden shell execution."
+        "confidence": 0.98,
+        "reason": "The matched backticks are Markdown code delimiters around documentation. They are not shell command substitution and the package does not execute them automatically."
       },
       {
         "id": "external_commands:SKILL.md:257:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "The finding is triggered by Markdown code fences or inline code in usage documentation. The skill describes user-approved Bandit commands rather than hidden shell execution."
+        "confidence": 0.98,
+        "reason": "The matched backticks are Markdown code delimiters around documentation. They are not shell command substitution and the package does not execute them automatically."
       },
       {
         "id": "external_commands:SKILL.md:264:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "The finding is triggered by Markdown code fences or inline code in usage documentation. The skill describes user-approved Bandit commands rather than hidden shell execution."
+        "confidence": 0.98,
+        "reason": "The matched backticks are Markdown code delimiters around documentation. They are not shell command substitution and the package does not execute them automatically."
       },
       {
         "id": "external_commands:SKILL.md:265:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "The finding is triggered by Markdown code fences or inline code in usage documentation. The skill describes user-approved Bandit commands rather than hidden shell execution."
+        "confidence": 0.98,
+        "reason": "The matched backticks are Markdown code delimiters around documentation. They are not shell command substitution and the package does not execute them automatically."
       },
       {
         "id": "external_commands:SKILL.md:266:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "The finding is triggered by Markdown code fences or inline code in usage documentation. The skill describes user-approved Bandit commands rather than hidden shell execution."
+        "confidence": 0.98,
+        "reason": "The matched backticks are Markdown code delimiters around documentation. They are not shell command substitution and the package does not execute them automatically."
       },
       {
         "id": "external_commands:SKILL.md:267:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "The finding is triggered by Markdown code fences or inline code in usage documentation. The skill describes user-approved Bandit commands rather than hidden shell execution."
+        "confidence": 0.98,
+        "reason": "The matched backticks are Markdown code delimiters around documentation. They are not shell command substitution and the package does not execute them automatically."
       },
       {
         "id": "external_commands:SKILL.md:272:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "The finding is triggered by Markdown code fences or inline code in usage documentation. The skill describes user-approved Bandit commands rather than hidden shell execution."
+        "confidence": 0.98,
+        "reason": "The matched backticks are Markdown code delimiters around documentation. They are not shell command substitution and the package does not execute them automatically."
       },
       {
         "id": "external_commands:SKILL.md:274:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "The finding is triggered by Markdown code fences or inline code in usage documentation. The skill describes user-approved Bandit commands rather than hidden shell execution."
+        "confidence": 0.98,
+        "reason": "The matched backticks are Markdown code delimiters around documentation. They are not shell command substitution and the package does not execute them automatically."
       },
       {
         "id": "external_commands:SKILL.md:279:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "The finding is triggered by Markdown code fences or inline code in usage documentation. The skill describes user-approved Bandit commands rather than hidden shell execution."
+        "confidence": 0.98,
+        "reason": "The matched backticks are Markdown code delimiters around documentation. They are not shell command substitution and the package does not execute them automatically."
       },
       {
         "id": "external_commands:SKILL.md:280:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "The finding is triggered by Markdown code fences or inline code in usage documentation. The skill describes user-approved Bandit commands rather than hidden shell execution."
+        "confidence": 0.98,
+        "reason": "The matched backticks are Markdown code delimiters around documentation. They are not shell command substitution and the package does not execute them automatically."
       },
       {
         "id": "external_commands:SKILL.md:282:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "The finding is triggered by Markdown code fences or inline code in usage documentation. The skill describes user-approved Bandit commands rather than hidden shell execution."
+        "confidence": 0.98,
+        "reason": "The matched backticks are Markdown code delimiters around documentation. They are not shell command substitution and the package does not execute them automatically."
       },
       {
         "id": "external_commands:SKILL.md:287:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "The finding is triggered by Markdown code fences or inline code in usage documentation. The skill describes user-approved Bandit commands rather than hidden shell execution."
+        "confidence": 0.98,
+        "reason": "The matched backticks are Markdown code delimiters around documentation. They are not shell command substitution and the package does not execute them automatically."
       },
       {
         "id": "external_commands:SKILL.md:289:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "The finding is triggered by Markdown code fences or inline code in usage documentation. The skill describes user-approved Bandit commands rather than hidden shell execution."
+        "confidence": 0.98,
+        "reason": "The matched backticks are Markdown code delimiters around documentation. They are not shell command substitution and the package does not execute them automatically."
       },
       {
         "id": "external_commands:SKILL.md:295:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "The finding is triggered by Markdown code fences or inline code in usage documentation. The skill describes user-approved Bandit commands rather than hidden shell execution."
+        "confidence": 0.98,
+        "reason": "The matched backticks are Markdown code delimiters around documentation. They are not shell command substitution and the package does not execute them automatically."
       },
       {
         "id": "external_commands:SKILL.md:274:xargs-command-can-execute-arbitrary-commands",
-        "verdict": "false_positive",
-        "confidence": 0.76,
-        "reason": "This is a documented CI example that passes changed Python filenames to Bandit. It does not execute arbitrary commands autonomously from the skill."
+        "verdict": "confirmed",
+        "confidence": 0.94,
+        "reason": "Repository-controlled filenames are passed through newline and whitespace parsing into Bandit arguments. Crafted paths can split arguments or be interpreted as Bandit options.",
+        "severity": "medium"
       },
       {
         "id": "network:SKILL.md:19:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.91,
-        "reason": "These URLs are public references to Bandit, OWASP, CWE, or Python documentation. They are not command-and-control endpoints or data sinks."
+        "confidence": 0.98,
+        "reason": "The URL is a public Bandit, OWASP, CWE, or Python documentation reference. It is not an exfiltration endpoint and no request is made."
       },
       {
         "id": "network:SKILL.md:20:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.91,
-        "reason": "These URLs are public references to Bandit, OWASP, CWE, or Python documentation. They are not command-and-control endpoints or data sinks."
+        "confidence": 0.98,
+        "reason": "The URL is a public Bandit, OWASP, CWE, or Python documentation reference. It is not an exfiltration endpoint and no request is made."
       },
       {
         "id": "network:SKILL.md:21:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.91,
-        "reason": "These URLs are public references to Bandit, OWASP, CWE, or Python documentation. They are not command-and-control endpoints or data sinks."
+        "confidence": 0.98,
+        "reason": "The URL is a public Bandit, OWASP, CWE, or Python documentation reference. It is not an exfiltration endpoint and no request is made."
       },
       {
         "id": "network:SKILL.md:290:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.91,
-        "reason": "These URLs are public references to Bandit, OWASP, CWE, or Python documentation. They are not command-and-control endpoints or data sinks."
+        "confidence": 0.98,
+        "reason": "The URL is a public Bandit, OWASP, CWE, or Python documentation reference. It is not an exfiltration endpoint and no request is made."
       },
       {
         "id": "network:SKILL.md:301:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.91,
-        "reason": "These URLs are public references to Bandit, OWASP, CWE, or Python documentation. They are not command-and-control endpoints or data sinks."
+        "confidence": 0.98,
+        "reason": "The URL is a public Bandit, OWASP, CWE, or Python documentation reference. It is not an exfiltration endpoint and no request is made."
       },
       {
         "id": "network:SKILL.md:302:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.91,
-        "reason": "These URLs are public references to Bandit, OWASP, CWE, or Python documentation. They are not command-and-control endpoints or data sinks."
+        "confidence": 0.98,
+        "reason": "The URL is a public Bandit, OWASP, CWE, or Python documentation reference. It is not an exfiltration endpoint and no request is made."
       },
       {
         "id": "network:SKILL.md:303:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.91,
-        "reason": "These URLs are public references to Bandit, OWASP, CWE, or Python documentation. They are not command-and-control endpoints or data sinks."
+        "confidence": 0.98,
+        "reason": "The URL is a public Bandit, OWASP, CWE, or Python documentation reference. It is not an exfiltration endpoint and no request is made."
       },
       {
         "id": "network:SKILL.md:304:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.91,
-        "reason": "These URLs are public references to Bandit, OWASP, CWE, or Python documentation. They are not command-and-control endpoints or data sinks."
+        "confidence": 0.98,
+        "reason": "The URL is a public Bandit, OWASP, CWE, or Python documentation reference. It is not an exfiltration endpoint and no request is made."
       },
       {
         "id": "network:SKILL.md:305:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.91,
-        "reason": "These URLs are public references to Bandit, OWASP, CWE, or Python documentation. They are not command-and-control endpoints or data sinks."
+        "confidence": 0.98,
+        "reason": "The URL is a public Bandit, OWASP, CWE, or Python documentation reference. It is not an exfiltration endpoint and no request is made."
       },
       {
         "id": "filesystem:SKILL.md:68:hidden-file-access",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This line documents virtual environment exclusions for Bandit scans. It does not read hidden files."
+        "confidence": 0.98,
+        "reason": "The hidden directory name is presented as a Bandit exclusion pattern. The skill does not read hidden files."
       },
       {
         "id": "filesystem:SKILL.md:272:hidden-file-access",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This line documents virtual environment exclusions for Bandit scans. It does not read hidden files."
+        "confidence": 0.98,
+        "reason": "The hidden directory name is presented as a Bandit exclusion pattern. The skill does not read hidden files."
       },
       {
         "id": "blocker:SKILL.md:133:weak-cryptographic-algorithm",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This is remediation guidance that tells users to avoid unsafe patterns. It is not an implementation of those patterns."
+        "confidence": 0.98,
+        "reason": "The text warns users to replace MD5 and SHA1 with stronger choices. It does not implement or endorse weak cryptography."
       },
       {
         "id": "blocker:SKILL.md:132:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This is remediation guidance that tells users to avoid unsafe patterns. It is not an implementation of those patterns."
+        "confidence": 0.98,
+        "reason": "The line is defensive guidance against command injection or insecure deserialization. It does not gather system information."
       },
       {
         "id": "blocker:SKILL.md:134:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This is remediation guidance that tells users to avoid unsafe patterns. It is not an implementation of those patterns."
+        "confidence": 0.98,
+        "reason": "The line is defensive guidance against command injection or insecure deserialization. It does not gather system information."
       }
     ],
-    "semantic_findings": [],
+    "semantic_findings": [
+      {
+        "title": "Unsafe Pickle Suppression Guidance",
+        "description": "The skill presents pickle.load on a caller-provided path as an acceptable # nosec example. A writable cache or attacker-controlled path could enable code execution.",
+        "severity": "high",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 240,
+            "line_end": 246
+          }
+        ],
+        "confidence": 0.97,
+        "confidence_reasoning": "The example directly deserializes a caller-selected file and suppresses B301 without enforcing a trusted directory, ownership, or integrity check."
+      },
+      {
+        "title": "Mutable Third-Party Execution References",
+        "description": "Pre-commit hooks and GitHub Actions execute third-party code through release tags instead of immutable commit hashes. A moved or compromised tag could execute altered code.",
+        "severity": "medium",
+        "locations": [
+          {
+            "file": "assets/pre-commit-config.yaml",
+            "line_start": 20,
+            "line_end": 40
+          },
+          {
+            "file": "assets/pre-commit-config.yaml",
+            "line_start": 100,
+            "line_end": 145
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 149,
+            "line_end": 154
+          }
+        ],
+        "confidence": 0.93,
+        "confidence_reasoning": "The cited configurations use version tags for code that runs in developer or CI environments. No immutable commit SHA or package hash is specified."
+      }
+    ],
     "critical_findings": [],
-    "high_findings": [],
-    "medium_findings": [],
+    "high_findings": [
+      {
+        "title": "Dynamic code evaluation with eval()",
+        "description": "#   result = eval(safe_expression)  # nosec B307",
+        "locations": [
+          {
+            "file": "assets/bandit_config.yaml",
+            "line_start": 204,
+            "line_end": 204
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "scripts",
+        "source_severity": "high",
+        "confidence": 0.88,
+        "confidence_reasoning": "The line is non-executable, but it presents eval() with a # nosec suppression and no validation. Copying this guidance can introduce arbitrary code execution."
+      },
+      {
+        "title": "Python subprocess.run",
+        "description": "subprocess.run([\"cat\", filename], check=True, capture_output=True)",
+        "locations": [
+          {
+            "file": "references/remediation_guide.md",
+            "line_start": 187,
+            "line_end": 187
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "external_commands",
+        "source_severity": "high",
+        "confidence": 0.96,
+        "confidence_reasoning": "The example labels this call safe although filename comes directly from request.GET. An attacker can select arbitrary readable paths or inject options into cat."
+      },
+      {
+        "title": "Unsafe Pickle Suppression Guidance",
+        "description": "The skill presents pickle.load on a caller-provided path as an acceptable # nosec example. A writable cache or attacker-controlled path could enable code execution.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 240,
+            "line_end": 246
+          }
+        ],
+        "review_kind": "security",
+        "source_category": "semantic",
+        "source_severity": "high",
+        "confidence": 0.97,
+        "confidence_reasoning": "The example directly deserializes a caller-selected file and suppresses B301 without enforcing a trusted directory, ownership, or integrity check."
+      }
+    ],
+    "medium_findings": [
+      {
+        "title": "xargs command (can execute arbitrary commands)",
+        "description": "3. Scan only changed files in CI/CD: `git diff --name-only origin/main | grep '.py$' | xargs bandit`",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 274,
+            "line_end": 274
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "external_commands",
+        "source_severity": "medium",
+        "confidence": 0.94,
+        "confidence_reasoning": "Repository-controlled filenames are passed through newline and whitespace parsing into Bandit arguments. Crafted paths can split arguments or be interpreted as Bandit options."
+      },
+      {
+        "title": "Mutable Third-Party Execution References",
+        "description": "Pre-commit hooks and GitHub Actions execute third-party code through release tags instead of immutable commit hashes. A moved or compromised tag could execute altered code.",
+        "locations": [
+          {
+            "file": "assets/pre-commit-config.yaml",
+            "line_start": 20,
+            "line_end": 40
+          },
+          {
+            "file": "assets/pre-commit-config.yaml",
+            "line_start": 100,
+            "line_end": 145
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 149,
+            "line_end": 154
+          }
+        ],
+        "review_kind": "security",
+        "source_category": "semantic",
+        "source_severity": "medium",
+        "confidence": 0.93,
+        "confidence_reasoning": "The cited configurations use version tags for code that runs in developer or CI environments. No immutable commit SHA or package hash is specified."
+      }
+    ],
     "low_findings": [],
     "dangerous_patterns": [],
     "files_scanned": 6,
     "total_lines": 1527,
     "audit_model": "codex",
-    "audited_at": "2026-07-07T21:39:35.153Z",
-    "agent_auto_install_policy": "allowed",
+    "audited_at": "2026-07-23T06:28:32.276Z",
+    "agent_auto_install_policy": "confirmation_required",
     "manual_install_policy": "allowed"
   },
   "content": {
     "user_title": "Scan Python Code with Bandit",
-    "value_statement": "Python teams need a repeatable way to find insecure patterns before release. This skill guides Bandit scans, prioritizes results, and maps fixes to CWE and OWASP.",
+    "value_statement": "Python security flaws can reach production unnoticed. This skill guides Bandit scans, prioritization, CI integration, and remediation with CWE and OWASP references.",
     "seo_keywords": [
       "Claude",
       "Codex",
@@ -3153,118 +3247,113 @@
       "Python security scanning",
       "OWASP mapping",
       "CWE mapping",
-      "pre-commit security",
-      "SAST automation",
-      "security remediation"
+      "CI security gates",
+      "pre-commit security"
     ],
     "actual_capabilities": [
-      "Guides Bandit scans for Python files and directories.",
-      "Prioritizes findings by Bandit severity and confidence.",
-      "Maps Bandit test IDs to CWE and OWASP Top 10 categories.",
-      "Provides remediation guidance for SQL injection, command injection, weak cryptography, and deserialization issues.",
-      "Includes baseline Bandit and pre-commit configuration templates."
+      "Explains how to run Bandit against Python files, directories, and configured projects.",
+      "Organizes findings by Bandit severity, confidence, location, and CWE reference.",
+      "Provides remediation examples for injection, cryptography, deserialization, TLS, XML, and template risks.",
+      "Supplies baseline Bandit and pre-commit configuration examples.",
+      "Guides CI security gates and progressive enforcement for legacy projects."
     ],
     "limitations": [
-      "Only targets Python code that Bandit can parse.",
-      "Requires Bandit installation or permission to install it.",
-      "May miss business logic flaws and runtime-only vulnerabilities.",
-      "Bandit reports can expose code snippets unless no-code output is used."
+      "The referenced scripts/bandit_analyzer.py file is not included in this package.",
+      "Bandit cannot reliably detect business logic, authorization, or runtime flaws.",
+      "Results depend on the Bandit version, enabled tests, exclusions, and confidence thresholds.",
+      "Reports can expose source snippets or secrets unless code output and access are restricted."
     ],
     "use_cases": [
       {
-        "title": "Review Python pull requests",
-        "description": "Run Bandit before merge and focus review on high-confidence security findings.",
+        "title": "Triage a Python Feature",
+        "description": "Scan changed Python files, review high-confidence findings, and prepare focused fixes before code review.",
+        "target_user": "Python developer"
+      },
+      {
+        "title": "Establish an Application Baseline",
+        "description": "Inventory existing Bandit findings, map them to CWE and OWASP, and define remediation priorities.",
         "target_user": "Application security engineer"
       },
       {
-        "title": "Add security checks to commits",
-        "description": "Use the pre-commit template to block risky Python changes before they enter the repository.",
+        "title": "Add a CI Security Gate",
+        "description": "Configure Bandit or pre-commit checks that block selected severity levels while preserving reviewable reports.",
         "target_user": "DevOps engineer"
-      },
-      {
-        "title": "Triage legacy code risk",
-        "description": "Create a baseline scan, rank findings, and plan fixes by CWE and OWASP category.",
-        "target_user": "Security champion"
       }
     ],
     "prompt_templates": [
       {
-        "title": "Run a basic scan",
-        "scenario": "Beginner scan for a Python project.",
-        "prompt": "Scan this Python project with Bandit. Summarize high and medium findings with file locations and plain-language risk."
+        "title": "Run a Basic Scan",
+        "prompt": "Scan the Python files in [path] with Bandit. Use a read-only workflow, explain the command, and summarize findings by severity and confidence.",
+        "scenario": "First scan of a small Python project"
       },
       {
-        "title": "Prioritize findings",
-        "scenario": "Triage an existing Bandit report.",
-        "prompt": "Review this Bandit report. Group findings by priority, explain likely exploit impact, and identify false-positive candidates."
+        "title": "Review a Bandit Report",
+        "prompt": "Review the Bandit report at [path]. Prioritize exploitable findings, identify likely false positives, and recommend one verification step for each priority item.",
+        "scenario": "Triage an existing scan report"
       },
       {
-        "title": "Create a CI gate",
-        "scenario": "Add security scanning to pull requests.",
-        "prompt": "Design a Bandit CI gate for this repository. Recommend thresholds, exclusions, and failure rules for pull requests."
+        "title": "Design a CI Gate",
+        "prompt": "Design a Bandit gate for [repository]. Specify scan scope, thresholds, exclusions, report retention, failure behavior, and a safe exception review process.",
+        "scenario": "Introduce Bandit into continuous integration"
       },
       {
-        "title": "Plan remediation by framework",
-        "scenario": "Advanced compliance-focused remediation.",
-        "prompt": "Map these Bandit findings to CWE and OWASP categories. Create a remediation plan with owners, priority, and verification steps."
+        "title": "Build a Remediation Plan",
+        "prompt": "Analyze Bandit findings in [report]. Map each confirmed issue to CWE and OWASP, rank exploitability, propose fixes, and define validation tests.",
+        "scenario": "Advanced security remediation planning"
       }
     ],
     "output_examples": [
       {
-        "input": "Scan a Python service before a release.",
+        "input": "Review Bandit finding B602 in payments/tasks.py.",
         "output": [
-          "High priority: command execution uses shell input and needs argument lists with validation.",
-          "Medium priority: debug configuration should be disabled before production deployment.",
-          "Next step: rerun Bandit after fixes and store a no-code report for audit review."
+          "Priority: High because user input reaches a shell-enabled subprocess.",
+          "Recommended action: use a fixed executable with validated arguments and no shell.",
+          "Validation: test metacharacters, traversal values, and unexpected option-like inputs."
         ]
       },
       {
-        "input": "Triage a Bandit report for a pull request.",
+        "input": "Plan a Bandit gate for a legacy Python service.",
         "output": [
-          "The strongest finding is a possible SQL injection in the request path.",
-          "Two low-confidence findings appear tied to tests and can be reviewed for documented suppression.",
-          "The pull request should wait until the SQL issue is fixed or proven unreachable."
+          "Start by recording all findings without blocking builds.",
+          "Block new high-severity, high-confidence findings after the baseline is reviewed.",
+          "Store restricted reports and require documented approval for suppressions."
         ]
-      },
-      {
-        "input": "Prepare a security baseline for an old repository.",
-        "output": "The baseline should record current high and medium findings, block new high findings, and schedule remediation by OWASP category."
       }
     ],
     "best_practices": [
-      "Run scans in read-only or sandboxed environments when reviewing untrusted repositories.",
-      "Use no-code report output when findings may include secrets or sensitive source snippets.",
-      "Document every suppression with a clear security justification and review owner."
+      "Run scans with read-only source access and restrict report access.",
+      "Review exploitability before suppression, and document every accepted exception.",
+      "Pin Bandit, hooks, and CI actions to reviewed immutable versions."
     ],
     "anti_patterns": [
-      "Do not suppress broad Bandit rules without a reviewed exception process.",
-      "Do not treat a clean Bandit scan as proof that the application is secure.",
-      "Do not publish reports that include credentials, tokens, or private code snippets."
+      "Do not treat every Bandit finding as a confirmed vulnerability.",
+      "Do not suppress eval, pickle, or shell findings without a documented trust boundary.",
+      "Do not publish reports containing credentials or sensitive source snippets."
     ],
     "faq": [
       {
-        "question": "Does this skill run Bandit automatically?",
-        "answer": "It guides the agent through Bandit workflows. The user should approve package installation and scan commands."
+        "question": "Does this skill install Bandit automatically?",
+        "answer": "It provides installation commands and configurations. Confirm package installation and external downloads before execution."
       },
       {
-        "question": "Which languages are supported?",
-        "answer": "The workflow is focused on Python because Bandit analyzes Python source code."
+        "question": "Which languages can Bandit scan?",
+        "answer": "Bandit analyzes Python source code. Use other tools for non-Python languages."
       },
       {
-        "question": "Can it replace manual security review?",
-        "answer": "No. It helps find common static patterns, but reviewers must assess business logic and exploitability."
+        "question": "Does Bandit cover the complete OWASP Top 10?",
+        "answer": "No. It covers selected Python patterns, while business logic and authorization issues require additional review."
       },
       {
-        "question": "Can findings be mapped to compliance frameworks?",
-        "answer": "Yes. The included references map Bandit tests to CWE and OWASP Top 10 categories."
+        "question": "How should false positives be handled?",
+        "answer": "Verify data flow and exploitability first. Record a precise justification before adding a targeted suppression."
       },
       {
-        "question": "How should teams handle false positives?",
-        "answer": "Review low-confidence findings, document justified suppressions, and keep suppression rules narrow."
+        "question": "Can Bandit reports contain secrets?",
+        "answer": "Yes. Reports may include source snippets, so restrict access or disable code excerpts."
       },
       {
-        "question": "Can this be used in pre-commit hooks?",
-        "answer": "Yes. The skill includes a pre-commit configuration template with Bandit and supporting security hooks."
+        "question": "Is the enhanced analyzer included?",
+        "answer": "No. The package references scripts/bandit_analyzer.py, but that file is absent."
       }
     ]
   },
@@ -3274,12 +3363,6 @@
       "type": "dir",
       "path": "assets",
       "children": [
-        {
-          "name": ".gitkeep",
-          "type": "file",
-          "path": "assets/.gitkeep",
-          "lines": 10
-        },
         {
           "name": "bandit_config.yaml",
           "type": "file",
