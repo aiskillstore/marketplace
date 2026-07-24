@@ -64,6 +64,11 @@ def main(argv: list[str] | None = None) -> int:
                         help="Attach to a running process by pid or name.")
     target.add_argument("--all-processes", action="store_true",
                         help="Record every process (system-wide).")
+    parser.add_argument(
+        "--allow-system-wide-recording",
+        action="store_true",
+        help="Acknowledge that --all-processes may capture data from unrelated apps.",
+    )
 
     args = parser.parse_args(argv)
 
@@ -86,6 +91,22 @@ def main(argv: list[str] | None = None) -> int:
               file=sys.stderr)
         return 2
 
+    if args.all_processes and not args.allow_system_wide_recording:
+        print(
+            "error: --all-processes may capture sensitive data from unrelated apps. "
+            "Review the recording scope and pass --allow-system-wide-recording "
+            "to confirm.",
+            file=sys.stderr,
+        )
+        return 2
+
+    if args.allow_system_wide_recording and not args.all_processes:
+        print(
+            "error: --allow-system-wide-recording only applies with --all-processes.",
+            file=sys.stderr,
+        )
+        return 2
+
     output = args.output or Path.cwd() / _default_trace_name(args.template)
     if output.exists():
         print(f"error: output already exists: {output}", file=sys.stderr)
@@ -105,7 +126,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.time_limit:
         stop_hints.append(f"after {args.time_limit}")
     print(f"[record] stop via: {', '.join(stop_hints)}", flush=True)
-    print(f"[record] cmd: {' '.join(_shell_quote(c) for c in cmd)}", flush=True)
+    print(f"[record] cmd: {_format_command_for_display(cmd)}", flush=True)
 
     # Start xctrace in its own process group so we can signal cleanly.
     proc = subprocess.Popen(cmd, start_new_session=True)
@@ -246,6 +267,21 @@ def _shell_quote(s: str) -> str:
     if re.match(r"^[A-Za-z0-9_./:=@-]+$", s):
         return s
     return "'" + s.replace("'", "'\\''") + "'"
+
+
+def _format_command_for_display(cmd: list[str]) -> str:
+    """Render a command for logs without exposing launched-app env values."""
+    display: list[str] = []
+    redact_next = False
+    for arg in cmd:
+        if redact_next:
+            key = arg.split("=", 1)[0]
+            display.append(f"{key}=<redacted>" if key else "<redacted>")
+            redact_next = False
+            continue
+        display.append(arg)
+        redact_next = arg == "--env"
+    return " ".join(_shell_quote(arg) for arg in display)
 
 
 if __name__ == "__main__":

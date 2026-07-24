@@ -10,6 +10,21 @@ The bundled `scripts/record_trace.py` wraps `xctrace record` with:
 - **Manual stop** via Ctrl+C, a stop-file, or `--time-limit`.
 - JSON discovery for devices and templates.
 - Normal Python exit codes so an agent can orchestrate.
+- Redacted command logging for values passed through `--env`.
+- An explicit acknowledgement gate for system-wide recordings.
+
+## Privacy and consent
+
+Prefer `--attach` or `--launch`, which limits collection to the app being
+diagnosed. A system-wide recording can capture activity and metadata from
+unrelated applications. Before using `--all-processes`, explain that scope to
+the user and obtain their explicit approval. Then pass
+`--allow-system-wide-recording` to record that acknowledgement in the command.
+
+Values passed through `--env KEY=VALUE` are forwarded to `xctrace`, but the
+wrapper redacts each value from its displayed command. Avoid placing secrets on
+command lines when a safer launch configuration is available, because other
+local process-inspection tools may still expose process arguments.
 
 ## Typical flows
 
@@ -105,6 +120,14 @@ the user to connect/unlock/trust the device before recording.
 
 For ad-hoc hang hunting on any target, `Time Profiler` or
 `Animation Hitches` alone may be enough.
+
+For an explicitly approved system-wide recording:
+
+```bash
+python3 "${SKILL_DIR}/scripts/record_trace.py" \
+  --all-processes --allow-system-wide-recording \
+  --time-limit 30s --output ~/Desktop/system-wide.trace
+```
 
 ## Chaining into analysis
 
