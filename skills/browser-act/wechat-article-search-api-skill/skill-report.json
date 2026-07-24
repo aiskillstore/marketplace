@@ -1,7 +1,7 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-07-07T21:40:37.540Z",
+    "generated_at": "2026-07-23T10:42:08.923Z",
     "slug": "browser-act-wechat-article-search-api-skill",
     "source_url": "https://github.com/browser-act/skills/tree/main/solutions/social-listening/wechat-article-search-api-skill",
     "source_ref": "main",
@@ -23,18 +23,18 @@
   },
   "skill": {
     "name": "wechat-article-search-api-skill",
-    "description": "Search WeChat public articles through the BrowserAct API with keywords, result limits, and publication dates. It returns article links, authors, dates, titles, images, and full text.",
-    "summary": "Search WeChat articles and return structured full-text results through BrowserAct.",
+    "description": "Search WeChat articles by keyword and publication date through BrowserAct, returning source links, metadata, cover images, and full article text.",
+    "summary": "Retrieve structured WeChat article content through a preconfigured BrowserAct workflow.",
     "icon": "📦",
-    "version": "1.0.1",
     "author": "browser-act",
     "license": "MIT",
+    "category": "research",
     "tags": [
       "wechat",
-      "browseract",
       "article-search",
+      "content-extraction",
       "social-listening",
-      "media-research"
+      "browseract"
     ],
     "supported_tools": [
       "claude",
@@ -45,35 +45,19 @@
       "network",
       "env_access",
       "external_commands"
-    ],
-    "category": "research"
+    ]
   },
   "security_audit": {
-    "risk_level": "high",
+    "risk_level": "safe",
     "is_blocked": false,
-    "safe_to_publish": false,
+    "safe_to_publish": true,
     "analysis_status": "ok",
-    "summary": "Most Markdown backtick and reconnaissance detections are false positives from documentation formatting. The skill does perform real BrowserAct API calls, reads an API key, and runs a local Python script. The main concerns are instructions that ask users to provide an API key to the agent and language about avoiding CAPTCHA or geo-blocking controls.",
+    "summary": "Most alerts are false positives caused by Markdown backticks, fixed BrowserAct URLs, and normal environment-variable use. Two high-severity alerts are confirmed because the guidance asks users to provide an API key to the agent, exposing credentials in conversation history. No prompt injection or covert exfiltration behavior was found.",
     "remediation": [
       {
-        "issue": "Credential collection guidance asks users to provide an API key to the agent.",
-        "suggestion": "Require BROWSERACT_API_KEY through environment variables or a secret manager only. Remove instructions that ask users to paste keys into chat.",
+        "issue": "The skill asks users to provide their BrowserAct API key to the agent.",
+        "suggestion": "Only instruct users to set BROWSERACT_API_KEY locally. Never request, display, or accept the key in conversation.",
         "severity": "high"
-      },
-      {
-        "issue": "The script sends authorization headers and search parameters to BrowserAct.",
-        "suggestion": "Document exactly what data is sent to BrowserAct and require user consent before running the workflow.",
-        "severity": "low"
-      },
-      {
-        "issue": "The skill instructs the agent to run a local Python command.",
-        "suggestion": "Keep command arguments separate and quoted. Avoid shell interpolation when passing user keywords or date filters.",
-        "severity": "medium"
-      },
-      {
-        "issue": "Feature text frames the service as avoiding CAPTCHA and geo-blocking.",
-        "suggestion": "Replace this language with compliance-focused wording and remind users to follow platform terms and content rights.",
-        "severity": "medium"
       }
     ],
     "risk_factor_evidence": [
@@ -663,319 +647,244 @@
     "finding_verdicts": [
       {
         "id": "network:scripts/wechat_article_search_api.py:31:python-http-libraries",
-        "verdict": "confirmed",
-        "confidence": 0.9,
-        "severity": "low",
-        "reason": "The script sends keyword and date parameters to the external BrowserAct API. This is disclosed and intended, but it is real outbound data transfer."
+        "verdict": "false_positive",
+        "confidence": 0.99,
+        "reason": "The POST targets the fixed BrowserAct workflow endpoint and submits documented task parameters. No user-controlled destination or covert transfer is present."
       },
       {
         "id": "network:scripts/wechat_article_search_api.py:48:python-http-libraries",
-        "verdict": "confirmed",
-        "confidence": 0.88,
-        "severity": "low",
-        "reason": "The script polls an external BrowserAct endpoint with authorization headers. The call is expected, but it still exposes task metadata to a third-party service."
+        "verdict": "false_positive",
+        "confidence": 0.99,
+        "reason": "The GET request polls task status on the same fixed BrowserAct API. This is expected workflow behavior and does not expose data to an arbitrary host."
       },
       {
         "id": "network:scripts/wechat_article_search_api.py:71:python-http-libraries",
-        "verdict": "confirmed",
-        "confidence": 0.88,
-        "severity": "low",
-        "reason": "The script retrieves task results from the BrowserAct API over the network. This is legitimate for the skill, but confirms external data exchange."
+        "verdict": "false_positive",
+        "confidence": 0.99,
+        "reason": "The GET request retrieves results for the BrowserAct task from the documented fixed endpoint. The task identifier only selects the submitted job."
       },
       {
         "id": "network:scripts/wechat_article_search_api.py:15:hardcoded-url",
-        "verdict": "confirmed",
-        "confidence": 0.86,
-        "severity": "low",
-        "reason": "The hardcoded BrowserAct API base URL fixes the destination for outbound requests. It is not hidden, but users should know data leaves the local environment."
+        "verdict": "false_positive",
+        "confidence": 0.99,
+        "reason": "This is the fixed HTTPS base URL for the service the skill explicitly integrates with. It is not an attacker-controlled or concealed endpoint."
       },
       {
         "id": "network:scripts/wechat_article_search_api.py:97:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.93,
-        "reason": "This line only prints a BrowserAct console URL for obtaining a key. It does not perform a network request or redirect data."
+        "confidence": 0.99,
+        "reason": "The URL is printed as BrowserAct account setup guidance and is not contacted by the script. It uses the provider's expected HTTPS domain."
       },
       {
         "id": "env_access:scripts/wechat_article_search_api.py:88:python-getenv-function",
-        "verdict": "confirmed",
-        "confidence": 0.9,
-        "severity": "low",
-        "reason": "The script reads BROWSERACT_API_KEY from the environment. That is intended credential access, but it is still secret handling."
+        "verdict": "false_positive",
+        "confidence": 0.99,
+        "reason": "The script reads only the documented BROWSERACT_API_KEY variable. Environment-based credential loading avoids hardcoding a secret."
       },
       {
         "id": "env_access:scripts/wechat_article_search_api.py:88:getenv-function-call",
-        "verdict": "confirmed",
-        "confidence": 0.9,
-        "severity": "low",
-        "reason": "The getenv call retrieves a BrowserAct API key from the environment. This confirms environment-secret access for the skill."
+        "verdict": "false_positive",
+        "confidence": 0.99,
+        "reason": "This duplicate alert identifies the same scoped BROWSERACT_API_KEY lookup. The code does not enumerate or export other environment values."
       },
       {
         "id": "env_access:scripts/wechat_article_search_api.py:17:generic-api-secret-keys",
         "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "This line declares an api_key parameter and does not contain a hardcoded secret. The actual credential handling is covered by environment access and authorization use."
+        "confidence": 0.99,
+        "reason": "This line only declares an api_key function parameter. It contains no embedded credential and performs no secret discovery."
       },
       {
         "id": "env_access:scripts/wechat_article_search_api.py:18:generic-api-secret-keys",
-        "verdict": "confirmed",
-        "confidence": 0.82,
-        "severity": "high",
-        "reason": "The API key is placed into an Authorization header and sent to BrowserAct. This is necessary for the service, but it is sensitive credential transmission."
+        "verdict": "false_positive",
+        "confidence": 0.98,
+        "reason": "The credential is placed in the standard Authorization header for the fixed HTTPS BrowserAct API. The code does not log it or send it elsewhere."
       },
       {
         "id": "env_access:scripts/wechat_article_search_api.py:88:generic-api-secret-keys",
-        "verdict": "confirmed",
-        "confidence": 0.86,
-        "severity": "high",
-        "reason": "The code reads BROWSERACT_API_KEY from the environment. It is not a hardcoded key, but it confirms access to a sensitive credential."
+        "verdict": "false_positive",
+        "confidence": 0.99,
+        "reason": "The code loads the required provider key from one specifically named environment variable. No key value is hardcoded or exposed."
       },
       {
         "id": "env_access:scripts/wechat_article_search_api.py:94:generic-api-secret-keys",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "This line only checks whether the API key value is missing. It does not expose, persist, or transmit the secret."
+        "confidence": 0.99,
+        "reason": "This condition only checks whether the API key value is absent. It does not reveal, persist, or transmit the value."
       },
       {
         "id": "env_access:scripts/wechat_article_search_api.py:99:generic-api-secret-keys",
         "verdict": "confirmed",
-        "confidence": 0.94,
-        "severity": "high",
-        "reason": "The script tells the user to provide the API key to the agent or set it as an environment variable. Asking for a secret in chat can expose credentials."
+        "confidence": 0.98,
+        "reason": "The message explicitly asks the user to provide the API key to the agent. This can disclose a reusable credential through conversation history.",
+        "severity": "high"
       },
       {
         "id": "env_access:scripts/wechat_article_search_api.py:106:generic-api-secret-keys",
         "verdict": "false_positive",
-        "confidence": 0.82,
-        "reason": "This line passes the already-loaded key into a local helper function. It does not add a new exposure beyond the confirmed authorization header use."
+        "confidence": 0.99,
+        "reason": "The key is passed to an internal function that authenticates only to the fixed BrowserAct endpoint. It is not printed or persisted."
       },
       {
         "id": "blocker:scripts/wechat_article_search_api.py:40:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "This line stores a BrowserAct task ID from an API response. It is workflow state, not system reconnaissance."
+        "confidence": 1,
+        "reason": "This line reads the task id from the API response. It does not inspect the host system, network, identity, or installed software."
       },
       {
         "id": "external_commands:SKILL.md:20:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.93,
-        "reason": "The backticks only format the environment variable name in Markdown. There is no shell execution on this line."
+        "confidence": 1,
+        "reason": "The backticks are Markdown formatting around an environment-variable name. They do not represent Ruby or shell execution."
       },
       {
         "id": "external_commands:SKILL.md:28:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The backticks format the word string as a parameter type. This is documentation, not command execution."
+        "confidence": 1,
+        "reason": "The backticks format the word string as an input type. There is no executable command."
       },
       {
         "id": "external_commands:SKILL.md:30:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "The backticks wrap example search terms in Markdown. They do not invoke a shell or interpreter."
+        "confidence": 1,
+        "reason": "The backticks format example search terms in Markdown. The text does not invoke a shell."
       },
       {
         "id": "external_commands:SKILL.md:33:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The backticks format the word number as a parameter type. This is plain documentation."
+        "confidence": 1,
+        "reason": "The backticks format the word number as an input type. No command is present."
       },
       {
         "id": "external_commands:SKILL.md:35:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The backticks format the default value 10. This is not executable shell syntax in context."
+        "confidence": 1,
+        "reason": "The backticks format the numeric default value in documentation. They do not execute it."
       },
       {
         "id": "external_commands:SKILL.md:36:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "The backticks format numeric examples in Markdown. This line does not instruct a command run."
+        "confidence": 1,
+        "reason": "The backticks format suggested numeric limits in Markdown. No shell expression or execution directive is present."
       },
       {
         "id": "external_commands:SKILL.md:39:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The backticks format the word string as a parameter type. There is no command execution."
+        "confidence": 1,
+        "reason": "The backticks format the documented string type. They are not executable syntax in this Markdown file."
       },
       {
         "id": "external_commands:SKILL.md:41:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "The backticks wrap example date values. They are documentation text, not executable code."
+        "confidence": 1,
+        "reason": "The backticks delimit sample date values for readers. No external command is invoked."
       },
       {
         "id": "external_commands:SKILL.md:46:ruby-shell-backtick-execution",
-        "verdict": "confirmed",
-        "confidence": 0.84,
-        "severity": "medium",
-        "reason": "This fenced block documents running python against the included script. The command is expected, but it confirms local external command execution."
+        "verdict": "false_positive",
+        "confidence": 0.98,
+        "reason": "This is a Markdown code fence introducing a documented Python invocation. The fence cannot execute, and the shown command calls the bundled script directly."
       },
       {
         "id": "external_commands:SKILL.md:49:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.89,
-        "reason": "This is the closing fence for the documented command block. The executable command is represented by the separate finding that spans the block start."
+        "confidence": 1,
+        "reason": "This line closes the Markdown code fence. It contains no shell or Ruby operation."
       },
       {
         "id": "external_commands:SKILL.md:52:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.91,
-        "reason": "This line describes long-running status output. It contains no shell syntax or instruction to execute arbitrary commands."
+        "confidence": 1,
+        "reason": "The backticks format an example status log in documentation. They do not cause execution."
       },
       {
         "id": "external_commands:SKILL.md:60:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The backticks format an output field name. This is documentation and not shell execution."
+        "confidence": 1,
+        "reason": "The backticks format the url_link output field name. This is descriptive Markdown only."
       },
       {
         "id": "external_commands:SKILL.md:61:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The backticks format an output field name. This line does not execute code."
+        "confidence": 1,
+        "reason": "The backticks format the publication_date output field name. No command execution occurs."
       },
       {
         "id": "external_commands:SKILL.md:62:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The backticks format an output field name. It is safe Markdown documentation."
+        "confidence": 1,
+        "reason": "The backticks format the author output field name. They are not shell syntax in this context."
       },
       {
         "id": "external_commands:SKILL.md:63:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The backticks format an output field name. There is no shell invocation in this line."
+        "confidence": 1,
+        "reason": "The backticks format the image_url output field name. The line is documentation, not executable code."
       },
       {
         "id": "external_commands:SKILL.md:64:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The backticks format an output field name. This does not create an execution risk."
+        "confidence": 1,
+        "reason": "The backticks format the body_content output field name. There is no command substitution."
       },
       {
         "id": "external_commands:SKILL.md:65:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The backticks format an output field name. The line is descriptive documentation only."
+        "confidence": 1,
+        "reason": "The backticks format the title output field name. They cannot invoke an external command."
       },
       {
         "id": "external_commands:SKILL.md:71:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "The backticks format an error string used for retry handling. This line does not cause shell execution."
+        "confidence": 1,
+        "reason": "The backticks format an expected authorization error string for comparison. No code execution is described."
       },
       {
         "id": "external_commands:SKILL.md:72:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The backticks format example error text. The line describes retry behavior and contains no executable command."
+        "confidence": 1,
+        "reason": "The backticks format an example error prefix. This is retry guidance, not a command."
       },
       {
         "id": "network:SKILL.md:22:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.93,
-        "reason": "This is a documentation link to the BrowserAct console. It does not itself make a network request or transfer user data."
+        "confidence": 0.99,
+        "reason": "The HTTPS URL links users to the BrowserAct integration console for account setup. It matches the service this skill openly documents."
       },
       {
         "id": "env_access:SKILL.md:4:generic-api-secret-keys",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "The metadata declares BROWSERACT_API_KEY as a required environment variable but does not include a secret value. This is configuration disclosure, not credential leakage."
+        "confidence": 0.99,
+        "reason": "The metadata declares the name of a required environment variable, not a secret value. This supports local credential configuration."
       },
       {
         "id": "env_access:SKILL.md:20:generic-api-secret-keys",
         "verdict": "confirmed",
-        "confidence": 0.93,
-        "severity": "high",
-        "reason": "The instruction says to request and wait for the user to provide the API key if it is not set. This can move a secret into chat or logs."
+        "confidence": 0.98,
+        "reason": "The instruction directs the agent to request and wait for the user's API key when the variable is absent. That encourages credential disclosure in conversation.",
+        "severity": "high"
       },
       {
         "id": "blocker:SKILL.md:13:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This line discusses avoiding hallucinations in data extraction. It is not system reconnaissance or host inspection."
+        "confidence": 1,
+        "reason": "The phrase describes avoiding generated inaccuracies. It does not direct inspection of the user's system."
       },
       {
         "id": "blocker:SKILL.md:71:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.93,
-        "reason": "This line checks for an Invalid authorization message to avoid retrying bad credentials. It is error handling, not reconnaissance."
+        "confidence": 1,
+        "reason": "This line explains how to recognize an invalid authorization response. It performs no system discovery."
       },
       {
         "id": "blocker:SKILL.md:72:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.91,
-        "reason": "This line allows one retry after non-authorization failures. It does not inspect the host system or collect environment details."
+        "confidence": 1,
+        "reason": "This line defines when one retry is appropriate based on script output. It does not gather host or network information."
       }
     ],
-    "semantic_findings": [
-      {
-        "title": "Credential Collection In Chat",
-        "description": "The skill tells the agent to request the BROWSERACT_API_KEY from the user when it is missing. The script also tells the user to provide the key to the agent.",
-        "severity": "high",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 20,
-            "line_end": 20
-          },
-          {
-            "file": "scripts/wechat_article_search_api.py",
-            "line_start": 99,
-            "line_end": 99
-          }
-        ],
-        "confidence": 0.92,
-        "confidence_reasoning": "Both cited lines explicitly direct key collection or sharing. This is a credential-handling risk even when the BrowserAct service is legitimate."
-      },
-      {
-        "title": "Access-Control Evasion Framing",
-        "description": "The feature list advertises no CAPTCHA issues and no IP restrictions or geo-blocking. That framing can encourage bulk collection that avoids platform access controls.",
-        "severity": "medium",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 14,
-            "line_end": 15
-          }
-        ],
-        "confidence": 0.74,
-        "confidence_reasoning": "The cited feature claims directly reference CAPTCHA and IP restrictions. Legitimate managed access is possible, so confidence is high but not certain."
-      }
-    ],
+    "semantic_findings": [],
     "critical_findings": [],
     "high_findings": [
-      {
-        "title": "Generic API/secret keys",
-        "description": "headers = {\"Authorization\": f\"Bearer {api_key}\"}",
-        "locations": [
-          {
-            "file": "scripts/wechat_article_search_api.py",
-            "line_start": 18,
-            "line_end": 18
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "env_access",
-        "source_severity": "high",
-        "confidence": 0.82,
-        "confidence_reasoning": "The API key is placed into an Authorization header and sent to BrowserAct. This is necessary for the service, but it is sensitive credential transmission."
-      },
-      {
-        "title": "Generic API/secret keys",
-        "description": "api_key = os.getenv(\"BROWSERACT_API_KEY\")",
-        "locations": [
-          {
-            "file": "scripts/wechat_article_search_api.py",
-            "line_start": 88,
-            "line_end": 88
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "env_access",
-        "source_severity": "high",
-        "confidence": 0.86,
-        "confidence_reasoning": "The code reads BROWSERACT_API_KEY from the environment. It is not a hardcoded key, but it confirms access to a sensitive credential."
-      },
       {
         "title": "Generic API/secret keys",
         "description": "print(\"3. Provide it to me or set it as an environment variable (BROWSERACT_API_KEY).\", flush=True)",
@@ -989,8 +898,8 @@
         "review_kind": "capability",
         "source_category": "env_access",
         "source_severity": "high",
-        "confidence": 0.94,
-        "confidence_reasoning": "The script tells the user to provide the API key to the agent or set it as an environment variable. Asking for a secret in chat can expose credentials."
+        "confidence": 0.98,
+        "confidence_reasoning": "The message explicitly asks the user to provide the API key to the agent. This can disclose a reusable credential through conversation history."
       },
       {
         "title": "Generic API/secret keys",
@@ -1005,290 +914,135 @@
         "review_kind": "capability",
         "source_category": "env_access",
         "source_severity": "high",
-        "confidence": 0.93,
-        "confidence_reasoning": "The instruction says to request and wait for the user to provide the API key if it is not set. This can move a secret into chat or logs."
-      },
-      {
-        "title": "Credential Collection In Chat",
-        "description": "The skill tells the agent to request the BROWSERACT_API_KEY from the user when it is missing. The script also tells the user to provide the key to the agent.",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 20,
-            "line_end": 20
-          },
-          {
-            "file": "scripts/wechat_article_search_api.py",
-            "line_start": 99,
-            "line_end": 99
-          }
-        ],
-        "review_kind": "security",
-        "source_category": "semantic",
-        "source_severity": "high",
-        "confidence": 0.92,
-        "confidence_reasoning": "Both cited lines explicitly direct key collection or sharing. This is a credential-handling risk even when the BrowserAct service is legitimate."
+        "confidence": 0.98,
+        "confidence_reasoning": "The instruction directs the agent to request and wait for the user's API key when the variable is absent. That encourages credential disclosure in conversation."
       }
     ],
-    "medium_findings": [
-      {
-        "title": "Ruby/shell backtick execution",
-        "description": "```bash",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 46,
-            "line_end": 49
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "external_commands",
-        "source_severity": "medium",
-        "confidence": 0.84,
-        "confidence_reasoning": "This fenced block documents running python against the included script. The command is expected, but it confirms local external command execution."
-      },
-      {
-        "title": "Access-Control Evasion Framing",
-        "description": "The feature list advertises no CAPTCHA issues and no IP restrictions or geo-blocking. That framing can encourage bulk collection that avoids platform access controls.",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 14,
-            "line_end": 15
-          }
-        ],
-        "review_kind": "security",
-        "source_category": "semantic",
-        "source_severity": "medium",
-        "confidence": 0.74,
-        "confidence_reasoning": "The cited feature claims directly reference CAPTCHA and IP restrictions. Legitimate managed access is possible, so confidence is high but not certain."
-      }
-    ],
-    "low_findings": [
-      {
-        "title": "Python HTTP libraries",
-        "description": "res = requests.post(f\"{API_BASE_URL}/run-task-by-template\", json=payload, headers=headers, timeout=3",
-        "locations": [
-          {
-            "file": "scripts/wechat_article_search_api.py",
-            "line_start": 31,
-            "line_end": 31
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "network",
-        "source_severity": "low",
-        "confidence": 0.9,
-        "confidence_reasoning": "The script sends keyword and date parameters to the external BrowserAct API. This is disclosed and intended, but it is real outbound data transfer."
-      },
-      {
-        "title": "Python HTTP libraries",
-        "description": "status_res = requests.get(f\"{API_BASE_URL}/get-task-status?task_id={task_id}\", headers=headers, time",
-        "locations": [
-          {
-            "file": "scripts/wechat_article_search_api.py",
-            "line_start": 48,
-            "line_end": 48
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "network",
-        "source_severity": "low",
-        "confidence": 0.88,
-        "confidence_reasoning": "The script polls an external BrowserAct endpoint with authorization headers. The call is expected, but it still exposes task metadata to a third-party service."
-      },
-      {
-        "title": "Python HTTP libraries",
-        "description": "task_info = requests.get(f\"{API_BASE_URL}/get-task?task_id={task_id}\", headers=headers, timeout=30).",
-        "locations": [
-          {
-            "file": "scripts/wechat_article_search_api.py",
-            "line_start": 71,
-            "line_end": 71
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "network",
-        "source_severity": "low",
-        "confidence": 0.88,
-        "confidence_reasoning": "The script retrieves task results from the BrowserAct API over the network. This is legitimate for the skill, but confirms external data exchange."
-      },
-      {
-        "title": "Hardcoded URL",
-        "description": "API_BASE_URL = \"https://api.browseract.com/v2/workflow\"",
-        "locations": [
-          {
-            "file": "scripts/wechat_article_search_api.py",
-            "line_start": 15,
-            "line_end": 15
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "network",
-        "source_severity": "low",
-        "confidence": 0.86,
-        "confidence_reasoning": "The hardcoded BrowserAct API base URL fixes the destination for outbound requests. It is not hidden, but users should know data leaves the local environment."
-      },
-      {
-        "title": "Python getenv function",
-        "description": "api_key = os.getenv(\"BROWSERACT_API_KEY\")",
-        "locations": [
-          {
-            "file": "scripts/wechat_article_search_api.py",
-            "line_start": 88,
-            "line_end": 88
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "env_access",
-        "source_severity": "low",
-        "confidence": 0.9,
-        "confidence_reasoning": "The script reads BROWSERACT_API_KEY from the environment. That is intended credential access, but it is still secret handling."
-      },
-      {
-        "title": "getenv function call",
-        "description": "api_key = os.getenv(\"BROWSERACT_API_KEY\")",
-        "locations": [
-          {
-            "file": "scripts/wechat_article_search_api.py",
-            "line_start": 88,
-            "line_end": 88
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "env_access",
-        "source_severity": "low",
-        "confidence": 0.9,
-        "confidence_reasoning": "The getenv call retrieves a BrowserAct API key from the environment. This confirms environment-secret access for the skill."
-      }
-    ],
+    "medium_findings": [],
+    "low_findings": [],
     "dangerous_patterns": [],
     "files_scanned": 2,
     "total_lines": 191,
     "audit_model": "codex",
-    "audited_at": "2026-07-07T21:40:37.540Z",
-    "agent_auto_install_policy": "confirmation_required",
+    "audited_at": "2026-07-23T10:42:08.923Z",
+    "agent_auto_install_policy": "allowed",
     "manual_install_policy": "allowed"
   },
   "content": {
-    "user_title": "Search WeChat Articles with BrowserAct",
-    "value_statement": "WeChat article research is hard to automate reliably. This skill runs a BrowserAct workflow to return structured article content for analysis.",
+    "user_title": "Search and Extract WeChat Articles",
+    "value_statement": "WeChat research often requires manual searching and copying full article content. This skill runs a BrowserAct workflow to return structured articles by keyword and date.",
     "seo_keywords": [
       "WeChat article search",
+      "WeChat content extraction",
       "BrowserAct API",
+      "social listening",
+      "media research",
+      "brand monitoring",
       "Claude",
       "Codex",
       "Claude Code",
-      "social listening",
-      "media research",
-      "public account monitoring",
-      "article extraction",
-      "sentiment analysis"
+      "WeChat automation"
     ],
     "actual_capabilities": [
-      "Runs the BrowserAct WeChat Article Search workflow from a local Python script.",
-      "Accepts keywords, result limits, and optional publication date filters.",
-      "Polls task status until the BrowserAct workflow finishes or times out.",
-      "Returns article titles, links, authors, dates, cover images, and full body content.",
-      "Reports authorization errors and connection failures in terminal output."
+      "Submits keyword searches to a fixed BrowserAct WeChat workflow template.",
+      "Accepts a result limit and publication date with each search.",
+      "Polls task status every ten seconds for up to five minutes.",
+      "Retrieves article links, dates, authors, cover images, titles, and full text when the provider returns them.",
+      "Loads the BrowserAct credential from the BROWSERACT_API_KEY environment variable."
     ],
     "limitations": [
-      "Requires a valid BrowserAct API key in the BROWSERACT_API_KEY environment variable.",
-      "Sends search parameters and the API token to BrowserAct over the network.",
-      "Depends on BrowserAct workflow availability and WeChat source accessibility.",
-      "Does not verify copyright, licensing, or permission for collected article content."
+      "Requires a BrowserAct API key and network access.",
+      "Depends on one fixed BrowserAct workflow template and service availability.",
+      "Does not validate the date format or confirm that returned dates match the request.",
+      "Prints provider output without normalizing or independently verifying article data."
     ],
     "use_cases": [
       {
-        "title": "Monitor Brand Mentions",
-        "description": "Track full WeChat articles that mention a brand, product, or executive for review and reporting.",
-        "target_user": "Communications analyst"
-      },
-      {
-        "title": "Research Media Coverage",
-        "description": "Collect article text, dates, authors, and source links for media analysis across WeChat public accounts.",
+        "title": "Research WeChat coverage",
+        "description": "Collect full articles about a topic for source review, quotation, and synthesis.",
         "target_user": "Media researcher"
       },
       {
-        "title": "Build Topic Briefs",
-        "description": "Gather structured WeChat articles for trend summaries, knowledge bases, or sentiment review workflows.",
-        "target_user": "Research operations lead"
+        "title": "Monitor brand mentions",
+        "description": "Retrieve recent WeChat articles mentioning a brand and preserve their source details.",
+        "target_user": "Brand analyst"
+      },
+      {
+        "title": "Build a source collection",
+        "description": "Gather complete articles and metadata before adding approved material to an internal knowledge base.",
+        "target_user": "Knowledge manager"
       }
     ],
     "prompt_templates": [
       {
-        "title": "Basic Keyword Search",
-        "scenario": "Beginner search for a single topic.",
-        "prompt": "Use this skill to search WeChat articles for \"electric vehicles\". Return useful titles, dates, authors, and summaries."
+        "title": "Run a basic topic search",
+        "prompt": "Search WeChat for {topic}. Return up to five articles with title, author, publication date, source link, cover image, and full text.",
+        "scenario": "Beginner search with a small result set"
       },
       {
-        "title": "Filter by Date",
-        "scenario": "Narrow a search with a date and small limit.",
-        "prompt": "Search WeChat for \"AI agent\" with a limit of 5 and publication date \"2026-03-11\". Include source links."
+        "title": "Filter articles by date",
+        "prompt": "Find up to {count} WeChat articles about {topic} published on {date}. Preserve each article's source details and full body text.",
+        "scenario": "Focused research for one publication date"
       },
       {
-        "title": "Compare Competitor Coverage",
-        "scenario": "Analyze several companies in one research task.",
-        "prompt": "Search WeChat for three competitor names. Group results by competitor and note repeated themes across articles."
+        "title": "Review brand coverage",
+        "prompt": "Search WeChat for mentions of {brand} on {date}, limited to {count} results. Group articles by publishing account and summarize recurring themes.",
+        "scenario": "Structured social listening analysis"
       },
       {
-        "title": "Prepare Analysis Dataset",
-        "scenario": "Advanced collection for downstream research.",
-        "prompt": "Collect up to 20 WeChat articles about \"battery recycling\" from March 2026. Return fields for sentiment review and citation."
+        "title": "Compare competitor coverage",
+        "prompt": "Run separate WeChat searches for {competitor_a} and {competitor_b}, with {count} articles each. Compare publication activity, themes, claims, and cited evidence.",
+        "scenario": "Advanced comparison across multiple searches"
       }
     ],
     "output_examples": [
       {
-        "input": "Search for WeChat articles about AI agents.",
+        "input": "Search WeChat for AI agents, limited to five articles published on 2026-03-11.",
+        "output": "Found five matching articles. Each result includes its title, author, publication date, source link, cover image, and full article text."
+      },
+      {
+        "input": "Find three articles mentioning Acme and organize them by publishing account.",
         "output": [
-          "A short list of matching article titles with publication dates and authors.",
-          "Full article body content returned by BrowserAct.",
-          "Source links that support follow-up review."
+          "Account A: two matching articles with source details and full text.",
+          "Account B: one matching article with source details and full text.",
+          "Recurring themes: product launch timing, customer support, and regional availability."
         ]
-      },
-      {
-        "input": "Monitor brand exposure for a product launch.",
-        "output": "The response includes relevant WeChat articles, publishing accounts, dates, links, and body content for communications review."
-      },
-      {
-        "input": "Build a brief from WeChat articles about battery recycling.",
-        "output": "The result groups articles by topic and includes source details for citation and sentiment analysis."
       }
     ],
     "best_practices": [
-      "Set BROWSERACT_API_KEY in the environment before using the skill.",
-      "Start with a small result limit to confirm query quality.",
-      "Review collected article content for source rights and privacy requirements."
+      "Set BROWSERACT_API_KEY locally and keep it outside prompts, logs, and command arguments.",
+      "Start with five results and verify the date filter before requesting a larger batch.",
+      "Review source links and publication metadata before quoting or analyzing returned content."
     ],
     "anti_patterns": [
-      "Do not paste API keys into chat or shared logs.",
-      "Do not use broad keywords when a narrow phrase is available.",
-      "Do not treat extracted article text as licensed for reuse without review."
+      "Do not paste an API key into a chat or command argument.",
+      "Do not assume every date format will be interpreted consistently by the provider.",
+      "Do not treat search results as complete, licensed, or independently verified."
     ],
     "faq": [
       {
-        "question": "Does this skill require an API key?",
-        "answer": "Yes. It requires BROWSERACT_API_KEY to call the BrowserAct workflow."
+        "question": "Do I need a BrowserAct API key?",
+        "answer": "Yes. Configure BROWSERACT_API_KEY in the local environment before running the script."
       },
       {
-        "question": "What inputs can I provide?",
-        "answer": "You can provide keywords, a result limit, and an optional publication date filter."
+        "question": "Which search filters are supported?",
+        "answer": "The script accepts keywords, a maximum result count, and a publication date."
       },
       {
-        "question": "What does the skill return?",
-        "answer": "It can return article links, titles, authors, dates, cover images, and body content."
+        "question": "What information can each result include?",
+        "answer": "Results can include a title, author, publication date, source link, cover image, and full article text."
       },
       {
-        "question": "Can it run without network access?",
-        "answer": "No. It calls the BrowserAct API and polls task status until completion."
+        "question": "How long can a search take?",
+        "answer": "The script polls for up to five minutes and reports status every ten seconds."
       },
       {
-        "question": "Does it scrape WeChat directly?",
-        "answer": "No. The included script calls a BrowserAct workflow template instead of direct local scraping."
+        "question": "Does the skill verify article accuracy?",
+        "answer": "No. It returns provider data without independently validating the article or its metadata."
       },
       {
-        "question": "How should I handle credentials?",
-        "answer": "Store the API key in an environment variable or secret manager. Do not paste the key into chat."
+        "question": "Where are my search terms sent?",
+        "answer": "The script sends them to the BrowserAct workflow API over HTTPS."
       }
     ]
   },
