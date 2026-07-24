@@ -1,7 +1,7 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-07-07T19:06:30.066Z",
+    "generated_at": "2026-07-23T05:45:22.369Z",
     "slug": "am-will-markdown-url",
     "source_url": "https://github.com/am-will/codex-skills/tree/main/skills/markdown-url/",
     "source_ref": "main",
@@ -23,18 +23,17 @@
   },
   "skill": {
     "name": "markdown-url",
-    "description": "Converts suitable web URLs into markdown.new links so agents can read cleaner Markdown views for summaries, notes, and documentation review.",
-    "summary": "Convert read-only web pages into markdown.new links for cleaner Markdown extraction.",
+    "description": "Convert HTTP and HTTPS destinations into markdown.new URLs for cleaner reading and text extraction.",
+    "summary": "Create markdown.new proxy links for readable web content.",
     "icon": "📦",
-    "version": "1.0.1",
     "author": "am-will",
     "license": "MIT",
+    "category": "documentation",
     "tags": [
       "markdown",
-      "web-browsing",
-      "url-rewriting",
-      "documentation",
-      "research"
+      "url-conversion",
+      "web-reading",
+      "content-extraction"
     ],
     "supported_tools": [
       "claude",
@@ -45,30 +44,19 @@
       "network",
       "filesystem",
       "external_commands"
-    ],
-    "category": "research"
+    ]
   },
   "security_audit": {
     "risk_level": "medium",
     "is_blocked": false,
     "safe_to_publish": true,
     "analysis_status": "ok",
-    "summary": "The main confirmed issue is the intentional use of markdown.new as a third-party proxy for read-only web pages. The filesystem finding is a false positive because the helper rejects non-HTTP schemes. The shell execution findings are Markdown formatting or a visible optional CLI example.",
+    "summary": "Most external-command and filesystem detections are false positives caused by Markdown formatting and a URL-scheme regex. The skill intentionally routes suitable URLs through markdown.new, creating a third-party network dependency that may expose destination URLs. No prompt injection or command execution behavior was found.",
     "remediation": [
       {
-        "issue": "Third-party URL and content disclosure",
-        "suggestion": "Clearly warn users that markdown.new may receive destination URLs and page content. Require confirmation for non-public or sensitive pages.",
+        "issue": "Destination URLs are disclosed to a third-party proxy.",
+        "suggestion": "Warn users before proxying and reject URLs containing credentials, sensitive query parameters, private hosts, or confidential resource identifiers.",
         "severity": "medium"
-      },
-      {
-        "issue": "Broad required routing language",
-        "suggestion": "Make the routing requirement conditional on public, read-only content and user consent. Keep direct browsing as the default for sensitive workflows.",
-        "severity": "low"
-      },
-      {
-        "issue": "CLI helper lacks sensitivity guidance",
-        "suggestion": "Add helper output or documentation that reminds users not to route private, authenticated, or confidential URLs through the proxy.",
-        "severity": "low"
       }
     ],
     "risk_factor_evidence": [
@@ -469,164 +457,161 @@
       {
         "id": "network:scripts/markdown-url.js:21:hardcoded-url",
         "verdict": "confirmed",
-        "confidence": 0.82,
-        "severity": "low",
-        "reason": "The helper constructs a markdown.new URL, which intentionally routes requested pages through an external service. It does not fetch the URL itself, so the risk is limited to disclosure when the rewritten URL is used."
+        "confidence": 0.92,
+        "reason": "The helper deliberately embeds destinations under markdown.new. Visiting its output exposes the destination URL to an external service, although the script itself makes no request.",
+        "severity": "low"
       },
       {
         "id": "filesystem:scripts/markdown-url.js:12:hidden-file-access",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The regex rejects non-HTTP schemes such as file: rather than opening them. No filesystem API or local file read is present at this location."
+        "confidence": 1,
+        "reason": "This line is a regular expression that rejects non-HTTP URL schemes. It does not read, write, enumerate, or reference hidden files."
       },
       {
         "id": "external_commands:SKILL.md:14:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "The backticks are Markdown inline-code formatting around a URL. They do not invoke a shell or perform Ruby-style backtick execution."
+        "confidence": 0.99,
+        "reason": "The backticks format a URL as inline Markdown. They do not invoke Ruby, a shell, or any executable."
       },
       {
         "id": "external_commands:SKILL.md:20:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "The backticks only format the https:// scheme in prose. There is no executable command or shell interpolation on this line."
+        "confidence": 0.99,
+        "reason": "The backticks format the HTTPS scheme in prose. No command is present or executed."
       },
       {
         "id": "external_commands:SKILL.md:21:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "The backticks are Markdown formatting for the markdown.new prefix. This is documentation text, not command execution."
+        "confidence": 0.99,
+        "reason": "The backticks format the markdown.new URL in documentation. This is not shell substitution or code execution."
       },
       {
         "id": "external_commands:SKILL.md:25:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "The line contains formatted URL examples inside Markdown. No shell command is executed or suggested at this location."
+        "confidence": 0.99,
+        "reason": "Both backtick spans are illustrative URLs in Markdown. They contain no executable command."
       },
       {
         "id": "external_commands:SKILL.md:26:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "The line is a Markdown-formatted URL rewrite example. It is not Ruby or shell backtick execution."
+        "confidence": 0.99,
+        "reason": "Both backtick spans are URL examples with a query and fragment. They do not execute through a shell."
       },
       {
         "id": "external_commands:SKILL.md:27:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "The backticks delimit a documentation example. There is no executable command or user-input shell interpolation."
+        "confidence": 0.99,
+        "reason": "The backticks delimit input and output URL examples. No command execution occurs."
       },
       {
         "id": "external_commands:SKILL.md:33:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "The backticks format the service name in a workflow step. The line contains no shell syntax or command invocation."
+        "confidence": 0.99,
+        "reason": "The service name is formatted as inline code. The line describes URL rewriting and contains no executable command."
       },
       {
         "id": "external_commands:SKILL.md:38:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "The backticks are inline-code formatting around markdown.new. This prose does not execute commands."
+        "confidence": 0.99,
+        "reason": "The backticks format a service name in prose. There is no shell or Ruby syntax to execute."
       },
       {
         "id": "external_commands:SKILL.md:42:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "The line uses Markdown formatting for a service name and gives policy guidance. It does not contain shell execution."
+        "confidence": 0.99,
+        "reason": "This is a prose policy with inline Markdown formatting. It does not request command execution."
       },
       {
         "id": "external_commands:SKILL.md:49:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "The backticks are Markdown formatting in a policy sentence. There is no command or subprocess execution."
+        "confidence": 0.99,
+        "reason": "The backticks only identify markdown.new within a fallback instruction. No external command appears."
       },
       {
         "id": "external_commands:SKILL.md:58:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "The inline code marks the markdown.new service name. It is documentation text, not a shell backtick expression."
+        "confidence": 0.99,
+        "reason": "The service name is inline Markdown in a failure-handling instruction. It is not a shell expression."
       },
       {
         "id": "external_commands:SKILL.md:60:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "The backticks format HTTP status codes in Markdown. No external command is present."
+        "confidence": 0.99,
+        "reason": "The backticks format HTTP status codes. Status-code text cannot execute a command."
       },
       {
         "id": "external_commands:SKILL.md:67:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "The backticks format the markdown.new name in prose. This is not command execution."
+        "confidence": 0.99,
+        "reason": "This line uses inline formatting for the service name. It contains no shell command."
       },
       {
         "id": "external_commands:SKILL.md:69:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "The backticks mark the service name inside fallback guidance. There is no shell command or executable syntax."
+        "confidence": 0.99,
+        "reason": "The service name is formatted as inline code within prose. No executable content is present."
       },
       {
         "id": "external_commands:SKILL.md:74:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "The backticks format examples of local paths and schemes. The text explicitly says not to rewrite local paths or non-HTTP schemes."
+        "confidence": 0.99,
+        "reason": "The backticks mark a local-path example. The instruction explicitly says not to rewrite it and does not execute it."
       },
       {
         "id": "external_commands:SKILL.md:80:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "This starts a fenced bash example for an optional local helper command. It is visible documentation with a fixed sample URL, not hidden shell execution."
+        "confidence": 0.97,
+        "reason": "This is a fenced Bash example invoking the bundled Node helper with a fixed demonstration URL. It uses no shell interpolation or untrusted command construction."
       },
       {
         "id": "network:SKILL.md:14:hardcoded-url",
         "verdict": "confirmed",
-        "confidence": 0.86,
-        "severity": "low",
-        "reason": "The instruction routes browsing through https://markdown.new/, which is an external service. This can disclose requested URLs and page content when used."
+        "confidence": 0.98,
+        "reason": "The instruction requires routing web destinations through markdown.new. This creates an intentional external network dependency and discloses visited destination URLs.",
+        "severity": "low"
       },
       {
         "id": "network:SKILL.md:20:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The matched text is only the https:// scheme recommendation. It does not identify an external host or cause a network request."
+        "confidence": 0.99,
+        "reason": "The line mentions the HTTPS scheme without naming a destination host or initiating a request. It is URL-normalization guidance."
       },
       {
         "id": "network:SKILL.md:21:hardcoded-url",
         "verdict": "confirmed",
-        "confidence": 0.86,
-        "severity": "low",
-        "reason": "The line instructs agents to prefix destinations with https://markdown.new/. That creates a privacy-relevant dependency on a third-party proxy."
+        "confidence": 0.98,
+        "reason": "The line directs the agent to prefix destinations with the external markdown.new service. Following it routes subsequent browsing through that third party.",
+        "severity": "low"
       },
       {
         "id": "network:SKILL.md:25:hardcoded-url",
-        "verdict": "confirmed",
-        "confidence": 0.75,
-        "severity": "low",
-        "reason": "The example demonstrates routing a URL through markdown.new. It is not malicious by itself, but it confirms the intended external proxy behavior."
+        "verdict": "false_positive",
+        "confidence": 0.97,
+        "reason": "These are documentation examples using the reserved example.com domain. The line itself does not perform a network request."
       },
       {
         "id": "network:SKILL.md:26:hardcoded-url",
-        "verdict": "confirmed",
-        "confidence": 0.75,
-        "severity": "low",
-        "reason": "The example shows a full destination, query string, and fragment routed through markdown.new. This can expose visited URLs to the external service."
+        "verdict": "false_positive",
+        "confidence": 0.97,
+        "reason": "These are inert example URLs illustrating query and fragment preservation. The line does not initiate network activity."
       },
       {
         "id": "network:SKILL.md:27:hardcoded-url",
-        "verdict": "confirmed",
-        "confidence": 0.75,
-        "severity": "low",
-        "reason": "The example documents how bare hosts are rewritten into markdown.new URLs. The security impact is limited but real because the workflow depends on an external proxy."
+        "verdict": "false_positive",
+        "confidence": 0.97,
+        "reason": "This line documents URL transformation with the reserved example.com domain. It does not make a request."
       },
       {
         "id": "network:SKILL.md:81:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "The line is an optional CLI example using example.com as sample input. It does not make a network request or identify the markdown.new proxy endpoint."
+        "confidence": 0.98,
+        "reason": "The CLI example passes a reserved example.com URL to a helper that only prints a transformed URL. The helper performs no network request."
       }
     ],
     "semantic_findings": [
       {
-        "title": "Third-Party Proxy Exposure",
-        "description": "The skill directs agents to rewrite read-only browsing through markdown.new and extract content from that view. This can disclose requested URLs and page content to an external service, even though the policy excludes login, payment, and authenticated workflows.",
+        "title": "Third-Party Destination URL Disclosure",
+        "description": "The required workflow sends destination URLs through markdown.new. Sensitive query parameters or confidential resource names could be disclosed to that service.",
         "severity": "medium",
         "locations": [
           {
@@ -637,24 +622,19 @@
           {
             "file": "SKILL.md",
             "line_start": 31,
-            "line_end": 38
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 49,
-            "line_end": 54
+            "line_end": 36
           }
         ],
-        "confidence": 0.86,
-        "confidence_reasoning": "The instructions explicitly route browsing through markdown.new and pull Markdown from that service. The same file includes exceptions that reduce, but do not remove, the privacy risk."
+        "confidence": 0.96,
+        "confidence_reasoning": "The instructions explicitly require rewriting and visiting destination URLs through markdown.new. The privacy impact follows directly from that proxy workflow."
       }
     ],
     "critical_findings": [],
     "high_findings": [],
     "medium_findings": [
       {
-        "title": "Third-Party Proxy Exposure",
-        "description": "The skill directs agents to rewrite read-only browsing through markdown.new and extract content from that view. This can disclose requested URLs and page content to an external service, even though the policy excludes login, payment, and authenticated workflows.",
+        "title": "Third-Party Destination URL Disclosure",
+        "description": "The required workflow sends destination URLs through markdown.new. Sensitive query parameters or confidential resource names could be disclosed to that service.",
         "locations": [
           {
             "file": "SKILL.md",
@@ -664,19 +644,14 @@
           {
             "file": "SKILL.md",
             "line_start": 31,
-            "line_end": 38
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 49,
-            "line_end": 54
+            "line_end": 36
           }
         ],
         "review_kind": "security",
         "source_category": "semantic",
         "source_severity": "medium",
-        "confidence": 0.86,
-        "confidence_reasoning": "The instructions explicitly route browsing through markdown.new and pull Markdown from that service. The same file includes exceptions that reduce, but do not remove, the privacy risk."
+        "confidence": 0.96,
+        "confidence_reasoning": "The instructions explicitly require rewriting and visiting destination URLs through markdown.new. The privacy impact follows directly from that proxy workflow."
       }
     ],
     "low_findings": [
@@ -693,8 +668,8 @@
         "review_kind": "capability",
         "source_category": "network",
         "source_severity": "low",
-        "confidence": 0.82,
-        "confidence_reasoning": "The helper constructs a markdown.new URL, which intentionally routes requested pages through an external service. It does not fetch the URL itself, so the risk is limited to disclosure when the rewritten URL is used."
+        "confidence": 0.92,
+        "confidence_reasoning": "The helper deliberately embeds destinations under markdown.new. Visiting its output exposes the destination URL to an external service, although the script itself makes no request."
       },
       {
         "title": "Hardcoded URL",
@@ -709,8 +684,8 @@
         "review_kind": "capability",
         "source_category": "network",
         "source_severity": "low",
-        "confidence": 0.86,
-        "confidence_reasoning": "The instruction routes browsing through https://markdown.new/, which is an external service. This can disclose requested URLs and page content when used."
+        "confidence": 0.98,
+        "confidence_reasoning": "The instruction requires routing web destinations through markdown.new. This creates an intentional external network dependency and discloses visited destination URLs."
       },
       {
         "title": "Hardcoded URL",
@@ -725,180 +700,132 @@
         "review_kind": "capability",
         "source_category": "network",
         "source_severity": "low",
-        "confidence": 0.86,
-        "confidence_reasoning": "The line instructs agents to prefix destinations with https://markdown.new/. That creates a privacy-relevant dependency on a third-party proxy."
-      },
-      {
-        "title": "Hardcoded URL",
-        "description": "- `https://example.com` -> `https://markdown.new/https://example.com`",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 25,
-            "line_end": 25
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "network",
-        "source_severity": "low",
-        "confidence": 0.75,
-        "confidence_reasoning": "The example demonstrates routing a URL through markdown.new. It is not malicious by itself, but it confirms the intended external proxy behavior."
-      },
-      {
-        "title": "Hardcoded URL",
-        "description": "- `https://example.com/docs?a=1#b` -> `https://markdown.new/https://example.com/docs?a=1#b`",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 26,
-            "line_end": 26
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "network",
-        "source_severity": "low",
-        "confidence": 0.75,
-        "confidence_reasoning": "The example shows a full destination, query string, and fragment routed through markdown.new. This can expose visited URLs to the external service."
-      },
-      {
-        "title": "Hardcoded URL",
-        "description": "- `example.com` -> `https://markdown.new/https://example.com`",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 27,
-            "line_end": 27
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "network",
-        "source_severity": "low",
-        "confidence": 0.75,
-        "confidence_reasoning": "The example documents how bare hosts are rewritten into markdown.new URLs. The security impact is limited but real because the workflow depends on an external proxy."
+        "confidence": 0.98,
+        "confidence_reasoning": "The line directs the agent to prefix destinations with the external markdown.new service. Following it routes subsequent browsing through that third party."
       }
     ],
     "dangerous_patterns": [],
     "files_scanned": 2,
     "total_lines": 114,
     "audit_model": "codex",
-    "audited_at": "2026-07-07T19:06:30.066Z",
+    "audited_at": "2026-07-23T05:45:22.369Z",
     "agent_auto_install_policy": "allowed",
     "manual_install_policy": "allowed"
   },
   "content": {
-    "user_title": "Convert Web Pages to Markdown URLs",
-    "value_statement": "Web pages can be difficult to copy, quote, or summarize cleanly. This skill routes suitable read-only pages through markdown.new for cleaner Markdown extraction.",
+    "user_title": "Convert Web Pages into Clean Markdown",
+    "value_statement": "Web pages can be difficult to extract and summarize. This skill routes suitable public pages through markdown.new for cleaner Markdown content.",
     "seo_keywords": [
       "Claude",
       "Codex",
       "Claude Code",
+      "Markdown URL converter",
       "markdown.new",
-      "Markdown URL",
-      "web page markdown",
-      "URL rewriting",
-      "documentation summarization",
-      "research notes"
+      "web page to Markdown",
+      "content extraction",
+      "documentation reader",
+      "URL rewriting"
     ],
     "actual_capabilities": [
-      "Prefixes HTTP and HTTPS URLs with the markdown.new service URL.",
-      "Normalizes bare host names into HTTPS URLs before prefixing.",
-      "Rejects local paths and non-HTTP schemes in the helper script.",
-      "Guides agents to use Markdown views for summaries, quotes, and notes.",
-      "Defines fallback rules for blocked, partial, or interactive pages."
+      "Normalizes bare hosts and paths into HTTPS URLs.",
+      "Preserves existing HTTP and HTTPS destinations.",
+      "Prefixes destinations with the markdown.new service URL.",
+      "Defines fallback rules for blocked or incomplete proxy responses.",
+      "Provides a Node command-line helper that prints transformed URLs."
     ],
     "limitations": [
-      "Depends on markdown.new availability and page compatibility.",
-      "Not suitable for login, payment, upload, or authenticated workflows.",
-      "May miss content rendered only by complex JavaScript applications.",
-      "Does not verify the accuracy of extracted Markdown content by itself."
+      "The workflow depends on the availability and behavior of markdown.new.",
+      "Authenticated, private, interactive, and payment pages should use the original site.",
+      "JavaScript applications, paywalls, CAPTCHAs, and bot controls may prevent extraction.",
+      "The command-line helper only rewrites URLs; it does not fetch or validate page content."
     ],
     "use_cases": [
       {
-        "title": "Summarize Documentation",
-        "description": "Read public documentation through a Markdown view and produce concise implementation notes.",
-        "target_user": "Developers"
+        "title": "Read technical documentation",
+        "description": "Convert public documentation links into cleaner Markdown before summarizing or taking notes.",
+        "target_user": "Software developers"
       },
       {
-        "title": "Capture Research Notes",
-        "description": "Turn articles and guides into cleaner source text for summaries, quotes, and checklists.",
-        "target_user": "Researchers"
+        "title": "Prepare research notes",
+        "description": "Open public articles through a text-focused view for easier quotation and structured note creation.",
+        "target_user": "Researchers and analysts"
       },
       {
-        "title": "Review Release Updates",
-        "description": "Use Markdown extraction for public changelogs, announcements, and project discussions.",
-        "target_user": "Product teams"
+        "title": "Review publication content",
+        "description": "Transform public blog posts and changelogs into readable Markdown for editing and comparison.",
+        "target_user": "Technical writers"
       }
     ],
     "prompt_templates": [
       {
-        "title": "Summarize a Page",
-        "scenario": "Beginner request for one public article or documentation page.",
-        "prompt": "Use markdown.new for this public page, then summarize the main points: [URL]"
+        "title": "Convert one URL",
+        "prompt": "Convert [public URL] into a markdown.new URL. Return only the transformed destination.",
+        "scenario": "Use this for a simple public page."
       },
       {
-        "title": "Extract Action Items",
-        "scenario": "Intermediate request for a public guide or issue thread.",
-        "prompt": "Open this public page through markdown.new when suitable. Extract action items, decisions, and unanswered questions: [URL]"
+        "title": "Summarize documentation",
+        "prompt": "Open [documentation URL] through markdown.new, then summarize the main concepts and list important configuration details.",
+        "scenario": "Use this for public technical documentation."
       },
       {
-        "title": "Compare Two Sources",
-        "scenario": "Intermediate research workflow across public pages.",
-        "prompt": "Use markdown.new for these public sources when suitable. Compare their recommendations and list conflicts: [URL 1], [URL 2]"
+        "title": "Extract structured notes",
+        "prompt": "Read [article URL] through markdown.new. Produce headings, key claims, supporting details, and source quotations.",
+        "scenario": "Use this when preparing research notes."
       },
       {
-        "title": "Build a Source Brief",
-        "scenario": "Advanced workflow for structured research notes.",
-        "prompt": "For each public source, try markdown.new once. Create a brief with claims, evidence, limitations, and source notes: [URLs]"
+        "title": "Apply fallback policy",
+        "prompt": "Try [public URL] through markdown.new once. If blocked or incomplete, use the original page and clearly identify the fallback.",
+        "scenario": "Use this when proxy compatibility is uncertain."
       }
     ],
     "output_examples": [
       {
-        "input": "Summarize a public documentation page through markdown.new.",
-        "output": "Rewritten URL: https://markdown.new/https://example.com/docs. The result is a concise summary with key steps and source notes."
+        "input": "Convert https://example.com/docs for Markdown reading.",
+        "output": "https://markdown.new/https://example.com/docs"
       },
       {
-        "input": "Extract decisions from a public project discussion.",
-        "output": "The response lists decisions, unresolved questions, and cited discussion points from the Markdown view."
+        "input": "Prepare notes from a public product changelog.",
+        "output": "A structured summary with release headings, major changes, compatibility notes, and concise source quotations."
       },
       {
-        "input": "Use markdown.new for a page that returns a blocked or partial view.",
-        "output": "The response notes that markdown.new was blocked, switches to the original page, and continues with direct browsing."
+        "input": "The proxy returns an access-denied response.",
+        "output": "The markdown.new view was blocked, so the original public page was used for the summary."
       }
     ],
     "best_practices": [
-      "Use this skill for public, read-only pages where clean text extraction matters.",
-      "Fall back to the original URL after one blocked or incomplete markdown.new attempt.",
-      "Avoid routing private, authenticated, payment, upload, or form-based pages through the proxy."
+      "Use the proxy only for public, read-only pages.",
+      "Inspect URLs for credentials or sensitive query parameters before rewriting them.",
+      "Fall back to the original page after one failed proxy attempt."
     ],
     "anti_patterns": [
-      "Do not use markdown.new for pages that require cookies, login state, or user accounts.",
-      "Do not retry repeatedly when the proxy returns access errors or partial content.",
-      "Do not treat extracted Markdown as complete when the original page depends on interactive JavaScript."
+      "Do not route login, OAuth, payment, upload, or authenticated workflows through the proxy.",
+      "Do not rewrite local paths or non-HTTP schemes.",
+      "Do not repeatedly retry blocked pages or bypass access controls."
     ],
     "faq": [
       {
-        "question": "What does this skill do?",
-        "answer": "It rewrites suitable web URLs so an agent can read a cleaner Markdown version through markdown.new."
+        "question": "Does this skill download web pages?",
+        "answer": "The helper only prints a rewritten URL. An agent may visit that URL when performing the documented workflow."
       },
       {
-        "question": "Does it work with Claude, Codex, and Claude Code?",
-        "answer": "Yes. The report lists support for Claude, Codex, and Claude Code."
+        "question": "Which URL schemes are supported?",
+        "answer": "The helper accepts HTTP and HTTPS destinations. Bare hosts are normalized to HTTPS."
       },
       {
-        "question": "Should I use it for private pages?",
-        "answer": "No. Avoid private, authenticated, payment, upload, and account-specific pages."
+        "question": "Can it process authenticated pages?",
+        "answer": "No. Use the original site for pages requiring cookies, sessions, login, OAuth, or private access."
       },
       {
-        "question": "What happens when markdown.new is blocked?",
-        "answer": "The skill says to try once, stop retrying, and fall back to the original URL."
+        "question": "What happens when markdown.new fails?",
+        "answer": "The workflow switches to the original page after one failed or incomplete proxy attempt."
       },
       {
-        "question": "Does the helper fetch web pages?",
-        "answer": "No. The helper only prints a rewritten URL. The agent or user performs the browsing step."
+        "question": "Does it preserve query parameters?",
+        "answer": "Yes. The helper preserves the supplied HTTP or HTTPS URL when adding the service prefix."
       },
       {
-        "question": "Can it handle local files?",
-        "answer": "No. The helper rejects non-HTTP schemes, and the instructions say not to rewrite local paths."
+        "question": "Is every public URL suitable?",
+        "answer": "No. Interactive applications, paywalls, CAPTCHAs, and access-controlled pages may not work correctly."
       }
     ]
   },
