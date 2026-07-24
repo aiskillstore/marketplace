@@ -1,7 +1,7 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-07-07T22:35:34.125Z",
+    "generated_at": "2026-07-23T07:36:22.355Z",
     "slug": "agentspace-so-agentspace",
     "source_url": "https://github.com/agentspace-so/skills/tree/main/agentspace/",
     "source_ref": "main",
@@ -23,18 +23,17 @@
   },
   "skill": {
     "name": "agentspace",
-    "description": "Share a specified local folder or file with Agentspace, creating a browser workspace for viewing, comments, or edits. It uses the Agentspace CLI and uploads only the path the user names.",
-    "summary": "Share an explicitly named local workspace through Agentspace and return a browser link.",
+    "description": "Share a user-selected local file or folder through an Agentspace browser workspace using the ascli command-line tool.",
+    "summary": "Create a browser-accessible workspace for a selected local path and return its share link.",
     "icon": "🪢",
-    "version": "1.0.1",
     "author": "agentspace-so",
     "license": "MIT",
     "category": "productivity",
     "tags": [
-      "workspace-sharing",
-      "agent-monitoring",
       "file-sharing",
+      "agent-workspaces",
       "collaboration",
+      "remote-review",
       "cli"
     ],
     "supported_tools": [
@@ -52,21 +51,21 @@
     "is_blocked": false,
     "safe_to_publish": false,
     "analysis_status": "ok",
-    "summary": "The pipe-to-shell and system reconnaissance blocker hits are false positives because the referenced text forbids unsafe installs and requires explicit paths. The skill still intentionally runs an external CLI, may install or execute the Agentspace package, and uploads named local content to agentspace.so. The main risks are accidental data exposure, editable share links, and unpinned package execution.",
+    "summary": "The pipe-to-shell and reconnaissance alerts are false positives because the reference explicitly prohibits curl-to-shell installation and restricts operations to named paths. The skill still directs agents to execute a third-party CLI, install a mutable package version, and upload selected files to anonymous workspaces with optional edit access. No prompt injection attempt or covert collection outside the selected path was found.",
     "remediation": [
       {
-        "issue": "External upload of local files",
-        "suggestion": "Warn users before upload that the selected path is sent to agentspace.so and may be accessible by link.",
+        "issue": "Anonymous editable sharing can expose or alter local artifacts.",
+        "suggestion": "Require confirmation of the exact path, permission, recipients, and expiration before upload. Default to view-only access and a short expiration.",
         "severity": "high"
       },
       {
-        "issue": "Edit permission is the default sharing mode",
-        "suggestion": "Default to view-only sharing, or require explicit confirmation before granting edit access.",
+        "issue": "The workflow installs or executes the mutable @latest npm package.",
+        "suggestion": "Pin a reviewed package version and integrity value. Request explicit approval before installation or first execution, and avoid global installation by default.",
         "severity": "medium"
       },
       {
-        "issue": "Unpinned CLI install and execution",
-        "suggestion": "Pin a reviewed ascli version instead of using @latest for automated install or npx instructions.",
+        "issue": "User-supplied paths are shown as shell placeholders without argument-handling guidance.",
+        "suggestion": "Pass paths as separate process arguments or apply robust shell quoting. Confirm ambiguous paths and reject unintended option-like values.",
         "severity": "medium"
       }
     ],
@@ -288,175 +287,168 @@
       {
         "id": "blocker:references/commands.md:49:pipe-to-shell-pattern",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The referenced line explicitly says not to use curl piped to a shell. It is a safety warning, not an instruction to execute a remote script."
+        "confidence": 0.99,
+        "reason": "Line 49 explicitly says not to use curl piped to bash. It documents a prohibited installation pattern and does not execute or recommend it."
       },
       {
         "id": "blocker:references/commands.md:3:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.93,
-        "reason": "The line requires the user to name the path and forbids defaulting to the current directory. This narrows scope and does not request system reconnaissance."
+        "confidence": 0.99,
+        "reason": "Line 3 limits commands to a path explicitly named by the user. It contains no system probing, discovery command, or reconnaissance instruction."
       },
       {
         "id": "external_commands:SKILL.md:37:ruby-shell-backtick-execution",
         "verdict": "confirmed",
-        "confidence": 0.82,
-        "reason": "The line documents running ascli share, which is an external CLI operation that creates a remote workspace. It is legitimate for the skill but still executes a command and sends local content to a service.",
-        "severity": "medium"
+        "confidence": 0.86,
+        "reason": "The backticks are Markdown, but the documented workflow depends on running ascli to create a remote workspace. That external command has network and file-disclosure side effects."
       },
       {
         "id": "external_commands:SKILL.md:45:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "This line is a data-handling statement about allowed network destination, not shell execution. It does not run a command or expand user input."
+        "confidence": 0.99,
+        "reason": "The backticks format the agentspace.so domain as inline Markdown code. No Ruby expression or shell command appears on this line."
       },
       {
         "id": "external_commands:SKILL.md:50:ruby-shell-backtick-execution",
         "verdict": "confirmed",
-        "confidence": 0.72,
-        "reason": "The line instructs use of ascli from PATH, which depends on an external executable. The command is expected for the skill, but it introduces CLI trust and execution risk.",
+        "confidence": 0.9,
+        "reason": "The instruction directs the agent to execute the ascli binary resolved from PATH. This runs external code with the user's privileges, although no dynamic shell interpolation is shown.",
         "severity": "medium"
       },
       {
         "id": "external_commands:SKILL.md:51:ruby-shell-backtick-execution",
         "verdict": "confirmed",
-        "confidence": 0.88,
-        "reason": "The line instructs npm global installation or npx execution of @agentspace-so/ascli@latest. This is a real external command and supply-chain risk because the latest package can change.",
-        "severity": "medium"
+        "confidence": 0.98,
+        "reason": "The instruction runs npm or npx against an @latest third-party package and may install it globally. Executing a mutable package version creates a supply-chain and host-modification risk.",
+        "severity": "high"
       },
       {
         "id": "external_commands:SKILL.md:52:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.78,
-        "reason": "The line tells the agent to stop and ask the user to install Node.js if required tools are unavailable. It does not instruct the agent to run an external command."
+        "confidence": 0.98,
+        "reason": "The inline names are Markdown references to prerequisites. The line tells the agent to stop when prerequisites are absent and does not execute a command."
       },
       {
         "id": "external_commands:SKILL.md:58:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "The line tells the agent to ask for an explicit folder or file and not assume the current directory. This is a protective scope control, not command execution."
+        "confidence": 0.99,
+        "reason": "The backticks format a current-directory token while the instruction explicitly forbids assuming that path. No command execution occurs on this line."
       },
       {
         "id": "external_commands:SKILL.md:59:ruby-shell-backtick-execution",
         "verdict": "confirmed",
-        "confidence": 0.9,
-        "reason": "The line directly instructs running ascli share with the user-specified path and edit permission. This is an external command that uploads local content and grants workspace access.",
-        "severity": "medium"
+        "confidence": 0.98,
+        "reason": "The skill directly instructs the agent to run ascli share with a user-selected path and edit permission. The command reads local content and uploads it to an externally accessible workspace.",
+        "severity": "high"
       },
       {
         "id": "external_commands:SKILL.md:60:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.8,
-        "reason": "The line describes a view-only permission flag as a safer alternative when requested. It is not an independent shell execution instruction."
+        "confidence": 0.96,
+        "reason": "The inline text is a CLI option, not executable Ruby or a standalone shell command. It recommends the safer view-only permission when requested."
       },
       {
         "id": "external_commands:SKILL.md:61:ruby-shell-backtick-execution",
         "verdict": "confirmed",
-        "confidence": 0.8,
-        "reason": "The line states that share creates a workspace, syncs once, and returns a link. This confirms remote synchronization of local content through the CLI.",
+        "confidence": 0.94,
+        "reason": "Although the backticks are Markdown, the line confirms that share creates a remote workspace and synchronizes local data. This is a real external data-transfer side effect.",
         "severity": "medium"
       },
       {
         "id": "external_commands:SKILL.md:67:ruby-shell-backtick-execution",
         "verdict": "confirmed",
-        "confidence": 0.74,
-        "reason": "The line endorses npx as an execution path instead of a global install. npx still runs an external package, so it remains a command execution and supply-chain risk.",
+        "confidence": 0.87,
+        "reason": "The line directs use of npx as an execution path when available. This executes third-party package code, even though it avoids a persistent global installation.",
         "severity": "medium"
       },
       {
         "id": "network:SKILL.md:16:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "The URL is homepage metadata in the skill front matter. It does not perform a network request or transmit data by itself."
+        "confidence": 0.99,
+        "reason": "This is homepage metadata for the service described by the skill. It does not initiate a network request or transmit data."
       },
       {
         "id": "network:SKILL.md:29:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The line contains documentation links to the product, GitHub, and npm package. These links are not executable network behavior in the skill instructions."
+        "confidence": 0.98,
+        "reason": "This is a visible documentation link to the declared service, source repository, and package. The Markdown link itself does not perform a request or conceal its destination."
       }
     ],
     "semantic_findings": [
       {
-        "title": "Local Files Uploaded to External Workspace",
-        "description": "The skill's intended workflow uploads the named local path to agentspace.so and returns a browser link. Sensitive files can be exposed if the selected path is too broad.",
+        "title": "External File Disclosure Through Anonymous Share Links",
+        "description": "The workflow uploads a selected local path and creates a browser-accessible workspace that can allow edits. Anyone with the returned anonymous link may access shared content under the selected permission.",
         "severity": "high",
         "locations": [
           {
             "file": "SKILL.md",
             "line_start": 37,
-            "line_end": 45
+            "line_end": 39
           },
-          {
-            "file": "references/commands.md",
-            "line_start": 47,
-            "line_end": 49
-          }
-        ],
-        "confidence": 0.9,
-        "confidence_reasoning": "The documentation explicitly describes creating a workspace, syncing the named path, and sending traffic to agentspace.so. The risk is contextual data exposure rather than a simple hardcoded URL."
-      },
-      {
-        "title": "Editable Share Links Granted by Default",
-        "description": "The primary sharing instruction uses edit permission unless the user asks for view-only access. Recipients with the link may modify the shared workspace.",
-        "severity": "medium",
-        "locations": [
           {
             "file": "SKILL.md",
             "line_start": 58,
-            "line_end": 60
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 37,
-            "line_end": 39
+            "line_end": 62
           }
         ],
-        "confidence": 0.88,
-        "confidence_reasoning": "The default command includes edit permission, and the surrounding text says anyone with the link can read, comment, or edit. This is clear authorization risk but tied to user-selected sharing."
-      },
-      {
-        "title": "Unpinned Latest CLI Package Execution",
-        "description": "The install and npx paths use @latest for the Agentspace CLI. Automated latest-version execution can change behavior without marketplace review.",
-        "severity": "medium",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 50,
-            "line_end": 51
-          },
-          {
-            "file": "references/commands.md",
-            "line_start": 23,
-            "line_end": 27
-          }
-        ],
-        "confidence": 0.86,
-        "confidence_reasoning": "Both the global install and npx command use @latest. The package source appears legitimate, but unpinned execution is a concrete supply-chain exposure."
+        "confidence": 0.98,
+        "confidence_reasoning": "The skill explicitly states that ascli creates an anonymous workspace, uploads the selected path, and supports browser editing for anyone who opens the link."
       }
     ],
     "critical_findings": [],
     "high_findings": [
       {
-        "title": "Local Files Uploaded to External Workspace",
-        "description": "The skill's intended workflow uploads the named local path to agentspace.so and returns a browser link. Sensitive files can be exposed if the selected path is too broad.",
+        "title": "Ruby/shell backtick execution",
+        "description": "2. Else if `npm` is available, install once with `npm install -g @agentspace-so/ascli@latest`, or ru",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 51,
+            "line_end": 51
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "external_commands",
+        "source_severity": "medium",
+        "confidence": 0.98,
+        "confidence_reasoning": "The instruction runs npm or npx against an @latest third-party package and may install it globally. Executing a mutable package version creates a supply-chain and host-modification risk."
+      },
+      {
+        "title": "Ruby/shell backtick execution",
+        "description": "- Run `ascli share <path> --permission edit` with the user-specified path.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 59,
+            "line_end": 59
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "external_commands",
+        "source_severity": "medium",
+        "confidence": 0.98,
+        "confidence_reasoning": "The skill directly instructs the agent to run ascli share with a user-selected path and edit permission. The command reads local content and uploads it to an externally accessible workspace."
+      },
+      {
+        "title": "External File Disclosure Through Anonymous Share Links",
+        "description": "The workflow uploads a selected local path and creates a browser-accessible workspace that can allow edits. Anyone with the returned anonymous link may access shared content under the selected permission.",
         "locations": [
           {
             "file": "SKILL.md",
             "line_start": 37,
-            "line_end": 45
+            "line_end": 39
           },
           {
-            "file": "references/commands.md",
-            "line_start": 47,
-            "line_end": 49
+            "file": "SKILL.md",
+            "line_start": 58,
+            "line_end": 62
           }
         ],
         "review_kind": "security",
         "source_category": "semantic",
         "source_severity": "high",
-        "confidence": 0.9,
-        "confidence_reasoning": "The documentation explicitly describes creating a workspace, syncing the named path, and sending traffic to agentspace.so. The risk is contextual data exposure rather than a simple hardcoded URL."
+        "confidence": 0.98,
+        "confidence_reasoning": "The skill explicitly states that ascli creates an anonymous workspace, uploads the selected path, and supports browser editing for anyone who opens the link."
       }
     ],
     "medium_findings": [
@@ -473,8 +465,8 @@
         "review_kind": "capability",
         "source_category": "external_commands",
         "source_severity": "medium",
-        "confidence": 0.82,
-        "confidence_reasoning": "The line documents running ascli share, which is an external CLI operation that creates a remote workspace. It is legitimate for the skill but still executes a command and sends local content to a service."
+        "confidence": 0.86,
+        "confidence_reasoning": "The backticks are Markdown, but the documented workflow depends on running ascli to create a remote workspace. That external command has network and file-disclosure side effects."
       },
       {
         "title": "Ruby/shell backtick execution",
@@ -489,40 +481,8 @@
         "review_kind": "capability",
         "source_category": "external_commands",
         "source_severity": "medium",
-        "confidence": 0.72,
-        "confidence_reasoning": "The line instructs use of ascli from PATH, which depends on an external executable. The command is expected for the skill, but it introduces CLI trust and execution risk."
-      },
-      {
-        "title": "Ruby/shell backtick execution",
-        "description": "2. Else if `npm` is available, install once with `npm install -g @agentspace-so/ascli@latest`, or ru",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 51,
-            "line_end": 51
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "external_commands",
-        "source_severity": "medium",
-        "confidence": 0.88,
-        "confidence_reasoning": "The line instructs npm global installation or npx execution of @agentspace-so/ascli@latest. This is a real external command and supply-chain risk because the latest package can change."
-      },
-      {
-        "title": "Ruby/shell backtick execution",
-        "description": "- Run `ascli share <path> --permission edit` with the user-specified path.",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 59,
-            "line_end": 59
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "external_commands",
-        "source_severity": "medium",
         "confidence": 0.9,
-        "confidence_reasoning": "The line directly instructs running ascli share with the user-specified path and edit permission. This is an external command that uploads local content and grants workspace access."
+        "confidence_reasoning": "The instruction directs the agent to execute the ascli binary resolved from PATH. This runs external code with the user's privileges, although no dynamic shell interpolation is shown."
       },
       {
         "title": "Ruby/shell backtick execution",
@@ -537,8 +497,8 @@
         "review_kind": "capability",
         "source_category": "external_commands",
         "source_severity": "medium",
-        "confidence": 0.8,
-        "confidence_reasoning": "The line states that share creates a workspace, syncs once, and returns a link. This confirms remote synchronization of local content through the CLI."
+        "confidence": 0.94,
+        "confidence_reasoning": "Although the backticks are Markdown, the line confirms that share creates a remote workspace and synchronizes local data. This is a real external data-transfer side effect."
       },
       {
         "title": "Ruby/shell backtick execution",
@@ -553,50 +513,8 @@
         "review_kind": "capability",
         "source_category": "external_commands",
         "source_severity": "medium",
-        "confidence": 0.74,
-        "confidence_reasoning": "The line endorses npx as an execution path instead of a global install. npx still runs an external package, so it remains a command execution and supply-chain risk."
-      },
-      {
-        "title": "Editable Share Links Granted by Default",
-        "description": "The primary sharing instruction uses edit permission unless the user asks for view-only access. Recipients with the link may modify the shared workspace.",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 58,
-            "line_end": 60
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 37,
-            "line_end": 39
-          }
-        ],
-        "review_kind": "security",
-        "source_category": "semantic",
-        "source_severity": "medium",
-        "confidence": 0.88,
-        "confidence_reasoning": "The default command includes edit permission, and the surrounding text says anyone with the link can read, comment, or edit. This is clear authorization risk but tied to user-selected sharing."
-      },
-      {
-        "title": "Unpinned Latest CLI Package Execution",
-        "description": "The install and npx paths use @latest for the Agentspace CLI. Automated latest-version execution can change behavior without marketplace review.",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 50,
-            "line_end": 51
-          },
-          {
-            "file": "references/commands.md",
-            "line_start": 23,
-            "line_end": 27
-          }
-        ],
-        "review_kind": "security",
-        "source_category": "semantic",
-        "source_severity": "medium",
-        "confidence": 0.86,
-        "confidence_reasoning": "Both the global install and npx command use @latest. The package source appears legitimate, but unpinned execution is a concrete supply-chain exposure."
+        "confidence": 0.87,
+        "confidence_reasoning": "The line directs use of npx as an execution path when available. This executes third-party package code, even though it avoids a persistent global installation."
       }
     ],
     "low_findings": [],
@@ -604,125 +522,125 @@
     "files_scanned": 3,
     "total_lines": 125,
     "audit_model": "codex",
-    "audited_at": "2026-07-07T22:35:34.125Z",
+    "audited_at": "2026-07-23T07:36:22.355Z",
     "agent_auto_install_policy": "confirmation_required",
     "manual_install_policy": "allowed"
   },
   "content": {
-    "user_title": "Share Agent Workspaces with Agentspace",
-    "value_statement": "Remote reviewers need a simple way to inspect files an AI agent is producing. This skill uses the Agentspace CLI to share an explicit local path as a browser workspace.",
+    "user_title": "Share Agent Workspaces in a Browser",
+    "value_statement": "Local agent artifacts are difficult to review from another device or with teammates. Agentspace uploads a selected path and returns a browser link for viewing, comments, or editing.",
     "seo_keywords": [
       "Agentspace",
+      "AI agent workspace",
+      "browser file sharing",
+      "live folder collaboration",
+      "remote artifact review",
       "Claude",
       "Codex",
       "Claude Code",
-      "AI agent workspace",
-      "folder sharing",
-      "agent monitoring",
-      "share link",
-      "collaboration",
       "ascli"
     ],
     "actual_capabilities": [
-      "Shares a user-specified local folder or file with ascli share.",
-      "Returns the CLI-generated workspace URL to the user.",
-      "Supports edit and view-only permission modes.",
-      "Uses npx or a global ascli command when available.",
-      "Explains that anonymous workspaces last 24 hours unless claimed."
+      "Shares one explicitly selected local file or folder through ascli.",
+      "Creates an anonymous workspace and returns the link printed by the CLI.",
+      "Supports view-only or edit permissions for shared workspaces.",
+      "Supports a 24-hour expiration option for temporary sharing.",
+      "Runs through an installed ascli command or the published npx package.",
+      "Checks the binding status of a selected path."
     ],
     "limitations": [
-      "Requires Node.js, npm, npx, or an installed ascli command.",
-      "Uploads selected files to agentspace.so, so sensitive data needs review.",
-      "Does not create URLs manually and relies on CLI output.",
-      "Cannot share a path until the user names the exact target."
+      "Requires an existing ascli installation or Node.js with npm, plus network access to agentspace.so.",
+      "Anonymous workspaces expire after 24 hours unless claimed by email.",
+      "Uploads the selected local content to a third-party hosted service.",
+      "Anyone with a share link may access content according to its assigned permission."
     ],
     "use_cases": [
       {
-        "title": "Share a Coding Session",
-        "description": "Create a browser workspace so reviewers can inspect generated code, logs, and artifacts.",
-        "target_user": "Software developers"
+        "title": "Review Generated Artifacts Remotely",
+        "description": "Share generated code, reports, screenshots, or build logs for browser review from another device.",
+        "target_user": "Software developer"
       },
       {
-        "title": "Monitor Agent Output",
-        "description": "Expose a selected run folder so a lead can watch files change from another device.",
-        "target_user": "Technical leads"
+        "title": "Collect View-Only Feedback",
+        "description": "Create a temporary view-only workspace for test evidence or project outputs without sending an archive.",
+        "target_user": "Quality assurance reviewer"
       },
       {
-        "title": "Hand Off Project Artifacts",
-        "description": "Send a temporary workspace link for reports, prototypes, screenshots, or dashboards.",
-        "target_user": "Consultants"
+        "title": "Hand Off an Editable Workspace",
+        "description": "Share a selected project folder with edit access so a teammate can continue work in the browser.",
+        "target_user": "Team lead"
       }
     ],
     "prompt_templates": [
       {
-        "title": "Share a Folder",
-        "prompt": "Share the folder at [path] with Agentspace and send me the workspace link.",
-        "scenario": "Beginner sharing of a known local folder."
+        "title": "Share One File",
+        "prompt": "Share the file at [exact path] with view-only access. Confirm the path before uploading, then return the CLI-generated link.",
+        "scenario": "Beginner request for a single artifact"
       },
       {
-        "title": "Create View-Only Review",
-        "prompt": "Share [path] as a view-only Agentspace workspace for review.",
-        "scenario": "Reviewers should inspect files without changing them."
+        "title": "Share a Project Folder",
+        "prompt": "Share [exact folder path] for 24 hours with view-only permission. State the selected path and permission before running the command.",
+        "scenario": "Temporary remote review"
       },
       {
-        "title": "Share Build Artifacts",
-        "prompt": "Use Agentspace to share [path] with edit access, then return the workspace URL exactly as printed.",
-        "scenario": "A teammate needs to review and adjust generated outputs."
+        "title": "Create an Editable Handoff",
+        "prompt": "Create an editable Agentspace workspace for [exact path]. Confirm that the folder excludes secrets and return only the generated share URL.",
+        "scenario": "Collaborative project handoff"
       },
       {
-        "title": "Prepare Team Handoff",
-        "prompt": "Confirm the exact path, share it with edit access through Agentspace, and tell me any install steps you used.",
-        "scenario": "Advanced handoff with path confirmation and audit context."
+        "title": "Choose a Safe Sharing Method",
+        "prompt": "Check whether ascli is available. If absent, propose a pinned npx command and request approval before sharing [exact path] as view-only.",
+        "scenario": "Advanced dependency and permission control"
       }
     ],
     "output_examples": [
       {
-        "input": "Share the report folder for review.",
-        "output": "Agentspace workspace created. Link: the workspace URL printed by the CLI. Permission: edit."
+        "input": "Share /work/demo/report.pdf for review.",
+        "output": "Confirmed path: /work/demo/report.pdf. Permission: view-only. I returned the exact temporary workspace link produced by Agentspace."
       },
       {
-        "input": "Give my teammate view-only access to the screenshots folder.",
-        "output": "View-only Agentspace workspace created. Link: the CLI-generated workspace URL."
+        "input": "Hand off /work/demo to my teammate with edit access.",
+        "output": "Confirmed path: /work/demo. Permission: edit. I shared the folder and returned the exact URL printed by the CLI."
       },
       {
-        "input": "Share the build artifacts from this run.",
-        "output": "Please confirm the exact path to share before I upload files to Agentspace."
+        "input": "Share this folder.",
+        "output": "Which exact folder path should I share, and should recipients have view-only or edit access?"
       }
     ],
     "best_practices": [
-      "Confirm the exact path before sharing any files.",
-      "Use view-only mode for review-only audiences.",
-      "Review sensitive files before uploading to agentspace.so."
+      "Confirm the exact path and inspect selected contents for secrets before uploading.",
+      "Default to view-only access and the shortest practical expiration.",
+      "Return only the exact workspace URL printed by the CLI."
     ],
     "anti_patterns": [
-      "Do not share the current directory unless the user explicitly names it.",
-      "Do not invent workspace URLs or claim URLs.",
-      "Do not pipe remote install scripts into a shell."
+      "Do not share the current directory when the requested path is ambiguous.",
+      "Do not upload credentials, environment files, private keys, or unrelated personal data.",
+      "Do not install or execute an unreviewed mutable package without explicit approval."
     ],
     "faq": [
       {
-        "question": "Does this skill upload files?",
-        "answer": "Yes. It uploads the user-named path to agentspace.so through the Agentspace CLI."
+        "question": "What does this skill share?",
+        "answer": "It shares one local file or folder that the user explicitly identifies."
       },
       {
-        "question": "Can I choose view-only access?",
-        "answer": "Yes. Ask for view-only sharing when reviewers should not edit the workspace."
+        "question": "Does sharing require an account?",
+        "answer": "No account is required for an anonymous workspace. The skill states that claiming by email keeps a workspace permanent."
       },
       {
-        "question": "Do I need an account?",
-        "answer": "Anonymous workspaces can be created without signup and last 24 hours unless claimed."
+        "question": "Which permissions are available?",
+        "answer": "The documented commands support view-only and edit permissions."
       },
       {
-        "question": "What tools does it need?",
-        "answer": "It needs ascli on PATH, npx, or npm with Node.js available."
+        "question": "How long does an anonymous workspace remain available?",
+        "answer": "The skill states that anonymous workspaces remain available for 24 hours."
       },
       {
-        "question": "Can it share generated artifacts?",
-        "answer": "Yes. It can share folders or files containing logs, reports, screenshots, prototypes, and build output."
+        "question": "What software is required?",
+        "answer": "Use an existing ascli command or Node.js with npm or npx. Network access is also required."
       },
       {
-        "question": "Is it safe for secrets?",
-        "answer": "Do not share secrets unless you intend to upload them to Agentspace and expose them by link."
+        "question": "Where is shared data sent?",
+        "answer": "The skill states that traffic goes only to agentspace.so and uses Cloudflare hosting. The service implementation is not included for verification."
       }
     ]
   },
