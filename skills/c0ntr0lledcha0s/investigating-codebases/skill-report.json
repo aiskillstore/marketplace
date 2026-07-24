@@ -1,7 +1,7 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-07-08T00:52:55.188Z",
+    "generated_at": "2026-07-23T10:29:51.707Z",
     "slug": "c0ntr0lledcha0s-investigating-codebases",
     "source_url": "https://github.com/C0ntr0lledCha0s/claude-code-plugin-automations/tree/main/research-agent/skills/investigating-codebases",
     "source_ref": "main",
@@ -23,17 +23,17 @@
   },
   "skill": {
     "name": "investigating-codebases",
-    "description": "Investigates unfamiliar codebases by mapping structure, finding entry points, tracing imports, and documenting implementation details with file references.",
-    "summary": "Systematic codebase investigation for architecture, entry points, dependency paths, and feature explanations.",
+    "description": "Investigates unfamiliar codebases by mapping structure, finding entry points, tracing dependencies, and explaining implementation flows with file references.",
+    "summary": "Builds an evidence-based map of unfamiliar code and explains how components work together.",
     "icon": "📦",
-    "version": "1.0.1",
+    "version": "1.0.0",
     "author": "C0ntr0lledCha0s",
     "license": "MIT",
     "tags": [
       "codebase-analysis",
       "architecture",
       "dependency-tracing",
-      "developer-onboarding",
+      "code-navigation",
       "documentation"
     ],
     "supported_tools": [
@@ -52,22 +52,12 @@
     "is_blocked": false,
     "safe_to_publish": false,
     "analysis_status": "ok",
-    "summary": "Most static findings are false positives caused by Markdown code fences, inline file extensions, flow-diagram examples, and safe local shell redirection. The confirmed risk is guidance that may lead an agent to inspect real .env files during configuration discovery. No prompt injection attempt or data exfiltration intent was found in the reviewed files.",
+    "summary": "Most alerts are false positives caused by Markdown backticks, documentation examples, file discovery, quoted metadata commands, and `/dev/null` redirection. Five `find` substitutions are confirmed because an option-like project argument can be interpreted as `-delete` and remove files. The same flaw affects four earlier `find` pipelines; no prompt injection, network activity, credential access, or exfiltration was found.",
     "remediation": [
       {
-        "issue": "Configuration discovery mentions real .env files.",
-        "suggestion": "Limit guidance to .env.example, schema files, and config keys. Add a warning not to read real secret files unless the user explicitly approves it.",
+        "issue": "The structure script passes an unnormalized project argument to `find`, allowing expression or action injection.",
+        "suggestion": "Resolve the argument to an absolute path before any command, reject failures, and use that normalized path for every `find` call.",
         "severity": "high"
-      },
-      {
-        "issue": "Helper script examples run local filesystem inventory commands.",
-        "suggestion": "State that scripts are optional and should run only on user-approved project directories. Document that they do not need network access.",
-        "severity": "medium"
-      },
-      {
-        "issue": "Markdown command examples trigger many static analyzer alerts.",
-        "suggestion": "Label examples as non-executing documentation and prefer tool names such as Read, Grep, and Glob when shell commands are not required.",
-        "severity": "low"
       }
     ],
     "risk_factor_evidence": [
@@ -388,11 +378,6 @@
             "file": "SKILL.md",
             "line_start": 393,
             "line_end": 394
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 394,
-            "line_end": 406
           }
         ]
       }
@@ -1093,454 +1078,566 @@
       {
         "id": "blocker:assets/flow-diagram-syntax.md:31:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The lines are an authentication flow diagram example showing valid and invalid token branches. They do not instruct system reconnaissance or access to a real system."
+        "confidence": 0.99,
+        "reason": "This line is a documentation example showing authentication branches. It performs no host or system reconnaissance."
       },
       {
         "id": "blocker:assets/flow-diagram-syntax.md:32:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The lines are an authentication flow diagram example showing valid and invalid token branches. They do not instruct system reconnaissance or access to a real system."
+        "confidence": 0.99,
+        "reason": "This line is a documentation example showing authentication branches. It performs no host or system reconnaissance."
       },
       {
         "id": "blocker:references/common-patterns.md:239:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The detected line is the heading for a testing pattern reference. It contains no reconnaissance instruction or operational system probing."
+        "confidence": 0.99,
+        "reason": "The cited section documents the test pyramid and contains no system discovery instructions or executable behavior."
       },
       {
         "id": "blocker:references/common-patterns.md:47:network-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The line describes repository-pattern data access abstraction. It is architecture documentation, not network scanning or discovery guidance."
+        "confidence": 0.99,
+        "reason": "The line describes repository-pattern data access. It does not probe networks, hosts, ports, or services."
       },
       {
         "id": "filesystem:references/framework-clues.md:8:hidden-file-access",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "The line lists .jsx and .tsx file extensions as React framework clues. These are normal source file suffixes, not hidden file access instructions."
+        "confidence": 0.99,
+        "reason": "The text lists JSX and TSX filename extensions as React recognition clues. It does not access hidden files."
       },
       {
         "id": "sensitive:references/investigation-checklist.md:17:environment-file-access",
-        "verdict": "confirmed",
-        "confidence": 0.82,
-        "severity": "high",
-        "reason": "The checklist directs investigators to find .env.example and config files during directory mapping. This can lead an agent to inspect real environment files that may contain secrets unless the guidance is narrowed."
+        "verdict": "false_positive",
+        "confidence": 0.99,
+        "reason": "The checklist names `.env.example`, a conventional secret-free template, and `config/`. It neither reads environment files nor requests secret values."
       },
       {
         "id": "external_commands:scripts/find-entry-points.py:87:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "The Python code prints Markdown inline code around relative paths. It does not use Ruby backticks or execute shell text."
+        "confidence": 0.99,
+        "reason": "The backticks are literal Markdown delimiters inside a Python formatted string. The code only prints a discovered relative path and executes no shell command."
       },
       {
         "id": "external_commands:scripts/find-entry-points.py:101:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "The Python code prints Markdown inline code around relative paths. It does not use Ruby backticks or execute shell text."
+        "confidence": 0.99,
+        "reason": "The backticks are literal Markdown delimiters inside a Python formatted string. The code only prints a discovered relative path and executes no shell command."
       },
       {
         "id": "external_commands:scripts/map-structure.sh:10:shell-command-substitution",
         "verdict": "false_positive",
-        "confidence": 0.87,
-        "reason": "The command substitution calls hardcoded basename or realpath with a quoted project directory for report labels. It does not evaluate user-controlled command text."
+        "confidence": 0.96,
+        "reason": "The substitution invokes `basename` or `realpath` with a quoted argument only to print project metadata. It does not evaluate project content as shell syntax."
       },
       {
         "id": "external_commands:scripts/map-structure.sh:11:shell-command-substitution",
         "verdict": "false_positive",
-        "confidence": 0.87,
-        "reason": "The command substitution calls hardcoded basename or realpath with a quoted project directory for report labels. It does not evaluate user-controlled command text."
+        "confidence": 0.96,
+        "reason": "The substitution invokes `basename` or `realpath` with a quoted argument only to print project metadata. It does not evaluate project content as shell syntax."
       },
       {
         "id": "external_commands:scripts/map-structure.sh:62:shell-command-substitution",
-        "verdict": "false_positive",
-        "confidence": 0.85,
-        "reason": "The command substitution runs hardcoded find and wc counts against a quoted project directory. This is local project inventory behavior, not arbitrary command execution."
+        "verdict": "confirmed",
+        "confidence": 0.98,
+        "severity": "high",
+        "reason": "The substitution executes `find` with the user-supplied project argument as its first operand. An argument such as `-delete` is parsed as a find action and can remove files."
       },
       {
         "id": "external_commands:scripts/map-structure.sh:63:shell-command-substitution",
-        "verdict": "false_positive",
-        "confidence": 0.85,
-        "reason": "The command substitution runs hardcoded find and wc counts against a quoted project directory. This is local project inventory behavior, not arbitrary command execution."
+        "verdict": "confirmed",
+        "confidence": 0.98,
+        "severity": "high",
+        "reason": "The substitution executes `find` with the user-supplied project argument as its first operand. An argument such as `-delete` is parsed as a find action and can remove files."
       },
       {
         "id": "external_commands:scripts/map-structure.sh:64:shell-command-substitution",
-        "verdict": "false_positive",
-        "confidence": 0.85,
-        "reason": "The command substitution runs hardcoded find and wc counts against a quoted project directory. This is local project inventory behavior, not arbitrary command execution."
+        "verdict": "confirmed",
+        "confidence": 0.98,
+        "severity": "high",
+        "reason": "The substitution executes `find` with the user-supplied project argument as its first operand. An argument such as `-delete` is parsed as a find action and can remove files."
       },
       {
         "id": "external_commands:scripts/map-structure.sh:65:shell-command-substitution",
-        "verdict": "false_positive",
-        "confidence": 0.85,
-        "reason": "The command substitution runs hardcoded find and wc counts against a quoted project directory. This is local project inventory behavior, not arbitrary command execution."
+        "verdict": "confirmed",
+        "confidence": 0.98,
+        "severity": "high",
+        "reason": "The substitution executes `find` with the user-supplied project argument as its first operand. An argument such as `-delete` is parsed as a find action and can remove files."
       },
       {
         "id": "external_commands:scripts/map-structure.sh:66:shell-command-substitution",
-        "verdict": "false_positive",
-        "confidence": 0.85,
-        "reason": "The command substitution runs hardcoded find and wc counts against a quoted project directory. This is local project inventory behavior, not arbitrary command execution."
+        "verdict": "confirmed",
+        "confidence": 0.98,
+        "severity": "high",
+        "reason": "The substitution executes `find` with the user-supplied project argument as its first operand. An argument such as `-delete` is parsed as a find action and can remove files."
       },
       {
         "id": "filesystem:scripts/map-structure.sh:15:standard-device-file-access",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "The detected device access is stderr redirection to /dev/null while running tree or find. Suppressing local command errors is a safe script pattern here."
+        "confidence": 0.99,
+        "reason": "The script redirects an availability check to `/dev/null`. This standard redirection suppresses output and does not read or modify a sensitive device."
       },
       {
         "id": "filesystem:scripts/map-structure.sh:17:standard-device-file-access",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "The detected device access is stderr redirection to /dev/null while running tree or find. Suppressing local command errors is a safe script pattern here."
+        "confidence": 0.99,
+        "reason": "The cited `/dev/null` use only suppresses expected command errors. The redirection itself does not expose data or modify a sensitive device."
       },
       {
         "id": "filesystem:scripts/map-structure.sh:20:standard-device-file-access",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "The detected device access is stderr redirection to /dev/null while running tree or find. Suppressing local command errors is a safe script pattern here."
+        "confidence": 0.99,
+        "reason": "The cited `/dev/null` use only suppresses expected command errors. The redirection itself does not expose data or modify a sensitive device."
       },
       {
         "id": "filesystem:scripts/map-structure.sh:37:standard-device-file-access",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "The detected device access is stderr redirection to /dev/null while running tree or find. Suppressing local command errors is a safe script pattern here."
+        "confidence": 0.99,
+        "reason": "The cited `/dev/null` use only suppresses expected command errors. The redirection itself does not expose data or modify a sensitive device."
       },
       {
         "id": "filesystem:scripts/map-structure.sh:48:standard-device-file-access",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "The detected device access is stderr redirection to /dev/null while running tree or find. Suppressing local command errors is a safe script pattern here."
+        "confidence": 0.99,
+        "reason": "The cited `/dev/null` use only suppresses expected command errors. The redirection itself does not expose data or modify a sensitive device."
       },
       {
         "id": "filesystem:scripts/map-structure.sh:58:standard-device-file-access",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "The detected device access is stderr redirection to /dev/null while running tree or find. Suppressing local command errors is a safe script pattern here."
+        "confidence": 0.99,
+        "reason": "The cited `/dev/null` use only suppresses expected command errors. The redirection itself does not expose data or modify a sensitive device."
       },
       {
         "id": "filesystem:scripts/map-structure.sh:62:standard-device-file-access",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "The detected device access is stderr redirection to /dev/null while running tree or find. Suppressing local command errors is a safe script pattern here."
+        "confidence": 0.99,
+        "reason": "The cited `/dev/null` use only suppresses expected command errors. The redirection itself does not expose data or modify a sensitive device."
       },
       {
         "id": "filesystem:scripts/map-structure.sh:63:standard-device-file-access",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "The detected device access is stderr redirection to /dev/null while running tree or find. Suppressing local command errors is a safe script pattern here."
+        "confidence": 0.99,
+        "reason": "The cited `/dev/null` use only suppresses expected command errors. The redirection itself does not expose data or modify a sensitive device."
       },
       {
         "id": "filesystem:scripts/map-structure.sh:64:standard-device-file-access",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "The detected device access is stderr redirection to /dev/null while running tree or find. Suppressing local command errors is a safe script pattern here."
+        "confidence": 0.99,
+        "reason": "The cited `/dev/null` use only suppresses expected command errors. The redirection itself does not expose data or modify a sensitive device."
       },
       {
         "id": "filesystem:scripts/map-structure.sh:65:standard-device-file-access",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "The detected device access is stderr redirection to /dev/null while running tree or find. Suppressing local command errors is a safe script pattern here."
+        "confidence": 0.99,
+        "reason": "The cited `/dev/null` use only suppresses expected command errors. The redirection itself does not expose data or modify a sensitive device."
       },
       {
         "id": "filesystem:scripts/map-structure.sh:66:standard-device-file-access",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "The detected device access is stderr redirection to /dev/null while running tree or find. Suppressing local command errors is a safe script pattern here."
+        "confidence": 0.99,
+        "reason": "The cited `/dev/null` use only suppresses expected command errors. The redirection itself does not expose data or modify a sensitive device."
       },
       {
         "id": "external_commands:SKILL.md:34:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "The detected backticks are Markdown code fences or inline code spans used for examples and file references. The Markdown formatting itself does not execute commands or evaluate dynamic shell input."
+        "confidence": 0.99,
+        "reason": "This location is Markdown documentation where backticks delimit code blocks, commands, or file paths. They are not Ruby or shell backtick operators."
       },
       {
         "id": "external_commands:SKILL.md:51:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "The detected backticks are Markdown code fences or inline code spans used for examples and file references. The Markdown formatting itself does not execute commands or evaluate dynamic shell input."
+        "confidence": 0.99,
+        "reason": "This location is Markdown documentation where backticks delimit code blocks, commands, or file paths. They are not Ruby or shell backtick operators."
       },
       {
         "id": "external_commands:SKILL.md:54:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "The detected backticks are Markdown code fences or inline code spans used for examples and file references. The Markdown formatting itself does not execute commands or evaluate dynamic shell input."
+        "confidence": 0.99,
+        "reason": "This location is Markdown documentation where backticks delimit code blocks, commands, or file paths. They are not Ruby or shell backtick operators."
       },
       {
         "id": "external_commands:SKILL.md:70:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "The detected backticks are Markdown code fences or inline code spans used for examples and file references. The Markdown formatting itself does not execute commands or evaluate dynamic shell input."
+        "confidence": 0.99,
+        "reason": "This location is Markdown documentation where backticks delimit code blocks, commands, or file paths. They are not Ruby or shell backtick operators."
       },
       {
         "id": "external_commands:SKILL.md:73:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "The detected backticks are Markdown code fences or inline code spans used for examples and file references. The Markdown formatting itself does not execute commands or evaluate dynamic shell input."
+        "confidence": 0.99,
+        "reason": "This location is Markdown documentation where backticks delimit code blocks, commands, or file paths. They are not Ruby or shell backtick operators."
       },
       {
         "id": "external_commands:SKILL.md:91:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "The detected backticks are Markdown code fences or inline code spans used for examples and file references. The Markdown formatting itself does not execute commands or evaluate dynamic shell input."
+        "confidence": 0.99,
+        "reason": "This location is Markdown documentation where backticks delimit code blocks, commands, or file paths. They are not Ruby or shell backtick operators."
       },
       {
         "id": "external_commands:SKILL.md:96:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "The detected backticks are Markdown code fences or inline code spans used for examples and file references. The Markdown formatting itself does not execute commands or evaluate dynamic shell input."
+        "confidence": 0.99,
+        "reason": "This location is Markdown documentation where backticks delimit code blocks, commands, or file paths. They are not Ruby or shell backtick operators."
       },
       {
         "id": "external_commands:SKILL.md:108:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "The detected backticks are Markdown code fences or inline code spans used for examples and file references. The Markdown formatting itself does not execute commands or evaluate dynamic shell input."
+        "confidence": 0.99,
+        "reason": "This location is Markdown documentation where backticks delimit code blocks, commands, or file paths. They are not Ruby or shell backtick operators."
       },
       {
         "id": "external_commands:SKILL.md:111:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "The detected backticks are Markdown code fences or inline code spans used for examples and file references. The Markdown formatting itself does not execute commands or evaluate dynamic shell input."
+        "confidence": 0.99,
+        "reason": "This location is Markdown documentation where backticks delimit code blocks, commands, or file paths. They are not Ruby or shell backtick operators."
       },
       {
         "id": "external_commands:SKILL.md:127:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "The detected backticks are Markdown code fences or inline code spans used for examples and file references. The Markdown formatting itself does not execute commands or evaluate dynamic shell input."
+        "confidence": 0.99,
+        "reason": "This location is Markdown documentation where backticks delimit code blocks, commands, or file paths. They are not Ruby or shell backtick operators."
       },
       {
         "id": "external_commands:SKILL.md:130:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "The detected backticks are Markdown code fences or inline code spans used for examples and file references. The Markdown formatting itself does not execute commands or evaluate dynamic shell input."
+        "confidence": 0.99,
+        "reason": "This location is Markdown documentation where backticks delimit code blocks, commands, or file paths. They are not Ruby or shell backtick operators."
       },
       {
         "id": "external_commands:SKILL.md:146:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "The detected backticks are Markdown code fences or inline code spans used for examples and file references. The Markdown formatting itself does not execute commands or evaluate dynamic shell input."
+        "confidence": 0.99,
+        "reason": "This location is Markdown documentation where backticks delimit code blocks, commands, or file paths. They are not Ruby or shell backtick operators."
       },
       {
         "id": "external_commands:SKILL.md:151:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "The detected backticks are Markdown code fences or inline code spans used for examples and file references. The Markdown formatting itself does not execute commands or evaluate dynamic shell input."
+        "confidence": 0.99,
+        "reason": "This location is Markdown documentation where backticks delimit code blocks, commands, or file paths. They are not Ruby or shell backtick operators."
       },
       {
         "id": "external_commands:SKILL.md:157:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "The detected backticks are Markdown code fences or inline code spans used for examples and file references. The Markdown formatting itself does not execute commands or evaluate dynamic shell input."
+        "confidence": 0.99,
+        "reason": "This location is Markdown documentation where backticks delimit code blocks, commands, or file paths. They are not Ruby or shell backtick operators."
       },
       {
         "id": "external_commands:SKILL.md:160:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "The detected backticks are Markdown code fences or inline code spans used for examples and file references. The Markdown formatting itself does not execute commands or evaluate dynamic shell input."
+        "confidence": 0.99,
+        "reason": "This location is Markdown documentation where backticks delimit code blocks, commands, or file paths. They are not Ruby or shell backtick operators."
       },
       {
         "id": "external_commands:SKILL.md:163:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "The detected backticks are Markdown code fences or inline code spans used for examples and file references. The Markdown formatting itself does not execute commands or evaluate dynamic shell input."
+        "confidence": 0.99,
+        "reason": "This location is Markdown documentation where backticks delimit code blocks, commands, or file paths. They are not Ruby or shell backtick operators."
       },
       {
         "id": "external_commands:SKILL.md:169:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "The detected backticks are Markdown code fences or inline code spans used for examples and file references. The Markdown formatting itself does not execute commands or evaluate dynamic shell input."
+        "confidence": 0.99,
+        "reason": "This location is Markdown documentation where backticks delimit code blocks, commands, or file paths. They are not Ruby or shell backtick operators."
       },
       {
         "id": "external_commands:SKILL.md:179:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "The detected backticks are Markdown code fences or inline code spans used for examples and file references. The Markdown formatting itself does not execute commands or evaluate dynamic shell input."
+        "confidence": 0.99,
+        "reason": "This location is Markdown documentation where backticks delimit code blocks, commands, or file paths. They are not Ruby or shell backtick operators."
       },
       {
         "id": "external_commands:SKILL.md:182:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "The detected backticks are Markdown code fences or inline code spans used for examples and file references. The Markdown formatting itself does not execute commands or evaluate dynamic shell input."
+        "confidence": 0.99,
+        "reason": "This location is Markdown documentation where backticks delimit code blocks, commands, or file paths. They are not Ruby or shell backtick operators."
       },
       {
         "id": "external_commands:SKILL.md:206:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "The detected backticks are Markdown code fences or inline code spans used for examples and file references. The Markdown formatting itself does not execute commands or evaluate dynamic shell input."
+        "confidence": 0.99,
+        "reason": "This location is Markdown documentation where backticks delimit code blocks, commands, or file paths. They are not Ruby or shell backtick operators."
       },
       {
         "id": "external_commands:SKILL.md:210:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "The detected backticks are Markdown code fences or inline code spans used for examples and file references. The Markdown formatting itself does not execute commands or evaluate dynamic shell input."
+        "confidence": 0.99,
+        "reason": "This location is Markdown documentation where backticks delimit code blocks, commands, or file paths. They are not Ruby or shell backtick operators."
       },
       {
         "id": "external_commands:SKILL.md:224:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "The detected backticks are Markdown code fences or inline code spans used for examples and file references. The Markdown formatting itself does not execute commands or evaluate dynamic shell input."
+        "confidence": 0.99,
+        "reason": "This location is Markdown documentation where backticks delimit code blocks, commands, or file paths. They are not Ruby or shell backtick operators."
       },
       {
         "id": "external_commands:SKILL.md:225:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "The detected backticks are Markdown code fences or inline code spans used for examples and file references. The Markdown formatting itself does not execute commands or evaluate dynamic shell input."
+        "confidence": 0.99,
+        "reason": "This location is Markdown documentation where backticks delimit code blocks, commands, or file paths. They are not Ruby or shell backtick operators."
       },
       {
         "id": "external_commands:SKILL.md:287:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "The detected backticks are Markdown code fences or inline code spans used for examples and file references. The Markdown formatting itself does not execute commands or evaluate dynamic shell input."
+        "confidence": 0.99,
+        "reason": "This location is Markdown documentation where backticks delimit code blocks, commands, or file paths. They are not Ruby or shell backtick operators."
       },
       {
         "id": "external_commands:SKILL.md:294:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "The detected backticks are Markdown code fences or inline code spans used for examples and file references. The Markdown formatting itself does not execute commands or evaluate dynamic shell input."
+        "confidence": 0.99,
+        "reason": "This location is Markdown documentation where backticks delimit code blocks, commands, or file paths. They are not Ruby or shell backtick operators."
       },
       {
         "id": "external_commands:SKILL.md:297:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "The detected backticks are Markdown code fences or inline code spans used for examples and file references. The Markdown formatting itself does not execute commands or evaluate dynamic shell input."
+        "confidence": 0.99,
+        "reason": "This location is Markdown documentation where backticks delimit code blocks, commands, or file paths. They are not Ruby or shell backtick operators."
       },
       {
         "id": "external_commands:SKILL.md:304:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "The detected backticks are Markdown code fences or inline code spans used for examples and file references. The Markdown formatting itself does not execute commands or evaluate dynamic shell input."
+        "confidence": 0.99,
+        "reason": "This location is Markdown documentation where backticks delimit code blocks, commands, or file paths. They are not Ruby or shell backtick operators."
       },
       {
         "id": "external_commands:SKILL.md:307:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "The detected backticks are Markdown code fences or inline code spans used for examples and file references. The Markdown formatting itself does not execute commands or evaluate dynamic shell input."
+        "confidence": 0.99,
+        "reason": "This location is Markdown documentation where backticks delimit code blocks, commands, or file paths. They are not Ruby or shell backtick operators."
       },
       {
         "id": "external_commands:SKILL.md:313:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "The detected backticks are Markdown code fences or inline code spans used for examples and file references. The Markdown formatting itself does not execute commands or evaluate dynamic shell input."
+        "confidence": 0.99,
+        "reason": "This location is Markdown documentation where backticks delimit code blocks, commands, or file paths. They are not Ruby or shell backtick operators."
       },
       {
         "id": "external_commands:SKILL.md:316:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "The detected backticks are Markdown code fences or inline code spans used for examples and file references. The Markdown formatting itself does not execute commands or evaluate dynamic shell input."
+        "confidence": 0.99,
+        "reason": "This location is Markdown documentation where backticks delimit code blocks, commands, or file paths. They are not Ruby or shell backtick operators."
       },
       {
         "id": "external_commands:SKILL.md:322:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "The detected backticks are Markdown code fences or inline code spans used for examples and file references. The Markdown formatting itself does not execute commands or evaluate dynamic shell input."
+        "confidence": 0.99,
+        "reason": "This location is Markdown documentation where backticks delimit code blocks, commands, or file paths. They are not Ruby or shell backtick operators."
       },
       {
         "id": "external_commands:SKILL.md:327:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "The detected backticks are Markdown code fences or inline code spans used for examples and file references. The Markdown formatting itself does not execute commands or evaluate dynamic shell input."
+        "confidence": 0.99,
+        "reason": "This location is Markdown documentation where backticks delimit code blocks, commands, or file paths. They are not Ruby or shell backtick operators."
       },
       {
         "id": "external_commands:SKILL.md:336:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "The detected backticks are Markdown code fences or inline code spans used for examples and file references. The Markdown formatting itself does not execute commands or evaluate dynamic shell input."
+        "confidence": 0.99,
+        "reason": "This location is Markdown documentation where backticks delimit code blocks, commands, or file paths. They are not Ruby or shell backtick operators."
       },
       {
         "id": "external_commands:SKILL.md:339:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "The detected backticks are Markdown code fences or inline code spans used for examples and file references. The Markdown formatting itself does not execute commands or evaluate dynamic shell input."
+        "confidence": 0.99,
+        "reason": "This location is Markdown documentation where backticks delimit code blocks, commands, or file paths. They are not Ruby or shell backtick operators."
       },
       {
         "id": "external_commands:SKILL.md:348:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "The detected backticks are Markdown code fences or inline code spans used for examples and file references. The Markdown formatting itself does not execute commands or evaluate dynamic shell input."
+        "confidence": 0.99,
+        "reason": "This location is Markdown documentation where backticks delimit code blocks, commands, or file paths. They are not Ruby or shell backtick operators."
       },
       {
         "id": "external_commands:SKILL.md:351:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "The detected backticks are Markdown code fences or inline code spans used for examples and file references. The Markdown formatting itself does not execute commands or evaluate dynamic shell input."
+        "confidence": 0.99,
+        "reason": "This location is Markdown documentation where backticks delimit code blocks, commands, or file paths. They are not Ruby or shell backtick operators."
       },
       {
         "id": "external_commands:SKILL.md:360:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "The detected backticks are Markdown code fences or inline code spans used for examples and file references. The Markdown formatting itself does not execute commands or evaluate dynamic shell input."
+        "confidence": 0.99,
+        "reason": "This location is Markdown documentation where backticks delimit code blocks, commands, or file paths. They are not Ruby or shell backtick operators."
       },
       {
         "id": "external_commands:SKILL.md:377:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "The detected backticks are Markdown code fences or inline code spans used for examples and file references. The Markdown formatting itself does not execute commands or evaluate dynamic shell input."
+        "confidence": 0.99,
+        "reason": "This location is Markdown documentation where backticks delimit code blocks, commands, or file paths. They are not Ruby or shell backtick operators."
       },
       {
         "id": "external_commands:SKILL.md:381:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "The detected backticks are Markdown code fences or inline code spans used for examples and file references. The Markdown formatting itself does not execute commands or evaluate dynamic shell input."
+        "confidence": 0.99,
+        "reason": "This location is Markdown documentation where backticks delimit code blocks, commands, or file paths. They are not Ruby or shell backtick operators."
       },
       {
         "id": "external_commands:SKILL.md:382:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "The detected backticks are Markdown code fences or inline code spans used for examples and file references. The Markdown formatting itself does not execute commands or evaluate dynamic shell input."
+        "confidence": 0.99,
+        "reason": "This location is Markdown documentation where backticks delimit code blocks, commands, or file paths. They are not Ruby or shell backtick operators."
       },
       {
         "id": "external_commands:SKILL.md:393:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "The detected backticks are Markdown code fences or inline code spans used for examples and file references. The Markdown formatting itself does not execute commands or evaluate dynamic shell input."
+        "confidence": 0.99,
+        "reason": "This location is Markdown documentation where backticks delimit code blocks, commands, or file paths. They are not Ruby or shell backtick operators."
       },
       {
         "id": "external_commands:SKILL.md:394:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "The detected backticks are Markdown code fences or inline code spans used for examples and file references. The Markdown formatting itself does not execute commands or evaluate dynamic shell input."
+        "confidence": 0.99,
+        "reason": "This location is Markdown documentation where backticks delimit code blocks, commands, or file paths. They are not Ruby or shell backtick operators."
       },
       {
         "id": "sensitive:SKILL.md:293:environment-file-access",
-        "verdict": "confirmed",
-        "confidence": 0.84,
-        "severity": "high",
-        "reason": "The common web application pattern explicitly includes .env files under configuration discovery. Reading real .env files can expose credentials, tokens, and service endpoints."
+        "verdict": "false_positive",
+        "confidence": 0.98,
+        "reason": "This architectural example only identifies configuration locations, including `.env` files. It contains no instruction to expose, transmit, or extract their contents."
       }
     ],
-    "semantic_findings": [],
+    "semantic_findings": [
+      {
+        "title": "Project Directory Option Injection",
+        "description": "Four direct `find` pipelines accept an option-like project argument. A value such as `-delete` can remove files from the working directory.",
+        "severity": "high",
+        "locations": [
+          {
+            "file": "scripts/map-structure.sh",
+            "line_start": 20,
+            "line_end": 20
+          },
+          {
+            "file": "scripts/map-structure.sh",
+            "line_start": 29,
+            "line_end": 37
+          },
+          {
+            "file": "scripts/map-structure.sh",
+            "line_start": 41,
+            "line_end": 48
+          },
+          {
+            "file": "scripts/map-structure.sh",
+            "line_start": 52,
+            "line_end": 58
+          }
+        ],
+        "confidence": 0.98,
+        "confidence_reasoning": "Each pipeline places the unnormalized positional argument where `find` accepts expressions. The documented `-delete` action provides a direct destructive path."
+      }
+    ],
     "critical_findings": [],
     "high_findings": [
       {
-        "title": "Environment file access",
-        "description": "- [ ] Find configuration files (`.env.example`, `config/`)",
+        "title": "Shell command substitution",
+        "description": "echo \"TypeScript: $(find \"$PROJECT_DIR\" -type f -name \"*.ts\" 2>/dev/null | wc -l)\"",
         "locations": [
           {
-            "file": "references/investigation-checklist.md",
-            "line_start": 17,
-            "line_end": 17
+            "file": "scripts/map-structure.sh",
+            "line_start": 62,
+            "line_end": 62
           }
         ],
-        "review_kind": "security",
-        "source_category": "sensitive",
-        "source_severity": "high",
-        "confidence": 0.82,
-        "confidence_reasoning": "The checklist directs investigators to find .env.example and config files during directory mapping. This can lead an agent to inspect real environment files that may contain secrets unless the guidance is narrowed."
+        "review_kind": "capability",
+        "source_category": "external_commands",
+        "source_severity": "medium",
+        "confidence": 0.98,
+        "confidence_reasoning": "The substitution executes `find` with the user-supplied project argument as its first operand. An argument such as `-delete` is parsed as a find action and can remove files."
       },
       {
-        "title": "Environment file access",
-        "description": "6. Config: config/, .env files",
+        "title": "Shell command substitution",
+        "description": "echo \"JavaScript: $(find \"$PROJECT_DIR\" -type f -name \"*.js\" 2>/dev/null | wc -l)\"",
         "locations": [
           {
-            "file": "SKILL.md",
-            "line_start": 293,
-            "line_end": 293
+            "file": "scripts/map-structure.sh",
+            "line_start": 63,
+            "line_end": 63
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "external_commands",
+        "source_severity": "medium",
+        "confidence": 0.98,
+        "confidence_reasoning": "The substitution executes `find` with the user-supplied project argument as its first operand. An argument such as `-delete` is parsed as a find action and can remove files."
+      },
+      {
+        "title": "Shell command substitution",
+        "description": "echo \"Python:     $(find \"$PROJECT_DIR\" -type f -name \"*.py\" 2>/dev/null | wc -l)\"",
+        "locations": [
+          {
+            "file": "scripts/map-structure.sh",
+            "line_start": 64,
+            "line_end": 64
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "external_commands",
+        "source_severity": "medium",
+        "confidence": 0.98,
+        "confidence_reasoning": "The substitution executes `find` with the user-supplied project argument as its first operand. An argument such as `-delete` is parsed as a find action and can remove files."
+      },
+      {
+        "title": "Shell command substitution",
+        "description": "echo \"Go:         $(find \"$PROJECT_DIR\" -type f -name \"*.go\" 2>/dev/null | wc -l)\"",
+        "locations": [
+          {
+            "file": "scripts/map-structure.sh",
+            "line_start": 65,
+            "line_end": 65
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "external_commands",
+        "source_severity": "medium",
+        "confidence": 0.98,
+        "confidence_reasoning": "The substitution executes `find` with the user-supplied project argument as its first operand. An argument such as `-delete` is parsed as a find action and can remove files."
+      },
+      {
+        "title": "Shell command substitution",
+        "description": "echo \"Rust:       $(find \"$PROJECT_DIR\" -type f -name \"*.rs\" 2>/dev/null | wc -l)\"",
+        "locations": [
+          {
+            "file": "scripts/map-structure.sh",
+            "line_start": 66,
+            "line_end": 66
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "external_commands",
+        "source_severity": "medium",
+        "confidence": 0.98,
+        "confidence_reasoning": "The substitution executes `find` with the user-supplied project argument as its first operand. An argument such as `-delete` is parsed as a find action and can remove files."
+      },
+      {
+        "title": "Project Directory Option Injection",
+        "description": "Four direct `find` pipelines accept an option-like project argument. A value such as `-delete` can remove files from the working directory.",
+        "locations": [
+          {
+            "file": "scripts/map-structure.sh",
+            "line_start": 20,
+            "line_end": 20
+          },
+          {
+            "file": "scripts/map-structure.sh",
+            "line_start": 29,
+            "line_end": 37
+          },
+          {
+            "file": "scripts/map-structure.sh",
+            "line_start": 41,
+            "line_end": 48
+          },
+          {
+            "file": "scripts/map-structure.sh",
+            "line_start": 52,
+            "line_end": 58
           }
         ],
         "review_kind": "security",
-        "source_category": "sensitive",
+        "source_category": "semantic",
         "source_severity": "high",
-        "confidence": 0.84,
-        "confidence_reasoning": "The common web application pattern explicitly includes .env files under configuration discovery. Reading real .env files can expose credentials, tokens, and service endpoints."
+        "confidence": 0.98,
+        "confidence_reasoning": "Each pipeline places the unnormalized positional argument where `find` accepts expressions. The documented `-delete` action provides a direct destructive path."
       }
     ],
     "medium_findings": [],
@@ -1549,134 +1646,130 @@
     "files_scanned": 9,
     "total_lines": 1543,
     "audit_model": "codex",
-    "audited_at": "2026-07-08T00:52:55.188Z",
+    "audited_at": "2026-07-23T10:29:51.707Z",
     "agent_auto_install_policy": "confirmation_required",
     "manual_install_policy": "allowed"
   },
   "content": {
-    "user_title": "Investigate Codebases Systematically",
-    "value_statement": "Unfamiliar repositories slow reviews, fixes, and onboarding. This skill gives Claude, Codex, and Claude Code a structured way to map code, trace behavior, and explain findings.",
+    "user_title": "Investigate Unfamiliar Codebases",
+    "value_statement": "Unfamiliar repositories make implementation questions slow and uncertain. This skill maps structure, traces dependencies, and explains behavior with concrete file references.",
     "seo_keywords": [
       "Claude",
       "Codex",
       "Claude Code",
       "codebase investigation",
-      "repository analysis",
-      "architecture mapping",
+      "code architecture analysis",
       "dependency tracing",
       "entry point discovery",
-      "developer onboarding",
-      "code documentation"
+      "execution flow analysis",
+      "repository documentation"
     ],
     "actual_capabilities": [
-      "Maps directory structure and identifies common source, test, configuration, and documentation areas.",
+      "Maps directory structure and identifies common source, test, configuration, and documentation locations.",
       "Finds likely entry points for Node.js, Python, Go, Rust, Java, and web projects.",
-      "Traces local import chains for JavaScript, TypeScript, and Python files.",
-      "Provides investigation checklists for architecture, data flow, dependencies, tests, and security review.",
-      "Supplies templates and flow diagram guidance for documenting code investigations."
+      "Traces local TypeScript, JavaScript, and Python imports to a configurable depth.",
+      "Follows routes, handlers, services, repositories, and data transformations through related files.",
+      "Produces structured explanations with file references, execution flows, patterns, and related components."
     ],
     "limitations": [
-      "Helper scripts inspect local files and require care around sensitive paths.",
-      "Import tracing uses regular expressions and may miss dynamic imports or framework magic.",
-      "It does not verify runtime behavior unless the agent is allowed to run project commands.",
-      "It supports investigation workflows, but it does not replace a dedicated security review."
+      "It does not modify code or validate behavior by running the application or its tests.",
+      "Import tracing does not resolve aliases, dynamic imports, or every language and build system.",
+      "Results depend on the files and repository scope available to the assistant.",
+      "The structure script requires a trusted directory argument until its option-injection flaw is fixed."
     ],
     "use_cases": [
       {
-        "title": "Onboard to an unfamiliar repository",
-        "description": "Map the main folders, entry points, frameworks, and first files to read before starting work.",
-        "target_user": "New team member"
+        "title": "Understand a New Repository",
+        "description": "Map the project, identify entry points, and learn the main architectural conventions before making changes.",
+        "target_user": "Software engineers joining an existing project"
       },
       {
-        "title": "Trace a feature implementation",
-        "description": "Follow routes, handlers, services, data access, and UI components to explain how a feature works.",
-        "target_user": "Product engineer"
+        "title": "Trace a Feature",
+        "description": "Follow a feature from its trigger through handlers, services, storage, and response formatting.",
+        "target_user": "Maintainers debugging unfamiliar behavior"
       },
       {
-        "title": "Prepare architecture documentation",
-        "description": "Collect file references, dependency relationships, data flow notes, and implementation summaries for technical documentation.",
-        "target_user": "Technical lead"
+        "title": "Prepare a Technical Review",
+        "description": "Document component boundaries, dependencies, data flows, and security-sensitive paths with evidence.",
+        "target_user": "Architects and security reviewers"
       }
     ],
     "prompt_templates": [
       {
-        "title": "Map the repository",
-        "scenario": "Beginner onboarding",
-        "prompt": "Investigate this repository at a high level. Identify the project type, main directories, entry points, and the files I should read first."
+        "title": "Find an Implementation",
+        "prompt": "Find where [feature] is implemented. Name the primary files, explain each role, and include precise file references.",
+        "scenario": "A beginner needs a focused location answer."
       },
       {
-        "title": "Find a feature",
-        "scenario": "Locate implementation code",
-        "prompt": "Find where the requested feature is implemented. Search by names, routes, and related concepts, then summarize the primary files and responsibilities."
+        "title": "Explain a Component",
+        "prompt": "Explain how [component] works from entry point to output. Trace important calls and data transformations with file references.",
+        "scenario": "A developer needs an implementation walkthrough."
       },
       {
-        "title": "Trace an execution flow",
-        "scenario": "Understand behavior across layers",
-        "prompt": "Trace the execution flow for this behavior from the entry point through handlers, services, data access, and response handling. Cite file paths and line numbers."
+        "title": "Map Repository Architecture",
+        "prompt": "Investigate this repository architecture. Identify entry points, layers, shared modules, integrations, tests, conventions, and important configuration without reading secret values.",
+        "scenario": "A new maintainer needs a broad technical map."
       },
       {
-        "title": "Analyze system patterns",
-        "scenario": "Advanced architecture review",
-        "prompt": "Analyze this subsystem in depth. Map dependencies, data flow, error handling, test coverage, conventions, and risks. Separate confirmed facts from assumptions."
+        "title": "Analyze a Cross-Cutting Flow",
+        "prompt": "Trace [workflow] across modules and services. Document branches, validation, state changes, failure handling, security controls, performance concerns, and unresolved questions.",
+        "scenario": "An experienced reviewer needs a deep evidence-based analysis."
       }
     ],
     "output_examples": [
       {
-        "input": "Where is authentication implemented?",
+        "input": "Where is user authentication implemented?",
         "output": [
-          "The answer identifies the main route or middleware, then follows token validation, session handling, and user lookup code.",
-          "It includes related files, a short execution flow, and security notes about validation and authorization boundaries."
+          "The investigation identifies the request middleware, token validator, session storage, and login handler.",
+          "It explains the decision branches and cites each relevant file and line."
         ]
       },
       {
-        "input": "Explain how the build process works.",
-        "output": [
-          "The answer starts with build configuration and package scripts, then explains compile, bundle, asset, and output steps.",
-          "It distinguishes development and production behavior and lists the files that control each stage."
-        ]
+        "input": "Explain how the application starts.",
+        "output": "The report traces startup from the main entry point through configuration, dependency initialization, route registration, and server startup."
       },
       {
-        "input": "Help me understand this new repository.",
+        "input": "Map the payment workflow and its failure paths.",
         "output": [
-          "The answer summarizes project type, framework clues, top-level structure, likely entry points, and the next investigation steps.",
-          "It gives a concise reading order so the user can move from overview to implementation details."
+          "The analysis follows request validation, payment service calls, persistence, retries, and error responses.",
+          "It separates verified behavior from open questions and lists related components."
         ]
       }
     ],
     "best_practices": [
-      "Start with structure and entry points before reading implementation details.",
-      "Verify each conclusion with file references and related code paths.",
-      "Avoid reading real secret files unless the user explicitly approves that scope."
+      "Start with repository structure and entry points before tracing a specific implementation.",
+      "Verify conclusions across definitions, callers, tests, and configuration files.",
+      "Separate confirmed behavior from assumptions, and cite a file reference for every important claim."
     ],
     "anti_patterns": [
-      "Do not search randomly without first forming a project map.",
-      "Do not present guesses as facts when code paths were not verified.",
-      "Do not copy sensitive configuration values into investigation notes."
+      "Do not search the entire repository without first defining the feature or workflow boundary.",
+      "Do not infer runtime behavior from names or directory structure alone.",
+      "Do not expose credentials or secret values found in configuration files."
     ],
     "faq": [
       {
-        "question": "What does this skill help with?",
-        "answer": "It helps an agent understand unfamiliar repositories, locate features, trace flows, and document findings with file references."
+        "question": "Can this skill change the code?",
+        "answer": "No. Its workflow focuses on reading, searching, tracing, and documenting existing code."
       },
       {
-        "question": "Does it modify source code?",
-        "answer": "No. The skill is designed for investigation and explanation, not editing or refactoring code."
+        "question": "Which languages does it support?",
+        "answer": "The methodology is general, while bundled entry-point clues cover JavaScript, TypeScript, Python, Go, Rust, Java, and common web frameworks."
       },
       {
-        "question": "Can it run helper scripts?",
-        "answer": "It includes optional local helper scripts for structure mapping, entry point discovery, and import tracing when the environment permits commands."
+        "question": "Does it run the application or tests?",
+        "answer": "No. It explains static evidence and does not validate behavior through runtime execution."
       },
       {
-        "question": "Which languages does it recognize best?",
-        "answer": "It includes clues for JavaScript, TypeScript, Python, Go, Rust, Java, and common web frameworks."
+        "question": "Can it trace dependencies?",
+        "answer": "Yes. It follows imports and related calls, with a helper for local TypeScript, JavaScript, and Python imports."
       },
       {
-        "question": "How should sensitive files be handled?",
-        "answer": "Agents should prefer examples and schemas, and should avoid reading real secret files unless the user explicitly approves the scope."
+        "question": "How are findings presented?",
+        "answer": "Findings include an overview, key files, implementation steps, execution flow, patterns, related components, and concrete file references."
       },
       {
-        "question": "Is this a security audit skill?",
-        "answer": "No. It can note security concerns during investigation, but it is not a replacement for a dedicated security review."
+        "question": "Will it read environment secrets?",
+        "answer": "It may identify configuration locations, but users should limit access and request analysis without exposing secret values."
       }
     ]
   },
