@@ -1,7 +1,7 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-07-07T22:35:42.672Z",
+    "generated_at": "2026-07-23T11:22:35.526Z",
     "slug": "browser-act-zhihu-search-api-skill",
     "source_url": "https://github.com/browser-act/skills/tree/main/solutions/social-listening/zhihu-search-api-skill",
     "source_ref": "main",
@@ -23,18 +23,18 @@
   },
   "skill": {
     "name": "zhihu-search-api-skill",
-    "description": "Extract structured Zhihu article results through the BrowserAct workflow API using keywords, date filters, and result limits.",
-    "summary": "Search Zhihu through BrowserAct and return article titles, authors, dates, links, images, and body content.",
+    "description": "Search Zhihu through a BrowserAct workflow and extract article titles, full text, images, authors, dates, and links.",
+    "summary": "Retrieve structured Zhihu article data by keyword and publication date.",
     "icon": "📦",
-    "version": "1.0.1",
     "author": "browser-act",
     "license": "MIT",
+    "category": "research",
     "tags": [
       "zhihu",
-      "browseract",
+      "article-search",
       "social-listening",
       "market-research",
-      "article-extraction"
+      "browseract"
     ],
     "supported_tools": [
       "claude",
@@ -45,35 +45,29 @@
       "network",
       "env_access",
       "external_commands"
-    ],
-    "category": "research"
+    ]
   },
   "security_audit": {
     "risk_level": "high",
     "is_blocked": false,
     "safe_to_publish": false,
     "analysis_status": "ok",
-    "summary": "Most static findings are Markdown formatting or expected BrowserAct API integration. Confirmed concerns include third-party network transfer, environment secret access, local script execution, API key solicitation, and marketing claims about avoiding access controls.",
+    "summary": "Most static alerts are false positives caused by expected HTTPS requests, environment-based credential loading, and Markdown backticks. Two instructions improperly solicit an API key from the user. Raw article content can also carry indirect prompt injection, while the stated avoidance of CAPTCHA and geofencing creates platform-control bypass risk.",
     "remediation": [
       {
-        "issue": "API key disclosure in user instructions",
-        "suggestion": "Remove instructions that ask users to provide the key in chat. Require BROWSERACT_API_KEY to be set locally before running.",
+        "issue": "The skill tells users to provide an API key to the agent.",
+        "suggestion": "Require BROWSERACT_API_KEY through the environment only. Never request, display, log, or accept the key in chat.",
         "severity": "high"
       },
       {
-        "issue": "Access-control bypass marketing",
-        "suggestion": "Remove claims about avoiding CAPTCHA, IP restrictions, or geo-fencing. Add guidance to follow Zhihu terms and authorization requirements.",
+        "issue": "Raw third-party article content is returned directly to the agent.",
+        "suggestion": "Mark API output as untrusted data. Isolate article text and instruct the agent to ignore commands contained within retrieved content.",
         "severity": "high"
       },
       {
-        "issue": "External script execution with user arguments",
-        "suggestion": "Document safe invocation with argument arrays. Avoid shell interpolation when passing keyword, date, or limit values.",
+        "issue": "The documentation presents CAPTCHA, IP restrictions, and geofencing as obstacles the service avoids.",
+        "suggestion": "Remove bypass claims and require users to follow Zhihu terms, authorization requirements, access controls, and reasonable collection limits.",
         "severity": "medium"
-      },
-      {
-        "issue": "Third-party data transfer",
-        "suggestion": "Disclose that keywords, workflow task data, and result retrieval go through the BrowserAct API.",
-        "severity": "low"
       }
     ],
     "risk_factor_evidence": [
@@ -723,296 +717,289 @@
     "finding_verdicts": [
       {
         "id": "network:scripts/zhihu_search_api.py:31:python-http-libraries",
-        "verdict": "confirmed",
-        "confidence": 0.88,
-        "severity": "low",
-        "reason": "The script posts user search parameters and a bearer token to the BrowserAct workflow API. This is intended behavior, but it is still external data transfer."
+        "verdict": "false_positive",
+        "confidence": 0.97,
+        "reason": "This request starts the documented BrowserAct workflow at a fixed HTTPS endpoint. The keyword and filters are expected service inputs, not covert exfiltration."
       },
       {
         "id": "network:scripts/zhihu_search_api.py:48:python-http-libraries",
-        "verdict": "confirmed",
-        "confidence": 0.84,
-        "severity": "low",
-        "reason": "The script polls BrowserAct with the task id and authorization header. This creates ongoing outbound network traffic tied to the user request."
+        "verdict": "false_positive",
+        "confidence": 0.98,
+        "reason": "This GET request polls the documented BrowserAct task status at the same fixed HTTPS host. No user-controlled destination or unrelated data transfer is present."
       },
       {
         "id": "network:scripts/zhihu_search_api.py:71:python-http-libraries",
-        "verdict": "confirmed",
-        "confidence": 0.84,
-        "severity": "low",
-        "reason": "The script retrieves task results from BrowserAct over the network using the same bearer token. Returned content may include user-requested research data."
+        "verdict": "false_positive",
+        "confidence": 0.98,
+        "reason": "This GET request retrieves the result of the task created by the skill from the fixed BrowserAct host. It is necessary for the declared capability."
       },
       {
         "id": "network:scripts/zhihu_search_api.py:15:hardcoded-url",
-        "verdict": "confirmed",
-        "confidence": 0.78,
-        "severity": "low",
-        "reason": "The hardcoded BrowserAct API endpoint fixes the external service that receives requests. It is disclosed and expected, but it remains a third-party dependency."
+        "verdict": "false_positive",
+        "confidence": 0.98,
+        "reason": "The constant is an HTTPS BrowserAct API endpoint that matches the skill's declared provider. It does not point to an unrelated or dynamically selected host."
       },
       {
         "id": "network:scripts/zhihu_search_api.py:97:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "This line only prints the BrowserAct console URL for user setup. It does not make a network request or hide an outbound endpoint."
+        "confidence": 0.99,
+        "reason": "This URL is printed as a setup link for the BrowserAct console. It is not contacted by the script and does not transmit data."
       },
       {
         "id": "env_access:scripts/zhihu_search_api.py:88:python-getenv-function",
-        "verdict": "confirmed",
-        "confidence": 0.82,
-        "severity": "low",
-        "reason": "The script reads BROWSERACT_API_KEY from the environment. This is expected, but it gives the skill access to a secret value."
+        "verdict": "false_positive",
+        "confidence": 0.99,
+        "reason": "The script reads only the documented BROWSERACT_API_KEY variable. Environment loading is the appropriate way to provide this credential."
       },
       {
         "id": "env_access:scripts/zhihu_search_api.py:88:getenv-function-call",
-        "verdict": "confirmed",
-        "confidence": 0.82,
-        "severity": "low",
-        "reason": "The getenv call accesses the BrowserAct API key at runtime. This is legitimate secret use, but it must be treated as sensitive."
+        "verdict": "false_positive",
+        "confidence": 0.99,
+        "reason": "This duplicate alert covers the same explicit BROWSERACT_API_KEY lookup. The value is not enumerated from the environment or printed."
       },
       {
         "id": "env_access:scripts/zhihu_search_api.py:17:generic-api-secret-keys",
         "verdict": "false_positive",
-        "confidence": 0.83,
-        "reason": "This is a function parameter named api_key, not a hardcoded credential. The key is used for the documented BrowserAct API call."
+        "confidence": 0.99,
+        "reason": "The line defines a function parameter named api_key and contains no credential value. A parameter name is not a hardcoded or exposed secret."
       },
       {
         "id": "env_access:scripts/zhihu_search_api.py:18:generic-api-secret-keys",
         "verdict": "false_positive",
-        "confidence": 0.8,
-        "reason": "The bearer header sends the API key to the intended BrowserAct endpoint over HTTPS. No evidence shows exfiltration to an unrelated destination."
+        "confidence": 0.96,
+        "reason": "The credential is placed in the standard Authorization header for the fixed BrowserAct HTTPS endpoint. The code does not log it or send it elsewhere."
       },
       {
         "id": "env_access:scripts/zhihu_search_api.py:88:generic-api-secret-keys",
         "verdict": "false_positive",
-        "confidence": 0.82,
-        "reason": "This duplicates the environment-variable access already captured by lower-severity findings. It is not a hardcoded secret or hidden credential."
+        "confidence": 0.99,
+        "reason": "This is an environment-variable lookup, not a secret embedded in source. The code reads only the credential required by the declared service."
       },
       {
         "id": "env_access:scripts/zhihu_search_api.py:94:generic-api-secret-keys",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "This line checks whether the API key is missing. It does not expose, store, or transmit the secret."
+        "confidence": 0.99,
+        "reason": "The condition checks whether the API key is absent. It neither exposes the key nor performs any credential operation."
       },
       {
         "id": "env_access:scripts/zhihu_search_api.py:99:generic-api-secret-keys",
         "verdict": "confirmed",
-        "confidence": 0.91,
-        "severity": "high",
-        "reason": "The message tells users to provide the API key to the agent or set it as an environment variable. Asking users to paste secrets into chat is a real disclosure risk."
+        "confidence": 0.96,
+        "reason": "The message tells the user to provide the API key to the agent. Soliciting a secret in chat can expose it to model context, logs, and transcripts.",
+        "severity": "high"
       },
       {
         "id": "env_access:scripts/zhihu_search_api.py:106:generic-api-secret-keys",
         "verdict": "false_positive",
-        "confidence": 0.84,
-        "reason": "This call passes the already-read API key into the documented helper function. It is normal control flow, not a separate credential leak."
+        "confidence": 0.98,
+        "reason": "This line passes the loaded credential to the local API helper. It does not reveal the value or change its intended destination."
       },
       {
         "id": "blocker:scripts/zhihu_search_api.py:40:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.93,
-        "reason": "This line stores the BrowserAct task id returned by the API. It does not inspect the host system or gather reconnaissance data."
+        "confidence": 0.99,
+        "reason": "The line reads a task identifier from the BrowserAct response. It does not inspect the local system, network, user, or installed software."
       },
       {
         "id": "external_commands:SKILL.md:20:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The backticks mark an environment variable name in Markdown. There is no shell execution on this line."
+        "confidence": 0.99,
+        "reason": "Backticks format the BROWSERACT_API_KEY variable name as inline Markdown. No shell or Ruby command is executed on this line."
       },
       {
         "id": "external_commands:SKILL.md:28:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The backticks format the word string as parameter documentation. This is not executable code."
+        "confidence": 0.99,
+        "reason": "The backticks format the word string as an input type. This is documentation, not executable syntax."
       },
       {
         "id": "external_commands:SKILL.md:30:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "The backticks format example search terms in Markdown. They are not shell commands."
+        "confidence": 0.99,
+        "reason": "The backticks format example search keywords. They do not invoke a command interpreter."
       },
       {
         "id": "external_commands:SKILL.md:33:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The backticks format the word string as parameter documentation. This is not executable code."
+        "confidence": 0.99,
+        "reason": "The backticks format the word string as an input type. No command execution instruction is present."
       },
       {
         "id": "external_commands:SKILL.md:36:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The backticks format an allowed date value. This is documentation, not command execution."
+        "confidence": 0.99,
+        "reason": "The backticks format the allowed date value 7d. This is a parameter option, not a command."
       },
       {
         "id": "external_commands:SKILL.md:37:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The backticks format an allowed date value. This is documentation, not command execution."
+        "confidence": 0.99,
+        "reason": "The backticks format the allowed date value 30d. This is a parameter option, not a command."
       },
       {
         "id": "external_commands:SKILL.md:38:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The backticks format an allowed date value. This is documentation, not command execution."
+        "confidence": 0.99,
+        "reason": "The backticks format the allowed date value 90d. This is a parameter option, not a command."
       },
       {
         "id": "external_commands:SKILL.md:39:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The backticks format an allowed date value. This is documentation, not command execution."
+        "confidence": 0.99,
+        "reason": "The backticks format the allowed date value 1y. This is a parameter option, not a command."
       },
       {
         "id": "external_commands:SKILL.md:40:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The backticks format an allowed date value. This is documentation, not command execution."
+        "confidence": 0.99,
+        "reason": "The backticks format the allowed date value all. This is a parameter option, not a command."
       },
       {
         "id": "external_commands:SKILL.md:41:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The backticks format the default date value. This is documentation, not command execution."
+        "confidence": 0.99,
+        "reason": "The backticks format the default value 7d. This Markdown does not execute external commands."
       },
       {
         "id": "external_commands:SKILL.md:44:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The backticks format the word number as parameter documentation. This is not executable code."
+        "confidence": 0.99,
+        "reason": "The backticks format the word number as an input type. No executable command is present."
       },
       {
         "id": "external_commands:SKILL.md:46:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The backticks format the default limit value. This is documentation, not command execution."
+        "confidence": 0.99,
+        "reason": "The backticks format the default numeric limit. This is documentation, not shell execution."
       },
       {
         "id": "external_commands:SKILL.md:51:ruby-shell-backtick-execution",
-        "verdict": "confirmed",
-        "confidence": 0.82,
-        "severity": "medium",
-        "reason": "The fenced block contains a command that runs the local Python script with user-selected arguments. It is expected, but command execution needs careful argument handling."
+        "verdict": "false_positive",
+        "confidence": 0.95,
+        "reason": "This range documents a direct Python invocation of the bundled script with positional inputs. It contains no dynamic shell interpolation or privileged command."
       },
       {
         "id": "external_commands:SKILL.md:54:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "This finding starts at the closing code fence and does not identify a separate executable command. The actual command is covered by the prior finding."
+        "confidence": 0.99,
+        "reason": "The detected token is the closing delimiter of a Markdown code block. It has no execution semantics."
       },
       {
         "id": "external_commands:SKILL.md:57:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.89,
-        "reason": "This section explains status logs while the script runs. It does not introduce shell execution or dynamic command construction."
+        "confidence": 0.99,
+        "reason": "The line uses a timestamp in backticks as an example status message. It does not invoke a shell or Ruby runtime."
       },
       {
         "id": "external_commands:SKILL.md:65:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The backticks format an output field name. This is documentation, not command execution."
+        "confidence": 0.99,
+        "reason": "The backticks format the title output field name. It is descriptive Markdown only."
       },
       {
         "id": "external_commands:SKILL.md:66:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The backticks format an output field name. This is documentation, not command execution."
+        "confidence": 0.99,
+        "reason": "The backticks format the body_content output field name. It is descriptive Markdown only."
       },
       {
         "id": "external_commands:SKILL.md:67:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The backticks format an output field name. This is documentation, not command execution."
+        "confidence": 0.99,
+        "reason": "The backticks format the image_url output field name. It is descriptive Markdown only."
       },
       {
         "id": "external_commands:SKILL.md:68:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The backticks format an output field name. This is documentation, not command execution."
+        "confidence": 0.99,
+        "reason": "The backticks format the author output field name. It is descriptive Markdown only."
       },
       {
         "id": "external_commands:SKILL.md:69:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The backticks format an output field name. This is documentation, not command execution."
+        "confidence": 0.99,
+        "reason": "The backticks format the publication_date output field name. It is descriptive Markdown only."
       },
       {
         "id": "external_commands:SKILL.md:70:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The backticks format an output field name. This is documentation, not command execution."
+        "confidence": 0.99,
+        "reason": "The backticks format the url_link output field name. It is descriptive Markdown only."
       },
       {
         "id": "external_commands:SKILL.md:76:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "The backticks format an error phrase used for retry logic. This is not shell execution."
+        "confidence": 0.99,
+        "reason": "The backticks quote an API error message for retry guidance. Quoted output text is not a command."
       },
       {
         "id": "external_commands:SKILL.md:77:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "This line describes retry behavior after an error. It does not execute commands or build a shell string."
+        "confidence": 0.99,
+        "reason": "The backticks quote an Error prefix used to classify failures. They do not execute the quoted text."
       },
       {
         "id": "network:SKILL.md:22:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "This is a visible documentation link to the BrowserAct console. It does not perform a hidden network operation."
+        "confidence": 0.99,
+        "reason": "This is a user-facing HTTPS link to the declared BrowserAct provider's integration console. The documentation does not automatically open it or transmit information."
       },
       {
         "id": "env_access:SKILL.md:4:generic-api-secret-keys",
         "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "The metadata declares BROWSERACT_API_KEY as a required environment variable. It does not contain a credential value."
+        "confidence": 0.99,
+        "reason": "The metadata declares BROWSERACT_API_KEY as a required environment variable. It contains only the variable name and no credential value."
       },
       {
         "id": "env_access:SKILL.md:20:generic-api-secret-keys",
         "verdict": "confirmed",
-        "confidence": 0.9,
-        "severity": "high",
-        "reason": "The instructions tell the agent to wait for the user to provide the API key if it is missing. This can lead users to disclose secrets in conversation."
+        "confidence": 0.95,
+        "reason": "The instruction tells the agent to wait for the user to provide the API key. This encourages secret disclosure into model context instead of environment-only configuration.",
+        "severity": "high"
       },
       {
         "id": "blocker:SKILL.md:13:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "The phrase describes avoiding hallucinations in data extraction. It is not system reconnaissance or host inspection."
+        "confidence": 0.99,
+        "reason": "This line is a marketing claim about extraction accuracy. It performs no system discovery and requests no host information."
       },
       {
         "id": "blocker:SKILL.md:76:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.93,
-        "reason": "This line checks for an invalid authorization message in script output. It does not gather system information."
+        "confidence": 0.99,
+        "reason": "The instruction interprets an Invalid authorization response. It does not probe the host system or gather configuration details."
       },
       {
         "id": "blocker:SKILL.md:77:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "This line describes one retry after a failed task. It is not reconnaissance and does not inspect the local system."
+        "confidence": 0.99,
+        "reason": "The instruction classifies task output for retry handling. It does not inspect the local system, user, network, or installed software."
       }
     ],
     "semantic_findings": [
       {
-        "title": "Secret Solicitation in Usage Instructions",
-        "description": "The skill tells the agent to wait for the user to provide an API key, and the script says users may provide it to the agent. This can expose BrowserAct tokens in chat history or logs.",
+        "title": "Untrusted Article Content Passed to the Agent",
+        "description": "The script returns and prints third-party article text without a trust boundary. Embedded instructions could influence an agent that processes the output.",
         "severity": "high",
         "locations": [
           {
-            "file": "SKILL.md",
-            "line_start": 20,
-            "line_end": 20
+            "file": "scripts/zhihu_search_api.py",
+            "line_start": 73,
+            "line_end": 81
           },
           {
-            "file": "scripts/zhihu_search_api.py",
-            "line_start": 99,
-            "line_end": 99
+            "file": "SKILL.md",
+            "line_start": 63,
+            "line_end": 70
           }
         ],
-        "confidence": 0.93,
-        "confidence_reasoning": "Both cited lines directly instruct secret sharing or offer it as an option. The safer pattern is local environment configuration only."
+        "confidence": 0.9,
+        "confidence_reasoning": "The code directly returns the API output string, and the documentation identifies full article body content as agent-consumed output. No instruction treats that content as untrusted."
       },
       {
-        "title": "Access-Control Bypass Positioning",
-        "description": "The skill advertises avoiding CAPTCHA, IP restrictions, and geo-fencing. This can encourage use that bypasses anti-abuse controls or site access limits.",
-        "severity": "high",
+        "title": "Platform Access-Control Bypass Risk",
+        "description": "The skill promotes automated extraction while claiming CAPTCHA, IP restrictions, and geofencing are not obstacles. This can facilitate collection beyond platform controls.",
+        "severity": "medium",
         "locations": [
           {
             "file": "SKILL.md",
@@ -1020,8 +1007,8 @@
             "line_end": 15
           }
         ],
-        "confidence": 0.88,
-        "confidence_reasoning": "The language explicitly names CAPTCHA and IP or geo restrictions as barriers the service avoids. Legitimate use is possible, but the positioning is risky."
+        "confidence": 0.78,
+        "confidence_reasoning": "The documentation explicitly advertises avoiding CAPTCHA, IP limits, and geofencing. It does not explain authorization, platform terms, or collection safeguards."
       }
     ],
     "critical_findings": [],
@@ -1039,8 +1026,8 @@
         "review_kind": "capability",
         "source_category": "env_access",
         "source_severity": "high",
-        "confidence": 0.91,
-        "confidence_reasoning": "The message tells users to provide the API key to the agent or set it as an environment variable. Asking users to paste secrets into chat is a real disclosure risk."
+        "confidence": 0.96,
+        "confidence_reasoning": "The message tells the user to provide the API key to the agent. Soliciting a secret in chat can expose it to model context, logs, and transcripts."
       },
       {
         "title": "Generic API/secret keys",
@@ -1055,33 +1042,35 @@
         "review_kind": "capability",
         "source_category": "env_access",
         "source_severity": "high",
-        "confidence": 0.9,
-        "confidence_reasoning": "The instructions tell the agent to wait for the user to provide the API key if it is missing. This can lead users to disclose secrets in conversation."
+        "confidence": 0.95,
+        "confidence_reasoning": "The instruction tells the agent to wait for the user to provide the API key. This encourages secret disclosure into model context instead of environment-only configuration."
       },
       {
-        "title": "Secret Solicitation in Usage Instructions",
-        "description": "The skill tells the agent to wait for the user to provide an API key, and the script says users may provide it to the agent. This can expose BrowserAct tokens in chat history or logs.",
+        "title": "Untrusted Article Content Passed to the Agent",
+        "description": "The script returns and prints third-party article text without a trust boundary. Embedded instructions could influence an agent that processes the output.",
         "locations": [
           {
-            "file": "SKILL.md",
-            "line_start": 20,
-            "line_end": 20
+            "file": "scripts/zhihu_search_api.py",
+            "line_start": 73,
+            "line_end": 81
           },
           {
-            "file": "scripts/zhihu_search_api.py",
-            "line_start": 99,
-            "line_end": 99
+            "file": "SKILL.md",
+            "line_start": 63,
+            "line_end": 70
           }
         ],
         "review_kind": "security",
         "source_category": "semantic",
         "source_severity": "high",
-        "confidence": 0.93,
-        "confidence_reasoning": "Both cited lines directly instruct secret sharing or offer it as an option. The safer pattern is local environment configuration only."
-      },
+        "confidence": 0.9,
+        "confidence_reasoning": "The code directly returns the API output string, and the documentation identifies full article body content as agent-consumed output. No instruction treats that content as untrusted."
+      }
+    ],
+    "medium_findings": [
       {
-        "title": "Access-Control Bypass Positioning",
-        "description": "The skill advertises avoiding CAPTCHA, IP restrictions, and geo-fencing. This can encourage use that bypasses anti-abuse controls or site access limits.",
+        "title": "Platform Access-Control Bypass Risk",
+        "description": "The skill promotes automated extraction while claiming CAPTCHA, IP restrictions, and geofencing are not obstacles. This can facilitate collection beyond platform controls.",
         "locations": [
           {
             "file": "SKILL.md",
@@ -1091,250 +1080,139 @@
         ],
         "review_kind": "security",
         "source_category": "semantic",
-        "source_severity": "high",
-        "confidence": 0.88,
-        "confidence_reasoning": "The language explicitly names CAPTCHA and IP or geo restrictions as barriers the service avoids. Legitimate use is possible, but the positioning is risky."
-      }
-    ],
-    "medium_findings": [
-      {
-        "title": "Ruby/shell backtick execution",
-        "description": "```bash",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 51,
-            "line_end": 54
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "external_commands",
         "source_severity": "medium",
-        "confidence": 0.82,
-        "confidence_reasoning": "The fenced block contains a command that runs the local Python script with user-selected arguments. It is expected, but command execution needs careful argument handling."
-      }
-    ],
-    "low_findings": [
-      {
-        "title": "Python HTTP libraries",
-        "description": "res = requests.post(f\"{API_BASE_URL}/run-task-by-template\", json=payload, headers=headers, timeout=3",
-        "locations": [
-          {
-            "file": "scripts/zhihu_search_api.py",
-            "line_start": 31,
-            "line_end": 31
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "network",
-        "source_severity": "low",
-        "confidence": 0.88,
-        "confidence_reasoning": "The script posts user search parameters and a bearer token to the BrowserAct workflow API. This is intended behavior, but it is still external data transfer."
-      },
-      {
-        "title": "Python HTTP libraries",
-        "description": "status_res = requests.get(f\"{API_BASE_URL}/get-task-status?task_id={task_id}\", headers=headers, time",
-        "locations": [
-          {
-            "file": "scripts/zhihu_search_api.py",
-            "line_start": 48,
-            "line_end": 48
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "network",
-        "source_severity": "low",
-        "confidence": 0.84,
-        "confidence_reasoning": "The script polls BrowserAct with the task id and authorization header. This creates ongoing outbound network traffic tied to the user request."
-      },
-      {
-        "title": "Python HTTP libraries",
-        "description": "task_info = requests.get(f\"{API_BASE_URL}/get-task?task_id={task_id}\", headers=headers, timeout=30).",
-        "locations": [
-          {
-            "file": "scripts/zhihu_search_api.py",
-            "line_start": 71,
-            "line_end": 71
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "network",
-        "source_severity": "low",
-        "confidence": 0.84,
-        "confidence_reasoning": "The script retrieves task results from BrowserAct over the network using the same bearer token. Returned content may include user-requested research data."
-      },
-      {
-        "title": "Hardcoded URL",
-        "description": "API_BASE_URL = \"https://api.browseract.com/v2/workflow\"",
-        "locations": [
-          {
-            "file": "scripts/zhihu_search_api.py",
-            "line_start": 15,
-            "line_end": 15
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "network",
-        "source_severity": "low",
         "confidence": 0.78,
-        "confidence_reasoning": "The hardcoded BrowserAct API endpoint fixes the external service that receives requests. It is disclosed and expected, but it remains a third-party dependency."
-      },
-      {
-        "title": "Python getenv function",
-        "description": "api_key = os.getenv(\"BROWSERACT_API_KEY\")",
-        "locations": [
-          {
-            "file": "scripts/zhihu_search_api.py",
-            "line_start": 88,
-            "line_end": 88
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "env_access",
-        "source_severity": "low",
-        "confidence": 0.82,
-        "confidence_reasoning": "The script reads BROWSERACT_API_KEY from the environment. This is expected, but it gives the skill access to a secret value."
-      },
-      {
-        "title": "getenv function call",
-        "description": "api_key = os.getenv(\"BROWSERACT_API_KEY\")",
-        "locations": [
-          {
-            "file": "scripts/zhihu_search_api.py",
-            "line_start": 88,
-            "line_end": 88
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "env_access",
-        "source_severity": "low",
-        "confidence": 0.82,
-        "confidence_reasoning": "The getenv call accesses the BrowserAct API key at runtime. This is legitimate secret use, but it must be treated as sensitive."
+        "confidence_reasoning": "The documentation explicitly advertises avoiding CAPTCHA, IP limits, and geofencing. It does not explain authorization, platform terms, or collection safeguards."
       }
     ],
+    "low_findings": [],
     "dangerous_patterns": [],
     "files_scanned": 2,
     "total_lines": 200,
     "audit_model": "codex",
-    "audited_at": "2026-07-07T22:35:42.672Z",
+    "audited_at": "2026-07-23T11:22:35.526Z",
     "agent_auto_install_policy": "confirmation_required",
     "manual_install_policy": "allowed"
   },
   "content": {
     "user_title": "Search Zhihu Articles with BrowserAct",
-    "value_statement": "Zhihu research can be slow when users need recent articles and full content. This skill runs a BrowserAct workflow to return structured article details from keyword searches.",
+    "value_statement": "Finding recent Zhihu articles and extracting complete details manually is slow. This skill runs a BrowserAct workflow to return structured content by keyword and date.",
     "seo_keywords": [
+      "Zhihu search API",
+      "Zhihu article extraction",
+      "BrowserAct",
+      "social listening",
+      "market research",
       "Claude",
       "Codex",
       "Claude Code",
-      "Zhihu search",
-      "BrowserAct API",
-      "social listening",
-      "market research",
-      "article extraction",
-      "competitive intelligence",
-      "trend monitoring"
+      "Chinese content research"
     ],
     "actual_capabilities": [
-      "Runs a Python script that calls the BrowserAct Zhihu workflow API.",
-      "Accepts a search keyword, publication date range, and result limit.",
-      "Polls workflow status until completion, failure, cancellation, or timeout.",
-      "Returns article title, body content, image URL, author, date, and source link when available.",
-      "Reports missing or invalid BrowserAct API key states to the user."
+      "Searches Zhihu articles by keyword through a preset BrowserAct workflow.",
+      "Filters results across seven-day, thirty-day, ninety-day, yearly, or unrestricted periods.",
+      "Limits the requested number of articles.",
+      "Polls task status for up to five minutes.",
+      "Returns titles, full text, image links, authors, dates, and source links.",
+      "Reports authorization, task, timeout, and result retrieval failures."
     ],
     "limitations": [
-      "Requires a valid BrowserAct API key in the local environment.",
-      "Depends on BrowserAct API availability and workflow behavior.",
-      "May take several minutes while the workflow runs and polling completes.",
-      "Does not verify legal permission or platform terms for each research task."
+      "Requires a valid BrowserAct API key configured as an environment variable.",
+      "Depends on BrowserAct availability and the current behavior of its Zhihu workflow.",
+      "Long-running searches can take several minutes and time out after five minutes.",
+      "Returned articles are third-party content and require verification before analysis or publication."
     ],
     "use_cases": [
       {
         "title": "Track Industry Topics",
-        "description": "Find recent Zhihu articles about a market, product category, or technology trend.",
-        "target_user": "Market researcher"
+        "description": "Collect recent Zhihu articles about a market, technology, or policy topic for a research brief.",
+        "target_user": "Market researchers"
       },
       {
-        "title": "Monitor Brand Exposure",
-        "description": "Collect Zhihu mentions and articles about a brand during a selected date window.",
-        "target_user": "Public relations analyst"
+        "title": "Monitor Brand Coverage",
+        "description": "Find recent Zhihu articles mentioning a brand, product, or competitor within a selected date range.",
+        "target_user": "Communications teams"
       },
       {
-        "title": "Review Competitor Updates",
-        "description": "Gather structured article details about competitors for periodic research briefs.",
-        "target_user": "Competitive intelligence team"
+        "title": "Build Source Collections",
+        "description": "Retrieve article text and source links for an evidence-based review of Chinese public discussion.",
+        "target_user": "Analysts and journalists"
       }
     ],
     "prompt_templates": [
       {
         "title": "Basic Topic Search",
-        "scenario": "Beginner keyword research",
-        "prompt": "Search Zhihu for recent articles about generative AI from the past 7 days. Limit the results to 10 articles."
+        "prompt": "Find up to five Zhihu articles about {topic} from the past seven days. Return each title, author, date, and link.",
+        "scenario": "A beginner needs a small recent source list."
       },
       {
-        "title": "Brand Monitoring",
-        "scenario": "Public relations review",
-        "prompt": "Find Zhihu articles about our brand from the past 30 days. Return titles, authors, dates, links, and a short summary."
+        "title": "Monthly Brand Review",
+        "prompt": "Search Zhihu for {brand} from the past thirty days. Retrieve up to ten articles and group them by recurring subject.",
+        "scenario": "A communications specialist reviews recent brand coverage."
       },
       {
-        "title": "Competitor Research",
-        "scenario": "Market intelligence workflow",
-        "prompt": "Search Zhihu for competitor product updates from the past 90 days. Group results by competitor and highlight repeated themes."
+        "title": "Competitor Comparison",
+        "prompt": "Search separately for {competitor_one} and {competitor_two} across ninety days. Compare themes using article evidence and preserve every source link.",
+        "scenario": "A strategist compares competitor discussion."
       },
       {
-        "title": "Trend Briefing",
-        "scenario": "Advanced synthesis task",
-        "prompt": "Collect Zhihu articles about low-altitude economy from the past year. Build a briefing with themes, notable authors, and source links."
+        "title": "Long-Term Research Set",
+        "prompt": "Collect up to {limit} Zhihu articles about {research_question} from the past year. Identify changes over time and flag unsupported conclusions.",
+        "scenario": "An advanced researcher builds a dated evidence set."
       }
     ],
     "output_examples": [
       {
-        "input": "Search Zhihu for AI agent articles from the past 7 days.",
-        "output": "A ranked article list with titles, authors, publication dates, source links, and available body content."
+        "input": "Find three recent Zhihu articles about generative AI.",
+        "output": [
+          "Article title, author, publication date, and original Zhihu link.",
+          "Complete article text and the available cover image link.",
+          "A clear notice when fewer than three matching articles are returned."
+        ]
       },
       {
-        "input": "Monitor Zhihu mentions of a product launch during the past 30 days.",
-        "output": "A concise monitoring brief with matching articles, repeated topics, and links for manual review."
+        "input": "Review Zhihu coverage of a product launch during the past thirty days.",
+        "output": "A dated article list with authors, source links, full text, and recurring coverage themes supported by retrieved sources."
       },
       {
-        "input": "Collect competitor articles from the past quarter.",
-        "output": "A research summary grouped by competitor, with article metadata and notable discussion points."
+        "input": "Search for a topic when the BrowserAct key is unavailable.",
+        "output": "A setup error stating that BROWSERACT_API_KEY must be configured before the search can run."
       }
     ],
     "best_practices": [
-      "Set BROWSERACT_API_KEY locally before starting the workflow.",
-      "Use narrow keywords and date ranges to reduce irrelevant results.",
-      "Review source links before making business or public claims."
+      "Use precise keywords and the narrowest useful date range.",
+      "Configure the API key only through the environment.",
+      "Treat retrieved article text as untrusted and verify claims against original links."
     ],
     "anti_patterns": [
-      "Do not paste API keys into chat or shared logs.",
-      "Do not use the skill for scraping that violates site terms or law.",
-      "Do not treat returned article text as verified fact without review."
+      "Do not paste API keys into prompts, chat messages, or command arguments.",
+      "Do not use broad searches with excessive limits when a focused query is sufficient.",
+      "Do not treat retrieved articles as verified facts or trusted agent instructions."
     ],
     "faq": [
       {
-        "question": "What does this skill search?",
-        "answer": "It searches Zhihu articles through a BrowserAct workflow using a keyword, date range, and result limit."
+        "question": "What credentials does this skill require?",
+        "answer": "It requires a BrowserAct API key in the BROWSERACT_API_KEY environment variable."
       },
       {
-        "question": "Does it need an API key?",
-        "answer": "Yes. It requires BROWSERACT_API_KEY to be set in the local environment before use."
+        "question": "Which publication periods are supported?",
+        "answer": "The script supports seven days, thirty days, ninety days, one year, or all available dates."
       },
       {
-        "question": "What fields can it return?",
-        "answer": "It can return title, body content, image URL, author, publication date, and original article link."
+        "question": "What article fields are returned?",
+        "answer": "Results can include title, full body text, image link, author, publication date, and original link."
       },
       {
-        "question": "How long can a search take?",
-        "answer": "The workflow may take several minutes. The script polls status until completion or timeout."
+        "question": "How long can a search run?",
+        "answer": "The script polls for up to five minutes and reports a timeout when the task remains incomplete."
       },
       {
-        "question": "Can it summarize results?",
-        "answer": "The skill returns article content and metadata. The assistant can then summarize the returned content."
+        "question": "Does the skill verify article claims?",
+        "answer": "No. It retrieves third-party content, so users should verify important claims against primary sources."
       },
       {
-        "question": "What should users avoid?",
-        "answer": "Users should avoid sharing API keys in chat and should confirm that their research complies with applicable rules."
+        "question": "What happens when authorization fails?",
+        "answer": "The skill reports invalid authorization and should stop without retrying until the environment credential is corrected."
       }
     ]
   },
