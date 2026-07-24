@@ -2,15 +2,23 @@
 
 ## Table of Contents
 
+- [Choose the Appropriate Scroll API](#choose-the-appropriate-scroll-api)
 - [ScrollViewReader for Programmatic Scrolling](#scrollviewreader-for-programmatic-scrolling)
 - [Scroll Position Tracking](#scroll-position-tracking)
 - [Scroll Transitions and Effects](#scroll-transitions-and-effects)
 - [Scroll Target Behavior](#scroll-target-behavior)
 - [Summary Checklist](#summary-checklist)
 
+## Choose the Appropriate Scroll API
+
+- On iOS 18+, use `onScrollGeometryChange(for:of:action:)` to observe scroll geometry.
+- On iOS 18+, use `scrollPosition(_:)` with `ScrollPosition` to scroll by identity, offset, or edge.
+- On iOS 17+, use `scrollPosition(id:)` when an optional ID binding is sufficient.
+- Use `ScrollViewReader` when proxy-based scrolling or support for earlier versions is needed.
+
 ## ScrollViewReader for Programmatic Scrolling
 
-**Use `ScrollViewReader` for scroll-to-top, scroll-to-bottom, and anchor-based jumps.**
+**Use `ScrollViewReader` for proxy-based scroll-to-top, scroll-to-bottom, and anchor-based jumps.**
 
 ```swift
 struct ChatView: View {
@@ -77,66 +85,150 @@ struct FeedView: View {
 }
 ```
 
-**Why**: `ScrollViewReader` provides programmatic scroll control with stable anchors. Always use stable IDs and explicit animations.
+**Why**: `ScrollViewReader` provides proxy-based programmatic scroll control. Use stable IDs for scroll targets, and add animation when an animated transition is appropriate.
 
 ## Scroll Position Tracking
 
-### Basic Scroll Position
+> **iOS 18+**: Use `onScrollGeometryChange(for:of:action:)` to observe scroll geometry and `scrollPosition(_:)` with a `ScrollPosition` binding for flexible programmatic scrolling. For iOS 17, use `scrollPosition(id:)` with an optional ID binding.
 
-**Avoid** - Storing scroll position directly triggers view updates on every scroll frame:
+### Observe Scroll Geometry (iOS 18+)
+
+`onScrollGeometryChange` transforms frequently changing `ScrollGeometry` into an `Equatable` value and runs its action when that transformed value changes. Extract the smallest value needed by the feature.
+
+When exact offset tracking is required, extract `contentOffset`. This value normally changes on every scrolling frame, so avoid using it to update large or expensive view hierarchies:
 
 ```swift
-// ❌ Bad Practice - causes unnecessary re-renders
-struct ContentView: View {
-    @State private var scrollPosition: CGFloat = 0
+struct OffsetTrackingView: View {
+    @State private var scrollOffset: CGFloat = 0
 
     var body: some View {
         ScrollView {
             content
-                .background(
-                    GeometryReader { geometry in
-                        Color.clear
-                            .preference(
-                                key: ScrollOffsetPreferenceKey.self,
-                                value: geometry.frame(in: .named("scroll")).minY
-                            )
-                    }
-                )
         }
-        .coordinateSpace(name: "scroll")
-        .onPreferenceChange(ScrollOffsetPreferenceKey.self) { value in
-            scrollPosition = value
+        .onScrollGeometryChange(for: CGFloat.self) { geometry in
+            geometry.contentOffset.y
+        } action: { _, newValue in
+            scrollOffset = newValue
         }
     }
 }
 ```
 
-**Preferred** - Check scroll position and update a flag based on thresholds for smoother, more efficient scrolling:
+When only a threshold matters, transform the geometry into a `Bool` so the action runs only when the scroll view crosses that threshold. The header visibility example below demonstrates this pattern.
+
+### Programmatic Scroll Position (iOS 18+)
+
+The unlabeled `scrollPosition(_:)` overload requires a `Binding<ScrollPosition>`. Add `scrollTargetLayout()` to the layout containing the identified views:
 
 ```swift
-// ✅ Good Practice - only updates state when crossing threshold
-struct ContentView: View {
-    @State private var startAnimation: Bool = false
+struct ProgrammaticScrollView: View {
+    @State private var position = ScrollPosition(idType: Item.ID.self)
 
     var body: some View {
         ScrollView {
-            content
-                .background(
-                    GeometryReader { geometry in
-                        Color.clear
-                            .preference(
-                                key: ScrollOffsetPreferenceKey.self,
-                                value: geometry.frame(in: .named("scroll")).minY
-                            )
-                    }
-                )
+            LazyVStack {
+                ForEach(items) { item in
+                    ItemRow(item: item)
+                }
+            }
+            .scrollTargetLayout()
         }
-        .coordinateSpace(name: "scroll")
-        .onPreferenceChange(ScrollOffsetPreferenceKey.self) { value in
-            if value < -100 {
-                startAnimation = true
-            } else {
-                startAnimation = false
+        .scrollPosition($position)
+        .toolbar {
+            Button("Scroll to First") {
+                if let firstID = items.first?.id {
+                    withAnimation {
+                        position.scrollTo(id: firstID)
+                    }
+                }
+            }
+        }
+    }
+}
+```
+
+For iOS 17, bind the ID using the labeled overload instead:
+
+```swift
+@State private var scrolledID: Item.ID?
+
+ScrollView {
+    LazyVStack {
+        ForEach(items) { item in
+            ItemRow(item: item)
+        }
+    }
+    .scrollTargetLayout()
+}
+.scrollPosition(id: $scrolledID)
+```
+
+### Scroll-Based Header Visibility
+
+Extracting the threshold as a `Bool` avoids running the action for every offset change:
+
+```swift
+struct ContentView: View {
+    @State private var showHeader = true
+
+    var body: some View {
+        VStack(spacing: 0) {
+            if showHeader {
+                HeaderView()
+                    .transition(.move(edge: .top))
+            }
+
+            ScrollView {
+                content
+            }
+            .onScrollGeometryChange(for: Bool.self) { geometry in
+                geometry.contentOffset.y + geometry.contentInsets.top > 50
+            } action: { _, isPastThreshold in
+                withAnimation {
+                    showHeader = !isPastThreshold
+                }
+            }
+        }
+    }
+}
+```
+
+<details>
+<summary>Pre-iOS 18 compatibility — GeometryReader + PreferenceKey</summary>
+
+Use this approach when supporting iOS 17 or earlier. `GeometryReader` and preferences remain available, but require a named coordinate space and a custom `PreferenceKey`.
+
+```swift
+struct ContentView: View {
+    @State private var showHeader = true
+
+    var body: some View {
+        VStack(spacing: 0) {
+            if showHeader {
+                HeaderView()
+                    .transition(.move(edge: .top))
+            }
+
+            ScrollView {
+                content
+                    .background(
+                        GeometryReader { geometry in
+                            Color.clear
+                                .preference(
+                                    key: ScrollOffsetPreferenceKey.self,
+                                    value: geometry.frame(in: .named("scroll")).minY
+                                )
+                        }
+                    )
+            }
+            .coordinateSpace(.named("scroll"))
+            .onPreferenceChange(ScrollOffsetPreferenceKey.self) { offset in
+                let shouldShowHeader = offset >= -50
+                if shouldShowHeader != showHeader {
+                    withAnimation {
+                        showHeader = shouldShowHeader
+                    }
+                }
             }
         }
     }
@@ -150,43 +242,7 @@ struct ScrollOffsetPreferenceKey: PreferenceKey {
 }
 ```
 
-### Scroll-Based Header Visibility
-
-```swift
-struct ContentView: View {
-    @State private var showHeader = true
-    
-    var body: some View {
-        VStack(spacing: 0) {
-            if showHeader {
-                HeaderView()
-                    .transition(.move(edge: .top))
-            }
-            
-            ScrollView {
-                content
-                    .background(
-                        GeometryReader { geometry in
-                            Color.clear
-                                .preference(
-                                    key: ScrollOffsetPreferenceKey.self,
-                                    value: geometry.frame(in: .named("scroll")).minY
-                                )
-                        }
-                    )
-            }
-            .coordinateSpace(name: "scroll")
-            .onPreferenceChange(ScrollOffsetPreferenceKey.self) { offset in
-                if offset < -50 { // Scrolling down
-                   withAnimation { showHeader = false }
-                } else if offset > 50 { // Scrolling up
-                  withAnimation { showHeader = true }
-                }
-            }
-        }
-    }
-}
-```
+</details>
 
 ## Scroll Transitions and Effects
 
@@ -284,10 +340,13 @@ struct SnapScrollView: View {
 
 ## Summary Checklist
 
-- [ ] Use `ScrollViewReader` with stable IDs for programmatic scrolling
-- [ ] Always use explicit animations with `scrollTo()`
+- [ ] Use `ScrollViewReader` with stable IDs when proxy-based scrolling is needed
 - [ ] Use `.visualEffect` for scroll-based visual changes
 - [ ] Use `.scrollTargetBehavior(.paging)` for paging behavior
 - [ ] Use `.scrollTargetBehavior(.viewAligned)` for snap-to-item behavior
-- [ ] Gate frequent scroll position updates by thresholds
-- [ ] Use preference keys for custom scroll position tracking
+- [ ] Use `onScrollGeometryChange` (iOS 18+) and extract only the value needed
+- [ ] Use `scrollPosition(_:)` with `ScrollPosition` for flexible scrolling on iOS 18+
+- [ ] Use `scrollPosition(id:)` with an optional ID binding on iOS 17+
+- [ ] Add `.scrollTargetLayout()` when scrolling to identified views
+- [ ] Derive threshold values instead of propagating every offset change when possible
+- [ ] Use the `GeometryReader` + preference approach when supporting pre-iOS 18 versions

@@ -174,6 +174,21 @@ struct ChildView: View {
 
 - **Don't use `@Binding` for read-only values.** If the child only displays the value and never modifies it, use `let` instead. `@Binding` adds unnecessary overhead and implies a write contract that doesn't exist.
 
+### Declare a Binding with @Binding, Not a Plain Property
+
+A binding you react to must be `@Binding var x: T`. SwiftUI subscribes only to `DynamicProperty` properties (`@State`, `@Binding`, `@Environment`, …); a binding held in an undecorated property (`let x: Binding<T>`) is just a value it never looks inside, so external changes to the bound value don't re-evaluate the view.
+
+```swift
+struct SelectionBadge: View {
+    // let selection: Binding<Item?>   // WRONG - untracked; external changes missed
+    @Binding var selection: Item?      // CORRECT - DynamicProperty, tracked
+
+    var body: some View { Text(selection?.name ?? "None") }
+}
+```
+
+Debug builds can mask this with extra graph passes, so it often fails only in Release. It bites hardest in `UIViewRepresentable`/`NSViewRepresentable`, where the missing re-evaluation means `updateUIView(_:context:)` never runs (e.g. a presented controller that won't dismiss when its bound item is reset).
+
 ### Prefer KeyPath Bindings Over Closure Bindings
 
 When you need a binding into a model, prefer a KeyPath/subscript-based binding over a hand-written `Binding(get:set:)` closure. A closure binding allocates a new closure each time `body` runs and can't be compared, which can trigger unnecessary invalidations.
@@ -490,3 +505,4 @@ SwiftUI can't track changes through nested `ObservableObject` properties. Workar
 9. **Prefer `Equatable` types for frequently-written `@Observable` properties** so the generated setter skips redundant invalidations
 10. **Never store closures in custom environment keys; keep `@Entry` defaults stable** (no `Model()`/`Date()` expressions)
 11. **Prefer KeyPath/subscript bindings over closure bindings**
+12. **Declare a binding you react to as `@Binding`, not a plain `Binding`-typed property** — a plain property isn't tracked, so external changes won't re-evaluate the view (often a Release-only failure)
