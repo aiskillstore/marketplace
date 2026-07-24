@@ -1,7 +1,7 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-07-10T15:51:19.437Z",
+    "generated_at": "2026-07-23T17:06:30.632Z",
     "slug": "dcjanus-ticktick-cli",
     "source_url": "https://github.com/DCjanus/prompts/tree/master/skills/ticktick-cli",
     "source_ref": "master",
@@ -23,18 +23,18 @@
   },
   "skill": {
     "name": "ticktick-cli",
-    "description": "Manage Dida365 and TickTick projects, tasks, focus records, and habits through a Python CLI that uses the Open API and local OAuth.",
-    "summary": "Use a Python CLI to manage TickTick or Dida365 data through the Open API.",
+    "description": "Manage Dida365 and TickTick projects, tasks, focus records, and habits through a Python command-line client for the official Open API.",
+    "summary": "Operate TickTick and Dida365 data through an agent-friendly Python CLI.",
     "icon": "📦",
-    "version": "1.0.1",
     "author": "DCjanus",
     "license": "MIT",
+    "category": "productivity",
     "tags": [
       "ticktick",
       "dida365",
       "task-management",
-      "oauth",
-      "command-line"
+      "command-line",
+      "productivity"
     ],
     "supported_tools": [
       "claude",
@@ -47,39 +47,33 @@
       "env_access",
       "scripts",
       "external_commands"
-    ],
-    "category": "productivity"
+    ]
   },
   "security_audit": {
-    "risk_level": "medium",
+    "risk_level": "high",
     "is_blocked": false,
-    "safe_to_publish": true,
+    "safe_to_publish": false,
     "analysis_status": "ok",
-    "summary": "Most static findings are false positives from Markdown backticks, plain imports, loopback OAuth, and intended API traffic. The OAuth client name does disclose the local hostname to TickTick or Dida365. Semantic review also found unpinned runtime dependencies, delayed token permission hardening, unrestricted @path reads, and destructive commands without enforced confirmation.",
+    "summary": "Most static findings are false positives caused by Markdown backticks, ordinary Python imports, error messages, official service URLs, and a plain-text Chinese document. The implementation has genuine risks from non-atomic token permissions, unpinned runtime dependencies, direct destructive commands, and disclosure of the local hostname during OAuth registration.",
     "remediation": [
       {
+        "issue": "The OAuth token is written before file permissions are restricted.",
+        "suggestion": "Create a temporary file with mode 0600, write and flush the token, then atomically replace the destination.",
+        "severity": "high"
+      },
+      {
         "issue": "Runtime dependencies use open-ended minimum versions.",
-        "suggestion": "Pin exact reviewed versions and use a lock file or verified hashes for reproducible installation.",
+        "suggestion": "Pin reviewed dependency versions and publish a lockfile or hash-verified dependency set.",
         "severity": "medium"
       },
       {
-        "issue": "The OAuth token is written before restrictive permissions apply.",
-        "suggestion": "Create the file atomically with mode 0600, reject symbolic links, and replace the final path only after a successful write.",
+        "issue": "Delete commands perform remote changes without an interactive safeguard.",
+        "suggestion": "Require explicit confirmation or a deliberate force flag for project, task, and focus deletion.",
         "severity": "medium"
       },
       {
-        "issue": "The @path options can read any accessible JSON file.",
-        "suggestion": "Restrict file reads to an approved directory and require explicit user confirmation with a payload preview before remote mutations.",
-        "severity": "medium"
-      },
-      {
-        "issue": "Delete commands execute without an application-level confirmation.",
-        "suggestion": "Require an interactive prompt or explicit --yes flag for project, task, and focus deletion.",
-        "severity": "medium"
-      },
-      {
-        "issue": "The default OAuth client name includes the local hostname.",
-        "suggestion": "Use a generic client name by default and make device identification an explicit user option.",
+        "issue": "OAuth dynamic registration includes the local hostname in the client name.",
+        "suggestion": "Use a generic client name by default and make hostname disclosure an explicit option.",
         "severity": "low"
       }
     ],
@@ -1092,447 +1086,461 @@
         "id": "network:scripts/ticktick_api_client.py:322:http-client-library",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "This line defines the API client's request wrapper and does not contact an unrelated service. Network access is required for the declared TickTick and Dida365 management functions."
+        "reason": "This line only declares the internal request method. It does not itself open a connection or select an external destination."
       },
       {
         "id": "network:scripts/ticktick_api_client.py:330:http-client-library",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The request sends authenticated API calls with a timeout to the configured TickTick or Dida365 base URL. This is expected behavior for the skill rather than covert traffic."
+        "confidence": 0.91,
+        "reason": "The client sends authenticated requests to the configured TickTick or Dida365 Open API, which is the declared purpose of the skill. No unrelated endpoint or covert transfer is present."
       },
       {
         "id": "network:scripts/ticktick_api_client.py:347:http-client-library",
         "verdict": "false_positive",
-        "confidence": 0.99,
-        "reason": "This line calls the local request wrapper and then validates the response. It is ordinary client control flow for the advertised API."
+        "confidence": 0.94,
+        "reason": "This is an internal call to the declared API request wrapper. It processes the response from the task-management operation requested by the user."
       },
       {
         "id": "network:scripts/ticktick_api_client.py:8:hardcoded-url",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "The hardcoded URL is the declared Dida365 Open API endpoint. It matches the skill's documented purpose and is not an unrelated destination."
+        "reason": "The constant is the documented HTTPS Open API endpoint for Dida365. It is directly relevant to the skill and is not an exfiltration destination."
       },
       {
         "id": "network:scripts/ticktick_auth.py:374:http-client-library",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "The call waits for one OAuth redirect on a server bound to 127.0.0.1. It does not create an externally reachable listener."
+        "reason": "handle_request accepts one OAuth callback on a server bound to 127.0.0.1. It is not an outbound HTTP client request."
       },
       {
         "id": "network:scripts/ticktick_auth.py:12:python-http-libraries",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "This is a standard-library import used for the documented OAuth flow. Importing urllib does not itself perform a network request."
+        "reason": "This line imports Python's standard urllib.request module. An import alone is not a dangerous network operation."
       },
       {
         "id": "network:scripts/ticktick_auth.py:137:python-http-libraries",
         "verdict": "false_positive",
         "confidence": 0.98,
-        "reason": "This constructs an OAuth metadata, registration, or token request. The operation is necessary for the declared login workflow."
+        "reason": "The line constructs a standard HTTP request for the documented OAuth flow. The caller supplies official discovery, registration, or token endpoints."
       },
       {
         "id": "network:scripts/ticktick_auth.py:148:python-http-libraries",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "This executes the documented OAuth request with a 30-second timeout. The surrounding code uses the official TickTick or Dida365 auth host."
+        "confidence": 0.9,
+        "reason": "This request performs OAuth discovery, registration, or token exchange against the selected service's HTTPS endpoints. That network access is expected and no unrelated data recipient appears."
       },
       {
         "id": "network:scripts/ticktick_auth.py:50:hardcoded-url",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "The URL is the official TickTick authorization host selected for international accounts. It is expected configuration, not a suspicious endpoint."
+        "reason": "The URL is the official international TickTick authentication origin selected from the API host. It uses HTTPS."
       },
       {
         "id": "network:scripts/ticktick_auth.py:51:hardcoded-url",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "The URL is the official Dida365 authorization host selected for Chinese accounts. It directly supports the documented authentication flow."
+        "reason": "The URL is the official Dida365 authentication origin used for the declared China-region login flow. It uses HTTPS."
       },
       {
         "id": "network:scripts/ticktick_auth.py:345:hardcoded-url",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "The HTTP URL points only to 127.0.0.1 on an ephemeral port for the OAuth callback. Loopback HTTP is appropriate because the traffic never leaves the local machine."
+        "reason": "This is a standard OAuth loopback redirect on 127.0.0.1 and an ephemeral port. It does not send the authorization code to a remote host."
       },
       {
         "id": "network:scripts/ticktick_auth.py:342:hardcoded-ip-address",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "127.0.0.1 explicitly restricts the OAuth callback server to the local machine. This hardcoded address reduces exposure rather than creating it."
+        "reason": "The server explicitly binds to IPv4 loopback for an OAuth callback. This limits exposure and is safer than binding to an external interface."
       },
       {
         "id": "network:scripts/ticktick_auth.py:345:hardcoded-ip-address",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "The redirect uses the loopback address required by the local OAuth callback. It is paired with an ephemeral port and state verification."
+        "reason": "127.0.0.1 identifies the local OAuth callback endpoint. The random state and PKCE verifier protect the authorization exchange."
       },
       {
         "id": "filesystem:scripts/ticktick_auth.py:163:hidden-file-access",
         "verdict": "false_positive",
-        "confidence": 0.99,
-        "reason": "The string is an OAuth well-known metadata URL path, not a hidden local file. No filesystem access occurs on this line."
+        "confidence": 1,
+        "reason": "The .well-known component is part of an OAuth metadata URL, not a hidden local file. This line performs no filesystem access."
       },
       {
         "id": "env_access:scripts/ticktick_auth.py:37:python-environment-access",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The code reads only the documented TICKTICK_TOKEN_FILE setting to locate the user's credential file. It does not enumerate or transmit unrelated environment variables."
+        "confidence": 0.97,
+        "reason": "The code reads only the documented TICKTICK_TOKEN_FILE path override. It does not enumerate or transmit environment secrets."
       },
       {
         "id": "env_access:scripts/ticktick_auth.py:40:python-environment-access",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "The code reads XDG_CONFIG_HOME to follow the platform's standard config directory convention. This is routine path configuration."
+        "reason": "Reading XDG_CONFIG_HOME is a standard way to locate a user configuration directory. The value is not transmitted."
       },
       {
         "id": "blocker:scripts/ticktick_auth.py:65:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.99,
-        "reason": "This is an error raised after validating the token file's JSON shape. It does not inspect system information."
+        "confidence": 1,
+        "reason": "This is an input validation error that reports the selected token path. It performs no system reconnaissance."
       },
       {
         "id": "blocker:scripts/ticktick_auth.py:156:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.99,
-        "reason": "This is JSON-response error handling for OAuth discovery. It performs no system reconnaissance."
+        "confidence": 1,
+        "reason": "This exception reports that an OAuth endpoint returned invalid JSON. It does not inspect the local system."
       },
       {
         "id": "blocker:scripts/ticktick_auth.py:177:system-reconnaissance",
         "verdict": "confirmed",
         "confidence": 0.96,
-        "severity": "low",
-        "reason": "The code collects the local hostname for the OAuth client name, which is later sent during dynamic client registration. This discloses a device identifier to TickTick or Dida365."
+        "reason": "The code reads the local hostname and later includes it in the dynamically registered OAuth client name. This unnecessarily discloses a device identifier to the selected service.",
+        "severity": "low"
       },
       {
         "id": "blocker:scripts/ticktick_auth.py:178:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.99,
-        "reason": "This line only checks whether the previously read hostname is empty. It does not collect additional system data."
+        "confidence": 1,
+        "reason": "This condition only checks whether the previously obtained hostname is empty. It gathers and transmits no additional information."
       },
       {
         "id": "blocker:scripts/ticktick_auth.py:180:system-reconnaissance",
         "verdict": "confirmed",
         "confidence": 0.96,
-        "severity": "low",
-        "reason": "The returned OAuth client name embeds the local hostname and date. That value is transmitted to the remote registration endpoint, so the reconnaissance signal is real but limited in impact."
+        "reason": "The return value embeds the hostname and date in the client name used by OAuth dynamic registration. A generic name would avoid this low-severity privacy disclosure.",
+        "severity": "low"
       },
       {
         "id": "blocker:scripts/ticktick_auth.py:198:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.99,
-        "reason": "This reads client_id from the OAuth server response. It is protocol parsing, not local system discovery."
+        "confidence": 1,
+        "reason": "The line reads client_id from the OAuth registration response. It does not inspect host or user system details."
       },
       {
         "id": "blocker:scripts/ticktick_auth.py:200:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.99,
-        "reason": "This validates that dynamic OAuth registration returned a client ID. It does not inspect the host system."
+        "confidence": 1,
+        "reason": "This is a validation error for a missing OAuth client identifier. It contains no reconnaissance behavior."
       },
       {
         "id": "blocker:scripts/ticktick_auth.py:201:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.99,
-        "reason": "This returns the OAuth client ID produced by registration. It contains no reconnaissance behavior."
+        "confidence": 1,
+        "reason": "The line returns the OAuth client identifier received from registration. It does not gather system information."
       },
       {
         "id": "blocker:scripts/ticktick_auth.py:269:system-reconnaissance",
         "verdict": "false_positive",
         "confidence": 1,
-        "reason": "The matched text is a CSS border declaration inside the local OAuth result page. It is unrelated to system reconnaissance."
+        "reason": "The snippet is a CSS border declaration in the local callback page. It has no reconnaissance capability."
       },
       {
         "id": "blocker:scripts/ticktick_auth.py:327:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.99,
-        "reason": "This is a validation error when the token endpoint omits access_token. It does not inspect local system state."
+        "confidence": 1,
+        "reason": "This line raises an error when the OAuth response lacks an access token. It does not inspect the system."
       },
       {
         "id": "blocker:scripts/ticktick_auth.py:346:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "This invokes standard dynamic OAuth client registration. The separate hostname collection is adjudicated independently."
+        "confidence": 0.99,
+        "reason": "This line starts OAuth dynamic client registration with values already prepared by the login flow. The hostname disclosure is separately confirmed at its actual source and formatting lines."
       },
       {
         "id": "blocker:scripts/ticktick_auth.py:386:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.99,
-        "reason": "This validates the OAuth callback response for an authorization code. It does not perform system discovery."
+        "confidence": 1,
+        "reason": "This is an OAuth callback validation error. It performs no system discovery."
       },
       {
         "id": "scripts:scripts/ticktick_cli.py:32:dynamic-import-expression",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "This is a normal static Python import placed after adding the script directory to sys.path. No computed module name or dynamic import occurs."
+        "reason": "This is a static Python import from the bundled ticktick_api_client module. There is no computed module name or dynamic import expression."
       },
       {
         "id": "scripts:scripts/ticktick_cli.py:45:dynamic-import-expression",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "This is a normal static import of the bundled authentication module. It does not evaluate user-controlled code."
+        "reason": "This is a static Python import from the bundled ticktick_auth module. It does not evaluate user-controlled import code."
       },
       {
         "id": "external_commands:scripts/ticktick_cli.py:97:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 1,
-        "reason": "The backticks are literal formatting inside an error message that tells the user which command to run. No shell execution API is called."
+        "reason": "The backticks are literal formatting inside an error message that names the login command. Python does not execute the enclosed text."
       },
       {
         "id": "external_commands:scripts/ticktick_cli.py:384:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 1,
-        "reason": "The backticks are part of a user-facing command hint in a Python string. They cannot execute a subprocess."
+        "reason": "The backticks format a suggested login command in a Python string. No shell or Ruby execution occurs."
       },
       {
         "id": "network:scripts/ticktick_cli.py:82:hardcoded-url",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "The URL is the official TickTick Open API endpoint selected for the international region. It matches the skill's advertised function."
+        "reason": "This is the official HTTPS Open API endpoint for the international TickTick region. It is selected only for that declared service."
       },
       {
         "id": "blocker:scripts/ticktick_cli.py:101:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.99,
-        "reason": "This reports the configured token path after credential validation fails. It does not probe the system or transmit the path."
+        "confidence": 1,
+        "reason": "The line reports an invalid token file and its configured path. It does not perform reconnaissance."
       },
       {
         "id": "blocker:scripts/ticktick_cli.py:237:system-reconnaissance",
         "verdict": "false_positive",
         "confidence": 1,
-        "reason": "This is numeric timeout validation and error handling. It does not inspect any system information."
+        "reason": "This exception handles an invalid timeout value. It does not query the host system."
       },
       {
         "id": "blocker:scripts/ticktick_cli.py:241:system-reconnaissance",
         "verdict": "false_positive",
         "confidence": 1,
-        "reason": "This is numeric timeout validation and error handling. It does not inspect any system information."
+        "reason": "This exception handles an invalid numeric timeout. It has no reconnaissance behavior."
       },
       {
         "id": "blocker:scripts/ticktick_cli.py:261:system-reconnaissance",
         "verdict": "false_positive",
         "confidence": 1,
-        "reason": "This rejects malformed checklist JSON supplied by the user. It contains no reconnaissance logic."
+        "reason": "The line reports malformed checklist JSON supplied by the user. It does not inspect system state."
       },
       {
         "id": "blocker:scripts/ticktick_cli.py:288:system-reconnaissance",
         "verdict": "false_positive",
         "confidence": 1,
-        "reason": "This rejects malformed JSON for a CLI option. It does not inspect the host system."
+        "reason": "This is an error for malformed user-provided JSON. It performs no system reconnaissance."
       },
       {
         "id": "blocker:scripts/ticktick_cli.py:304:system-reconnaissance",
         "verdict": "false_positive",
         "confidence": 1,
-        "reason": "This rejects malformed JSON list input. It performs no system discovery."
+        "reason": "This line raises an error when a user-provided JSON list cannot be parsed. It does not gather host details."
       },
       {
         "id": "blocker:scripts/ticktick_cli.py:720:system-reconnaissance",
         "verdict": "false_positive",
         "confidence": 1,
-        "reason": "This assigns a user-provided project filter to an API model. It is task query construction, not reconnaissance."
+        "reason": "The snippet assigns an optional project filter to an API model. It contains no system inspection."
       },
       {
         "id": "blocker:scripts/ticktick_cli.py:745:system-reconnaissance",
         "verdict": "false_positive",
         "confidence": 1,
-        "reason": "This assigns user-provided project IDs to a task filter. It does not collect local system data."
+        "reason": "The snippet assigns selected project identifiers to a task filter. It is unrelated to reconnaissance."
       },
       {
         "id": "external_commands:SKILL.md:14:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 1,
-        "reason": "The match is a Markdown code fence or inline command name used to document the CLI. Markdown backticks do not execute shell commands."
+        "reason": "This is the opening fence for a documented Bash example. Markdown fencing is not Ruby backtick execution."
       },
       {
         "id": "external_commands:SKILL.md:17:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 1,
-        "reason": "The match is a Markdown code fence or inline command name used to document the CLI. Markdown backticks do not execute shell commands."
+        "reason": "This is the closing Markdown code fence for a command example. It does not execute a command."
       },
       {
         "id": "external_commands:SKILL.md:19:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 1,
-        "reason": "The match is a Markdown code fence or inline command name used to document the CLI. Markdown backticks do not execute shell commands."
+        "reason": "Inline backticks format command names in documentation. The text tells users how to invoke the bundled script and is not executable syntax."
       },
       {
         "id": "external_commands:SKILL.md:20:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 1,
-        "reason": "The match is a Markdown code fence or inline command name used to document the CLI. Markdown backticks do not execute shell commands."
+        "reason": "The backticks format the --json option in Markdown. They do not invoke a shell."
       },
       {
         "id": "external_commands:SKILL.md:21:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 1,
-        "reason": "The match is a Markdown code fence or inline command name used to document the CLI. Markdown backticks do not execute shell commands."
+        "reason": "The backticks format the delete subcommand, and the sentence explicitly requires confirmation before destructive use. This is documentation, not command execution."
       },
       {
         "id": "external_commands:SKILL.md:22:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 1,
-        "reason": "The match is a Markdown code fence or inline command name used to document the CLI. Markdown backticks do not execute shell commands."
+        "confidence": 0.99,
+        "reason": "This line documents a scoped help command for the bundled CLI. The Markdown backticks are not executable shell syntax."
       },
       {
         "id": "external_commands:SKILL.md:26:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 1,
-        "reason": "The match is a Markdown code fence or inline command name used to document the CLI. Markdown backticks do not execute shell commands."
+        "reason": "The backticks format the auth doctor subcommand in prose. No external command is executed by the Markdown token itself."
       },
       {
         "id": "external_commands:SKILL.md:30:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 1,
-        "reason": "The match is a Markdown code fence or inline command name used to document the CLI. Markdown backticks do not execute shell commands."
+        "reason": "This is an opening Bash code fence for the documented authentication diagnostic. It is not a shell backtick expression."
       },
       {
         "id": "external_commands:SKILL.md:32:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 1,
-        "reason": "The match is a Markdown code fence or inline command name used to document the CLI. Markdown backticks do not execute shell commands."
+        "reason": "This is a closing Markdown code fence. It has no runtime behavior."
       },
       {
         "id": "external_commands:SKILL.md:36:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 1,
-        "reason": "The match is a Markdown code fence or inline command name used to document the CLI. Markdown backticks do not execute shell commands."
+        "reason": "This is the opening fence for a documented OAuth login command. It is ordinary Markdown."
       },
       {
         "id": "external_commands:SKILL.md:38:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 1,
-        "reason": "The match is a Markdown code fence or inline command name used to document the CLI. Markdown backticks do not execute shell commands."
+        "reason": "This is the closing fence for the login example. It cannot execute a command."
       },
       {
         "id": "external_commands:SKILL.md:40:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 1,
-        "reason": "The match is a Markdown code fence or inline command name used to document the CLI. Markdown backticks do not execute shell commands."
+        "confidence": 0.99,
+        "reason": "Inline code formatting documents how to select the international service. The command invokes only the bundled CLI when a user or agent deliberately runs it."
       },
       {
         "id": "external_commands:SKILL.md:41:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 1,
-        "reason": "The match is a Markdown code fence or inline command name used to document the CLI. Markdown backticks do not execute shell commands."
+        "reason": "The line formats the --open option with Markdown backticks. It does not itself open a browser or shell."
       },
       {
         "id": "external_commands:SKILL.md:43:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 1,
-        "reason": "The match is a Markdown code fence or inline command name used to document the CLI. Markdown backticks do not execute shell commands."
+        "reason": "The inline code spans document the token path and environment override. Markdown backticks do not execute either value."
       },
       {
         "id": "external_commands:SKILL.md:51:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 1,
-        "reason": "The match is a Markdown code fence or inline command name used to document the CLI. Markdown backticks do not execute shell commands."
+        "reason": "This is an inline list of supported authentication subcommands. It is documentation, not an execution primitive."
       },
       {
         "id": "external_commands:SKILL.md:52:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 1,
-        "reason": "The match is a Markdown code fence or inline command name used to document the CLI. Markdown backticks do not execute shell commands."
+        "reason": "This is an inline list of project subcommands. The Markdown content has no shell semantics."
       },
       {
         "id": "external_commands:SKILL.md:53:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 1,
-        "reason": "The match is a Markdown code fence or inline command name used to document the CLI. Markdown backticks do not execute shell commands."
+        "reason": "This is an inline list of task subcommands. It does not execute them."
       },
       {
         "id": "external_commands:SKILL.md:54:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 1,
-        "reason": "The match is a Markdown code fence or inline command name used to document the CLI. Markdown backticks do not execute shell commands."
+        "reason": "This line lists focus subcommands inside Markdown code formatting. There is no backtick execution."
       },
       {
         "id": "external_commands:SKILL.md:55:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 1,
-        "reason": "The match is a Markdown code fence or inline command name used to document the CLI. Markdown backticks do not execute shell commands."
+        "reason": "This line lists habit subcommands as inline code. It is descriptive content only."
       },
       {
         "id": "external_commands:SKILL.md:59:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 1,
-        "reason": "The match is a Markdown code fence or inline command name used to document the CLI. Markdown backticks do not execute shell commands."
+        "reason": "This is an opening Bash fence for three read-only CLI examples. It is not executable backtick syntax."
       },
       {
         "id": "external_commands:SKILL.md:64:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 1,
-        "reason": "The match is a Markdown code fence or inline command name used to document the CLI. Markdown backticks do not execute shell commands."
+        "reason": "This is the closing Markdown fence for read-only command examples. It has no runtime effect."
       },
       {
         "id": "external_commands:SKILL.md:68:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 1,
-        "reason": "The match is a Markdown code fence or inline command name used to document the CLI. Markdown backticks do not execute shell commands."
+        "reason": "The line formats the --item option in Markdown while explaining checklist input. It does not execute a command."
       },
       {
         "id": "external_commands:SKILL.md:69:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 1,
-        "reason": "The match is a Markdown code fence or inline command name used to document the CLI. Markdown backticks do not execute shell commands."
+        "reason": "The inline code spans document --item-json and @path input. They are not shell execution constructs."
       },
       {
         "id": "external_commands:SKILL.md:70:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 1,
-        "reason": "The match is a Markdown code fence or inline command name used to document the CLI. Markdown backticks do not execute shell commands."
+        "reason": "This line uses inline code formatting for the --tag option. It has no command execution behavior."
       },
       {
         "id": "external_commands:SKILL.md:71:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 1,
-        "reason": "The match is a Markdown code fence or inline command name used to document the CLI. Markdown backticks do not execute shell commands."
+        "reason": "The backticks format --payload-json and @path while documenting habit input. Markdown does not execute these values."
       },
       {
         "id": "network:SKILL.md:86:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 1,
-        "reason": "The URL is a Markdown link to the official Dida365 OpenAPI documentation. It is documentation, not an automatic network request."
+        "confidence": 0.99,
+        "reason": "This is a documentation link to the official Dida365 Open API reference. It does not send user data."
       },
       {
         "id": "filesystem:SKILL.md:43:hidden-file-in-home-directory",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "The documented path is the standard per-user configuration directory for an OAuth token, and the implementation applies mode 0600. The path is disclosed to the user and is not covert storage."
+        "confidence": 0.96,
+        "reason": "The line transparently documents a standard XDG-style configuration path for an OAuth token. The implementation applies mode 0600, while its non-atomic application is reported separately."
       },
       {
         "id": "filesystem:SKILL.md:43:hidden-file-access",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "This line documents where the user's OAuth token is stored. The access is necessary for authentication and is limited to a known configuration file."
+        "confidence": 0.96,
+        "reason": "This is documentation of expected credential storage, not covert hidden-file access. Users can override the location through a named environment variable."
       },
       {
         "id": "blocker:SKILL.md:61:system-reconnaissance",
         "verdict": "false_positive",
         "confidence": 1,
-        "reason": "This is a documented command for retrieving a selected TickTick project. It does not inspect the local system."
+        "reason": "The line is a documented command that retrieves project data from the user's TickTick account. It does not inspect the local system."
       },
       {
         "id": "blocker:SKILL.md:62:system-reconnaissance",
         "verdict": "false_positive",
         "confidence": 1,
-        "reason": "This is a documented command for retrieving a task by explicit IDs. It does not perform system reconnaissance."
+        "reason": "The line documents a task lookup using explicit remote project and task identifiers. It is not system reconnaissance."
       },
       {
         "id": "blocker:SKILL.md:63:system-reconnaissance",
         "verdict": "false_positive",
         "confidence": 1,
-        "reason": "This is a documented remote task filter. It queries the user's TickTick data rather than the local system."
+        "reason": "The example filters remote task data by project and status. It does not enumerate host or environment information."
       },
       {
         "id": "obfuscation:SKILL.md:1:heuristic-high-file-entropy-6-39-bits-possible-b",
         "verdict": "false_positive",
-        "confidence": 0.99,
-        "reason": "SKILL.md is readable Markdown with Chinese prose, command examples, and front matter. No binary, encrypted, or obfuscated payload is present."
+        "confidence": 1,
+        "reason": "SKILL.md is readable UTF-8 Markdown containing Chinese documentation and command examples. It contains no binary, encrypted, encoded, or obfuscated payload."
       }
     ],
     "semantic_findings": [
       {
-        "title": "Unpinned Runtime Dependencies",
-        "description": "The uv script uses minimum dependency versions instead of exact versions or hashes. Running the CLI can install newer package code that was not reviewed with this skill.",
+        "title": "OAuth Token Permissions Are Applied After Writing",
+        "description": "The access token is written before chmod applies mode 0600. On multi-user systems, the process umask can briefly expose a tasks:read and tasks:write bearer token.",
+        "severity": "high",
+        "locations": [
+          {
+            "file": "scripts/ticktick_auth.py",
+            "line_start": 404,
+            "line_end": 409
+          }
+        ],
+        "confidence": 0.96,
+        "confidence_reasoning": "The code visibly calls write_text before chmod, so restrictive permissions are not established atomically."
+      },
+      {
+        "title": "Runtime Dependencies Are Not Reproducibly Pinned",
+        "description": "The executable script requests dependencies with minimum versions only. Future invocations can install newer, unreviewed package releases and execute their installation or runtime code.",
         "severity": "medium",
         "locations": [
           {
@@ -1541,47 +1549,19 @@
             "line_end": 9
           }
         ],
-        "confidence": 0.94,
-        "confidence_reasoning": "The dependency block explicitly uses greater-than-or-equal constraints for four runtime packages and provides no lock file or hashes."
+        "confidence": 0.93,
+        "confidence_reasoning": "The uv script metadata contains four greater-than-or-equal dependency constraints and no reviewed exact versions."
       },
       {
-        "title": "OAuth Token Is Restricted After Writing",
-        "description": "The token file is written before chmod applies mode 0600. A newly created file can briefly inherit broader permissions, and the write also follows an existing symbolic link.",
+        "title": "Destructive Commands Lack Programmatic Confirmation",
+        "description": "Project and task delete commands immediately call the remote deletion API. The skill asks the agent to confirm intent, but the CLI does not enforce that safeguard.",
         "severity": "medium",
         "locations": [
-          {
-            "file": "scripts/ticktick_auth.py",
-            "line_start": 404,
-            "line_end": 409
-          }
-        ],
-        "confidence": 0.94,
-        "confidence_reasoning": "The code calls write_text before chmod and does not use exclusive creation or a no-follow flag. The exposure depends on local permissions and timing."
-      },
-      {
-        "title": "Arbitrary Local JSON Files Can Feed Remote Mutations",
-        "description": "Several options accept @path, read any accessible JSON file, and use its contents in TickTick mutation payloads. An agent could expose sensitive structured data after a misleading request.",
-        "severity": "medium",
-        "locations": [
-          {
-            "file": "scripts/ticktick_cli.py",
-            "line_start": 244,
-            "line_end": 307
-          },
           {
             "file": "SKILL.md",
-            "line_start": 68,
-            "line_end": 71
-          }
-        ],
-        "confidence": 0.92,
-        "confidence_reasoning": "The parsers expand user-provided paths without directory restrictions, and the documentation recommends @path inputs for API payloads."
-      },
-      {
-        "title": "Destructive Commands Lack Enforced Confirmation",
-        "description": "Project, task, and focus deletion commands call the remote delete methods immediately. The documentation asks the agent to confirm some deletions, but the CLI does not enforce that safeguard.",
-        "severity": "medium",
-        "locations": [
+            "line_start": 21,
+            "line_end": 21
+          },
           {
             "file": "scripts/ticktick_cli.py",
             "line_start": 507,
@@ -1591,28 +1571,35 @@
             "file": "scripts/ticktick_cli.py",
             "line_start": 662,
             "line_end": 670
-          },
-          {
-            "file": "scripts/ticktick_cli.py",
-            "line_start": 783,
-            "line_end": 793
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 19,
-            "line_end": 22
           }
         ],
         "confidence": 0.97,
-        "confidence_reasoning": "Each delete handler invokes the API without a prompt or confirmation flag. The only safeguard is prose directed at the calling agent."
+        "confidence_reasoning": "The documented confirmation rule is clear, while both command handlers delete immediately without a prompt or force option."
       }
     ],
     "critical_findings": [],
-    "high_findings": [],
+    "high_findings": [
+      {
+        "title": "OAuth Token Permissions Are Applied After Writing",
+        "description": "The access token is written before chmod applies mode 0600. On multi-user systems, the process umask can briefly expose a tasks:read and tasks:write bearer token.",
+        "locations": [
+          {
+            "file": "scripts/ticktick_auth.py",
+            "line_start": 404,
+            "line_end": 409
+          }
+        ],
+        "review_kind": "security",
+        "source_category": "semantic",
+        "source_severity": "high",
+        "confidence": 0.96,
+        "confidence_reasoning": "The code visibly calls write_text before chmod, so restrictive permissions are not established atomically."
+      }
+    ],
     "medium_findings": [
       {
-        "title": "Unpinned Runtime Dependencies",
-        "description": "The uv script uses minimum dependency versions instead of exact versions or hashes. Running the CLI can install newer package code that was not reviewed with this skill.",
+        "title": "Runtime Dependencies Are Not Reproducibly Pinned",
+        "description": "The executable script requests dependencies with minimum versions only. Future invocations can install newer, unreviewed package releases and execute their installation or runtime code.",
         "locations": [
           {
             "file": "scripts/ticktick_cli.py",
@@ -1623,50 +1610,18 @@
         "review_kind": "security",
         "source_category": "semantic",
         "source_severity": "medium",
-        "confidence": 0.94,
-        "confidence_reasoning": "The dependency block explicitly uses greater-than-or-equal constraints for four runtime packages and provides no lock file or hashes."
+        "confidence": 0.93,
+        "confidence_reasoning": "The uv script metadata contains four greater-than-or-equal dependency constraints and no reviewed exact versions."
       },
       {
-        "title": "OAuth Token Is Restricted After Writing",
-        "description": "The token file is written before chmod applies mode 0600. A newly created file can briefly inherit broader permissions, and the write also follows an existing symbolic link.",
+        "title": "Destructive Commands Lack Programmatic Confirmation",
+        "description": "Project and task delete commands immediately call the remote deletion API. The skill asks the agent to confirm intent, but the CLI does not enforce that safeguard.",
         "locations": [
-          {
-            "file": "scripts/ticktick_auth.py",
-            "line_start": 404,
-            "line_end": 409
-          }
-        ],
-        "review_kind": "security",
-        "source_category": "semantic",
-        "source_severity": "medium",
-        "confidence": 0.94,
-        "confidence_reasoning": "The code calls write_text before chmod and does not use exclusive creation or a no-follow flag. The exposure depends on local permissions and timing."
-      },
-      {
-        "title": "Arbitrary Local JSON Files Can Feed Remote Mutations",
-        "description": "Several options accept @path, read any accessible JSON file, and use its contents in TickTick mutation payloads. An agent could expose sensitive structured data after a misleading request.",
-        "locations": [
-          {
-            "file": "scripts/ticktick_cli.py",
-            "line_start": 244,
-            "line_end": 307
-          },
           {
             "file": "SKILL.md",
-            "line_start": 68,
-            "line_end": 71
-          }
-        ],
-        "review_kind": "security",
-        "source_category": "semantic",
-        "source_severity": "medium",
-        "confidence": 0.92,
-        "confidence_reasoning": "The parsers expand user-provided paths without directory restrictions, and the documentation recommends @path inputs for API payloads."
-      },
-      {
-        "title": "Destructive Commands Lack Enforced Confirmation",
-        "description": "Project, task, and focus deletion commands call the remote delete methods immediately. The documentation asks the agent to confirm some deletions, but the CLI does not enforce that safeguard.",
-        "locations": [
+            "line_start": 21,
+            "line_end": 21
+          },
           {
             "file": "scripts/ticktick_cli.py",
             "line_start": 507,
@@ -1676,23 +1631,13 @@
             "file": "scripts/ticktick_cli.py",
             "line_start": 662,
             "line_end": 670
-          },
-          {
-            "file": "scripts/ticktick_cli.py",
-            "line_start": 783,
-            "line_end": 793
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 19,
-            "line_end": 22
           }
         ],
         "review_kind": "security",
         "source_category": "semantic",
         "source_severity": "medium",
         "confidence": 0.97,
-        "confidence_reasoning": "Each delete handler invokes the API without a prompt or confirmation flag. The only safeguard is prose directed at the calling agent."
+        "confidence_reasoning": "The documented confirmation rule is clear, while both command handlers delete immediately without a prompt or force option."
       }
     ],
     "low_findings": [
@@ -1710,7 +1655,7 @@
         "source_category": "blocker",
         "source_severity": "low",
         "confidence": 0.96,
-        "confidence_reasoning": "The code collects the local hostname for the OAuth client name, which is later sent during dynamic client registration. This discloses a device identifier to TickTick or Dida365."
+        "confidence_reasoning": "The code reads the local hostname and later includes it in the dynamically registered OAuth client name. This unnecessarily discloses a device identifier to the selected service."
       },
       {
         "title": "System reconnaissance",
@@ -1726,7 +1671,7 @@
         "source_category": "blocker",
         "source_severity": "low",
         "confidence": 0.96,
-        "confidence_reasoning": "The returned OAuth client name embeds the local hostname and date. That value is transmitted to the remote registration endpoint, so the reconnaissance signal is real but limited in impact."
+        "confidence_reasoning": "The return value embeds the hostname and date in the client name used by OAuth dynamic registration. A generic name would avoid this low-severity privacy disclosure."
       }
     ],
     "dangerous_patterns": [
@@ -1744,7 +1689,7 @@
         "source_category": "blocker",
         "source_severity": "low",
         "confidence": 0.96,
-        "confidence_reasoning": "The code collects the local hostname for the OAuth client name, which is later sent during dynamic client registration. This discloses a device identifier to TickTick or Dida365."
+        "confidence_reasoning": "The code reads the local hostname and later includes it in the dynamically registered OAuth client name. This unnecessarily discloses a device identifier to the selected service."
       },
       {
         "title": "System reconnaissance",
@@ -1760,131 +1705,134 @@
         "source_category": "blocker",
         "source_severity": "low",
         "confidence": 0.96,
-        "confidence_reasoning": "The returned OAuth client name embeds the local hostname and date. That value is transmitted to the remote registration endpoint, so the reconnaissance signal is real but limited in impact."
+        "confidence_reasoning": "The return value embeds the hostname and date in the client name used by OAuth dynamic registration. A generic name would avoid this low-severity privacy disclosure."
       }
     ],
     "files_scanned": 4,
     "total_lines": 2084,
     "audit_model": "codex",
-    "audited_at": "2026-07-10T15:51:19.437Z",
-    "agent_auto_install_policy": "allowed",
+    "audited_at": "2026-07-23T17:06:30.632Z",
+    "agent_auto_install_policy": "confirmation_required",
     "manual_install_policy": "allowed"
   },
   "content": {
     "user_title": "Manage TickTick Tasks from the Command Line",
-    "value_statement": "Manual TickTick updates slow scripted workflows and AI agents. This skill manages projects, tasks, focus records, and habits through a Python CLI and OAuth.",
+    "value_statement": "Managing TickTick data manually can interrupt automated workflows. This skill uses the official Open API to manage projects, tasks, focus records, and habits.",
     "seo_keywords": [
       "Claude",
       "Codex",
       "Claude Code",
       "TickTick CLI",
-      "Dida365 Open API",
-      "task automation",
+      "Dida365 API",
+      "task management automation",
       "project management",
-      "OAuth productivity",
-      "AI task management"
+      "habit tracking",
+      "productivity assistant"
     ],
     "actual_capabilities": [
-      "Authenticate Dida365 or TickTick accounts through a local OAuth PKCE callback.",
-      "List, retrieve, create, update, and delete projects.",
-      "Create, update, complete, delete, move, and filter tasks.",
-      "Manage task tags, reminders, dates, priorities, and checklist items.",
-      "Retrieve and delete focus records for selected time ranges.",
-      "List, create, update, and check in habits."
+      "Authenticate with Dida365 or TickTick through OAuth and a loopback callback.",
+      "List, inspect, create, update, and delete projects.",
+      "Create, update, complete, delete, move, and filter tasks with checklist items and tags.",
+      "Get, list, and delete focus records by type and time range.",
+      "List, create, update, and check in habits using structured fields or payload files."
     ],
     "limitations": [
-      "Requires uv, Python 3.14 or later, network access, and installable dependencies.",
-      "Requires an authorized TickTick or Dida365 account and a local token file.",
-      "Supports only operations exposed by the implemented Open API client.",
-      "Delete commands execute immediately after invocation and need prior user confirmation."
+      "The CLI requires uv, Python 3.14 or newer, network access, and supported Open API availability.",
+      "OAuth credentials are stored in a local token file and must be protected.",
+      "Account region is selected during login and later inferred from stored token metadata.",
+      "Delete operations have no CLI confirmation or undo support."
     ],
     "use_cases": [
       {
-        "title": "Review Daily Work",
-        "description": "List active projects and filter incomplete tasks for a clear daily review.",
-        "target_user": "Personal productivity users"
+        "title": "Maintain a Personal Task Queue",
+        "description": "Review active tasks, add due dates, complete finished work, and move tasks between projects.",
+        "target_user": "Individual TickTick users"
       },
       {
-        "title": "Automate Task Intake",
-        "description": "Create structured tasks with dates, reminders, tags, priorities, and checklists.",
-        "target_user": "Automation engineers"
+        "title": "Automate Project Intake",
+        "description": "Create projects and structured tasks from an approved workflow while preserving tags, priorities, and checklist items.",
+        "target_user": "Operations specialists"
       },
       {
-        "title": "Operate Through an AI Agent",
-        "description": "Let an agent query and update TickTick data with machine-readable command output.",
-        "target_user": "Claude, Codex, and Claude Code users"
+        "title": "Analyze Productivity Records",
+        "description": "Retrieve focus sessions, completed tasks, habits, and check-ins for a selected reporting period.",
+        "target_user": "Productivity analysts"
       }
     ],
     "prompt_templates": [
       {
         "title": "List My Projects",
-        "prompt": "List my TickTick projects. Show each project name and identifier. Do not change any data.",
-        "scenario": "Beginner account overview"
+        "prompt": "List my TickTick projects. Return each project name and identifier. Do not change any data.",
+        "scenario": "Beginner read-only account overview"
       },
       {
-        "title": "Create a Task",
-        "prompt": "Create a task named [title] in project [project]. Set due date [date], priority [priority], and tags [tags].",
-        "scenario": "Structured task creation"
+        "title": "Create a Structured Task",
+        "prompt": "Create a task named [title] in project [project]. Set due date [date], priority [priority], tags [tags], and checklist [items].",
+        "scenario": "Create one task with common fields"
       },
       {
-        "title": "Review Open Tasks",
-        "prompt": "Find incomplete tasks in project [project] between [start] and [end]. Group them by priority and summarize overdue items.",
-        "scenario": "Filtered workload review"
+        "title": "Review and Reorganize Work",
+        "prompt": "Find incomplete tasks in project [source] with tag [tag]. Propose moves to project [destination], then wait for my approval before changing anything.",
+        "scenario": "Plan a multi-task reorganization before execution"
       },
       {
-        "title": "Plan a Batch Update",
-        "prompt": "Review tasks matching [criteria]. Propose moves, updates, or completions. Show the plan first and wait for confirmation before changing remote data.",
-        "scenario": "Advanced multi-step workflow"
+        "title": "Build a Productivity Summary",
+        "prompt": "For [date range], compare completed tasks, focus sessions, and habit check-ins. Group results by project and highlight missing or inconsistent records.",
+        "scenario": "Advanced analysis across several API resources"
       }
     ],
     "output_examples": [
       {
         "input": "List my projects without changing anything.",
-        "output": "Found four projects: Inbox, Work, Personal, and Learning. Each project includes its identifier and view mode."
+        "output": [
+          "Work, identifier 64ab...",
+          "Personal, identifier 73cd...",
+          "Reading, identifier 91ef..."
+        ]
       },
       {
-        "input": "Create a high-priority report task due Friday with two checklist items.",
-        "output": "Created the report task in the selected project. It is high priority, due Friday, and contains the two requested checklist items."
+        "input": "Create a task called Submit expense report in Finance, due Friday, with two checklist items.",
+        "output": "Created Submit expense report in Finance. Due Friday. Checklist: gather receipts; attach approval."
       },
       {
-        "input": "Show incomplete work tasks due this week.",
-        "output": "Found seven incomplete tasks due this week. Three are high priority, and one is already overdue."
+        "input": "Delete the old project.",
+        "output": "Deletion can remove remote project data. Please identify the project and confirm that deletion is intended."
       }
     ],
     "best_practices": [
-      "Use read-only list, get, or filter commands before planning remote changes.",
-      "Confirm project, task, or focus deletion with the user before execution.",
-      "Use machine-readable output for agent workflows and keep global options before subcommands."
+      "Use read-only list or get commands to verify identifiers before remote changes.",
+      "Request JSON output when another tool or agent must parse the result.",
+      "Confirm the exact target before every delete, move, complete, or bulk update operation."
     ],
     "anti_patterns": [
-      "Do not run authentication diagnostics before every normal operation.",
-      "Do not place sensitive data in @path payload files without reviewing the destination.",
-      "Do not execute batch updates or deletions without showing the planned changes first."
+      "Do not expose, print, or share the local OAuth token file.",
+      "Do not infer a project or task identifier from a similar display name.",
+      "Do not execute destructive operations from an ambiguous or indirect request."
     ],
     "faq": [
       {
-        "question": "Which account regions are supported?",
-        "answer": "Dida365 is the default region. Select TickTick during login for an international account."
+        "question": "Which services does this skill support?",
+        "answer": "It supports Dida365 in China and the international TickTick service through their Open API endpoints."
       },
       {
         "question": "How does authentication work?",
-        "answer": "The CLI uses OAuth with PKCE and a temporary callback server bound to localhost."
+        "answer": "The CLI uses OAuth with PKCE, dynamic client registration, and a loopback callback on 127.0.0.1."
       },
       {
         "question": "Where is the token stored?",
-        "answer": "The default path is the TickTick CLI directory under the user config folder. TICKTICK_TOKEN_FILE can override it."
+        "answer": "The default path is ~/.config/ticktick-cli/token.json. TICKTICK_TOKEN_FILE can select another path."
       },
       {
-        "question": "Can it create and update checklist items?",
-        "answer": "Yes. Supply repeated item titles or a structured checklist payload from text or a reviewed file."
+        "question": "Can it manage checklist items and tags?",
+        "answer": "Yes. Task create and update commands accept repeated items, structured item payloads, and repeated tags."
       },
       {
-        "question": "Does it support focus records and habits?",
-        "answer": "Yes. It can retrieve or delete focus records and manage habits and check-ins."
+        "question": "Does it confirm deletions automatically?",
+        "answer": "No. The agent must obtain clear user confirmation before running project, task, or focus deletion."
       },
       {
-        "question": "Does it confirm destructive actions?",
-        "answer": "No. The calling agent or user must confirm intent before invoking a delete command."
+        "question": "What is required to run the CLI?",
+        "answer": "The script declares uv execution, Python 3.14 or newer, four Python packages, network access, and a supported account."
       }
     ]
   },
