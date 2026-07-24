@@ -1,7 +1,7 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-07-08T09:30:46.328Z",
+    "generated_at": "2026-07-23T19:10:56.200Z",
     "slug": "microsoft-azure-quotas",
     "source_url": "https://github.com/microsoft/azure-skills/tree/main/.github/plugins/azure-skills/skills/azure-quotas/",
     "source_ref": "main",
@@ -23,12 +23,13 @@
   },
   "skill": {
     "name": "azure-quotas",
-    "description": "Check Azure quota limits, usage, and available regional capacity with Azure CLI workflows and helper scripts.",
-    "summary": "Plan Azure deployments by comparing quota limits, current usage, and available capacity across regions.",
+    "description": "Check Azure quota limits, usage, and available regional capacity with Azure CLI workflows. Compare regions and prepare quota increase requests.",
+    "summary": "Inspect Azure quotas and plan capacity across subscriptions, providers, and regions.",
     "icon": "📦",
-    "version": "1.0.1",
+    "version": "1.1.2",
     "author": "microsoft",
     "license": "MIT",
+    "category": "devops",
     "tags": [
       "azure",
       "quotas",
@@ -45,29 +46,28 @@
       "network",
       "external_commands",
       "filesystem"
-    ],
-    "category": "devops"
+    ]
   },
   "security_audit": {
     "risk_level": "medium",
     "is_blocked": false,
     "safe_to_publish": true,
     "analysis_status": "ok",
-    "summary": "Most markdown detections are false positives caused by backticked Azure CLI examples, fenced code blocks, and Microsoft documentation links. Confirmed risks are limited to helper scripts that run Azure CLI read operations against the current subscription. No evidence found for audit bypass language, credential exfiltration, or hidden network endpoints.",
+    "summary": "The static alerts are false positives caused by documented Azure CLI examples, Markdown code formatting, standard error redirection, and expected read-only quota queries. Two semantic risks remain: the scripts install an Azure CLI extension without confirmation, and the Bash script embeds Azure response data directly into Python source.",
     "remediation": [
       {
-        "issue": "Helper scripts install the Azure quota CLI extension automatically.",
-        "suggestion": "Split extension installation into a separate setup step or require explicit confirmation before installing it.",
+        "issue": "The quota scripts automatically install the Azure CLI quota extension.",
+        "suggestion": "Require explicit user confirmation before extension installation, or exit with a clear prerequisite command.",
         "severity": "medium"
       },
       {
-        "issue": "Scripts use the active Azure subscription when no subscription ID is supplied.",
-        "suggestion": "Require SubscriptionId or display the selected subscription and ask for confirmation before continuing.",
-        "severity": "low"
+        "issue": "The Bash script interpolates Azure JSON output into a Python source string.",
+        "suggestion": "Pass both JSON documents through standard input, environment variables, or files and parse them only as data.",
+        "severity": "medium"
       },
       {
-        "issue": "The quota increase workflow can submit changes to Azure subscription quota settings.",
-        "suggestion": "Add a clear confirmation step and explain approval impact before any quota update command is run.",
+        "issue": "Quota increase guidance does not require confirmation before a cloud account change.",
+        "suggestion": "Preview the subscription, scope, resource, and requested limit, then require explicit confirmation before running update or create commands.",
         "severity": "medium"
       }
     ],
@@ -374,16 +374,6 @@
             "file": "SKILL.md",
             "line_start": 116,
             "line_end": 116
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 125,
-            "line_end": 125
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 134,
-            "line_end": 134
           }
         ]
       },
@@ -1109,429 +1099,422 @@
       {
         "id": "network:references/advanced-commands.md:7:python-http-libraries",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The line documents Azure quota request status filtering and does not import or call a Python HTTP library. No outbound request or exfiltration endpoint is present."
+        "confidence": 0.99,
+        "reason": "This line is prose describing an OData filter and contains no Python library use or network operation."
       },
       {
         "id": "blocker:references/advanced-commands.md:39:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.93,
-        "reason": "This is Azure CLI documentation for viewing quota request status within a supplied Azure scope. It is not host system reconnaissance or hidden data collection."
+        "confidence": 0.98,
+        "reason": "This is documented syntax for viewing an Azure quota request status, not host or network reconnaissance."
       },
       {
         "id": "blocker:references/advanced-commands.md:49:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.93,
-        "reason": "This is Azure CLI documentation for viewing quota request status within a supplied Azure scope. It is not host system reconnaissance or hidden data collection."
+        "confidence": 0.99,
+        "reason": "The value is an example Azure quota request identifier used in documentation and performs no reconnaissance."
       },
       {
         "id": "blocker:scripts/check-quota.ps1:41:system-reconnaissance",
-        "verdict": "confirmed",
-        "confidence": 0.68,
-        "severity": "low",
-        "reason": "The PowerShell helper reads the active Azure subscription ID when none is supplied. This is legitimate for quota checks, but it relies on ambient credentials and exposes account metadata."
+        "verdict": "false_positive",
+        "confidence": 0.95,
+        "reason": "The command reads the active Azure subscription ID required to form the requested quota scope; it does not inspect the local system."
       },
       {
         "id": "external_commands:scripts/check-quota.sh:29:shell-command-substitution",
-        "verdict": "confirmed",
-        "confidence": 0.74,
-        "severity": "medium",
-        "reason": "The Bash helper executes az account show and captures the active subscription ID. This is intended, but it runs Azure CLI against ambient authenticated state."
+        "verdict": "false_positive",
+        "confidence": 0.94,
+        "reason": "The substitution captures one field from the fixed Azure CLI account command, with no user-controlled command text or shell evaluation."
       },
       {
         "id": "external_commands:scripts/check-quota.sh:41:shell-command-substitution",
-        "verdict": "confirmed",
-        "confidence": 0.73,
-        "severity": "medium",
-        "reason": "The script executes az quota show for a user-selected scope and resource name. Arguments are quoted, but this still performs an authenticated Azure CLI query."
+        "verdict": "false_positive",
+        "confidence": 0.95,
+        "reason": "The substitution captures a quota limit from a fixed Azure CLI command, and all variable arguments are quoted."
       },
       {
         "id": "external_commands:scripts/check-quota.sh:46:shell-command-substitution",
-        "verdict": "confirmed",
-        "confidence": 0.73,
-        "severity": "medium",
-        "reason": "The script executes az quota usage show and captures subscription usage data. The command is read-only, but it accesses Azure account quota information."
+        "verdict": "false_positive",
+        "confidence": 0.95,
+        "reason": "The substitution captures quota usage from a fixed Azure CLI command, and all variable arguments are quoted."
       },
       {
         "id": "external_commands:scripts/check-quota.sh:51:shell-command-substitution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "This line performs local arithmetic on quota values already returned by Azure CLI. It does not execute a command or introduce command injection."
+        "confidence": 0.99,
+        "reason": "This is Bash arithmetic expansion over numeric quota values, not shell command execution."
       },
       {
         "id": "external_commands:scripts/check-quota.sh:61:shell-command-substitution",
-        "verdict": "confirmed",
-        "confidence": 0.73,
-        "severity": "medium",
-        "reason": "The script runs az quota list for the selected provider and region. This is expected behavior, but it queries authenticated Azure subscription metadata."
+        "verdict": "false_positive",
+        "confidence": 0.93,
+        "reason": "The substitution captures JSON from a fixed read-only Azure quota list command with a quoted scope."
       },
       {
         "id": "external_commands:scripts/check-quota.sh:62:shell-command-substitution",
-        "verdict": "confirmed",
-        "confidence": 0.73,
-        "severity": "medium",
-        "reason": "The script runs az quota usage list and captures quota usage JSON. It is read-only, but it still uses the user's authenticated Azure CLI context."
+        "verdict": "false_positive",
+        "confidence": 0.93,
+        "reason": "The substitution captures JSON from a fixed read-only Azure quota usage command with a quoted scope."
       },
       {
         "id": "filesystem:scripts/check-quota.sh:22:standard-device-file-access",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "The detected file access is stderr redirection to /dev/null while running Azure CLI commands. It does not read sensitive files or write user data."
+        "confidence": 0.99,
+        "reason": "The script redirects expected Azure CLI diagnostics to /dev/null and does not read or modify sensitive files."
       },
       {
         "id": "filesystem:scripts/check-quota.sh:24:standard-device-file-access",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "The detected file access is stderr redirection to /dev/null while running Azure CLI commands. It does not read sensitive files or write user data."
+        "confidence": 0.99,
+        "reason": "The detected file access is only stderr redirection to /dev/null; extension installation risk is assessed separately."
       },
       {
         "id": "filesystem:scripts/check-quota.sh:61:standard-device-file-access",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "The detected file access is stderr redirection to /dev/null while running Azure CLI commands. It does not read sensitive files or write user data."
+        "confidence": 0.99,
+        "reason": "The command only redirects stderr to /dev/null and does not access a regular filesystem path."
       },
       {
         "id": "filesystem:scripts/check-quota.sh:62:standard-device-file-access",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "The detected file access is stderr redirection to /dev/null while running Azure CLI commands. It does not read sensitive files or write user data."
+        "confidence": 0.99,
+        "reason": "The command only redirects stderr to /dev/null and does not access a regular filesystem path."
       },
       {
         "id": "blocker:scripts/check-quota.sh:29:system-reconnaissance",
-        "verdict": "confirmed",
-        "confidence": 0.66,
-        "severity": "low",
-        "reason": "The script discovers the active Azure subscription ID through az account show. This is legitimate quota setup, but it reveals cloud account metadata if run unexpectedly."
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "Reading the active Azure subscription ID is necessary for the requested cloud quota scope and is not local system reconnaissance."
       },
       {
         "id": "external_commands:SKILL.md:44:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The finding points to markdown inline code or a fenced example that documents Azure CLI usage. It is not Ruby backtick execution in executable code."
+        "confidence": 0.99,
+        "reason": "Backticks provide Markdown inline-code formatting for an Azure CLI command and are not executable Ruby syntax."
       },
       {
         "id": "external_commands:SKILL.md:45:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The finding points to markdown inline code or a fenced example that documents Azure CLI usage. It is not Ruby backtick execution in executable code."
+        "confidence": 0.99,
+        "reason": "Backticks provide Markdown inline-code formatting for an Azure CLI prerequisite and do not execute it."
       },
       {
         "id": "external_commands:SKILL.md:46:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The finding points to markdown inline code or a fenced example that documents Azure CLI usage. It is not Ruby backtick execution in executable code."
+        "confidence": 0.99,
+        "reason": "The line lists Azure CLI command names in Markdown code spans; no Ruby or shell execution occurs in the document."
       },
       {
         "id": "external_commands:SKILL.md:50:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The finding points to markdown inline code or a fenced example that documents Azure CLI usage. It is not Ruby backtick execution in executable code."
+        "confidence": 0.99,
+        "reason": "The backticks mark tool and command names as Markdown code and are not an execution construct."
       },
       {
         "id": "external_commands:SKILL.md:55:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The finding points to markdown inline code or a fenced example that documents Azure CLI usage. It is not Ruby backtick execution in executable code."
+        "confidence": 0.99,
+        "reason": "The backticks format Azure terms and commands in explanatory Markdown; the line does not execute code."
       },
       {
         "id": "external_commands:SKILL.md:76:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The finding points to markdown inline code or a fenced example that documents Azure CLI usage. It is not Ruby backtick execution in executable code."
+        "confidence": 0.99,
+        "reason": "This table row uses Markdown code spans for Azure resource names and contains no executable expression."
       },
       {
         "id": "external_commands:SKILL.md:77:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The finding points to markdown inline code or a fenced example that documents Azure CLI usage. It is not Ruby backtick execution in executable code."
+        "confidence": 0.99,
+        "reason": "This table row uses Markdown code spans for Azure resource names and contains no executable expression."
       },
       {
         "id": "external_commands:SKILL.md:78:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The finding points to markdown inline code or a fenced example that documents Azure CLI usage. It is not Ruby backtick execution in executable code."
+        "confidence": 0.99,
+        "reason": "This table row uses Markdown code spans for Azure resource names and contains no executable expression."
       },
       {
         "id": "external_commands:SKILL.md:85:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The finding points to markdown inline code or a fenced example that documents Azure CLI usage. It is not Ruby backtick execution in executable code."
+        "confidence": 1,
+        "reason": "The detected characters are the opening delimiter of a fenced Bash example, not Ruby backtick execution."
       },
       {
         "id": "external_commands:SKILL.md:87:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The finding points to markdown inline code or a fenced example that documents Azure CLI usage. It is not Ruby backtick execution in executable code."
+        "confidence": 1,
+        "reason": "The detected characters close a Markdown code fence and do not execute a command."
       },
       {
         "id": "external_commands:SKILL.md:89:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The finding points to markdown inline code or a fenced example that documents Azure CLI usage. It is not Ruby backtick execution in executable code."
+        "confidence": 0.99,
+        "reason": "The backticks format an Azure response field name in prose and have no execution semantics."
       },
       {
         "id": "external_commands:SKILL.md:91:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The finding points to markdown inline code or a fenced example that documents Azure CLI usage. It is not Ruby backtick execution in executable code."
+        "confidence": 0.99,
+        "reason": "The backticks format an Azure response field name in prose and have no execution semantics."
       },
       {
         "id": "external_commands:SKILL.md:92:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The finding points to markdown inline code or a fenced example that documents Azure CLI usage. It is not Ruby backtick execution in executable code."
+        "confidence": 1,
+        "reason": "The detected characters are a Markdown Bash fence, not a Ruby command execution expression."
       },
       {
         "id": "external_commands:SKILL.md:95:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The finding points to markdown inline code or a fenced example that documents Azure CLI usage. It is not Ruby backtick execution in executable code."
+        "confidence": 1,
+        "reason": "The detected characters close a Markdown code fence and do not execute a command."
       },
       {
         "id": "external_commands:SKILL.md:105:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The finding points to markdown inline code or a fenced example that documents Azure CLI usage. It is not Ruby backtick execution in executable code."
+        "confidence": 0.99,
+        "reason": "The script path is shown in a Markdown code span and is not invoked by this line."
       },
       {
         "id": "external_commands:SKILL.md:106:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The finding points to markdown inline code or a fenced example that documents Azure CLI usage. It is not Ruby backtick execution in executable code."
+        "confidence": 0.99,
+        "reason": "The script path is shown in a Markdown code span and is not invoked by this line."
       },
       {
         "id": "external_commands:SKILL.md:116:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The finding points to markdown inline code or a fenced example that documents Azure CLI usage. It is not Ruby backtick execution in executable code."
+        "confidence": 1,
+        "reason": "This is the language marker for a fenced PowerShell example, not backtick execution."
       },
       {
         "id": "external_commands:SKILL.md:118:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The finding points to markdown inline code or a fenced example that documents Azure CLI usage. It is not Ruby backtick execution in executable code."
+        "confidence": 1,
+        "reason": "This line closes a Markdown code fence and contains no executable instruction."
       },
       {
         "id": "external_commands:SKILL.md:119:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The finding points to markdown inline code or a fenced example that documents Azure CLI usage. It is not Ruby backtick execution in executable code."
+        "confidence": 1,
+        "reason": "This is the language marker for a fenced Bash example, not backtick execution."
       },
       {
         "id": "external_commands:SKILL.md:121:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The finding points to markdown inline code or a fenced example that documents Azure CLI usage. It is not Ruby backtick execution in executable code."
+        "confidence": 1,
+        "reason": "This line closes a Markdown code fence and contains no executable instruction."
       },
       {
         "id": "external_commands:SKILL.md:125:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The finding points to markdown inline code or a fenced example that documents Azure CLI usage. It is not Ruby backtick execution in executable code."
+        "confidence": 1,
+        "reason": "This is the language marker for a fenced PowerShell example, not backtick execution."
       },
       {
         "id": "external_commands:SKILL.md:127:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The finding points to markdown inline code or a fenced example that documents Azure CLI usage. It is not Ruby backtick execution in executable code."
+        "confidence": 1,
+        "reason": "This line closes a Markdown code fence and contains no executable instruction."
       },
       {
         "id": "external_commands:SKILL.md:128:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The finding points to markdown inline code or a fenced example that documents Azure CLI usage. It is not Ruby backtick execution in executable code."
+        "confidence": 1,
+        "reason": "This is the language marker for a fenced Bash example, not backtick execution."
       },
       {
         "id": "external_commands:SKILL.md:130:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The finding points to markdown inline code or a fenced example that documents Azure CLI usage. It is not Ruby backtick execution in executable code."
+        "confidence": 1,
+        "reason": "This line closes a Markdown code fence and contains no executable instruction."
       },
       {
         "id": "external_commands:SKILL.md:134:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The finding points to markdown inline code or a fenced example that documents Azure CLI usage. It is not Ruby backtick execution in executable code."
+        "confidence": 1,
+        "reason": "This is the language marker for a fenced PowerShell example, not backtick execution."
       },
       {
         "id": "external_commands:SKILL.md:136:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The finding points to markdown inline code or a fenced example that documents Azure CLI usage. It is not Ruby backtick execution in executable code."
+        "confidence": 1,
+        "reason": "This line closes a Markdown code fence and contains no executable instruction."
       },
       {
         "id": "external_commands:SKILL.md:153:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The finding points to markdown inline code or a fenced example that documents Azure CLI usage. It is not Ruby backtick execution in executable code."
+        "confidence": 1,
+        "reason": "The line opens a fenced Bash example; Markdown fence delimiters do not execute commands."
       },
       {
         "id": "external_commands:SKILL.md:180:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The finding points to markdown inline code or a fenced example that documents Azure CLI usage. It is not Ruby backtick execution in executable code."
+        "confidence": 1,
+        "reason": "The line closes a fenced Bash example and has no execution semantics."
       },
       {
         "id": "external_commands:SKILL.md:188:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The finding points to markdown inline code or a fenced example that documents Azure CLI usage. It is not Ruby backtick execution in executable code."
+        "confidence": 1,
+        "reason": "The line opens a fenced Bash example; Markdown fence delimiters do not execute commands."
       },
       {
         "id": "external_commands:SKILL.md:199:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The finding points to markdown inline code or a fenced example that documents Azure CLI usage. It is not Ruby backtick execution in executable code."
+        "confidence": 1,
+        "reason": "The line closes a fenced Bash example and has no execution semantics."
       },
       {
         "id": "external_commands:SKILL.md:212:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The finding points to markdown inline code or a fenced example that documents Azure CLI usage. It is not Ruby backtick execution in executable code."
+        "confidence": 1,
+        "reason": "The line opens a fenced Bash example; Markdown fence delimiters do not execute commands."
       },
       {
         "id": "external_commands:SKILL.md:227:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The finding points to markdown inline code or a fenced example that documents Azure CLI usage. It is not Ruby backtick execution in executable code."
+        "confidence": 1,
+        "reason": "The line closes a fenced Bash example and has no execution semantics."
       },
       {
         "id": "external_commands:SKILL.md:238:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The finding points to markdown inline code or a fenced example that documents Azure CLI usage. It is not Ruby backtick execution in executable code."
+        "confidence": 0.99,
+        "reason": "The table uses Markdown code spans to show an error and its remediation command; this line does not execute it."
       },
       {
         "id": "external_commands:SKILL.md:239:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The finding points to markdown inline code or a fenced example that documents Azure CLI usage. It is not Ruby backtick execution in executable code."
+        "confidence": 0.99,
+        "reason": "The backticks format an Azure error name in a troubleshooting table and have no execution semantics."
       },
       {
         "id": "external_commands:SKILL.md:240:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The finding points to markdown inline code or a fenced example that documents Azure CLI usage. It is not Ruby backtick execution in executable code."
+        "confidence": 0.99,
+        "reason": "The table displays an Azure provider registration command as Markdown text and does not execute it."
       },
       {
         "id": "external_commands:SKILL.md:241:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The finding points to markdown inline code or a fenced example that documents Azure CLI usage. It is not Ruby backtick execution in executable code."
+        "confidence": 0.99,
+        "reason": "The backticks only format an Azure error name in explanatory Markdown."
       },
       {
         "id": "external_commands:SKILL.md:242:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The finding points to markdown inline code or a fenced example that documents Azure CLI usage. It is not Ruby backtick execution in executable code."
+        "confidence": 0.99,
+        "reason": "The backticks format an error name and scope template in Markdown, not an executable expression."
       },
       {
         "id": "external_commands:SKILL.md:243:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The finding points to markdown inline code or a fenced example that documents Azure CLI usage. It is not Ruby backtick execution in executable code."
+        "confidence": 0.99,
+        "reason": "The line presents troubleshooting commands as Markdown code spans and does not execute them."
       },
       {
         "id": "external_commands:SKILL.md:272:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The finding points to markdown inline code or a fenced example that documents Azure CLI usage. It is not Ruby backtick execution in executable code."
+        "confidence": 0.99,
+        "reason": "The backticks format a recommended Azure CLI command in Markdown and are not Ruby execution syntax."
       },
       {
         "id": "external_commands:SKILL.md:164:shell-command-substitution",
         "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "The command substitution appears inside a markdown Bash example for read-only quota comparison. It is documentation, not code that runs automatically from the skill package."
+        "confidence": 0.96,
+        "reason": "This documented Bash example captures a quota limit from a fixed Azure CLI command using predefined values."
       },
       {
         "id": "external_commands:SKILL.md:170:shell-command-substitution",
         "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "The command substitution appears inside a markdown Bash example for read-only quota comparison. It is documentation, not code that runs automatically from the skill package."
+        "confidence": 0.96,
+        "reason": "This documented Bash example captures quota usage from a fixed Azure CLI command using predefined values."
       },
       {
         "id": "external_commands:SKILL.md:176:shell-command-substitution",
         "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "The command substitution appears inside a markdown Bash example for read-only quota comparison. It is documentation, not code that runs automatically from the skill package."
+        "confidence": 0.99,
+        "reason": "This is arithmetic expansion over quota values, not shell command substitution."
       },
       {
         "id": "external_commands:SKILL.md:153:template-literal-with-command-substitution",
         "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "The command substitution appears inside a markdown Bash example for read-only quota comparison. It is documentation, not code that runs automatically from the skill package."
+        "confidence": 1,
+        "reason": "The detected text is a fenced Bash block, not a JavaScript template literal or dynamically evaluated command."
       },
       {
         "id": "external_commands:SKILL.md:116:powershell-invocation",
         "verdict": "false_positive",
-        "confidence": 0.91,
-        "reason": "The detected PowerShell text is a markdown code fence label for an example command. It does not invoke PowerShell by itself."
+        "confidence": 1,
+        "reason": "The line is a Markdown language fence and contains no PowerShell invocation."
       },
       {
         "id": "external_commands:SKILL.md:125:powershell-invocation",
         "verdict": "false_positive",
-        "confidence": 0.91,
-        "reason": "The detected PowerShell text is a markdown code fence label for an example command. It does not invoke PowerShell by itself."
+        "confidence": 1,
+        "reason": "The line is a Markdown language fence and contains no PowerShell invocation."
       },
       {
         "id": "external_commands:SKILL.md:134:powershell-invocation",
         "verdict": "false_positive",
-        "confidence": 0.91,
-        "reason": "The detected PowerShell text is a markdown code fence label for an example command. It does not invoke PowerShell by itself."
+        "confidence": 1,
+        "reason": "The line is a Markdown language fence and contains no PowerShell invocation."
       },
       {
         "id": "network:SKILL.md:48:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "The hardcoded URL points to Microsoft Azure Portal or Microsoft Learn documentation. It is a public reference link, not an exfiltration endpoint."
+        "confidence": 0.99,
+        "reason": "The URL is an explicit Microsoft Azure Portal documentation link and is not used for automatic data transfer."
       },
       {
         "id": "network:SKILL.md:55:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "The hardcoded URL points to Microsoft Azure Portal or Microsoft Learn documentation. It is a public reference link, not an exfiltration endpoint."
+        "confidence": 0.99,
+        "reason": "The URL points to Microsoft Learn documentation and is not contacted by any script."
       },
       {
         "id": "network:SKILL.md:239:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "The hardcoded URL points to Microsoft Azure Portal or Microsoft Learn documentation. It is a public reference link, not an exfiltration endpoint."
+        "confidence": 0.99,
+        "reason": "The URL points to Microsoft Learn service-limit documentation and is not an automated network destination."
       },
       {
         "id": "network:SKILL.md:248:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "The hardcoded URL points to Microsoft Azure Portal or Microsoft Learn documentation. It is a public reference link, not an exfiltration endpoint."
+        "confidence": 0.99,
+        "reason": "The URL points to official Microsoft Learn Cosmos DB documentation and is not used by executable code."
       },
       {
         "id": "network:SKILL.md:264:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "The hardcoded URL points to Microsoft Azure Portal or Microsoft Learn documentation. It is a public reference link, not an exfiltration endpoint."
+        "confidence": 0.99,
+        "reason": "The URL is a user-visible link to official Microsoft Learn Azure quota documentation."
       },
       {
         "id": "network:SKILL.md:265:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "The hardcoded URL points to Microsoft Azure Portal or Microsoft Learn documentation. It is a public reference link, not an exfiltration endpoint."
+        "confidence": 0.99,
+        "reason": "The URL is a user-visible link to official Microsoft Learn Azure limits documentation."
       },
       {
         "id": "network:SKILL.md:266:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "The hardcoded URL points to Microsoft Azure Portal or Microsoft Learn documentation. It is a public reference link, not an exfiltration endpoint."
+        "confidence": 0.99,
+        "reason": "The URL is an explicit Azure Portal link for users and is not an exfiltration endpoint."
       },
       {
         "id": "network:SKILL.md:267:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "The hardcoded URL points to Microsoft Azure Portal or Microsoft Learn documentation. It is a public reference link, not an exfiltration endpoint."
+        "confidence": 0.99,
+        "reason": "The URL is a user-visible link to official Microsoft Learn quota increase guidance."
       }
     ],
     "semantic_findings": [
       {
         "title": "Automatic Azure CLI Extension Installation",
-        "description": "Both helper scripts install the Azure quota CLI extension when it is missing. Automatic dependency installation changes the user CLI environment and can fetch executable code.",
+        "description": "Both scripts install the quota extension automatically when absent. This downloads code and changes the local Azure CLI environment without explicit confirmation.",
         "severity": "medium",
         "locations": [
           {
@@ -1545,110 +1528,30 @@
             "line_end": 36
           }
         ],
-        "confidence": 0.9,
-        "confidence_reasoning": "The scripts explicitly run az extension add --name quota when the extension is absent. This is a clear setup side effect, even though it supports the skill purpose."
+        "confidence": 0.99,
+        "confidence_reasoning": "The installation commands and automatic branches are explicit in both scripts."
       },
       {
-        "title": "Quota Increase Workflow Requires Explicit Consent",
-        "description": "The skill documents an Azure CLI quota update workflow that submits a quota increase request for a subscription. This is a legitimate feature but changes Azure account state.",
+        "title": "Azure Response Embedded in Python Source",
+        "description": "The Bash script interpolates quota usage JSON into a triple-quoted Python source string. Crafted response content could break the string and alter executed Python.",
         "severity": "medium",
         "locations": [
           {
-            "file": "SKILL.md",
-            "line_start": 184,
-            "line_end": 199
+            "file": "scripts/check-quota.sh",
+            "line_start": 67,
+            "line_end": 83
           }
         ],
-        "confidence": 0.88,
-        "confidence_reasoning": "The workflow is clearly labeled as requesting a quota increase and includes an az quota update example. The side effect is explicit and should require user approval."
+        "confidence": 0.84,
+        "confidence_reasoning": "Direct interpolation into the python3 -c program is visible, although exploitation requires control over Azure CLI response content."
       }
     ],
     "critical_findings": [],
     "high_findings": [],
     "medium_findings": [
       {
-        "title": "Shell command substitution",
-        "description": "SUBSCRIPTION_ID=$(az account show --query id -o tsv)",
-        "locations": [
-          {
-            "file": "scripts/check-quota.sh",
-            "line_start": 29,
-            "line_end": 29
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "external_commands",
-        "source_severity": "medium",
-        "confidence": 0.74,
-        "confidence_reasoning": "The Bash helper executes az account show and captures the active subscription ID. This is intended, but it runs Azure CLI against ambient authenticated state."
-      },
-      {
-        "title": "Shell command substitution",
-        "description": "LIMIT=$(az quota show \\",
-        "locations": [
-          {
-            "file": "scripts/check-quota.sh",
-            "line_start": 41,
-            "line_end": 44
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "external_commands",
-        "source_severity": "medium",
-        "confidence": 0.73,
-        "confidence_reasoning": "The script executes az quota show for a user-selected scope and resource name. Arguments are quoted, but this still performs an authenticated Azure CLI query."
-      },
-      {
-        "title": "Shell command substitution",
-        "description": "USAGE=$(az quota usage show \\",
-        "locations": [
-          {
-            "file": "scripts/check-quota.sh",
-            "line_start": 46,
-            "line_end": 49
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "external_commands",
-        "source_severity": "medium",
-        "confidence": 0.73,
-        "confidence_reasoning": "The script executes az quota usage show and captures subscription usage data. The command is read-only, but it accesses Azure account quota information."
-      },
-      {
-        "title": "Shell command substitution",
-        "description": "QUOTAS_JSON=$(az quota list --scope \"$SCOPE\" -o json 2>/dev/null)",
-        "locations": [
-          {
-            "file": "scripts/check-quota.sh",
-            "line_start": 61,
-            "line_end": 61
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "external_commands",
-        "source_severity": "medium",
-        "confidence": 0.73,
-        "confidence_reasoning": "The script runs az quota list for the selected provider and region. This is expected behavior, but it queries authenticated Azure subscription metadata."
-      },
-      {
-        "title": "Shell command substitution",
-        "description": "USAGES_JSON=$(az quota usage list --scope \"$SCOPE\" -o json 2>/dev/null)",
-        "locations": [
-          {
-            "file": "scripts/check-quota.sh",
-            "line_start": 62,
-            "line_end": 62
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "external_commands",
-        "source_severity": "medium",
-        "confidence": 0.73,
-        "confidence_reasoning": "The script runs az quota usage list and captures quota usage JSON. It is read-only, but it still uses the user's authenticated Azure CLI context."
-      },
-      {
         "title": "Automatic Azure CLI Extension Installation",
-        "description": "Both helper scripts install the Azure quota CLI extension when it is missing. Automatic dependency installation changes the user CLI environment and can fetch executable code.",
+        "description": "Both scripts install the quota extension automatically when absent. This downloads code and changes the local Azure CLI environment without explicit confirmation.",
         "locations": [
           {
             "file": "scripts/check-quota.sh",
@@ -1664,217 +1567,160 @@
         "review_kind": "security",
         "source_category": "semantic",
         "source_severity": "medium",
-        "confidence": 0.9,
-        "confidence_reasoning": "The scripts explicitly run az extension add --name quota when the extension is absent. This is a clear setup side effect, even though it supports the skill purpose."
+        "confidence": 0.99,
+        "confidence_reasoning": "The installation commands and automatic branches are explicit in both scripts."
       },
       {
-        "title": "Quota Increase Workflow Requires Explicit Consent",
-        "description": "The skill documents an Azure CLI quota update workflow that submits a quota increase request for a subscription. This is a legitimate feature but changes Azure account state.",
+        "title": "Azure Response Embedded in Python Source",
+        "description": "The Bash script interpolates quota usage JSON into a triple-quoted Python source string. Crafted response content could break the string and alter executed Python.",
         "locations": [
           {
-            "file": "SKILL.md",
-            "line_start": 184,
-            "line_end": 199
+            "file": "scripts/check-quota.sh",
+            "line_start": 67,
+            "line_end": 83
           }
         ],
         "review_kind": "security",
         "source_category": "semantic",
         "source_severity": "medium",
-        "confidence": 0.88,
-        "confidence_reasoning": "The workflow is clearly labeled as requesting a quota increase and includes an az quota update example. The side effect is explicit and should require user approval."
+        "confidence": 0.84,
+        "confidence_reasoning": "Direct interpolation into the python3 -c program is visible, although exploitation requires control over Azure CLI response content."
       }
     ],
-    "low_findings": [
-      {
-        "title": "System reconnaissance",
-        "description": "$SubscriptionId = az account show --query id -o tsv",
-        "locations": [
-          {
-            "file": "scripts/check-quota.ps1",
-            "line_start": 41,
-            "line_end": 41
-          }
-        ],
-        "review_kind": "security",
-        "source_category": "blocker",
-        "source_severity": "low",
-        "confidence": 0.68,
-        "confidence_reasoning": "The PowerShell helper reads the active Azure subscription ID when none is supplied. This is legitimate for quota checks, but it relies on ambient credentials and exposes account metadata."
-      },
-      {
-        "title": "System reconnaissance",
-        "description": "SUBSCRIPTION_ID=$(az account show --query id -o tsv)",
-        "locations": [
-          {
-            "file": "scripts/check-quota.sh",
-            "line_start": 29,
-            "line_end": 29
-          }
-        ],
-        "review_kind": "security",
-        "source_category": "blocker",
-        "source_severity": "low",
-        "confidence": 0.66,
-        "confidence_reasoning": "The script discovers the active Azure subscription ID through az account show. This is legitimate quota setup, but it reveals cloud account metadata if run unexpectedly."
-      }
-    ],
-    "dangerous_patterns": [
-      {
-        "title": "System reconnaissance",
-        "description": "$SubscriptionId = az account show --query id -o tsv",
-        "locations": [
-          {
-            "file": "scripts/check-quota.ps1",
-            "line_start": 41,
-            "line_end": 41
-          }
-        ],
-        "review_kind": "security",
-        "source_category": "blocker",
-        "source_severity": "low",
-        "confidence": 0.68,
-        "confidence_reasoning": "The PowerShell helper reads the active Azure subscription ID when none is supplied. This is legitimate for quota checks, but it relies on ambient credentials and exposes account metadata."
-      },
-      {
-        "title": "System reconnaissance",
-        "description": "SUBSCRIPTION_ID=$(az account show --query id -o tsv)",
-        "locations": [
-          {
-            "file": "scripts/check-quota.sh",
-            "line_start": 29,
-            "line_end": 29
-          }
-        ],
-        "review_kind": "security",
-        "source_category": "blocker",
-        "source_severity": "low",
-        "confidence": 0.66,
-        "confidence_reasoning": "The script discovers the active Azure subscription ID through az account show. This is legitimate quota setup, but it reveals cloud account metadata if run unexpectedly."
-      }
-    ],
+    "low_findings": [],
+    "dangerous_patterns": [],
     "files_scanned": 5,
     "total_lines": 852,
     "audit_model": "codex",
-    "audited_at": "2026-07-08T09:30:46.328Z",
+    "audited_at": "2026-07-23T19:10:56.200Z",
     "agent_auto_install_policy": "allowed",
     "manual_install_policy": "allowed"
   },
   "content": {
-    "user_title": "Manage Azure Quotas and Capacity",
-    "value_statement": "Azure deployments fail when quota limits are unknown or region capacity is insufficient. This skill guides quota discovery, usage checks, region comparison, and quota increase requests with Azure CLI.",
+    "user_title": "Check Azure Quotas and Regional Capacity",
+    "value_statement": "Azure deployment plans can fail when regional quotas are unknown or exhausted. This skill checks limits and usage, compares regions, and guides increase requests.",
     "seo_keywords": [
+      "Azure quotas",
+      "Azure CLI",
+      "cloud capacity planning",
+      "regional quota usage",
+      "vCPU limits",
+      "quota increase requests",
       "Claude",
       "Codex",
       "Claude Code",
-      "Azure quotas",
-      "Azure CLI quota",
-      "service limits",
-      "quota increase",
-      "Azure capacity planning",
-      "regional capacity",
-      "vCPU quota"
+      "Azure deployment planning"
     ],
     "actual_capabilities": [
-      "Lists Azure quota limits and current usage for supported resource providers.",
-      "Calculates available capacity for one quota or all quotas in a region.",
+      "Lists quotas for Azure resource providers and regional scopes.",
+      "Retrieves current usage and calculates available capacity.",
+      "Checks one named quota or summarizes all quotas in a scope.",
       "Compares quota availability across candidate Azure regions.",
-      "Maps ARM resource types to quota resource names through discovery steps.",
-      "Explains quota increase requests and request status checks.",
-      "Provides Bash and PowerShell helper scripts for quota checks."
+      "Guides quota increase requests and request status checks."
     ],
     "limitations": [
-      "Requires Azure CLI authentication and the quota extension.",
-      "Only covers providers supported by the Azure quota API.",
-      "Quota increase approval depends on Azure policies and service availability.",
-      "Examples require valid subscription, provider, region, and resource names."
+      "Requires an authenticated Azure CLI session and permission to read the target subscription.",
+      "The supplied scripts may install the Azure CLI quota extension.",
+      "Some Azure resource providers do not support the quota API.",
+      "Quota values reflect the selected subscription and can change after the check."
     ],
     "use_cases": [
       {
-        "title": "Validate deployment capacity",
-        "description": "Check quota limits and current usage before deploying virtual machines, networking resources, or platform services.",
-        "target_user": "DevOps engineer"
+        "title": "Validate Deployment Capacity",
+        "description": "Check whether a planned workload fits available quota before selecting a region.",
+        "target_user": "Cloud architects"
       },
       {
-        "title": "Select an Azure region",
-        "description": "Compare available quota across regions to choose a location with enough capacity for planned workloads.",
-        "target_user": "Cloud architect"
+        "title": "Diagnose Quota Failures",
+        "description": "Compare current usage with limits when an Azure deployment reports a quota error.",
+        "target_user": "DevOps engineers"
       },
       {
-        "title": "Resolve quota exceeded errors",
-        "description": "Identify the relevant quota name, review current usage, and prepare a quota increase request when needed.",
-        "target_user": "Support engineer"
+        "title": "Plan Quota Increases",
+        "description": "Review current capacity and prepare a scoped quota increase request for approval.",
+        "target_user": "Azure administrators"
       }
     ],
     "prompt_templates": [
       {
-        "title": "Check a provider quota",
-        "scenario": "Beginner quota lookup",
-        "prompt": "Check Azure quota usage for Microsoft.Compute in eastus. Explain the command and summarize available capacity."
+        "title": "Check Regional Compute Quotas",
+        "prompt": "Check all Microsoft.Compute quotas in eastus for my current Azure subscription. Show each limit, current usage, and available capacity.",
+        "scenario": "Beginner quota overview"
       },
       {
-        "title": "Compare candidate regions",
-        "scenario": "Deployment region selection",
-        "prompt": "Compare vCPU quota for standardDSv3Family across eastus, eastus2, and westus2 for my subscription."
+        "title": "Validate One Resource Quota",
+        "prompt": "Check <resource-name> for <provider> in <region> using subscription <subscription-id>. Explain whether <required-capacity> additional units fit.",
+        "scenario": "Targeted capacity validation"
       },
       {
-        "title": "Investigate quota errors",
-        "scenario": "Troubleshooting a failed deployment",
-        "prompt": "Help me resolve a QuotaExceeded error for Azure Container Apps in centralus. Identify the quota name and next action."
+        "title": "Compare Candidate Regions",
+        "prompt": "Compare <resource-name> quota across <region-list>. Rank regions by available capacity and identify any region that meets <required-capacity>.",
+        "scenario": "Regional deployment planning"
       },
       {
-        "title": "Plan capacity and fallback",
-        "scenario": "Advanced regional capacity planning",
-        "prompt": "Build a capacity plan for a 200 vCPU deployment across three regions. Include quota checks, increase request steps, and fallback options."
+        "title": "Prepare an Increase Request",
+        "prompt": "Prepare a quota increase plan for <resource-name> in <region>. Show current values and the exact scope. Do not submit changes until I confirm.",
+        "scenario": "Controlled quota management"
       }
     ],
     "output_examples": [
       {
-        "input": "Check Microsoft.Compute quotas in eastus before a VM deployment.",
-        "output": "A concise quota summary with limit, current usage, available capacity, and any resource families that need attention."
+        "input": "Check standardDSv3Family capacity in eastus.",
+        "output": [
+          "Resource: standardDSv3Family",
+          "Region: eastus",
+          "Limit: 350 vCPUs",
+          "Current usage: 50 vCPUs",
+          "Available capacity: 300 vCPUs"
+        ]
       },
       {
-        "input": "Compare regions for standardDSv3Family capacity.",
-        "output": "A ranked region comparison showing which locations have enough available quota and which require an increase request."
+        "input": "Compare 100 available vCPUs across eastus, eastus2, and westus2.",
+        "output": [
+          "eastus2 meets the requirement with 180 available vCPUs.",
+          "westus2 meets the requirement with 120 available vCPUs.",
+          "eastus does not meet the requirement with 60 available vCPUs."
+        ]
       },
       {
-        "input": "A deployment failed with QuotaExceeded.",
-        "output": "A troubleshooting path that identifies the likely quota, verifies current usage, and recommends an increase request or alternate region."
+        "input": "Plan an increase to 500 DSv3 family vCPUs in eastus.",
+        "output": "Current limit and usage are shown first. The proposed request targets 500 vCPUs and waits for confirmation before submission."
       }
     ],
     "best_practices": [
-      "Run read-only quota checks before deployment planning.",
-      "Confirm subscription and region before executing any Azure CLI command.",
-      "Request a buffer above immediate capacity needs when Azure allows it."
+      "List quotas first to discover the exact Azure quota resource name.",
+      "Verify the active subscription and regional scope before reading or changing quota.",
+      "Confirm the requested limit and scope before submitting any quota increase."
     ],
     "anti_patterns": [
-      "Assuming ARM resource type names match quota resource names.",
-      "Treating a missing limit or No Limit response as unlimited capacity.",
-      "Submitting quota increase requests without confirming business need and region."
+      "Do not infer quota resource names from ARM resource types.",
+      "Do not treat a No Limit response as proof of unlimited capacity.",
+      "Do not submit quota increases without explicit user confirmation."
     ],
     "faq": [
       {
-        "question": "Does this skill require Azure credentials?",
-        "answer": "Yes. Azure CLI must be installed and authenticated before quota checks can access subscription data."
+        "question": "What permissions are required?",
+        "answer": "Reader access supports quota checks. Quota Request Operator or equivalent permissions are required for increase requests."
       },
       {
-        "question": "Can it request quota increases?",
-        "answer": "Yes. It explains Azure CLI quota increase workflows, but users should review every change before execution."
+        "question": "Does the skill require Azure CLI?",
+        "answer": "Yes. The workflows use Azure CLI and the quota extension."
       },
       {
-        "question": "Does it support every Azure provider?",
-        "answer": "No. It focuses on providers supported by the Azure quota API and points to service limits docs for gaps."
+        "question": "Can it compare multiple regions?",
+        "answer": "Yes. It can check the same quota across candidate regions and compare available capacity."
       },
       {
-        "question": "Why compare regions?",
-        "answer": "Quota availability varies by region, so comparison helps avoid failed deployments and capacity delays."
+        "question": "Can it request a quota increase?",
+        "answer": "It provides Azure CLI guidance for increase requests. Confirm the subscription, scope, and requested limit before submission."
       },
       {
-        "question": "Can I use it in Claude, Codex, and Claude Code?",
-        "answer": "Yes. The skill metadata lists support for Claude, Codex, and Claude Code."
+        "question": "Why does the quota API return BadRequest?",
+        "answer": "The selected resource provider may not support the Microsoft.Quota API. Use official service limits documentation as a fallback."
       },
       {
-        "question": "Does it change Azure resources automatically?",
-        "answer": "Read-only checks query quotas. Helper scripts may install the quota extension, and increase commands require explicit execution."
+        "question": "Does a No Limit value mean unlimited capacity?",
+        "answer": "No. It can indicate unsupported or unavailable quota data. Check service-specific limits and regional capacity."
       }
     ]
   },
