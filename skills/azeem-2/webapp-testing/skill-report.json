@@ -1,25 +1,20 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-07-17T10:23:12.484Z",
+    "generated_at": "2026-07-23T10:16:54.208Z",
     "slug": "azeem-2-webapp-testing",
     "source_url": "https://github.com/Azeem-2/HackthonII/tree/master/.claude/skills/webapp-testing",
     "source_ref": "master",
-    "model": "claude",
+    "model": "codex",
     "analysis_version": "3.0.0",
     "source_type": "community",
     "content_hash": "51b7349e77ec63b7744a6f63647e7566a0b4d2e301121cc10e8c2113af6556a2",
     "tree_hash": "37d980f5dbc76dedcf2f13713bfc4bd05dfb07a34eb3c0e3691ce532ff93959f",
     "provenance": {
-      "model_effective": "claude",
+      "model_effective": "codex",
       "fallback_chain": [
         {
           "agent": "codex",
-          "outcome": "failed",
-          "error": "2026-07-17T10:23:12.622436Z ERROR codex_models_manager::manager: failed to refresh available models: Missing environment variable: `HELM_API_KEY`.\n2026-07-17T10:23:12.643303Z ERROR codex_models_manage…"
-        },
-        {
-          "agent": "claude",
           "outcome": "success"
         }
       ],
@@ -28,17 +23,18 @@
   },
   "skill": {
     "name": "webapp-testing",
-    "description": "Test local web applications with Python Playwright scripts, server lifecycle helpers, screenshots, DOM inspection, and console-log capture.",
-    "summary": "Playwright guidance and examples for testing local web applications.",
+    "description": "Test local web applications with Python Playwright scripts, managed development servers, browser screenshots, DOM inspection, and console log capture.",
+    "summary": "Inspect, automate, and debug local web applications with Playwright.",
     "icon": "📦",
     "author": "Azeem-2",
     "license": "Complete terms in LICENSE.txt",
+    "category": "coding",
     "tags": [
       "playwright",
-      "web testing",
-      "browser automation",
-      "python",
-      "frontend testing"
+      "web-testing",
+      "browser-automation",
+      "frontend-debugging",
+      "local-development"
     ],
     "supported_tools": [
       "claude",
@@ -49,24 +45,38 @@
       "network",
       "filesystem",
       "external_commands"
-    ],
-    "category": "coding"
+    ]
   },
   "security_audit": {
-    "risk_level": "medium",
+    "risk_level": "high",
     "is_blocked": false,
-    "safe_to_publish": true,
+    "safe_to_publish": false,
     "analysis_status": "ok",
-    "summary": "The Playwright examples use local URLs and fixed output paths, so the related static findings are benign. The server helper executes caller-provided server strings with shell=True, and the documentation discourages reviewing that helper before execution. These issues require review before automated installation or use with untrusted commands.",
+    "summary": "The helper executes caller-provided server strings through a shell and runs an unrestricted follow-up command. Most SKILL.md backtick alerts are Markdown false positives, but the instructions discourage source inspection before executing the helper.",
     "remediation": [
       {
-        "issue": "The server helper launches user-controlled --server values through shell=True.",
-        "suggestion": "Replace shell execution with a command allowlist or structured argument parsing. If shell support remains necessary, require explicit confirmation and document that only trusted commands are acceptable.",
+        "issue": "The server helper passes caller-provided strings to a shell.",
+        "suggestion": "Accept argument arrays, use shell=False, and reject shell operators unless the user explicitly approves them.",
         "severity": "high"
       },
       {
-        "issue": "Documentation advises users not to inspect bundled script source before execution.",
-        "suggestion": "Encourage users to review helper behavior and command arguments before running it, especially when commands come from untrusted requests.",
+        "issue": "The helper executes an unrestricted trailing command.",
+        "suggestion": "Require explicit confirmation and display the exact executable and arguments before running the command.",
+        "severity": "high"
+      },
+      {
+        "issue": "The documentation tells agents to execute the helper before reading its source.",
+        "suggestion": "Remove anti-inspection language and encourage users to review community scripts before execution.",
+        "severity": "high"
+      },
+      {
+        "issue": "Screenshots use predictable shared temporary file paths.",
+        "suggestion": "Create private temporary files with unique names and restrictive permissions, then remove them after use.",
+        "severity": "medium"
+      },
+      {
+        "issue": "Captured browser console data is written to a fixed output file.",
+        "suggestion": "Warn that console messages may contain secrets, redact sensitive values, and avoid overwriting existing artifacts.",
         "severity": "medium"
       }
     ],
@@ -544,189 +554,193 @@
         "id": "network:examples/console_logging.py:5:hardcoded-url",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "The URL targets localhost and is explicitly marked as replaceable in a browser-testing example. It does not send data to a third-party service."
+        "reason": "The URL targets localhost for a local development example. It does not contact an external service or transmit data off the machine."
       },
       {
         "id": "filesystem:examples/console_logging.py:31:python-file-write-append",
-        "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The example writes captured browser console messages to a fixed output log path. It does not read sensitive files or write to an arbitrary user-selected path."
+        "verdict": "confirmed",
+        "confidence": 0.86,
+        "reason": "The example persists page-controlled console messages to a fixed file and overwrites any existing file there. Console output can contain credentials or other sensitive application data.",
+        "severity": "medium"
       },
       {
         "id": "network:examples/element_discovery.py:10:hardcoded-url",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "The navigation target is a local development server at localhost:5173. No external network destination is present."
+        "reason": "The browser opens a localhost development address. No external destination or data transfer is present."
       },
       {
         "id": "filesystem:examples/element_discovery.py:37:temp-directory-access",
-        "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The screenshot is written to a fixed temporary filename for visual inspection. This is ordinary Playwright test output and does not access sensitive data."
+        "verdict": "confirmed",
+        "confidence": 0.82,
+        "reason": "The example writes a potentially sensitive full-page screenshot to a predictable shared temporary path. This can overwrite an existing file or expose page content to other local processes.",
+        "severity": "medium"
       },
       {
         "id": "filesystem:examples/element_discovery.py:38:temp-directory-access",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "This line only prints the fixed screenshot location. It performs no filesystem operation."
+        "reason": "This line only prints the screenshot path. It performs no filesystem access."
       },
       {
         "id": "external_commands:scripts/with_server.py:88:python-subprocess-run",
-        "verdict": "false_positive",
-        "confidence": 0.84,
-        "reason": "subprocess.run receives argparse remainder arguments as a list without shell=True. It intentionally launches the specified local test command, but does not introduce shell interpolation."
+        "verdict": "confirmed",
+        "confidence": 0.97,
+        "reason": "The helper executes the unrestricted trailing command supplied through command-line arguments. Shell parsing is disabled here, but the caller can still select any available executable and arguments.",
+        "severity": "high"
       },
       {
         "id": "external_commands:scripts/with_server.py:69:python-subprocess-popen",
         "verdict": "confirmed",
-        "confidence": 0.98,
-        "reason": "The helper passes the user-supplied --server string to subprocess.Popen with shell=True. Any caller-controlled shell syntax executes with the current user privileges.",
+        "confidence": 0.99,
+        "reason": "The helper passes each caller-provided server string to subprocess.Popen with shell=True. Shell operators in that string can execute arbitrary local commands with the agent process permissions.",
         "severity": "high"
       },
       {
         "id": "external_commands:SKILL.md:12:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "The detected backticks are Markdown formatting around filenames, commands, or API names in documentation. They are not executable Ruby or shell backticks."
+        "reason": "The backticks format a script path as inline Markdown. They do not invoke Ruby or a shell."
       },
       {
         "id": "external_commands:SKILL.md:14:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "The detected backticks are Markdown formatting around filenames, commands, or API names in documentation. They are not executable Ruby or shell backticks."
+        "reason": "The detected backticks format the --help option in Markdown. They are not executable syntax, although the surrounding anti-inspection instruction is addressed separately."
       },
       {
         "id": "external_commands:SKILL.md:18:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "The detected backticks are Markdown formatting around filenames, commands, or API names in documentation. They are not executable Ruby or shell backticks."
+        "reason": "This is the opening delimiter for a Markdown decision-tree block. It does not execute code."
       },
       {
         "id": "external_commands:SKILL.md:33:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "The detected backticks are Markdown formatting around filenames, commands, or API names in documentation. They are not executable Ruby or shell backticks."
+        "reason": "This is the closing delimiter for a Markdown decision-tree block. It does not execute code."
       },
       {
         "id": "external_commands:SKILL.md:37:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "The detected backticks are Markdown formatting around filenames, commands, or API names in documentation. They are not executable Ruby or shell backticks."
+        "reason": "The backticks format the --help option as documentation. No shell or Ruby evaluation occurs on this line."
       },
       {
         "id": "external_commands:SKILL.md:40:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "The detected backticks are Markdown formatting around filenames, commands, or API names in documentation. They are not executable Ruby or shell backticks."
+        "reason": "This line starts a fenced Bash example in Markdown. The fence itself is not an execution mechanism."
       },
       {
         "id": "external_commands:SKILL.md:42:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "The detected backticks are Markdown formatting around filenames, commands, or API names in documentation. They are not executable Ruby or shell backticks."
+        "reason": "This line closes a fenced Bash example in Markdown. The fence does not execute the documented command."
       },
       {
         "id": "external_commands:SKILL.md:45:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "The detected backticks are Markdown formatting around filenames, commands, or API names in documentation. They are not executable Ruby or shell backticks."
+        "reason": "This line starts a fenced Bash example in Markdown. It is documentation syntax, not shell execution."
       },
       {
         "id": "external_commands:SKILL.md:50:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "The detected backticks are Markdown formatting around filenames, commands, or API names in documentation. They are not executable Ruby or shell backticks."
+        "reason": "This line closes a fenced Bash example. Markdown rendering does not run its contents."
       },
       {
         "id": "external_commands:SKILL.md:53:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "The detected backticks are Markdown formatting around filenames, commands, or API names in documentation. They are not executable Ruby or shell backticks."
+        "reason": "This line opens a fenced Python example in Markdown. It does not cause Python, Ruby, or shell execution."
       },
       {
         "id": "external_commands:SKILL.md:63:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "The detected backticks are Markdown formatting around filenames, commands, or API names in documentation. They are not executable Ruby or shell backticks."
+        "reason": "This line closes a fenced Python example. It has no execution behavior."
       },
       {
         "id": "external_commands:SKILL.md:68:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "The detected backticks are Markdown formatting around filenames, commands, or API names in documentation. They are not executable Ruby or shell backticks."
+        "reason": "This line opens a fenced Python example in Markdown. It is formatting only."
       },
       {
         "id": "external_commands:SKILL.md:72:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "The detected backticks are Markdown formatting around filenames, commands, or API names in documentation. They are not executable Ruby or shell backticks."
+        "reason": "This line closes a fenced Python example in Markdown. It is not executable syntax."
       },
       {
         "id": "external_commands:SKILL.md:80:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "The detected backticks are Markdown formatting around filenames, commands, or API names in documentation. They are not executable Ruby or shell backticks."
+        "reason": "The backticks format the networkidle state name in prose. No external command is invoked."
       },
       {
         "id": "external_commands:SKILL.md:81:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "The detected backticks are Markdown formatting around filenames, commands, or API names in documentation. They are not executable Ruby or shell backticks."
+        "reason": "The backticks display a Playwright API call as inline Markdown. They do not execute the call."
       },
       {
         "id": "external_commands:SKILL.md:85:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "The detected backticks are Markdown formatting around filenames, commands, or API names in documentation. They are not executable Ruby or shell backticks."
+        "reason": "The backticks format a directory name and an option in Markdown. The separate instruction to treat scripts as black boxes is covered by a semantic finding."
       },
       {
         "id": "external_commands:SKILL.md:86:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "The detected backticks are Markdown formatting around filenames, commands, or API names in documentation. They are not executable Ruby or shell backticks."
+        "reason": "The backticks format a Playwright function name in documentation. They do not invoke a command."
       },
       {
         "id": "external_commands:SKILL.md:88:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "The detected backticks are Markdown formatting around filenames, commands, or API names in documentation. They are not executable Ruby or shell backticks."
+        "reason": "The backticks format selector examples in Markdown. No Ruby or shell execution is present."
       },
       {
         "id": "external_commands:SKILL.md:89:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "The detected backticks are Markdown formatting around filenames, commands, or API names in documentation. They are not executable Ruby or shell backticks."
+        "reason": "The backticks format Playwright wait methods in prose. They have no command-execution effect."
       },
       {
         "id": "external_commands:SKILL.md:94:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "The detected backticks are Markdown formatting around filenames, commands, or API names in documentation. They are not executable Ruby or shell backticks."
+        "reason": "The backticks format an example filename in Markdown. They do not execute the file."
       },
       {
         "id": "external_commands:SKILL.md:95:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "The detected backticks are Markdown formatting around filenames, commands, or API names in documentation. They are not executable Ruby or shell backticks."
+        "reason": "The backticks format a filename and URL scheme in Markdown. This line does not execute a script or command."
       },
       {
         "id": "network:SKILL.md:59:hardcoded-url",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "The documented navigation URL is localhost:5173 for a local application. It is not an external endpoint."
+        "reason": "The documented URL is a localhost address for a development server. It does not direct traffic to an external host."
       },
       {
         "id": "filesystem:SKILL.md:69:temp-directory-access",
-        "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The documentation saves a Playwright screenshot to a fixed temporary path. This is expected test artifact handling."
+        "verdict": "confirmed",
+        "confidence": 0.82,
+        "reason": "The recommended code writes a full-page screenshot to a predictable path in a shared temporary directory. Sensitive page content may be overwritten or exposed through that path.",
+        "severity": "medium"
       }
     ],
     "semantic_findings": [
       {
-        "title": "Guidance Discourages Source Review Before Execution",
-        "description": "The documentation directs users to run bundled scripts as black boxes and not read their source first. This reduces informed review of a helper that executes shell commands.",
-        "severity": "medium",
+        "title": "Prompt Injection Attempt Detected",
+        "description": "The instruction says, \"DO NOT read the source until you try running the script first\" and later recommends using scripts as black boxes. This discourages security inspection before executing community code.",
+        "severity": "high",
         "locations": [
           {
             "file": "SKILL.md",
@@ -739,12 +753,28 @@
             "line_end": 85
           }
         ],
-        "confidence": 0.93,
-        "confidence_reasoning": "The instructions explicitly discourage source inspection and recommend black-box execution. The helper contains a confirmed shell-enabled subprocess call."
+        "confidence": 0.98,
+        "confidence_reasoning": "The text explicitly directs the agent to execute code before inspection and to avoid reading the implementation. That behavior can conceal unsafe operations from review."
       }
     ],
     "critical_findings": [],
     "high_findings": [
+      {
+        "title": "Python subprocess.run",
+        "description": "result = subprocess.run(args.command)",
+        "locations": [
+          {
+            "file": "scripts/with_server.py",
+            "line_start": 88,
+            "line_end": 88
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "external_commands",
+        "source_severity": "high",
+        "confidence": 0.97,
+        "confidence_reasoning": "The helper executes the unrestricted trailing command supplied through command-line arguments. Shell parsing is disabled here, but the caller can still select any available executable and arguments."
+      },
       {
         "title": "Python subprocess.Popen",
         "description": "process = subprocess.Popen(",
@@ -758,14 +788,12 @@
         "review_kind": "capability",
         "source_category": "external_commands",
         "source_severity": "high",
-        "confidence": 0.98,
-        "confidence_reasoning": "The helper passes the user-supplied --server string to subprocess.Popen with shell=True. Any caller-controlled shell syntax executes with the current user privileges."
-      }
-    ],
-    "medium_findings": [
+        "confidence": 0.99,
+        "confidence_reasoning": "The helper passes each caller-provided server string to subprocess.Popen with shell=True. Shell operators in that string can execute arbitrary local commands with the agent process permissions."
+      },
       {
-        "title": "Guidance Discourages Source Review Before Execution",
-        "description": "The documentation directs users to run bundled scripts as black boxes and not read their source first. This reduces informed review of a helper that executes shell commands.",
+        "title": "Prompt Injection Attempt Detected",
+        "description": "The instruction says, \"DO NOT read the source until you try running the script first\" and later recommends using scripts as black boxes. This discourages security inspection before executing community code.",
         "locations": [
           {
             "file": "SKILL.md",
@@ -780,148 +808,198 @@
         ],
         "review_kind": "security",
         "source_category": "semantic",
+        "source_severity": "high",
+        "confidence": 0.98,
+        "confidence_reasoning": "The text explicitly directs the agent to execute code before inspection and to avoid reading the implementation. That behavior can conceal unsafe operations from review."
+      }
+    ],
+    "medium_findings": [
+      {
+        "title": "Python file write/append",
+        "description": "with open('/mnt/user-data/outputs/console.log', 'w') as f:",
+        "locations": [
+          {
+            "file": "examples/console_logging.py",
+            "line_start": 31,
+            "line_end": 31
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "filesystem",
         "source_severity": "medium",
-        "confidence": 0.93,
-        "confidence_reasoning": "The instructions explicitly discourage source inspection and recommend black-box execution. The helper contains a confirmed shell-enabled subprocess call."
+        "confidence": 0.86,
+        "confidence_reasoning": "The example persists page-controlled console messages to a fixed file and overwrites any existing file there. Console output can contain credentials or other sensitive application data."
+      },
+      {
+        "title": "Temp directory access",
+        "description": "page.screenshot(path='/tmp/page_discovery.png', full_page=True)",
+        "locations": [
+          {
+            "file": "examples/element_discovery.py",
+            "line_start": 37,
+            "line_end": 37
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "filesystem",
+        "source_severity": "medium",
+        "confidence": 0.82,
+        "confidence_reasoning": "The example writes a potentially sensitive full-page screenshot to a predictable shared temporary path. This can overwrite an existing file or expose page content to other local processes."
+      },
+      {
+        "title": "Temp directory access",
+        "description": "page.screenshot(path='/tmp/inspect.png', full_page=True)",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 69,
+            "line_end": 69
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "filesystem",
+        "source_severity": "medium",
+        "confidence": 0.82,
+        "confidence_reasoning": "The recommended code writes a full-page screenshot to a predictable path in a shared temporary directory. Sensitive page content may be overwritten or exposed through that path."
       }
     ],
     "low_findings": [],
     "dangerous_patterns": [],
     "files_scanned": 6,
     "total_lines": 512,
-    "audit_model": "claude",
-    "audited_at": "2026-07-17T10:23:12.484Z",
-    "agent_auto_install_policy": "allowed",
+    "audit_model": "codex",
+    "audited_at": "2026-07-23T10:16:54.208Z",
+    "agent_auto_install_policy": "confirmation_required",
     "manual_install_policy": "allowed"
   },
   "content": {
-    "user_title": "Test local web apps with Playwright",
-    "value_statement": "Local web application testing can be slow when pages, selectors, and servers are not ready. This skill provides Playwright patterns for inspecting pages, controlling servers, and collecting useful test evidence.",
+    "user_title": "Test Local Web Applications with Playwright",
+    "value_statement": "Local web interfaces can fail in ways that static code review misses. This skill guides Playwright inspection, interaction, screenshots, and console capture.",
     "seo_keywords": [
-      "Claude",
-      "Codex",
-      "Claude Code",
-      "Playwright",
-      "local web testing",
-      "browser automation",
-      "Python Playwright",
-      "frontend testing",
-      "UI debugging",
-      "screenshot testing"
+      "Claude web application testing",
+      "Codex browser automation",
+      "Claude Code Playwright",
+      "local web app testing",
+      "Playwright Python testing",
+      "frontend debugging",
+      "browser console logging",
+      "DOM element discovery",
+      "UI regression testing"
     ],
     "actual_capabilities": [
-      "Creates synchronous Python Playwright scripts for local web applications.",
-      "Starts one or more local servers and waits for configured ports.",
-      "Inspects buttons, links, and form fields from rendered pages.",
-      "Captures full-page screenshots for visual debugging.",
-      "Captures browser console messages and saves them to a log file.",
-      "Uses load-state waits and descriptive selectors in test workflows."
+      "Launches headless Chromium through synchronous Python Playwright scripts.",
+      "Waits for dynamic pages to finish network activity before inspection.",
+      "Discovers visible buttons, links, and form controls from the rendered page.",
+      "Captures full-page screenshots and browser console messages.",
+      "Starts one or more local development servers and stops them after testing.",
+      "Automates local static HTML files through file URLs."
     ],
     "limitations": [
-      "It targets local applications and does not provide hosted test infrastructure.",
-      "It requires Python, Playwright, and a supported browser installation.",
-      "The server helper should only run commands that you have reviewed and trust.",
-      "Examples are starting points and do not replace application-specific test assertions."
+      "The examples require Python, Playwright, and an installed Chromium browser.",
+      "The bundled helper executes local commands and requires careful review before use.",
+      "Example URLs, selectors, file paths, and form values require project-specific changes.",
+      "The skill provides examples, not a complete assertion framework or test suite."
     ],
     "use_cases": [
       {
-        "title": "Verify a local frontend flow",
-        "description": "Run a local app, wait for the page, and verify a user journey with stable selectors.",
-        "target_user": "Frontend developer"
+        "title": "Verify a Frontend Change",
+        "description": "Open a local application, exercise the changed workflow, and capture visible results for review.",
+        "target_user": "Frontend developers"
       },
       {
-        "title": "Investigate a UI regression",
-        "description": "Capture a screenshot, inspect the rendered DOM, and review browser console messages.",
-        "target_user": "QA engineer"
+        "title": "Investigate a UI Failure",
+        "description": "Inspect rendered elements, browser console messages, and screenshots to identify a failing interaction.",
+        "target_user": "Quality assurance engineers"
       },
       {
-        "title": "Build repeatable local smoke checks",
-        "description": "Start backend and frontend services, then run a focused Playwright automation script.",
-        "target_user": "Full-stack developer"
+        "title": "Review a Local Prototype",
+        "description": "Run a repeatable browser walkthrough and document the behavior of a static or dynamic prototype.",
+        "target_user": "Product designers"
       }
     ],
     "prompt_templates": [
       {
-        "title": "Beginner: inspect a page",
-        "scenario": "Discover page elements.",
-        "prompt": "Use this skill to inspect my local app at http://localhost:5173. Wait for it to load, list visible buttons and links, and save a screenshot."
+        "title": "Open and Inspect a Page",
+        "prompt": "Open [local URL] in headless Chromium. Wait for network activity to settle, then list visible buttons, links, and form controls.",
+        "scenario": "Beginner inspection of a running local application"
       },
       {
-        "title": "Intermediate: test a user action",
-        "scenario": "Verify one UI workflow.",
-        "prompt": "Write a Python Playwright test for my local app. Open the dashboard, click the Settings button, and confirm that the settings panel is visible."
+        "title": "Test a User Workflow",
+        "prompt": "Test [workflow] at [local URL]. Perform each step, report failures, and capture a screenshot after the final action.",
+        "scenario": "Functional verification of one user journey"
       },
       {
-        "title": "Intermediate: collect browser logs",
-        "scenario": "Debug client errors.",
-        "prompt": "Create a Playwright script that opens my local app, performs the Dashboard action, and saves console messages to a log file."
+        "title": "Diagnose Browser Errors",
+        "prompt": "Reproduce [issue] at [local URL]. Capture browser console messages, note failed interactions, and summarize likely causes with supporting observations.",
+        "scenario": "Intermediate debugging of frontend behavior"
       },
       {
-        "title": "Advanced: coordinate services",
-        "scenario": "Run a multi-service smoke test.",
-        "prompt": "Help me run reviewed local backend and frontend commands with the server helper, wait for their ports, then execute a Playwright smoke test. Show every command before running it."
+        "title": "Coordinate Servers and Regression Checks",
+        "prompt": "Review the bundled helper first. With approval, start [server commands], test [workflows], collect screenshots and console evidence, then verify server cleanup.",
+        "scenario": "Advanced testing across multiple local services"
       }
     ],
     "output_examples": [
       {
-        "input": "Inspect the local dashboard and find available controls.",
+        "input": "Inspect the local dashboard and report available interactions.",
         "output": [
-          "A screenshot path for the rendered dashboard.",
-          "A list of visible buttons, links, and input fields.",
-          "Suggested stable selectors for the next test step."
+          "The dashboard loaded after network activity settled.",
+          "Visible controls included Add project, Search, Settings, and Sign out.",
+          "Two links lacked descriptive text and need accessibility review."
         ]
       },
       {
-        "input": "Test the settings panel after clicking its navigation button.",
+        "input": "Test the local sign-in flow and capture browser errors.",
         "output": [
-          "A focused Playwright test plan.",
-          "The selector and expected visible state.",
-          "A clear pass or failure summary with debugging evidence."
+          "The sign-in form accepted the supplied test account.",
+          "Submission remained on the sign-in page instead of opening the dashboard.",
+          "The browser console reported one failed authentication request.",
+          "A screenshot was captured after the failed submission."
         ]
       },
       {
-        "input": "Capture console errors while loading a local page.",
+        "input": "Verify a static contact form from a local HTML file.",
         "output": [
-          "A console-log capture script.",
-          "The output log location.",
-          "A summary of captured browser messages."
+          "The page opened from the local file.",
+          "Name and email fields accepted the test values.",
+          "The submit action completed without a visible confirmation message."
         ]
       }
     ],
     "best_practices": [
-      "Review server commands and helper behavior before executing them.",
-      "Wait for the relevant load state or selector before inspecting dynamic content.",
-      "Use accessible roles, labels, and stable IDs instead of fragile CSS paths."
+      "Review every community script and the exact command arguments before execution.",
+      "Use stable role, label, or identifier selectors and wait for meaningful page states.",
+      "Use test accounts and redact secrets from screenshots and console logs."
     ],
     "anti_patterns": [
-      "Do not run server commands copied from untrusted content.",
-      "Do not inspect dynamic pages before their required content has loaded.",
-      "Do not leave browser processes open after automation completes."
+      "Do not run unreviewed server strings through a shell.",
+      "Do not rely only on fixed delays when a page offers observable readiness signals.",
+      "Do not store sensitive screenshots or console logs in predictable shared paths."
     ],
     "faq": [
       {
-        "question": "What applications does this skill test?",
-        "answer": "It is designed for local web applications that you can open with Playwright."
+        "question": "What does this skill test?",
+        "answer": "It supports browser interaction, rendered element inspection, screenshots, and console capture for local web applications."
       },
       {
-        "question": "Does it start my application server?",
-        "answer": "The included helper can start reviewed local server commands and wait for their ports."
+        "question": "Does it start local development servers?",
+        "answer": "Yes. The bundled helper can start multiple servers, wait for their ports, run a command, and stop the servers."
       },
       {
-        "question": "Can it test multiple services?",
-        "answer": "Yes. The helper supports multiple reviewed server commands with matching ports."
+        "question": "Which browser automation library does it use?",
+        "answer": "The examples use the synchronous Python API for Playwright with headless Chromium."
       },
       {
-        "question": "Does it support screenshots?",
-        "answer": "Yes. The examples capture full-page screenshots for visual inspection."
+        "question": "Can it test static HTML files?",
+        "answer": "Yes. An example opens a local HTML file through a file URL and performs browser interactions."
       },
       {
-        "question": "How does it find page elements?",
-        "answer": "It can inspect rendered buttons, links, and form controls, then suggest selectors."
+        "question": "Does it create a complete automated test suite?",
+        "answer": "No. It provides patterns and examples that require project-specific selectors, assertions, paths, and test data."
       },
       {
-        "question": "Should I run the helper without reviewing it?",
-        "answer": "No. Review the helper and every server command before execution, especially for untrusted projects."
+        "question": "What should I review before running it?",
+        "answer": "Inspect the helper source, server commands, target URLs, output paths, test credentials, and data that screenshots or logs may capture."
       }
     ]
   },
@@ -952,12 +1030,6 @@
       ]
     },
     {
-      "name": "LICENSE.txt",
-      "type": "file",
-      "path": "LICENSE.txt",
-      "lines": 202
-    },
-    {
       "name": "scripts",
       "type": "dir",
       "path": "scripts",
@@ -969,6 +1041,12 @@
           "lines": 106
         }
       ]
+    },
+    {
+      "name": "LICENSE.txt",
+      "type": "file",
+      "path": "LICENSE.txt",
+      "lines": 202
     },
     {
       "name": "SKILL.md",
