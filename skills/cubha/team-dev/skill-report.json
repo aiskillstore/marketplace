@@ -1,50 +1,40 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-07-22T00:39:58.679Z",
+    "generated_at": "2026-07-23T13:06:26.957Z",
     "slug": "cubha-team-dev",
     "source_url": "https://github.com/cubha/claude-workflow-plugins/tree/3172e1a00f7090579f36af20c046828489983c23/plugins/team-dev/skills/team-dev",
     "source_ref": "3172e1a00f7090579f36af20c046828489983c23",
-    "model": "claude",
+    "model": "codex",
     "analysis_version": "3.0.0",
     "source_type": "community",
     "content_hash": "01bbcbcde21c516111daae184c465881bec3bba20a22ac569c2510d2e715a701",
     "tree_hash": "d8f10e8151c1e89e8aa8c15155c66d8b70bb69dc602e300d731810b45e629b85",
     "provenance": {
-      "model_effective": "claude",
+      "model_effective": "codex",
       "fallback_chain": [
         {
           "agent": "codex",
-          "outcome": "failed",
-          "error": "2026-07-22T00:39:58.798500Z ERROR codex_models_manager::manager: failed to refresh available models: Missing environment variable: `HELM_API_KEY`.\n2026-07-22T00:39:58.816436Z ERROR codex_models_manage…"
-        },
-        {
-          "agent": "claude",
           "outcome": "success"
         }
       ],
       "analysis_version": "3.0.0"
-    },
-    "upstream_version_raw": null,
-    "upstream_version_normalized": null,
-    "upstream_version_source": "none",
-    "upstream_version_status": "missing",
-    "upstream_commit_sha": "3172e1a00f7090579f36af20c046828489983c23"
+    }
   },
   "skill": {
     "name": "team-dev",
-    "description": "Organizes independent development tasks into dependency-aware parallel groups and coordinates isolated worktree-based implementation.",
-    "summary": "Coordinate parallel development agents with task dependencies, isolated worktrees, and staged verification.",
+    "description": "Coordinates parallel coding agents by analyzing subtask dependencies, isolating work in Git worktrees, verifying changes, and integrating completed branches.",
+    "summary": "Orchestrates dependency-aware parallel development with isolated agents and staged verification.",
     "icon": "📦",
     "author": "cubha",
     "license": "MIT",
     "category": "coding",
     "tags": [
-      "parallel development",
-      "agent orchestration",
-      "git worktrees",
-      "task dependencies",
-      "TDD"
+      "parallel-development",
+      "multi-agent",
+      "git-worktrees",
+      "test-driven-development",
+      "task-orchestration"
     ],
     "supported_tools": [
       "claude",
@@ -56,21 +46,31 @@
     ]
   },
   "security_audit": {
-    "risk_level": "safe",
+    "risk_level": "high",
     "is_blocked": false,
-    "safe_to_publish": true,
+    "safe_to_publish": false,
     "analysis_status": "ok",
-    "summary": "All 20 external-command detections are false positives caused by Markdown code spans or documentation of optional project verification commands. All four entropy alerts are false positives because the reviewed files are readable Markdown documentation; no encoded payloads, executable code, network access, secret collection, or prompt-injection attempt was found.",
+    "summary": "Four command-execution findings are confirmed because the workflow runs repository-provided tests and verification scripts. Sixteen Markdown backtick findings and four entropy findings are false positives, but prompt propagation and automatic integration create additional security concerns.",
     "remediation": [
       {
-        "issue": "The skill instructs agents to run optional project verification commands.",
-        "suggestion": "Require agents to show the exact command and request confirmation before running unfamiliar repository scripts, especially verify.sh.",
-        "severity": "low"
+        "issue": "Repository-provided test and verification commands can execute untrusted code.",
+        "suggestion": "Inspect command definitions and require explicit user confirmation before execution, especially in auto mode. Run approved commands in a restricted environment.",
+        "severity": "medium"
       },
       {
-        "issue": "Parallel agents can make coordinated repository changes.",
-        "suggestion": "Keep the existing file-scope limits and require a final review of each worktree diff before integration.",
-        "severity": "low"
+        "issue": "Project rule files are inserted into subagent prompts without a trust boundary.",
+        "suggestion": "Treat repository instructions as untrusted data, reject precedence-changing directives, and pass only reviewed project facts to subagents.",
+        "severity": "high"
+      },
+      {
+        "issue": "The design prompt explicitly tells another skill to override its default directives.",
+        "suggestion": "Replace precedence language with scoped design requirements that cannot override system, security, or tool policies.",
+        "severity": "high"
+      },
+      {
+        "issue": "Agent branches are merged and conflicts may be edited without a dedicated review gate.",
+        "suggestion": "Merge into a temporary integration branch, show the diff and verification results, and require approval before updating the main branch.",
+        "severity": "medium"
       }
     ],
     "risk_factor_evidence": [
@@ -425,282 +425,452 @@
     "finding_verdicts": [
       {
         "id": "external_commands:phase-dispatch.md:59:ruby-shell-backtick-execution",
-        "verdict": "false_positive",
-        "confidence": 0.99,
-        "reason": "This is a Markdown inline code span naming a test-file glob. It contains no Ruby or shell execution syntax."
+        "verdict": "confirmed",
+        "confidence": 0.92,
+        "reason": "The cited range directs an agent to execute tests and then run a project verification script. Repository test and build commands can execute untrusted project code.",
+        "severity": "medium"
       },
       {
         "id": "external_commands:phase-dispatch.md:69:ruby-shell-backtick-execution",
-        "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "This is documentation of optional, conventional verification commands. The file contains no executable shell or Ruby code."
+        "verdict": "confirmed",
+        "confidence": 0.98,
+        "reason": "The instruction explicitly runs bash verify.sh, npm test, or npm run build. These repository-controlled commands can execute arbitrary local scripts.",
+        "severity": "medium"
       },
       {
         "id": "external_commands:phase-dispatch.md:114:ruby-shell-backtick-execution",
-        "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "This is a Markdown instruction that names optional test commands, not a shell execution construct."
+        "verdict": "confirmed",
+        "confidence": 0.98,
+        "reason": "The team-mode prompt explicitly requires execution of repository verification commands. No inspection, sandboxing, or confirmation requirement is stated.",
+        "severity": "medium"
       },
       {
         "id": "external_commands:SKILL.md:12:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 1,
-        "reason": "The detected text is a Markdown fenced code block delimiter, not a backtick command substitution."
+        "reason": "This line is an opening Markdown code fence for a workflow diagram. It does not invoke Ruby, a shell, or any external command."
       },
       {
         "id": "external_commands:SKILL.md:14:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 1,
-        "reason": "The detected text is a Markdown fenced code block delimiter, not executable code."
+        "reason": "This line closes a Markdown code fence. The enclosed content is a plain workflow diagram, not executable shell syntax."
       },
       {
         "id": "external_commands:SKILL.md:20:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "The Git command appears only as Markdown documentation of a repository prerequisite. It is not an execution expression."
+        "reason": "The inline git init text documents a repository prerequisite. This line does not instruct the skill to execute git init."
       },
       {
         "id": "external_commands:SKILL.md:23:ruby-shell-backtick-execution",
-        "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "This line documents optional standard verification commands in Markdown. It does not execute a command itself."
+        "verdict": "confirmed",
+        "confidence": 0.97,
+        "reason": "The line instructs the workflow to execute repository verification commands after subtasks and integration. Shell and package scripts can run untrusted project code.",
+        "severity": "medium"
       },
       {
         "id": "external_commands:SKILL.md:39:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "The backticks mark command-line flags and a tag in explanatory Markdown. No shell or Ruby execution is present."
+        "reason": "The backticks format command-line option names and a TDD label in explanatory text. They do not perform shell execution."
       },
       {
         "id": "external_commands:SKILL.md:68:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "The text documents an agent-tool parameter in Markdown. It is not a shell command or executable program."
+        "reason": "The inline text names an agent tool parameter. It is configuration documentation rather than Ruby or shell execution."
       },
       {
         "id": "external_commands:SKILL.md:99:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.99,
-        "reason": "The backticks identify a user input option in a Markdown table. They are not command substitution syntax."
+        "confidence": 1,
+        "reason": "The backticks format the user response next in a behavior table. No external process is started."
       },
       {
         "id": "external_commands:SKILL.md:100:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.99,
-        "reason": "The backticks identify an option in documentation, with no executable shell or Ruby context."
+        "confidence": 1,
+        "reason": "The backticks format the --auto option in a behavior table. This is not shell evaluation."
       },
       {
         "id": "external_commands:SKILL.md:102:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.99,
-        "reason": "The backticks identify a stop command as documented user input. The Markdown does not execute it."
+        "confidence": 1,
+        "reason": "The backticks identify stop as a user response. They do not execute a command."
       },
       {
         "id": "external_commands:SKILL.md:117:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 1,
-        "reason": "This is a Markdown fenced code block delimiter, not executable code."
+        "reason": "This is an opening Markdown fence around a completion-report example. It has no executable shell content."
       },
       {
         "id": "external_commands:SKILL.md:125:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 1,
-        "reason": "This is a Markdown fenced code block delimiter, not executable code."
+        "reason": "This line closes a Markdown example block. It is not a Ruby or shell backtick expression."
       },
       {
         "id": "external_commands:SKILL.md:127:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.99,
-        "reason": "The string is a required response marker shown in a Markdown code span. It has no command-execution behavior."
+        "confidence": 1,
+        "reason": "The backticks format a required response marker. The marker is plain output text and is not executed."
       },
       {
         "id": "external_commands:SKILL.md:142:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 1,
-        "reason": "This is a Markdown fenced code block delimiter, not executable code."
+        "reason": "This line opens a Markdown block containing guidance about task counts. It does not execute a command."
       },
       {
         "id": "external_commands:SKILL.md:146:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 1,
-        "reason": "This is a Markdown fenced code block delimiter, not executable code."
+        "reason": "This line closes a Markdown guidance block. It is not executable code."
       },
       {
         "id": "external_commands:SKILL.md:154:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.99,
-        "reason": "The backticks format a documented option in a table. No shell or Ruby execution occurs."
+        "confidence": 1,
+        "reason": "The backticks format the --auto option in a reference table. No shell interpolation occurs."
       },
       {
         "id": "external_commands:SKILL.md:155:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.99,
-        "reason": "The backticks format a documented option in a table. No shell or Ruby execution occurs."
+        "confidence": 1,
+        "reason": "The backticks format the --dry-run option in a reference table. This line describes behavior without executing a process."
       },
       {
         "id": "external_commands:SKILL.md:156:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.99,
-        "reason": "The backticks format documented flags in a table. No shell or Ruby execution occurs."
+        "confidence": 1,
+        "reason": "The backticks format the --tdd and --no-tdd options. They are documentation, not executable backtick expressions."
       },
       {
         "id": "obfuscation:phase-analyze.md:1:heuristic-high-file-entropy-6-50-bits-possible-b",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The reviewed file is readable Markdown containing Korean and English technical documentation. No binary, encrypted, or encoded payload was found."
+        "confidence": 0.99,
+        "reason": "The file is readable Markdown containing Korean and English workflow documentation, tables, and prompt templates. No binary, encrypted, or encoded payload is present."
       },
       {
         "id": "obfuscation:phase-dispatch.md:1:heuristic-high-file-entropy-6-63-bits-possible-b",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The reviewed file is readable Markdown with agent prompts and process guidance. Its entropy does not indicate obfuscation."
+        "confidence": 0.99,
+        "reason": "The file is readable Markdown with multilingual instructions, tables, and formatting characters. Its entropy reflects varied natural-language content, not obfuscation."
       },
       {
         "id": "obfuscation:phase-verify.md:1:heuristic-high-file-entropy-6-01-bits-possible-b",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The reviewed file is readable Markdown documentation. No encoded content or hidden executable payload was found."
+        "confidence": 0.99,
+        "reason": "The file is readable Markdown describing Git merges and verification steps. No binary or encrypted content is present."
       },
       {
         "id": "obfuscation:SKILL.md:1:heuristic-high-file-entropy-6-48-bits-possible-b",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "The reviewed file is readable Markdown skill documentation. Korean text and technical punctuation explain the heuristic entropy result."
+        "reason": "SKILL.md is readable Korean and English documentation with tables and diagrams. The content is neither encoded nor concealed."
       }
     ],
-    "semantic_findings": [],
+    "semantic_findings": [
+      {
+        "title": "Prompt Injection Attempt Detected",
+        "description": "The prompt template states \"CONSISTENCY LOCK — OVERRIDE DEFAULT VARIATION DIRECTIVES.\" It is placed at the top of another skill prompt and claims precedence over existing directives.",
+        "severity": "high",
+        "locations": [
+          {
+            "file": "phase-analyze.md",
+            "line_start": 85,
+            "line_end": 85
+          }
+        ],
+        "confidence": 0.99,
+        "confidence_reasoning": "The source contains explicit override language and directs the orchestrator to inject it into a downstream prompt."
+      },
+      {
+        "title": "Untrusted Repository Instructions Propagated to Agents",
+        "description": "The workflow reads project rule files such as CLAUDE.md and inserts their contents into subagent prompts without validation or a trust boundary.",
+        "severity": "high",
+        "locations": [
+          {
+            "file": "phase-analyze.md",
+            "line_start": 34,
+            "line_end": 36
+          },
+          {
+            "file": "phase-dispatch.md",
+            "line_start": 29,
+            "line_end": 30
+          }
+        ],
+        "confidence": 0.97,
+        "confidence_reasoning": "Both collection and direct prompt insertion are explicitly documented, and no filtering or precedence defense is specified."
+      },
+      {
+        "title": "Automatic Integration of Agent-Generated Branches",
+        "description": "The workflow merges agent branches into the main branch and may attempt conflict resolution before requesting user judgment.",
+        "severity": "medium",
+        "locations": [
+          {
+            "file": "phase-verify.md",
+            "line_start": 6,
+            "line_end": 13
+          }
+        ],
+        "confidence": 0.96,
+        "confidence_reasoning": "The merge commands and automatic conflict-resolution sequence are explicit, creating a clear code-integrity risk without a mandatory review gate."
+      }
+    ],
     "critical_findings": [],
-    "high_findings": [],
-    "medium_findings": [],
+    "high_findings": [
+      {
+        "title": "Prompt Injection Attempt Detected",
+        "description": "The prompt template states \"CONSISTENCY LOCK — OVERRIDE DEFAULT VARIATION DIRECTIVES.\" It is placed at the top of another skill prompt and claims precedence over existing directives.",
+        "locations": [
+          {
+            "file": "phase-analyze.md",
+            "line_start": 85,
+            "line_end": 85
+          }
+        ],
+        "review_kind": "security",
+        "source_category": "semantic",
+        "source_severity": "high",
+        "confidence": 0.99,
+        "confidence_reasoning": "The source contains explicit override language and directs the orchestrator to inject it into a downstream prompt."
+      },
+      {
+        "title": "Untrusted Repository Instructions Propagated to Agents",
+        "description": "The workflow reads project rule files such as CLAUDE.md and inserts their contents into subagent prompts without validation or a trust boundary.",
+        "locations": [
+          {
+            "file": "phase-analyze.md",
+            "line_start": 34,
+            "line_end": 36
+          },
+          {
+            "file": "phase-dispatch.md",
+            "line_start": 29,
+            "line_end": 30
+          }
+        ],
+        "review_kind": "security",
+        "source_category": "semantic",
+        "source_severity": "high",
+        "confidence": 0.97,
+        "confidence_reasoning": "Both collection and direct prompt insertion are explicitly documented, and no filtering or precedence defense is specified."
+      }
+    ],
+    "medium_findings": [
+      {
+        "title": "Ruby/shell backtick execution",
+        "description": "1. 미구현 동작에 대한 단위 테스트(`*.test.*`)를 먼저 작성 → 실행 → **RED 확인**",
+        "locations": [
+          {
+            "file": "phase-dispatch.md",
+            "line_start": 59,
+            "line_end": 69
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "external_commands",
+        "source_severity": "medium",
+        "confidence": 0.92,
+        "confidence_reasoning": "The cited range directs an agent to execute tests and then run a project verification script. Repository test and build commands can execute untrusted project code."
+      },
+      {
+        "title": "Ruby/shell backtick execution",
+        "description": "4. 구현 완료 후 프로젝트 검증 스크립트가 있으면 실행하라 (`bash verify.sh`·`npm test`·`npm run build` 등). 없으면 정적 검증 단계를 생략한",
+        "locations": [
+          {
+            "file": "phase-dispatch.md",
+            "line_start": 69,
+            "line_end": 69
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "external_commands",
+        "source_severity": "medium",
+        "confidence": 0.98,
+        "confidence_reasoning": "The instruction explicitly runs bash verify.sh, npm test, or npm run build. These repository-controlled commands can execute arbitrary local scripts."
+      },
+      {
+        "title": "Ruby/shell backtick execution",
+        "description": "5. 구현 완료 후 프로젝트 검증 스크립트가 있으면 실행하라 (`bash verify.sh`·`npm test` 등).",
+        "locations": [
+          {
+            "file": "phase-dispatch.md",
+            "line_start": 114,
+            "line_end": 114
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "external_commands",
+        "source_severity": "medium",
+        "confidence": 0.98,
+        "confidence_reasoning": "The team-mode prompt explicitly requires execution of repository verification commands. No inspection, sandboxing, or confirmation requirement is stated."
+      },
+      {
+        "title": "Ruby/shell backtick execution",
+        "description": "- **검증 스크립트(선택)** — `verify.sh`·`npm test`·`npm run build` 등 프로젝트 검증 수단이 있으면 각 SubTask 완료 후 및 통합 시 실",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 23,
+            "line_end": 23
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "external_commands",
+        "source_severity": "medium",
+        "confidence": 0.97,
+        "confidence_reasoning": "The line instructs the workflow to execute repository verification commands after subtasks and integration. Shell and package scripts can run untrusted project code."
+      },
+      {
+        "title": "Automatic Integration of Agent-Generated Branches",
+        "description": "The workflow merges agent branches into the main branch and may attempt conflict resolution before requesting user judgment.",
+        "locations": [
+          {
+            "file": "phase-verify.md",
+            "line_start": 6,
+            "line_end": 13
+          }
+        ],
+        "review_kind": "security",
+        "source_category": "semantic",
+        "source_severity": "medium",
+        "confidence": 0.96,
+        "confidence_reasoning": "The merge commands and automatic conflict-resolution sequence are explicit, creating a clear code-integrity risk without a mandatory review gate."
+      }
+    ],
     "low_findings": [],
     "dangerous_patterns": [],
     "files_scanned": 4,
     "total_lines": 549,
-    "audit_model": "claude",
-    "audited_at": "2026-07-22T00:39:58.679Z",
-    "agent_auto_install_policy": "allowed",
+    "audit_model": "codex",
+    "audited_at": "2026-07-23T13:06:26.957Z",
+    "agent_auto_install_policy": "confirmation_required",
     "manual_install_policy": "allowed"
   },
   "content": {
-    "user_title": "Coordinate parallel development tasks",
-    "value_statement": "Large changes can be slow when independent tasks are completed one at a time. This skill groups dependencies, assigns isolated worktrees, and verifies work before integration.",
+    "user_title": "Coordinate Parallel Development Agents",
+    "value_statement": "Large coding tasks become slow when independent work is handled sequentially. This skill groups dependencies, dispatches isolated agents, verifies results, and integrates completed branches.",
     "seo_keywords": [
       "Claude",
       "Codex",
       "Claude Code",
       "parallel development",
-      "agent orchestration",
-      "git worktree",
-      "task dependencies",
       "multi-agent coding",
-      "TDD",
-      "code integration"
+      "Git worktrees",
+      "dependency analysis",
+      "TDD workflow",
+      "automated verification"
     ],
     "actual_capabilities": [
-      "Collects existing tasks or separates a feature request into subtasks.",
-      "Classifies subtasks into dependency-aware parallel execution groups.",
-      "Uses isolated Git worktrees for parallel implementation agents.",
-      "Supports interactive approval, automatic group progression, and dry-run planning.",
-      "Applies a test-first RED gate to eligible logic tasks when TDD is enabled.",
-      "Coordinates per-task and integrated project verification when scripts are available."
+      "Parses an existing task list or separates a natural-language feature into subtasks.",
+      "Groups subtasks by file, type, component, and feature dependencies.",
+      "Dispatches up to five agents into isolated Git worktrees.",
+      "Supports optional TDD eligibility checks and a RED-to-GREEN workflow.",
+      "Merges completed worktree branches and runs available project verification commands.",
+      "Provides interactive, automatic, and dry-run execution modes."
     ],
     "limitations": [
-      "Requires a Git repository because it uses worktree isolation.",
-      "Works best when tasks modify independent files or modules.",
-      "Does not guarantee that repository verification scripts are safe or complete.",
-      "Limits parallel implementation to five agents and requires human judgment for uncertain merge conflicts."
+      "Requires an initialized Git repository and a clear subtask list.",
+      "Provides limited benefit when tasks are small or strongly dependent.",
+      "Relies on existing project tests or build scripts and skips verification when none exist.",
+      "Can execute repository scripts and merge branches, so auto mode requires a trusted project."
     ],
     "use_cases": [
       {
-        "title": "Plan a feature split",
-        "description": "Break a multi-module feature into ordered groups before any implementation starts.",
-        "target_user": "Technical leads"
+        "title": "Build Independent Product Features",
+        "description": "Split a large feature into isolated modules and implement independent modules concurrently.",
+        "target_user": "Application developer"
       },
       {
-        "title": "Implement independent components",
-        "description": "Assign separate UI, API, and utility tasks to isolated agents when their files do not overlap.",
-        "target_user": "Application developers"
+        "title": "Coordinate a Repository Migration",
+        "description": "Group migration tasks by shared files and dependencies before assigning work to separate agents.",
+        "target_user": "Technical lead"
       },
       {
-        "title": "Review parallel delivery",
-        "description": "Use staged verification and integration reports to review a team of coding agents.",
-        "target_user": "Engineering managers"
+        "title": "Apply TDD Across Parallel Tasks",
+        "description": "Identify deterministic logic tasks, create failing tests first, and verify integrated results.",
+        "target_user": "Quality-focused engineering team"
       }
     ],
     "prompt_templates": [
       {
-        "title": "Preview a task plan",
-        "scenario": "Beginner",
-        "prompt": "Use /team-dev --dry-run to split this feature into dependency groups: add profile editing, avatar upload, and account validation."
+        "title": "Plan Parallel Work",
+        "prompt": "Analyze these subtasks for dependencies and show parallel groups without implementing anything: {subtasks}. Use dry-run mode.",
+        "scenario": "Beginner planning"
       },
       {
-        "title": "Run an approved feature plan",
-        "scenario": "Intermediate",
-        "prompt": "Use /team-dev to implement these independent tasks: add a settings API, create its tests, and add a settings navigation link. Ask for approval before dispatch."
+        "title": "Implement a Feature",
+        "prompt": "Implement {feature} with team development. Separate the work into clear subtasks, show the dependency groups, and wait for approval.",
+        "scenario": "Interactive implementation"
       },
       {
-        "title": "Use selective TDD",
-        "scenario": "Advanced",
-        "prompt": "Use /team-dev --tdd for these tasks: add validation rules, add validation unit tests, and update the account settings form. Keep UI tasks test-after."
+        "title": "Run a TDD Workflow",
+        "prompt": "Implement these logic tasks in parallel with TDD enabled: {subtasks}. Confirm valid failing tests before writing implementation code.",
+        "scenario": "Test-first development"
       },
       {
-        "title": "Automate independent groups",
-        "scenario": "Advanced",
-        "prompt": "Use /team-dev --auto --tdd to implement the approved independent tasks. Stop and report if integrated verification fails."
+        "title": "Orchestrate an Advanced Migration",
+        "prompt": "Coordinate {migration_goal} across {modules}. Preserve project conventions, map cross-module dependencies, limit agents to five, and stop automatic progress after any verification failure.",
+        "scenario": "Advanced multi-module delivery"
       }
     ],
     "output_examples": [
       {
-        "input": "Split a user-settings feature into parallel work.",
+        "input": "Plan authentication API, profile page, and shared user types.",
+        "output": "The shared user types form the first group. The authentication API and profile page follow in a parallel second group."
+      },
+      {
+        "input": "Implement four independent validation functions with TDD.",
         "output": [
-          "Group 1: validation rules and navigation updates run in parallel.",
-          "Group 2: settings form waits for validation rules.",
-          "Each completed task reports changed files and verification status."
+          "Four tasks qualify for TDD because each has deterministic input and output.",
+          "Each agent creates a valid failing test before implementation.",
+          "Integration continues only after all validation tests pass."
         ]
       },
       {
-        "input": "Run a dry-run for three dependent API tasks.",
-        "output": [
-          "Dependency plan identifies the shared type as the first task.",
-          "Endpoint and client tasks are scheduled after the shared type.",
-          "No agents are dispatched and no files are changed."
-        ]
+        "input": "Run a dry analysis for a dashboard migration.",
+        "output": "The skill returns dependency groups, target files, and blocking relationships without modifying the repository."
       }
     ],
     "best_practices": [
-      "Use --dry-run to review dependencies before implementation.",
-      "Keep each subtask limited to clearly owned files.",
-      "Review worktree diffs and verification results before integration."
+      "Use dry-run mode first and review dependency groups before implementation.",
+      "Assign separate files to parallel tasks and keep shared interfaces in earlier groups.",
+      "Review repository scripts and branch diffs before verification or integration."
     ],
     "anti_patterns": [
-      "Do not use parallel groups for tasks that modify the same file.",
-      "Do not enable automatic progression for an unreviewed task plan.",
-      "Do not treat a passing project script as a complete security review."
+      "Do not parallelize tasks that modify the same files or depend on unfinished interfaces.",
+      "Do not use automatic mode with untrusted repository instructions or scripts.",
+      "Do not treat a successful merge as proof that behavior is correct."
     ],
     "faq": [
       {
         "question": "Does this skill require Git?",
-        "answer": "Yes. It uses Git worktrees to isolate concurrent implementation work."
+        "answer": "Yes. It uses Git worktrees to isolate each agent and expects an initialized repository."
       },
       {
-        "question": "What does --dry-run do?",
-        "answer": "It analyzes dependencies and prints execution groups without dispatching implementation agents."
+        "question": "How many agents can run in parallel?",
+        "answer": "The workflow limits each parallel group to five agents."
       },
       {
-        "question": "When should I use --auto?",
-        "answer": "Use it only after reviewing the task plan. It continues through remaining groups until verification fails."
+        "question": "Can I preview the plan without changing files?",
+        "answer": "Yes. Dry-run mode performs dependency analysis and group classification without implementation."
       },
       {
-        "question": "How does TDD work?",
-        "answer": "Eligible logic tasks can write and confirm a failing test before implementation when TDD is enabled."
+        "question": "Does every task use TDD?",
+        "answer": "No. TDD applies only when enabled and when a task meets the deterministic logic and test-runner criteria."
       },
       {
-        "question": "Can tasks edit the same file?",
-        "answer": "No. Shared-file changes should be placed in separate sequential groups to reduce merge conflicts."
+        "question": "What happens when verification fails?",
+        "answer": "The workflow retries fixes up to three times and disables automatic progression after an integration failure."
       },
       {
-        "question": "Does the skill resolve every merge conflict?",
-        "answer": "No. It requires user confirmation when an automatic conflict resolution is uncertain."
+        "question": "Does Agent Teams mode work everywhere?",
+        "answer": "No. It requires the experimental Claude Code Agent Teams feature. The workflow otherwise uses standard subagents."
       }
     ]
   },
