@@ -15,6 +15,7 @@ import { basename, join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { test } from 'node:test';
+import { calculateCanonicalTreeHash } from '../resolve-approved-submission.mjs';
 
 const workflow = readFileSync('.github/workflows/monitor-skill-sources.yml', 'utf8');
 const runtimeFiles = [
@@ -216,6 +217,54 @@ test('source monitor binds every changed report to its packaged tree before crea
       < workflow.indexOf('name: Create source monitor PR'),
     'packaged report hashes must be rebound before the source monitor PR is created',
   );
+});
+
+test('source monitor commits upstream files hidden by a copied skill .gitignore', () => {
+  const root = mkdtempSync(join(tmpdir(), 'source-monitor-ignored-files-'));
+  const workspace = join(root, 'workspace');
+  const skillDirectory = 'skills/owner/demo';
+  const absoluteSkillDirectory = join(workspace, skillDirectory);
+  try {
+    mkdirSync(join(workspace, 'scripts'), { recursive: true });
+    mkdirSync(absoluteSkillDirectory, { recursive: true });
+    copyFileSync('scripts/rebind-skill-report-hashes.mjs', join(workspace, 'scripts/rebind-skill-report-hashes.mjs'));
+    copyFileSync('scripts/resolve-approved-submission.mjs', join(workspace, 'scripts/resolve-approved-submission.mjs'));
+    writeFileSync(join(absoluteSkillDirectory, 'SKILL.md'), '# old\n');
+    writeFileSync(join(absoluteSkillDirectory, 'skill-report.json'), `${JSON.stringify({
+      meta: {
+        source_url: 'https://github.com/owner/repository',
+        source_ref: 'main',
+        content_hash: 'old',
+        tree_hash: 'old',
+      },
+    })}\n`);
+    run('git', ['init', '-q', workspace]);
+    run('git', ['-C', workspace, 'config', 'user.name', 'Fixture']);
+    run('git', ['-C', workspace, 'config', 'user.email', 'fixture@example.com']);
+    run('git', ['-C', workspace, 'add', '.']);
+    run('git', ['-C', workspace, 'commit', '-qm', 'fixture']);
+
+    writeFileSync(join(absoluteSkillDirectory, '.gitignore'), 'references/\n');
+    writeFileSync(join(absoluteSkillDirectory, 'SKILL.md'), '# updated\n');
+    mkdirSync(join(absoluteSkillDirectory, 'references'));
+    writeFileSync(join(absoluteSkillDirectory, 'references', 'ignored.md'), 'tracked upstream resource\n');
+
+    run('bash', ['-c', extractRunBlock('Bind source monitor reports to packaged trees')], {
+      cwd: workspace,
+      env: { ...process.env, RUNNER_TEMP: root, GITHUB_RUN_ID: '1234', DRY_RUN: 'false', CREATE_PR: 'true' },
+    });
+
+    const staged = run('git', ['-C', workspace, 'diff', '--cached', '--name-only']).stdout.trim().split('\n');
+    assert.ok(staged.includes(`${skillDirectory}/references/ignored.md`));
+    assert.ok(staged.includes(`${skillDirectory}/skill-report.json`));
+    run('git', ['-C', workspace, 'commit', '-qm', 'source monitor update']);
+    const committed = run('git', ['-C', workspace, 'ls-tree', '-r', '--name-only', 'HEAD']).stdout.trim().split('\n');
+    assert.ok(committed.includes(`${skillDirectory}/references/ignored.md`));
+    const report = JSON.parse(readFileSync(join(absoluteSkillDirectory, 'skill-report.json'), 'utf8'));
+    assert.equal(report.meta.tree_hash, calculateCanonicalTreeHash(workspace, skillDirectory));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test('final summary reports scoped local updates as no-write while scheduled scans keep writes enabled', () => {
