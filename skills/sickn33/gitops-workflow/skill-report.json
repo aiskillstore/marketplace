@@ -1,7 +1,7 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-07-08T11:15:04.862Z",
+    "generated_at": "2026-07-24T00:16:24.515Z",
     "slug": "sickn33-gitops-workflow",
     "source_url": "https://github.com/sickn33/antigravity-awesome-skills/tree/main/skills/gitops-workflow",
     "source_ref": "main",
@@ -23,17 +23,17 @@
   },
   "skill": {
     "name": "gitops-workflow",
-    "description": "Guides Kubernetes GitOps workflows with ArgoCD and Flux, including repository layout, sync policies, progressive delivery, and secret management.",
-    "summary": "Implement Kubernetes GitOps workflows with ArgoCD, Flux, sync policies, and safer promotion patterns.",
+    "description": "Implement Git-based Kubernetes delivery with Argo CD or Flux, including repository layouts, sync policies, progressive delivery, secrets, and troubleshooting.",
+    "summary": "Design and operate declarative Kubernetes delivery workflows with Argo CD and Flux.",
     "icon": "📦",
-    "version": "1.0.1",
     "author": "sickn33",
     "license": "MIT",
+    "category": "devops",
     "tags": [
       "gitops",
       "kubernetes",
       "argocd",
-      "fluxcd",
+      "flux",
       "continuous-delivery"
     ],
     "supported_tools": [
@@ -45,34 +45,33 @@
       "network",
       "external_commands",
       "filesystem"
-    ],
-    "category": "devops"
+    ]
   },
   "security_audit": {
     "risk_level": "high",
     "is_blocked": false,
     "safe_to_publish": false,
     "analysis_status": "ok",
-    "summary": "Most static findings were Markdown fences, placeholder URLs, or declarative YAML examples and were dismissed. Confirmed risks center on remote install content, sudo execution, and cluster-mutating commands that require explicit review. No prompt injection attempt was found in the reviewed files.",
+    "summary": "Most static command-execution alerts are false positives caused by Markdown fences, placeholder URLs, or benign temporary-directory handling. Confirmed risks include unpinned remote Kubernetes manifests and a downloaded Flux installer executed with sudo without integrity verification. The examples also expose credentials through terminal commands and enable automated pruning against a production path.",
     "remediation": [
       {
-        "issue": "Remote Flux installer is downloaded and executed with sudo.",
-        "suggestion": "Pin a version, verify checksums or signatures, and prefer package-manager installation before any privileged execution.",
+        "issue": "The Flux example executes a downloaded installer with root privileges without cryptographic verification.",
+        "suggestion": "Use a pinned package or release artifact, verify its checksum or signature, and avoid root execution when possible.",
         "severity": "high"
       },
       {
-        "issue": "Remote Kubernetes install manifests are applied directly from URLs.",
-        "suggestion": "Use version-pinned manifests and instruct users to inspect or vendor the manifest before applying it to a cluster.",
+        "issue": "Argo CD manifests are applied from a mutable stable branch.",
+        "suggestion": "Pin each manifest to a reviewed release tag or commit and verify the artifact before applying it.",
         "severity": "medium"
       },
       {
-        "issue": "The ArgoCD repository example passes a token on the command line.",
-        "suggestion": "Use credential helpers, environment variables, or secret references, and warn about shell history and process-list exposure.",
-        "severity": "medium"
+        "issue": "The Argo CD example enables pruning and self-healing for a production path.",
+        "suggestion": "Use a non-production path in examples and require an explicit approval gate before production pruning or synchronization.",
+        "severity": "high"
       },
       {
-        "issue": "Troubleshooting examples include prune and force sync commands.",
-        "suggestion": "Add approval, diff review, and rollback checks before commands that delete or overwrite cluster resources.",
+        "issue": "Setup examples print an admin password and pass a repository token through a command argument.",
+        "suggestion": "Use secret prompts, environment-independent credential helpers, or protected secret references that avoid shell history and process arguments.",
         "severity": "medium"
       }
     ],
@@ -889,428 +888,369 @@
       {
         "id": "network:references/argocd-setup.md:8:hardcoded-url",
         "verdict": "confirmed",
-        "confidence": 0.76,
-        "severity": "low",
-        "reason": "The command applies an ArgoCD manifest directly from a remote mutable URL into a cluster. The source is official, but direct remote apply creates supply-chain and change-control risk."
+        "confidence": 0.97,
+        "reason": "The command downloads a manifest from the mutable Argo CD stable branch and applies it directly to the cluster. It provides no release pin or integrity verification.",
+        "severity": "medium"
       },
       {
         "id": "network:references/argocd-setup.md:13:hardcoded-url",
         "verdict": "confirmed",
-        "confidence": 0.76,
-        "severity": "low",
-        "reason": "The HA install example applies a remote manifest from a stable branch without pinning a release digest. This is legitimate documentation, but it still carries remote manifest trust risk."
+        "confidence": 0.97,
+        "reason": "The high-availability manifest is fetched from a mutable stable branch and applied directly to the cluster. A compromised or changed upstream file would receive cluster permissions.",
+        "severity": "medium"
       },
       {
         "id": "network:references/argocd-setup.md:18:hardcoded-url",
-        "verdict": "confirmed",
-        "confidence": 0.66,
-        "severity": "low",
-        "reason": "The Helm repository URL is a normal ArgoCD installation source. It is kept as a low-risk finding because it pulls installation content from the network."
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "This is the documented Argo Helm repository endpoint used by a repository registration command. The fixed official URL is expected configuration, not an unexpected destination."
       },
       {
         "id": "network:references/argocd-setup.md:72:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.82,
-        "reason": "The GitHub URL is a placeholder repository endpoint in setup documentation, not a suspicious exfiltration host. The separate token handling risk is captured as a semantic finding."
+        "confidence": 0.98,
+        "reason": "The GitHub address is an obvious org/repo placeholder for the user's intended GitOps source. The separate credential-handling concern is captured as a semantic finding."
       },
       {
         "id": "network:references/argocd-setup.md:78:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "The URL is a placeholder repository value in an ArgoCD create command. There is no fixed third-party destination or hidden network behavior."
+        "confidence": 0.98,
+        "reason": "The URL is an org/repo placeholder supplied as the expected application repository. It does not identify a suspicious or concealed network destination."
       },
       {
         "id": "network:references/argocd-setup.md:80:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "The Kubernetes default service URL is an internal cluster API endpoint used by ArgoCD examples. It is not an external network destination."
+        "confidence": 0.99,
+        "reason": "This is the standard in-cluster Kubernetes API service address. It represents the intended deployment target, not an external network endpoint."
       },
       {
         "id": "network:references/argocd-setup.md:94:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The argocd.example.com URL is a placeholder service address in SSO configuration. It does not indicate an actual external callback controlled by the skill author."
+        "confidence": 0.99,
+        "reason": "The example.com hostname is a reserved placeholder for the user's Argo CD URL. It is configuration documentation rather than a real external destination."
       },
       {
         "id": "external_commands:SKILL.md:55:ruby-shell-backtick-execution",
-        "verdict": "confirmed",
-        "confidence": 0.72,
-        "severity": "medium",
-        "reason": "This Markdown bash block includes real cluster commands, including applying a remote ArgoCD manifest and reading the initial admin secret. The Ruby backtick label is imprecise, but the external command risk is real."
+        "verdict": "false_positive",
+        "confidence": 0.99,
+        "reason": "The matched backticks are a Markdown Bash fence around documented kubectl commands. They are not Ruby or shell backtick execution syntax."
       },
       {
         "id": "external_commands:SKILL.md:64:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "This location is a Markdown code-fence terminator. It is not Ruby execution or an executable command by itself."
+        "confidence": 0.99,
+        "reason": "Line 64 closes a Markdown code block. No command is executed by the backticks."
       },
       {
         "id": "external_commands:SKILL.md:66:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "This line is a reference to another documentation file. It does not execute a command or invoke shell interpolation."
+        "confidence": 0.99,
+        "reason": "The backticks format a relative reference filename in prose. They do not invoke a shell or Ruby runtime."
       },
       {
         "id": "external_commands:SKILL.md:70:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The block shows a repository directory layout. It is not a shell command block and has no execution semantics."
+        "confidence": 0.99,
+        "reason": "The triple backticks delimit a repository tree example. They contain no executable backtick expression."
       },
       {
         "id": "external_commands:SKILL.md:86:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "This location is only the closing fence for a directory tree example. No command execution is present."
+        "confidence": 0.99,
+        "reason": "Line 86 is the closing fence for a Markdown repository tree. It is not command execution."
       },
       {
         "id": "external_commands:SKILL.md:90:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The block is an ArgoCD Application YAML example. It is declarative configuration text, not Ruby backtick execution."
+        "confidence": 0.99,
+        "reason": "The matched token opens a YAML example. Markdown fences do not execute the enclosed configuration."
       },
       {
         "id": "external_commands:SKILL.md:112:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "This location is a Markdown fence closing a YAML example. It does not contain an executable command."
+        "confidence": 0.99,
+        "reason": "Line 112 closes a YAML code block. No Ruby or shell backtick evaluation is present."
       },
       {
         "id": "external_commands:SKILL.md:116:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The block is an App of Apps YAML example. It may be applied by a user later, but the cited pattern is not command execution."
+        "confidence": 0.99,
+        "reason": "The triple backticks open a declarative YAML example. They are Markdown syntax, not an execution primitive."
       },
       {
         "id": "external_commands:SKILL.md:133:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "This location is the closing fence of a YAML example. It is not shell or Ruby execution."
+        "confidence": 0.99,
+        "reason": "Line 133 is a Markdown closing fence. It performs no external command."
       },
       {
         "id": "external_commands:SKILL.md:139:ruby-shell-backtick-execution",
-        "verdict": "confirmed",
-        "confidence": 0.91,
-        "severity": "high",
-        "reason": "This bash block downloads the Flux installer, displays it, runs it with sudo, and bootstraps Flux. The external command sequence can modify a host and a cluster."
+        "verdict": "false_positive",
+        "confidence": 0.99,
+        "reason": "The triple backticks open a documented Bash example, not a Ruby backtick expression. Risks inside the example have dedicated findings."
       },
       {
         "id": "external_commands:SKILL.md:157:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "This location is a Markdown fence terminator after the Flux command block. It is not an additional executable pattern."
+        "confidence": 0.99,
+        "reason": "Line 157 closes the Bash example with a Markdown fence. The fence itself cannot execute commands."
       },
       {
         "id": "external_commands:SKILL.md:161:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The block is a Flux GitRepository YAML example. It is configuration content rather than Ruby or shell execution."
+        "confidence": 0.99,
+        "reason": "This is a Markdown fence for a Flux YAML resource. It is not backtick command execution."
       },
       {
         "id": "external_commands:SKILL.md:172:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "This location closes a YAML code block. It does not invoke an external command."
+        "confidence": 0.99,
+        "reason": "Line 172 closes a YAML example. No shell or Ruby evaluator consumes these backticks."
       },
       {
         "id": "external_commands:SKILL.md:176:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The block is a Flux Kustomization YAML example. It is not executable shell syntax or Ruby backtick usage."
+        "confidence": 0.99,
+        "reason": "The matched triple backticks introduce declarative Kubernetes YAML. They are formatting syntax only."
       },
       {
         "id": "external_commands:SKILL.md:189:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "This line closes a YAML example. No command execution occurs at this location."
+        "confidence": 0.99,
+        "reason": "This is the Markdown closing fence for a YAML block. It cannot invoke an external command."
       },
       {
         "id": "external_commands:SKILL.md:196:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "The block is a sync policy YAML fragment. It describes reconciliation settings, but the cited pattern is not executable code."
+        "confidence": 0.99,
+        "reason": "The triple backticks open an Argo CD synchronization policy example. No backtick-based command execution occurs."
       },
       {
         "id": "external_commands:SKILL.md:208:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "This is a Markdown fence closing the ArgoCD sync policy example. It is not a command."
+        "confidence": 0.99,
+        "reason": "Line 208 is a closing Markdown code fence. It contains no executable expression."
       },
       {
         "id": "external_commands:SKILL.md:211:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "The block is a Flux sync policy YAML fragment. It contains no shell command or dynamic execution."
+        "confidence": 0.99,
+        "reason": "The match is a YAML code fence used for documentation. It is not Ruby or shell command syntax."
       },
       {
         "id": "external_commands:SKILL.md:217:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "This location closes a YAML code block. It has no executable behavior."
+        "confidence": 0.99,
+        "reason": "Line 217 closes a Markdown YAML block. The backticks have no runtime effect."
       },
       {
         "id": "external_commands:SKILL.md:219:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "This line is a documentation reference to sync policies. It does not execute a command or load code."
+        "confidence": 0.99,
+        "reason": "The backticks format a reference filename in explanatory prose. They do not execute the referenced file."
       },
       {
         "id": "external_commands:SKILL.md:225:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "The block is an Argo Rollouts YAML example. It is declarative deployment configuration, not Ruby backtick execution."
+        "confidence": 0.99,
+        "reason": "This Markdown fence opens a declarative rollout example. It is formatting, not command execution."
       },
       {
         "id": "external_commands:SKILL.md:240:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "This line closes the rollout YAML example. It is not an executable command."
+        "confidence": 0.99,
+        "reason": "Line 240 closes a YAML code block. No Ruby or shell backtick call is present."
       },
       {
         "id": "external_commands:SKILL.md:244:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "The block is a blue-green deployment YAML fragment. It does not contain shell execution."
+        "confidence": 0.99,
+        "reason": "The triple backticks introduce a blue-green strategy YAML example. They have no execution semantics."
       },
       {
         "id": "external_commands:SKILL.md:250:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "This location is only a Markdown code-fence close. No command or script is present."
+        "confidence": 0.99,
+        "reason": "This is a Markdown closing fence for configuration text. It does not execute an external command."
       },
       {
         "id": "external_commands:SKILL.md:256:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "The block is an ExternalSecret YAML manifest. It references secret management resources, but it is not command execution."
+        "confidence": 0.99,
+        "reason": "The match opens an ExternalSecret YAML sample. Markdown code fences are not executable backtick syntax."
       },
       {
         "id": "external_commands:SKILL.md:272:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "This line closes the ExternalSecret YAML example. It has no executable behavior."
+        "confidence": 0.99,
+        "reason": "Line 272 closes the YAML example. No command execution is associated with the fence."
       },
       {
         "id": "external_commands:SKILL.md:276:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.82,
-        "reason": "The kubeseal example encrypts a local secret file for GitOps use and has no network or privileged execution. It should still be run only on intended secret files."
+        "confidence": 0.99,
+        "reason": "This is a Markdown Bash fence around a documented kubeseal command. It is not Ruby backtick execution."
       },
       {
         "id": "external_commands:SKILL.md:281:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "This location closes the kubeseal command example. It is not an additional command."
+        "confidence": 0.99,
+        "reason": "Line 281 closes a Bash documentation block. The triple backticks cannot launch a process."
       },
       {
         "id": "external_commands:SKILL.md:299:ruby-shell-backtick-execution",
-        "verdict": "confirmed",
-        "confidence": 0.78,
-        "severity": "medium",
-        "reason": "The troubleshooting block includes argocd sync with prune, which can delete cluster resources not present in Git. This is a real cluster-mutating command sequence."
+        "verdict": "false_positive",
+        "confidence": 0.99,
+        "reason": "The token opens a Markdown Bash example containing explicit Argo CD troubleshooting commands. It is not a backtick execution expression."
       },
       {
         "id": "external_commands:SKILL.md:302:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "This line closes the sync troubleshooting command block. It is not a separate execution pattern."
+        "confidence": 0.99,
+        "reason": "Line 302 closes a Markdown Bash block. No command is executed by that syntax."
       },
       {
         "id": "external_commands:SKILL.md:305:ruby-shell-backtick-execution",
-        "verdict": "confirmed",
-        "confidence": 0.78,
-        "severity": "medium",
-        "reason": "The troubleshooting block includes argocd sync with force, which can overwrite live cluster state. It is operationally valid but risky without review."
+        "verdict": "false_positive",
+        "confidence": 0.99,
+        "reason": "The triple backticks introduce another documented Bash example. They do not perform Ruby or shell backtick evaluation."
       },
       {
         "id": "external_commands:SKILL.md:308:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "This line closes the forced sync command block. It does not contain another executable command."
+        "confidence": 0.99,
+        "reason": "Line 308 is a closing Markdown fence. It has no process execution behavior."
       },
       {
         "id": "external_commands:SKILL.md:312:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "This line lists related skills by name. It is not shell syntax and has no command execution behavior."
+        "confidence": 0.99,
+        "reason": "The backticks format the name of a related skill in a list. They are inline Markdown, not executable syntax."
       },
       {
         "id": "external_commands:SKILL.md:144:shell-command-substitution",
         "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "The command substitution only creates a temporary directory with mktemp and is followed by cleanup logic. There is no user-controlled interpolation in this line."
+        "confidence": 0.98,
+        "reason": "The substitution runs the fixed mktemp command and stores its result in a quoted variable. It contains no user-controlled command or injection path."
       },
       {
         "id": "external_commands:SKILL.md:139:template-literal-with-command-substitution",
-        "verdict": "confirmed",
-        "confidence": 0.84,
-        "severity": "high",
-        "reason": "The detected block contains shell expansion inside a larger Flux installer workflow that downloads and later executes a script with sudo. The template-literal label is imprecise, but the block is risky."
+        "verdict": "false_positive",
+        "confidence": 0.99,
+        "reason": "The match begins at a Markdown Bash fence, not a programming-language template literal. The command substitution inside uses only a fixed mktemp invocation."
       },
       {
         "id": "external_commands:SKILL.md:147:sudo-privilege-escalation",
-        "verdict": "confirmed",
-        "confidence": 0.8,
-        "severity": "high",
-        "reason": "This span is part of the documented flow that moves from reviewing the downloaded installer to running it with sudo on the next line. The privilege escalation risk is real."
+        "verdict": "false_positive",
+        "confidence": 0.99,
+        "reason": "Line 147 only displays the installer with cat and mentions sudo in a comment. It does not invoke sudo or escalate privileges."
       },
       {
         "id": "external_commands:SKILL.md:148:sudo-privilege-escalation",
         "verdict": "confirmed",
-        "confidence": 0.96,
-        "severity": "high",
-        "reason": "The command explicitly runs a downloaded Flux installer through sudo bash. This can grant a remote script root privileges on the host."
+        "confidence": 0.99,
+        "reason": "The command executes a network-downloaded script as root without a checksum or signature check. Displaying the script first does not provide reliable integrity verification.",
+        "severity": "high"
       },
       {
         "id": "network:SKILL.md:60:hardcoded-url",
         "verdict": "confirmed",
-        "confidence": 0.78,
-        "severity": "medium",
-        "reason": "The command applies a remote ArgoCD install manifest directly to a cluster. A mutable network source can change cluster state without local review."
+        "confidence": 0.97,
+        "reason": "The example directly applies a Kubernetes manifest fetched from a mutable stable branch. It does not pin reviewed content or verify its integrity.",
+        "severity": "medium"
       },
       {
         "id": "network:SKILL.md:100:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "The GitHub URL is a placeholder repository in an Application manifest. It is expected user-supplied configuration, not a hardcoded suspicious destination."
+        "confidence": 0.98,
+        "reason": "The GitHub URL is an org/gitops-repo placeholder in a declarative application example. Users must replace it with their intended repository."
       },
       {
         "id": "network:SKILL.md:104:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "The Kubernetes default service URL is the normal in-cluster API destination for ArgoCD. It is not an external network target."
+        "confidence": 0.99,
+        "reason": "This is the standard internal Kubernetes service endpoint used by Argo CD. It does not direct data to an external host."
       },
       {
         "id": "network:SKILL.md:125:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "The GitHub URL is a placeholder repository for the App of Apps example. It does not point to an author-controlled service."
+        "confidence": 0.98,
+        "reason": "The URL is a clear placeholder for the user's GitOps repository in an App of Apps example. No suspicious destination is embedded."
       },
       {
         "id": "network:SKILL.md:129:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "The Kubernetes default service URL is an internal cluster endpoint used by ArgoCD examples. It is not suspicious external networking."
+        "confidence": 0.99,
+        "reason": "The hardcoded address is Kubernetes's standard in-cluster API service. It is the expected local control-plane destination."
       },
       {
         "id": "network:SKILL.md:146:hardcoded-url",
         "verdict": "confirmed",
-        "confidence": 0.94,
-        "severity": "high",
-        "reason": "The command downloads the Flux installer script from the network and the following line executes it with sudo. This is a high-impact supply-chain risk if run without verification."
+        "confidence": 0.99,
+        "reason": "The command downloads an executable installer from a mutable URL without a checksum or signature. The following example runs the downloaded content as root.",
+        "severity": "medium"
       },
       {
         "id": "network:SKILL.md:169:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "The GitHub URL is a placeholder Flux source repository. It represents user configuration rather than a fixed exfiltration or control endpoint."
+        "confidence": 0.98,
+        "reason": "The org/my-app GitHub URL is a placeholder for the repository that Flux is expected to reconcile. It is not a concealed or unrelated endpoint."
       },
       {
         "id": "filesystem:SKILL.md:144:temp-file-creation",
         "verdict": "false_positive",
-        "confidence": 0.84,
-        "reason": "The temporary directory is created with mktemp and removed by a trap. The filesystem use is narrow and not an unsafe hardcoded path or data harvesting pattern."
+        "confidence": 0.98,
+        "reason": "mktemp creates a unique directory, the variable is quoted, and an EXIT trap removes it. This is safe temporary-file handling in the documented flow."
       },
       {
         "id": "blocker:SKILL.md:41:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The line is a safety warning to avoid production auto-sync without approval. It is not reconnaissance or an attempt to collect system information."
+        "confidence": 0.99,
+        "reason": "The line warns users not to enable production auto-sync without approvals. It performs no system discovery and is explicitly safety-oriented."
       }
     ],
     "semantic_findings": [
       {
-        "title": "Remote Installer Executes With Elevated Privileges",
-        "description": "The Flux install flow downloads an installer script from the network and runs it with sudo. This can give remote installation content root access.",
+        "title": "Production auto-sync enables destructive pruning",
+        "description": "The example targets apps/production/my-app while enabling automated pruning and self-healing. Applying it unchanged can delete resources or bypass production approval controls.",
         "severity": "high",
         "locations": [
           {
             "file": "SKILL.md",
-            "line_start": 143,
-            "line_end": 148
+            "line_start": 100,
+            "line_end": 111
           }
         ],
-        "confidence": 0.92,
-        "confidence_reasoning": "The cited lines show a network download followed by sudo execution in one documented workflow. The risk depends on user review, but the dangerous chain is explicit."
+        "confidence": 0.98,
+        "confidence_reasoning": "The production path, automated synchronization, prune, and selfHeal settings appear together in one manifest and directly conflict with the safety guidance on line 41."
       },
       {
-        "title": "Command-Line Token Exposure in Repository Setup",
-        "description": "The ArgoCD repository setup example passes a token as a command-line password argument. This can expose credentials through shell history or process listings.",
+        "title": "Setup commands handle credentials unsafely",
+        "description": "Examples print the initial admin password and pass a repository token as a CLI argument. Secrets can enter terminal logs, process listings, or shell history.",
         "severity": "medium",
         "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 62,
+            "line_end": 63
+          },
+          {
+            "file": "references/argocd-setup.md",
+            "line_start": 29,
+            "line_end": 30
+          },
           {
             "file": "references/argocd-setup.md",
             "line_start": 72,
             "line_end": 72
           }
         ],
-        "confidence": 0.86,
-        "confidence_reasoning": "The command uses a token in a CLI argument on the cited line. This is a common credential exposure pattern even though the token value is a placeholder."
-      },
-      {
-        "title": "Cluster-Mutating Troubleshooting Commands Need Guardrails",
-        "description": "The troubleshooting examples include prune and force sync commands. If automated by an agent, they can delete resources or overwrite live cluster state.",
-        "severity": "medium",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 299,
-            "line_end": 307
-          }
-        ],
-        "confidence": 0.82,
-        "confidence_reasoning": "The cited lines contain ArgoCD sync commands with prune and force options. They are valid operations, but they need clear approval boundaries."
+        "confidence": 0.98,
+        "confidence_reasoning": "The commands explicitly decode or print an administrative password and place a token in a command argument. These are established credential exposure paths."
       }
     ],
     "critical_findings": [],
     "high_findings": [
-      {
-        "title": "Ruby/shell backtick execution",
-        "description": "```bash",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 139,
-            "line_end": 157
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "external_commands",
-        "source_severity": "medium",
-        "confidence": 0.91,
-        "confidence_reasoning": "This bash block downloads the Flux installer, displays it, runs it with sudo, and bootstraps Flux. The external command sequence can modify a host and a cluster."
-      },
-      {
-        "title": "Template literal with command substitution",
-        "description": "```bash",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 139,
-            "line_end": 157
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "external_commands",
-        "source_severity": "medium",
-        "confidence": 0.84,
-        "confidence_reasoning": "The detected block contains shell expansion inside a larger Flux installer workflow that downloads and later executes a script with sudo. The template-literal label is imprecise, but the block is risky."
-      },
-      {
-        "title": "sudo privilege escalation",
-        "description": "cat \"$tmpdir/flux-install.sh\"  # review the full installer before sudo",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 147,
-            "line_end": 148
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "external_commands",
-        "source_severity": "high",
-        "confidence": 0.8,
-        "confidence_reasoning": "This span is part of the documented flow that moves from reviewing the downloaded installer to running it with sudo on the next line. The privilege escalation risk is real."
-      },
       {
         "title": "sudo privilege escalation",
         "description": "sudo bash \"$tmpdir/flux-install.sh\"",
@@ -1324,141 +1264,27 @@
         "review_kind": "capability",
         "source_category": "external_commands",
         "source_severity": "high",
-        "confidence": 0.96,
-        "confidence_reasoning": "The command explicitly runs a downloaded Flux installer through sudo bash. This can grant a remote script root privileges on the host."
+        "confidence": 0.99,
+        "confidence_reasoning": "The command executes a network-downloaded script as root without a checksum or signature check. Displaying the script first does not provide reliable integrity verification."
       },
       {
-        "title": "Hardcoded URL",
-        "description": "curl -fsSLo \"$tmpdir/flux-install.sh\" https://fluxcd.io/install.sh",
+        "title": "Production auto-sync enables destructive pruning",
+        "description": "The example targets apps/production/my-app while enabling automated pruning and self-healing. Applying it unchanged can delete resources or bypass production approval controls.",
         "locations": [
           {
             "file": "SKILL.md",
-            "line_start": 146,
-            "line_end": 146
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "network",
-        "source_severity": "low",
-        "confidence": 0.94,
-        "confidence_reasoning": "The command downloads the Flux installer script from the network and the following line executes it with sudo. This is a high-impact supply-chain risk if run without verification."
-      },
-      {
-        "title": "Remote Installer Executes With Elevated Privileges",
-        "description": "The Flux install flow downloads an installer script from the network and runs it with sudo. This can give remote installation content root access.",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 143,
-            "line_end": 148
+            "line_start": 100,
+            "line_end": 111
           }
         ],
         "review_kind": "security",
         "source_category": "semantic",
         "source_severity": "high",
-        "confidence": 0.92,
-        "confidence_reasoning": "The cited lines show a network download followed by sudo execution in one documented workflow. The risk depends on user review, but the dangerous chain is explicit."
+        "confidence": 0.98,
+        "confidence_reasoning": "The production path, automated synchronization, prune, and selfHeal settings appear together in one manifest and directly conflict with the safety guidance on line 41."
       }
     ],
     "medium_findings": [
-      {
-        "title": "Ruby/shell backtick execution",
-        "description": "```bash",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 55,
-            "line_end": 64
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "external_commands",
-        "source_severity": "medium",
-        "confidence": 0.72,
-        "confidence_reasoning": "This Markdown bash block includes real cluster commands, including applying a remote ArgoCD manifest and reading the initial admin secret. The Ruby backtick label is imprecise, but the external command risk is real."
-      },
-      {
-        "title": "Ruby/shell backtick execution",
-        "description": "```bash",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 299,
-            "line_end": 302
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "external_commands",
-        "source_severity": "medium",
-        "confidence": 0.78,
-        "confidence_reasoning": "The troubleshooting block includes argocd sync with prune, which can delete cluster resources not present in Git. This is a real cluster-mutating command sequence."
-      },
-      {
-        "title": "Ruby/shell backtick execution",
-        "description": "```bash",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 305,
-            "line_end": 308
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "external_commands",
-        "source_severity": "medium",
-        "confidence": 0.78,
-        "confidence_reasoning": "The troubleshooting block includes argocd sync with force, which can overwrite live cluster state. It is operationally valid but risky without review."
-      },
-      {
-        "title": "Hardcoded URL",
-        "description": "kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/insta",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 60,
-            "line_end": 60
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "network",
-        "source_severity": "low",
-        "confidence": 0.78,
-        "confidence_reasoning": "The command applies a remote ArgoCD install manifest directly to a cluster. A mutable network source can change cluster state without local review."
-      },
-      {
-        "title": "Command-Line Token Exposure in Repository Setup",
-        "description": "The ArgoCD repository setup example passes a token as a command-line password argument. This can expose credentials through shell history or process listings.",
-        "locations": [
-          {
-            "file": "references/argocd-setup.md",
-            "line_start": 72,
-            "line_end": 72
-          }
-        ],
-        "review_kind": "security",
-        "source_category": "semantic",
-        "source_severity": "medium",
-        "confidence": 0.86,
-        "confidence_reasoning": "The command uses a token in a CLI argument on the cited line. This is a common credential exposure pattern even though the token value is a placeholder."
-      },
-      {
-        "title": "Cluster-Mutating Troubleshooting Commands Need Guardrails",
-        "description": "The troubleshooting examples include prune and force sync commands. If automated by an agent, they can delete resources or overwrite live cluster state.",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 299,
-            "line_end": 307
-          }
-        ],
-        "review_kind": "security",
-        "source_category": "semantic",
-        "source_severity": "medium",
-        "confidence": 0.82,
-        "confidence_reasoning": "The cited lines contain ArgoCD sync commands with prune and force options. They are valid operations, but they need clear approval boundaries."
-      }
-    ],
-    "low_findings": [
       {
         "title": "Hardcoded URL",
         "description": "kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/insta",
@@ -1472,8 +1298,8 @@
         "review_kind": "capability",
         "source_category": "network",
         "source_severity": "low",
-        "confidence": 0.76,
-        "confidence_reasoning": "The command applies an ArgoCD manifest directly from a remote mutable URL into a cluster. The source is official, but direct remote apply creates supply-chain and change-control risk."
+        "confidence": 0.97,
+        "confidence_reasoning": "The command downloads a manifest from the mutable Argo CD stable branch and applies it directly to the cluster. It provides no release pin or integrity verification."
       },
       {
         "title": "Hardcoded URL",
@@ -1488,154 +1314,197 @@
         "review_kind": "capability",
         "source_category": "network",
         "source_severity": "low",
-        "confidence": 0.76,
-        "confidence_reasoning": "The HA install example applies a remote manifest from a stable branch without pinning a release digest. This is legitimate documentation, but it still carries remote manifest trust risk."
+        "confidence": 0.97,
+        "confidence_reasoning": "The high-availability manifest is fetched from a mutable stable branch and applied directly to the cluster. A compromised or changed upstream file would receive cluster permissions."
       },
       {
         "title": "Hardcoded URL",
-        "description": "helm repo add argo https://argoproj.github.io/argo-helm",
+        "description": "kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/insta",
         "locations": [
           {
-            "file": "references/argocd-setup.md",
-            "line_start": 18,
-            "line_end": 18
+            "file": "SKILL.md",
+            "line_start": 60,
+            "line_end": 60
           }
         ],
         "review_kind": "capability",
         "source_category": "network",
         "source_severity": "low",
-        "confidence": 0.66,
-        "confidence_reasoning": "The Helm repository URL is a normal ArgoCD installation source. It is kept as a low-risk finding because it pulls installation content from the network."
+        "confidence": 0.97,
+        "confidence_reasoning": "The example directly applies a Kubernetes manifest fetched from a mutable stable branch. It does not pin reviewed content or verify its integrity."
+      },
+      {
+        "title": "Hardcoded URL",
+        "description": "curl -fsSLo \"$tmpdir/flux-install.sh\" https://fluxcd.io/install.sh",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 146,
+            "line_end": 146
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "network",
+        "source_severity": "low",
+        "confidence": 0.99,
+        "confidence_reasoning": "The command downloads an executable installer from a mutable URL without a checksum or signature. The following example runs the downloaded content as root."
+      },
+      {
+        "title": "Setup commands handle credentials unsafely",
+        "description": "Examples print the initial admin password and pass a repository token as a CLI argument. Secrets can enter terminal logs, process listings, or shell history.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 62,
+            "line_end": 63
+          },
+          {
+            "file": "references/argocd-setup.md",
+            "line_start": 29,
+            "line_end": 30
+          },
+          {
+            "file": "references/argocd-setup.md",
+            "line_start": 72,
+            "line_end": 72
+          }
+        ],
+        "review_kind": "security",
+        "source_category": "semantic",
+        "source_severity": "medium",
+        "confidence": 0.98,
+        "confidence_reasoning": "The commands explicitly decode or print an administrative password and place a token in a command argument. These are established credential exposure paths."
       }
     ],
+    "low_findings": [],
     "dangerous_patterns": [],
     "files_scanned": 3,
     "total_lines": 586,
     "audit_model": "codex",
-    "audited_at": "2026-07-08T11:15:04.862Z",
+    "audited_at": "2026-07-24T00:16:24.515Z",
     "agent_auto_install_policy": "confirmation_required",
     "manual_install_policy": "allowed"
   },
   "content": {
-    "user_title": "Implement GitOps for Kubernetes",
-    "value_statement": "Kubernetes deployment workflows drift when changes are applied outside Git. This skill guides GitOps setup with ArgoCD, Flux, sync policies, and safer promotion patterns.",
+    "user_title": "Build Secure GitOps Workflows with Argo CD and Flux",
+    "value_statement": "Kubernetes delivery becomes risky when cluster state and deployment changes lack a controlled source of truth. This skill provides practical Argo CD and Flux workflow guidance.",
     "seo_keywords": [
+      "GitOps workflow",
+      "Argo CD",
+      "Flux CD",
+      "Kubernetes continuous delivery",
+      "declarative deployments",
+      "progressive delivery",
       "Claude",
       "Codex",
-      "Claude Code",
-      "GitOps workflow",
-      "ArgoCD setup",
-      "Flux CD",
-      "Kubernetes deployment",
-      "continuous delivery",
-      "progressive delivery",
-      "secret management"
+      "Claude Code"
     ],
     "actual_capabilities": [
-      "Explains OpenGitOps principles and when GitOps is appropriate.",
-      "Shows ArgoCD installation, application definitions, and App of Apps layout.",
-      "Shows Flux bootstrap, GitRepository resources, and Kustomization resources.",
-      "Documents automated sync, retry behavior, and sync windows.",
-      "Includes examples for canary, blue-green, External Secrets, and Sealed Secrets.",
-      "Lists troubleshooting commands for ArgoCD sync and diff checks."
+      "Explains Argo CD and Flux installation and bootstrap workflows.",
+      "Proposes Git repository layouts for applications, infrastructure, environments, and controller resources.",
+      "Creates Argo CD Application and Flux source and Kustomization examples.",
+      "Configures synchronization, pruning, retries, health checks, and maintenance windows.",
+      "Outlines canary and blue-green delivery strategies.",
+      "Covers external secret references, sealed secrets, and common synchronization troubleshooting."
     ],
     "limitations": [
-      "Does not validate cluster access, repository permissions, or cloud IAM settings.",
-      "Example commands require review before use in production clusters.",
-      "Uses placeholder repository URLs, namespaces, and organization names.",
-      "Does not replace environment-specific security review for secrets or deployment approvals."
+      "Requires valid Kubernetes cluster access, repository permissions, and installed command-line tools.",
+      "Uses placeholder names, URLs, namespaces, and policies that require environment-specific review.",
+      "Does not execute deployments, validate generated manifests, or confirm controller compatibility.",
+      "Some installation examples depend on mutable upstream resources and require stronger integrity controls."
     ],
     "use_cases": [
       {
-        "title": "Bootstrap a GitOps Platform",
-        "description": "Set up initial ArgoCD or Flux workflows for Kubernetes deployments.",
+        "title": "Establish a cluster delivery platform",
+        "description": "Design repository structure, controller setup, synchronization policies, and production approval boundaries.",
         "target_user": "Platform engineer"
       },
       {
-        "title": "Standardize Application Delivery",
-        "description": "Define repository layout, sync behavior, and promotion paths for application teams.",
-        "target_user": "DevOps lead"
+        "title": "Onboard an application to GitOps",
+        "description": "Define application sources, deployment destinations, secret references, and staged promotion behavior.",
+        "target_user": "Application developer"
       },
       {
-        "title": "Plan Controlled Production Sync",
-        "description": "Review approval gates, rollback paths, and secret handling before production automation.",
+        "title": "Review deployment controls",
+        "description": "Assess pruning, self-healing, retries, health checks, and operational safeguards before rollout.",
         "target_user": "Site reliability engineer"
       }
     ],
     "prompt_templates": [
       {
-        "title": "Check GitOps Fit",
-        "scenario": "Beginner assessment",
-        "prompt": "Explain whether GitOps fits my Kubernetes deployment process. Ask for missing cluster, repository, and approval details first."
+        "title": "Plan a basic GitOps setup",
+        "prompt": "Create a beginner GitOps plan for my Kubernetes cluster using [Argo CD or Flux]. List prerequisites, safe installation choices, and validation steps.",
+        "scenario": "A team is introducing GitOps to one non-production cluster."
       },
       {
-        "title": "Design Repo Layout",
-        "scenario": "Team setup",
-        "prompt": "Design a GitOps repository layout for staging and production. Include ownership, promotion flow, and rollback considerations."
+        "title": "Design a repository layout",
+        "prompt": "Design a GitOps repository for [applications], [environments], and [infrastructure]. Explain ownership, promotion flow, and where controller resources belong.",
+        "scenario": "A platform team needs a maintainable repository structure."
       },
       {
-        "title": "Configure Delivery Tool",
-        "scenario": "Implementation planning",
-        "prompt": "Help me choose ArgoCD or Flux for my cluster. Compare setup steps, sync behavior, secrets, and operations tradeoffs."
+        "title": "Configure application reconciliation",
+        "prompt": "Draft an Argo CD or Flux reconciliation design for [application]. Include sync intervals, retries, health checks, pruning safeguards, and secret references.",
+        "scenario": "An application team is moving an existing service to automated delivery."
       },
       {
-        "title": "Review Production Controls",
-        "scenario": "Advanced safety review",
-        "prompt": "Review my planned GitOps production workflow for unsafe automation. Focus on pruning, force sync, secrets, approvals, and recovery steps."
+        "title": "Architect controlled multi-cluster delivery",
+        "prompt": "Design a multi-cluster GitOps workflow for [environments]. Include progressive delivery, approval gates, rollback, RBAC, observability, and supply-chain integrity requirements.",
+        "scenario": "An organization needs governed production delivery across several clusters."
       }
     ],
     "output_examples": [
       {
-        "input": "Help me choose ArgoCD or Flux for a small platform team.",
-        "output": "A concise comparison of tool fit, setup effort, repository model, sync behavior, and operational tradeoffs."
+        "input": "Plan Argo CD adoption for a staging cluster and one application.",
+        "output": "The plan separates controller installation, repository onboarding, staging synchronization, health validation, and rollback testing. Production automation remains disabled."
       },
       {
-        "input": "Review our production sync plan before we enable automation.",
+        "input": "Recommend safe synchronization behavior for production.",
         "output": [
-          "Approval gates should protect production changes.",
-          "Prune and force sync need documented rollback steps.",
-          "Secret handling should avoid cleartext values in Git."
+          "Require approval before synchronization.",
+          "Disable automatic pruning until recovery tests pass.",
+          "Define maintenance windows and retry limits.",
+          "Alert on drift, failed health checks, and reconciliation errors."
         ]
       },
       {
-        "input": "Plan a GitOps rollout path for a new application.",
-        "output": "A staged delivery plan covering repository structure, environment promotion, health checks, and rollback expectations."
+        "input": "Compare Argo CD and Flux for a platform team.",
+        "output": "The comparison covers operating model, repository integration, reconciliation resources, access controls, multi-cluster patterns, and team maintenance requirements."
       }
     ],
     "best_practices": [
-      "Review remote manifests and installer scripts before applying them to a cluster.",
-      "Keep production sync behind approval gates and tested promotion paths.",
-      "Use External Secrets or Sealed Secrets instead of storing cleartext secrets in Git."
+      "Pin installation artifacts and verify checksums or signatures before applying them.",
+      "Test synchronization, pruning, rollback, and secret handling in staging before production.",
+      "Require least-privilege access, production approvals, health checks, and reconciliation alerts."
     ],
     "anti_patterns": [
-      "Running downloaded installers with elevated privileges without verifying the source.",
-      "Using one repository path for every environment without clear ownership or review.",
-      "Enabling auto-sync with prune in production before rollback and alerting are tested."
+      "Do not apply mutable remote manifests directly to a production cluster.",
+      "Do not store plaintext credentials in Git, command arguments, or shared terminal logs.",
+      "Do not enable automatic production pruning without tested recovery and explicit approval controls."
     ],
     "faq": [
       {
-        "question": "Does this skill install ArgoCD or Flux automatically?",
-        "answer": "No. It provides guidance and example commands that users must review before running."
+        "question": "Does this skill deploy resources automatically?",
+        "answer": "No. It provides guidance and examples, but deployment requires your tools, credentials, permissions, and explicit execution."
       },
       {
-        "question": "Does it support both ArgoCD and Flux?",
-        "answer": "Yes. It covers setup concepts, repository sources, sync policies, and common workflow patterns for both tools."
+        "question": "Which GitOps controllers are covered?",
+        "answer": "The skill covers Argo CD and Flux installation, application sources, reconciliation, synchronization policies, and troubleshooting."
       },
       {
-        "question": "Can I use it outside Kubernetes?",
-        "answer": "No. The guidance is focused on Kubernetes-based GitOps delivery."
+        "question": "Can I use the examples unchanged?",
+        "answer": "No. Replace placeholders and review namespaces, repositories, permissions, versions, policies, and controller compatibility."
       },
       {
-        "question": "Does it cover secret management?",
-        "answer": "Yes. It describes External Secrets and Sealed Secrets patterns for keeping cleartext secrets out of Git."
+        "question": "How should production synchronization be protected?",
+        "answer": "Use approval gates, maintenance windows, least privilege, tested rollback, health checks, alerts, and cautious pruning settings."
       },
       {
-        "question": "Are the commands safe for unattended agents?",
-        "answer": "No. Cluster-changing and privileged commands need explicit review, least privilege access, and environment checks."
+        "question": "How are secrets handled?",
+        "answer": "The guidance favors External Secrets or sealed secrets. Keep plaintext values outside Git, shell history, logs, and command arguments."
       },
       {
-        "question": "Does it include progressive delivery guidance?",
-        "answer": "Yes. It includes canary and blue-green deployment examples for controlled rollouts."
+        "question": "Does the skill support multi-cluster delivery?",
+        "answer": "It describes repository and controller patterns that can support multiple clusters. Each environment still requires tailored access and policy design."
       }
     ]
   },

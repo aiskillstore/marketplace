@@ -1,7 +1,7 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-07-08T11:26:47.427Z",
+    "generated_at": "2026-07-23T23:41:34.895Z",
     "slug": "sickn33-git-pr-workflows-pr-enhance",
     "source_url": "https://github.com/sickn33/antigravity-awesome-skills/tree/main/skills/git-pr-workflows-pr-enhance",
     "source_ref": "main",
@@ -23,17 +23,16 @@
   },
   "skill": {
     "name": "git-pr-workflows-pr-enhance",
-    "description": "Helps create clear pull request descriptions, review checklists, risk summaries, test notes, visual aids, and review responses.",
-    "summary": "Create review-ready pull requests with structured context, checks, and reviewer guidance.",
+    "description": "Creates detailed pull request descriptions, review checklists, risk summaries, test coverage reports, visual diagrams, and practical guidance for splitting large changes.",
+    "summary": "Improve pull requests with structured analysis, review guidance, and context-aware documentation.",
     "icon": "📦",
-    "version": "1.0.1",
     "author": "sickn33",
     "license": "MIT",
+    "category": "coding",
     "tags": [
       "pull-requests",
       "code-review",
       "git",
-      "testing",
       "developer-workflow"
     ],
     "supported_tools": [
@@ -43,16 +42,21 @@
     ],
     "risk_factors": [
       "external_commands"
-    ],
-    "category": "devops"
+    ]
   },
   "security_audit": {
     "risk_level": "safe",
     "is_blocked": false,
     "safe_to_publish": true,
     "analysis_status": "ok",
-    "summary": "Reviewed all eight static findings and found no evidence of malicious intent. The subprocess examples document local Git diff analysis, while the remaining detections are markdown formatting or Mermaid diagram text. No prompt injection language or semantic security issue was found.",
-    "remediation": [],
+    "summary": "Six static findings are false positives caused by Markdown backticks, path formatting, or a Mermaid code fence. Two Python examples execute Git with an unvalidated branch value split into arguments, creating command-argument injection risk if adopted. No prompt injection, exfiltration intent, or other semantic threat was found.",
+    "remediation": [
+      {
+        "issue": "The subprocess examples construct Git arguments by splitting a string containing an unvalidated base branch.",
+        "suggestion": "Validate the branch as a Git ref, resolve it to a commit identifier, and pass a fixed argument array to subprocess.run.",
+        "severity": "high"
+      }
+    ],
     "risk_factor_evidence": [
       {
         "factor": "external_commands",
@@ -175,182 +179,215 @@
     "finding_verdicts": [
       {
         "id": "external_commands:resources/implementation-playbook.md:45:python-subprocess-run",
-        "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "The subprocess call is a documentation example that runs git diff with list-style arguments. It supports local PR analysis and does not use shell execution or external network access."
+        "verdict": "confirmed",
+        "confidence": 0.9,
+        "reason": "The example interpolates base_branch into a command string before cmd.split(). An option followed by a ref can inject Git flags and alter command behavior.",
+        "severity": "high"
       },
       {
         "id": "external_commands:resources/implementation-playbook.md:62:python-subprocess-run",
-        "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "The subprocess call is a documentation example for git diff --shortstat. It uses split arguments for a local repository command and shows no malicious intent."
+        "verdict": "confirmed",
+        "confidence": 0.9,
+        "reason": "The statistics example repeats the unvalidated base_branch interpolation before cmd.split(). Crafted input can become additional Git options instead of one revision argument.",
+        "severity": "high"
       },
       {
         "id": "external_commands:resources/implementation-playbook.md:191:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The detected backticks are markdown formatting inside a Python f-string. They wrap a filename in generated PR text and do not execute a shell command."
+        "confidence": 0.99,
+        "reason": "The detected backticks are literal Markdown delimiters inside a Python f-string used to format a filename. No Ruby or shell execution occurs."
       },
       {
         "id": "external_commands:resources/implementation-playbook.md:490:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The detected backticks are markdown formatting for a coverage report line. They display a file name and do not invoke Ruby or shell execution."
+        "confidence": 0.99,
+        "reason": "The backticks only format a filename in generated Markdown within a Python f-string. The line does not execute a shell command."
       },
       {
         "id": "blocker:resources/implementation-playbook.md:424:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "This line is a section title for a Mermaid diagram generator. It describes visual PR documentation and is not system reconnaissance."
+        "confidence": 0.99,
+        "reason": "The line is a Markdown heading naming a Mermaid diagram generator. It performs no system discovery or command execution."
       },
       {
         "id": "blocker:resources/implementation-playbook.md:434:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "This line starts a Mermaid diagram block in returned markdown. It is visual documentation content, not host inspection or reconnaissance."
+        "confidence": 0.99,
+        "reason": "The line begins a Mermaid fenced block embedded in generated Markdown. It contains no reconnaissance logic or system query."
       },
       {
         "id": "external_commands:SKILL.md:34:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "The backticks are inline markdown around a resource path. The line tells the model where examples are documented and does not execute a command."
+        "reason": "The backticks format a relative resource path in Markdown. The line only tells the agent when to read existing documentation."
       },
       {
         "id": "external_commands:SKILL.md:51:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "The backticks are inline markdown around a resource path in the resources list. This is a documentation reference, not command execution."
+        "reason": "The line is a Markdown list item linking to the implementation playbook. Backticks denote inline code and do not invoke Ruby or a shell."
       }
     ],
     "semantic_findings": [],
     "critical_findings": [],
-    "high_findings": [],
+    "high_findings": [
+      {
+        "title": "Python subprocess.run",
+        "description": "result = subprocess.run(cmd.split(), capture_output=True, text=True)",
+        "locations": [
+          {
+            "file": "resources/implementation-playbook.md",
+            "line_start": 45,
+            "line_end": 45
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "external_commands",
+        "source_severity": "high",
+        "confidence": 0.9,
+        "confidence_reasoning": "The example interpolates base_branch into a command string before cmd.split(). An option followed by a ref can inject Git flags and alter command behavior."
+      },
+      {
+        "title": "Python subprocess.run",
+        "description": "result = subprocess.run(cmd.split(), capture_output=True, text=True)",
+        "locations": [
+          {
+            "file": "resources/implementation-playbook.md",
+            "line_start": 62,
+            "line_end": 62
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "external_commands",
+        "source_severity": "high",
+        "confidence": 0.9,
+        "confidence_reasoning": "The statistics example repeats the unvalidated base_branch interpolation before cmd.split(). Crafted input can become additional Git options instead of one revision argument."
+      }
+    ],
     "medium_findings": [],
     "low_findings": [],
     "dangerous_patterns": [],
     "files_scanned": 2,
     "total_lines": 759,
     "audit_model": "codex",
-    "audited_at": "2026-07-08T11:26:47.427Z",
+    "audited_at": "2026-07-23T23:41:34.895Z",
     "agent_auto_install_policy": "allowed",
     "manual_install_policy": "allowed"
   },
   "content": {
-    "user_title": "Improve Pull Requests With Review-Ready Context",
-    "value_statement": "Unclear pull requests slow reviews and hide risk. This skill structures PR context, checklists, testing notes, and reviewer guidance for faster decisions.",
+    "user_title": "Improve Pull Requests for Faster Reviews",
+    "value_statement": "Large or unclear pull requests slow reviews and hide important risks. This skill creates structured descriptions, checklists, risk assessments, and split recommendations from change context.",
     "seo_keywords": [
+      "pull request enhancement",
+      "PR description generator",
+      "code review workflow",
+      "Git change analysis",
+      "review checklist",
+      "PR risk assessment",
       "Claude",
       "Codex",
-      "Claude Code",
-      "pull request workflow",
-      "PR description generator",
-      "code review checklist",
-      "Git PR analysis",
-      "test coverage summary",
-      "review automation",
-      "developer productivity"
+      "Claude Code"
     ],
     "actual_capabilities": [
-      "Generates structured pull request descriptions with summary, changes, rationale, testing, risks, and dependencies.",
-      "Builds context-aware review checklists based on changed file types and security considerations.",
-      "Suggests ways to split large pull requests into smaller reviewable units.",
-      "Creates risk summaries using size, complexity, test coverage, dependency, and security factors.",
-      "Drafts review response templates for clarification, follow-up changes, and technical explanations.",
-      "Provides examples for coverage reports, architecture diagrams, and PR templates."
+      "Summarizes changed files and change statistics from Git diff information.",
+      "Builds structured pull request descriptions covering purpose, changes, testing, dependencies, and breaking changes.",
+      "Generates review checklists tailored to source, test, configuration, documentation, and security changes.",
+      "Estimates review effort, evaluates risk factors, and recommends ways to split large pull requests.",
+      "Produces Mermaid architecture diagrams, test coverage comparisons, and reviewer response templates when relevant."
     ],
     "limitations": [
-      "It does not replace running project tests, linters, or security scanners.",
-      "It needs accurate diff, branch, and testing context to produce useful output.",
-      "It cannot guarantee reviewer approval or detect every project-specific risk.",
-      "Some examples require adaptation before use in a real repository workflow."
+      "Relies on complete repository context, commit history, and test data supplied by the user or available environment.",
+      "Example analyzers contain placeholder helper functions and are not a complete executable package.",
+      "Generated risk and coverage conclusions require verification with project-specific tools and policies.",
+      "Git operations and branch changes require user approval and a clean, correctly configured repository."
     ],
     "use_cases": [
       {
-        "title": "Prepare Feature Pull Requests",
-        "description": "Create a complete feature PR description with acceptance criteria, implementation notes, tests, and reviewer focus areas.",
-        "target_user": "Application developers"
+        "title": "Prepare a Feature Pull Request",
+        "description": "Turn a feature diff, commit list, and test results into a focused description and reviewer checklist.",
+        "target_user": "Software developer"
       },
       {
-        "title": "Review Large Changes",
-        "description": "Summarize large diffs, identify risk factors, and suggest logical split points before asking for review.",
-        "target_user": "Tech leads"
+        "title": "Plan Reviews for Large Changes",
+        "description": "Assess change size and risk, then identify logical pull request splits and review priorities.",
+        "target_user": "Technical lead"
       },
       {
-        "title": "Standardize Team Review Workflows",
-        "description": "Generate reusable checklists and response patterns that make code reviews clearer and more consistent.",
-        "target_user": "Engineering managers"
+        "title": "Verify Release Readiness",
+        "description": "Compare testing, coverage, dependencies, and documentation before approving a release pull request.",
+        "target_user": "Quality engineer"
       }
     ],
     "prompt_templates": [
       {
-        "title": "Create a Basic PR Description",
-        "scenario": "Beginner prompt for a small change with known test results.",
-        "prompt": "Create a pull request description for this change. Include summary, what changed, why it changed, tests run, risks, and reviewer checklist."
+        "title": "Create a Pull Request Description",
+        "prompt": "Create a clear pull request description for these changes: [summary]. Include purpose, key changes, testing, risks, and a reviewer checklist.",
+        "scenario": "A beginner has a concise change summary and needs a complete description."
       },
       {
-        "title": "Improve an Existing Draft",
-        "scenario": "Intermediate prompt for polishing a PR description before review.",
-        "prompt": "Improve this draft PR description for clarity and reviewability. Keep facts unchanged, add missing context, and highlight unclear areas that need my input."
+        "title": "Review a Diff and Commit List",
+        "prompt": "Review this pull request diff and commit list: [details]. Group changes by category, identify missing context, and propose a focused review checklist.",
+        "scenario": "A developer wants structured review guidance from repository evidence."
       },
       {
-        "title": "Analyze Review Risk",
-        "scenario": "Advanced prompt for larger changes with mixed file types.",
-        "prompt": "Analyze this PR for review risk. Consider size, complexity, testing, dependencies, security impact, rollback difficulty, and suggested reviewer focus areas."
+        "title": "Split a Large Pull Request",
+        "prompt": "Analyze this large pull request: [diff and statistics]. Estimate review effort, identify risk factors, and recommend logical splits with dependencies between them.",
+        "scenario": "A technical lead needs a staged review plan for an oversized change."
       },
       {
-        "title": "Plan a Multi-PR Split",
-        "scenario": "Advanced prompt for separating a broad branch into reviewable units.",
-        "prompt": "Propose a sequence of smaller pull requests for this branch. Group files by logical unit, define review order, and explain dependencies between PRs."
+        "title": "Build a Complete Review Package",
+        "prompt": "Compare base and head coverage data, architecture notes, and dependency changes: [details]. Produce a complete review package with evidence-based risks and Mermaid diagrams.",
+        "scenario": "An advanced user needs coordinated documentation, metrics, diagrams, and risk analysis."
       }
     ],
     "output_examples": [
       {
-        "input": "A developer asks for a PR description after adding search filters and updating tests.",
-        "output": "A structured PR summary with changed behavior, implementation notes, test coverage details, risk notes, and a focused reviewer checklist."
+        "input": "A feature adds passwordless sign-in, updates API routes, and includes integration tests.",
+        "output": "Summary: Adds passwordless sign-in through new API routes. Risk: Medium because authentication behavior changes. Review focus: token expiry, fallback behavior, and integration tests."
       },
       {
-        "input": "A lead asks whether a branch with many files should be split before review.",
-        "output": "A size and risk assessment with suggested split groups, review order, and reasons each group can be reviewed independently."
+        "input": "A refactor touches 35 files and 1,400 lines across the API, database, and tests.",
+        "output": "The change is large. Split database changes first, API refactoring second, and tests last. Keep each pull request independently reviewable."
       },
       {
-        "input": "A reviewer asks why one implementation approach was chosen over another.",
-        "output": "A concise response explaining the decision, alternatives considered, tradeoffs, and the planned follow-up if needed."
+        "input": "Line coverage falls from 88 percent to 84 percent after a dependency update.",
+        "output": "Coverage decreased by four points. Review uncovered dependency paths and add focused tests before merging."
       }
     ],
     "best_practices": [
-      "Provide the base branch, diff summary, test results, and any deployment constraints before using the skill.",
-      "Review generated risk notes against project knowledge before publishing the pull request.",
-      "Keep final PR descriptions factual, concise, and aligned with your team template."
+      "Provide the target branch, diff, commit intent, test results, and repository conventions before requesting analysis.",
+      "Verify generated metrics and risk claims against actual Git, coverage, and continuous integration results.",
+      "Keep descriptions factual and link each reviewer concern to a specific change or test."
     ],
     "anti_patterns": [
-      "Do not paste secrets, private customer data, or unreleased business information into prompts.",
-      "Do not use generated checklists as proof that tests or reviews were completed.",
-      "Do not ask the skill to hide risky changes or minimize important reviewer context."
+      "Do not publish generated coverage numbers or risk scores without checking their sources.",
+      "Do not combine unrelated changes only to avoid creating multiple pull requests.",
+      "Do not run branch-changing or push commands without confirming the repository state and user intent."
     ],
     "faq": [
       {
-        "question": "What does this skill help with?",
-        "answer": "It helps create clear pull request descriptions, review checklists, risk notes, testing summaries, and response drafts."
+        "question": "Does this skill modify my repository?",
+        "answer": "The core output is guidance and documentation. Some playbook examples use Git commands, so execution requires explicit approval and repository checks."
       },
       {
-        "question": "Does it run Git commands automatically?",
-        "answer": "No. The skill provides guidance and examples. Any repository commands should be run deliberately in your own environment."
+        "question": "What inputs produce the best result?",
+        "answer": "Provide the target branch, diff, commit messages, test results, coverage data, issue context, and repository review rules."
       },
       {
-        "question": "Can it replace code review?",
-        "answer": "No. It prepares review context, but human reviewers still need to inspect the code and validate behavior."
+        "question": "Can it generate different pull request formats?",
+        "answer": "Yes. The playbook includes structures for features, bug fixes, refactors, checklists, risk reports, and review responses."
       },
       {
-        "question": "What inputs make the output better?",
-        "answer": "Provide the diff summary, base branch, issue link, testing evidence, screenshots, deployment notes, and known risks."
+        "question": "Can it measure test coverage?",
+        "answer": "It can format and compare supplied coverage data. It cannot create reliable coverage results without running the project test tooling."
       },
       {
-        "question": "Can it help split a large pull request?",
-        "answer": "Yes. It can suggest logical PR groups, review order, and dependencies when you provide file and change context."
+        "question": "Can it create architecture diagrams?",
+        "answer": "Yes. It can draft Mermaid diagrams when the provided context clearly describes architectural changes."
       },
       {
-        "question": "Is it useful for non-code changes?",
-        "answer": "Yes. It can help document configuration, documentation, testing, and process changes when the PR context is clear."
+        "question": "Does it replace human code review?",
+        "answer": "No. Generated descriptions, checks, and risk assessments require validation by reviewers who understand the codebase and delivery requirements."
       }
     ]
   },
