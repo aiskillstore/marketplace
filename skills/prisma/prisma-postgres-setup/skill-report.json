@@ -1,40 +1,30 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-07-21T10:22:08.560Z",
+    "generated_at": "2026-07-23T17:58:14.330Z",
     "slug": "prisma-prisma-postgres-setup",
     "source_url": "https://github.com/prisma/skills/tree/1a9f427e9fe2137298abbcc1a6f372db92e8c40d/prisma-postgres-setup",
     "source_ref": "1a9f427e9fe2137298abbcc1a6f372db92e8c40d",
-    "model": "claude",
+    "model": "codex",
     "analysis_version": "3.0.0",
     "source_type": "community",
     "content_hash": "39693cabe74943b36d797c3a56dee2eca0cb1a0dc23a33c1fc26afdbd6421474",
     "tree_hash": "6c80091cae61d79e2af7fc084b4b2b8c5e23ce99b2a00a8f8be424e2a467c492",
     "provenance": {
-      "model_effective": "claude",
+      "model_effective": "codex",
       "fallback_chain": [
         {
           "agent": "codex",
-          "outcome": "failed",
-          "error": "2026-07-21T10:22:08.665165Z ERROR codex_models_manager::manager: failed to refresh available models: Missing environment variable: `HELM_API_KEY`.\n2026-07-21T10:22:08.684210Z ERROR codex_models_manage…"
-        },
-        {
-          "agent": "claude",
           "outcome": "success"
         }
       ],
       "analysis_version": "3.0.0"
-    },
-    "upstream_version_raw": "1.1.0",
-    "upstream_version_normalized": "1.1.0",
-    "upstream_version_source": "metadata.version",
-    "upstream_version_status": "valid",
-    "upstream_commit_sha": "1a9f427e9fe2137298abbcc1a6f372db92e8c40d"
+    }
   },
   "skill": {
     "name": "prisma-postgres-setup",
-    "description": "Provision a Prisma Postgres database through the Management API and connect it to a local Prisma 7 project with secure environment configuration.",
-    "summary": "Provision Prisma Postgres and configure a Prisma 7 project.",
+    "description": "Provision a Prisma Postgres database through the Management API, then configure and verify a local Prisma 7 project.",
+    "summary": "Provision Prisma Postgres and connect a local Prisma 7 project through a guided workflow.",
     "icon": "📦",
     "version": "1.1.0",
     "author": "prisma",
@@ -42,9 +32,9 @@
     "tags": [
       "prisma",
       "postgresql",
-      "database-setup",
-      "prisma-7",
-      "management-api"
+      "database-provisioning",
+      "prisma-orm",
+      "nodejs"
     ],
     "supported_tools": [
       "claude",
@@ -59,26 +49,36 @@
     "category": "devops"
   },
   "security_audit": {
-    "risk_level": "safe",
+    "risk_level": "high",
     "is_blocked": false,
-    "safe_to_publish": true,
+    "safe_to_publish": false,
     "analysis_status": "ok",
-    "summary": "All 128 static detections are false positives caused by Markdown formatting, documented Prisma API endpoints, and expected database credential configuration. The skill provisions a Prisma Postgres database only through the stated API workflow and includes safeguards for interactive choices, environment-file protection, and destructive deletion confirmation. No prompt injection, credential exfiltration, hidden execution, or unrelated network activity was found.",
+    "summary": "Ten static findings are confirmed: eight executable command spans and two operations involving secret-bearing environment files. Most alerts are Markdown, official Prisma URLs, placeholders, or standard local configuration. Contextual review found unsafe token handling and permanent project deletion, but no prompt injection or unrelated exfiltration.",
     "remediation": [
       {
-        "issue": "The instructions accept service tokens from the prompt or local environment.",
-        "suggestion": "Continue to use tokens only for Prisma API requests, avoid displaying them in output, and ask for confirmation before any destructive API call.",
-        "severity": "low"
+        "issue": "The workflow asks users to paste a workspace service token into chat.",
+        "suggestion": "Require secure environment injection or a secret manager. Remove chat-based token collection and redact credentials from tool output and logs.",
+        "severity": "high"
       },
       {
-        "issue": "The workflow writes a database URL to a local environment file.",
-        "suggestion": "Preserve existing entries, verify .env is ignored by Git, and never include the connection string in logs or generated examples.",
-        "severity": "low"
+        "issue": "Bearer tokens are expanded into curl command arguments.",
+        "suggestion": "Use an HTTP client that passes headers without shell interpolation. Ensure the agent and tools redact authorization headers from logs and errors.",
+        "severity": "high"
       },
       {
-        "issue": "The workflow installs and runs project dependencies.",
-        "suggestion": "Show planned package and migration commands before execution and obtain user confirmation when the agent environment requires it.",
-        "severity": "low"
+        "issue": "Quota recovery can permanently delete a selected project and every database.",
+        "suggestion": "Stop after listing projects. Require separate confirmation naming the project and affected databases, and never delete resources automatically.",
+        "severity": "high"
+      },
+      {
+        "issue": "The database credential is appended to a plaintext environment file.",
+        "suggestion": "Verify Git exclusion before writing, update DATABASE_URL without duplication, avoid printing the value, and apply restrictive file permissions.",
+        "severity": "high"
+      },
+      {
+        "issue": "The workflow runs package, provisioning, migration, and verification commands.",
+        "suggestion": "Show each command and its scope before execution. Obtain approval for mutations and pin dependency versions where practical.",
+        "severity": "medium"
       }
     ],
     "risk_factor_evidence": [
@@ -1834,905 +1834,1201 @@
       {
         "id": "network:references/api-basics.md:54:python-http-libraries",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "This documents Prisma Management API or Console URLs required for the stated database-provisioning workflow. No unrelated endpoint, credential exfiltration, or concealed network action is evidenced."
+        "confidence": 0.97,
+        "reason": "This line is prose about resource ID prefixes and does not import or invoke any Python HTTP library."
       },
       {
         "id": "network:references/api-basics.md:8:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "This documents Prisma Management API or Console URLs required for the stated database-provisioning workflow. No unrelated endpoint, credential exfiltration, or concealed network action is evidenced."
+        "confidence": 0.97,
+        "reason": "This is the documented official Prisma API base URL, not an untrusted destination or concealed exfiltration endpoint."
       },
       {
         "id": "blocker:references/api-basics.md:80:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.99,
-        "reason": "This is API error-handling documentation, not system reconnaissance. It describes expected authentication and validation failures for the declared workflow."
+        "confidence": 0.97,
+        "reason": "This line documents an API error and recovery guidance; it does not inspect the host, enumerate system services, or perform reconnaissance."
       },
       {
         "id": "blocker:references/api-basics.md:90:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.99,
-        "reason": "This is API error-handling documentation, not system reconnaissance. It describes expected authentication and validation failures for the declared workflow."
+        "confidence": 0.97,
+        "reason": "This line documents an API error and recovery guidance; it does not inspect the host, enumerate system services, or perform reconnaissance."
       },
       {
         "id": "blocker:references/api-basics.md:99:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.99,
-        "reason": "This is API error-handling documentation, not system reconnaissance. It describes expected authentication and validation failures for the declared workflow."
+        "confidence": 0.97,
+        "reason": "This line documents an API error and recovery guidance; it does not inspect the host, enumerate system services, or perform reconnaissance."
       },
       {
         "id": "blocker:references/api-basics.md:101:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.99,
-        "reason": "This is API error-handling documentation, not system reconnaissance. It describes expected authentication and validation failures for the declared workflow."
+        "confidence": 0.97,
+        "reason": "This line documents an API error and recovery guidance; it does not inspect the host, enumerate system services, or perform reconnaissance."
       },
       {
         "id": "network:references/auth.md:7:python-http-libraries",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "This documents Prisma Management API or Console URLs required for the stated database-provisioning workflow. No unrelated endpoint, credential exfiltration, or concealed network action is evidenced."
+        "confidence": 0.97,
+        "reason": "This line describes service-token scope and contains no Python import, library call, or executable request."
       },
       {
         "id": "network:references/auth.md:28:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "This documents Prisma Management API or Console URLs required for the stated database-provisioning workflow. No unrelated endpoint, credential exfiltration, or concealed network action is evidenced."
+        "confidence": 0.97,
+        "reason": "This example sends a bearer token only to the documented official Prisma API endpoint for the requested service."
       },
       {
         "id": "sensitive:references/auth.md:38:environment-file-access",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "This is scoped guidance for storing or reading the database URL or service token needed by the requested setup. The skill directs users to protect .env with .gitignore and shows no secret disclosure or exfiltration."
+        "confidence": 0.97,
+        "reason": "This line is protective guidance to exclude .env from Git and does not read or expose the file."
       },
       {
         "id": "network:references/endpoints.md:65:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "This documents Prisma Management API or Console URLs required for the stated database-provisioning workflow. No unrelated endpoint, credential exfiltration, or concealed network action is evidenced."
+        "confidence": 0.97,
+        "reason": "This is example response data on the official Prisma API domain, with placeholder identifiers and no unrelated network destination."
       },
       {
         "id": "network:references/endpoints.md:71:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "This documents Prisma Management API or Console URLs required for the stated database-provisioning workflow. No unrelated endpoint, credential exfiltration, or concealed network action is evidenced."
+        "confidence": 0.97,
+        "reason": "This is example response data on the official Prisma API domain, with placeholder identifiers and no unrelated network destination."
       },
       {
         "id": "network:references/endpoints.md:77:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "This documents Prisma Management API or Console URLs required for the stated database-provisioning workflow. No unrelated endpoint, credential exfiltration, or concealed network action is evidenced."
+        "confidence": 0.97,
+        "reason": "This is example response data on the official Prisma API domain, with placeholder identifiers and no unrelated network destination."
       },
       {
         "id": "network:references/endpoints.md:87:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "This documents Prisma Management API or Console URLs required for the stated database-provisioning workflow. No unrelated endpoint, credential exfiltration, or concealed network action is evidenced."
+        "confidence": 0.97,
+        "reason": "This is example response data on the official Prisma API domain, with placeholder identifiers and no unrelated network destination."
       },
       {
         "id": "network:references/endpoints.md:132:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "This documents Prisma Management API or Console URLs required for the stated database-provisioning workflow. No unrelated endpoint, credential exfiltration, or concealed network action is evidenced."
+        "confidence": 0.97,
+        "reason": "This is example response data on the official Prisma API domain, with placeholder identifiers and no unrelated network destination."
       },
       {
         "id": "network:references/endpoints.md:141:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "This documents Prisma Management API or Console URLs required for the stated database-provisioning workflow. No unrelated endpoint, credential exfiltration, or concealed network action is evidenced."
+        "confidence": 0.97,
+        "reason": "This is example response data on the official Prisma API domain, with placeholder identifiers and no unrelated network destination."
       },
       {
         "id": "network:references/endpoints.md:179:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "This documents Prisma Management API or Console URLs required for the stated database-provisioning workflow. No unrelated endpoint, credential exfiltration, or concealed network action is evidenced."
+        "confidence": 0.97,
+        "reason": "This is example response data on the official Prisma API domain, with placeholder identifiers and no unrelated network destination."
       },
       {
         "id": "network:references/endpoints.md:192:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "This documents Prisma Management API or Console URLs required for the stated database-provisioning workflow. No unrelated endpoint, credential exfiltration, or concealed network action is evidenced."
+        "confidence": 0.97,
+        "reason": "This is example response data on the official Prisma API domain, with placeholder identifiers and no unrelated network destination."
       },
       {
         "id": "env_access:references/endpoints.md:111:database-connection-strings",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "This is scoped guidance for storing or reading the database URL or service token needed by the requested setup. The skill directs users to protect .env with .gitignore and shows no secret disclosure or exfiltration."
+        "confidence": 0.97,
+        "reason": "This documentation names an API response field and placeholder environment variable; it contains no live credential or exfiltration behavior."
       },
       {
         "id": "env_access:references/endpoints.md:199:database-connection-strings",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "This is scoped guidance for storing or reading the database URL or service token needed by the requested setup. The skill directs users to protect .env with .gitignore and shows no secret disclosure or exfiltration."
+        "confidence": 0.97,
+        "reason": "This documentation names an API response field and placeholder environment variable; it contains no live credential or exfiltration behavior."
       },
       {
         "id": "env_access:references/prisma7-client.md:22:environment-variable-access-dot-notation",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "This is scoped guidance for storing or reading the database URL or service token needed by the requested setup. The skill directs users to protect .env with .gitignore and shows no secret disclosure or exfiltration."
+        "confidence": 0.97,
+        "reason": "This code reads only DATABASE_URL for local Prisma configuration and does not enumerate, print, or transmit the environment."
       },
       {
         "id": "env_access:references/prisma7-client.md:45:environment-variable-access-dot-notation",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "This is scoped guidance for storing or reading the database URL or service token needed by the requested setup. The skill directs users to protect .env with .gitignore and shows no secret disclosure or exfiltration."
+        "confidence": 0.97,
+        "reason": "This code reads only DATABASE_URL for local Prisma configuration and does not enumerate, print, or transmit the environment."
       },
       {
         "id": "env_access:references/prisma7-client.md:22:environment-variable-object",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "This is scoped guidance for storing or reading the database URL or service token needed by the requested setup. The skill directs users to protect .env with .gitignore and shows no secret disclosure or exfiltration."
+        "confidence": 0.97,
+        "reason": "This code reads only DATABASE_URL for local Prisma configuration and does not enumerate, print, or transmit the environment."
       },
       {
         "id": "env_access:references/prisma7-client.md:45:environment-variable-object",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "This is scoped guidance for storing or reading the database URL or service token needed by the requested setup. The skill directs users to protect .env with .gitignore and shows no secret disclosure or exfiltration."
+        "confidence": 0.97,
+        "reason": "This code reads only DATABASE_URL for local Prisma configuration and does not enumerate, print, or transmit the environment."
       },
       {
         "id": "env_access:references/prisma7-client.md:17:dotenv-library",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "This is scoped guidance for storing or reading the database URL or service token needed by the requested setup. The skill directs users to protect .env with .gitignore and shows no secret disclosure or exfiltration."
+        "confidence": 0.97,
+        "reason": "This is a conventional dotenv import or package description for local configuration, with no broad secret enumeration or exfiltration."
       },
       {
         "id": "env_access:references/prisma7-client.md:40:dotenv-library",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "This is scoped guidance for storing or reading the database URL or service token needed by the requested setup. The skill directs users to protect .env with .gitignore and shows no secret disclosure or exfiltration."
+        "confidence": 0.97,
+        "reason": "This is a conventional dotenv import or package description for local configuration, with no broad secret enumeration or exfiltration."
       },
       {
         "id": "env_access:references/prisma7-client.md:22:database-connection-strings",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "This is scoped guidance for storing or reading the database URL or service token needed by the requested setup. The skill directs users to protect .env with .gitignore and shows no secret disclosure or exfiltration."
+        "confidence": 0.97,
+        "reason": "This standard client example reads one named database variable locally and passes it to the PostgreSQL driver without exposing its value."
       },
       {
         "id": "env_access:references/prisma7-client.md:45:database-connection-strings",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "This is scoped guidance for storing or reading the database URL or service token needed by the requested setup. The skill directs users to protect .env with .gitignore and shows no secret disclosure or exfiltration."
+        "confidence": 0.97,
+        "reason": "This standard client example reads one named database variable locally and passes it to the PostgreSQL driver without exposing its value."
       },
       {
         "id": "sensitive:references/prisma7-client.md:22:environment-file-access",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "This is scoped guidance for storing or reading the database URL or service token needed by the requested setup. The skill directs users to protect .env with .gitignore and shows no secret disclosure or exfiltration."
+        "confidence": 0.97,
+        "reason": "This client example reads DATABASE_URL through process.env and does not directly open, enumerate, print, or transmit an environment file."
       },
       {
         "id": "sensitive:references/prisma7-client.md:45:environment-file-access",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "This is scoped guidance for storing or reading the database URL or service token needed by the requested setup. The skill directs users to protect .env with .gitignore and shows no secret disclosure or exfiltration."
+        "confidence": 0.97,
+        "reason": "This client example reads DATABASE_URL through process.env and does not directly open, enumerate, print, or transmit an environment file."
       },
       {
         "id": "external_commands:SKILL.md:25:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.99,
-        "reason": "This is Markdown documentation or a fenced command example, not Ruby or shell code executed by the skill. Commands support the requested local setup and contain no hidden execution path."
+        "confidence": 0.97,
+        "reason": "The scanner matched Markdown backticks around prose, a path, an identifier, or a non-shell fence; this span contains no shell execution."
       },
       {
         "id": "external_commands:SKILL.md:26:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.99,
-        "reason": "This is Markdown documentation or a fenced command example, not Ruby or shell code executed by the skill. Commands support the requested local setup and contain no hidden execution path."
+        "confidence": 0.97,
+        "reason": "The scanner matched Markdown backticks around prose, a path, an identifier, or a non-shell fence; this span contains no shell execution."
       },
       {
         "id": "external_commands:SKILL.md:33:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.99,
-        "reason": "This is Markdown documentation or a fenced command example, not Ruby or shell code executed by the skill. Commands support the requested local setup and contain no hidden execution path."
+        "confidence": 0.97,
+        "reason": "The scanner matched Markdown backticks around prose, a path, an identifier, or a non-shell fence; this span contains no shell execution."
       },
       {
         "id": "external_commands:SKILL.md:37:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.99,
-        "reason": "This is Markdown documentation or a fenced command example, not Ruby or shell code executed by the skill. Commands support the requested local setup and contain no hidden execution path."
+        "confidence": 0.97,
+        "reason": "The scanner matched Markdown backticks around prose, a path, an identifier, or a non-shell fence; this span contains no shell execution."
       },
       {
         "id": "external_commands:SKILL.md:53:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.99,
-        "reason": "This is Markdown documentation or a fenced command example, not Ruby or shell code executed by the skill. Commands support the requested local setup and contain no hidden execution path."
+        "confidence": 0.97,
+        "reason": "The scanner matched Markdown backticks around prose, a path, an identifier, or a non-shell fence; this span contains no shell execution."
       },
       {
         "id": "external_commands:SKILL.md:62:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.99,
-        "reason": "This is Markdown documentation or a fenced command example, not Ruby or shell code executed by the skill. Commands support the requested local setup and contain no hidden execution path."
+        "confidence": 0.97,
+        "reason": "The scanner matched Markdown backticks around prose, a path, an identifier, or a non-shell fence; this span contains no shell execution."
       },
       {
         "id": "external_commands:SKILL.md:64:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.99,
-        "reason": "This is Markdown documentation or a fenced command example, not Ruby or shell code executed by the skill. Commands support the requested local setup and contain no hidden execution path."
+        "confidence": 0.97,
+        "reason": "The scanner matched Markdown backticks around prose, a path, an identifier, or a non-shell fence; this span contains no shell execution."
       },
       {
         "id": "external_commands:SKILL.md:70:ruby-shell-backtick-execution",
-        "verdict": "false_positive",
-        "confidence": 0.99,
-        "reason": "This is Markdown documentation or a fenced command example, not Ruby or shell code executed by the skill. Commands support the requested local setup and contain no hidden execution path."
+        "verdict": "confirmed",
+        "confidence": 0.98,
+        "reason": "This fenced Bash span runs curl with a bearer token against Prisma, creating command-line credential exposure and an authenticated network action.",
+        "severity": "medium"
       },
       {
         "id": "external_commands:SKILL.md:73:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.99,
-        "reason": "This is Markdown documentation or a fenced command example, not Ruby or shell code executed by the skill. Commands support the requested local setup and contain no hidden execution path."
+        "confidence": 0.97,
+        "reason": "The scanner matched Markdown backticks around prose, a path, an identifier, or a non-shell fence; this span contains no shell execution."
       },
       {
         "id": "external_commands:SKILL.md:75:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.99,
-        "reason": "This is Markdown documentation or a fenced command example, not Ruby or shell code executed by the skill. Commands support the requested local setup and contain no hidden execution path."
+        "confidence": 0.97,
+        "reason": "The scanner matched Markdown backticks around prose, a path, an identifier, or a non-shell fence; this span contains no shell execution."
       },
       {
         "id": "external_commands:SKILL.md:79:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.99,
-        "reason": "This is Markdown documentation or a fenced command example, not Ruby or shell code executed by the skill. Commands support the requested local setup and contain no hidden execution path."
+        "confidence": 0.97,
+        "reason": "This span contains documentation and a Markdown fence; the actual curl command starts in the separately adjudicated line 83 finding."
       },
       {
         "id": "external_commands:SKILL.md:83:ruby-shell-backtick-execution",
-        "verdict": "false_positive",
-        "confidence": 0.99,
-        "reason": "This is Markdown documentation or a fenced command example, not Ruby or shell code executed by the skill. Commands support the requested local setup and contain no hidden execution path."
+        "verdict": "confirmed",
+        "confidence": 0.98,
+        "reason": "This fenced Bash span performs an authenticated POST that creates remote Prisma resources and expands the bearer token into command arguments.",
+        "severity": "medium"
       },
       {
         "id": "external_commands:SKILL.md:92:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.99,
-        "reason": "This is Markdown documentation or a fenced command example, not Ruby or shell code executed by the skill. Commands support the requested local setup and contain no hidden execution path."
+        "confidence": 0.97,
+        "reason": "The scanner matched Markdown backticks around prose, a path, an identifier, or a non-shell fence; this span contains no shell execution."
       },
       {
         "id": "external_commands:SKILL.md:96:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.99,
-        "reason": "This is Markdown documentation or a fenced command example, not Ruby or shell code executed by the skill. Commands support the requested local setup and contain no hidden execution path."
+        "confidence": 0.97,
+        "reason": "The scanner matched Markdown backticks around prose, a path, an identifier, or a non-shell fence; this span contains no shell execution."
       },
       {
         "id": "external_commands:SKILL.md:98:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.99,
-        "reason": "This is Markdown documentation or a fenced command example, not Ruby or shell code executed by the skill. Commands support the requested local setup and contain no hidden execution path."
+        "confidence": 0.97,
+        "reason": "The scanner matched Markdown backticks around prose, a path, an identifier, or a non-shell fence; this span contains no shell execution."
       },
       {
         "id": "external_commands:SKILL.md:99:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.99,
-        "reason": "This is Markdown documentation or a fenced command example, not Ruby or shell code executed by the skill. Commands support the requested local setup and contain no hidden execution path."
+        "confidence": 0.97,
+        "reason": "The scanner matched Markdown backticks around prose, a path, an identifier, or a non-shell fence; this span contains no shell execution."
       },
       {
         "id": "external_commands:SKILL.md:100:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.99,
-        "reason": "This is Markdown documentation or a fenced command example, not Ruby or shell code executed by the skill. Commands support the requested local setup and contain no hidden execution path."
+        "confidence": 0.97,
+        "reason": "The scanner matched Markdown backticks around prose, a path, an identifier, or a non-shell fence; this span contains no shell execution."
       },
       {
         "id": "external_commands:SKILL.md:102:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.99,
-        "reason": "This is Markdown documentation or a fenced command example, not Ruby or shell code executed by the skill. Commands support the requested local setup and contain no hidden execution path."
+        "confidence": 0.97,
+        "reason": "The scanner matched Markdown backticks around prose, a path, an identifier, or a non-shell fence; this span contains no shell execution."
       },
       {
         "id": "external_commands:SKILL.md:104:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.99,
-        "reason": "This is Markdown documentation or a fenced command example, not Ruby or shell code executed by the skill. Commands support the requested local setup and contain no hidden execution path."
+        "confidence": 0.97,
+        "reason": "The scanner matched Markdown backticks around prose, a path, an identifier, or a non-shell fence; this span contains no shell execution."
       },
       {
         "id": "external_commands:SKILL.md:108:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.99,
-        "reason": "This is Markdown documentation or a fenced command example, not Ruby or shell code executed by the skill. Commands support the requested local setup and contain no hidden execution path."
+        "confidence": 0.97,
+        "reason": "This span contains a reference link and a Markdown fence; the actual curl command is covered by the line 114 finding."
       },
       {
         "id": "external_commands:SKILL.md:114:ruby-shell-backtick-execution",
-        "verdict": "false_positive",
-        "confidence": 0.99,
-        "reason": "This is Markdown documentation or a fenced command example, not Ruby or shell code executed by the skill. Commands support the requested local setup and contain no hidden execution path."
+        "verdict": "confirmed",
+        "confidence": 0.98,
+        "reason": "This fenced Bash span performs an authenticated POST that creates a named database connection and returns a new credential.",
+        "severity": "medium"
       },
       {
         "id": "external_commands:SKILL.md:119:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.99,
-        "reason": "This is Markdown documentation or a fenced command example, not Ruby or shell code executed by the skill. Commands support the requested local setup and contain no hidden execution path."
+        "confidence": 0.97,
+        "reason": "The scanner matched Markdown backticks around prose, a path, an identifier, or a non-shell fence; this span contains no shell execution."
       },
       {
         "id": "external_commands:SKILL.md:121:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.99,
-        "reason": "This is Markdown documentation or a fenced command example, not Ruby or shell code executed by the skill. Commands support the requested local setup and contain no hidden execution path."
+        "confidence": 0.97,
+        "reason": "This span documents a response field and opens a Markdown fence; the install command is covered by the line 127 finding."
       },
       {
         "id": "external_commands:SKILL.md:127:ruby-shell-backtick-execution",
-        "verdict": "false_positive",
-        "confidence": 0.99,
-        "reason": "This is Markdown documentation or a fenced command example, not Ruby or shell code executed by the skill. Commands support the requested local setup and contain no hidden execution path."
+        "verdict": "confirmed",
+        "confidence": 0.98,
+        "reason": "The npm install command modifies project dependencies and can execute package lifecycle scripts, so it is real external command execution.",
+        "severity": "medium"
       },
       {
         "id": "external_commands:SKILL.md:129:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.99,
-        "reason": "This is Markdown documentation or a fenced command example, not Ruby or shell code executed by the skill. Commands support the requested local setup and contain no hidden execution path."
+        "confidence": 0.97,
+        "reason": "The scanner matched Markdown backticks around prose, a path, an identifier, or a non-shell fence; this span contains no shell execution."
       },
       {
         "id": "external_commands:SKILL.md:132:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.99,
-        "reason": "This is Markdown documentation or a fenced command example, not Ruby or shell code executed by the skill. Commands support the requested local setup and contain no hidden execution path."
+        "confidence": 0.97,
+        "reason": "The scanner matched Markdown backticks around prose, a path, an identifier, or a non-shell fence; this span contains no shell execution."
       },
       {
         "id": "external_commands:SKILL.md:133:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.99,
-        "reason": "This is Markdown documentation or a fenced command example, not Ruby or shell code executed by the skill. Commands support the requested local setup and contain no hidden execution path."
+        "confidence": 0.97,
+        "reason": "The scanner matched Markdown backticks around prose, a path, an identifier, or a non-shell fence; this span contains no shell execution."
       },
       {
         "id": "external_commands:SKILL.md:134:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.99,
-        "reason": "This is Markdown documentation or a fenced command example, not Ruby or shell code executed by the skill. Commands support the requested local setup and contain no hidden execution path."
+        "confidence": 0.97,
+        "reason": "The scanner matched Markdown backticks around prose, a path, an identifier, or a non-shell fence; this span contains no shell execution."
       },
       {
         "id": "external_commands:SKILL.md:135:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.99,
-        "reason": "This is Markdown documentation or a fenced command example, not Ruby or shell code executed by the skill. Commands support the requested local setup and contain no hidden execution path."
+        "confidence": 0.97,
+        "reason": "The scanner matched Markdown backticks around prose, a path, an identifier, or a non-shell fence; this span contains no shell execution."
       },
       {
         "id": "external_commands:SKILL.md:136:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.99,
-        "reason": "This is Markdown documentation or a fenced command example, not Ruby or shell code executed by the skill. Commands support the requested local setup and contain no hidden execution path."
+        "confidence": 0.97,
+        "reason": "The scanner matched Markdown backticks around prose, a path, an identifier, or a non-shell fence; this span contains no shell execution."
       },
       {
         "id": "external_commands:SKILL.md:138:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.99,
-        "reason": "This is Markdown documentation or a fenced command example, not Ruby or shell code executed by the skill. Commands support the requested local setup and contain no hidden execution path."
+        "confidence": 0.97,
+        "reason": "The scanner matched Markdown backticks around prose, a path, an identifier, or a non-shell fence; this span contains no shell execution."
       },
       {
         "id": "external_commands:SKILL.md:140:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.99,
-        "reason": "This is Markdown documentation or a fenced command example, not Ruby or shell code executed by the skill. Commands support the requested local setup and contain no hidden execution path."
+        "confidence": 0.97,
+        "reason": "The scanner matched Markdown backticks around prose, a path, an identifier, or a non-shell fence; this span contains no shell execution."
       },
       {
         "id": "external_commands:SKILL.md:142:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.99,
-        "reason": "This is Markdown documentation or a fenced command example, not Ruby or shell code executed by the skill. Commands support the requested local setup and contain no hidden execution path."
+        "confidence": 0.97,
+        "reason": "The scanner matched Markdown backticks around prose, a path, an identifier, or a non-shell fence; this span contains no shell execution."
       },
       {
         "id": "external_commands:SKILL.md:144:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.99,
-        "reason": "This is Markdown documentation or a fenced command example, not Ruby or shell code executed by the skill. Commands support the requested local setup and contain no hidden execution path."
+        "confidence": 0.97,
+        "reason": "The scanner matched Markdown backticks around prose, a path, an identifier, or a non-shell fence; this span contains no shell execution."
       },
       {
         "id": "external_commands:SKILL.md:146:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.99,
-        "reason": "This is Markdown documentation or a fenced command example, not Ruby or shell code executed by the skill. Commands support the requested local setup and contain no hidden execution path."
+        "confidence": 0.97,
+        "reason": "The scanner matched Markdown backticks around prose, a path, an identifier, or a non-shell fence; this span contains no shell execution."
       },
       {
         "id": "external_commands:SKILL.md:148:ruby-shell-backtick-execution",
-        "verdict": "false_positive",
-        "confidence": 0.99,
-        "reason": "This is Markdown documentation or a fenced command example, not Ruby or shell code executed by the skill. Commands support the requested local setup and contain no hidden execution path."
+        "verdict": "confirmed",
+        "confidence": 0.98,
+        "reason": "The npx command executes the Prisma CLI and writes project files, with possible package download when the binary is unavailable locally.",
+        "severity": "medium"
       },
       {
         "id": "external_commands:SKILL.md:150:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.99,
-        "reason": "This is Markdown documentation or a fenced command example, not Ruby or shell code executed by the skill. Commands support the requested local setup and contain no hidden execution path."
+        "confidence": 0.97,
+        "reason": "The scanner matched Markdown backticks around prose, a path, an identifier, or a non-shell fence; this span contains no shell execution."
       },
       {
         "id": "external_commands:SKILL.md:152:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.99,
-        "reason": "This is Markdown documentation or a fenced command example, not Ruby or shell code executed by the skill. Commands support the requested local setup and contain no hidden execution path."
+        "confidence": 0.97,
+        "reason": "The scanner matched Markdown backticks around prose, a path, an identifier, or a non-shell fence; this span contains no shell execution."
       },
       {
         "id": "external_commands:SKILL.md:156:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.99,
-        "reason": "This is Markdown documentation or a fenced command example, not Ruby or shell code executed by the skill. Commands support the requested local setup and contain no hidden execution path."
+        "confidence": 0.97,
+        "reason": "The scanner matched Markdown backticks around prose, a path, an identifier, or a non-shell fence; this span contains no shell execution."
       },
       {
         "id": "external_commands:SKILL.md:158:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.99,
-        "reason": "This is Markdown documentation or a fenced command example, not Ruby or shell code executed by the skill. Commands support the requested local setup and contain no hidden execution path."
+        "confidence": 0.97,
+        "reason": "The scanner matched Markdown backticks around prose, a path, an identifier, or a non-shell fence; this span contains no shell execution."
       },
       {
         "id": "external_commands:SKILL.md:160:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.99,
-        "reason": "This is Markdown documentation or a fenced command example, not Ruby or shell code executed by the skill. Commands support the requested local setup and contain no hidden execution path."
+        "confidence": 0.97,
+        "reason": "The scanner matched Markdown backticks around prose, a path, an identifier, or a non-shell fence; this span contains no shell execution."
       },
       {
         "id": "external_commands:SKILL.md:172:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.99,
-        "reason": "This is Markdown documentation or a fenced command example, not Ruby or shell code executed by the skill. Commands support the requested local setup and contain no hidden execution path."
+        "confidence": 0.97,
+        "reason": "The scanner matched Markdown backticks around prose, a path, an identifier, or a non-shell fence; this span contains no shell execution."
       },
       {
         "id": "external_commands:SKILL.md:175:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.99,
-        "reason": "This is Markdown documentation or a fenced command example, not Ruby or shell code executed by the skill. Commands support the requested local setup and contain no hidden execution path."
+        "confidence": 0.97,
+        "reason": "The scanner matched Markdown backticks around prose, a path, an identifier, or a non-shell fence; this span contains no shell execution."
       },
       {
         "id": "external_commands:SKILL.md:176:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.99,
-        "reason": "This is Markdown documentation or a fenced command example, not Ruby or shell code executed by the skill. Commands support the requested local setup and contain no hidden execution path."
+        "confidence": 0.97,
+        "reason": "The scanner matched Markdown backticks around prose, a path, an identifier, or a non-shell fence; this span contains no shell execution."
       },
       {
         "id": "external_commands:SKILL.md:177:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.99,
-        "reason": "This is Markdown documentation or a fenced command example, not Ruby or shell code executed by the skill. Commands support the requested local setup and contain no hidden execution path."
+        "confidence": 0.97,
+        "reason": "The scanner matched Markdown backticks around prose, a path, an identifier, or a non-shell fence; this span contains no shell execution."
       },
       {
         "id": "external_commands:SKILL.md:183:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.99,
-        "reason": "This is Markdown documentation or a fenced command example, not Ruby or shell code executed by the skill. Commands support the requested local setup and contain no hidden execution path."
+        "confidence": 0.97,
+        "reason": "The scanner matched Markdown backticks around prose, a path, an identifier, or a non-shell fence; this span contains no shell execution."
       },
       {
         "id": "external_commands:SKILL.md:184:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.99,
-        "reason": "This is Markdown documentation or a fenced command example, not Ruby or shell code executed by the skill. Commands support the requested local setup and contain no hidden execution path."
+        "confidence": 0.97,
+        "reason": "This span describes schema choices and opens a Bash fence; the migration command is covered by the line 189 finding."
       },
       {
         "id": "external_commands:SKILL.md:189:ruby-shell-backtick-execution",
-        "verdict": "false_positive",
-        "confidence": 0.99,
-        "reason": "This is Markdown documentation or a fenced command example, not Ruby or shell code executed by the skill. Commands support the requested local setup and contain no hidden execution path."
+        "verdict": "confirmed",
+        "confidence": 0.98,
+        "reason": "The migration command executes Prisma tooling, writes migration files, and changes the connected database schema.",
+        "severity": "medium"
       },
       {
         "id": "external_commands:SKILL.md:191:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.99,
-        "reason": "This is Markdown documentation or a fenced command example, not Ruby or shell code executed by the skill. Commands support the requested local setup and contain no hidden execution path."
+        "confidence": 0.97,
+        "reason": "The scanner matched Markdown backticks around prose, a path, an identifier, or a non-shell fence; this span contains no shell execution."
       },
       {
         "id": "external_commands:SKILL.md:193:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.99,
-        "reason": "This is Markdown documentation or a fenced command example, not Ruby or shell code executed by the skill. Commands support the requested local setup and contain no hidden execution path."
+        "confidence": 0.97,
+        "reason": "The scanner matched Markdown backticks around prose, a path, an identifier, or a non-shell fence; this span contains no shell execution."
       },
       {
         "id": "external_commands:SKILL.md:195:ruby-shell-backtick-execution",
-        "verdict": "false_positive",
-        "confidence": 0.99,
-        "reason": "This is Markdown documentation or a fenced command example, not Ruby or shell code executed by the skill. Commands support the requested local setup and contain no hidden execution path."
+        "verdict": "confirmed",
+        "confidence": 0.98,
+        "reason": "The documented npx commands can push schema changes directly and regenerate client artifacts, causing real local and database modifications.",
+        "severity": "medium"
       },
       {
         "id": "external_commands:SKILL.md:201:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.99,
-        "reason": "This is Markdown documentation or a fenced command example, not Ruby or shell code executed by the skill. Commands support the requested local setup and contain no hidden execution path."
+        "confidence": 0.97,
+        "reason": "The scanner matched Markdown backticks around prose, a path, an identifier, or a non-shell fence; this span contains no shell execution."
       },
       {
         "id": "external_commands:SKILL.md:203:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.99,
-        "reason": "This is Markdown documentation or a fenced command example, not Ruby or shell code executed by the skill. Commands support the requested local setup and contain no hidden execution path."
+        "confidence": 0.97,
+        "reason": "This is TypeScript client example code without shell invocation or process spawning; its later execution command is adjudicated separately."
       },
       {
         "id": "external_commands:SKILL.md:218:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.99,
-        "reason": "This is Markdown documentation or a fenced command example, not Ruby or shell code executed by the skill. Commands support the requested local setup and contain no hidden execution path."
+        "confidence": 0.97,
+        "reason": "The scanner matched Markdown backticks around prose, a path, an identifier, or a non-shell fence; this span contains no shell execution."
       },
       {
         "id": "external_commands:SKILL.md:222:ruby-shell-backtick-execution",
-        "verdict": "false_positive",
-        "confidence": 0.99,
-        "reason": "This is Markdown documentation or a fenced command example, not Ruby or shell code executed by the skill. Commands support the requested local setup and contain no hidden execution path."
+        "verdict": "confirmed",
+        "confidence": 0.98,
+        "reason": "The npx command executes a generated TypeScript file with database credentials and issues a query against the provisioned database.",
+        "severity": "medium"
       },
       {
         "id": "external_commands:SKILL.md:224:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.99,
-        "reason": "This is Markdown documentation or a fenced command example, not Ruby or shell code executed by the skill. Commands support the requested local setup and contain no hidden execution path."
+        "confidence": 0.97,
+        "reason": "The scanner matched Markdown backticks around prose, a path, an identifier, or a non-shell fence; this span contains no shell execution."
       },
       {
         "id": "external_commands:SKILL.md:227:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.99,
-        "reason": "This is Markdown documentation or a fenced command example, not Ruby or shell code executed by the skill. Commands support the requested local setup and contain no hidden execution path."
+        "confidence": 0.97,
+        "reason": "The scanner matched Markdown backticks around prose, a path, an identifier, or a non-shell fence; this span contains no shell execution."
       },
       {
         "id": "external_commands:SKILL.md:228:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.99,
-        "reason": "This is Markdown documentation or a fenced command example, not Ruby or shell code executed by the skill. Commands support the requested local setup and contain no hidden execution path."
+        "confidence": 0.97,
+        "reason": "The scanner matched Markdown backticks around prose, a path, an identifier, or a non-shell fence; this span contains no shell execution."
       },
       {
         "id": "external_commands:SKILL.md:229:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.99,
-        "reason": "This is Markdown documentation or a fenced command example, not Ruby or shell code executed by the skill. Commands support the requested local setup and contain no hidden execution path."
+        "confidence": 0.97,
+        "reason": "The scanner matched Markdown backticks around prose, a path, an identifier, or a non-shell fence; this span contains no shell execution."
       },
       {
         "id": "external_commands:SKILL.md:230:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.99,
-        "reason": "This is Markdown documentation or a fenced command example, not Ruby or shell code executed by the skill. Commands support the requested local setup and contain no hidden execution path."
+        "confidence": 0.97,
+        "reason": "The scanner matched Markdown backticks around prose, a path, an identifier, or a non-shell fence; this span contains no shell execution."
       },
       {
         "id": "external_commands:SKILL.md:231:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.99,
-        "reason": "This is Markdown documentation or a fenced command example, not Ruby or shell code executed by the skill. Commands support the requested local setup and contain no hidden execution path."
+        "confidence": 0.97,
+        "reason": "The scanner matched Markdown backticks around prose, a path, an identifier, or a non-shell fence; this span contains no shell execution."
       },
       {
         "id": "external_commands:SKILL.md:232:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.99,
-        "reason": "This is Markdown documentation or a fenced command example, not Ruby or shell code executed by the skill. Commands support the requested local setup and contain no hidden execution path."
+        "confidence": 0.97,
+        "reason": "The scanner matched Markdown backticks around prose, a path, an identifier, or a non-shell fence; this span contains no shell execution."
       },
       {
         "id": "external_commands:SKILL.md:234:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.99,
-        "reason": "This is Markdown documentation or a fenced command example, not Ruby or shell code executed by the skill. Commands support the requested local setup and contain no hidden execution path."
+        "confidence": 0.97,
+        "reason": "The scanner matched Markdown backticks around prose, a path, an identifier, or a non-shell fence; this span contains no shell execution."
       },
       {
         "id": "external_commands:SKILL.md:238:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.99,
-        "reason": "This is Markdown documentation or a fenced command example, not Ruby or shell code executed by the skill. Commands support the requested local setup and contain no hidden execution path."
+        "confidence": 0.97,
+        "reason": "This command is presented as an optional user access method to share, not an instruction to execute it automatically."
       },
       {
         "id": "external_commands:SKILL.md:239:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.99,
-        "reason": "This is Markdown documentation or a fenced command example, not Ruby or shell code executed by the skill. Commands support the requested local setup and contain no hidden execution path."
+        "confidence": 0.97,
+        "reason": "The scanner matched Markdown backticks around prose, a path, an identifier, or a non-shell fence; this span contains no shell execution."
       },
       {
         "id": "external_commands:SKILL.md:241:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.99,
-        "reason": "This is Markdown documentation or a fenced command example, not Ruby or shell code executed by the skill. Commands support the requested local setup and contain no hidden execution path."
+        "confidence": 0.97,
+        "reason": "The scanner matched Markdown backticks around prose, a path, an identifier, or a non-shell fence; this span contains no shell execution."
       },
       {
         "id": "external_commands:SKILL.md:245:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.99,
-        "reason": "This is Markdown documentation or a fenced command example, not Ruby or shell code executed by the skill. Commands support the requested local setup and contain no hidden execution path."
+        "confidence": 0.97,
+        "reason": "The scanner matched Markdown backticks around prose, a path, an identifier, or a non-shell fence; this span contains no shell execution."
       },
       {
         "id": "external_commands:SKILL.md:249:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.99,
-        "reason": "This is Markdown documentation or a fenced command example, not Ruby or shell code executed by the skill. Commands support the requested local setup and contain no hidden execution path."
+        "confidence": 0.97,
+        "reason": "The scanner matched Markdown backticks around prose, a path, an identifier, or a non-shell fence; this span contains no shell execution."
       },
       {
         "id": "external_commands:SKILL.md:250:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.99,
-        "reason": "This is Markdown documentation or a fenced command example, not Ruby or shell code executed by the skill. Commands support the requested local setup and contain no hidden execution path."
+        "confidence": 0.97,
+        "reason": "The scanner matched Markdown backticks around prose, a path, an identifier, or a non-shell fence; this span contains no shell execution."
       },
       {
         "id": "external_commands:SKILL.md:251:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.99,
-        "reason": "This is Markdown documentation or a fenced command example, not Ruby or shell code executed by the skill. Commands support the requested local setup and contain no hidden execution path."
+        "confidence": 0.97,
+        "reason": "The scanner matched Markdown backticks around prose, a path, an identifier, or a non-shell fence; this span contains no shell execution."
       },
       {
         "id": "external_commands:SKILL.md:252:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.99,
-        "reason": "This is Markdown documentation or a fenced command example, not Ruby or shell code executed by the skill. Commands support the requested local setup and contain no hidden execution path."
+        "confidence": 0.97,
+        "reason": "The scanner matched Markdown backticks around prose, a path, an identifier, or a non-shell fence; this span contains no shell execution."
       },
       {
         "id": "external_commands:SKILL.md:258:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.99,
-        "reason": "This is Markdown documentation or a fenced command example, not Ruby or shell code executed by the skill. Commands support the requested local setup and contain no hidden execution path."
+        "confidence": 0.97,
+        "reason": "The scanner matched Markdown backticks around prose, a path, an identifier, or a non-shell fence; this span contains no shell execution."
       },
       {
         "id": "network:SKILL.md:32:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "This documents Prisma Management API or Console URLs required for the stated database-provisioning workflow. No unrelated endpoint, credential exfiltration, or concealed network action is evidenced."
+        "confidence": 0.97,
+        "reason": "This is an official Prisma Console link used for workspace setup or database access, not an unrelated external recipient."
       },
       {
         "id": "network:SKILL.md:72:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "This documents Prisma Management API or Console URLs required for the stated database-provisioning workflow. No unrelated endpoint, credential exfiltration, or concealed network action is evidenced."
+        "confidence": 0.97,
+        "reason": "This fixed URL targets the official Prisma API required for the requested provisioning workflow, with no unrelated recipient."
       },
       {
         "id": "network:SKILL.md:84:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "This documents Prisma Management API or Console URLs required for the stated database-provisioning workflow. No unrelated endpoint, credential exfiltration, or concealed network action is evidenced."
+        "confidence": 0.97,
+        "reason": "This fixed URL targets the official Prisma API required for the requested provisioning workflow, with no unrelated recipient."
       },
       {
         "id": "network:SKILL.md:115:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "This documents Prisma Management API or Console URLs required for the stated database-provisioning workflow. No unrelated endpoint, credential exfiltration, or concealed network action is evidenced."
+        "confidence": 0.97,
+        "reason": "This fixed URL targets the official Prisma API required for the requested provisioning workflow, with no unrelated recipient."
       },
       {
         "id": "network:SKILL.md:239:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "This documents Prisma Management API or Console URLs required for the stated database-provisioning workflow. No unrelated endpoint, credential exfiltration, or concealed network action is evidenced."
+        "confidence": 0.97,
+        "reason": "This is an official Prisma Console link used for workspace setup or database access, not an unrelated external recipient."
       },
       {
         "id": "env_access:SKILL.md:169:environment-variable-access-dot-notation",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "This is scoped guidance for storing or reading the database URL or service token needed by the requested setup. The skill directs users to protect .env with .gitignore and shows no secret disclosure or exfiltration."
+        "confidence": 0.97,
+        "reason": "This code reads only DATABASE_URL for local Prisma configuration and does not enumerate, print, or transmit the environment."
       },
       {
         "id": "env_access:SKILL.md:209:environment-variable-access-dot-notation",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "This is scoped guidance for storing or reading the database URL or service token needed by the requested setup. The skill directs users to protect .env with .gitignore and shows no secret disclosure or exfiltration."
+        "confidence": 0.97,
+        "reason": "This code reads only DATABASE_URL for local Prisma configuration and does not enumerate, print, or transmit the environment."
       },
       {
         "id": "env_access:SKILL.md:169:environment-variable-object",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "This is scoped guidance for storing or reading the database URL or service token needed by the requested setup. The skill directs users to protect .env with .gitignore and shows no secret disclosure or exfiltration."
+        "confidence": 0.97,
+        "reason": "This code reads only DATABASE_URL for local Prisma configuration and does not enumerate, print, or transmit the environment."
       },
       {
         "id": "env_access:SKILL.md:209:environment-variable-object",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "This is scoped guidance for storing or reading the database URL or service token needed by the requested setup. The skill directs users to protect .env with .gitignore and shows no secret disclosure or exfiltration."
+        "confidence": 0.97,
+        "reason": "This code reads only DATABASE_URL for local Prisma configuration and does not enumerate, print, or transmit the environment."
       },
       {
         "id": "env_access:SKILL.md:128:dotenv-library",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "This is scoped guidance for storing or reading the database URL or service token needed by the requested setup. The skill directs users to protect .env with .gitignore and shows no secret disclosure or exfiltration."
+        "confidence": 0.97,
+        "reason": "This line installs the documented dotenv dependency; command execution is covered by its separate external-command finding."
       },
       {
         "id": "env_access:SKILL.md:136:dotenv-library",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "This is scoped guidance for storing or reading the database URL or service token needed by the requested setup. The skill directs users to protect .env with .gitignore and shows no secret disclosure or exfiltration."
+        "confidence": 0.97,
+        "reason": "This is a conventional dotenv import or package description for local configuration, with no broad secret enumeration or exfiltration."
       },
       {
         "id": "env_access:SKILL.md:163:dotenv-library",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "This is scoped guidance for storing or reading the database URL or service token needed by the requested setup. The skill directs users to protect .env with .gitignore and shows no secret disclosure or exfiltration."
+        "confidence": 0.97,
+        "reason": "This is a conventional dotenv import or package description for local configuration, with no broad secret enumeration or exfiltration."
       },
       {
         "id": "env_access:SKILL.md:177:dotenv-library",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "This is scoped guidance for storing or reading the database URL or service token needed by the requested setup. The skill directs users to protect .env with .gitignore and shows no secret disclosure or exfiltration."
+        "confidence": 0.97,
+        "reason": "This is a conventional dotenv import or package description for local configuration, with no broad secret enumeration or exfiltration."
       },
       {
         "id": "env_access:SKILL.md:204:dotenv-library",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "This is scoped guidance for storing or reading the database URL or service token needed by the requested setup. The skill directs users to protect .env with .gitignore and shows no secret disclosure or exfiltration."
+        "confidence": 0.97,
+        "reason": "This is a conventional dotenv import or package description for local configuration, with no broad secret enumeration or exfiltration."
       },
       {
         "id": "env_access:SKILL.md:141:database-connection-strings",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "This is scoped guidance for storing or reading the database URL or service token needed by the requested setup. The skill directs users to protect .env with .gitignore and shows no secret disclosure or exfiltration."
+        "confidence": 0.97,
+        "reason": "This is a placeholder environment entry, not a live connection string, and the workflow separately requires Git exclusion."
       },
       {
         "id": "env_access:SKILL.md:169:database-connection-strings",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "This is scoped guidance for storing or reading the database URL or service token needed by the requested setup. The skill directs users to protect .env with .gitignore and shows no secret disclosure or exfiltration."
+        "confidence": 0.97,
+        "reason": "This standard local configuration references DATABASE_URL without printing, transmitting, or embedding a live connection credential."
       },
       {
         "id": "env_access:SKILL.md:209:database-connection-strings",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "This is scoped guidance for storing or reading the database URL or service token needed by the requested setup. The skill directs users to protect .env with .gitignore and shows no secret disclosure or exfiltration."
+        "confidence": 0.97,
+        "reason": "This standard local configuration references DATABASE_URL without printing, transmitting, or embedding a live connection credential."
       },
       {
         "id": "env_access:SKILL.md:228:database-connection-strings",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "This is scoped guidance for storing or reading the database URL or service token needed by the requested setup. The skill directs users to protect .env with .gitignore and shows no secret disclosure or exfiltration."
+        "confidence": 0.97,
+        "reason": "This standard local configuration references DATABASE_URL without printing, transmitting, or embedding a live connection credential."
       },
       {
         "id": "sensitive:SKILL.md:53:environment-file-access",
-        "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "This is scoped guidance for storing or reading the database URL or service token needed by the requested setup. The skill directs users to protect .env with .gitignore and shows no secret disclosure or exfiltration."
+        "verdict": "confirmed",
+        "confidence": 0.99,
+        "reason": "The workflow searches .env for a workspace-scoped service token, giving the agent access to a high-impact credential.",
+        "severity": "high"
       },
       {
         "id": "sensitive:SKILL.md:136:environment-file-access",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "This is scoped guidance for storing or reading the database URL or service token needed by the requested setup. The skill directs users to protect .env with .gitignore and shows no secret disclosure or exfiltration."
+        "confidence": 0.97,
+        "reason": "This line only explains dotenv configuration and contains no direct file read, secret output, or unrelated transmission."
       },
       {
         "id": "sensitive:SKILL.md:138:environment-file-access",
-        "verdict": "false_positive",
+        "verdict": "confirmed",
         "confidence": 0.98,
-        "reason": "This is scoped guidance for storing or reading the database URL or service token needed by the requested setup. The skill directs users to protect .env with .gitignore and shows no secret disclosure or exfiltration."
+        "reason": "The workflow appends a live database connection credential to a plaintext .env file, creating a secret-storage and file-modification risk.",
+        "severity": "high"
       },
       {
         "id": "sensitive:SKILL.md:144:environment-file-access",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "This is scoped guidance for storing or reading the database URL or service token needed by the requested setup. The skill directs users to protect .env with .gitignore and shows no secret disclosure or exfiltration."
+        "confidence": 0.97,
+        "reason": "This line protects secrets by ensuring .env is ignored by Git; it does not disclose environment-file contents."
       },
       {
         "id": "sensitive:SKILL.md:169:environment-file-access",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "This is scoped guidance for storing or reading the database URL or service token needed by the requested setup. The skill directs users to protect .env with .gitignore and shows no secret disclosure or exfiltration."
+        "confidence": 0.97,
+        "reason": "This standard configuration reads only DATABASE_URL and passes it locally to Prisma without printing or transmitting the secret."
       },
       {
         "id": "sensitive:SKILL.md:177:environment-file-access",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "This is scoped guidance for storing or reading the database URL or service token needed by the requested setup. The skill directs users to protect .env with .gitignore and shows no secret disclosure or exfiltration."
+        "confidence": 0.97,
+        "reason": "This line only explains dotenv configuration and contains no direct file read, secret output, or unrelated transmission."
       },
       {
         "id": "sensitive:SKILL.md:209:environment-file-access",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "This is scoped guidance for storing or reading the database URL or service token needed by the requested setup. The skill directs users to protect .env with .gitignore and shows no secret disclosure or exfiltration."
+        "confidence": 0.97,
+        "reason": "This standard configuration reads only DATABASE_URL and passes it locally to Prisma without printing or transmitting the secret."
       },
       {
         "id": "blocker:SKILL.md:249:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.99,
-        "reason": "This is API error-handling documentation, not system reconnaissance. It describes expected authentication and validation failures for the declared workflow."
+        "confidence": 0.97,
+        "reason": "This line documents an API error and recovery guidance; it does not inspect the host, enumerate system services, or perform reconnaissance."
       },
       {
         "id": "blocker:SKILL.md:251:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.99,
-        "reason": "This is API error-handling documentation, not system reconnaissance. It describes expected authentication and validation failures for the declared workflow."
+        "confidence": 0.97,
+        "reason": "This line documents an API error and recovery guidance; it does not inspect the host, enumerate system services, or perform reconnaissance."
       }
     ],
-    "semantic_findings": [],
+    "semantic_findings": [
+      {
+        "title": "Workspace Service Token Requested Through Chat",
+        "description": "The workflow says, \"Copy the token and paste it here,\" placing a workspace-scoped service token in model conversation history. The token grants access to every workspace resource.",
+        "severity": "high",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 47,
+            "line_end": 64
+          },
+          {
+            "file": "references/auth.md",
+            "line_start": 31,
+            "line_end": 40
+          }
+        ],
+        "confidence": 0.99,
+        "confidence_reasoning": "The chat request is explicit, and the authentication reference confirms that the token covers every resource in the workspace."
+      },
+      {
+        "title": "Permanent Project Deletion in Quota Recovery",
+        "description": "When creation reaches the database limit, the workflow deletes the project selected from a menu before retrying. Project deletion permanently removes all databases.",
+        "severity": "high",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 104,
+            "line_end": 108
+          },
+          {
+            "file": "references/endpoints.md",
+            "line_start": 217,
+            "line_end": 223
+          }
+        ],
+        "confidence": 0.97,
+        "confidence_reasoning": "The main workflow directs deletion after selection, and the endpoint reference explicitly states that every project database is permanently deleted."
+      },
+      {
+        "title": "Bearer Token Exposed in Command Arguments",
+        "description": "The curl examples expand the bearer token into command arguments. Local process inspection, shell tracing, or command logging can expose the workspace credential.",
+        "severity": "medium",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 64,
+            "line_end": 72
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 83,
+            "line_end": 86
+          }
+        ],
+        "confidence": 0.92,
+        "confidence_reasoning": "The examples interpolate the shell variable directly into curl header arguments, which exposes the expanded value to local command observability."
+      }
+    ],
     "critical_findings": [],
-    "high_findings": [],
-    "medium_findings": [],
+    "high_findings": [
+      {
+        "title": "Environment file access",
+        "description": "Check for `PRISMA_SERVICE_TOKEN` in the environment or `.env` file.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 53,
+            "line_end": 53
+          }
+        ],
+        "review_kind": "security",
+        "source_category": "sensitive",
+        "source_severity": "high",
+        "confidence": 0.99,
+        "confidence_reasoning": "The workflow searches .env for a workspace-scoped service token, giving the agent access to a high-impact credential."
+      },
+      {
+        "title": "Environment file access",
+        "description": "2. Write the direct connection string to `.env`. **Append** to the file if it already exists — do no",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 138,
+            "line_end": 138
+          }
+        ],
+        "review_kind": "security",
+        "source_category": "sensitive",
+        "source_severity": "high",
+        "confidence": 0.98,
+        "confidence_reasoning": "The workflow appends a live database connection credential to a plaintext .env file, creating a secret-storage and file-modification risk."
+      },
+      {
+        "title": "Workspace Service Token Requested Through Chat",
+        "description": "The workflow says, \"Copy the token and paste it here,\" placing a workspace-scoped service token in model conversation history. The token grants access to every workspace resource.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 47,
+            "line_end": 64
+          },
+          {
+            "file": "references/auth.md",
+            "line_start": 31,
+            "line_end": 40
+          }
+        ],
+        "review_kind": "security",
+        "source_category": "semantic",
+        "source_severity": "high",
+        "confidence": 0.99,
+        "confidence_reasoning": "The chat request is explicit, and the authentication reference confirms that the token covers every resource in the workspace."
+      },
+      {
+        "title": "Permanent Project Deletion in Quota Recovery",
+        "description": "When creation reaches the database limit, the workflow deletes the project selected from a menu before retrying. Project deletion permanently removes all databases.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 104,
+            "line_end": 108
+          },
+          {
+            "file": "references/endpoints.md",
+            "line_start": 217,
+            "line_end": 223
+          }
+        ],
+        "review_kind": "security",
+        "source_category": "semantic",
+        "source_severity": "high",
+        "confidence": 0.97,
+        "confidence_reasoning": "The main workflow directs deletion after selection, and the endpoint reference explicitly states that every project database is permanently deleted."
+      }
+    ],
+    "medium_findings": [
+      {
+        "title": "Ruby/shell backtick execution",
+        "description": "```bash",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 70,
+            "line_end": 73
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "external_commands",
+        "source_severity": "medium",
+        "confidence": 0.98,
+        "confidence_reasoning": "This fenced Bash span runs curl with a bearer token against Prisma, creating command-line credential exposure and an authenticated network action."
+      },
+      {
+        "title": "Ruby/shell backtick execution",
+        "description": "```bash",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 83,
+            "line_end": 92
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "external_commands",
+        "source_severity": "medium",
+        "confidence": 0.98,
+        "confidence_reasoning": "This fenced Bash span performs an authenticated POST that creates remote Prisma resources and expands the bearer token into command arguments."
+      },
+      {
+        "title": "Ruby/shell backtick execution",
+        "description": "```bash",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 114,
+            "line_end": 119
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "external_commands",
+        "source_severity": "medium",
+        "confidence": 0.98,
+        "confidence_reasoning": "This fenced Bash span performs an authenticated POST that creates a named database connection and returns a new credential."
+      },
+      {
+        "title": "Ruby/shell backtick execution",
+        "description": "```bash",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 127,
+            "line_end": 129
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "external_commands",
+        "source_severity": "medium",
+        "confidence": 0.98,
+        "confidence_reasoning": "The npm install command modifies project dependencies and can execute package lifecycle scripts, so it is real external command execution."
+      },
+      {
+        "title": "Ruby/shell backtick execution",
+        "description": "5. If `prisma/schema.prisma` does not exist, run `npx prisma init` to scaffold the project. This cre",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 148,
+            "line_end": 148
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "external_commands",
+        "source_severity": "medium",
+        "confidence": 0.98,
+        "confidence_reasoning": "The npx command executes the Prisma CLI and writes project files, with possible package download when the binary is unavailable locally."
+      },
+      {
+        "title": "Ruby/shell backtick execution",
+        "description": "```bash",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 189,
+            "line_end": 191
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "external_commands",
+        "source_severity": "medium",
+        "confidence": 0.98,
+        "confidence_reasoning": "The migration command executes Prisma tooling, writes migration files, and changes the connected database schema."
+      },
+      {
+        "title": "Ruby/shell backtick execution",
+        "description": "Only use `npx prisma db push` if the user explicitly asks for prototyping-only mode (no migration hi",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 195,
+            "line_end": 195
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "external_commands",
+        "source_severity": "medium",
+        "confidence": 0.98,
+        "confidence_reasoning": "The documented npx commands can push schema changes directly and regenerate client artifacts, causing real local and database modifications."
+      },
+      {
+        "title": "Ruby/shell backtick execution",
+        "description": "```bash",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 222,
+            "line_end": 224
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "external_commands",
+        "source_severity": "medium",
+        "confidence": 0.98,
+        "confidence_reasoning": "The npx command executes a generated TypeScript file with database credentials and issues a query against the provisioned database."
+      },
+      {
+        "title": "Bearer Token Exposed in Command Arguments",
+        "description": "The curl examples expand the bearer token into command arguments. Local process inspection, shell tracing, or command logging can expose the workspace credential.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 64,
+            "line_end": 72
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 83,
+            "line_end": 86
+          }
+        ],
+        "review_kind": "security",
+        "source_category": "semantic",
+        "source_severity": "medium",
+        "confidence": 0.92,
+        "confidence_reasoning": "The examples interpolate the shell variable directly into curl header arguments, which exposes the expanded value to local command observability."
+      }
+    ],
     "low_findings": [],
     "dangerous_patterns": [],
     "files_scanned": 5,
     "total_lines": 721,
-    "audit_model": "claude",
-    "audited_at": "2026-07-21T10:22:08.560Z",
-    "agent_auto_install_policy": "allowed",
+    "audit_model": "codex",
+    "audited_at": "2026-07-23T17:58:14.330Z",
+    "agent_auto_install_policy": "confirmation_required",
     "manual_install_policy": "allowed"
   },
   "content": {
-    "user_title": "Provision a Prisma Postgres database",
-    "value_statement": "Creating a database, configuring credentials, and preparing a Prisma project requires several coordinated steps. This skill guides the complete Prisma Postgres setup workflow with interactive choices and connection verification.",
+    "user_title": "Provision Prisma Postgres for Local Projects",
+    "value_statement": "Manual database provisioning and Prisma 7 configuration require several coordinated API, dependency, and migration steps. This skill guides the complete setup and verification workflow.",
     "seo_keywords": [
       "Claude",
       "Codex",
       "Claude Code",
       "Prisma Postgres",
-      "Prisma 7",
-      "PostgreSQL setup",
-      "database provisioning",
+      "Prisma 7 setup",
+      "PostgreSQL database provisioning",
       "Prisma Management API",
-      "DATABASE_URL",
-      "Prisma migrations"
+      "database migration",
+      "Node.js ORM"
     ],
     "actual_capabilities": [
-      "Lists available Prisma Postgres regions and presents selectable options.",
-      "Creates a Prisma project and database through the Prisma Management API.",
-      "Extracts the direct connection string for local configuration.",
-      "Configures .env, .gitignore, prisma.config.ts, and the PostgreSQL datasource.",
-      "Installs required Prisma 7 and PostgreSQL adapter dependencies.",
-      "Creates a migration, generates the client, and verifies the database connection."
+      "Lists available Prisma Postgres regions and helps users select an available location.",
+      "Creates a Prisma project and default database through the Management API.",
+      "Creates optional named database connections for developers or environments.",
+      "Configures Prisma 7 dependencies, environment loading, schema files, and the PostgreSQL adapter.",
+      "Creates an initial migration or uses schema push only for explicit prototypes.",
+      "Runs a temporary connection check and provides Prisma Studio and Console access paths."
     ],
     "limitations": [
-      "Requires a Prisma Postgres workspace and a valid workspace service token.",
-      "Supports new database provisioning, not CI preview databases or multi-tenant provisioning.",
-      "Requires Node.js 18 or later and a local project that can use Prisma 7.",
-      "Does not choose a production schema without user review and confirmation."
+      "Requires Node.js 18 or newer, a Prisma workspace, and a workspace service token.",
+      "Targets new Prisma Postgres databases and local Prisma 7 projects.",
+      "Does not manage CI/CD preview databases or embedded multi-tenant provisioning.",
+      "Cloud creation, deletion, migrations, and package installation can modify remote and local resources."
     ],
     "use_cases": [
       {
-        "title": "Start a new application database",
-        "description": "Provision a new Prisma Postgres database and connect a new Node.js application.",
+        "title": "Start a New Prisma Application",
+        "description": "Provision a development database, configure Prisma 7, create a starter schema, and verify connectivity.",
         "target_user": "Application developers"
       },
       {
-        "title": "Prepare a local development environment",
-        "description": "Add a direct database connection and Prisma 7 configuration to an existing local project.",
-        "target_user": "Backend developers"
+        "title": "Standardize Team Setup",
+        "description": "Apply one repeatable database and client configuration process across local Node.js projects.",
+        "target_user": "Platform engineers"
       },
       {
-        "title": "Standardize team onboarding",
-        "description": "Follow a repeatable setup process for projects, regions, migrations, and connection checks.",
-        "target_user": "Engineering teams"
+        "title": "Prepare a Migration Baseline",
+        "description": "Connect existing models to a new database and create reviewed migration history for later deployment.",
+        "target_user": "Technical leads"
       }
     ],
     "prompt_templates": [
       {
-        "title": "Create my first database",
-        "scenario": "Beginner",
-        "prompt": "Set up a new Prisma Postgres database for my local project. Ask me to choose a region and explain each step."
+        "title": "Set Up a New Project",
+        "prompt": "Set up Prisma Postgres for this Node.js project. Ask before creating cloud resources, changing files, installing packages, or running migrations.",
+        "scenario": "Beginner setup for an empty or early-stage project."
       },
       {
-        "title": "Connect an existing project",
-        "scenario": "Intermediate",
-        "prompt": "Provision Prisma Postgres and configure this Node.js project for Prisma 7. Preserve my existing environment settings."
+        "title": "Create a Starter Database",
+        "prompt": "Provision a Prisma Postgres database in my chosen available region. Configure Prisma 7, add a starter blog schema, then verify the connection.",
+        "scenario": "Guided setup with a starter data model."
       },
       {
-        "title": "Create a migration-ready setup",
-        "scenario": "Advanced",
-        "prompt": "Create a Prisma Postgres project, configure prisma.config.ts, and prepare a migration workflow. Show planned changes before applying them."
+        "title": "Preserve Existing Models",
+        "prompt": "Connect this existing Prisma 7 codebase to a new Prisma Postgres database. Preserve existing models and create an initial migration after my confirmation.",
+        "scenario": "Intermediate setup for a repository with a Prisma schema."
       },
       {
-        "title": "Verify a secure connection",
-        "scenario": "Advanced",
-        "prompt": "Configure Prisma Postgres for this project, confirm .env is ignored by Git, and run a connection verification after I approve the commands."
+        "title": "Run a Controlled Provisioning Audit",
+        "prompt": "Audit this repository for Prisma 7 readiness, propose required changes, provision a development connection, migrate safely, and report every local and remote modification.",
+        "scenario": "Advanced review with controlled provisioning and migration."
       }
     ],
     "output_examples": [
       {
-        "input": "Set up Prisma Postgres for my task application.",
+        "input": "Set up a new database for this empty Node.js project in an available European region.",
         "output": [
-          "Available regions are presented for selection.",
-          "A project and database are created after confirmation.",
-          "The project receives Prisma 7 configuration and a verified connection."
+          "Created a Prisma project and database in the selected region.",
+          "Configured Prisma 7 files and protected the environment file from Git commits.",
+          "Applied the initial migration and confirmed a successful database connection."
         ]
       },
       {
-        "input": "Connect my existing Node.js project to a new Prisma database.",
+        "input": "Connect my existing Prisma models to a new database without replacing the schema.",
         "output": [
-          "Required dependencies and configuration changes are identified.",
-          "The direct connection string is stored in the local environment file.",
-          "A migration-ready Prisma configuration is prepared."
+          "Preserved the existing models and configured the new database connection.",
+          "Created migration history after confirmation and generated the Prisma client.",
+          "Verified connectivity, then removed the temporary test file."
         ]
+      },
+      {
+        "input": "Provision a database, but stop before deleting anything.",
+        "output": "Database creation stopped when the workspace limit was reached. Existing projects were listed, and no deletion occurred."
       }
     ],
     "best_practices": [
-      "Use a dedicated workspace service token and do not print it in terminal output.",
-      "Keep DATABASE_URL in .env and verify that .env is ignored by Git.",
-      "Review schema changes before creating migrations or pushing database changes."
+      "Use a short-lived service token and rotate it after setup.",
+      "Review region, project name, schema, and destructive actions before confirmation.",
+      "Keep environment files ignored and inspect migrations before applying them."
     ],
     "anti_patterns": [
-      "Do not place connection URLs directly in schema.prisma for Prisma 7.",
-      "Do not use pooled or Accelerate endpoints for this new direct connection workflow.",
-      "Do not delete an existing project without explicit user selection and confirmation."
+      "Do not paste production credentials into source files or commit environment files.",
+      "Do not delete projects automatically when a workspace limit is reached.",
+      "Do not use schema push when migration history is required."
     ],
     "faq": [
       {
-        "question": "What credentials are required?",
-        "answer": "You need a Prisma Postgres workspace service token with access to the target workspace."
+        "question": "What does this skill create?",
+        "answer": "It creates a Prisma project, a default Postgres database, and optional named connections through the Management API."
       },
       {
-        "question": "Does this work with an existing database?",
-        "answer": "No. This skill is for provisioning a new Prisma Postgres database and connecting a local project."
+        "question": "Can it work without a service token?",
+        "answer": "No. The Management API requires a workspace service token with access to the target workspace."
       },
       {
-        "question": "Which connection string does it use?",
-        "answer": "It uses the direct PostgreSQL connection string returned by the Management API."
+        "question": "How should credentials be supplied?",
+        "answer": "Use secure environment injection or a secret manager when available. Rotate the token after setup and never commit environment files."
       },
       {
-        "question": "Where is the connection URL configured?",
-        "answer": "The URL is stored in .env and loaded from prisma.config.ts for Prisma 7."
+        "question": "Can it connect an existing database?",
+        "answer": "This workflow targets newly provisioned Prisma Postgres databases. Use standard Prisma configuration for a database that is already connected."
       },
       {
-        "question": "Does it create migrations?",
-        "answer": "It runs the standard Prisma migration workflow after the schema is reviewed and ready."
+        "question": "Can the workflow delete cloud resources?",
+        "answer": "Its quota recovery path can delete a selected project. Project deletion is permanent and should require separate explicit confirmation."
       },
       {
-        "question": "Can it use the Prisma Console instead?",
-        "answer": "No. Provisioning in this workflow uses the Prisma Management API, while the Console is used for workspace access and later inspection."
+        "question": "Which Prisma version does it target?",
+        "answer": "It targets Prisma 7 with ESM output, a driver adapter, and connection configuration outside the Prisma schema."
       }
     ]
   },
