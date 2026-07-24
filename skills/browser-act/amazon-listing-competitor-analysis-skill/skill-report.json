@@ -1,7 +1,7 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-07-08T00:00:25.179Z",
+    "generated_at": "2026-07-23T09:16:21.513Z",
     "slug": "browser-act-amazon-listing-competitor-analysis-skill",
     "source_url": "https://github.com/browser-act/skills/tree/main/solutions/ecommerce/amazon-listing-competitor-analysis-skill",
     "source_ref": "main",
@@ -23,18 +23,18 @@
   },
   "skill": {
     "name": "amazon-listing-competitor-analysis-skill",
-    "description": "Analyze a competitor Amazon ASIN with BrowserAct extraction, then turn listing content, reviews, and media signals into opportunity points.",
-    "summary": "Analyze Amazon competitor listings and identify market opportunities.",
+    "description": "Extracts one Amazon competitor listing by ASIN, then evaluates its content, keywords, visuals, reviews, market gaps, and strategic opportunities.",
+    "summary": "Turn an Amazon competitor ASIN into evidence-based listing insights and opportunity points.",
     "icon": "📦",
-    "version": "1.0.1",
     "author": "browser-act",
     "license": "MIT",
+    "category": "research",
     "tags": [
       "amazon",
-      "ecommerce",
       "competitor-analysis",
-      "seo",
-      "browseract"
+      "listing-optimization",
+      "ecommerce",
+      "seo"
     ],
     "supported_tools": [
       "claude",
@@ -45,35 +45,29 @@
       "network",
       "env_access",
       "external_commands"
-    ],
-    "category": "research"
+    ]
   },
   "security_audit": {
     "risk_level": "high",
     "is_blocked": false,
     "safe_to_publish": false,
     "analysis_status": "ok",
-    "summary": "Most static hits are false positives from Markdown formatting, inline examples, and expected BrowserAct setup text. Confirmed issues are the documented outbound BrowserAct API workflow, one intentional Python script invocation, and unsafe guidance that can cause users to paste API keys into chat. No prompt injection attempt was found in the audited files.",
+    "summary": "The skill intentionally runs a local Python script that sends listing parameters and a BrowserAct API key to a fixed third-party API. Most static alerts are Markdown formatting or documentation false positives, but network access, credential handling, and the documented command are confirmed. The guidance also asks users to provide an API key directly to the agent, creating an avoidable credential exposure risk.",
     "remediation": [
       {
-        "issue": "API key guidance can lead users to disclose credentials in chat.",
-        "suggestion": "Require BROWSERACT_API_KEY to be set in the environment or a secret manager. Remove instructions that ask users to provide the key to the agent.",
+        "issue": "The instructions ask users to provide their BrowserAct API key to the agent.",
+        "suggestion": "Require users to configure the key through an environment variable or secret manager, and never request the key in conversation.",
         "severity": "high"
       },
       {
-        "issue": "The skill sends listing inputs and task data to BrowserAct.",
-        "suggestion": "Clearly disclose the third-party data transfer before execution and ask for user confirmation when handling sensitive product research.",
-        "severity": "low"
-      },
-      {
-        "issue": "The marketplace URL is user supplied and forwarded to the BrowserAct workflow.",
-        "suggestion": "Validate the marketplace URL against supported Amazon marketplace hosts before submitting a task.",
-        "severity": "low"
-      },
-      {
-        "issue": "The workflow requires running a local Python command.",
-        "suggestion": "Keep arguments safely quoted and prefer direct process invocation over shell interpolation in agents that support it.",
+        "issue": "The marketplace URL accepts arbitrary input before submission to the BrowserAct workflow.",
+        "suggestion": "Parse the URL and allow only supported HTTPS Amazon marketplace hosts before starting a task.",
         "severity": "medium"
+      },
+      {
+        "issue": "Listing inputs and credentials are sent to a third-party service.",
+        "suggestion": "Disclose the BrowserAct data flow before execution and obtain user confirmation before the first network request.",
+        "severity": "low"
       }
     ],
     "risk_factor_evidence": [
@@ -799,343 +793,415 @@
       {
         "id": "network:scripts/amazon_listing_competitor_analysis.py:35:python-http-libraries",
         "verdict": "confirmed",
-        "confidence": 0.82,
-        "reason": "The script sends a POST request to BrowserAct with the ASIN, marketplace URL, and Authorization header. This is required for the skill but is still an external data transfer.",
+        "confidence": 0.99,
+        "reason": "This POST starts a BrowserAct workflow and transmits the ASIN, marketplace URL, and bearer credential to the fixed BrowserAct API.",
         "severity": "low"
       },
       {
         "id": "network:scripts/amazon_listing_competitor_analysis.py:62:python-http-libraries",
         "verdict": "confirmed",
-        "confidence": 0.78,
-        "reason": "The script polls BrowserAct over HTTP using the user API key. The destination is the expected service, but outbound authenticated traffic is a real network exposure.",
+        "confidence": 0.99,
+        "reason": "This GET polls the BrowserAct service with the task identifier and authorization header, so it is intentional external network access.",
         "severity": "low"
       },
       {
         "id": "network:scripts/amazon_listing_competitor_analysis.py:90:python-http-libraries",
         "verdict": "confirmed",
-        "confidence": 0.78,
-        "reason": "The script retrieves task results from BrowserAct over HTTP after completion. The behavior is disclosed, but listing data is still obtained through a third-party service.",
+        "confidence": 0.99,
+        "reason": "This GET retrieves task output from the BrowserAct API with the authorization header.",
         "severity": "low"
       },
       {
         "id": "network:scripts/amazon_listing_competitor_analysis.py:15:hardcoded-url",
         "verdict": "confirmed",
-        "confidence": 0.76,
-        "reason": "The hardcoded BrowserAct API base URL defines the external service used by the script. This is expected for the skill, but it confirms a third-party network dependency.",
+        "confidence": 0.99,
+        "reason": "The constant fixes all workflow requests to the external BrowserAct API domain.",
         "severity": "low"
       },
       {
         "id": "network:scripts/amazon_listing_competitor_analysis.py:18:hardcoded-url",
-        "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "The URL is a default Amazon marketplace value used as data for the BrowserAct workflow. It is not a hidden callback or independently executed network request."
+        "verdict": "confirmed",
+        "confidence": 0.97,
+        "reason": "The function defines an Amazon URL as a default external marketplace target and submits it in the BrowserAct workflow payload.",
+        "severity": "low"
       },
       {
         "id": "network:scripts/amazon_listing_competitor_analysis.py:48:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "The URL appears only in an error message about BrowserAct plan limits. It is a user-facing support link, not code that performs network access."
+        "confidence": 0.99,
+        "reason": "The URL appears only in a printed plan-upgrade error message and is never requested by the script."
       },
       {
         "id": "network:scripts/amazon_listing_competitor_analysis.py:116:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "The URL appears only in setup guidance for obtaining a BrowserAct key. It does not cause the script to contact that page."
+        "confidence": 0.99,
+        "reason": "The URL is printed as setup guidance and does not initiate network activity."
       },
       {
         "id": "network:scripts/amazon_listing_competitor_analysis.py:122:hardcoded-url",
-        "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "The URL is a default Amazon marketplace value used as data for the BrowserAct workflow. It is not a hidden callback or independently executed network request."
+        "verdict": "confirmed",
+        "confidence": 0.97,
+        "reason": "The default Amazon marketplace URL is assigned to a runtime parameter that is sent to the BrowserAct workflow.",
+        "severity": "low"
       },
       {
         "id": "env_access:scripts/amazon_listing_competitor_analysis.py:112:python-getenv-function",
-        "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "Reading BROWSERACT_API_KEY from the environment is the expected safer configuration path. The code does not print the value or read unrelated environment variables."
+        "verdict": "confirmed",
+        "confidence": 0.99,
+        "reason": "The script directly reads BROWSERACT_API_KEY from the process environment.",
+        "severity": "low"
       },
       {
         "id": "env_access:scripts/amazon_listing_competitor_analysis.py:112:getenv-function-call",
-        "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "Reading BROWSERACT_API_KEY from the environment is the expected safer configuration path. The code does not print the value or read unrelated environment variables."
+        "verdict": "confirmed",
+        "confidence": 0.99,
+        "reason": "The getenv call performs real environment access for the BrowserAct credential.",
+        "severity": "low"
       },
       {
         "id": "env_access:scripts/amazon_listing_competitor_analysis.py:18:generic-api-secret-keys",
-        "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "The api_key parameter name indicates a credential argument but does not store, generate, or expose a secret. The value is supplied by the caller at runtime."
+        "verdict": "confirmed",
+        "confidence": 0.98,
+        "reason": "The function accepts an API credential that is later placed in the outbound authorization header.",
+        "severity": "high"
       },
       {
         "id": "env_access:scripts/amazon_listing_competitor_analysis.py:23:generic-api-secret-keys",
-        "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "The Authorization header sends the runtime API key to the configured BrowserAct API endpoint. This is expected credential use for the documented service, not exfiltration to an unrelated host."
+        "verdict": "confirmed",
+        "confidence": 0.99,
+        "reason": "The BrowserAct API key is placed in a bearer authorization header and sent to the fixed third-party API.",
+        "severity": "high"
       },
       {
         "id": "env_access:scripts/amazon_listing_competitor_analysis.py:112:generic-api-secret-keys",
-        "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "The line reads only BROWSERACT_API_KEY from the environment, which is the normal secret source for this script. No secret value is logged or hardcoded."
+        "verdict": "confirmed",
+        "confidence": 0.99,
+        "reason": "This line reads the BrowserAct API key from an environment variable, creating a real credential-handling boundary.",
+        "severity": "high"
       },
       {
         "id": "env_access:scripts/amazon_listing_competitor_analysis.py:113:generic-api-secret-keys",
         "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "The conditional only checks whether the API key exists. It does not expose, transform, or transmit the secret."
+        "confidence": 0.99,
+        "reason": "This conditional only checks whether the local variable is empty and does not expose or access a credential."
       },
       {
         "id": "env_access:scripts/amazon_listing_competitor_analysis.py:118:generic-api-secret-keys",
-        "verdict": "confirmed",
-        "confidence": 0.9,
-        "reason": "The error message tells the user to provide the BrowserAct API key to the agent or set it as an environment variable. Asking users to disclose credentials in chat is a real secret-handling risk.",
-        "severity": "high"
+        "verdict": "false_positive",
+        "confidence": 0.99,
+        "reason": "The static pattern matches user-facing text rather than code that reads, stores, or transmits a secret."
       },
       {
         "id": "env_access:scripts/amazon_listing_competitor_analysis.py:124:generic-api-secret-keys",
-        "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "The line passes the runtime API key into the documented BrowserAct helper function. It does not print the key or send it to an unexpected destination."
+        "verdict": "confirmed",
+        "confidence": 0.98,
+        "reason": "This call passes the credential into the function that uses it for authenticated BrowserAct requests.",
+        "severity": "high"
       },
       {
         "id": "blocker:scripts/amazon_listing_competitor_analysis.py:45:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "The code checks API response status, authorization errors, or stores a BrowserAct task id. It does not perform host, file, account, or network reconnaissance."
+        "confidence": 0.99,
+        "reason": "The condition inspects an API error string for authorization failure and performs no system reconnaissance."
       },
       {
         "id": "blocker:scripts/amazon_listing_competitor_analysis.py:46:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "The code checks API response status, authorization errors, or stores a BrowserAct task id. It does not perform host, file, account, or network reconnaissance."
+        "confidence": 0.99,
+        "reason": "This line prints a credential error message and does not gather host or system information."
       },
       {
         "id": "blocker:scripts/amazon_listing_competitor_analysis.py:53:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "The code checks API response status, authorization errors, or stores a BrowserAct task id. It does not perform host, file, account, or network reconnaissance."
+        "confidence": 0.99,
+        "reason": "The code reads a workflow task identifier from the API response, not information about the local system."
       },
       {
         "id": "external_commands:SKILL.md:20:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "This is Markdown inline code, a code fence delimiter, an example field name, or an output-format block. It is not executable Ruby or shell backtick execution."
+        "confidence": 0.99,
+        "reason": "The backticks are Markdown formatting around an environment variable name and do not execute a command."
       },
       {
         "id": "external_commands:SKILL.md:28:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "This is Markdown inline code, a code fence delimiter, an example field name, or an output-format block. It is not executable Ruby or shell backtick execution."
+        "confidence": 0.99,
+        "reason": "The backticks format the word string as inline code in parameter documentation."
       },
       {
         "id": "external_commands:SKILL.md:30:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "This is Markdown inline code, a code fence delimiter, an example field name, or an output-format block. It is not executable Ruby or shell backtick execution."
+        "confidence": 0.99,
+        "reason": "The backticks format an example ASIN and do not represent shell execution."
       },
       {
         "id": "external_commands:SKILL.md:34:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "This is Markdown inline code, a code fence delimiter, an example field name, or an output-format block. It is not executable Ruby or shell backtick execution."
+        "confidence": 0.99,
+        "reason": "The backticks are inline Markdown around a parameter type."
       },
       {
         "id": "external_commands:SKILL.md:36:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "This is Markdown inline code, a code fence delimiter, an example field name, or an output-format block. It is not executable Ruby or shell backtick execution."
+        "confidence": 0.99,
+        "reason": "The backticks format example Amazon marketplace URLs and do not execute them."
       },
       {
         "id": "external_commands:SKILL.md:37:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "This is Markdown inline code, a code fence delimiter, an example field name, or an output-format block. It is not executable Ruby or shell backtick execution."
+        "confidence": 0.99,
+        "reason": "The backticks document the default marketplace URL and are not a command construct."
       },
       {
         "id": "external_commands:SKILL.md:42:ruby-shell-backtick-execution",
         "verdict": "confirmed",
-        "confidence": 0.76,
-        "reason": "The fenced shell block instructs the agent to run the bundled Python script. This is intentional, but it is a real external command with network side effects.",
+        "confidence": 0.99,
+        "reason": "This fenced Bash block instructs the agent to execute the bundled Python script with user-relevant arguments.",
         "severity": "medium"
       },
       {
         "id": "external_commands:SKILL.md:44:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "This is Markdown inline code, a code fence delimiter, an example field name, or an output-format block. It is not executable Ruby or shell backtick execution."
+        "confidence": 0.99,
+        "reason": "The matched text is the closing marker of the documented Bash block, not a separate execution mechanism."
       },
       {
         "id": "external_commands:SKILL.md:46:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "This is Markdown inline code, a code fence delimiter, an example field name, or an output-format block. It is not executable Ruby or shell backtick execution."
+        "confidence": 0.99,
+        "reason": "The inline backticks document a default URL and do not invoke a shell."
       },
       {
         "id": "external_commands:SKILL.md:49:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "This is Markdown inline code, a code fence delimiter, an example field name, or an output-format block. It is not executable Ruby or shell backtick execution."
+        "confidence": 0.99,
+        "reason": "This section describes status monitoring in prose and contains no backtick command execution."
       },
       {
         "id": "external_commands:SKILL.md:57:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "This is Markdown inline code, a code fence delimiter, an example field name, or an output-format block. It is not executable Ruby or shell backtick execution."
+        "confidence": 0.99,
+        "reason": "The backticks format expected output field names and do not execute code."
       },
       {
         "id": "external_commands:SKILL.md:58:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "This is Markdown inline code, a code fence delimiter, an example field name, or an output-format block. It is not executable Ruby or shell backtick execution."
+        "confidence": 0.99,
+        "reason": "The backticks list expected data fields in documentation."
       },
       {
         "id": "external_commands:SKILL.md:59:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "This is Markdown inline code, a code fence delimiter, an example field name, or an output-format block. It is not executable Ruby or shell backtick execution."
+        "confidence": 0.99,
+        "reason": "The backticks list image and seller field names without any command behavior."
       },
       {
         "id": "external_commands:SKILL.md:60:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "This is Markdown inline code, a code fence delimiter, an example field name, or an output-format block. It is not executable Ruby or shell backtick execution."
+        "confidence": 0.99,
+        "reason": "The backticks format output schema labels and are not executable syntax."
       },
       {
         "id": "external_commands:SKILL.md:68:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "This is Markdown inline code, a code fence delimiter, an example field name, or an output-format block. It is not executable Ruby or shell backtick execution."
+        "confidence": 0.99,
+        "reason": "The backticks quote an expected API error string for retry handling."
       },
       {
         "id": "external_commands:SKILL.md:69:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "This is Markdown inline code, a code fence delimiter, an example field name, or an output-format block. It is not executable Ruby or shell backtick execution."
+        "confidence": 0.99,
+        "reason": "The backticks quote concurrency error phrases and do not contain a command."
       },
       {
         "id": "external_commands:SKILL.md:72:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "This is Markdown inline code, a code fence delimiter, an example field name, or an output-format block. It is not executable Ruby or shell backtick execution."
+        "confidence": 0.99,
+        "reason": "The matched range contains retry guidance and analysis prose, with no shell backtick execution."
       },
       {
         "id": "external_commands:SKILL.md:145:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "This is Markdown inline code, a code fence delimiter, an example field name, or an output-format block. It is not executable Ruby or shell backtick execution."
+        "confidence": 0.99,
+        "reason": "The fenced block is a plain-text report template and contains no executable command."
       },
       {
         "id": "network:SKILL.md:22:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "The URL appears in documentation, examples, or user guidance. It does not add hidden network behavior beyond the documented BrowserAct workflow."
+        "confidence": 0.99,
+        "reason": "This is a documentation link to the BrowserAct console and does not itself make a network request."
       },
       {
         "id": "network:SKILL.md:36:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "The URL appears in documentation, examples, or user guidance. It does not add hidden network behavior beyond the documented BrowserAct workflow."
+        "confidence": 0.99,
+        "reason": "These are documented examples of supported Amazon marketplace inputs."
       },
       {
         "id": "network:SKILL.md:37:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "The URL appears in documentation, examples, or user guidance. It does not add hidden network behavior beyond the documented BrowserAct workflow."
+        "confidence": 0.99,
+        "reason": "This line documents the default Amazon marketplace value and has no direct network behavior."
       },
       {
         "id": "network:SKILL.md:43:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "The URL appears in documentation, examples, or user guidance. It does not add hidden network behavior beyond the documented BrowserAct workflow."
+        "confidence": 0.97,
+        "reason": "The URL is a known Amazon marketplace argument in a documented command, while actual requests are already identified in the Python script."
       },
       {
         "id": "network:SKILL.md:46:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "The URL appears in documentation, examples, or user guidance. It does not add hidden network behavior beyond the documented BrowserAct workflow."
+        "confidence": 0.99,
+        "reason": "The URL is inline documentation for the script default and does not independently trigger a request."
       },
       {
         "id": "network:SKILL.md:71:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "The URL appears in documentation, examples, or user guidance. It does not add hidden network behavior beyond the documented BrowserAct workflow."
+        "confidence": 0.99,
+        "reason": "The URL appears in a quoted subscription-upgrade message and is not automatically opened."
       },
       {
         "id": "env_access:SKILL.md:4:generic-api-secret-keys",
-        "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "The metadata declares BROWSERACT_API_KEY as a required environment variable. Declaring a required secret name is expected and does not expose a secret value."
+        "verdict": "confirmed",
+        "confidence": 0.99,
+        "reason": "The metadata explicitly declares BROWSERACT_API_KEY as a required environment credential.",
+        "severity": "high"
       },
       {
         "id": "env_access:SKILL.md:20:generic-api-secret-keys",
         "verdict": "confirmed",
-        "confidence": 0.92,
-        "reason": "The skill instructs the agent to ask and wait for the user to provide BROWSERACT_API_KEY when it is missing. That guidance can cause credential disclosure into chat logs.",
+        "confidence": 0.99,
+        "reason": "The instructions require the agent to inspect the BrowserAct key environment variable and solicit the key when absent.",
         "severity": "high"
       },
       {
         "id": "blocker:SKILL.md:13:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "The text is product guidance, error handling, or an analysis heading. It does not instruct system reconnaissance or privileged environment inspection."
+        "confidence": 0.99,
+        "reason": "This is a marketing claim about extraction accuracy and contains no reconnaissance instruction."
       },
       {
         "id": "blocker:SKILL.md:68:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "The text is product guidance, error handling, or an analysis heading. It does not instruct system reconnaissance or privileged environment inspection."
+        "confidence": 0.99,
+        "reason": "The line explains how to recognize an API authorization error, not how to inspect a system."
       },
       {
         "id": "blocker:SKILL.md:92:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "The text is product guidance, error handling, or an analysis heading. It does not instruct system reconnaissance or privileged environment inspection."
+        "confidence": 0.99,
+        "reason": "This is a competitive analysis heading unrelated to system discovery."
       },
       {
         "id": "blocker:SKILL.md:143:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "The text is product guidance, error handling, or an analysis heading. It does not instruct system reconnaissance or privileged environment inspection."
+        "confidence": 0.99,
+        "reason": "The line specifies report content and does not request local or remote system information."
       }
     ],
     "semantic_findings": [
       {
-        "title": "Unsafe API Key Collection Guidance",
-        "description": "The skill tells the agent to ask and wait for BROWSERACT_API_KEY, and the script says to provide the key to the agent. This can place user credentials in chat history instead of a protected environment variable or secret store.",
+        "title": "Unsafe API Key Solicitation",
+        "description": "The skill says to \"ask and wait for the user to provide\" the BrowserAct key, while the script says \"Provide it to me.\" This encourages disclosure of a reusable credential in the conversation instead of secure local configuration.",
         "severity": "high",
         "locations": [
           {
             "file": "SKILL.md",
             "line_start": 20,
-            "line_end": 20
+            "line_end": 22
           },
           {
             "file": "scripts/amazon_listing_competitor_analysis.py",
-            "line_start": 118,
+            "line_start": 113,
             "line_end": 118
           }
         ],
-        "confidence": 0.93,
-        "confidence_reasoning": "Both cited lines explicitly allow giving the API key to the agent when the environment variable is missing. That is a clear credential-handling risk, even though the rest of the API use is expected."
+        "confidence": 0.99,
+        "confidence_reasoning": "Both files explicitly direct the user to provide the API key to the agent, so the unsafe disclosure guidance is unambiguous."
       }
     ],
     "critical_findings": [],
     "high_findings": [
       {
         "title": "Generic API/secret keys",
-        "description": "print(\"3. Provide it to me or set it as an environment variable (BROWSERACT_API_KEY).\", flush=True)",
+        "description": "def run_amazon_listing_competitor_analysis_task(api_key, asin, marketplace_url=\"https://www.amazon.c",
         "locations": [
           {
             "file": "scripts/amazon_listing_competitor_analysis.py",
-            "line_start": 118,
-            "line_end": 118
+            "line_start": 18,
+            "line_end": 18
           }
         ],
         "review_kind": "capability",
         "source_category": "env_access",
         "source_severity": "high",
-        "confidence": 0.9,
-        "confidence_reasoning": "The error message tells the user to provide the BrowserAct API key to the agent or set it as an environment variable. Asking users to disclose credentials in chat is a real secret-handling risk."
+        "confidence": 0.98,
+        "confidence_reasoning": "The function accepts an API credential that is later placed in the outbound authorization header."
+      },
+      {
+        "title": "Generic API/secret keys",
+        "description": "headers = {\"Authorization\": f\"Bearer {api_key}\"}",
+        "locations": [
+          {
+            "file": "scripts/amazon_listing_competitor_analysis.py",
+            "line_start": 23,
+            "line_end": 23
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "env_access",
+        "source_severity": "high",
+        "confidence": 0.99,
+        "confidence_reasoning": "The BrowserAct API key is placed in a bearer authorization header and sent to the fixed third-party API."
+      },
+      {
+        "title": "Generic API/secret keys",
+        "description": "api_key = os.getenv(\"BROWSERACT_API_KEY\")",
+        "locations": [
+          {
+            "file": "scripts/amazon_listing_competitor_analysis.py",
+            "line_start": 112,
+            "line_end": 112
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "env_access",
+        "source_severity": "high",
+        "confidence": 0.99,
+        "confidence_reasoning": "This line reads the BrowserAct API key from an environment variable, creating a real credential-handling boundary."
+      },
+      {
+        "title": "Generic API/secret keys",
+        "description": "result = run_amazon_listing_competitor_analysis_task(api_key, asin, marketplace_url)",
+        "locations": [
+          {
+            "file": "scripts/amazon_listing_competitor_analysis.py",
+            "line_start": 124,
+            "line_end": 124
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "env_access",
+        "source_severity": "high",
+        "confidence": 0.98,
+        "confidence_reasoning": "This call passes the credential into the function that uses it for authenticated BrowserAct requests."
+      },
+      {
+        "title": "Generic API/secret keys",
+        "description": "metadata: {\"openclaw\":{\"emoji\":\"🌐\",\"requires\":{\"bins\":[\"python\"],\"env\":[\"BROWSERACT_API_KEY\"]}}}",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 4,
+            "line_end": 4
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "env_access",
+        "source_severity": "high",
+        "confidence": 0.99,
+        "confidence_reasoning": "The metadata explicitly declares BROWSERACT_API_KEY as a required environment credential."
       },
       {
         "title": "Generic API/secret keys",
@@ -1150,29 +1216,29 @@
         "review_kind": "capability",
         "source_category": "env_access",
         "source_severity": "high",
-        "confidence": 0.92,
-        "confidence_reasoning": "The skill instructs the agent to ask and wait for the user to provide BROWSERACT_API_KEY when it is missing. That guidance can cause credential disclosure into chat logs."
+        "confidence": 0.99,
+        "confidence_reasoning": "The instructions require the agent to inspect the BrowserAct key environment variable and solicit the key when absent."
       },
       {
-        "title": "Unsafe API Key Collection Guidance",
-        "description": "The skill tells the agent to ask and wait for BROWSERACT_API_KEY, and the script says to provide the key to the agent. This can place user credentials in chat history instead of a protected environment variable or secret store.",
+        "title": "Unsafe API Key Solicitation",
+        "description": "The skill says to \"ask and wait for the user to provide\" the BrowserAct key, while the script says \"Provide it to me.\" This encourages disclosure of a reusable credential in the conversation instead of secure local configuration.",
         "locations": [
           {
             "file": "SKILL.md",
             "line_start": 20,
-            "line_end": 20
+            "line_end": 22
           },
           {
             "file": "scripts/amazon_listing_competitor_analysis.py",
-            "line_start": 118,
+            "line_start": 113,
             "line_end": 118
           }
         ],
         "review_kind": "security",
         "source_category": "semantic",
         "source_severity": "high",
-        "confidence": 0.93,
-        "confidence_reasoning": "Both cited lines explicitly allow giving the API key to the agent when the environment variable is missing. That is a clear credential-handling risk, even though the rest of the API use is expected."
+        "confidence": 0.99,
+        "confidence_reasoning": "Both files explicitly direct the user to provide the API key to the agent, so the unsafe disclosure guidance is unambiguous."
       }
     ],
     "medium_findings": [
@@ -1189,8 +1255,8 @@
         "review_kind": "capability",
         "source_category": "external_commands",
         "source_severity": "medium",
-        "confidence": 0.76,
-        "confidence_reasoning": "The fenced shell block instructs the agent to run the bundled Python script. This is intentional, but it is a real external command with network side effects."
+        "confidence": 0.99,
+        "confidence_reasoning": "This fenced Bash block instructs the agent to execute the bundled Python script with user-relevant arguments."
       }
     ],
     "low_findings": [
@@ -1207,8 +1273,8 @@
         "review_kind": "capability",
         "source_category": "network",
         "source_severity": "low",
-        "confidence": 0.82,
-        "confidence_reasoning": "The script sends a POST request to BrowserAct with the ASIN, marketplace URL, and Authorization header. This is required for the skill but is still an external data transfer."
+        "confidence": 0.99,
+        "confidence_reasoning": "This POST starts a BrowserAct workflow and transmits the ASIN, marketplace URL, and bearer credential to the fixed BrowserAct API."
       },
       {
         "title": "Python HTTP libraries",
@@ -1223,8 +1289,8 @@
         "review_kind": "capability",
         "source_category": "network",
         "source_severity": "low",
-        "confidence": 0.78,
-        "confidence_reasoning": "The script polls BrowserAct over HTTP using the user API key. The destination is the expected service, but outbound authenticated traffic is a real network exposure."
+        "confidence": 0.99,
+        "confidence_reasoning": "This GET polls the BrowserAct service with the task identifier and authorization header, so it is intentional external network access."
       },
       {
         "title": "Python HTTP libraries",
@@ -1239,8 +1305,8 @@
         "review_kind": "capability",
         "source_category": "network",
         "source_severity": "low",
-        "confidence": 0.78,
-        "confidence_reasoning": "The script retrieves task results from BrowserAct over HTTP after completion. The behavior is disclosed, but listing data is still obtained through a third-party service."
+        "confidence": 0.99,
+        "confidence_reasoning": "This GET retrieves task output from the BrowserAct API with the authorization header."
       },
       {
         "title": "Hardcoded URL",
@@ -1255,146 +1321,204 @@
         "review_kind": "capability",
         "source_category": "network",
         "source_severity": "low",
-        "confidence": 0.76,
-        "confidence_reasoning": "The hardcoded BrowserAct API base URL defines the external service used by the script. This is expected for the skill, but it confirms a third-party network dependency."
+        "confidence": 0.99,
+        "confidence_reasoning": "The constant fixes all workflow requests to the external BrowserAct API domain."
+      },
+      {
+        "title": "Hardcoded URL",
+        "description": "def run_amazon_listing_competitor_analysis_task(api_key, asin, marketplace_url=\"https://www.amazon.c",
+        "locations": [
+          {
+            "file": "scripts/amazon_listing_competitor_analysis.py",
+            "line_start": 18,
+            "line_end": 18
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "network",
+        "source_severity": "low",
+        "confidence": 0.97,
+        "confidence_reasoning": "The function defines an Amazon URL as a default external marketplace target and submits it in the BrowserAct workflow payload."
+      },
+      {
+        "title": "Hardcoded URL",
+        "description": "marketplace_url = sys.argv[2] if len(sys.argv) > 2 else \"https://www.amazon.com/\"",
+        "locations": [
+          {
+            "file": "scripts/amazon_listing_competitor_analysis.py",
+            "line_start": 122,
+            "line_end": 122
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "network",
+        "source_severity": "low",
+        "confidence": 0.97,
+        "confidence_reasoning": "The default Amazon marketplace URL is assigned to a runtime parameter that is sent to the BrowserAct workflow."
+      },
+      {
+        "title": "Python getenv function",
+        "description": "api_key = os.getenv(\"BROWSERACT_API_KEY\")",
+        "locations": [
+          {
+            "file": "scripts/amazon_listing_competitor_analysis.py",
+            "line_start": 112,
+            "line_end": 112
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "env_access",
+        "source_severity": "low",
+        "confidence": 0.99,
+        "confidence_reasoning": "The script directly reads BROWSERACT_API_KEY from the process environment."
+      },
+      {
+        "title": "getenv function call",
+        "description": "api_key = os.getenv(\"BROWSERACT_API_KEY\")",
+        "locations": [
+          {
+            "file": "scripts/amazon_listing_competitor_analysis.py",
+            "line_start": 112,
+            "line_end": 112
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "env_access",
+        "source_severity": "low",
+        "confidence": 0.99,
+        "confidence_reasoning": "The getenv call performs real environment access for the BrowserAct credential."
       }
     ],
     "dangerous_patterns": [],
     "files_scanned": 2,
     "total_lines": 329,
     "audit_model": "codex",
-    "audited_at": "2026-07-08T00:00:25.179Z",
+    "audited_at": "2026-07-23T09:16:21.513Z",
     "agent_auto_install_policy": "confirmation_required",
     "manual_install_policy": "allowed"
   },
   "content": {
     "user_title": "Analyze Amazon Competitor Listings",
-    "value_statement": "Amazon listing research is slow when teams must inspect titles, bullets, media, and reviews manually. This skill extracts one ASIN and turns the evidence into competitor insights and opportunity points.",
+    "value_statement": "Competitor listings contain useful signals, but manual analysis is slow and inconsistent. This skill extracts one ASIN and converts evidence into structured strategic opportunities.",
     "seo_keywords": [
+      "Amazon competitor analysis",
+      "Amazon listing analysis",
+      "ASIN research",
+      "Amazon SEO",
+      "ecommerce market research",
       "Claude",
       "Codex",
       "Claude Code",
-      "Amazon competitor analysis",
-      "Amazon ASIN analysis",
-      "ecommerce SEO",
-      "BrowserAct",
-      "product listing research",
-      "marketplace intelligence",
-      "review mining"
+      "BrowserAct"
     ],
     "actual_capabilities": [
-      "Runs a BrowserAct workflow for one Amazon ASIN and marketplace URL.",
-      "Extracts visible listing fields such as title, price, rating, bullets, media URLs, seller, and review data.",
-      "Maps keyword placement across title, bullets, description, and A plus content when available.",
-      "Summarizes visual strategy from extracted image and video information.",
-      "Uses review themes to identify buyer-valued points and unmet needs.",
-      "Produces strategic opportunity points for the user's brand or product roadmap."
+      "Starts a BrowserAct workflow for one ASIN and a selected Amazon marketplace.",
+      "Retrieves visible listing fields, media references, seller details, specifications, and available review data.",
+      "Maps keyword placement across titles, bullets, descriptions, and available A+ content.",
+      "Evaluates content, visual strategy, buyer praise, recurring complaints, and market gaps.",
+      "Produces strategic opportunities for positioning, search intent, creative proof, products, offers, or bundles."
     ],
     "limitations": [
-      "Requires a valid BrowserAct API key and network access to BrowserAct services.",
-      "Analyzes one competitor ASIN per run, not a full category dataset.",
-      "Depends on data returned by the BrowserAct workflow and Amazon page availability.",
-      "Does not estimate private sales, advertising spend, or unavailable conversion metrics."
+      "The workflow requires a BrowserAct account, API key, internet access, and available task capacity.",
+      "Each run analyzes one ASIN rather than a complete competitor set.",
+      "Conclusions depend on fields returned by BrowserAct and cannot verify unavailable conversion or traffic metrics.",
+      "A task can run for up to 15 minutes and depends on Amazon and BrowserAct availability."
     ],
     "use_cases": [
       {
-        "title": "Prepare a Launch Gap Review",
-        "target_user": "Amazon brand manager",
-        "description": "Analyze a leading ASIN before launch and identify positioning, proof, and offer gaps your product can address."
+        "title": "Prepare a Product Launch",
+        "description": "Identify positioning, feature, bundle, and proof opportunities before launching a competing product.",
+        "target_user": "Amazon brand manager"
       },
       {
-        "title": "Audit Search Messaging",
-        "target_user": "Marketplace SEO specialist",
-        "description": "Review title, bullet, description, and A plus keyword placement to understand how a competitor captures buyer intent."
+        "title": "Benchmark Listing SEO",
+        "description": "Map a leading competitor's keyword placement and uncover search intents that its listing weakly serves.",
+        "target_user": "Ecommerce SEO specialist"
       },
       {
-        "title": "Mine Review-Led Opportunities",
-        "target_user": "Product researcher",
-        "description": "Use reviews and mixed feedback to find unmet needs that can inform roadmap, bundles, claims, or support content."
+        "title": "Mine Buyer Needs",
+        "description": "Compare listing claims with review praise and complaints to shape research priorities.",
+        "target_user": "Product researcher"
       }
     ],
     "prompt_templates": [
       {
-        "title": "Analyze One ASIN",
-        "scenario": "Beginner competitor review",
-        "prompt": "Analyze ASIN B0CS62LY6P on Amazon US. Focus on what the competitor does well and where my brand can find opportunities."
+        "title": "Create a Listing Overview",
+        "prompt": "Analyze ASIN [ASIN] on [Amazon marketplace URL]. Summarize the listing, its strongest content choices, and three evidence-based market gaps.",
+        "scenario": "A beginner needs a concise competitor overview."
       },
       {
-        "title": "Compare Listing Messaging",
-        "scenario": "Focused content strategy review",
-        "prompt": "Analyze this competitor ASIN using the default marketplace. Emphasize title structure, bullet priority, differentiation language, and A plus content themes."
+        "title": "Audit Keyword Placement",
+        "prompt": "Analyze ASIN [ASIN] on [marketplace URL]. Map keywords by title, early bullets, later bullets, description, and available A+ content.",
+        "scenario": "An SEO specialist needs a placement benchmark."
       },
       {
-        "title": "Find Review-Based Gaps",
-        "scenario": "Buyer needs research",
-        "prompt": "Run the competitor analysis for this ASIN and prioritize unmet buyer needs from mixed and critical reviews. Separate product gaps from messaging gaps."
+        "title": "Find Review-Driven Opportunities",
+        "prompt": "Analyze ASIN [ASIN]. Compare buyer praise with listing claims, then identify recurring unmet needs from mixed and low-star reviews.",
+        "scenario": "A product team needs buyer-validated opportunities."
       },
       {
-        "title": "Build a Strategic Opportunity Map",
-        "scenario": "Advanced launch planning",
-        "prompt": "Analyze this ASIN on the correct regional Amazon marketplace. Produce positioning whitespace, search intent opportunities, creative proof gaps, and offer ideas for my roadmap."
+        "title": "Build a Competitive Opportunity Map",
+        "prompt": "Analyze ASIN [ASIN] against this product brief: [brief]. Prioritize positioning, search, creative proof, offer, and product opportunities by supporting evidence.",
+        "scenario": "A brand team needs an advanced launch strategy."
       }
     ],
     "output_examples": [
       {
-        "input": "Analyze a kitchen storage ASIN for launch planning.",
+        "input": "Analyze one competitor ASIN and explain its strongest listing choices.",
         "output": [
-          "The competitor leads with capacity and space-saving claims in the title and first bullets.",
-          "Reviews praise durability but repeatedly mention unclear sizing before purchase.",
-          "Opportunity points include clearer scale visuals, compatibility language, and a bundle option for small kitchens."
+          "Competitor snapshot: The report lists available brand, price, rating, review count, and ranking details.",
+          "Content strategy: It explains the title formula, bullet priority, differentiation language, and available A+ modules.",
+          "Buyer validation: It connects prominent claims with praise found in helpful reviews."
         ]
       },
       {
-        "input": "Review a beauty product ASIN for keyword placement.",
+        "input": "Find keyword and visual gaps for a planned product launch.",
         "output": [
-          "Primary terms appear early in the title, while use-case phrases are concentrated in later bullets.",
-          "The listing underuses buyer language around sensitive skin and travel use.",
-          "A competing brand could own those intents with evidence-backed claims and dedicated image panels."
+          "Keyword gaps: The report identifies relevant buyer language that is absent or weakly placed.",
+          "Visual gaps: It notes missing use cases, comparisons, scale references, or proof formats.",
+          "Opportunity map: It translates each supported gap into a distinct opening for the planned brand."
         ]
       },
       {
-        "input": "Find product roadmap ideas from competitor reviews.",
-        "output": [
-          "Positive reviews validate ease of setup and perceived value.",
-          "Mixed reviews show recurring requests for stronger instructions and a more durable accessory.",
-          "Roadmap opportunities include an improved accessory, onboarding content, and warranty messaging."
-        ]
+        "input": "Use reviews to identify product and offer opportunities.",
+        "output": "The report groups recurring wishes and complaints, separates defect noise, and proposes supported variant, bundle, warranty, or service opportunities."
       }
     ],
     "best_practices": [
-      "Set BROWSERACT_API_KEY as an environment variable before running the skill.",
-      "Use the marketplace URL that matches the ASIN region for cleaner extraction results.",
-      "Treat extracted fields as evidence and avoid claims not supported by the returned data."
+      "Use the exact ASIN and regional Amazon marketplace for the listing under review.",
+      "Treat extracted fields as the evidence base and label unavailable data clearly.",
+      "Compare several separate reports before making high-impact product or positioning decisions."
     ],
     "anti_patterns": [
-      "Do not paste API keys into chat or store them in prompts.",
-      "Do not turn the output into edits for the competitor listing under review.",
-      "Do not infer sales, ad spend, or conversion rates from visible listing fields alone."
+      "Do not paste API keys into prompts or conversation messages.",
+      "Do not invent traffic, conversion, keyword volume, or review evidence that the workflow did not return.",
+      "Do not present opportunity points as direct edits to the competitor's listing."
     ],
     "faq": [
       {
-        "question": "What does this skill analyze?",
-        "answer": "It analyzes one Amazon competitor listing by ASIN and returns evidence-based content, keyword, visual, review, and opportunity insights."
+        "question": "What input does the skill require?",
+        "answer": "Provide one Amazon ASIN. You can also provide the matching regional Amazon marketplace URL."
       },
       {
-        "question": "Does it require an API key?",
-        "answer": "Yes. It requires BROWSERACT_API_KEY for the BrowserAct workflow that extracts Amazon listing data."
+        "question": "Does the skill require an API key?",
+        "answer": "Yes. Configure BROWSERACT_API_KEY locally through an environment variable or approved secret manager."
       },
       {
-        "question": "Can it compare many ASINs at once?",
-        "answer": "No. The included workflow is designed for one ASIN per run."
+        "question": "Can it analyze several competitors at once?",
+        "answer": "No. The bundled script processes one ASIN per run, but you can run separate analyses for comparison."
       },
       {
-        "question": "Can it analyze non-US marketplaces?",
-        "answer": "Yes, when the user provides the correct Amazon marketplace URL and the BrowserAct workflow can access that listing."
+        "question": "What information can the report cover?",
+        "answer": "It can cover listing content, keyword placement, visuals, seller details, available reviews, market gaps, and strategic opportunities."
       },
       {
-        "question": "Does it write new Amazon copy?",
-        "answer": "No. It focuses on competitor diagnosis and opportunity synthesis, not rewriting the competitor listing."
+        "question": "How long can an analysis take?",
+        "answer": "The polling window is up to 15 minutes. Network conditions and BrowserAct task capacity can affect completion."
       },
       {
-        "question": "What tools can use this skill?",
-        "answer": "The report declares support for Claude, Codex, and Claude Code."
+        "question": "Does it provide verified sales or conversion data?",
+        "answer": "No. It only analyzes returned listing evidence and should not infer unavailable performance metrics."
       }
     ]
   },

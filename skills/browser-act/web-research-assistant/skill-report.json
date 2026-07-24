@@ -1,7 +1,7 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-07-07T21:30:59.068Z",
+    "generated_at": "2026-07-23T10:33:26.537Z",
     "slug": "browser-act-web-research-assistant",
     "source_url": "https://github.com/browser-act/skills/tree/main/solutions/search-research/web-research-assistant",
     "source_ref": "main",
@@ -23,17 +23,17 @@
   },
   "skill": {
     "name": "web-research-assistant",
-    "description": "BrowserAct-powered web research assistant for searching current web sources, extracting snippets, and creating cited research reports.",
-    "summary": "Search current web sources with BrowserAct and format concise research reports.",
+    "description": "Search the web through BrowserAct, collect source titles, URLs, and snippets, and produce Markdown or JSON research reports.",
+    "summary": "Run configurable BrowserAct searches and format the returned sources into research reports.",
     "icon": "📦",
-    "version": "1.0.1",
     "author": "browser-act",
     "license": "MIT",
+    "category": "research",
     "tags": [
       "web-research",
       "browseract",
-      "mcp",
-      "source-citations",
+      "internet-search",
+      "source-discovery",
       "research-reports"
     ],
     "supported_tools": [
@@ -47,39 +47,38 @@
       "filesystem",
       "env_access",
       "external_commands"
-    ],
-    "category": "research"
+    ]
   },
   "security_audit": {
     "risk_level": "high",
     "is_blocked": false,
     "safe_to_publish": false,
     "analysis_status": "ok",
-    "summary": "The script performs intended BrowserAct network requests with an environment token and can write reports to a user-selected path. Most Markdown backtick and hidden-directory findings are documentation-only false positives. The documentation also promotes bypassing blocked access, paywalls, verification challenges, and geofencing.",
+    "summary": "Most high and medium static alerts are false positives caused by Markdown formatting, documented installation paths, a constant datetime import, and string slicing. Confirmed risks include external API transmission, unrestricted output overwrite, chat-based credential solicitation, and access-control bypass intent. Returned web content is copied into reports without sanitization, which can expose downstream agents to prompt injection.",
     "remediation": [
       {
-        "issue": "Access-control bypass positioning",
-        "suggestion": "Remove claims about bypassing AI blocks, paywalls, CAPTCHA, geofencing, and IP restrictions. Require lawful access and site-term compliance.",
+        "issue": "The instructions tell the agent to request an API key through the conversation.",
+        "suggestion": "Require BROWSERACT_MCP_TOKEN through secure environment configuration, never request secrets in chat, and align all documentation with the implemented variable.",
         "severity": "high"
       },
       {
-        "issue": "Secret collection guidance",
-        "suggestion": "Do not ask users to paste API keys in chat. Require environment variables or a secrets manager and document BROWSERACT_MCP_TOKEN consistently.",
+        "issue": "The skill promotes bypassing paywalls, geographic restrictions, and verification challenges.",
+        "suggestion": "Remove bypass claims and restrict searches to public content that the user is authorized to access.",
+        "severity": "high"
+      },
+      {
+        "issue": "Remote titles, URLs, and snippets are copied into reports without sanitization.",
+        "suggestion": "Escape Markdown control characters, label remote text as untrusted, and prevent downstream agents from treating source text as instructions.",
+        "severity": "high"
+      },
+      {
+        "issue": "The output argument can overwrite any path available to the executing process.",
+        "suggestion": "Restrict reports to an approved directory, reject traversal and absolute paths, and require confirmation before replacing an existing file.",
         "severity": "medium"
       },
       {
-        "issue": "Unrestricted output path",
-        "suggestion": "Restrict report writes to the workspace or require confirmation before overwriting absolute paths and existing files.",
-        "severity": "medium"
-      },
-      {
-        "issue": "External service disclosure",
-        "suggestion": "Document that queries, filters, and result options are sent to BrowserAct. Advise users to avoid confidential search terms.",
-        "severity": "medium"
-      },
-      {
-        "issue": "Token naming mismatch",
-        "suggestion": "Align the metadata and documentation with the runtime token name used by the script.",
+        "issue": "Queries and an authorization token are transmitted to an external BrowserAct endpoint.",
+        "suggestion": "Disclose the external transfer, obtain user confirmation, minimize sensitive query data, and document BrowserAct privacy and retention terms.",
         "severity": "low"
       }
     ],
@@ -641,284 +640,268 @@
       {
         "id": "scripts:scripts/research.py:125:python-import-function",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "The dynamic import loads the Python standard library datetime module only to add a timestamp. No user-controlled module name or code string is executed."
+        "confidence": 0.99,
+        "reason": "The dynamic import uses the constant module name datetime only to generate a report timestamp. No user-controlled module name or executable expression reaches __import__."
       },
       {
         "id": "network:scripts/research.py:52:python-http-libraries",
         "verdict": "confirmed",
-        "confidence": 0.86,
-        "severity": "low",
-        "reason": "The script sends user search queries and options to the external BrowserAct MCP endpoint. This is intended behavior but creates data disclosure and third-party network risk."
+        "confidence": 0.99,
+        "reason": "The script makes an outbound POST to BrowserAct and includes a bearer token plus the research query. This creates a real external data-transfer and third-party trust risk.",
+        "severity": "low"
       },
       {
         "id": "network:scripts/research.py:20:hardcoded-url",
-        "verdict": "confirmed",
-        "confidence": 0.84,
-        "severity": "low",
-        "reason": "The hardcoded URL defines the external BrowserAct MCP service used for all searches. It is expected, but it creates fixed external egress from the skill."
+        "verdict": "false_positive",
+        "confidence": 0.98,
+        "reason": "The constant is the documented HTTPS endpoint for the required BrowserAct service. The separate HTTP-library finding captures the actual external request risk."
       },
       {
         "id": "network:scripts/research.py:186:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.91,
-        "reason": "This URL is printed as a console link when the token is missing. It is not fetched by the script and does not create network activity."
+        "confidence": 0.99,
+        "reason": "This URL is printed as token-acquisition guidance after a missing-token error. It is not contacted by the script."
       },
       {
         "id": "filesystem:scripts/research.py:148:path-traversal-sequence",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "The detected sequence is an ellipsis appended to a displayed snippet. It is not a filesystem path and cannot traverse directories."
+        "reason": "The three dots are display text appended after a 300-character string slice. They are not a filesystem path or traversal sequence."
       },
       {
         "id": "filesystem:scripts/research.py:220:python-file-write-append",
         "verdict": "confirmed",
-        "confidence": 0.88,
-        "severity": "medium",
-        "reason": "The script writes to args.output without restricting location or checking for overwrite. A user-supplied path can replace any writable file."
+        "confidence": 0.98,
+        "reason": "The user-controlled output argument is opened in write mode without path restrictions or no-clobber protection. An agent invocation could overwrite any file writable by the process.",
+        "severity": "medium"
       },
       {
         "id": "env_access:scripts/research.py:18:python-environment-access",
         "verdict": "false_positive",
-        "confidence": 0.76,
-        "reason": "BROWSERACT_API_KEY is read into a variable but is not used, logged, or sent anywhere in the script. The active runtime token is a different variable."
+        "confidence": 0.98,
+        "reason": "The script reads one explicitly named BrowserAct credential variable rather than enumerating the environment. This variable is never used elsewhere in the script."
       },
       {
         "id": "env_access:scripts/research.py:19:python-environment-access",
-        "verdict": "confirmed",
-        "confidence": 0.83,
-        "severity": "low",
-        "reason": "The script reads BROWSERACT_MCP_TOKEN from the environment and uses it as an Authorization bearer token. This is legitimate but sensitive credential handling."
+        "verdict": "false_positive",
+        "confidence": 0.97,
+        "reason": "The script reads the specifically documented MCP token needed for authentication. It does not enumerate unrelated environment values, and external transmission is covered separately."
       },
       {
         "id": "env_access:scripts/research.py:18:generic-api-secret-keys",
         "verdict": "false_positive",
-        "confidence": 0.78,
-        "reason": "The finding is based on a secret-like environment variable name, not a hardcoded secret value. The variable is not used in a request or output path."
+        "confidence": 0.99,
+        "reason": "This line contains only the name of an expected environment variable, not a hardcoded secret. The retrieved value is unused in the current script."
       },
       {
         "id": "external_commands:SKILL.md:17:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The backticks mark an installation path in a Markdown table. They are documentation formatting, not Ruby shell execution."
+        "confidence": 0.99,
+        "reason": "The backticks are Markdown formatting around an OpenClaw installation path. They do not invoke a shell or Ruby interpreter."
       },
       {
         "id": "external_commands:SKILL.md:19:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The backticks mark an installation path in a Markdown table. They are documentation formatting, not Ruby shell execution."
+        "confidence": 0.99,
+        "reason": "The backticks format an OpenCode installation path in a documentation table. No command execution occurs."
       },
       {
         "id": "external_commands:SKILL.md:20:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The backticks mark an installation path in a Markdown table. They are documentation formatting, not Ruby shell execution."
+        "confidence": 0.99,
+        "reason": "The backticks format a Cursor installation path in a documentation table. They are not an executable construct."
       },
       {
         "id": "external_commands:SKILL.md:43:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The backticks mark an environment variable name in prose. The Markdown text does not execute a command."
+        "confidence": 0.99,
+        "reason": "The backticks mark an environment variable name as inline Markdown code. The line does not execute an external command."
       },
       {
         "id": "external_commands:SKILL.md:54:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The backticks format a parameter name in a Markdown table. They are not command execution syntax in this context."
+        "confidence": 0.99,
+        "reason": "The backticks format the query parameter name in a Markdown table. No shell expression is present."
       },
       {
         "id": "external_commands:SKILL.md:55:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The backticks format a parameter name in a Markdown table. They are not command execution syntax in this context."
+        "confidence": 0.99,
+        "reason": "The backticks format the engine parameter name in documentation. They do not trigger command execution."
       },
       {
         "id": "external_commands:SKILL.md:56:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The backticks format a parameter name in a Markdown table. They are not command execution syntax in this context."
+        "confidence": 0.99,
+        "reason": "The backticks format the max_results parameter name in documentation. No executable backtick syntax is used."
       },
       {
         "id": "external_commands:SKILL.md:57:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The backticks format a parameter name in a Markdown table. They are not command execution syntax in this context."
+        "confidence": 0.99,
+        "reason": "The backticks format the content_type parameter name in a Markdown table. The line contains no command."
       },
       {
         "id": "external_commands:SKILL.md:58:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The backticks format a parameter name in a Markdown table. They are not command execution syntax in this context."
+        "confidence": 0.99,
+        "reason": "The backticks format the time_range parameter name in documentation. They have no execution semantics."
       },
       {
         "id": "external_commands:SKILL.md:62:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "This line starts a Markdown code fence for usage examples. It is documentation and does not run automatically."
+        "confidence": 0.99,
+        "reason": "This is the opening fence for a documented Bash example. The contained Python CLI examples are not automatically executed by the skill instructions."
       },
       {
         "id": "external_commands:SKILL.md:74:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "This line closes a Markdown code fence for usage examples. It is documentation and does not run automatically."
+        "confidence": 0.99,
+        "reason": "This is a Markdown code-fence delimiter followed by descriptive output documentation. It is not Ruby or shell backtick execution."
       },
       {
         "id": "external_commands:SKILL.md:112:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "This line starts a plain Markdown diagram block. It is not shell syntax and does not execute."
+        "confidence": 0.99,
+        "reason": "The triple backticks open a plain-text workflow diagram. They do not execute the displayed text."
       },
       {
         "id": "external_commands:SKILL.md:114:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "This line closes a plain Markdown diagram block. It is not shell syntax and does not execute."
+        "confidence": 0.99,
+        "reason": "The triple backticks close a plain-text workflow diagram. The surrounding content is documentation without command execution."
       },
       {
         "id": "external_commands:SKILL.md:141:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The backticks format a related skill name in documentation. No command is executed by this text."
+        "confidence": 0.99,
+        "reason": "The backticks format a related skill name in Markdown. They do not execute the named skill or a shell command."
       },
       {
         "id": "external_commands:SKILL.md:142:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The backticks format a related skill name in documentation. No command is executed by this text."
+        "confidence": 0.99,
+        "reason": "The backticks format another related skill name. This is a documentation link label, not executable syntax."
       },
       {
         "id": "network:SKILL.md:46:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.91,
-        "reason": "The URL is a documentation link to the BrowserAct console. It is not a network call made by the skill."
+        "confidence": 0.99,
+        "reason": "The BrowserAct Console URL is a user-facing Markdown link for credential setup. The documentation line does not initiate a network request."
       },
       {
         "id": "filesystem:SKILL.md:17:hidden-file-in-home-directory",
         "verdict": "false_positive",
-        "confidence": 0.93,
-        "reason": "The hidden directory appears only as an installation destination in a Markdown table. The skill does not access that path programmatically."
+        "confidence": 0.99,
+        "reason": "The hidden home-directory path is only documented as an OpenClaw installation destination. No file operation is performed."
       },
       {
         "id": "filesystem:SKILL.md:19:hidden-file-in-home-directory",
         "verdict": "false_positive",
-        "confidence": 0.93,
-        "reason": "The hidden directory appears only as an installation destination in a Markdown table. The skill does not access that path programmatically."
+        "confidence": 0.99,
+        "reason": "The OpenCode hidden directory appears only in an installation table. The skill does not access it."
       },
       {
         "id": "filesystem:SKILL.md:20:hidden-file-in-home-directory",
         "verdict": "false_positive",
-        "confidence": 0.93,
-        "reason": "The hidden directory appears only as an installation destination in a Markdown table. The skill does not access that path programmatically."
+        "confidence": 0.99,
+        "reason": "The Cursor hidden directory is a documented installation destination. There is no corresponding filesystem action."
       },
       {
         "id": "filesystem:SKILL.md:17:hidden-file-access",
         "verdict": "false_positive",
-        "confidence": 0.93,
-        "reason": "The path is documentation for where a user may install the skill. There is no file read, write, or traversal behavior on this line."
+        "confidence": 0.99,
+        "reason": "This line documents where a user may install the skill for OpenClaw. It does not read or modify hidden files."
       },
       {
         "id": "filesystem:SKILL.md:19:hidden-file-access",
         "verdict": "false_positive",
-        "confidence": 0.93,
-        "reason": "The path is documentation for where a user may install the skill. There is no file read, write, or traversal behavior on this line."
+        "confidence": 0.99,
+        "reason": "This line documents an OpenCode installation path. No hidden-file access is implemented."
       },
       {
         "id": "filesystem:SKILL.md:20:hidden-file-access",
         "verdict": "false_positive",
-        "confidence": 0.93,
-        "reason": "The path is documentation for where a user may install the skill. There is no file read, write, or traversal behavior on this line."
+        "confidence": 0.99,
+        "reason": "This line documents a Cursor installation path. It does not instruct the agent to inspect hidden files."
       },
       {
         "id": "env_access:SKILL.md:4:generic-api-secret-keys",
         "verdict": "false_positive",
-        "confidence": 0.82,
-        "reason": "The metadata declares a required environment variable name but does not contain a secret value. The declaration alone is not credential exposure."
+        "confidence": 0.99,
+        "reason": "The metadata declares the name of a required environment variable without embedding a credential. Declaring a scoped dependency is not secret exposure."
       },
       {
         "id": "env_access:SKILL.md:43:generic-api-secret-keys",
         "verdict": "confirmed",
-        "confidence": 0.8,
-        "severity": "high",
-        "reason": "The documentation tells the assistant to request an API key from the user when the variable is missing. That can expose credentials in chat transcripts and logs."
+        "confidence": 0.99,
+        "reason": "The instruction tells the agent to request the BrowserAct API key from the user when the variable is absent. Soliciting a secret through chat risks transcript exposure and unsafe retention.",
+        "severity": "high"
       },
       {
         "id": "blocker:SKILL.md:122:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The line describes invalid API key handling. It does not gather system information or enumerate host details."
+        "confidence": 0.99,
+        "reason": "This is error-handling guidance for an invalid API key. It neither inventories the host nor collects system information."
       },
       {
         "id": "blocker:SKILL.md:34:network-reconnaissance",
         "verdict": "confirmed",
-        "confidence": 0.82,
-        "severity": "medium",
-        "reason": "The documentation recommends use when target sites block AI assistant access. That is access-control circumvention context, not ordinary research only."
+        "confidence": 0.97,
+        "reason": "The skill explicitly presents target-site blocking of AI assistants as a condition to circumvent. Later claims about built-in verification bypass confirm the access-control evasion intent.",
+        "severity": "low"
       },
       {
         "id": "blocker:SKILL.md:35:network-reconnaissance",
         "verdict": "confirmed",
-        "confidence": 0.82,
-        "severity": "medium",
-        "reason": "The documentation recommends use when geographic restrictions limit content access. That frames the skill as a geofencing bypass tool."
+        "confidence": 0.98,
+        "reason": "The skill presents geographic restrictions as barriers to overcome and later claims it bypasses those restrictions through BrowserAct. This is circumvention intent rather than network discovery.",
+        "severity": "low"
       }
     ],
     "semantic_findings": [
       {
-        "title": "Access Control Circumvention Claims",
-        "description": "The documentation promotes use when sites block AI assistants, paywalls prevent extraction, or geofencing applies. It also claims verification and IP restrictions can be bypassed.",
+        "title": "Access-Control Circumvention",
+        "description": "The skill promotes bypassing paywalls, geographic restrictions, and reCAPTCHA through built-in bypass mechanisms. This encourages evasion of website access controls and usage policies.",
         "severity": "high",
         "locations": [
           {
             "file": "SKILL.md",
-            "line_start": 31,
-            "line_end": 37
+            "line_start": 36,
+            "line_end": 36
           },
           {
             "file": "SKILL.md",
-            "line_start": 84,
-            "line_end": 90
+            "line_start": 87,
+            "line_end": 87
           },
           {
             "file": "SKILL.md",
-            "line_start": 97,
-            "line_end": 101
+            "line_start": 99,
+            "line_end": 99
           }
         ],
-        "confidence": 0.93,
-        "confidence_reasoning": "The cited prose directly describes blocked access, paywalls, geofencing, verification challenges, and bypass mechanisms. This is clear access-control circumvention positioning."
+        "confidence": 0.99,
+        "confidence_reasoning": "The prose explicitly names paywalls and geographic restrictions, then claims built-in mechanisms bypass verification challenges. The intent is direct and repeated."
       },
       {
-        "title": "Secret Collection Through Chat Guidance",
-        "description": "The documentation instructs the assistant to ask the user for a BrowserAct API key when the variable is missing. This can expose credentials in chat history and operational logs.",
-        "severity": "medium",
+        "title": "Prompt Injection Exposure Through Web Results",
+        "description": "Remote titles, URLs, and snippets are copied directly into reports. Malicious source text could present instructions that manipulate an AI consuming the report.",
+        "severity": "high",
         "locations": [
           {
-            "file": "SKILL.md",
-            "line_start": 41,
-            "line_end": 46
-          }
-        ],
-        "confidence": 0.84,
-        "confidence_reasoning": "The cited section explicitly tells the assistant to request the API key from the user. The risk is credential exposure through conversational handling."
-      },
-      {
-        "title": "Untrusted Web Content Included In Reports",
-        "description": "The script inserts result titles, URLs, snippets, and raw search results into reports without filtering. Malicious snippets can carry prompt-injection text into downstream review.",
-        "severity": "medium",
-        "locations": [
+            "file": "scripts/research.py",
+            "line_start": 89,
+            "line_end": 95
+          },
           {
             "file": "scripts/research.py",
             "line_start": 145,
             "line_end": 148
-          },
-          {
-            "file": "scripts/research.py",
-            "line_start": 212,
-            "line_end": 216
           }
         ],
-        "confidence": 0.74,
-        "confidence_reasoning": "The code formats external search result content directly into Markdown and JSON output. This is expected for research, but it preserves untrusted text for later consumers."
+        "confidence": 0.94,
+        "confidence_reasoning": "The code directly preserves remote title, URL, and snippet fields and interpolates them into Markdown without escaping or trust-boundary instructions."
       }
     ],
     "critical_findings": [],
@@ -936,34 +919,55 @@
         "review_kind": "capability",
         "source_category": "env_access",
         "source_severity": "high",
-        "confidence": 0.8,
-        "confidence_reasoning": "The documentation tells the assistant to request an API key from the user when the variable is missing. That can expose credentials in chat transcripts and logs."
+        "confidence": 0.99,
+        "confidence_reasoning": "The instruction tells the agent to request the BrowserAct API key from the user when the variable is absent. Soliciting a secret through chat risks transcript exposure and unsafe retention."
       },
       {
-        "title": "Access Control Circumvention Claims",
-        "description": "The documentation promotes use when sites block AI assistants, paywalls prevent extraction, or geofencing applies. It also claims verification and IP restrictions can be bypassed.",
+        "title": "Access-Control Circumvention",
+        "description": "The skill promotes bypassing paywalls, geographic restrictions, and reCAPTCHA through built-in bypass mechanisms. This encourages evasion of website access controls and usage policies.",
         "locations": [
           {
             "file": "SKILL.md",
-            "line_start": 31,
-            "line_end": 37
+            "line_start": 36,
+            "line_end": 36
           },
           {
             "file": "SKILL.md",
-            "line_start": 84,
-            "line_end": 90
+            "line_start": 87,
+            "line_end": 87
           },
           {
             "file": "SKILL.md",
-            "line_start": 97,
-            "line_end": 101
+            "line_start": 99,
+            "line_end": 99
           }
         ],
         "review_kind": "security",
         "source_category": "semantic",
         "source_severity": "high",
-        "confidence": 0.93,
-        "confidence_reasoning": "The cited prose directly describes blocked access, paywalls, geofencing, verification challenges, and bypass mechanisms. This is clear access-control circumvention positioning."
+        "confidence": 0.99,
+        "confidence_reasoning": "The prose explicitly names paywalls and geographic restrictions, then claims built-in mechanisms bypass verification challenges. The intent is direct and repeated."
+      },
+      {
+        "title": "Prompt Injection Exposure Through Web Results",
+        "description": "Remote titles, URLs, and snippets are copied directly into reports. Malicious source text could present instructions that manipulate an AI consuming the report.",
+        "locations": [
+          {
+            "file": "scripts/research.py",
+            "line_start": 89,
+            "line_end": 95
+          },
+          {
+            "file": "scripts/research.py",
+            "line_start": 145,
+            "line_end": 148
+          }
+        ],
+        "review_kind": "security",
+        "source_category": "semantic",
+        "source_severity": "high",
+        "confidence": 0.94,
+        "confidence_reasoning": "The code directly preserves remote title, URL, and snippet fields and interpolates them into Markdown without escaping or trust-boundary instructions."
       }
     ],
     "medium_findings": [
@@ -980,77 +984,8 @@
         "review_kind": "capability",
         "source_category": "filesystem",
         "source_severity": "medium",
-        "confidence": 0.88,
-        "confidence_reasoning": "The script writes to args.output without restricting location or checking for overwrite. A user-supplied path can replace any writable file."
-      },
-      {
-        "title": "Network reconnaissance",
-        "description": "- 🔒 Target websites block AI assistant access",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 34,
-            "line_end": 35
-          }
-        ],
-        "review_kind": "security",
-        "source_category": "blocker",
-        "source_severity": "low",
-        "confidence": 0.82,
-        "confidence_reasoning": "The documentation recommends use when target sites block AI assistant access. That is access-control circumvention context, not ordinary research only."
-      },
-      {
-        "title": "Network reconnaissance",
-        "description": "- 🌍 Geographic restrictions limit content access",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 35,
-            "line_end": 36
-          }
-        ],
-        "review_kind": "security",
-        "source_category": "blocker",
-        "source_severity": "low",
-        "confidence": 0.82,
-        "confidence_reasoning": "The documentation recommends use when geographic restrictions limit content access. That frames the skill as a geofencing bypass tool."
-      },
-      {
-        "title": "Secret Collection Through Chat Guidance",
-        "description": "The documentation instructs the assistant to ask the user for a BrowserAct API key when the variable is missing. This can expose credentials in chat history and operational logs.",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 41,
-            "line_end": 46
-          }
-        ],
-        "review_kind": "security",
-        "source_category": "semantic",
-        "source_severity": "medium",
-        "confidence": 0.84,
-        "confidence_reasoning": "The cited section explicitly tells the assistant to request the API key from the user. The risk is credential exposure through conversational handling."
-      },
-      {
-        "title": "Untrusted Web Content Included In Reports",
-        "description": "The script inserts result titles, URLs, snippets, and raw search results into reports without filtering. Malicious snippets can carry prompt-injection text into downstream review.",
-        "locations": [
-          {
-            "file": "scripts/research.py",
-            "line_start": 145,
-            "line_end": 148
-          },
-          {
-            "file": "scripts/research.py",
-            "line_start": 212,
-            "line_end": 216
-          }
-        ],
-        "review_kind": "security",
-        "source_category": "semantic",
-        "source_severity": "medium",
-        "confidence": 0.74,
-        "confidence_reasoning": "The code formats external search result content directly into Markdown and JSON output. This is expected for research, but it preserves untrusted text for later consumers."
+        "confidence": 0.98,
+        "confidence_reasoning": "The user-controlled output argument is opened in write mode without path restrictions or no-clobber protection. An agent invocation could overwrite any file writable by the process."
       }
     ],
     "low_findings": [
@@ -1067,40 +1002,40 @@
         "review_kind": "capability",
         "source_category": "network",
         "source_severity": "low",
-        "confidence": 0.86,
-        "confidence_reasoning": "The script sends user search queries and options to the external BrowserAct MCP endpoint. This is intended behavior but creates data disclosure and third-party network risk."
+        "confidence": 0.99,
+        "confidence_reasoning": "The script makes an outbound POST to BrowserAct and includes a bearer token plus the research query. This creates a real external data-transfer and third-party trust risk."
       },
       {
-        "title": "Hardcoded URL",
-        "description": "MCP_SERVER_URL = \"https://mcp.browseract.com/\"",
+        "title": "Network reconnaissance",
+        "description": "- 🔒 Target websites block AI assistant access",
         "locations": [
           {
-            "file": "scripts/research.py",
-            "line_start": 20,
-            "line_end": 20
+            "file": "SKILL.md",
+            "line_start": 34,
+            "line_end": 35
           }
         ],
-        "review_kind": "capability",
-        "source_category": "network",
+        "review_kind": "security",
+        "source_category": "blocker",
         "source_severity": "low",
-        "confidence": 0.84,
-        "confidence_reasoning": "The hardcoded URL defines the external BrowserAct MCP service used for all searches. It is expected, but it creates fixed external egress from the skill."
+        "confidence": 0.97,
+        "confidence_reasoning": "The skill explicitly presents target-site blocking of AI assistants as a condition to circumvent. Later claims about built-in verification bypass confirm the access-control evasion intent."
       },
       {
-        "title": "Python environment access",
-        "description": "BROWSERACT_MCP_TOKEN = os.environ.get(\"BROWSERACT_MCP_TOKEN\")",
+        "title": "Network reconnaissance",
+        "description": "- 🌍 Geographic restrictions limit content access",
         "locations": [
           {
-            "file": "scripts/research.py",
-            "line_start": 19,
-            "line_end": 19
+            "file": "SKILL.md",
+            "line_start": 35,
+            "line_end": 36
           }
         ],
-        "review_kind": "capability",
-        "source_category": "env_access",
+        "review_kind": "security",
+        "source_category": "blocker",
         "source_severity": "low",
-        "confidence": 0.83,
-        "confidence_reasoning": "The script reads BROWSERACT_MCP_TOKEN from the environment and uses it as an Authorization bearer token. This is legitimate but sensitive credential handling."
+        "confidence": 0.98,
+        "confidence_reasoning": "The skill presents geographic restrictions as barriers to overcome and later claims it bypasses those restrictions through BrowserAct. This is circumvention intent rather than network discovery."
       }
     ],
     "dangerous_patterns": [
@@ -1117,8 +1052,8 @@
         "review_kind": "security",
         "source_category": "blocker",
         "source_severity": "low",
-        "confidence": 0.82,
-        "confidence_reasoning": "The documentation recommends use when target sites block AI assistant access. That is access-control circumvention context, not ordinary research only."
+        "confidence": 0.97,
+        "confidence_reasoning": "The skill explicitly presents target-site blocking of AI assistants as a condition to circumvent. Later claims about built-in verification bypass confirm the access-control evasion intent."
       },
       {
         "title": "Network reconnaissance",
@@ -1133,132 +1068,140 @@
         "review_kind": "security",
         "source_category": "blocker",
         "source_severity": "low",
-        "confidence": 0.82,
-        "confidence_reasoning": "The documentation recommends use when geographic restrictions limit content access. That frames the skill as a geofencing bypass tool."
+        "confidence": 0.98,
+        "confidence_reasoning": "The skill presents geographic restrictions as barriers to overcome and later claims it bypasses those restrictions through BrowserAct. This is circumvention intent rather than network discovery."
       }
     ],
     "files_scanned": 2,
     "total_lines": 390,
     "audit_model": "codex",
-    "audited_at": "2026-07-07T21:30:59.068Z",
+    "audited_at": "2026-07-23T10:33:26.537Z",
     "agent_auto_install_policy": "confirmation_required",
     "manual_install_policy": "allowed"
   },
   "content": {
-    "user_title": "Research Web Sources with BrowserAct",
-    "value_statement": "Web access limits can slow research and source discovery. This skill runs BrowserAct searches, extracts snippets, and formats cited research summaries.",
+    "user_title": "Research the Web with BrowserAct",
+    "value_statement": "Restricted web access can prevent timely source discovery. This skill sends configurable searches to BrowserAct and formats returned sources as Markdown or JSON.",
     "seo_keywords": [
-      "BrowserAct web research",
-      "Claude research skill",
-      "Codex research assistant",
-      "Claude Code web search",
-      "AI web research",
-      "source citation tool",
-      "MCP search",
-      "web research assistant",
-      "current information search",
-      "research report generator"
+      "Claude",
+      "Codex",
+      "Claude Code",
+      "web research",
+      "BrowserAct",
+      "internet search",
+      "source discovery",
+      "research report",
+      "current information",
+      "MCP search"
     ],
     "actual_capabilities": [
-      "Runs BrowserAct MCP search requests with query, engine, result count, content type, and time range options.",
-      "Sends requests to mcp.browseract.com using BROWSERACT_MCP_TOKEN from the environment.",
-      "Extracts source titles, URLs, snippets, result counts, and snippet-based statistics.",
-      "Generates Markdown reports with summaries, source lists, statistics, and research recommendations.",
-      "Can print results, output JSON, or save reports to a user-selected file."
+      "Sends a research query to BrowserAct MCP with Google, Bing, or DuckDuckGo selected.",
+      "Configures result count, content type, and publication time range.",
+      "Collects up to ten source titles, URLs, and snippets for the report.",
+      "Identifies snippets containing numbers as potential statistics.",
+      "Formats results as a Markdown report or JSON output.",
+      "Prints results to standard output or writes them to a chosen file."
     ],
     "limitations": [
-      "Requires a valid BrowserAct MCP token in the environment.",
-      "Sends search queries and request options to the external BrowserAct service.",
-      "Uses simple extraction heuristics and does not verify factual accuracy.",
-      "Can overwrite local files when a user supplies an output path."
+      "The script requires BROWSERACT_MCP_TOKEN, while the instructions request BROWSERACT_API_KEY. Configuration guidance is inconsistent.",
+      "Key facts are never populated, and the script does not implement the claimed cross-source validation.",
+      "Search result text is untrusted and unsanitized. Reports may contain misleading content or prompt injection.",
+      "Markdown reports include only the first ten sources, even when more results are requested."
     ],
     "use_cases": [
       {
-        "title": "Check Current Market Sources",
-        "description": "Collect recent search results, snippets, and source links for a market research question.",
-        "target_user": "Market researchers"
+        "title": "Track Market Sources",
+        "description": "Find recent industry sources and statistics before preparing a market update.",
+        "target_user": "Market analyst"
       },
       {
-        "title": "Prepare Source Briefs",
-        "description": "Create a short report with citations before drafting an article or briefing note.",
-        "target_user": "Writers and analysts"
+        "title": "Build a Source List",
+        "description": "Collect titles, URLs, and snippets for a current article or background brief.",
+        "target_user": "Journalist or writer"
       },
       {
-        "title": "Compare Search Engines",
-        "description": "Run the same topic across supported engines and review source coverage differences.",
-        "target_user": "Research operations teams"
+        "title": "Test Search Workflows",
+        "description": "Compare search engines, filters, and output formats during research-tool integration.",
+        "target_user": "Developer"
       }
     ],
     "prompt_templates": [
       {
         "title": "Basic Topic Search",
-        "scenario": "Beginner search with default settings.",
-        "prompt": "Research renewable energy storage trends and summarize the most useful sources."
+        "prompt": "Research {topic}. Return up to ten recent sources with titles, URLs, and snippets in Markdown.",
+        "scenario": "Start a focused source search."
       },
       {
-        "title": "Recent News Scan",
-        "scenario": "Focused search for current developments.",
-        "prompt": "Search recent news about semiconductor export rules. Use a short time range and list the main sources."
+        "title": "Filter Current News",
+        "prompt": "Search for news about {topic} from the past week using {engine}. Highlight snippets containing useful statistics.",
+        "scenario": "Find timely reporting with a selected engine."
       },
       {
-        "title": "Data-Oriented Research",
-        "scenario": "Find statistics and supporting evidence.",
-        "prompt": "Research electric vehicle adoption statistics for the United States. Highlight figures that need primary-source verification."
+        "title": "Compare Search Engines",
+        "prompt": "Run separate searches for {claim} with Google and Bing. Group overlapping sources and flag conflicting snippets for manual review.",
+        "scenario": "Compare coverage across two search providers."
       },
       {
-        "title": "Comparative Source Review",
-        "scenario": "Advanced review across engines and content types.",
-        "prompt": "Compare sources about enterprise AI spending across search engines. Note conflicting claims, publication dates, and source quality."
+        "title": "Build an Evidence Brief",
+        "prompt": "Investigate {market} across news, reports, and data from the past year. Produce a cited briefing and identify evidence gaps.",
+        "scenario": "Combine several filtered searches into a research brief."
       }
     ],
     "output_examples": [
       {
-        "input": "Research recent battery recycling policy changes.",
-        "output": "A Markdown brief with a short summary, source links, extracted statistics, and recommendations for verification."
+        "input": "Research global battery recycling policies from the past year.",
+        "output": [
+          "Web Research Report",
+          "Query: global battery recycling policies",
+          "Executive Summary: Found 10 relevant sources",
+          "Data Sources: source titles, URLs, and snippets",
+          "Recommendations: verify findings with official policy documents"
+        ]
       },
       {
-        "input": "Find current sources about a competitor launch.",
-        "output": "A source list with titles, URLs, snippets, result counts, and notes on which claims need confirmation."
-      },
-      {
-        "input": "Search for data sources about cloud infrastructure spending.",
-        "output": "A concise research report that separates statistics, source snippets, and next research steps."
+        "input": "Find recent news about commercial fusion funding.",
+        "output": [
+          "Executive Summary: Found recent sources about commercial fusion funding",
+          "Statistics and Data: snippets containing funding amounts",
+          "Data Sources: news titles, URLs, and excerpts",
+          "Recommendations: confirm amounts with company filings"
+        ]
       }
     ],
     "best_practices": [
-      "Store BrowserAct tokens in environment variables or a secrets manager.",
-      "Use specific queries, time ranges, and content filters for focused results.",
-      "Verify important facts with primary sources before using the report."
+      "Use precise queries and narrow time filters to improve result relevance.",
+      "Verify snippets against primary sources before using facts or statistics.",
+      "Store the MCP token in a secure environment variable and review BrowserAct data policies."
     ],
     "anti_patterns": [
-      "Do not use the skill to bypass paywalls, CAPTCHAs, geofencing, or access controls.",
-      "Do not paste private keys, customer data, or confidential text into search queries.",
-      "Do not treat snippets or generated summaries as verified facts."
+      "Do not paste API credentials into prompts, chats, or generated reports.",
+      "Do not use the skill to bypass paywalls, CAPTCHAs, or geographic restrictions.",
+      "Do not treat search snippets as verified facts or complete source content."
     ],
     "faq": [
       {
-        "question": "Does this skill require a BrowserAct key?",
-        "answer": "Yes. The script checks BROWSERACT_MCP_TOKEN at runtime. The metadata also references BROWSERACT_API_KEY."
+        "question": "Which credential does the script require?",
+        "answer": "The script requires BROWSERACT_MCP_TOKEN. The instructions also mention BROWSERACT_API_KEY, but the current script does not use it."
       },
       {
         "question": "Which search engines are supported?",
-        "answer": "The CLI accepts Google, Bing, and DuckDuckGo as search engine options."
+        "answer": "The request supports Google, Bing, and DuckDuckGo through BrowserAct."
       },
       {
-        "question": "Does the skill browse websites directly?",
-        "answer": "No. It sends search requests to BrowserAct MCP and formats the returned results."
+        "question": "Can the skill save a report?",
+        "answer": "Yes. It can write Markdown or JSON to a selected path, but the current implementation may replace existing files."
       },
       {
-        "question": "Can the skill save reports to files?",
-        "answer": "Yes. It can write Markdown or JSON output to a user-specified path."
+        "question": "Does the skill verify every result?",
+        "answer": "No. It collects source metadata and detects numbers in snippets, but it does not perform source validation."
       },
       {
-        "question": "Are the generated reports verified?",
-        "answer": "No. The script extracts snippets and simple statistics. Users must verify facts with primary sources."
+        "question": "Can it access blocked or restricted content?",
+        "answer": "Use it only for content you are authorized to access. Do not bypass paywalls, CAPTCHAs, or geographic restrictions."
       },
       {
-        "question": "Can it be used on restricted content?",
-        "answer": "Users must follow laws, site terms, robots rules, and access permissions. Do not use it to bypass restrictions."
+        "question": "What data leaves the local environment?",
+        "answer": "Queries and the MCP bearer token are sent to mcp.browseract.com. Review BrowserAct privacy and retention terms before use."
       }
     ]
   },
