@@ -1,25 +1,20 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-07-17T10:06:21.048Z",
+    "generated_at": "2026-07-23T09:34:03.483Z",
     "slug": "autumnsgrove-pdf",
     "source_url": "https://github.com/AutumnsGrove/ClaudeSkills/tree/master/pdf",
     "source_ref": "master",
-    "model": "claude",
+    "model": "codex",
     "analysis_version": "3.0.0",
     "source_type": "community",
     "content_hash": "8243e12994844d4b8666578846bff7e77671356463b38ba9ff748f888f20b53b",
     "tree_hash": "38bad124a015537fd433b49cd9cbfb91d9f2916b107fe8eb01fa3b6aa6aacb7e",
     "provenance": {
-      "model_effective": "claude",
+      "model_effective": "codex",
       "fallback_chain": [
         {
           "agent": "codex",
-          "outcome": "failed",
-          "error": "2026-07-17T10:06:21.178690Z ERROR codex_models_manager::manager: failed to refresh available models: Missing environment variable: `HELM_API_KEY`.\n2026-07-17T10:06:21.197868Z ERROR codex_models_manage…"
-        },
-        {
-          "agent": "claude",
           "outcome": "success"
         }
       ],
@@ -55,20 +50,25 @@
     "category": "office"
   },
   "security_audit": {
-    "risk_level": "safe",
+    "risk_level": "medium",
     "is_blocked": false,
     "safe_to_publish": true,
     "analysis_status": "ok",
-    "summary": "Most static matches are documentation formatting, ordinary PDF file operations, or explicit installation instructions. Two predictable /tmp paths are confirmed as local file-handling risks, and a CSV invoice example directly evaluates untrusted data with eval(), enabling arbitrary code execution. No prompt-injection language, data-exfiltration intent, or unauthorized network behavior was found.",
+    "summary": "The eval example, predictable shared temporary paths, and unsanitized CSV-derived filenames create code execution or file-clobbering risks. Other matches are Markdown formatting, documented installation commands, dependency checks, or expected PDF file operations. No prompt injection, data exfiltration, or unauthorized network behavior was found.",
     "remediation": [
       {
         "issue": "Invoice generation evaluates CSV content as Python code.",
-        "suggestion": "Replace eval(row['items']) with json.loads after defining and documenting the expected JSON format. Validate the resulting structure before use.",
+        "suggestion": "Replace eval with json.loads and define the expected JSON format. Validate item fields and types before generating invoices.",
         "severity": "high"
       },
       {
         "issue": "OCR and size-check examples use predictable paths under /tmp.",
-        "suggestion": "Use tempfile.NamedTemporaryFile or TemporaryDirectory with unique names, keep file handles controlled, and clean up in a finally block.",
+        "suggestion": "Use tempfile.NamedTemporaryFile or TemporaryDirectory with unique names. Keep file handles controlled and clean up in a finally block.",
+        "severity": "medium"
+      },
+      {
+        "issue": "Invoice numbers are used directly in generated output paths.",
+        "suggestion": "Allow only a restricted filename character set. Resolve the destination and verify that it remains inside the selected output directory.",
         "severity": "medium"
       }
     ],
@@ -1790,14 +1790,14 @@
       {
         "id": "filesystem:references/best-practices.md:493:temp-file-creation",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The cited file write, directory creation, or cleanup operation is a normal documented PDF output workflow. No evidence shows traversal, secret collection, or unexpected file targeting."
+        "confidence": 0.99,
+        "reason": "The line only imports Python's tempfile module for the secure temporary-directory example. It creates no file and introduces no unsafe path."
       },
       {
         "id": "filesystem:references/best-practices.md:498:temp-file-creation",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The cited file write, directory creation, or cleanup operation is a normal documented PDF output workflow. No evidence shows traversal, secret collection, or unexpected file targeting."
+        "confidence": 0.99,
+        "reason": "TemporaryDirectory creates a unique managed directory and automatically removes it. This is the recommended secure temporary-file pattern."
       },
       {
         "id": "blocker:references/best-practices.md:7:system-reconnaissance",
@@ -1850,8 +1850,8 @@
       {
         "id": "filesystem:references/metadata-security-ocr.md:321:node-js-fs-operations",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The cited file write, directory creation, or cleanup operation is a normal documented PDF output workflow. No evidence shows traversal, secret collection, or unexpected file targeting."
+        "confidence": 0.99,
+        "reason": "The line appends a Python path string to an in-memory list. It contains no Node.js fs call and performs no filesystem operation."
       },
       {
         "id": "filesystem:references/metadata-security-ocr.md:307:temp-directory-access",
@@ -1915,9 +1915,10 @@
       },
       {
         "id": "filesystem:references/pdf-operations.md:288:python-file-write-append",
-        "verdict": "false_positive",
+        "verdict": "confirmed",
         "confidence": 0.96,
-        "reason": "The cited file write, directory creation, or cleanup operation is a normal documented PDF output workflow. No evidence shows traversal, secret collection, or unexpected file targeting."
+        "reason": "This write opens the fixed shared path defined as /tmp/temp_check.pdf on the preceding line. A local attacker can pre-create a symlink and redirect the write.",
+        "severity": "medium"
       },
       {
         "id": "filesystem:references/pdf-operations.md:295:python-file-write-append",
@@ -2466,7 +2467,22 @@
         "reason": "The cited file write, directory creation, or cleanup operation is a normal documented PDF output workflow. No evidence shows traversal, secret collection, or unexpected file targeting."
       }
     ],
-    "semantic_findings": [],
+    "semantic_findings": [
+      {
+        "title": "CSV-Derived Output Path Traversal",
+        "description": "A CSV invoice number is inserted into an output path without validation, allowing traversal outside the selected output directory. A crafted value can overwrite an accessible PDF file.",
+        "severity": "medium",
+        "locations": [
+          {
+            "file": "examples/invoice-generator.md",
+            "line_start": 277,
+            "line_end": 278
+          }
+        ],
+        "confidence": 0.97,
+        "confidence_reasoning": "Lines 277-278 directly build and use the output path from the CSV field, with no basename or containment check."
+      }
+    ],
     "critical_findings": [],
     "high_findings": [
       {
@@ -2518,14 +2534,46 @@
         "source_severity": "medium",
         "confidence": 0.93,
         "confidence_reasoning": "The example uses the fixed path /tmp/temp_check.pdf. A predictable shared temporary path can be pre-created or replaced by another local process."
+      },
+      {
+        "title": "Python file write/append",
+        "description": "with open(temp_path, 'wb') as f:",
+        "locations": [
+          {
+            "file": "references/pdf-operations.md",
+            "line_start": 288,
+            "line_end": 288
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "filesystem",
+        "source_severity": "medium",
+        "confidence": 0.96,
+        "confidence_reasoning": "This write opens the fixed shared path defined as /tmp/temp_check.pdf on the preceding line. A local attacker can pre-create a symlink and redirect the write."
+      },
+      {
+        "title": "CSV-Derived Output Path Traversal",
+        "description": "A CSV invoice number is inserted into an output path without validation, allowing traversal outside the selected output directory. A crafted value can overwrite an accessible PDF file.",
+        "locations": [
+          {
+            "file": "examples/invoice-generator.md",
+            "line_start": 277,
+            "line_end": 278
+          }
+        ],
+        "review_kind": "security",
+        "source_category": "semantic",
+        "source_severity": "medium",
+        "confidence": 0.97,
+        "confidence_reasoning": "Lines 277-278 directly build and use the output path from the CSV field, with no basename or containment check."
       }
     ],
     "low_findings": [],
     "dangerous_patterns": [],
     "files_scanned": 12,
     "total_lines": 4856,
-    "audit_model": "claude",
-    "audited_at": "2026-07-17T10:06:21.048Z",
+    "audit_model": "codex",
+    "audited_at": "2026-07-23T09:34:03.483Z",
     "agent_auto_install_policy": "allowed",
     "manual_install_policy": "allowed"
   },
@@ -2679,12 +2727,6 @@
       ]
     },
     {
-      "name": "README.md",
-      "type": "file",
-      "path": "README.md",
-      "lines": 169
-    },
-    {
       "name": "references",
       "type": "dir",
       "path": "references",
@@ -2745,6 +2787,12 @@
           "lines": 1062
         }
       ]
+    },
+    {
+      "name": "README.md",
+      "type": "file",
+      "path": "README.md",
+      "lines": 169
     },
     {
       "name": "SKILL.md",
