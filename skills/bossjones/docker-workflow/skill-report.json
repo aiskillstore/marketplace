@@ -1,7 +1,7 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-07-07T21:47:40.460Z",
+    "generated_at": "2026-07-23T10:48:54.456Z",
     "slug": "bossjones-docker-workflow",
     "source_url": "https://github.com/bossjones/logging-lab/tree/main/.claude/skills/docker-workflow",
     "source_ref": "main",
@@ -23,10 +23,9 @@
   },
   "skill": {
     "name": "docker-workflow",
-    "description": "Docker workflow guidance for multi-stage builds, Docker Compose orchestration, image optimization, debugging, and production container practices.",
-    "summary": "Guide AI agents through practical Docker builds, Compose stacks, debugging, and production hardening.",
+    "description": "Guides Docker containerization with multi-stage builds, Compose orchestration, image optimization, debugging, and production deployment practices.",
+    "summary": "Build, debug, optimize, and harden Docker images and multi-service Compose environments.",
     "icon": "📦",
-    "version": "1.0.1",
     "author": "bossjones",
     "license": "MIT",
     "tags": [
@@ -34,7 +33,7 @@
       "containers",
       "docker-compose",
       "devops",
-      "debugging"
+      "container-debugging"
     ],
     "supported_tools": [
       "claude",
@@ -54,26 +53,36 @@
     "is_blocked": false,
     "safe_to_publish": false,
     "analysis_status": "ok",
-    "summary": "The skill is legitimate Docker workflow documentation, and many static alerts are false positives from Markdown fences, ignore patterns, and Docker templates. Confirmed concerns include hardcoded development credentials, a public connectivity probe, and helper commands that can expose or delete Docker data. No prompt injection text was found in the reviewed files.",
+    "summary": "Most static alerts are false positives from Markdown fences, ignore rules, localhost checks, and Docker template syntax. Confirmed risks include embedded example secrets, an executable Docker helper, and its public connectivity probe. Semantic review found insecure service defaults, secret disclosure, destructive cleanup, and unpinned images; no prompt injection was found.",
     "remediation": [
       {
-        "issue": "Hardcoded example credentials in Compose files",
-        "suggestion": "Replace default passwords and admin accounts with placeholders, secret references, and clear production warnings.",
+        "issue": "Predictable credentials are embedded in Compose service definitions.",
+        "suggestion": "Replace defaults with required environment variables or Docker secrets, and fail startup when values are missing.",
         "severity": "high"
       },
       {
-        "issue": "Container environment variables can be printed without redaction",
-        "suggestion": "Redact names containing SECRET, TOKEN, PASSWORD, KEY, and CREDENTIAL before displaying environment output.",
+        "issue": "Elasticsearch disables authentication while publishing its HTTP port.",
+        "suggestion": "Enable Elasticsearch security and bind the port to localhost or an authenticated private network.",
+        "severity": "high"
+      },
+      {
+        "issue": "The helper prints container environment values without redaction.",
+        "suggestion": "Show variable names by default and require explicit confirmation before displaying redacted values.",
         "severity": "medium"
       },
       {
-        "issue": "Docker cleanup removes resources with forced prune commands",
-        "suggestion": "Add an explicit confirmation prompt and document that unused volumes may contain persistent data.",
+        "issue": "Cleanup force-prunes Docker volumes and other resources.",
+        "suggestion": "Add a confirmation prompt, support a dry run, and exclude volumes unless the user requests them.",
         "severity": "medium"
       },
       {
-        "issue": "Connectivity check uses a fixed public IP address",
-        "suggestion": "Make the connectivity target configurable and prefer an internal endpoint for private environments.",
+        "issue": "The connectivity test always contacts a public IP address.",
+        "suggestion": "Make the target configurable and default to an operator-approved internal endpoint.",
+        "severity": "medium"
+      },
+      {
+        "issue": "Several Compose services use mutable latest tags.",
+        "suggestion": "Pin reviewed versions or image digests and document a controlled update process.",
         "severity": "medium"
       }
     ],
@@ -410,51 +419,6 @@
             "file": "SKILL.md",
             "line_start": 325,
             "line_end": 331
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 331,
-            "line_end": 347
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 347,
-            "line_end": 351
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 351,
-            "line_end": 363
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 363,
-            "line_end": 369
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 369,
-            "line_end": 382
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 382,
-            "line_end": 419
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 419,
-            "line_end": 441
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 441,
-            "line_end": 445
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 445,
-            "line_end": 457
           }
         ]
       },
@@ -2671,19 +2635,19 @@
     ],
     "semantic_findings": [
       {
-        "title": "Default Credentials in Docker Compose Examples",
-        "description": "The Compose template includes hardcoded database, Redis, RabbitMQ, and Grafana credentials. Users could copy these defaults into shared or production environments.",
+        "title": "Hardcoded Service Credentials in Reusable Compose Template",
+        "description": "The Compose template defines predictable PostgreSQL, Redis, RabbitMQ, Grafana, and pgAdmin credentials. Copying these defaults can expose data and administrative interfaces.",
         "severity": "high",
         "locations": [
           {
             "file": "examples/docker-compose.yml",
-            "line_start": 53,
-            "line_end": 55
+            "line_start": 91,
+            "line_end": 95
           },
           {
             "file": "examples/docker-compose.yml",
-            "line_start": 91,
-            "line_end": 95
+            "line_start": 120,
+            "line_end": 120
           },
           {
             "file": "examples/docker-compose.yml",
@@ -2694,14 +2658,33 @@
             "file": "examples/docker-compose.yml",
             "line_start": 244,
             "line_end": 246
+          },
+          {
+            "file": "examples/docker-compose.yml",
+            "line_start": 266,
+            "line_end": 268
           }
         ],
-        "confidence": 0.9,
-        "confidence_reasoning": "The credentials are directly visible in reusable Compose examples. The file is educational, but the values are unsafe if copied without replacement."
+        "confidence": 0.98,
+        "confidence_reasoning": "The credentials are directly visible in active service definitions. Several associated interfaces are published to host ports."
+      },
+      {
+        "title": "Elasticsearch Authentication Disabled on Published Port",
+        "description": "The Compose template disables Elasticsearch security while publishing port 9200. A non-local deployment could expose indexed data without authentication.",
+        "severity": "high",
+        "locations": [
+          {
+            "file": "examples/docker-compose.yml",
+            "line_start": 282,
+            "line_end": 297
+          }
+        ],
+        "confidence": 0.97,
+        "confidence_reasoning": "The active service sets xpack.security.enabled=false and publishes 9200. Docker binds published ports broadly unless deployment settings restrict them."
       },
       {
         "title": "Container Environment Disclosure Helper",
-        "description": "The helper script has an env command that prints all environment variables from a running container. This can expose secrets in terminal output or support logs.",
+        "description": "The env command prints every environment variable from a running container. Secrets can enter terminal history, recordings, or support logs.",
         "severity": "medium",
         "locations": [
           {
@@ -2710,12 +2693,12 @@
             "line_end": 320
           }
         ],
-        "confidence": 0.87,
-        "confidence_reasoning": "The show_env function directly runs env inside the target container and sorts the output. No redaction is present before printing values."
+        "confidence": 0.98,
+        "confidence_reasoning": "The helper directly runs env and sorts the unredacted output. No secret-name filtering or confirmation is present."
       },
       {
-        "title": "Destructive Docker Cleanup Without Confirmation",
-        "description": "The cleanup helper prunes stopped containers, dangling images, unused volumes, and unused networks with forced flags. This can delete Docker data unexpectedly.",
+        "title": "Forced Cleanup Can Delete Persistent Docker Data",
+        "description": "The cleanup command force-prunes containers, images, volumes, and networks without confirmation. Unused volumes can still contain valuable application data.",
         "severity": "medium",
         "locations": [
           {
@@ -2724,8 +2707,37 @@
             "line_end": 219
           }
         ],
-        "confidence": 0.88,
-        "confidence_reasoning": "The cleanup function invokes multiple Docker prune commands with -f. This is intentional automation, but it lacks an extra confirmation step."
+        "confidence": 0.99,
+        "confidence_reasoning": "The function invokes four prune commands with forced flags. The command handler runs the function without an additional confirmation step."
+      },
+      {
+        "title": "Unpinned Container Images in Compose Template",
+        "description": "Several services use latest image tags. Future pulls can introduce unreviewed changes or compromised upstream releases.",
+        "severity": "medium",
+        "locations": [
+          {
+            "file": "examples/docker-compose.yml",
+            "line_start": 219,
+            "line_end": 220
+          },
+          {
+            "file": "examples/docker-compose.yml",
+            "line_start": 240,
+            "line_end": 241
+          },
+          {
+            "file": "examples/docker-compose.yml",
+            "line_start": 262,
+            "line_end": 263
+          },
+          {
+            "file": "examples/docker-compose.yml",
+            "line_start": 309,
+            "line_end": 310
+          }
+        ],
+        "confidence": 0.98,
+        "confidence_reasoning": "Four active services explicitly use latest tags. The template provides no digest pinning or update verification workflow."
       }
     ],
     "critical_findings": [],
@@ -2795,18 +2807,18 @@
         "confidence_reasoning": "SECRET_KEY falls back to a static development value. If copied into deployment, this can weaken signing, session, or token protections."
       },
       {
-        "title": "Default Credentials in Docker Compose Examples",
-        "description": "The Compose template includes hardcoded database, Redis, RabbitMQ, and Grafana credentials. Users could copy these defaults into shared or production environments.",
+        "title": "Hardcoded Service Credentials in Reusable Compose Template",
+        "description": "The Compose template defines predictable PostgreSQL, Redis, RabbitMQ, Grafana, and pgAdmin credentials. Copying these defaults can expose data and administrative interfaces.",
         "locations": [
-          {
-            "file": "examples/docker-compose.yml",
-            "line_start": 53,
-            "line_end": 55
-          },
           {
             "file": "examples/docker-compose.yml",
             "line_start": 91,
             "line_end": 95
+          },
+          {
+            "file": "examples/docker-compose.yml",
+            "line_start": 120,
+            "line_end": 120
           },
           {
             "file": "examples/docker-compose.yml",
@@ -2817,13 +2829,34 @@
             "file": "examples/docker-compose.yml",
             "line_start": 244,
             "line_end": 246
+          },
+          {
+            "file": "examples/docker-compose.yml",
+            "line_start": 266,
+            "line_end": 268
           }
         ],
         "review_kind": "security",
         "source_category": "semantic",
         "source_severity": "high",
-        "confidence": 0.9,
-        "confidence_reasoning": "The credentials are directly visible in reusable Compose examples. The file is educational, but the values are unsafe if copied without replacement."
+        "confidence": 0.98,
+        "confidence_reasoning": "The credentials are directly visible in active service definitions. Several associated interfaces are published to host ports."
+      },
+      {
+        "title": "Elasticsearch Authentication Disabled on Published Port",
+        "description": "The Compose template disables Elasticsearch security while publishing port 9200. A non-local deployment could expose indexed data without authentication.",
+        "locations": [
+          {
+            "file": "examples/docker-compose.yml",
+            "line_start": 282,
+            "line_end": 297
+          }
+        ],
+        "review_kind": "security",
+        "source_category": "semantic",
+        "source_severity": "high",
+        "confidence": 0.97,
+        "confidence_reasoning": "The active service sets xpack.security.enabled=false and publishes 9200. Docker binds published ports broadly unless deployment settings restrict them."
       }
     ],
     "medium_findings": [
@@ -2861,7 +2894,7 @@
       },
       {
         "title": "Container Environment Disclosure Helper",
-        "description": "The helper script has an env command that prints all environment variables from a running container. This can expose secrets in terminal output or support logs.",
+        "description": "The env command prints every environment variable from a running container. Secrets can enter terminal history, recordings, or support logs.",
         "locations": [
           {
             "file": "scripts/docker_helper.sh",
@@ -2872,12 +2905,12 @@
         "review_kind": "security",
         "source_category": "semantic",
         "source_severity": "medium",
-        "confidence": 0.87,
-        "confidence_reasoning": "The show_env function directly runs env inside the target container and sorts the output. No redaction is present before printing values."
+        "confidence": 0.98,
+        "confidence_reasoning": "The helper directly runs env and sorts the unredacted output. No secret-name filtering or confirmation is present."
       },
       {
-        "title": "Destructive Docker Cleanup Without Confirmation",
-        "description": "The cleanup helper prunes stopped containers, dangling images, unused volumes, and unused networks with forced flags. This can delete Docker data unexpectedly.",
+        "title": "Forced Cleanup Can Delete Persistent Docker Data",
+        "description": "The cleanup command force-prunes containers, images, volumes, and networks without confirmation. Unused volumes can still contain valuable application data.",
         "locations": [
           {
             "file": "scripts/docker_helper.sh",
@@ -2888,8 +2921,39 @@
         "review_kind": "security",
         "source_category": "semantic",
         "source_severity": "medium",
-        "confidence": 0.88,
-        "confidence_reasoning": "The cleanup function invokes multiple Docker prune commands with -f. This is intentional automation, but it lacks an extra confirmation step."
+        "confidence": 0.99,
+        "confidence_reasoning": "The function invokes four prune commands with forced flags. The command handler runs the function without an additional confirmation step."
+      },
+      {
+        "title": "Unpinned Container Images in Compose Template",
+        "description": "Several services use latest image tags. Future pulls can introduce unreviewed changes or compromised upstream releases.",
+        "locations": [
+          {
+            "file": "examples/docker-compose.yml",
+            "line_start": 219,
+            "line_end": 220
+          },
+          {
+            "file": "examples/docker-compose.yml",
+            "line_start": 240,
+            "line_end": 241
+          },
+          {
+            "file": "examples/docker-compose.yml",
+            "line_start": 262,
+            "line_end": 263
+          },
+          {
+            "file": "examples/docker-compose.yml",
+            "line_start": 309,
+            "line_end": 310
+          }
+        ],
+        "review_kind": "security",
+        "source_category": "semantic",
+        "source_severity": "medium",
+        "confidence": 0.98,
+        "confidence_reasoning": "Four active services explicitly use latest tags. The template provides no digest pinning or update verification workflow."
       }
     ],
     "low_findings": [],
@@ -2897,126 +2961,126 @@
     "files_scanned": 6,
     "total_lines": 2499,
     "audit_model": "codex",
-    "audited_at": "2026-07-07T21:47:40.460Z",
+    "audited_at": "2026-07-23T10:48:54.456Z",
     "agent_auto_install_policy": "confirmation_required",
     "manual_install_policy": "allowed"
   },
   "content": {
-    "user_title": "Build Docker Workflows With AI Guidance",
-    "value_statement": "Docker setup is slow when teams need secure images, Compose stacks, and repeatable debugging. This skill guides Claude, Codex, and Claude Code through practical container workflows.",
+    "user_title": "Build Reliable Docker Workflows With AI",
+    "value_statement": "Docker projects often need consistent builds, service orchestration, debugging, and production safeguards. This skill guides Claude, Codex, and Claude Code through practical container workflows.",
     "seo_keywords": [
       "Docker workflow",
       "Docker Compose",
       "multi-stage Dockerfile",
       "container debugging",
       "image optimization",
+      "container security",
+      "DevOps automation",
       "Claude",
       "Codex",
-      "Claude Code",
-      "DevOps automation",
-      "container security"
+      "Claude Code"
     ],
     "actual_capabilities": [
-      "Creates .dockerignore guidance for smaller, safer build contexts.",
-      "Explains multi-stage Dockerfiles for Node.js, Python, Go, Java, and Rust.",
-      "Drafts Docker Compose services with networks, volumes, health checks, and dependencies.",
-      "Provides Docker debugging commands for logs, shells, ports, stats, and health checks.",
-      "Suggests image optimization steps using layer caching, BuildKit, and smaller base images.",
-      "Outlines production practices such as non-root users, health checks, and vulnerability scanning."
+      "Drafts .dockerignore rules that reduce build context and exclude common secrets.",
+      "Creates multi-stage Dockerfile guidance for Node.js, Python, Go, Java, and Rust.",
+      "Designs Docker Compose stacks with services, networks, volumes, dependencies, and health checks.",
+      "Provides commands and a helper script for logs, inspection, shells, ports, processes, and health checks.",
+      "Analyzes image layers and recommends caching, smaller bases, BuildKit, and runtime hardening.",
+      "Explains deployment patterns using non-root users, pinned images, health checks, and vulnerability scanning."
     ],
     "limitations": [
-      "Does not run Docker commands unless the user executes supplied scripts or commands.",
-      "Example credentials and service names must be replaced before production use.",
-      "Generated Dockerfiles still require project-specific package files and entry points.",
-      "Helper scripts can expose container environment variables during debugging."
+      "The skill does not validate generated configurations against a live Docker daemon.",
+      "Examples require project-specific paths, commands, ports, image versions, and package files.",
+      "The Compose template contains development credentials that must be replaced before shared or production use.",
+      "The helper can expose environment values or delete unused Docker resources when explicitly run."
     ],
     "use_cases": [
       {
-        "title": "Containerize a Web App",
-        "description": "Create a Dockerfile and Compose stack for a frontend, backend, database, and cache.",
+        "title": "Containerize a New Application",
+        "description": "Create a multi-stage Dockerfile, .dockerignore rules, and a local Compose stack for an existing project.",
         "target_user": "Application developer"
       },
       {
-        "title": "Optimize Existing Images",
-        "description": "Reduce image size by reviewing layers, build cache order, base images, and ignored files.",
+        "title": "Optimize Container Builds",
+        "description": "Review layers, dependency caching, base images, build contexts, and runtime users to reduce size and improve reliability.",
         "target_user": "DevOps engineer"
       },
       {
-        "title": "Debug Container Issues",
-        "description": "Investigate failing health checks, logs, ports, volumes, networks, and resource usage.",
+        "title": "Diagnose Container Failures",
+        "description": "Investigate logs, health checks, ports, mounts, processes, resources, and service networking with a repeatable workflow.",
         "target_user": "Site reliability engineer"
       }
     ],
     "prompt_templates": [
       {
-        "title": "Create a Dockerfile",
-        "scenario": "Beginner project containerization",
-        "prompt": "Review my project structure and draft a multi-stage Dockerfile. Explain each stage and list files I must provide."
+        "title": "Create My First Dockerfile",
+        "scenario": "Beginner application containerization",
+        "prompt": "Review my project structure and draft a multi-stage Dockerfile. Explain each stage and identify every project-specific value I must provide."
       },
       {
-        "title": "Add Compose Services",
-        "scenario": "Intermediate local development stack",
-        "prompt": "Design a Docker Compose setup for my app, database, cache, and worker. Include networks, volumes, dependencies, and health checks."
+        "title": "Build a Compose Environment",
+        "scenario": "Intermediate local development setup",
+        "prompt": "Design a Docker Compose environment for my application, database, cache, and worker. Include networks, volumes, dependencies, and health checks."
       },
       {
-        "title": "Debug a Container",
-        "scenario": "Intermediate troubleshooting session",
-        "prompt": "Use the Docker workflow to diagnose this container problem. Check logs, ports, health, mounts, and networking before suggesting fixes."
+        "title": "Debug a Failing Container",
+        "scenario": "Intermediate troubleshooting",
+        "prompt": "Diagnose this container failure using logs, health status, ports, mounts, processes, and networking. Prioritize checks and explain each conclusion."
       },
       {
-        "title": "Harden Production Images",
-        "scenario": "Advanced production readiness review",
-        "prompt": "Audit my Dockerfile and Compose files for production readiness. Focus on secrets, users, image versions, health checks, and build size."
+        "title": "Audit Production Readiness",
+        "scenario": "Advanced security and reliability review",
+        "prompt": "Audit these Dockerfile and Compose files. Review secrets, privileges, image pinning, exposed services, health checks, build size, and destructive operations."
       }
     ],
     "output_examples": [
       {
-        "input": "A Node.js API needs smaller images and a production run path.",
-        "output": "A staged plan covering dependency caching, a non-root runtime user, health checks, and final image size checks."
+        "input": "A Node.js API needs a smaller production image and reliable startup checks.",
+        "output": "A staged build plan covering dependency caching, runtime-only files, a non-root user, health checks, and image size verification."
       },
       {
-        "input": "A Compose stack has a backend, database, Redis cache, and background worker.",
-        "output": "A service design with private networks, named volumes, health-based dependencies, and warnings about replacing default secrets."
+        "input": "A local stack needs an API, PostgreSQL, Redis, and a background worker.",
+        "output": "A service design with isolated networks, named volumes, health-based dependencies, required secrets, and limited host port exposure."
       },
       {
-        "input": "A container starts, fails its health check, and exposes no useful logs.",
-        "output": "A troubleshooting checklist for health status, recent logs, port mappings, shell access, DNS checks, and volume permissions."
+        "input": "A container starts but remains unhealthy and cannot reach its database.",
+        "output": "A prioritized checklist for health output, logs, service DNS, network membership, database readiness, credentials, and port configuration."
       }
     ],
     "best_practices": [
-      "Replace all example passwords, keys, and admin accounts before deployment.",
-      "Review helper script commands before running them on shared Docker hosts.",
-      "Use pinned image versions, non-root users, health checks, and vulnerability scans."
+      "Replace all example credentials and restrict published service ports before deployment.",
+      "Review helper operations before running them on shared hosts or systems with persistent volumes.",
+      "Pin image versions, run as non-root, define health checks, and scan images before release."
     ],
     "anti_patterns": [
-      "Do not copy example Compose credentials into production environments.",
-      "Do not print container environment variables in shared logs or support tickets.",
-      "Do not run Docker cleanup commands on hosts with unknown volume ownership."
+      "Do not copy development passwords or disabled authentication settings into shared environments.",
+      "Do not print container environment values into support tickets, recordings, or shared logs.",
+      "Do not force-prune Docker volumes without confirming ownership, backups, and retention requirements."
     ],
     "faq": [
       {
-        "question": "Does this skill run Docker for me?",
-        "answer": "No. It provides guidance and scripts. Commands run only when the user executes them."
+        "question": "Does this skill run Docker commands automatically?",
+        "answer": "No. It provides guidance and scripts. Docker commands run only when a user or agent explicitly executes them."
       },
       {
-        "question": "Can it create production Dockerfiles?",
-        "answer": "Yes. It can draft production patterns, but users must adapt paths, commands, ports, and secrets."
+        "question": "Which application languages are covered?",
+        "answer": "The included multi-stage examples cover Node.js, Python, Go, Java, and Rust."
       },
       {
         "question": "Does it support Docker Compose?",
-        "answer": "Yes. It covers services, networks, volumes, health checks, dependencies, and environment-specific overrides."
+        "answer": "Yes. It covers services, networks, volumes, dependencies, health checks, overrides, monitoring, queues, and caches."
       },
       {
-        "question": "Is the helper script safe to run anywhere?",
-        "answer": "No. It can inspect containers, print environment variables, and prune Docker resources."
+        "question": "Can I use the examples in production?",
+        "answer": "Only after review. Replace credentials, enable authentication, restrict ports, pin images, and adapt every project-specific value."
       },
       {
-        "question": "Which AI tools are supported?",
-        "answer": "The skill metadata supports Claude, Codex, and Claude Code."
+        "question": "What can the helper script inspect?",
+        "answer": "It can inspect health, logs, resources, networks, ports, environment values, processes, images, and mounted volumes."
       },
       {
-        "question": "What should I review before publishing outputs?",
-        "answer": "Review secrets, default passwords, exposed ports, volume mounts, image tags, and destructive cleanup commands."
+        "question": "What destructive operations are included?",
+        "answer": "The cleanup command force-prunes stopped containers, dangling images, unused volumes, and unused networks."
       }
     ]
   },
@@ -3026,12 +3090,6 @@
       "type": "dir",
       "path": "examples",
       "children": [
-        {
-          "name": ".dockerignore",
-          "type": "file",
-          "path": "examples/.dockerignore",
-          "lines": 355
-        },
         {
           "name": "docker-compose.yml",
           "type": "file",
@@ -3047,12 +3105,6 @@
       ]
     },
     {
-      "name": "README.md",
-      "type": "file",
-      "path": "README.md",
-      "lines": 385
-    },
-    {
       "name": "scripts",
       "type": "dir",
       "path": "scripts",
@@ -3064,6 +3116,12 @@
           "lines": 546
         }
       ]
+    },
+    {
+      "name": "README.md",
+      "type": "file",
+      "path": "README.md",
+      "lines": 385
     },
     {
       "name": "SKILL.md",
