@@ -1,7 +1,7 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-07-07T23:55:17.495Z",
+    "generated_at": "2026-07-23T09:10:39.056Z",
     "slug": "browser-act-amazon-competitor-analyzer",
     "source_url": "https://github.com/browser-act/skills/tree/main/solutions/ecommerce/amazon-competitor-analyzer",
     "source_ref": "main",
@@ -23,18 +23,17 @@
   },
   "skill": {
     "name": "amazon-competitor-analyzer",
-    "description": "Analyze Amazon competitors from ASINs with BrowserAct automation. The skill collects product data, compares pricing and review metrics, and creates local reports.",
-    "summary": "Collect Amazon ASIN data with BrowserAct and compare competitor pricing, reviews, and positioning.",
+    "description": "Scrapes Amazon product data from ASINs using browseract.com automation API and performs surgical competitive analysis. Compares specifications, pricing, review quality, and visual strategies to identify competitor moats and vulnerabilities.",
+    "summary": "Collects Amazon product data through BrowserAct and compares pricing, ratings, and review volume across ASINs.",
     "icon": "📦",
-    "version": "1.0.1",
     "author": "browser-act",
     "license": "MIT",
     "tags": [
       "amazon",
       "competitor-analysis",
-      "browseract",
-      "asin",
-      "ecommerce"
+      "asin-research",
+      "ecommerce",
+      "browseract"
     ],
     "supported_tools": [
       "claude",
@@ -50,31 +49,36 @@
     "category": "research"
   },
   "security_audit": {
-    "risk_level": "high",
+    "risk_level": "medium",
     "is_blocked": false,
-    "safe_to_publish": false,
+    "safe_to_publish": true,
     "analysis_status": "ok",
-    "summary": "The skill makes intended network requests to BrowserAct, reads a BrowserAct API key from environment or .env settings, and writes local report files. No prompt-injection text or hidden exfiltration was found, but API-key handling, external service use, file writes, and automated Amazon scraping need user trust and clear warnings.",
+    "summary": "Most high-severity detections are false positives from placeholders, expected credential handling, Markdown fences, and documented environment setup. The executable makes disclosed BrowserAct requests and writes reports to user-selected directories. CLI secrets and unescaped spreadsheet fields remain meaningful risks.",
     "remediation": [
       {
-        "issue": "Broad .env loading can import more secrets than the skill needs.",
-        "suggestion": "Only read BROWSERACT_API_KEY from the environment and avoid manually importing arbitrary .env keys.",
-        "severity": "high"
-      },
-      {
-        "issue": "The BrowserAct API key is transmitted to an external service.",
-        "suggestion": "Document the exact BrowserAct endpoint, avoid logging secrets, and require user confirmation before authenticated network calls.",
-        "severity": "high"
-      },
-      {
-        "issue": "Report generation writes files to a user-selected output directory.",
-        "suggestion": "Resolve output paths, reject sensitive directories, and warn before overwriting existing amazon_analysis files.",
+        "issue": "API keys can be supplied through a command-line option.",
+        "suggestion": "Remove or deprecate --api-key. Read the key from the environment or a secure interactive prompt.",
         "severity": "medium"
       },
       {
-        "issue": "The skill automates collection of Amazon marketplace data.",
-        "suggestion": "Add guidance for permission, rate limits, and terms compliance before users run large ASIN collections.",
+        "issue": "External product fields can become active spreadsheet formulas.",
+        "suggestion": "Neutralize CSV cells beginning with equals, plus, minus, or at signs before writing them.",
         "severity": "medium"
+      },
+      {
+        "issue": "The setup guidance does not protect the credential-bearing .env file.",
+        "suggestion": "Add .env to source-control exclusions and document restrictive file permissions and key rotation.",
+        "severity": "medium"
+      },
+      {
+        "issue": "Report generation overwrites predictable filenames without confirmation.",
+        "suggestion": "Refuse existing destinations by default or require an explicit overwrite option.",
+        "severity": "medium"
+      },
+      {
+        "issue": "Dotenv loading imports every entry from the local file.",
+        "suggestion": "Parse only BROWSERACT_API_KEY or document that all local .env values enter the process environment.",
+        "severity": "low"
       }
     ],
     "risk_factor_evidence": [
@@ -1025,565 +1029,469 @@
       {
         "id": "network:.env.example:3:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "The URL is a setup link in an example environment file, not an outbound request. It points users to the declared BrowserAct API-key page."
+        "confidence": 0.99,
+        "reason": "This is a documentation comment linking to BrowserAct account settings. It performs no runtime network request."
       },
       {
         "id": "env_access:.env.example:5:generic-api-secret-keys",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The value is a placeholder named YOUR_API_KEY_HERE, not a hardcoded secret. The file is an example template rather than active credential access."
+        "confidence": 0.99,
+        "reason": "The value is the explicit placeholder YOUR_API_KEY_HERE, not a credential. The example only names the required variable."
       },
       {
         "id": "sensitive:.env.example:2:environment-file-access",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "The line is setup documentation telling users how to copy the example file. It does not read a local .env file or expose a secret by itself."
+        "confidence": 0.98,
+        "reason": "This comment explains local configuration setup. It neither reads a file nor contains secret data."
       },
       {
         "id": "network:amazon_competitor_analyzer.py:83:python-http-libraries",
         "verdict": "confirmed",
-        "confidence": 0.91,
-        "reason": "The skill posts user ASIN data and an Authorization header to the external BrowserAct workflow API. This is intended behavior but a real network trust boundary.",
+        "confidence": 0.99,
+        "reason": "The POST sends an ASIN and bearer credential to the fixed BrowserAct API. This disclosed integration still creates third-party network exposure.",
         "severity": "low"
       },
       {
         "id": "network:amazon_competitor_analyzer.py:108:python-http-libraries",
         "verdict": "confirmed",
-        "confidence": 0.9,
-        "reason": "The skill polls BrowserAct task status over the network using the same Authorization header. This confirms ongoing external service communication.",
+        "confidence": 0.99,
+        "reason": "The GET polls BrowserAct with the bearer credential and task identifier. It is intended but confirms external network access.",
         "severity": "low"
       },
       {
         "id": "network:amazon_competitor_analyzer.py:132:python-http-libraries",
         "verdict": "confirmed",
-        "confidence": 0.9,
-        "reason": "The skill retrieves BrowserAct task results over the network using authenticated requests. Product inputs and task identifiers leave the local environment.",
+        "confidence": 0.99,
+        "reason": "The GET retrieves task results from BrowserAct using the bearer credential. It is intended but confirms external network access.",
         "severity": "low"
       },
       {
         "id": "network:amazon_competitor_analyzer.py:45:hardcoded-url",
         "verdict": "confirmed",
-        "confidence": 0.88,
-        "reason": "The hardcoded endpoint fixes the external service destination to BrowserAct. It is declared by the skill but still represents a real outbound network dependency.",
+        "confidence": 0.99,
+        "reason": "This constant fixes all workflow traffic to api.browseract.com. The known HTTPS endpoint limits scope, but network access is real.",
         "severity": "low"
       },
       {
         "id": "filesystem:amazon_competitor_analyzer.py:219:python-file-write-append",
         "verdict": "confirmed",
-        "confidence": 0.82,
-        "reason": "The function writes a CSV file to a caller-supplied output path. Without path restrictions, integrations could overwrite local files if given unsafe paths.",
+        "confidence": 0.98,
+        "reason": "CSV output uses write mode and can truncate an existing file at the selected destination. No collision check or overwrite confirmation exists.",
         "severity": "medium"
       },
       {
         "id": "filesystem:amazon_competitor_analyzer.py:251:python-file-write-append",
         "verdict": "confirmed",
-        "confidence": 0.82,
-        "reason": "The function writes a Markdown report to a caller-supplied output path. This is intended report generation but remains a real filesystem write capability.",
+        "confidence": 0.98,
+        "reason": "Markdown output uses write mode and can truncate an existing file at the selected destination. No collision check or overwrite confirmation exists.",
         "severity": "medium"
       },
       {
         "id": "filesystem:amazon_competitor_analyzer.py:311:python-file-write-append",
         "verdict": "confirmed",
-        "confidence": 0.82,
-        "reason": "The function writes raw analysis results to a caller-supplied JSON path. This may persist scraped data and can overwrite files at that destination.",
+        "confidence": 0.98,
+        "reason": "JSON output uses write mode and can truncate an existing file at the selected destination. No collision check or overwrite confirmation exists.",
         "severity": "medium"
       },
       {
         "id": "filesystem:amazon_competitor_analyzer.py:328:python-os-file-operations",
         "verdict": "confirmed",
-        "confidence": 0.78,
-        "reason": "The helper creates the user-selected output directory before writing reports. That local filesystem mutation should be disclosed and constrained.",
+        "confidence": 0.96,
+        "reason": "The library function creates a caller-selected directory and then writes three predictable files there. This is disclosed but modifies the filesystem.",
         "severity": "medium"
       },
       {
         "id": "filesystem:amazon_competitor_analyzer.py:357:python-os-file-operations",
         "verdict": "confirmed",
-        "confidence": 0.78,
-        "reason": "The CLI creates the requested output directory before saving reports. This is expected behavior but confirms filesystem write and directory creation capability.",
+        "confidence": 0.98,
+        "reason": "The CLI creates the user-selected output directory before writing reports. Existing report files can be replaced without confirmation.",
         "severity": "medium"
       },
       {
         "id": "env_access:amazon_competitor_analyzer.py:39:python-environment-access",
         "verdict": "confirmed",
-        "confidence": 0.78,
-        "reason": "The manual .env fallback imports every key-value pair into the process environment, not only BROWSERACT_API_KEY. This can broaden local secret exposure inside the process.",
-        "severity": "medium"
+        "confidence": 0.96,
+        "reason": "The fallback parser imports every key-value entry from the local .env file into the process environment. This broad mutation exceeds the single required key.",
+        "severity": "low"
       },
       {
         "id": "env_access:amazon_competitor_analyzer.py:43:python-getenv-function",
-        "verdict": "confirmed",
-        "confidence": 0.86,
-        "reason": "The skill reads BROWSERACT_API_KEY from the process environment. This is legitimate configuration, but it is direct secret access.",
-        "severity": "low"
+        "verdict": "false_positive",
+        "confidence": 0.98,
+        "reason": "The code reads only the documented BROWSERACT_API_KEY variable. It does not enumerate unrelated environment data."
       },
       {
         "id": "env_access:amazon_competitor_analyzer.py:43:getenv-function-call",
-        "verdict": "confirmed",
-        "confidence": 0.86,
-        "reason": "The getenv call retrieves the BrowserAct API key for authenticated network use. This confirms secret-dependent behavior.",
-        "severity": "low"
+        "verdict": "false_positive",
+        "confidence": 0.98,
+        "reason": "The getenv call is limited to the documented BrowserAct credential. The value is used only for the intended API client."
       },
       {
         "id": "env_access:amazon_competitor_analyzer.py:21:dotenv-library",
         "verdict": "false_positive",
-        "confidence": 0.72,
-        "reason": "The line is a comment describing optional .env loading, not executable secret access. The actual executable .env behavior is covered by later findings."
+        "confidence": 0.99,
+        "reason": "This line is a comment describing optional dotenv support. It performs no environment access."
       },
       {
         "id": "env_access:amazon_competitor_analyzer.py:23:dotenv-library",
-        "verdict": "confirmed",
-        "confidence": 0.78,
-        "reason": "Importing python-dotenv enables the script to load secrets from a local .env file. This is common configuration but a real environment-access capability.",
-        "severity": "low"
+        "verdict": "false_positive",
+        "confidence": 0.99,
+        "reason": "Importing python-dotenv does not itself read environment files or expose credentials."
       },
       {
         "id": "env_access:amazon_competitor_analyzer.py:28:dotenv-library",
         "verdict": "confirmed",
-        "confidence": 0.86,
-        "reason": "The script loads a local .env file when present. That can bring local secrets into the runtime environment.",
+        "confidence": 0.97,
+        "reason": "load_dotenv reads all entries from the script-local .env file into the process environment. This is expected configuration access but is broader than one key.",
         "severity": "low"
       },
       {
         "id": "env_access:amazon_competitor_analyzer.py:30:dotenv-library",
         "verdict": "false_positive",
-        "confidence": 0.72,
-        "reason": "The line is a comment for the fallback branch, not executable access. The actual manual import behavior is covered at the file-open and setdefault lines."
+        "confidence": 0.99,
+        "reason": "This is a comment introducing the fallback parser. It does not execute dotenv operations."
       },
       {
         "id": "env_access:amazon_competitor_analyzer.py:23:python-dotenv-loader",
-        "verdict": "confirmed",
-        "confidence": 0.78,
-        "reason": "The dotenv loader import enables reading local .env values. This supports legitimate configuration but expands secret-handling scope.",
-        "severity": "low"
+        "verdict": "false_positive",
+        "confidence": 0.99,
+        "reason": "The line only imports load_dotenv. Actual file loading occurs separately and is adjudicated under its own finding."
       },
       {
         "id": "env_access:amazon_competitor_analyzer.py:28:python-dotenv-loader",
         "verdict": "confirmed",
-        "confidence": 0.86,
-        "reason": "load_dotenv reads the script-adjacent .env file into the process. This confirms local environment-file secret access.",
+        "confidence": 0.97,
+        "reason": "The loader reads the entire script-local .env file into the process environment. The behavior is disclosed but accesses more than the required variable.",
         "severity": "low"
       },
       {
         "id": "env_access:amazon_competitor_analyzer.py:43:generic-api-secret-keys",
-        "verdict": "confirmed",
-        "confidence": 0.86,
-        "reason": "The environment variable is the BrowserAct API key used for authenticated requests. It is not hardcoded, but the skill handles a real secret.",
-        "severity": "high"
+        "verdict": "false_positive",
+        "confidence": 0.99,
+        "reason": "The code references a credential by environment variable name and contains no hardcoded secret. This is standard scoped credential loading."
       },
       {
         "id": "env_access:amazon_competitor_analyzer.py:51:generic-api-secret-keys",
         "verdict": "false_positive",
-        "confidence": 0.72,
-        "reason": "This line only declares an optional api_key parameter. The sensitive behavior occurs when the value is stored and used in request headers."
+        "confidence": 0.99,
+        "reason": "This constructor parameter accepts a caller-supplied credential but contains no secret value or unsafe operation."
       },
       {
         "id": "env_access:amazon_competitor_analyzer.py:53:generic-api-secret-keys",
-        "verdict": "confirmed",
-        "confidence": 0.84,
-        "reason": "The API key is stored on the analyzer instance for later network requests. This is intended but confirms in-process handling of a user secret.",
-        "severity": "high"
+        "verdict": "false_positive",
+        "confidence": 0.98,
+        "reason": "The assignment selects the explicit credential or documented environment value. It does not log, persist, or expose the key."
       },
       {
         "id": "env_access:amazon_competitor_analyzer.py:56:generic-api-secret-keys",
-        "verdict": "confirmed",
-        "confidence": 0.92,
-        "reason": "The API key is placed into a Bearer Authorization header for BrowserAct requests. This is a real credential transmission to an external service.",
-        "severity": "high"
+        "verdict": "false_positive",
+        "confidence": 0.97,
+        "reason": "The key is placed in the standard bearer Authorization header for the fixed HTTPS BrowserAct endpoint. No unintended recipient is present."
       },
       {
         "id": "env_access:amazon_competitor_analyzer.py:350:generic-api-secret-keys",
-        "verdict": "confirmed",
-        "confidence": 0.86,
-        "reason": "The CLI accepts an API key argument or reads it from the environment. Passing secrets through arguments can expose them in shell history or process listings.",
-        "severity": "high"
+        "verdict": "false_positive",
+        "confidence": 0.97,
+        "reason": "The line selects the documented API credential for the client and does not expose its value. Command-line exposure is covered separately."
       },
       {
         "id": "env_access:amazon_competitor_analyzer.py:351:generic-api-secret-keys",
-        "verdict": "confirmed",
-        "confidence": 0.8,
-        "reason": "The collected API key is passed into the analyzer object for authenticated requests. This confirms the runtime path from user secret to network client.",
-        "severity": "high"
+        "verdict": "false_positive",
+        "confidence": 0.98,
+        "reason": "Passing the credential into the API client is required for authentication. The line does not persist or print the value."
       },
       {
         "id": "sensitive:amazon_competitor_analyzer.py:21:environment-file-access",
         "verdict": "false_positive",
-        "confidence": 0.72,
-        "reason": "This is a comment describing optional .env loading, not a direct file read. Executable .env access is covered by the path and loader findings."
+        "confidence": 0.99,
+        "reason": "This line is a comment describing intended local configuration. It does not access a file."
       },
       {
         "id": "sensitive:amazon_competitor_analyzer.py:24:environment-file-access",
         "verdict": "false_positive",
-        "confidence": 0.72,
-        "reason": "This is a comment describing where the .env file is loaded from. The executable path construction and loader calls are covered separately."
+        "confidence": 0.99,
+        "reason": "This comment documents the expected script-local .env location. It contains no executable file operation."
       },
       {
         "id": "sensitive:amazon_competitor_analyzer.py:26:environment-file-access",
-        "verdict": "confirmed",
-        "confidence": 0.84,
-        "reason": "The script targets a .env file next to the skill code. Reading that file can expose local API keys or other secrets to this process.",
-        "severity": "high"
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "The line constructs a fixed path to the documented local configuration file. It does not read arbitrary user paths."
       },
       {
         "id": "sensitive:amazon_competitor_analyzer.py:30:environment-file-access",
         "verdict": "false_positive",
-        "confidence": 0.72,
-        "reason": "This is a comment describing fallback .env handling, not executable file access. The fallback path and file read are covered elsewhere."
+        "confidence": 0.96,
+        "reason": "The line is a comment, while the surrounding fallback implements the documented configuration behavior. No covert sensitive-file search exists."
       },
       {
         "id": "sensitive:amazon_competitor_analyzer.py:32:environment-file-access",
-        "verdict": "confirmed",
-        "confidence": 0.84,
-        "reason": "The fallback branch targets the same local .env file for manual parsing. This confirms environment-file secret access even without python-dotenv.",
-        "severity": "high"
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "The line constructs the same fixed script-local .env path. It does not discover or access unrelated sensitive files."
       },
       {
         "id": "blocker:amazon_competitor_analyzer.py:54:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "This line handles BrowserAct workflow IDs, ASIN validation, or task IDs. It does not inspect the local system or perform reconnaissance."
+        "confidence": 0.99,
+        "reason": "This assigns a workflow template identifier from an argument or constant. It performs no host or system reconnaissance."
       },
       {
         "id": "blocker:amazon_competitor_analyzer.py:74:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "This line handles BrowserAct workflow IDs, ASIN validation, or task IDs. It does not inspect the local system or perform reconnaissance."
+        "confidence": 0.99,
+        "reason": "This prints validation feedback for a user-supplied ASIN. It does not inspect the host system."
       },
       {
         "id": "blocker:amazon_competitor_analyzer.py:92:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "This line handles BrowserAct workflow IDs, ASIN validation, or task IDs. It does not inspect the local system or perform reconnaissance."
+        "confidence": 0.99,
+        "reason": "This extracts a task identifier from the BrowserAct response. It does not collect system information."
       },
       {
         "id": "blocker:amazon_competitor_analyzer.py:93:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "This line handles BrowserAct workflow IDs, ASIN validation, or task IDs. It does not inspect the local system or perform reconnaissance."
+        "confidence": 0.99,
+        "reason": "Returning a BrowserAct task identifier is ordinary control flow and reveals no host details."
       },
       {
         "id": "blocker:amazon_competitor_analyzer.py:148:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "This line handles BrowserAct workflow IDs, ASIN validation, or task IDs. It does not inspect the local system or perform reconnaissance."
+        "confidence": 0.99,
+        "reason": "This submits the validated ASIN to the documented workflow. It performs no local reconnaissance."
       },
       {
         "id": "external_commands:SKILL.md:49:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "This is Markdown setup or usage documentation, including code fences and example commands. The skill does not execute these lines at runtime."
+        "confidence": 0.99,
+        "reason": "The backticks are Markdown formatting around file names in setup prose. They do not execute commands."
       },
       {
         "id": "external_commands:SKILL.md:51:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "This is Markdown setup or usage documentation, including code fences and example commands. The skill does not execute these lines at runtime."
+        "confidence": 0.98,
+        "reason": "This is a fenced documentation example containing a fixed cp command. The skill does not execute the block or interpolate untrusted input."
       },
       {
         "id": "external_commands:SKILL.md:54:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "This is Markdown setup or usage documentation, including code fences and example commands. The skill does not execute these lines at runtime."
+        "confidence": 0.99,
+        "reason": "This line closes a Markdown code fence. It is not Ruby backtick or shell execution."
       },
       {
         "id": "external_commands:SKILL.md:58:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "This is Markdown setup or usage documentation, including code fences and example commands. The skill does not execute these lines at runtime."
+        "confidence": 0.98,
+        "reason": "This opens a fenced shell example for setting a placeholder environment variable. The documentation is not executed by the skill."
       },
       {
         "id": "external_commands:SKILL.md:60:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "This is Markdown setup or usage documentation, including code fences and example commands. The skill does not execute these lines at runtime."
+        "confidence": 0.99,
+        "reason": "This line closes a Markdown code fence. It has no execution semantics."
       },
       {
         "id": "external_commands:SKILL.md:66:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "This is Markdown setup or usage documentation, including code fences and example commands. The skill does not execute these lines at runtime."
+        "confidence": 0.98,
+        "reason": "This opens a usage example with a fixed Python command and example ASIN. It is documentation, not automatic command execution."
       },
       {
         "id": "external_commands:SKILL.md:68:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "This is Markdown setup or usage documentation, including code fences and example commands. The skill does not execute these lines at runtime."
+        "confidence": 0.99,
+        "reason": "This line closes the basic usage code fence. It does not invoke a shell."
       },
       {
         "id": "external_commands:SKILL.md:72:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "This is Markdown setup or usage documentation, including code fences and example commands. The skill does not execute these lines at runtime."
+        "confidence": 0.98,
+        "reason": "This opens a documented multi-product command with fixed sample ASINs. No dynamic command construction or execution exists."
       },
       {
         "id": "external_commands:SKILL.md:74:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "This is Markdown setup or usage documentation, including code fences and example commands. The skill does not execute these lines at runtime."
+        "confidence": 0.99,
+        "reason": "This line closes a Markdown code fence. It does not execute the preceding example."
       },
       {
         "id": "external_commands:SKILL.md:78:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "This is Markdown setup or usage documentation, including code fences and example commands. The skill does not execute these lines at runtime."
+        "confidence": 0.98,
+        "reason": "This opens a documented CLI example using a relative output directory. The skill file does not automatically run it."
       },
       {
         "id": "external_commands:SKILL.md:80:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "This is Markdown setup or usage documentation, including code fences and example commands. The skill does not execute these lines at runtime."
+        "confidence": 0.99,
+        "reason": "This line closes a Markdown code fence. It has no shell behavior."
       },
       {
         "id": "external_commands:SKILL.md:101:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "This is Markdown setup or usage documentation, including code fences and example commands. The skill does not execute these lines at runtime."
+        "confidence": 0.97,
+        "reason": "This opens a dependency installation example for the declared requests package. It is user-run documentation without untrusted interpolation."
       },
       {
         "id": "external_commands:SKILL.md:103:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "This is Markdown setup or usage documentation, including code fences and example commands. The skill does not execute these lines at runtime."
+        "confidence": 0.99,
+        "reason": "This line closes the dependency example fence. It does not execute pip."
       },
       {
         "id": "external_commands:SKILL.md:106:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "This is Markdown setup or usage documentation, including code fences and example commands. The skill does not execute these lines at runtime."
+        "confidence": 0.97,
+        "reason": "This opens an optional python-dotenv installation example. It is documentation and names a fixed dependency."
       },
       {
         "id": "external_commands:SKILL.md:108:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "This is Markdown setup or usage documentation, including code fences and example commands. The skill does not execute these lines at runtime."
+        "confidence": 0.99,
+        "reason": "This line closes a Markdown code fence. It performs no external command."
       },
       {
         "id": "network:SKILL.md:42:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The URL is a documentation link to BrowserAct signup. It is not an executable network request."
+        "confidence": 0.99,
+        "reason": "This is a documentation hyperlink to the disclosed service homepage. It causes no runtime request."
       },
       {
         "id": "network:SKILL.md:44:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The URL is a documentation link to BrowserAct API settings. It is not an executable network request."
+        "confidence": 0.99,
+        "reason": "This is a documentation hyperlink to BrowserAct API settings. It does not create programmatic network access."
       },
       {
         "id": "network:SKILL.md:114:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The URL appears in an environment variable documentation table. It does not perform any network activity."
+        "confidence": 0.99,
+        "reason": "This link tells users where to obtain the required credential. It is documentation, not an outbound request."
       },
       {
         "id": "env_access:SKILL.md:107:dotenv-library",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "This is a documentation line showing an optional package install. It does not load environment variables by itself."
+        "confidence": 0.99,
+        "reason": "This is an optional dependency installation example. It does not load a .env file."
       },
       {
         "id": "env_access:SKILL.md:4:generic-api-secret-keys",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The metadata declares that BROWSERACT_API_KEY is required. It does not contain a real key or access a secret directly."
+        "confidence": 0.99,
+        "reason": "Metadata declares the required environment variable by name and includes no credential value."
       },
       {
         "id": "env_access:SKILL.md:53:generic-api-secret-keys",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This is a setup comment telling users to replace a placeholder. It contains no actual secret."
+        "confidence": 0.99,
+        "reason": "The comment names the explicit placeholder users should replace locally. No real key is embedded."
       },
       {
         "id": "env_access:SKILL.md:59:generic-api-secret-keys",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This is an example export command with the placeholder value your-api-key-here. It is documentation, not a hardcoded credential."
+        "confidence": 0.99,
+        "reason": "The export example contains the placeholder your-api-key-here, not a secret. It is not executed automatically."
       },
       {
         "id": "env_access:SKILL.md:114:generic-api-secret-keys",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This line documents the required environment variable. It does not expose or read an actual API key."
+        "confidence": 0.99,
+        "reason": "The environment-variable table documents the required key name and account link. It contains no secret value."
       },
       {
         "id": "env_access:SKILL.md:118:generic-api-secret-keys",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This is troubleshooting text about invalid API keys. It does not contain or access a secret."
+        "confidence": 0.99,
+        "reason": "This troubleshooting text names the required variable but does not read or disclose its value."
       },
       {
         "id": "sensitive:SKILL.md:49:environment-file-access",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The line documents copying .env.example to .env. It is not executable access to a local environment file."
+        "confidence": 0.98,
+        "reason": "This setup prose instructs users to create a local configuration file. It performs no file access itself."
       },
       {
         "id": "sensitive:SKILL.md:52:environment-file-access",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The line is a documented shell example for users to copy a template file. It is not executed by the skill automatically."
+        "confidence": 0.97,
+        "reason": "The fixed cp command is an explicit user-run setup step. It does not search for or extract existing sensitive files."
       },
       {
         "id": "sensitive:SKILL.md:53:environment-file-access",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The line is a setup comment about replacing a placeholder. It does not read or disclose a local .env file."
+        "confidence": 0.99,
+        "reason": "This comment tells users to replace a placeholder in their own local file. It neither contains nor accesses a real credential."
       },
       {
         "id": "sensitive:SKILL.md:105:environment-file-access",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The line introduces optional dotenv setup in documentation. It does not access any environment file at runtime."
+        "confidence": 0.99,
+        "reason": "This prose introduces optional dotenv support. It does not itself access environment files."
       },
       {
         "id": "blocker:SKILL.md:118:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "This is troubleshooting text for an invalid API key. It does not inspect local system details."
+        "confidence": 0.99,
+        "reason": "This is troubleshooting guidance for a known environment variable. It does not inspect the user's system."
       },
       {
         "id": "blocker:SKILL.md:121:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "This is troubleshooting text for invalid ASIN format. It does not perform local system reconnaissance."
+        "confidence": 0.99,
+        "reason": "This is ASIN format guidance. It performs no reconnaissance or host discovery."
       }
     ],
     "semantic_findings": [
       {
-        "title": "Automated Third-Party Marketplace Scraping",
-        "description": "The skill is designed to scrape Amazon product data from ASINs through BrowserAct automation. This can create compliance and account-risk exposure if used without permission or rate controls.",
+        "title": "API Key Exposed Through Command Arguments",
+        "description": "The --api-key option places a credential in command arguments, which may persist in shell history and appear in process listings.",
+        "severity": "medium",
+        "locations": [
+          {
+            "file": "amazon_competitor_analyzer.py",
+            "line_start": 345,
+            "line_end": 345
+          }
+        ],
+        "confidence": 0.98,
+        "confidence_reasoning": "The argparse option directly accepts the API key as a command-line value, a well-established local credential exposure path."
+      },
+      {
+        "title": "Spreadsheet Formula Injection in CSV Reports",
+        "description": "Externally sourced product fields are written to CSV without neutralizing formula prefixes, which can trigger formulas when a report opens.",
+        "severity": "medium",
+        "locations": [
+          {
+            "file": "amazon_competitor_analyzer.py",
+            "line_start": 229,
+            "line_end": 240
+          }
+        ],
+        "confidence": 0.94,
+        "confidence_reasoning": "Product title, brand, and feature values flow from the API response into csv.writer without checks for equals, plus, minus, or at signs."
+      },
+      {
+        "title": "Incomplete Secret Storage Guidance",
+        "description": "Setup directs users to store a real key in .env without warning them to exclude that file from version control.",
         "severity": "medium",
         "locations": [
           {
             "file": "SKILL.md",
-            "line_start": 9,
-            "line_end": 17
+            "line_start": 49,
+            "line_end": 53
           },
           {
-            "file": "amazon_competitor_analyzer.py",
-            "line_start": 71,
-            "line_end": 88
+            "file": ".env.example",
+            "line_start": 2,
+            "line_end": 5
           }
         ],
-        "confidence": 0.9,
-        "confidence_reasoning": "The stated purpose and submit_task implementation both show automated collection of Amazon product data through a browser automation workflow."
+        "confidence": 0.93,
+        "confidence_reasoning": "Both files explicitly direct creation of a credential-bearing .env file, while the reviewed setup text provides no source-control warning."
       }
     ],
     "critical_findings": [],
-    "high_findings": [
-      {
-        "title": "Generic API/secret keys",
-        "description": "BROWSERACT_API_KEY = os.getenv(\"BROWSERACT_API_KEY\", \"\")",
-        "locations": [
-          {
-            "file": "amazon_competitor_analyzer.py",
-            "line_start": 43,
-            "line_end": 43
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "env_access",
-        "source_severity": "high",
-        "confidence": 0.86,
-        "confidence_reasoning": "The environment variable is the BrowserAct API key used for authenticated requests. It is not hardcoded, but the skill handles a real secret."
-      },
-      {
-        "title": "Generic API/secret keys",
-        "description": "self.api_key = api_key or BROWSERACT_API_KEY",
-        "locations": [
-          {
-            "file": "amazon_competitor_analyzer.py",
-            "line_start": 53,
-            "line_end": 53
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "env_access",
-        "source_severity": "high",
-        "confidence": 0.84,
-        "confidence_reasoning": "The API key is stored on the analyzer instance for later network requests. This is intended but confirms in-process handling of a user secret."
-      },
-      {
-        "title": "Generic API/secret keys",
-        "description": "\"Authorization\": f\"Bearer {self.api_key}\"",
-        "locations": [
-          {
-            "file": "amazon_competitor_analyzer.py",
-            "line_start": 56,
-            "line_end": 56
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "env_access",
-        "source_severity": "high",
-        "confidence": 0.92,
-        "confidence_reasoning": "The API key is placed into a Bearer Authorization header for BrowserAct requests. This is a real credential transmission to an external service."
-      },
-      {
-        "title": "Generic API/secret keys",
-        "description": "api_key = args.api_key or BROWSERACT_API_KEY",
-        "locations": [
-          {
-            "file": "amazon_competitor_analyzer.py",
-            "line_start": 350,
-            "line_end": 350
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "env_access",
-        "source_severity": "high",
-        "confidence": 0.86,
-        "confidence_reasoning": "The CLI accepts an API key argument or reads it from the environment. Passing secrets through arguments can expose them in shell history or process listings."
-      },
-      {
-        "title": "Generic API/secret keys",
-        "description": "analyzer = AmazonCompetitorAnalyzer(api_key=api_key)",
-        "locations": [
-          {
-            "file": "amazon_competitor_analyzer.py",
-            "line_start": 351,
-            "line_end": 351
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "env_access",
-        "source_severity": "high",
-        "confidence": 0.8,
-        "confidence_reasoning": "The collected API key is passed into the analyzer object for authenticated requests. This confirms the runtime path from user secret to network client."
-      },
-      {
-        "title": "Environment file access",
-        "description": "env_file = script_dir / \".env\"",
-        "locations": [
-          {
-            "file": "amazon_competitor_analyzer.py",
-            "line_start": 26,
-            "line_end": 26
-          }
-        ],
-        "review_kind": "security",
-        "source_category": "sensitive",
-        "source_severity": "high",
-        "confidence": 0.84,
-        "confidence_reasoning": "The script targets a .env file next to the skill code. Reading that file can expose local API keys or other secrets to this process."
-      },
-      {
-        "title": "Environment file access",
-        "description": "env_file = script_dir / \".env\"",
-        "locations": [
-          {
-            "file": "amazon_competitor_analyzer.py",
-            "line_start": 32,
-            "line_end": 32
-          }
-        ],
-        "review_kind": "security",
-        "source_category": "sensitive",
-        "source_severity": "high",
-        "confidence": 0.84,
-        "confidence_reasoning": "The fallback branch targets the same local .env file for manual parsing. This confirms environment-file secret access even without python-dotenv."
-      }
-    ],
+    "high_findings": [],
     "medium_findings": [
       {
         "title": "Python file write/append",
@@ -1598,8 +1506,8 @@
         "review_kind": "capability",
         "source_category": "filesystem",
         "source_severity": "medium",
-        "confidence": 0.82,
-        "confidence_reasoning": "The function writes a CSV file to a caller-supplied output path. Without path restrictions, integrations could overwrite local files if given unsafe paths."
+        "confidence": 0.98,
+        "confidence_reasoning": "CSV output uses write mode and can truncate an existing file at the selected destination. No collision check or overwrite confirmation exists."
       },
       {
         "title": "Python file write/append",
@@ -1614,8 +1522,8 @@
         "review_kind": "capability",
         "source_category": "filesystem",
         "source_severity": "medium",
-        "confidence": 0.82,
-        "confidence_reasoning": "The function writes a Markdown report to a caller-supplied output path. This is intended report generation but remains a real filesystem write capability."
+        "confidence": 0.98,
+        "confidence_reasoning": "Markdown output uses write mode and can truncate an existing file at the selected destination. No collision check or overwrite confirmation exists."
       },
       {
         "title": "Python file write/append",
@@ -1630,8 +1538,8 @@
         "review_kind": "capability",
         "source_category": "filesystem",
         "source_severity": "medium",
-        "confidence": 0.82,
-        "confidence_reasoning": "The function writes raw analysis results to a caller-supplied JSON path. This may persist scraped data and can overwrite files at that destination."
+        "confidence": 0.98,
+        "confidence_reasoning": "JSON output uses write mode and can truncate an existing file at the selected destination. No collision check or overwrite confirmation exists."
       },
       {
         "title": "Python os file operations",
@@ -1646,8 +1554,8 @@
         "review_kind": "capability",
         "source_category": "filesystem",
         "source_severity": "medium",
-        "confidence": 0.78,
-        "confidence_reasoning": "The helper creates the user-selected output directory before writing reports. That local filesystem mutation should be disclosed and constrained."
+        "confidence": 0.96,
+        "confidence_reasoning": "The library function creates a caller-selected directory and then writes three predictable files there. This is disclosed but modifies the filesystem."
       },
       {
         "title": "Python os file operations",
@@ -1662,45 +1570,61 @@
         "review_kind": "capability",
         "source_category": "filesystem",
         "source_severity": "medium",
-        "confidence": 0.78,
-        "confidence_reasoning": "The CLI creates the requested output directory before saving reports. This is expected behavior but confirms filesystem write and directory creation capability."
+        "confidence": 0.98,
+        "confidence_reasoning": "The CLI creates the user-selected output directory before writing reports. Existing report files can be replaced without confirmation."
       },
       {
-        "title": "Python environment access",
-        "description": "os.environ.setdefault(key, value.strip())",
+        "title": "API Key Exposed Through Command Arguments",
+        "description": "The --api-key option places a credential in command arguments, which may persist in shell history and appear in process listings.",
         "locations": [
           {
             "file": "amazon_competitor_analyzer.py",
-            "line_start": 39,
-            "line_end": 39
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "env_access",
-        "source_severity": "low",
-        "confidence": 0.78,
-        "confidence_reasoning": "The manual .env fallback imports every key-value pair into the process environment, not only BROWSERACT_API_KEY. This can broaden local secret exposure inside the process."
-      },
-      {
-        "title": "Automated Third-Party Marketplace Scraping",
-        "description": "The skill is designed to scrape Amazon product data from ASINs through BrowserAct automation. This can create compliance and account-risk exposure if used without permission or rate controls.",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 9,
-            "line_end": 17
-          },
-          {
-            "file": "amazon_competitor_analyzer.py",
-            "line_start": 71,
-            "line_end": 88
+            "line_start": 345,
+            "line_end": 345
           }
         ],
         "review_kind": "security",
         "source_category": "semantic",
         "source_severity": "medium",
-        "confidence": 0.9,
-        "confidence_reasoning": "The stated purpose and submit_task implementation both show automated collection of Amazon product data through a browser automation workflow."
+        "confidence": 0.98,
+        "confidence_reasoning": "The argparse option directly accepts the API key as a command-line value, a well-established local credential exposure path."
+      },
+      {
+        "title": "Spreadsheet Formula Injection in CSV Reports",
+        "description": "Externally sourced product fields are written to CSV without neutralizing formula prefixes, which can trigger formulas when a report opens.",
+        "locations": [
+          {
+            "file": "amazon_competitor_analyzer.py",
+            "line_start": 229,
+            "line_end": 240
+          }
+        ],
+        "review_kind": "security",
+        "source_category": "semantic",
+        "source_severity": "medium",
+        "confidence": 0.94,
+        "confidence_reasoning": "Product title, brand, and feature values flow from the API response into csv.writer without checks for equals, plus, minus, or at signs."
+      },
+      {
+        "title": "Incomplete Secret Storage Guidance",
+        "description": "Setup directs users to store a real key in .env without warning them to exclude that file from version control.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 49,
+            "line_end": 53
+          },
+          {
+            "file": ".env.example",
+            "line_start": 2,
+            "line_end": 5
+          }
+        ],
+        "review_kind": "security",
+        "source_category": "semantic",
+        "source_severity": "medium",
+        "confidence": 0.93,
+        "confidence_reasoning": "Both files explicitly direct creation of a credential-bearing .env file, while the reviewed setup text provides no source-control warning."
       }
     ],
     "low_findings": [
@@ -1717,8 +1641,8 @@
         "review_kind": "capability",
         "source_category": "network",
         "source_severity": "low",
-        "confidence": 0.91,
-        "confidence_reasoning": "The skill posts user ASIN data and an Authorization header to the external BrowserAct workflow API. This is intended behavior but a real network trust boundary."
+        "confidence": 0.99,
+        "confidence_reasoning": "The POST sends an ASIN and bearer credential to the fixed BrowserAct API. This disclosed integration still creates third-party network exposure."
       },
       {
         "title": "Python HTTP libraries",
@@ -1733,8 +1657,8 @@
         "review_kind": "capability",
         "source_category": "network",
         "source_severity": "low",
-        "confidence": 0.9,
-        "confidence_reasoning": "The skill polls BrowserAct task status over the network using the same Authorization header. This confirms ongoing external service communication."
+        "confidence": 0.99,
+        "confidence_reasoning": "The GET polls BrowserAct with the bearer credential and task identifier. It is intended but confirms external network access."
       },
       {
         "title": "Python HTTP libraries",
@@ -1749,8 +1673,8 @@
         "review_kind": "capability",
         "source_category": "network",
         "source_severity": "low",
-        "confidence": 0.9,
-        "confidence_reasoning": "The skill retrieves BrowserAct task results over the network using authenticated requests. Product inputs and task identifiers leave the local environment."
+        "confidence": 0.99,
+        "confidence_reasoning": "The GET retrieves task results from BrowserAct using the bearer credential. It is intended but confirms external network access."
       },
       {
         "title": "Hardcoded URL",
@@ -1765,56 +1689,24 @@
         "review_kind": "capability",
         "source_category": "network",
         "source_severity": "low",
-        "confidence": 0.88,
-        "confidence_reasoning": "The hardcoded endpoint fixes the external service destination to BrowserAct. It is declared by the skill but still represents a real outbound network dependency."
+        "confidence": 0.99,
+        "confidence_reasoning": "This constant fixes all workflow traffic to api.browseract.com. The known HTTPS endpoint limits scope, but network access is real."
       },
       {
-        "title": "Python getenv function",
-        "description": "BROWSERACT_API_KEY = os.getenv(\"BROWSERACT_API_KEY\", \"\")",
+        "title": "Python environment access",
+        "description": "os.environ.setdefault(key, value.strip())",
         "locations": [
           {
             "file": "amazon_competitor_analyzer.py",
-            "line_start": 43,
-            "line_end": 43
+            "line_start": 39,
+            "line_end": 39
           }
         ],
         "review_kind": "capability",
         "source_category": "env_access",
         "source_severity": "low",
-        "confidence": 0.86,
-        "confidence_reasoning": "The skill reads BROWSERACT_API_KEY from the process environment. This is legitimate configuration, but it is direct secret access."
-      },
-      {
-        "title": "getenv function call",
-        "description": "BROWSERACT_API_KEY = os.getenv(\"BROWSERACT_API_KEY\", \"\")",
-        "locations": [
-          {
-            "file": "amazon_competitor_analyzer.py",
-            "line_start": 43,
-            "line_end": 43
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "env_access",
-        "source_severity": "low",
-        "confidence": 0.86,
-        "confidence_reasoning": "The getenv call retrieves the BrowserAct API key for authenticated network use. This confirms secret-dependent behavior."
-      },
-      {
-        "title": "dotenv library",
-        "description": "from dotenv import load_dotenv",
-        "locations": [
-          {
-            "file": "amazon_competitor_analyzer.py",
-            "line_start": 23,
-            "line_end": 23
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "env_access",
-        "source_severity": "low",
-        "confidence": 0.78,
-        "confidence_reasoning": "Importing python-dotenv enables the script to load secrets from a local .env file. This is common configuration but a real environment-access capability."
+        "confidence": 0.96,
+        "confidence_reasoning": "The fallback parser imports every key-value entry from the local .env file into the process environment. This broad mutation exceeds the single required key."
       },
       {
         "title": "dotenv library",
@@ -1829,24 +1721,8 @@
         "review_kind": "capability",
         "source_category": "env_access",
         "source_severity": "low",
-        "confidence": 0.86,
-        "confidence_reasoning": "The script loads a local .env file when present. That can bring local secrets into the runtime environment."
-      },
-      {
-        "title": "Python dotenv loader",
-        "description": "from dotenv import load_dotenv",
-        "locations": [
-          {
-            "file": "amazon_competitor_analyzer.py",
-            "line_start": 23,
-            "line_end": 23
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "env_access",
-        "source_severity": "low",
-        "confidence": 0.78,
-        "confidence_reasoning": "The dotenv loader import enables reading local .env values. This supports legitimate configuration but expands secret-handling scope."
+        "confidence": 0.97,
+        "confidence_reasoning": "load_dotenv reads all entries from the script-local .env file into the process environment. This is expected configuration access but is broader than one key."
       },
       {
         "title": "Python dotenv loader",
@@ -1861,148 +1737,141 @@
         "review_kind": "capability",
         "source_category": "env_access",
         "source_severity": "low",
-        "confidence": 0.86,
-        "confidence_reasoning": "load_dotenv reads the script-adjacent .env file into the process. This confirms local environment-file secret access."
+        "confidence": 0.97,
+        "confidence_reasoning": "The loader reads the entire script-local .env file into the process environment. The behavior is disclosed but accesses more than the required variable."
       }
     ],
     "dangerous_patterns": [],
     "files_scanned": 3,
     "total_lines": 502,
     "audit_model": "codex",
-    "audited_at": "2026-07-07T23:55:17.495Z",
-    "agent_auto_install_policy": "confirmation_required",
+    "audited_at": "2026-07-23T09:10:39.056Z",
+    "agent_auto_install_policy": "allowed",
     "manual_install_policy": "allowed"
   },
   "content": {
-    "user_title": "Analyze Amazon Competitors with BrowserAct",
-    "value_statement": "Manual competitor research on Amazon is slow and hard to compare. This skill collects ASIN data through BrowserAct and creates pricing, rating, and report outputs.",
+    "user_title": "Analyze Amazon Competitors by ASIN",
+    "value_statement": "Manual Amazon competitor research is slow and inconsistent. This skill retrieves product data through BrowserAct, compares core metrics, and creates local reports.",
     "seo_keywords": [
+      "Amazon competitor analysis",
+      "ASIN research",
+      "Amazon pricing analysis",
+      "product benchmarking",
+      "ecommerce market research",
+      "BrowserAct automation",
       "Claude",
       "Codex",
       "Claude Code",
-      "Amazon competitor analysis",
-      "BrowserAct automation",
-      "ASIN research",
-      "marketplace scraping",
-      "product pricing analysis",
-      "competitive intelligence",
-      "ecommerce research"
+      "Amazon product comparison"
     ],
     "actual_capabilities": [
-      "Submits user-provided ASINs to a BrowserAct workflow template.",
-      "Polls BrowserAct task status until completion or timeout.",
-      "Retrieves BrowserAct task results for scraped Amazon product data.",
-      "Compares prices, ratings, review counts, and brands across ASINs.",
-      "Writes CSV, Markdown, and JSON reports to a local output directory.",
-      "Validates ASIN format and extracts ASIN-like tokens from text."
+      "Validates one or more 10-character alphanumeric ASINs before submission.",
+      "Submits BrowserAct workflow tasks and polls until each task finishes, fails, or times out.",
+      "Retrieves product results and compares price ranges, ratings, and review volume.",
+      "Exports product data as CSV, Markdown, and JSON files.",
+      "Accepts a BrowserAct API key from the environment, constructor, or command-line option."
     ],
     "limitations": [
-      "Requires a valid BrowserAct API key and network access.",
-      "Accuracy depends on BrowserAct workflow output and Amazon page availability.",
-      "It does not verify compliance with Amazon terms or regional data rules.",
-      "Reports may overwrite files named amazon_analysis.* in the selected output directory."
+      "Requires a BrowserAct account, API key, internet access, and an available external workflow.",
+      "Depends on a fixed workflow template and the response fields returned by BrowserAct.",
+      "Does not implement claimed sentiment, visual, moat, vulnerability, or detailed specification analysis.",
+      "Always writes CSV, Markdown, and JSON reports because the documented format option is not implemented."
     ],
     "use_cases": [
       {
-        "title": "Benchmark Product Listings",
-        "description": "Compare competing ASINs by price, rating, review volume, brand, and extracted product details.",
-        "target_user": "Ecommerce managers"
+        "title": "Compare a Product Shortlist",
+        "description": "Collect prices, ratings, and review counts for candidate products before prioritizing deeper research.",
+        "target_user": "Ecommerce product manager"
       },
       {
-        "title": "Prepare Market Research Briefs",
-        "description": "Create CSV and Markdown outputs that summarize competitor positions for a product category.",
-        "target_user": "Market researchers"
+        "title": "Benchmark Market Pricing",
+        "description": "Compare the lowest and highest observed prices across selected ASINs and export the source data.",
+        "target_user": "Market research analyst"
       },
       {
-        "title": "Check Pricing Gaps",
-        "description": "Identify the lowest and highest priced products in a selected ASIN set.",
-        "target_user": "Product strategists"
+        "title": "Track Competing Listings",
+        "description": "Create repeatable local reports for a known set of competing Amazon listings.",
+        "target_user": "Amazon seller or brand strategist"
       }
     ],
     "prompt_templates": [
       {
         "title": "Analyze One ASIN",
-        "scenario": "Beginner single-product review",
-        "prompt": "Use this skill to analyze ASIN B09G9GB4MG. Summarize the collected price, rating, review count, and brand."
+        "prompt": "Analyze ASIN [ASIN]. Validate it, retrieve available product data, and save all reports to [OUTPUT_DIRECTORY].",
+        "scenario": "Beginner analysis of one known product"
       },
       {
-        "title": "Compare Three Products",
-        "scenario": "Basic competitor comparison",
-        "prompt": "Analyze ASINs B09G9GB4MG, B08N5WRWNW, and B07ABC11111. Compare pricing, ratings, and review volume."
+        "title": "Compare Several Products",
+        "prompt": "Compare these ASINs: [ASIN_LIST]. Summarize price, rating, and review volume differences, then save the reports to [OUTPUT_DIRECTORY].",
+        "scenario": "Basic comparison of a product shortlist"
       },
       {
-        "title": "Create Local Reports",
-        "scenario": "Report generation workflow",
-        "prompt": "Analyze these ASINs and save the CSV, Markdown, and JSON reports in ./competitor-output."
+        "title": "Benchmark Pricing and Reviews",
+        "prompt": "Analyze [ASIN_LIST]. Identify the lowest price, highest price, top rating, and largest review volume using only retrieved data.",
+        "scenario": "Intermediate market benchmark"
       },
       {
-        "title": "Assess Market Position",
-        "scenario": "Advanced strategy review",
-        "prompt": "Analyze this competitor ASIN set. Identify pricing leaders, review leaders, weak listings, and possible product positioning gaps."
+        "title": "Audit a Competitive Dataset",
+        "prompt": "Analyze [ASIN_LIST] and save reports to [OUTPUT_DIRECTORY]. Flag failed records, missing fields, and metric outliers without inventing unavailable insights.",
+        "scenario": "Advanced analysis with data-quality controls"
       }
     ],
     "output_examples": [
       {
-        "input": "Analyze one ASIN for price and review basics.",
-        "output": "A concise product summary with title, brand, current price, rating, review count, and any missing fields."
+        "input": "Analyze one valid ASIN and save results to the current directory.",
+        "output": "The skill validates the ASIN, retrieves its BrowserAct result, and creates CSV, Markdown, and JSON report files."
       },
       {
-        "input": "Compare three ASINs and generate reports.",
+        "input": "Compare four competing ASINs for pricing and ratings.",
         "output": [
-          "CSV report listing product metrics.",
-          "Markdown report with pricing and rating leaders.",
-          "Summary of products that failed collection."
+          "Price positioning identifies the observed lowest and highest prices.",
+          "Rating analysis identifies the highest rating and orders products by review volume.",
+          "Failed or unavailable product records remain visible in the generated reports."
         ]
       },
       {
-        "input": "Find competitive gaps across a category sample.",
-        "output": "A market position summary showing price range, highest rated product, review leaders, and candidate opportunities."
+        "input": "Analyze an invalid ASIN.",
+        "output": "The skill reports the invalid identifier and skips submission for that item."
       }
     ],
     "best_practices": [
-      "Use only ASINs you are allowed to research and monitor.",
-      "Store the BrowserAct API key in a local secret manager or protected environment variable.",
-      "Review generated reports before sharing them with stakeholders."
+      "Use only ASINs that you are authorized to research and follow applicable marketplace terms.",
+      "Store the BrowserAct key in a protected environment variable and review report destinations before running.",
+      "Verify missing fields and failed tasks before using the comparison for business decisions."
     ],
     "anti_patterns": [
-      "Do not use this skill for unauthorized scraping or excessive automated collection.",
-      "Do not pass real API keys directly in shared prompts or logs.",
-      "Do not write reports into sensitive directories or shared system paths."
+      "Do not pass production API keys through shared shell commands or recorded automation logs.",
+      "Do not treat the output as sentiment, visual, or moat analysis because those features are not implemented.",
+      "Do not overwrite an existing report directory without reviewing its current files."
     ],
     "faq": [
       {
-        "question": "Does this skill require a BrowserAct account?",
-        "answer": "Yes. It requires a BrowserAct API key before it can submit workflow tasks."
+        "question": "What credentials are required?",
+        "answer": "A BrowserAct API key is required. The skill reads BROWSERACT_API_KEY or accepts a key through its Python interface."
       },
       {
-        "question": "Can it analyze multiple ASINs at once?",
-        "answer": "Yes. The Python entry point accepts one or more ASINs and processes them sequentially."
+        "question": "Does the skill access Amazon directly?",
+        "answer": "No. It submits ASINs to a fixed BrowserAct workflow and retrieves the resulting task data."
       },
       {
-        "question": "What files can it create?",
-        "answer": "It can create CSV, Markdown, and JSON reports named amazon_analysis in the chosen output directory."
+        "question": "Which report formats are generated?",
+        "answer": "The implementation generates CSV, Markdown, and JSON reports together."
       },
       {
-        "question": "Does it guarantee accurate Amazon data?",
-        "answer": "No. Results depend on BrowserAct workflow output, page availability, and product page structure."
+        "question": "What comparisons are implemented?",
+        "answer": "It compares observed prices, average ratings, and review counts. Other advertised strategy analysis is not implemented."
       },
       {
-        "question": "Is the API key hardcoded?",
-        "answer": "No real key is hardcoded. The skill reads a BrowserAct API key from arguments or environment settings."
+        "question": "How are invalid ASINs handled?",
+        "answer": "Each ASIN must contain exactly ten alphanumeric characters. Invalid values are reported and skipped."
       },
       {
-        "question": "Does it check legal or terms compliance?",
-        "answer": "No. Users must confirm that their scraping and analysis comply with applicable rules."
+        "question": "Can reports replace existing files?",
+        "answer": "Yes. The current implementation writes predictable filenames and can replace existing reports in the selected directory."
       }
     ]
   },
   "file_structure": [
-    {
-      "name": ".env.example",
-      "type": "file",
-      "path": ".env.example",
-      "lines": 6
-    },
     {
       "name": "amazon_competitor_analyzer.py",
       "type": "file",

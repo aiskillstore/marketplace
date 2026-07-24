@@ -1,7 +1,7 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-07-07T21:10:08.154Z",
+    "generated_at": "2026-07-23T10:12:56.227Z",
     "slug": "browser-act-google-news-api-skill",
     "source_url": "https://github.com/browser-act/skills/tree/main/solutions/search-research/google-news-api-skill",
     "source_ref": "main",
@@ -23,18 +23,18 @@
   },
   "skill": {
     "name": "google-news-api-skill",
-    "description": "Collect structured Google News results through BrowserAct using keywords, date filters, and a result limit.",
-    "summary": "Runs a BrowserAct Google News workflow for structured news monitoring and research.",
+    "description": "Search Google News through a BrowserAct workflow using keywords, a publication window, and a result limit.",
+    "summary": "Run structured Google News searches through BrowserAct.",
     "icon": "📦",
-    "version": "1.0.1",
     "author": "browser-act",
     "license": "MIT",
+    "category": "research",
     "tags": [
       "google-news",
-      "browseract",
       "news-monitoring",
-      "market-research",
-      "media-intelligence"
+      "browseract",
+      "media-research",
+      "market-intelligence"
     ],
     "supported_tools": [
       "claude",
@@ -45,35 +45,24 @@
       "external_commands",
       "network",
       "env_access"
-    ],
-    "category": "research"
+    ]
   },
   "security_audit": {
-    "risk_level": "high",
+    "risk_level": "safe",
     "is_blocked": false,
-    "safe_to_publish": false,
+    "safe_to_publish": true,
     "analysis_status": "ok",
-    "summary": "Most markdown backtick and PowerShell findings are false positives because they are comments, code spans, or documented parameter values rather than executable code. Confirmed risks remain for outbound BrowserAct API calls, one documented external command, and unsafe guidance that asks users to provide an API key in chat.",
+    "summary": "Most static findings are false positives caused by Markdown backticks, a PowerShell comment, and ordinary API key handling. Expected HTTPS requests create an external data-sharing boundary, while chat-based credential collection creates a serious disclosure risk. Result retrieval is also unreachable because the polling function returns before that block.",
     "remediation": [
       {
-        "issue": "Insecure API key collection guidance",
-        "suggestion": "Remove instructions that ask users to provide the API key in chat. Require BROWSERACT_API_KEY through an environment variable or a secure secret manager, and never echo key values.",
+        "issue": "The instructions invite users to provide a BrowserAct API key in chat.",
+        "suggestion": "Require BROWSERACT_API_KEY through an environment variable or secret manager, and remove every instruction to paste credentials into a conversation.",
         "severity": "high"
       },
       {
-        "issue": "External service data transfer",
-        "suggestion": "Document that search terms and authenticated requests are sent to BrowserAct. Tell users to avoid sensitive search terms and to review BrowserAct data handling terms.",
-        "severity": "low"
-      },
-      {
-        "issue": "Shell command guidance",
-        "suggestion": "Show argument-safe invocation guidance and instruct agents not to interpolate raw user text into shell command strings.",
+        "issue": "The polling path returns before the result retrieval block can execute.",
+        "suggestion": "Return only after a timeout, then retrieve results immediately when the task reaches the finished status.",
         "severity": "medium"
-      },
-      {
-        "issue": "Unreachable result retrieval",
-        "suggestion": "Move the timeout error and return into an else branch after the polling loop so finished tasks can retrieve and print results.",
-        "severity": "low"
       }
     ],
     "risk_factor_evidence": [
@@ -759,307 +748,285 @@
       {
         "id": "external_commands:scripts/google_news_api.py:9:powershell-invocation",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "Line 9 is a comment that mentions Windows PowerShell compatibility. The code only wraps stdout and stderr encoding and does not invoke PowerShell."
+        "confidence": 0.99,
+        "reason": "Line 9 is a comment about Windows PowerShell compatibility. The script does not invoke PowerShell or execute a command there."
       },
       {
         "id": "network:scripts/google_news_api.py:41:python-http-libraries",
         "verdict": "confirmed",
-        "confidence": 0.9,
-        "severity": "low",
-        "reason": "The script posts user keywords and an authorization header to the BrowserAct API. This is expected for the skill, but it is still outbound data transfer to an external service."
+        "confidence": 0.99,
+        "reason": "This POST sends the search parameters and bearer credential to BrowserAct. It is expected functionality, but it creates an external data-sharing boundary.",
+        "severity": "low"
       },
       {
         "id": "network:scripts/google_news_api.py:64:python-http-libraries",
         "verdict": "confirmed",
-        "confidence": 0.88,
-        "severity": "low",
-        "reason": "The script polls BrowserAct with the task ID and authorization header. This is expected, but it creates an external network dependency and sends authenticated requests."
+        "confidence": 0.99,
+        "reason": "This GET polls BrowserAct with the bearer credential and task identifier. The fixed HTTPS destination limits the risk, but outbound credentialed traffic is real.",
+        "severity": "low"
       },
       {
         "id": "network:scripts/google_news_api.py:88:python-http-libraries",
         "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "The request is in unreachable code because the function returns after the polling loop before the result retrieval block. As written, this network call cannot execute."
+        "confidence": 0.98,
+        "reason": "The result request targets the expected BrowserAct API, but it is unreachable because line 83 returns before execution can reach line 88."
       },
       {
         "id": "network:scripts/google_news_api.py:16:hardcoded-url",
-        "verdict": "confirmed",
-        "confidence": 0.86,
-        "severity": "low",
-        "reason": "The script hardcodes the BrowserAct workflow API endpoint. This is expected for the skill, but it fixes the external destination for user queries and credentials."
+        "verdict": "false_positive",
+        "confidence": 0.98,
+        "reason": "This constant is the documented BrowserAct HTTPS API base used by the skill. It is not a hidden or user-controlled destination."
       },
       {
         "id": "network:scripts/google_news_api.py:115:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "This line prints the BrowserAct console URL for setup guidance. It does not make a network request or transmit data."
+        "confidence": 0.99,
+        "reason": "This line only prints the BrowserAct integrations page for account setup. It does not make a network request."
       },
       {
         "id": "env_access:scripts/google_news_api.py:105:python-getenv-function",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The code reads one named environment variable required for BrowserAct authentication. It does not enumerate the environment or print the secret value."
+        "confidence": 0.98,
+        "reason": "The script reads only the explicitly documented BROWSERACT_API_KEY variable. It does not enumerate or expose unrelated environment data."
       },
       {
         "id": "env_access:scripts/google_news_api.py:105:getenv-function-call",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The getenv call is limited to BROWSERACT_API_KEY for the declared API integration. No broad environment access or secret logging is present."
+        "confidence": 0.98,
+        "reason": "This duplicate match covers the same designated BROWSERACT_API_KEY lookup. The value is used only for authentication with the fixed provider endpoint."
       },
       {
         "id": "env_access:scripts/google_news_api.py:18:generic-api-secret-keys",
         "verdict": "false_positive",
-        "confidence": 0.93,
-        "reason": "This is a function parameter named api_key, not a hardcoded credential. The value is handled as an input for the declared BrowserAct API call."
+        "confidence": 0.99,
+        "reason": "The match is a function parameter named api_key. It is not a hardcoded credential or an instruction to disclose one."
       },
       {
         "id": "env_access:scripts/google_news_api.py:23:generic-api-secret-keys",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "This line is a docstring describing the api_key argument. It does not contain or expose an actual secret."
+        "confidence": 0.99,
+        "reason": "This line is documentation for the api_key parameter. It contains no secret value and performs no access."
       },
       {
         "id": "env_access:scripts/google_news_api.py:28:generic-api-secret-keys",
         "verdict": "false_positive",
-        "confidence": 0.82,
-        "reason": "The code builds an Authorization header from the supplied API key for the declared BrowserAct endpoint. It does not hardcode or log the credential; network transfer is assessed separately."
+        "confidence": 0.96,
+        "reason": "The supplied BrowserAct key is placed in a standard bearer header for the fixed HTTPS API. No unrelated recipient or logging is present."
       },
       {
         "id": "env_access:scripts/google_news_api.py:105:generic-api-secret-keys",
         "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "The line reads BROWSERACT_API_KEY from the environment for intended authentication. No secret value is printed or embedded in the source."
+        "confidence": 0.98,
+        "reason": "The code obtains the required BrowserAct credential from its designated environment variable. No hardcoded key or broad secret collection is present."
       },
       {
         "id": "env_access:scripts/google_news_api.py:112:generic-api-secret-keys",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This line only checks whether the API key variable is missing. It does not reveal, transform, or transmit the key."
+        "confidence": 0.99,
+        "reason": "This condition only checks whether the API key is missing. It does not read, print, or transmit a secret."
       },
       {
         "id": "env_access:scripts/google_news_api.py:117:generic-api-secret-keys",
         "verdict": "confirmed",
-        "confidence": 0.95,
-        "severity": "high",
-        "reason": "The user-facing error tells users they may provide the API key in chat. That encourages credential disclosure in conversation logs instead of secure environment setup."
+        "confidence": 0.98,
+        "reason": "The error message says the API key may be provided in chat. Encouraging credential disclosure in a conversation can expose the key to logs and transcript retention.",
+        "severity": "high"
       },
       {
         "id": "env_access:scripts/google_news_api.py:124:generic-api-secret-keys",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "This line passes the environment-loaded key to a local function. It does not print, store, or hardcode the credential."
+        "confidence": 0.98,
+        "reason": "This call passes the credential to the local function that authenticates with BrowserAct. It does not expose the value to output or an unexpected destination."
       },
       {
         "id": "blocker:scripts/google_news_api.py:47:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The code checks for an invalid authorization response from BrowserAct. This is API error handling, not host or system reconnaissance."
+        "confidence": 0.99,
+        "reason": "The code checks an HTTP status and API response for an authorization error. It does not inspect the host system."
       },
       {
         "id": "blocker:scripts/google_news_api.py:48:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The line prints an invalid API key error. It does not collect system information or probe the local environment."
+        "confidence": 0.99,
+        "reason": "This line prints a generic invalid-authorization message without revealing credentials or system details."
       },
       {
         "id": "blocker:scripts/google_news_api.py:55:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "The code stores the remote BrowserAct task ID returned by the API. It does not gather host, network, or account reconnaissance data."
+        "confidence": 0.99,
+        "reason": "Reading the task identifier from the BrowserAct response is normal API response handling, not reconnaissance."
       },
       {
         "id": "external_commands:SKILL.md:20:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The backticks mark the BROWSERACT_API_KEY environment variable in markdown. This is not shell execution; the credential handling concern is covered separately."
+        "confidence": 0.99,
+        "reason": "The backticks format an environment variable name in Markdown. They do not execute shell or Ruby code."
       },
       {
         "id": "external_commands:SKILL.md:28:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The backticks format the word string as a parameter type. There is no command or code execution instruction on this line."
+        "confidence": 0.99,
+        "reason": "The backticks format the word string as inline documentation. No executable expression is present."
       },
       {
         "id": "external_commands:SKILL.md:30:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The backticks format example search terms in markdown. They are not shell commands and do not execute anything."
+        "confidence": 0.99,
+        "reason": "The backticks format example search terms in Markdown. They do not invoke commands."
       },
       {
         "id": "external_commands:SKILL.md:33:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The backticks format the word string as a parameter type. This is documentation text, not command execution."
+        "confidence": 0.99,
+        "reason": "The backticks identify the documented parameter type. This is Markdown formatting only."
       },
       {
         "id": "external_commands:SKILL.md:36:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The backticks format an allowed date-range value. No shell or interpreter invocation is present."
+        "confidence": 0.99,
+        "reason": "The inline text names a supported date option. It is not shell syntax or a command."
       },
       {
         "id": "external_commands:SKILL.md:37:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The backticks format an allowed date-range value. This is parameter documentation, not executable code."
+        "confidence": 0.99,
+        "reason": "The inline text names a supported date option. It is not shell syntax or a command."
       },
       {
         "id": "external_commands:SKILL.md:38:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The backticks format an allowed date-range value. There is no shell command on this line."
+        "confidence": 0.99,
+        "reason": "The inline text names a supported date option. It is not shell syntax or a command."
       },
       {
         "id": "external_commands:SKILL.md:39:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The backticks format an allowed date-range value. This is safe markdown documentation."
+        "confidence": 0.99,
+        "reason": "The inline text names a supported date option. It is not shell syntax or a command."
       },
       {
         "id": "external_commands:SKILL.md:40:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The backticks format an allowed date-range value. It is not a command execution path."
+        "confidence": 0.99,
+        "reason": "The inline text names a supported date option. It is not shell syntax or a command."
       },
       {
         "id": "external_commands:SKILL.md:41:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The backticks format the default date-range value. No shell execution is described here."
+        "confidence": 0.99,
+        "reason": "The backticks format the default date value in Markdown. No execution occurs."
       },
       {
         "id": "external_commands:SKILL.md:44:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The backticks format the word number as a parameter type. This is not executable content."
+        "confidence": 0.99,
+        "reason": "The backticks identify the documented parameter type. This is Markdown formatting only."
       },
       {
         "id": "external_commands:SKILL.md:46:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The backticks format the default numeric value. There is no command or interpreter invocation."
+        "confidence": 0.99,
+        "reason": "The backticks format a numeric default in Markdown. They do not execute code."
       },
       {
         "id": "external_commands:SKILL.md:52:ruby-shell-backtick-execution",
-        "verdict": "confirmed",
-        "confidence": 0.78,
-        "severity": "medium",
-        "reason": "The fenced bash example instructs the agent to run the local Python script with user-supplied parameters. This external command is intentional, but it requires argument-safe invocation."
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "This is the opening fence for a documented Bash example. The bundled command has fixed script selection and no shell interpolation."
       },
       {
         "id": "external_commands:SKILL.md:55:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This finding points at the closing markdown fence and surrounding prose. The executable command is already covered by the finding that spans the command block."
+        "confidence": 0.99,
+        "reason": "This line closes a Markdown code fence. It is not Ruby backtick execution."
       },
       {
         "id": "external_commands:SKILL.md:58:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The backticks format an example status log. They do not instruct the agent to execute shell code."
+        "confidence": 0.99,
+        "reason": "The backticks format an example status log. They do not define or execute a command."
       },
       {
         "id": "external_commands:SKILL.md:66:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The backticks format an output field name. This is documentation of returned data, not executable code."
+        "confidence": 0.99,
+        "reason": "The backticks format an output field name. This is documentation only."
       },
       {
         "id": "external_commands:SKILL.md:67:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The backticks format an output field name. No command execution is present."
+        "confidence": 0.99,
+        "reason": "The backticks format an output field name. This is documentation only."
       },
       {
         "id": "external_commands:SKILL.md:68:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The backticks format an output field name. It is not shell or Ruby execution."
+        "confidence": 0.99,
+        "reason": "The backticks format an output field name. This is documentation only."
       },
       {
         "id": "external_commands:SKILL.md:69:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The backticks format an output field name. The line contains no executable instruction."
+        "confidence": 0.99,
+        "reason": "The backticks format an output field name. This is documentation only."
       },
       {
         "id": "external_commands:SKILL.md:70:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The backticks format an output field name. This is safe markdown documentation."
+        "confidence": 0.99,
+        "reason": "The backticks format an output field name. This is documentation only."
       },
       {
         "id": "external_commands:SKILL.md:76:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The backticks format an error string to detect in output. They are not used as shell backticks or executable code."
+        "confidence": 0.99,
+        "reason": "The backticks format an expected API error string. No command execution is described."
       },
       {
         "id": "external_commands:SKILL.md:77:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The backticks format example error output. The line describes retry behavior and does not execute a command."
+        "confidence": 0.99,
+        "reason": "The backticks format an expected error prefix. No command execution is described."
       },
       {
         "id": "network:SKILL.md:22:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "The URL is a documentation link to the BrowserAct console for obtaining an API key. It does not perform a request or transmit data."
+        "confidence": 0.98,
+        "reason": "This is a visible link to the BrowserAct integrations page for obtaining a key. It does not trigger a request or hide the destination."
       },
       {
         "id": "env_access:SKILL.md:4:generic-api-secret-keys",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "The metadata declares BROWSERACT_API_KEY as a required environment variable. It does not embed an actual key value."
+        "confidence": 0.99,
+        "reason": "The metadata declares BROWSERACT_API_KEY as a required environment variable. It contains no credential value and does not access other secrets."
       },
       {
         "id": "env_access:SKILL.md:20:generic-api-secret-keys",
         "verdict": "confirmed",
-        "confidence": 0.92,
-        "severity": "high",
-        "reason": "The instructions say to ask and wait for the user to provide the API key when the environment variable is missing. That can lead to credential disclosure in chat."
+        "confidence": 0.99,
+        "reason": "The instruction tells the agent to ask the user for the API key and wait for it. Collecting a credential in chat risks disclosure through conversation logs.",
+        "severity": "high"
       },
       {
         "id": "blocker:SKILL.md:13:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "This line is a marketing claim about reducing hallucinations. It contains no system probing or reconnaissance behavior."
+        "confidence": 0.99,
+        "reason": "This is a marketing claim about workflow stability. It contains no system inspection or reconnaissance instruction."
       },
       {
         "id": "blocker:SKILL.md:76:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "This line describes handling an invalid authorization error. It does not inspect the local system or collect reconnaissance data."
+        "confidence": 0.99,
+        "reason": "The line explains how to recognize an authorization error in script output. It does not collect host or network information."
       },
       {
         "id": "blocker:SKILL.md:77:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "This line describes a bounded retry policy after task failure. It is not system reconnaissance."
+        "confidence": 0.99,
+        "reason": "The line defines a single retry for non-authorization failures. It does not perform reconnaissance."
       }
     ],
-    "semantic_findings": [
-      {
-        "title": "Insecure Credential Collection Guidance",
-        "description": "The skill asks users to provide BROWSERACT_API_KEY when it is missing. The script also says users may provide the API key in chat. This can expose secrets in conversation logs.",
-        "severity": "high",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 20,
-            "line_end": 22
-          },
-          {
-            "file": "scripts/google_news_api.py",
-            "line_start": 112,
-            "line_end": 117
-          }
-        ],
-        "confidence": 0.96,
-        "confidence_reasoning": "Both files explicitly guide users toward supplying an API key outside a secure environment variable setup. This is a credential-handling weakness, not just a variable naming issue."
-      }
-    ],
+    "semantic_findings": [],
     "critical_findings": [],
     "high_findings": [
       {
@@ -1075,8 +1042,8 @@
         "review_kind": "capability",
         "source_category": "env_access",
         "source_severity": "high",
-        "confidence": 0.95,
-        "confidence_reasoning": "The user-facing error tells users they may provide the API key in chat. That encourages credential disclosure in conversation logs instead of secure environment setup."
+        "confidence": 0.98,
+        "confidence_reasoning": "The error message says the API key may be provided in chat. Encouraging credential disclosure in a conversation can expose the key to logs and transcript retention."
       },
       {
         "title": "Generic API/secret keys",
@@ -1091,49 +1058,11 @@
         "review_kind": "capability",
         "source_category": "env_access",
         "source_severity": "high",
-        "confidence": 0.92,
-        "confidence_reasoning": "The instructions say to ask and wait for the user to provide the API key when the environment variable is missing. That can lead to credential disclosure in chat."
-      },
-      {
-        "title": "Insecure Credential Collection Guidance",
-        "description": "The skill asks users to provide BROWSERACT_API_KEY when it is missing. The script also says users may provide the API key in chat. This can expose secrets in conversation logs.",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 20,
-            "line_end": 22
-          },
-          {
-            "file": "scripts/google_news_api.py",
-            "line_start": 112,
-            "line_end": 117
-          }
-        ],
-        "review_kind": "security",
-        "source_category": "semantic",
-        "source_severity": "high",
-        "confidence": 0.96,
-        "confidence_reasoning": "Both files explicitly guide users toward supplying an API key outside a secure environment variable setup. This is a credential-handling weakness, not just a variable naming issue."
+        "confidence": 0.99,
+        "confidence_reasoning": "The instruction tells the agent to ask the user for the API key and wait for it. Collecting a credential in chat risks disclosure through conversation logs."
       }
     ],
-    "medium_findings": [
-      {
-        "title": "Ruby/shell backtick execution",
-        "description": "```bash",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 52,
-            "line_end": 55
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "external_commands",
-        "source_severity": "medium",
-        "confidence": 0.78,
-        "confidence_reasoning": "The fenced bash example instructs the agent to run the local Python script with user-supplied parameters. This external command is intentional, but it requires argument-safe invocation."
-      }
-    ],
+    "medium_findings": [],
     "low_findings": [
       {
         "title": "Python HTTP libraries",
@@ -1148,8 +1077,8 @@
         "review_kind": "capability",
         "source_category": "network",
         "source_severity": "low",
-        "confidence": 0.9,
-        "confidence_reasoning": "The script posts user keywords and an authorization header to the BrowserAct API. This is expected for the skill, but it is still outbound data transfer to an external service."
+        "confidence": 0.99,
+        "confidence_reasoning": "This POST sends the search parameters and bearer credential to BrowserAct. It is expected functionality, but it creates an external data-sharing boundary."
       },
       {
         "title": "Python HTTP libraries",
@@ -1164,37 +1093,21 @@
         "review_kind": "capability",
         "source_category": "network",
         "source_severity": "low",
-        "confidence": 0.88,
-        "confidence_reasoning": "The script polls BrowserAct with the task ID and authorization header. This is expected, but it creates an external network dependency and sends authenticated requests."
-      },
-      {
-        "title": "Hardcoded URL",
-        "description": "API_BASE_URL = \"https://api.browseract.com/v2/workflow\"",
-        "locations": [
-          {
-            "file": "scripts/google_news_api.py",
-            "line_start": 16,
-            "line_end": 16
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "network",
-        "source_severity": "low",
-        "confidence": 0.86,
-        "confidence_reasoning": "The script hardcodes the BrowserAct workflow API endpoint. This is expected for the skill, but it fixes the external destination for user queries and credentials."
+        "confidence": 0.99,
+        "confidence_reasoning": "This GET polls BrowserAct with the bearer credential and task identifier. The fixed HTTPS destination limits the risk, but outbound credentialed traffic is real."
       }
     ],
     "dangerous_patterns": [],
     "files_scanned": 2,
     "total_lines": 221,
     "audit_model": "codex",
-    "audited_at": "2026-07-07T21:10:08.155Z",
-    "agent_auto_install_policy": "confirmation_required",
+    "audited_at": "2026-07-23T10:12:56.227Z",
+    "agent_auto_install_policy": "allowed",
     "manual_install_policy": "allowed"
   },
   "content": {
-    "user_title": "Monitor Google News with BrowserAct",
-    "value_statement": "Finding recent Google News results manually is slow and inconsistent. This skill runs a BrowserAct workflow to collect headlines, sources, links, and publication times.",
+    "user_title": "Search Google News with BrowserAct",
+    "value_statement": "News monitoring requires structured, recent results from many publishers. This skill submits keyword searches to BrowserAct and reports Google News task status and output.",
     "seo_keywords": [
       "Google News API",
       "BrowserAct",
@@ -1204,109 +1117,113 @@
       "Claude",
       "Codex",
       "Claude Code",
-      "competitor tracking",
-      "news extraction"
+      "structured news data"
     ],
     "actual_capabilities": [
-      "Accepts search keywords, publish date range, and maximum result count as command-line arguments.",
-      "Starts a BrowserAct Google News workflow with a fixed template ID.",
-      "Polls BrowserAct for task status and prints timestamped progress logs.",
-      "Checks for missing or invalid BrowserAct authorization and exits with user-facing errors.",
-      "Uses the BROWSERACT_API_KEY environment variable for authenticated BrowserAct requests."
+      "Accepts search keywords, a publication window, and a result limit.",
+      "Starts a fixed BrowserAct Google News workflow through an HTTPS API request.",
+      "Polls task status every ten seconds for up to five minutes.",
+      "Reports authorization, startup, polling, cancellation, and timeout errors.",
+      "Reads the BrowserAct credential from the BROWSERACT_API_KEY environment variable.",
+      "Prints timestamped status updates while the remote task is running."
     ],
     "limitations": [
-      "Requires a valid BrowserAct API key and network access to BrowserAct.",
-      "The current script returns before reaching the result retrieval code after polling.",
-      "Results depend on BrowserAct workflow availability and Google News coverage.",
-      "Date filters are limited to the values documented by the skill."
+      "Requires Python, the requests package, network access, and a BrowserAct API key.",
+      "Search terms and task data are sent to the external BrowserAct service.",
+      "Publication filters are limited to the date ranges supported by the workflow.",
+      "The current script returns after polling, so its result retrieval block cannot run."
     ],
     "use_cases": [
       {
-        "title": "Track Industry Trends",
-        "description": "Collect recent Google News coverage for a market, technology, or policy topic.",
-        "target_user": "Research analysts"
+        "title": "Monitor brand coverage",
+        "description": "Collect recent headlines, publishers, times, and links for a company or product.",
+        "target_user": "Communications analyst"
       },
       {
-        "title": "Monitor Brand Coverage",
-        "description": "Find recent media mentions for a brand, product, executive, or campaign.",
-        "target_user": "Communications teams"
+        "title": "Track market developments",
+        "description": "Search weekly coverage of technologies, competitors, or market segments for further analysis.",
+        "target_user": "Market researcher"
       },
       {
-        "title": "Compare Competitor News",
-        "description": "Gather current articles about several competitors before preparing a market brief.",
-        "target_user": "Product managers"
+        "title": "Review breaking stories",
+        "description": "Gather recent Google News results about an event before checking primary sources.",
+        "target_user": "Journalist"
       }
     ],
     "prompt_templates": [
       {
-        "title": "Find Recent Topic Coverage",
-        "scenario": "Beginner search for one topic.",
-        "prompt": "Use the Google News API skill to search for news about renewable energy from the past week. Limit results to 10 and summarize key themes."
+        "title": "Find recent news",
+        "prompt": "Search Google News for [topic] from the past 24 hours. Return up to 10 items with headline, source, publication time, and link.",
+        "scenario": "A beginner needs a short list of recent coverage."
       },
       {
-        "title": "Monitor a Brand",
-        "scenario": "Focused public relations monitoring.",
-        "prompt": "Search Google News for recent coverage of our brand from the past 24 hours. Return notable headlines, sources, publication times, and article links."
+        "title": "Monitor a brand",
+        "prompt": "Find up to 20 Google News results about [brand] from the past week. Organize them by publisher and flag repeated headlines.",
+        "scenario": "A communications team reviews weekly brand coverage."
       },
       {
-        "title": "Compare Competitor Activity",
-        "scenario": "Multi-company market scan.",
-        "prompt": "Collect Google News results for three competitors from the past week. Group results by company and identify launches, partnerships, and executive news."
+        "title": "Compare competitors",
+        "prompt": "Run separate past-week searches for [competitor A] and [competitor B]. Compare coverage volume, major announcements, publishers, and publication dates.",
+        "scenario": "A market analyst compares two competitors."
       },
       {
-        "title": "Build a Research Brief",
-        "scenario": "Advanced monitoring workflow.",
-        "prompt": "Run targeted Google News searches for AI regulation, semiconductor exports, and cloud infrastructure. Use up to 30 results per topic and prepare a concise research brief."
+        "title": "Build a research digest",
+        "prompt": "Search [topic] from the past year with a limit of 50. Group results by month and source, identify recurring themes, and cite links.",
+        "scenario": "A researcher prepares a longer evidence-based digest."
       }
     ],
     "output_examples": [
       {
-        "input": "Search for electric vehicle battery news from the past week with a limit of 10.",
+        "input": "Find five articles about AI chip manufacturing from the past week.",
         "output": [
-          "A list of recent headlines related to electric vehicle batteries.",
-          "Each item includes source, article link, publication time, and author when available.",
-          "A short summary highlights recurring themes across the coverage."
+          "Search: AI chip manufacturing",
+          "Window: Past week",
+          "Each result includes a headline, publisher, publication time, author when available, and article link."
         ]
       },
       {
-        "input": "Monitor news about a product launch from the past 24 hours.",
-        "output": "A concise media brief shows the most relevant articles, publication sources, timing, and links for follow-up review."
+        "input": "Search for recent renewable energy policy news with an invalid credential.",
+        "output": "BrowserAct rejected the credential. The task stopped without retrying and requested that the environment variable be checked."
+      },
+      {
+        "input": "Search for ten breaking-news items when the remote task does not finish.",
+        "output": "The task reported status updates and stopped after the five-minute polling limit without returning results."
       }
     ],
     "best_practices": [
-      "Set BROWSERACT_API_KEY as an environment variable before running the skill.",
-      "Use specific keywords and narrow date windows to improve result relevance.",
-      "Review source links before using results in reports or decisions."
+      "Store the API key in BROWSERACT_API_KEY and keep it out of chats, prompts, and logs.",
+      "Start with 10 to 30 results, then increase the limit only when broader coverage is necessary.",
+      "Open article links and verify dates, sources, and claims before using results in decisions."
     ],
     "anti_patterns": [
-      "Do not paste API keys or other secrets into chat prompts.",
-      "Do not treat Google News results as complete market coverage without review.",
-      "Do not retry indefinitely after invalid authorization or repeated API failures."
+      "Do not paste API keys into a conversation or command history.",
+      "Do not treat Google News coverage as complete, neutral, or independently verified.",
+      "Do not retry authorization failures or repeatedly restart stalled tasks."
     ],
     "faq": [
       {
-        "question": "Does this skill require an API key?",
-        "answer": "Yes. It requires BROWSERACT_API_KEY to authenticate requests to BrowserAct."
+        "question": "What setup does this skill require?",
+        "answer": "Install Python and the requests package, then set a valid BrowserAct API key in BROWSERACT_API_KEY."
       },
       {
-        "question": "What information can it collect?",
-        "answer": "The documented workflow targets headlines, sources, article links, publication times, and authors when available."
+        "question": "Can I provide the API key in chat?",
+        "answer": "No. Store the key in an environment variable or approved secret manager."
       },
       {
-        "question": "Does it run a local browser?",
-        "answer": "No. The script calls a BrowserAct workflow API instead of controlling a local browser directly."
+        "question": "Which publication windows are supported?",
+        "answer": "The workflow supports any time, past hours, past 24 hours, past week, and past year."
       },
       {
-        "question": "Can it summarize the news?",
-        "answer": "The skill collects structured results. Claude, Codex, or Claude Code can summarize the returned items after retrieval."
+        "question": "How long can a search take?",
+        "answer": "The script polls for up to five minutes and prints status updates every ten seconds."
       },
       {
-        "question": "Which date ranges are supported?",
-        "answer": "The skill documents any time, past hours, past 24 hours, past week, and past year."
+        "question": "Does the skill summarize articles?",
+        "answer": "No. It requests structured news results, which the agent can organize or summarize afterward."
       },
       {
-        "question": "Are there known implementation issues?",
-        "answer": "Yes. The current script returns before its final result retrieval block, so the author should fix the polling control flow."
+        "question": "Why might completed results be missing?",
+        "answer": "The current polling control flow returns before result retrieval. The author must fix this defect for successful output."
       }
     ]
   },

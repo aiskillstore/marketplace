@@ -1,7 +1,7 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-07-07T20:59:13.622Z",
+    "generated_at": "2026-07-23T10:04:26.512Z",
     "slug": "browser-act-google-maps-reviews-api-skill",
     "source_url": "https://github.com/browser-act/skills/tree/main/solutions/lead-generation/google-maps-reviews-api-skill",
     "source_ref": "main",
@@ -23,18 +23,18 @@
   },
   "skill": {
     "name": "google-maps-reviews-api-skill",
-    "description": "Extract Google Maps reviews through BrowserAct's workflow API using keywords, language, and country settings.",
-    "summary": "Run BrowserAct review extraction for Google Maps searches.",
+    "description": "Collect Google Maps review tasks through BrowserAct using search keywords, language, and country parameters, with status polling and structured result retrieval logic.",
+    "summary": "Run and monitor BrowserAct review-collection workflows from an AI assistant.",
     "icon": "📦",
-    "version": "1.0.1",
     "author": "browser-act",
     "license": "MIT",
+    "category": "data",
     "tags": [
       "google-maps",
       "reviews",
       "browseract",
       "reputation-monitoring",
-      "lead-generation"
+      "local-business-data"
     ],
     "supported_tools": [
       "claude",
@@ -45,34 +45,23 @@
       "network",
       "env_access",
       "external_commands"
-    ],
-    "category": "data"
+    ]
   },
   "security_audit": {
-    "risk_level": "high",
+    "risk_level": "safe",
     "is_blocked": false,
-    "safe_to_publish": false,
+    "safe_to_publish": true,
     "analysis_status": "ok",
-    "summary": "The skill performs expected outbound requests to BrowserAct and reads BROWSERACT_API_KEY for authentication. Most markdown backtick and system-reconnaissance detections are false positives, but credential handling and command execution are real. The main additional risk is guidance that may cause users to paste API keys into chat.",
+    "summary": "The skill makes expected HTTPS requests to BrowserAct and reads an API key from the environment; Markdown formatting and error handling account for most alerts. Two instructions ask users to provide the API key to the agent, creating a high-risk secret disclosure path. No prompt injection or hidden command execution was found.",
     "remediation": [
       {
-        "issue": "API key sharing guidance can expose credentials.",
-        "suggestion": "Tell users to set BROWSERACT_API_KEY through an environment variable or approved secret store. Do not ask users to paste API keys into chat.",
+        "issue": "The skill and script tell users to provide the BrowserAct API key to the agent.",
+        "suggestion": "Remove the disclosure request and require users to configure BROWSERACT_API_KEY outside the conversation. Never place credentials in prompts, messages, or logs.",
         "severity": "high"
       },
       {
-        "issue": "The skill sends queries and credentials to a third-party API.",
-        "suggestion": "Document the BrowserAct endpoint, data sent, and privacy expectations. Require user consent before sending business or reviewer data.",
-        "severity": "medium"
-      },
-      {
-        "issue": "The skill instructs agents to run a local Python command.",
-        "suggestion": "Use argument-array invocation when possible, validate language and country values, and avoid interpolating raw user text into shell commands.",
-        "severity": "medium"
-      },
-      {
-        "issue": "Result retrieval appears unreachable after the polling loop.",
-        "suggestion": "Move the timeout return into a loop else branch or only return on timeout. Verify that finished tasks continue to result retrieval.",
+        "issue": "Search terms and credentials are transmitted to the BrowserAct service.",
+        "suggestion": "Disclose the third-party transfer before execution and avoid submitting confidential search terms without explicit user approval.",
         "severity": "low"
       }
     ],
@@ -724,367 +713,276 @@
       {
         "id": "network:scripts/google_maps_reviews_api.py:31:python-http-libraries",
         "verdict": "confirmed",
-        "confidence": 0.9,
-        "severity": "medium",
-        "reason": "The script sends an authenticated POST with user search parameters to the BrowserAct API. This is expected behavior, but it is real outbound network access to a third-party service."
+        "confidence": 0.98,
+        "reason": "The request sends the workflow identifier, user-supplied search parameters, and an authorization header to BrowserAct. This is declared functionality, but it is a real third-party data transfer.",
+        "severity": "low"
       },
       {
         "id": "network:scripts/google_maps_reviews_api.py:56:python-http-libraries",
         "verdict": "confirmed",
-        "confidence": 0.86,
-        "severity": "low",
-        "reason": "The script polls BrowserAct over HTTP with the authorization header and task identifier. This is intended, but it is still authenticated outbound network access."
+        "confidence": 0.98,
+        "reason": "The polling request sends a task identifier and bearer credential to the fixed BrowserAct endpoint. The transfer is expected but creates an external network dependency.",
+        "severity": "low"
       },
       {
         "id": "network:scripts/google_maps_reviews_api.py:78:python-http-libraries",
         "verdict": "confirmed",
-        "confidence": 0.86,
-        "severity": "low",
-        "reason": "The script retrieves task results from BrowserAct using an authenticated request. This is part of the advertised workflow and confirms third-party network dependency."
+        "confidence": 0.98,
+        "reason": "The result request sends the task identifier and bearer credential to BrowserAct. This is intended API use, but it remains a real outbound transfer.",
+        "severity": "low"
       },
       {
         "id": "network:scripts/google_maps_reviews_api.py:15:hardcoded-url",
-        "verdict": "confirmed",
-        "confidence": 0.84,
-        "severity": "low",
-        "reason": "The hardcoded URL fixes the destination for all API calls to BrowserAct. It is not malicious by itself, but users should know data is sent to that service."
+        "verdict": "false_positive",
+        "confidence": 0.99,
+        "reason": "The value is a fixed HTTPS API endpoint for the named BrowserAct service. It is not an attacker-controlled destination or evidence of covert exfiltration."
       },
       {
         "id": "network:scripts/google_maps_reviews_api.py:102:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "This line only prints a setup link for the BrowserAct console. It does not perform a network request or transmit data."
+        "confidence": 0.99,
+        "reason": "The URL is printed as a user-facing BrowserAct account setup page. This line performs no network request."
       },
       {
         "id": "env_access:scripts/google_maps_reviews_api.py:93:python-getenv-function",
-        "verdict": "confirmed",
-        "confidence": 0.92,
-        "severity": "low",
-        "reason": "The script reads BROWSERACT_API_KEY from the environment. This is intended configuration access, but it handles a sensitive credential."
+        "verdict": "false_positive",
+        "confidence": 0.99,
+        "reason": "The code reads only the documented BROWSERACT_API_KEY variable for authentication. It does not enumerate or export unrelated environment values."
       },
       {
         "id": "env_access:scripts/google_maps_reviews_api.py:93:getenv-function-call",
-        "verdict": "confirmed",
-        "confidence": 0.92,
-        "severity": "low",
-        "reason": "The getenv call accesses the BrowserAct API key from process environment state. The access is expected, but it is still secret-bearing environment access."
+        "verdict": "false_positive",
+        "confidence": 0.99,
+        "reason": "This duplicates the same targeted BROWSERACT_API_KEY lookup. The lookup is a standard local credential-loading pattern."
       },
       {
         "id": "env_access:scripts/google_maps_reviews_api.py:17:generic-api-secret-keys",
-        "verdict": "confirmed",
-        "confidence": 0.74,
-        "severity": "high",
-        "reason": "The function accepts an api_key parameter that is later used for authenticated API calls. No literal secret is embedded, but the skill does process user credentials."
+        "verdict": "false_positive",
+        "confidence": 0.99,
+        "reason": "The line declares an api_key function parameter and contains no hardcoded credential, secret discovery, or disclosure behavior."
       },
       {
         "id": "env_access:scripts/google_maps_reviews_api.py:18:generic-api-secret-keys",
-        "verdict": "confirmed",
-        "confidence": 0.88,
-        "severity": "high",
-        "reason": "The code places the user API key into a Bearer authorization header. This is necessary for BrowserAct, but it directly transmits a sensitive credential."
+        "verdict": "false_positive",
+        "confidence": 0.97,
+        "reason": "The key is placed in the standard bearer authorization header for the fixed BrowserAct HTTPS endpoint. No logging or transmission to an unrelated host is present."
       },
       {
         "id": "env_access:scripts/google_maps_reviews_api.py:93:generic-api-secret-keys",
-        "verdict": "confirmed",
-        "confidence": 0.9,
-        "severity": "high",
-        "reason": "The code reads BROWSERACT_API_KEY from the environment. This is not a hardcoded secret, but it is deliberate access to a credential."
+        "verdict": "false_positive",
+        "confidence": 0.99,
+        "reason": "The line loads the specifically documented BrowserAct credential from its named environment variable. It does not contain or expose a secret value."
       },
       {
         "id": "env_access:scripts/google_maps_reviews_api.py:99:generic-api-secret-keys",
         "verdict": "false_positive",
-        "confidence": 0.78,
-        "reason": "This line only checks whether the API key variable is missing. It does not reveal, transmit, or further access the credential."
+        "confidence": 0.99,
+        "reason": "The line only checks whether the credential variable is empty. It does not access, transmit, or display the key."
       },
       {
         "id": "env_access:scripts/google_maps_reviews_api.py:104:generic-api-secret-keys",
         "verdict": "confirmed",
-        "confidence": 0.94,
-        "severity": "high",
-        "reason": "The message tells the user to provide the API key to the agent or set it as an environment variable. Asking users to provide secrets in chat is a credential exposure risk."
+        "confidence": 0.99,
+        "reason": "The error message tells the user to provide the API key to the agent as an alternative to local configuration. This encourages secret disclosure through the conversation.",
+        "severity": "high"
       },
       {
         "id": "env_access:scripts/google_maps_reviews_api.py:111:generic-api-secret-keys",
-        "verdict": "confirmed",
-        "confidence": 0.83,
-        "severity": "high",
-        "reason": "The script passes the API key into the function that builds the authorization header. This confirms secret propagation through the execution path."
+        "verdict": "false_positive",
+        "confidence": 0.98,
+        "reason": "The line passes the previously loaded credential to the API helper. It does not log the key or route it outside the intended BrowserAct request."
       },
       {
         "id": "blocker:scripts/google_maps_reviews_api.py:33:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.93,
-        "reason": "The line prints an invalid authorization error. It does not inspect the host system or gather reconnaissance data."
+        "confidence": 0.99,
+        "reason": "The line prints a fixed invalid-authorization error after an HTTP 401 response. It does not inspect the host system."
       },
       {
         "id": "blocker:scripts/google_maps_reviews_api.py:42:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.93,
-        "reason": "The code checks an API response string for an authorization error. It is service error handling, not system reconnaissance."
+        "confidence": 0.99,
+        "reason": "The code checks an API response for a known authorization error string. This is response handling, not system reconnaissance."
       },
       {
         "id": "blocker:scripts/google_maps_reviews_api.py:43:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.93,
-        "reason": "The line prints a user-facing authorization error. It does not enumerate local system details or security controls."
+        "confidence": 0.99,
+        "reason": "The line prints a fixed authentication error for the user. It gathers no operating-system, network, or account information."
       },
       {
         "id": "blocker:scripts/google_maps_reviews_api.py:48:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.91,
-        "reason": "The code stores the BrowserAct task id returned by the API. This is normal workflow state, not reconnaissance."
+        "confidence": 0.99,
+        "reason": "The line extracts a task identifier from the BrowserAct API response. It does not perform host discovery or environment inspection."
       },
       {
         "id": "external_commands:SKILL.md:20:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "The backticks mark the environment variable name in markdown. This line does not execute a shell command."
+        "confidence": 0.99,
+        "reason": "The backticks are Markdown formatting around an environment variable name. No Ruby or shell evaluation occurs on this line."
       },
       {
         "id": "external_commands:SKILL.md:28:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "The backticks format the word string as inline documentation. There is no command execution content on this line."
+        "confidence": 0.99,
+        "reason": "The backticks format the word string in parameter documentation. They do not invoke a command."
       },
       {
         "id": "external_commands:SKILL.md:30:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "The backticks show example search terms in markdown. They are not shell commands and do not execute."
+        "confidence": 0.99,
+        "reason": "The backticks format example search terms as inline Markdown. None of the examples are shell commands."
       },
       {
         "id": "external_commands:SKILL.md:33:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "The line documents a string type with markdown formatting. It contains no executable command."
+        "confidence": 0.99,
+        "reason": "This is Markdown parameter-type formatting, not executable backtick syntax."
       },
       {
         "id": "external_commands:SKILL.md:35:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "The backticks list supported language values. This is parameter documentation, not shell execution."
+        "confidence": 0.99,
+        "reason": "The inline values are documented language codes. The Markdown renderer does not execute them."
       },
       {
         "id": "external_commands:SKILL.md:36:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "The line documents the default language value. It contains no command or external process instruction."
+        "confidence": 0.99,
+        "reason": "The backticks format the default language code. There is no shell context or command execution."
       },
       {
         "id": "external_commands:SKILL.md:39:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "The backticks format the parameter type in documentation. No shell or Ruby execution is present."
+        "confidence": 0.99,
+        "reason": "This is another Markdown type annotation. It contains no executable instruction."
       },
       {
         "id": "external_commands:SKILL.md:41:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "The line lists country code values in markdown. It is not an executable command."
+        "confidence": 0.99,
+        "reason": "The inline tokens are supported country codes in documentation. They are not evaluated by a shell."
       },
       {
         "id": "external_commands:SKILL.md:42:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "The line documents the default country value. It does not invoke a shell command."
+        "confidence": 0.99,
+        "reason": "The backticks format the default country code in Markdown. No command is present."
       },
       {
         "id": "external_commands:SKILL.md:47:ruby-shell-backtick-execution",
-        "verdict": "confirmed",
-        "confidence": 0.82,
-        "severity": "medium",
-        "reason": "This bash code block includes an instruction to run the bundled Python script. The command is bounded to local skill code, but it is still agent-triggered command execution."
+        "verdict": "false_positive",
+        "confidence": 0.98,
+        "reason": "This line opens a fenced Bash example, and the documented command uses fixed Python and script paths. The finding does not indicate Ruby backtick execution or dynamic shell input."
       },
       {
         "id": "external_commands:SKILL.md:50:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "This finding points to a closing markdown fence and nearby prose. The actual command is covered by the code block finding, so this line is not separate execution."
+        "confidence": 0.99,
+        "reason": "This line closes a Markdown code fence. It has no executable content."
       },
       {
         "id": "external_commands:SKILL.md:53:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The line explains that status logs will be printed. It does not contain a shell command or dynamic execution."
+        "confidence": 0.99,
+        "reason": "The line uses backticks to format an example timestamped status message. It does not issue an external command."
       },
       {
         "id": "external_commands:SKILL.md:61:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The backticks format an output field name. This is documentation, not command execution."
+        "confidence": 0.99,
+        "reason": "The backticks mark an API output field name. This is inert Markdown documentation."
       },
       {
         "id": "external_commands:SKILL.md:62:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The backticks format an output field name. This is documentation, not command execution."
+        "confidence": 0.99,
+        "reason": "The backticks mark an API output field name. No shell or subprocess operation is described."
       },
       {
         "id": "external_commands:SKILL.md:63:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The backticks format an output field name. This is documentation, not command execution."
+        "confidence": 0.99,
+        "reason": "The rating token is an inline documented field name, not an executable expression."
       },
       {
         "id": "external_commands:SKILL.md:64:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The backticks format an output field name. This is documentation, not command execution."
+        "confidence": 0.99,
+        "reason": "The text token is an inline documented field name. Markdown backticks do not execute it."
       },
       {
         "id": "external_commands:SKILL.md:65:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The backticks format an output field name. This is documentation, not command execution."
+        "confidence": 0.99,
+        "reason": "The comment_date token documents a response field. There is no command invocation."
       },
       {
         "id": "external_commands:SKILL.md:66:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The backticks format an output field name. This is documentation, not command execution."
+        "confidence": 0.99,
+        "reason": "The likes_count token is inert Markdown formatting for an output field."
       },
       {
         "id": "external_commands:SKILL.md:67:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The backticks format an output field name. This is documentation, not command execution."
+        "confidence": 0.99,
+        "reason": "The author_image_url token documents a response field. It is not passed to a shell."
       },
       {
         "id": "external_commands:SKILL.md:73:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.91,
-        "reason": "The backticks quote an expected error message. This is error-handling documentation, not command execution."
+        "confidence": 0.99,
+        "reason": "The backticks quote an expected API error string for retry logic. They do not execute the quoted text."
       },
       {
         "id": "external_commands:SKILL.md:74:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.91,
-        "reason": "The backticks quote an error prefix in documentation. The line does not instruct shell execution."
+        "confidence": 0.99,
+        "reason": "The inline Error text is Markdown formatting within retry documentation. No external command is created."
       },
       {
         "id": "network:SKILL.md:22:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.89,
-        "reason": "This is a markdown link that tells users where to obtain a BrowserAct API key. It does not make a network request from the skill."
+        "confidence": 0.99,
+        "reason": "The URL is a visible Markdown link to the named provider's account integrations page. Documentation alone does not make a network request."
       },
       {
         "id": "env_access:SKILL.md:4:generic-api-secret-keys",
-        "verdict": "confirmed",
-        "confidence": 0.77,
-        "severity": "high",
-        "reason": "The metadata declares BROWSERACT_API_KEY as a required environment secret. No secret value is present, but the skill requires credential access."
+        "verdict": "false_positive",
+        "confidence": 0.99,
+        "reason": "The metadata declares BROWSERACT_API_KEY as a required environment variable. It includes no secret value and does not access the environment."
       },
       {
         "id": "env_access:SKILL.md:20:generic-api-secret-keys",
         "verdict": "confirmed",
-        "confidence": 0.95,
-        "severity": "high",
-        "reason": "The instructions tell the agent to ask the user for BROWSERACT_API_KEY if it is not set. This creates a direct risk of credential disclosure in conversation."
+        "confidence": 0.99,
+        "reason": "The instruction tells the agent to ask for and wait for the user's API key when the environment variable is absent. This explicitly solicits a credential into the conversation.",
+        "severity": "high"
       },
       {
         "id": "blocker:SKILL.md:13:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "The phrase describes reduced hallucination risk from preset workflows. It has no connection to host system reconnaissance."
+        "confidence": 0.99,
+        "reason": "The line is a marketing claim about workflow consistency. It neither instructs nor performs reconnaissance."
       },
       {
         "id": "blocker:SKILL.md:73:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.93,
-        "reason": "This is guidance for handling an invalid API authorization response. It does not inspect local system or network configuration."
+        "confidence": 0.99,
+        "reason": "The line explains how to recognize an invalid API credential from script output. It does not probe the host or network."
       },
       {
         "id": "blocker:SKILL.md:74:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.93,
-        "reason": "This is retry guidance based on script output. It is not system reconnaissance or environment probing."
+        "confidence": 0.99,
+        "reason": "The line defines when one retry is appropriate after a task error. This is ordinary error handling, not system reconnaissance."
       }
     ],
-    "semantic_findings": [
-      {
-        "title": "Insecure API Key Sharing Guidance",
-        "description": "The skill tells the agent to ask for BROWSERACT_API_KEY and the script says the user may provide it to the agent. This can expose credentials in chat instead of using secret storage.",
-        "severity": "high",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 20,
-            "line_end": 20
-          },
-          {
-            "file": "scripts/google_maps_reviews_api.py",
-            "line_start": 104,
-            "line_end": 104
-          }
-        ],
-        "confidence": 0.93,
-        "confidence_reasoning": "Both cited lines explicitly direct the user toward providing an API key when the environment variable is missing. The risk is clear because API keys are credentials."
-      },
-      {
-        "title": "Reviewer Profile Data Collection",
-        "description": "The documented output includes reviewer names, profile URLs, review text, dates, likes, and avatar URLs. This is expected review collection, but it creates privacy and compliance obligations.",
-        "severity": "medium",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 59,
-            "line_end": 67
-          }
-        ],
-        "confidence": 0.86,
-        "confidence_reasoning": "The documentation lists personal profile fields that may be returned from Google Maps reviews. The finding is a contextual privacy risk, not evidence of malicious intent."
-      }
-    ],
+    "semantic_findings": [],
     "critical_findings": [],
     "high_findings": [
-      {
-        "title": "Generic API/secret keys",
-        "description": "def run_google_maps_reviews_task(api_key, keywords, language=\"en\", country=\"us\"):",
-        "locations": [
-          {
-            "file": "scripts/google_maps_reviews_api.py",
-            "line_start": 17,
-            "line_end": 17
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "env_access",
-        "source_severity": "high",
-        "confidence": 0.74,
-        "confidence_reasoning": "The function accepts an api_key parameter that is later used for authenticated API calls. No literal secret is embedded, but the skill does process user credentials."
-      },
-      {
-        "title": "Generic API/secret keys",
-        "description": "headers = {\"Authorization\": f\"Bearer {api_key}\"}",
-        "locations": [
-          {
-            "file": "scripts/google_maps_reviews_api.py",
-            "line_start": 18,
-            "line_end": 18
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "env_access",
-        "source_severity": "high",
-        "confidence": 0.88,
-        "confidence_reasoning": "The code places the user API key into a Bearer authorization header. This is necessary for BrowserAct, but it directly transmits a sensitive credential."
-      },
-      {
-        "title": "Generic API/secret keys",
-        "description": "api_key = os.getenv(\"BROWSERACT_API_KEY\")",
-        "locations": [
-          {
-            "file": "scripts/google_maps_reviews_api.py",
-            "line_start": 93,
-            "line_end": 93
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "env_access",
-        "source_severity": "high",
-        "confidence": 0.9,
-        "confidence_reasoning": "The code reads BROWSERACT_API_KEY from the environment. This is not a hardcoded secret, but it is deliberate access to a credential."
-      },
       {
         "title": "Generic API/secret keys",
         "description": "print(\"3. Provide it to me or set it as an environment variable (BROWSERACT_API_KEY).\", flush=True)",
@@ -1098,40 +996,8 @@
         "review_kind": "capability",
         "source_category": "env_access",
         "source_severity": "high",
-        "confidence": 0.94,
-        "confidence_reasoning": "The message tells the user to provide the API key to the agent or set it as an environment variable. Asking users to provide secrets in chat is a credential exposure risk."
-      },
-      {
-        "title": "Generic API/secret keys",
-        "description": "result = run_google_maps_reviews_task(api_key, keywords, language, country)",
-        "locations": [
-          {
-            "file": "scripts/google_maps_reviews_api.py",
-            "line_start": 111,
-            "line_end": 111
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "env_access",
-        "source_severity": "high",
-        "confidence": 0.83,
-        "confidence_reasoning": "The script passes the API key into the function that builds the authorization header. This confirms secret propagation through the execution path."
-      },
-      {
-        "title": "Generic API/secret keys",
-        "description": "metadata: {\"openclaw\":{\"emoji\":\"🌐\",\"requires\":{\"bins\":[\"python\"],\"env\":[\"BROWSERACT_API_KEY\"]}}}",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 4,
-            "line_end": 4
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "env_access",
-        "source_severity": "high",
-        "confidence": 0.77,
-        "confidence_reasoning": "The metadata declares BROWSERACT_API_KEY as a required environment secret. No secret value is present, but the skill requires credential access."
+        "confidence": 0.99,
+        "confidence_reasoning": "The error message tells the user to provide the API key to the agent as an alternative to local configuration. This encourages secret disclosure through the conversation."
       },
       {
         "title": "Generic API/secret keys",
@@ -1146,32 +1012,12 @@
         "review_kind": "capability",
         "source_category": "env_access",
         "source_severity": "high",
-        "confidence": 0.95,
-        "confidence_reasoning": "The instructions tell the agent to ask the user for BROWSERACT_API_KEY if it is not set. This creates a direct risk of credential disclosure in conversation."
-      },
-      {
-        "title": "Insecure API Key Sharing Guidance",
-        "description": "The skill tells the agent to ask for BROWSERACT_API_KEY and the script says the user may provide it to the agent. This can expose credentials in chat instead of using secret storage.",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 20,
-            "line_end": 20
-          },
-          {
-            "file": "scripts/google_maps_reviews_api.py",
-            "line_start": 104,
-            "line_end": 104
-          }
-        ],
-        "review_kind": "security",
-        "source_category": "semantic",
-        "source_severity": "high",
-        "confidence": 0.93,
-        "confidence_reasoning": "Both cited lines explicitly direct the user toward providing an API key when the environment variable is missing. The risk is clear because API keys are credentials."
+        "confidence": 0.99,
+        "confidence_reasoning": "The instruction tells the agent to ask for and wait for the user's API key when the environment variable is absent. This explicitly solicits a credential into the conversation."
       }
     ],
-    "medium_findings": [
+    "medium_findings": [],
+    "low_findings": [
       {
         "title": "Python HTTP libraries",
         "description": "response = requests.post(f\"{API_BASE_URL}/run-task-by-template\", json=payload, headers=headers, time",
@@ -1185,43 +1031,9 @@
         "review_kind": "capability",
         "source_category": "network",
         "source_severity": "low",
-        "confidence": 0.9,
-        "confidence_reasoning": "The script sends an authenticated POST with user search parameters to the BrowserAct API. This is expected behavior, but it is real outbound network access to a third-party service."
+        "confidence": 0.98,
+        "confidence_reasoning": "The request sends the workflow identifier, user-supplied search parameters, and an authorization header to BrowserAct. This is declared functionality, but it is a real third-party data transfer."
       },
-      {
-        "title": "Ruby/shell backtick execution",
-        "description": "```bash",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 47,
-            "line_end": 50
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "external_commands",
-        "source_severity": "medium",
-        "confidence": 0.82,
-        "confidence_reasoning": "This bash code block includes an instruction to run the bundled Python script. The command is bounded to local skill code, but it is still agent-triggered command execution."
-      },
-      {
-        "title": "Reviewer Profile Data Collection",
-        "description": "The documented output includes reviewer names, profile URLs, review text, dates, likes, and avatar URLs. This is expected review collection, but it creates privacy and compliance obligations.",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 59,
-            "line_end": 67
-          }
-        ],
-        "review_kind": "security",
-        "source_category": "semantic",
-        "source_severity": "medium",
-        "confidence": 0.86,
-        "confidence_reasoning": "The documentation lists personal profile fields that may be returned from Google Maps reviews. The finding is a contextual privacy risk, not evidence of malicious intent."
-      }
-    ],
-    "low_findings": [
       {
         "title": "Python HTTP libraries",
         "description": "status_res = requests.get(f\"{API_BASE_URL}/get-task-status?task_id={task_id}\", headers=headers, time",
@@ -1235,8 +1047,8 @@
         "review_kind": "capability",
         "source_category": "network",
         "source_severity": "low",
-        "confidence": 0.86,
-        "confidence_reasoning": "The script polls BrowserAct over HTTP with the authorization header and task identifier. This is intended, but it is still authenticated outbound network access."
+        "confidence": 0.98,
+        "confidence_reasoning": "The polling request sends a task identifier and bearer credential to the fixed BrowserAct endpoint. The transfer is expected but creates an external network dependency."
       },
       {
         "title": "Python HTTP libraries",
@@ -1251,187 +1063,128 @@
         "review_kind": "capability",
         "source_category": "network",
         "source_severity": "low",
-        "confidence": 0.86,
-        "confidence_reasoning": "The script retrieves task results from BrowserAct using an authenticated request. This is part of the advertised workflow and confirms third-party network dependency."
-      },
-      {
-        "title": "Hardcoded URL",
-        "description": "API_BASE_URL = \"https://api.browseract.com/v2/workflow\"",
-        "locations": [
-          {
-            "file": "scripts/google_maps_reviews_api.py",
-            "line_start": 15,
-            "line_end": 15
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "network",
-        "source_severity": "low",
-        "confidence": 0.84,
-        "confidence_reasoning": "The hardcoded URL fixes the destination for all API calls to BrowserAct. It is not malicious by itself, but users should know data is sent to that service."
-      },
-      {
-        "title": "Python getenv function",
-        "description": "api_key = os.getenv(\"BROWSERACT_API_KEY\")",
-        "locations": [
-          {
-            "file": "scripts/google_maps_reviews_api.py",
-            "line_start": 93,
-            "line_end": 93
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "env_access",
-        "source_severity": "low",
-        "confidence": 0.92,
-        "confidence_reasoning": "The script reads BROWSERACT_API_KEY from the environment. This is intended configuration access, but it handles a sensitive credential."
-      },
-      {
-        "title": "getenv function call",
-        "description": "api_key = os.getenv(\"BROWSERACT_API_KEY\")",
-        "locations": [
-          {
-            "file": "scripts/google_maps_reviews_api.py",
-            "line_start": 93,
-            "line_end": 93
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "env_access",
-        "source_severity": "low",
-        "confidence": 0.92,
-        "confidence_reasoning": "The getenv call accesses the BrowserAct API key from process environment state. The access is expected, but it is still secret-bearing environment access."
+        "confidence": 0.98,
+        "confidence_reasoning": "The result request sends the task identifier and bearer credential to BrowserAct. This is intended API use, but it remains a real outbound transfer."
       }
     ],
     "dangerous_patterns": [],
     "files_scanned": 2,
     "total_lines": 204,
     "audit_model": "codex",
-    "audited_at": "2026-07-07T20:59:13.622Z",
-    "agent_auto_install_policy": "confirmation_required",
+    "audited_at": "2026-07-23T10:04:26.512Z",
+    "agent_auto_install_policy": "allowed",
     "manual_install_policy": "allowed"
   },
   "content": {
-    "user_title": "Extract Google Maps Reviews",
-    "value_statement": "Manual Google Maps review collection is slow and hard to compare across locations. This skill runs BrowserAct's review workflow and returns structured review fields for analysis.",
+    "user_title": "Extract Google Maps Reviews with BrowserAct",
+    "value_statement": "Manual review collection is slow and difficult to monitor across locations. This skill starts BrowserAct review workflows and reports task progress from the command line.",
     "seo_keywords": [
-      "Claude",
-      "Codex",
-      "Claude Code",
       "Google Maps reviews",
       "BrowserAct API",
       "review extraction",
-      "local business reviews",
+      "local business research",
       "reputation monitoring",
-      "customer feedback analysis",
-      "lead generation"
+      "Claude",
+      "Codex",
+      "Claude Code",
+      "customer feedback analysis"
     ],
     "actual_capabilities": [
-      "Starts a BrowserAct workflow template for Google Maps review extraction.",
-      "Sends search keywords, language, and country as input parameters.",
-      "Polls task status and prints timestamped progress messages.",
-      "Reads BROWSERACT_API_KEY from the environment before authenticated requests.",
-      "Contains result parsing for author, rating, text, date, likes, and avatar fields."
+      "Accepts search keywords plus optional language and country parameters.",
+      "Submits a fixed Google Maps Reviews workflow template to BrowserAct.",
+      "Polls task status for up to five minutes and prints timestamped updates.",
+      "Handles missing credentials, invalid authorization, failed tasks, and polling errors.",
+      "Defines result retrieval for review text, ratings, dates, likes, and reviewer profile fields."
     ],
     "limitations": [
-      "Requires a valid BrowserAct API key and outbound network access.",
-      "Review availability depends on Google Maps and BrowserAct workflow results.",
-      "The current script should be fixed because result retrieval appears unreachable.",
-      "It does not perform sentiment analysis unless the agent analyzes returned reviews separately."
+      "Requires Python, requests, a BrowserAct account, and a BROWSERACT_API_KEY.",
+      "Search terms and credentials are sent to BrowserAct over HTTPS.",
+      "A control-flow defect currently returns after polling, so completed review results are not retrieved.",
+      "Sentiment analysis, deduplication, storage, and multi-location orchestration are not included."
     ],
     "use_cases": [
       {
-        "title": "Monitor Store Reputation",
-        "description": "Collect reviews for one location and summarize common praise, complaints, and rating patterns.",
-        "target_user": "Operations teams"
+        "title": "Monitor a Local Location",
+        "description": "Collect review tasks for one restaurant, clinic, shop, or attraction in a selected country and language.",
+        "target_user": "Local business manager"
       },
       {
-        "title": "Compare Local Competitors",
-        "description": "Gather reviews for competing businesses and compare customer themes across the same region.",
-        "target_user": "Market researchers"
+        "title": "Compare Nearby Competitors",
+        "description": "Run separate searches for competing businesses and prepare their review data for later comparison.",
+        "target_user": "Market researcher"
       },
       {
-        "title": "Qualify Service Leads",
-        "description": "Review public feedback for service providers before outreach or partnership research.",
-        "target_user": "Sales teams"
+        "title": "Investigate Customer Feedback",
+        "description": "Gather review fields for downstream analysis of ratings, praise, complaints, and service quality.",
+        "target_user": "Customer insights analyst"
       }
     ],
     "prompt_templates": [
       {
-        "title": "Basic Review Pull",
-        "scenario": "Beginner request for one local search.",
-        "prompt": "Use this skill to collect Google Maps reviews for coffee shops in Austin. Use English and country us."
+        "title": "Collect Business Reviews",
+        "prompt": "Collect reviews for {business_or_category} in {country} using {language}. Report task progress and summarize any returned reviews.",
+        "scenario": "Beginner review collection for one business or category."
       },
       {
-        "title": "Location Feedback Summary",
-        "scenario": "Summarize feedback for a named business.",
-        "prompt": "Use this skill to retrieve reviews for 'Acme Dental Boston' in English for the United States. Summarize ratings and common issues."
+        "title": "Compare Two Businesses",
+        "prompt": "Run separate review searches for {business_a} and {business_b} in {country}. Compare ratings, recurring praise, and common complaints.",
+        "scenario": "Intermediate competitor research using two workflow runs."
       },
       {
-        "title": "Competitor Review Benchmark",
-        "scenario": "Compare several local competitors.",
-        "prompt": "Use this skill for three competitor search terms in Toronto. Compare review themes, rating patterns, and recurring complaints."
+        "title": "Review a New Location",
+        "prompt": "Collect reviews for {location_name} in {country} using {language}. Highlight service issues, positive themes, and recent feedback.",
+        "scenario": "Focused reputation review for an operations team."
       },
       {
-        "title": "Multi-Region Review Study",
-        "scenario": "Advanced research across countries.",
-        "prompt": "Use this skill to collect reviews for 'electric vehicle charging stations' in us, ca, and gb. Highlight regional sentiment differences."
+        "title": "Prepare a Regional Analysis",
+        "prompt": "Run review searches for {business_list} across {countries}. Organize findings by location, rating pattern, complaint theme, and data limitation.",
+        "scenario": "Advanced multi-run research with a consistent comparison framework."
       }
     ],
     "output_examples": [
       {
-        "input": "Collect reviews for dental clinic in Seattle with language en and country us.",
-        "output": [
-          "Review set with reviewer names, star ratings, review text, dates, likes, and profile links.",
-          "Short summary of frequent praise, common complaints, and notable low-rating themes."
-        ]
+        "input": "Find reviews for coffee shops in Seattle using English.",
+        "output": "The BrowserAct task starts and prints timestamped progress. After completion, the current script reports a timeout because result retrieval is unreachable."
       },
       {
-        "input": "Compare reviews for three coffee shop searches in Austin.",
-        "output": [
-          "Side-by-side comparison of rating patterns and repeated customer themes.",
-          "List of locations with strong service signals and locations with recurring complaints."
-        ]
-      },
-      {
-        "input": "Gather reviews for a retail chain location before a quality audit.",
-        "output": "A concise briefing with recent review themes, quoted concerns, rating distribution notes, and follow-up questions for the audit team."
+        "input": "Collect reviews without a configured BrowserAct credential.",
+        "output": "The script reports that the BrowserAct API key is missing and displays the account integrations page."
       }
     ],
     "best_practices": [
-      "Store BROWSERACT_API_KEY in an environment variable or approved secret store.",
-      "Confirm that review collection follows platform terms and local privacy rules.",
-      "Use narrow search terms and country settings to reduce irrelevant results."
+      "Set BROWSERACT_API_KEY in the local environment and never paste it into a chat.",
+      "Confirm the search terms, language, and country before starting a paid BrowserAct task.",
+      "Review BrowserAct usage terms and protect reviewer profile data in downstream storage."
     ],
     "anti_patterns": [
-      "Do not paste API keys into chat or shared logs.",
-      "Do not run broad scraping requests without a clear business purpose.",
-      "Do not treat public reviews as private customer records without verification."
+      "Do not ask users to disclose API keys in messages or prompts.",
+      "Do not promise completed review data until the polling control-flow defect is fixed.",
+      "Do not treat public profile fields as unrestricted data for resale or outreach."
     ],
     "faq": [
       {
         "question": "Does this skill require an API key?",
-        "answer": "Yes. It requires BROWSERACT_API_KEY for authenticated BrowserAct API requests."
+        "answer": "Yes. It requires a BrowserAct API key configured through the BROWSERACT_API_KEY environment variable."
       },
       {
-        "question": "Does it browse Google Maps directly?",
-        "answer": "No. The script calls a BrowserAct workflow API that performs the review extraction."
+        "question": "Which search parameters are supported?",
+        "answer": "The script accepts search keywords, a language code, and a country code."
       },
       {
-        "question": "What inputs does it accept?",
-        "answer": "It accepts search keywords, language, and country. Keywords are required, while language and country have defaults."
+        "question": "How long can a task run?",
+        "answer": "The polling loop waits up to five minutes and checks status every ten seconds."
       },
       {
-        "question": "Can it analyze sentiment?",
-        "answer": "It collects review text. The agent can summarize sentiment after reviews are returned."
+        "question": "Which review fields are expected?",
+        "answer": "The documented fields include reviewer name, profile links, rating, review text, date, likes, and avatar URL."
       },
       {
-        "question": "What review fields can appear?",
-        "answer": "Output may include reviewer names, profile URLs, ratings, text, dates, likes, and avatar URLs."
+        "question": "Does the skill analyze sentiment automatically?",
+        "answer": "No. It gathers review data for later analysis but includes no dedicated sentiment model."
       },
       {
-        "question": "What should users check before running it?",
-        "answer": "Users should confirm API key handling, data privacy requirements, and BrowserAct account permissions."
+        "question": "Why are completed results not displayed?",
+        "answer": "The current script always returns after polling, which makes its result-retrieval block unreachable."
       }
     ]
   },

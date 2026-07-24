@@ -1,7 +1,7 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-07-07T21:21:11.496Z",
+    "generated_at": "2026-07-23T10:21:42.224Z",
     "slug": "browser-act-reddit-competitor-analysis-api-skill",
     "source_url": "https://github.com/browser-act/skills/tree/main/solutions/social-listening/reddit-competitor-analysis-api-skill",
     "source_ref": "main",
@@ -23,12 +23,12 @@
   },
   "skill": {
     "name": "reddit-competitor-analysis-api-skill",
-    "description": "Collect structured Reddit posts and comments for competitor and brand research through the BrowserAct API.",
-    "summary": "Extract Reddit discussions through BrowserAct for social listening and competitor analysis.",
+    "description": "Collect Reddit posts and comments through BrowserAct for competitor research, social listening, and structured analysis.",
+    "summary": "Search and collect Reddit competitor conversations through a managed BrowserAct workflow.",
     "icon": "📦",
-    "version": "1.0.1",
     "author": "browser-act",
     "license": "MIT",
+    "category": "research",
     "tags": [
       "reddit",
       "competitor-analysis",
@@ -45,29 +45,28 @@
       "network",
       "env_access",
       "external_commands"
-    ],
-    "category": "research"
+    ]
   },
   "security_audit": {
-    "risk_level": "high",
+    "risk_level": "medium",
     "is_blocked": false,
-    "safe_to_publish": false,
+    "safe_to_publish": true,
     "analysis_status": "ok",
-    "summary": "The skill is a legitimate BrowserAct Reddit data collection wrapper with expected network, environment, and command execution behavior. Most static backtick and secret-name matches are false positives, but the skill performs external API calls and contains unsafe guidance that can prompt users to share an API key with the agent.",
+    "summary": "The skill makes expected authenticated requests to BrowserAct and explicitly runs its bundled Python script. Most high alerts and Markdown backtick alerts are false positives. However, instructions to collect an API key are high risk, and the shell template may permit unsafe argument insertion.",
     "remediation": [
       {
-        "issue": "The instructions ask users to provide BROWSERACT_API_KEY to the agent when the environment variable is missing.",
-        "suggestion": "Require users to set the key through an environment variable or secret manager. Remove wording that asks users to paste or provide the API key in chat.",
+        "issue": "The instructions ask users to provide an API key directly to the agent.",
+        "suggestion": "Remove credential collection language and require users to set BROWSERACT_API_KEY outside the conversation.",
         "severity": "high"
       },
       {
-        "issue": "The usage guide shows shell-style command strings that include user-provided search parameters.",
-        "suggestion": "Document safe argument handling. Prefer structured argv execution, strict quoting, or input validation for keywords and filter values.",
+        "issue": "The shell command template accepts values derived from user requests without defining safe argument handling.",
+        "suggestion": "Use an argument-array process API, or require strict quoting, validation, and numeric bounds before execution.",
         "severity": "medium"
       },
       {
-        "issue": "The script sends search terms, filters, and authentication headers to BrowserAct endpoints.",
-        "suggestion": "Clearly disclose the external endpoint and the data sent before execution. Ask users to avoid sensitive search terms unless approved.",
+        "issue": "Queries and returned Reddit data pass through an external BrowserAct service.",
+        "suggestion": "Disclose the external transfer, obtain user consent, and avoid sending sensitive search terms.",
         "severity": "low"
       }
     ],
@@ -1004,432 +1003,411 @@
       {
         "id": "network:scripts/reddit_competitor_analysis_api.py:33:python-http-libraries",
         "verdict": "confirmed",
-        "confidence": 0.92,
-        "reason": "The script sends user query parameters and an Authorization bearer token to the external BrowserAct workflow API. This is intended functionality, but it is real network egress and data disclosure.",
+        "confidence": 0.99,
+        "reason": "The script sends search parameters and a bearer credential to BrowserAct. This expected third-party request still exposes user data to an external service.",
         "severity": "low"
       },
       {
         "id": "network:scripts/reddit_competitor_analysis_api.py:50:python-http-libraries",
         "verdict": "confirmed",
-        "confidence": 0.9,
-        "reason": "The script polls the BrowserAct status endpoint with the Authorization header and task id. This is legitimate, but it confirms ongoing network access to a third-party service.",
+        "confidence": 0.99,
+        "reason": "The script polls BrowserAct over the network with the bearer credential and task identifier. This is intended but creates an external-service trust dependency.",
         "severity": "low"
       },
       {
         "id": "network:scripts/reddit_competitor_analysis_api.py:73:python-http-libraries",
         "verdict": "confirmed",
-        "confidence": 0.9,
-        "reason": "The script retrieves task results from BrowserAct over HTTP with the Authorization header. This is expected, but it returns externally processed data through network access.",
+        "confidence": 0.99,
+        "reason": "The script retrieves task results from BrowserAct using an authenticated network request. Returned Reddit data therefore depends on an external service.",
         "severity": "low"
       },
       {
         "id": "network:scripts/reddit_competitor_analysis_api.py:15:hardcoded-url",
         "verdict": "confirmed",
-        "confidence": 0.88,
-        "reason": "This constant fixes the external BrowserAct workflow endpoint used by subsequent requests. Hardcoded third-party network destinations should be disclosed and reviewed.",
+        "confidence": 0.99,
+        "reason": "This constant fixes the destination for authenticated requests to api.browseract.com. The domain matches the stated service, but external transmission remains a low risk.",
         "severity": "low"
       },
       {
         "id": "network:scripts/reddit_competitor_analysis_api.py:99:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "The URL is a BrowserAct console link used to help users configure the API key. It is documentation output, not hidden network behavior."
+        "confidence": 0.99,
+        "reason": "The URL is printed as a setup instruction only. This line does not initiate a network request or transmit data."
       },
       {
         "id": "env_access:scripts/reddit_competitor_analysis_api.py:90:python-getenv-function",
-        "verdict": "confirmed",
-        "confidence": 0.9,
-        "reason": "The script reads BROWSERACT_API_KEY from the environment and uses it for API authentication. This is expected, but it is real secret-bearing environment access.",
-        "severity": "low"
+        "verdict": "false_positive",
+        "confidence": 0.99,
+        "reason": "The code reads only the explicitly documented BROWSERACT_API_KEY variable. It does not enumerate or harvest unrelated environment values."
       },
       {
         "id": "env_access:scripts/reddit_competitor_analysis_api.py:90:getenv-function-call",
-        "verdict": "confirmed",
-        "confidence": 0.9,
-        "reason": "The getenv call accesses BROWSERACT_API_KEY directly. This is a legitimate configuration pattern, but it still touches a credential-bearing environment variable.",
-        "severity": "low"
+        "verdict": "false_positive",
+        "confidence": 0.99,
+        "reason": "This is the same narrow read of the declared BROWSERACT_API_KEY setting. The access is required for the documented authentication flow."
       },
       {
         "id": "env_access:scripts/reddit_competitor_analysis_api.py:17:generic-api-secret-keys",
         "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "The api_key text is a function parameter name, not a hardcoded secret value. The function is part of the documented BrowserAct API wrapper."
+        "confidence": 0.99,
+        "reason": "The line defines a function parameter named api_key but contains no credential value. A parameter name is not a hardcoded or exposed secret."
       },
       {
         "id": "env_access:scripts/reddit_competitor_analysis_api.py:18:generic-api-secret-keys",
         "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "The Authorization header uses the supplied BrowserAct key for the configured BrowserAct API endpoint. No hardcoded credential or unrelated destination is present."
+        "confidence": 0.97,
+        "reason": "The supplied key is placed in the standard bearer header for the fixed BrowserAct endpoint. The line does not log, hardcode, or redirect the credential."
       },
       {
         "id": "env_access:scripts/reddit_competitor_analysis_api.py:90:generic-api-secret-keys",
         "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "This line names BROWSERACT_API_KEY but does not contain a literal secret. The separate getenv findings cover the real environment access."
+        "confidence": 0.99,
+        "reason": "The line loads the declared service credential from one named environment variable. No secret literal or broad environment access is present."
       },
       {
         "id": "env_access:scripts/reddit_competitor_analysis_api.py:96:generic-api-secret-keys",
         "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "This line only checks whether the api_key variable is empty. It does not read a new secret, expose a credential, or define a hardcoded key."
+        "confidence": 0.99,
+        "reason": "This condition checks whether a key value is missing. It neither accesses additional secrets nor reveals the key."
       },
       {
         "id": "env_access:scripts/reddit_competitor_analysis_api.py:101:generic-api-secret-keys",
         "verdict": "confirmed",
-        "confidence": 0.91,
-        "reason": "The script tells users they can provide the API key to the agent, which can expose credentials in chat or logs. Secrets should be set through environment or secret storage instead.",
+        "confidence": 0.98,
+        "reason": "The message tells users they may provide an API key directly to the agent. That guidance can expose a reusable credential in conversation history.",
         "severity": "high"
       },
       {
         "id": "env_access:scripts/reddit_competitor_analysis_api.py:110:generic-api-secret-keys",
         "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "This line passes the existing api_key variable into the local wrapper function. It does not introduce a hardcoded secret or a new credential source."
+        "confidence": 0.98,
+        "reason": "The line passes the previously loaded credential to the local request function. It does not expose the value or change its destination."
       },
       {
         "id": "blocker:scripts/reddit_competitor_analysis_api.py:42:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "No system reconnaissance occurs at this location. The line is ordinary task response handling or documentation text, not host inspection."
+        "confidence": 1,
+        "reason": "The line reads a task identifier from the BrowserAct response. It performs no host, network, account, or system reconnaissance."
       },
       {
         "id": "external_commands:SKILL.md:20:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "The backticks on this line are Markdown formatting around an environment variable, not shell execution. The separate credential handling concern is recorded as a semantic finding."
+        "confidence": 0.99,
+        "reason": "Backticks format the environment variable name in Markdown. The line contains no Ruby backtick operator or shell command."
       },
       {
         "id": "external_commands:SKILL.md:28:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "The backticks on this line are Markdown code formatting around parameters, field names, or example values. No Ruby-style command substitution or executable shell syntax is present on this line."
+        "confidence": 1,
+        "reason": "The backticks format the word string as parameter documentation. They do not execute it."
       },
       {
         "id": "external_commands:SKILL.md:30:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "The backticks on this line are Markdown code formatting around parameters, field names, or example values. No Ruby-style command substitution or executable shell syntax is present on this line."
+        "confidence": 1,
+        "reason": "The backticks mark an example search keyword in Markdown. No executable expression is present."
       },
       {
         "id": "external_commands:SKILL.md:33:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "The backticks on this line are Markdown code formatting around parameters, field names, or example values. No Ruby-style command substitution or executable shell syntax is present on this line."
+        "confidence": 1,
+        "reason": "The backticks format a parameter type in documentation. This is not shell or Ruby execution."
       },
       {
         "id": "external_commands:SKILL.md:35:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "The backticks on this line are Markdown code formatting around parameters, field names, or example values. No Ruby-style command substitution or executable shell syntax is present on this line."
+        "confidence": 1,
+        "reason": "The backticks delimit supported date option labels. None of the labels is executed."
       },
       {
         "id": "external_commands:SKILL.md:36:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "The backticks on this line are Markdown code formatting around parameters, field names, or example values. No Ruby-style command substitution or executable shell syntax is present on this line."
+        "confidence": 1,
+        "reason": "The backticks format the default date label. The line is documentation only."
       },
       {
         "id": "external_commands:SKILL.md:39:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "The backticks on this line are Markdown code formatting around parameters, field names, or example values. No Ruby-style command substitution or executable shell syntax is present on this line."
+        "confidence": 1,
+        "reason": "The backticks format a parameter type in Markdown. No command is invoked."
       },
       {
         "id": "external_commands:SKILL.md:41:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "The backticks on this line are Markdown code formatting around parameters, field names, or example values. No Ruby-style command substitution or executable shell syntax is present on this line."
+        "confidence": 1,
+        "reason": "The backticks delimit post sorting option names. They are data values, not commands."
       },
       {
         "id": "external_commands:SKILL.md:42:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "The backticks on this line are Markdown code formatting around parameters, field names, or example values. No Ruby-style command substitution or executable shell syntax is present on this line."
+        "confidence": 1,
+        "reason": "The backticks format the default sorting value. This Markdown does not execute code."
       },
       {
         "id": "external_commands:SKILL.md:45:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "The backticks on this line are Markdown code formatting around parameters, field names, or example values. No Ruby-style command substitution or executable shell syntax is present on this line."
+        "confidence": 1,
+        "reason": "The inline code span documents a parameter type. It has no execution semantics."
       },
       {
         "id": "external_commands:SKILL.md:47:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "The backticks on this line are Markdown code formatting around parameters, field names, or example values. No Ruby-style command substitution or executable shell syntax is present on this line."
+        "confidence": 1,
+        "reason": "The inline code spans format supported comment sort options. They are not executable commands."
       },
       {
         "id": "external_commands:SKILL.md:48:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "The backticks on this line are Markdown code formatting around parameters, field names, or example values. No Ruby-style command substitution or executable shell syntax is present on this line."
+        "confidence": 1,
+        "reason": "The backticks format the default comment sort label. No process is started."
       },
       {
         "id": "external_commands:SKILL.md:51:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "The backticks on this line are Markdown code formatting around parameters, field names, or example values. No Ruby-style command substitution or executable shell syntax is present on this line."
+        "confidence": 1,
+        "reason": "The inline code span documents the numeric parameter type. It does not execute code."
       },
       {
         "id": "external_commands:SKILL.md:53:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "The backticks on this line are Markdown code formatting around parameters, field names, or example values. No Ruby-style command substitution or executable shell syntax is present on this line."
+        "confidence": 1,
+        "reason": "The backticks format the default numeric value in Markdown. No command is present."
       },
       {
         "id": "external_commands:SKILL.md:56:ruby-shell-backtick-execution",
         "verdict": "confirmed",
-        "confidence": 0.86,
-        "reason": "The documentation explicitly instructs the agent to execute the bundled Python script. Running local scripts is intended but remains an external command execution capability.",
+        "confidence": 0.95,
+        "reason": "The text explicitly directs the agent to execute the bundled Python script. User-derived arguments require secure process invocation to avoid shell interpretation.",
         "severity": "medium"
       },
       {
         "id": "external_commands:SKILL.md:58:ruby-shell-backtick-execution",
         "verdict": "confirmed",
-        "confidence": 0.88,
-        "reason": "The fenced shell example contains the python3 command that launches the script with user-provided parameters. This is a real command execution path, even though it uses a bundled script.",
+        "confidence": 0.98,
+        "reason": "The cited code block contains a Python command with placeholders for request-derived arguments. This is real external command execution despite the misleading pattern name.",
         "severity": "medium"
       },
       {
         "id": "external_commands:SKILL.md:61:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "The backticks on this line are Markdown code formatting around parameters, field names, or example values. No Ruby-style command substitution or executable shell syntax is present on this line."
+        "confidence": 0.99,
+        "reason": "The backticks close a fenced example and the following text describes status output. This occurrence does not add an executable command."
       },
       {
         "id": "external_commands:SKILL.md:64:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "The backticks on this line are Markdown code formatting around parameters, field names, or example values. No Ruby-style command substitution or executable shell syntax is present on this line."
+        "confidence": 0.98,
+        "reason": "The inline code formats an example status log and later names an exec tool. The cited text itself does not supply a shell command."
       },
       {
         "id": "external_commands:SKILL.md:73:ruby-shell-backtick-execution",
         "verdict": "confirmed",
-        "confidence": 0.82,
-        "reason": "The OpenClaw guide recommends using an exec tool to run the script in background mode. That is an intentional external command execution pattern.",
+        "confidence": 0.96,
+        "reason": "The cited lines direct the agent to invoke the Python script through an exec tool in background mode. That is explicit process execution.",
         "severity": "medium"
       },
       {
         "id": "external_commands:SKILL.md:74:ruby-shell-backtick-execution",
         "verdict": "confirmed",
-        "confidence": 0.88,
-        "reason": "This line shows a command string that runs python3 with the bundled script. It is real command guidance and can include user-supplied arguments.",
+        "confidence": 0.99,
+        "reason": "This line supplies a command string that runs the bundled Python script. It is a real external command, although the path is fixed.",
         "severity": "medium"
       },
       {
         "id": "external_commands:SKILL.md:75:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "The backticks on this line are Markdown code formatting around parameters, field names, or example values. No Ruby-style command substitution or executable shell syntax is present on this line."
+        "confidence": 0.99,
+        "reason": "This line only documents a Boolean background option. It contains no executable command."
       },
       {
         "id": "external_commands:SKILL.md:76:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "The backticks on this line are Markdown code formatting around parameters, field names, or example values. No Ruby-style command substitution or executable shell syntax is present on this line."
+        "confidence": 0.99,
+        "reason": "This line only documents a timeout value. The Markdown backticks do not execute it."
       },
       {
         "id": "external_commands:SKILL.md:79:ruby-shell-backtick-execution",
         "verdict": "confirmed",
-        "confidence": 0.88,
-        "reason": "This line repeats the python3 command string for the exec tool. It confirms that the skill expects an agent to invoke a local external command.",
+        "confidence": 0.99,
+        "reason": "The line provides another command string for executing the bundled Python script. It therefore represents real external command behavior.",
         "severity": "medium"
       },
       {
         "id": "external_commands:SKILL.md:80:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "The backticks on this line are Markdown code formatting around parameters, field names, or example values. No Ruby-style command substitution or executable shell syntax is present on this line."
+        "confidence": 0.99,
+        "reason": "This is a documented wait-duration setting, not a command or executable expression."
       },
       {
         "id": "external_commands:SKILL.md:81:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "The backticks on this line are Markdown code formatting around parameters, field names, or example values. No Ruby-style command substitution or executable shell syntax is present on this line."
+        "confidence": 0.99,
+        "reason": "This line documents a timeout setting. Its backticks are Markdown formatting only."
       },
       {
         "id": "external_commands:SKILL.md:84:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "The backticks on this line are Markdown code formatting around parameters, field names, or example values. No Ruby-style command substitution or executable shell syntax is present on this line."
+        "confidence": 0.99,
+        "reason": "The value describes a process polling action. It does not invoke a shell or introduce a new executable command."
       },
       {
         "id": "external_commands:SKILL.md:85:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "The backticks on this line are Markdown code formatting around parameters, field names, or example values. No Ruby-style command substitution or executable shell syntax is present on this line."
+        "confidence": 1,
+        "reason": "The line formats a placeholder process session identifier. It has no command execution semantics."
       },
       {
         "id": "external_commands:SKILL.md:86:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "The backticks on this line are Markdown code formatting around parameters, field names, or example values. No Ruby-style command substitution or executable shell syntax is present on this line."
+        "confidence": 1,
+        "reason": "The line documents a polling timeout. Backticks are used only for Markdown formatting."
       },
       {
         "id": "external_commands:SKILL.md:90:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "The backticks on this line are Markdown code formatting around parameters, field names, or example values. No Ruby-style command substitution or executable shell syntax is present on this line."
+        "confidence": 1,
+        "reason": "The inline code span names an output field. It is not an executable command."
       },
       {
         "id": "external_commands:SKILL.md:91:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "The backticks on this line are Markdown code formatting around parameters, field names, or example values. No Ruby-style command substitution or executable shell syntax is present on this line."
+        "confidence": 1,
+        "reason": "The inline code span names an output timestamp field. No execution occurs."
       },
       {
         "id": "external_commands:SKILL.md:92:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "The backticks on this line are Markdown code formatting around parameters, field names, or example values. No Ruby-style command substitution or executable shell syntax is present on this line."
+        "confidence": 1,
+        "reason": "The backticks format an output field name. The line is descriptive documentation."
       },
       {
         "id": "external_commands:SKILL.md:93:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "The backticks on this line are Markdown code formatting around parameters, field names, or example values. No Ruby-style command substitution or executable shell syntax is present on this line."
+        "confidence": 1,
+        "reason": "The backticks format the comment count field name. Nothing is executed."
       },
       {
         "id": "external_commands:SKILL.md:94:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "The backticks on this line are Markdown code formatting around parameters, field names, or example values. No Ruby-style command substitution or executable shell syntax is present on this line."
+        "confidence": 1,
+        "reason": "The inline code span identifies the subreddit output field. It is documentation only."
       },
       {
         "id": "external_commands:SKILL.md:95:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "The backticks on this line are Markdown code formatting around parameters, field names, or example values. No Ruby-style command substitution or executable shell syntax is present on this line."
+        "confidence": 1,
+        "reason": "The inline code span identifies the comment author field. It cannot execute a command."
       },
       {
         "id": "external_commands:SKILL.md:96:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "The backticks on this line are Markdown code formatting around parameters, field names, or example values. No Ruby-style command substitution or executable shell syntax is present on this line."
+        "confidence": 1,
+        "reason": "The backticks format the comment timestamp field name. No shell or Ruby behavior exists."
       },
       {
         "id": "external_commands:SKILL.md:97:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "The backticks on this line are Markdown code formatting around parameters, field names, or example values. No Ruby-style command substitution or executable shell syntax is present on this line."
+        "confidence": 1,
+        "reason": "The line documents the comment text output field. Markdown formatting caused the alert."
       },
       {
         "id": "external_commands:SKILL.md:98:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "The backticks on this line are Markdown code formatting around parameters, field names, or example values. No Ruby-style command substitution or executable shell syntax is present on this line."
+        "confidence": 1,
+        "reason": "The backticks delimit an output field name for comment upvotes. No execution is possible."
       },
       {
         "id": "external_commands:SKILL.md:99:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "The backticks on this line are Markdown code formatting around parameters, field names, or example values. No Ruby-style command substitution or executable shell syntax is present on this line."
+        "confidence": 1,
+        "reason": "The line names the comment nesting output field. It contains no command."
       },
       {
         "id": "external_commands:SKILL.md:100:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "The backticks on this line are Markdown code formatting around parameters, field names, or example values. No Ruby-style command substitution or executable shell syntax is present on this line."
+        "confidence": 1,
+        "reason": "The backticks format a profile URL field name. They are not an execution operator in Markdown."
       },
       {
         "id": "external_commands:SKILL.md:101:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "The backticks on this line are Markdown code formatting around parameters, field names, or example values. No Ruby-style command substitution or executable shell syntax is present on this line."
+        "confidence": 1,
+        "reason": "The inline code span names the reply relationship output field. It does not run a process."
       },
       {
         "id": "external_commands:SKILL.md:107:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "The backticks on this line are Markdown code formatting around parameters, field names, or example values. No Ruby-style command substitution or executable shell syntax is present on this line."
+        "confidence": 0.99,
+        "reason": "The backticks quote an expected authorization error string. The line compares output conceptually and does not execute the string."
       },
       {
         "id": "external_commands:SKILL.md:108:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "The backticks on this line are Markdown code formatting around parameters, field names, or example values. No Ruby-style command substitution or executable shell syntax is present on this line."
+        "confidence": 0.99,
+        "reason": "The backticks format expected error text in retry documentation. They do not invoke Ruby or a shell."
       },
       {
         "id": "network:SKILL.md:22:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "The URL is a BrowserAct console link used to help users configure the API key. It is documentation output, not hidden network behavior."
+        "confidence": 0.99,
+        "reason": "This is a visible link to the stated provider console. The Markdown link itself neither sends data nor performs a request."
       },
       {
         "id": "env_access:SKILL.md:4:generic-api-secret-keys",
         "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "The metadata declares BROWSERACT_API_KEY as a required environment variable, not a secret value. This is expected dependency metadata for an authenticated API skill."
+        "confidence": 0.99,
+        "reason": "The metadata declares the name of a required environment variable without containing its value. This is dependency documentation, not secret exposure."
       },
       {
         "id": "env_access:SKILL.md:20:generic-api-secret-keys",
         "verdict": "confirmed",
-        "confidence": 0.92,
-        "reason": "The documentation says to request and wait for the user to provide BROWSERACT_API_KEY when it is unset. That encourages sharing a credential with an AI agent instead of using a secure environment channel.",
+        "confidence": 0.99,
+        "reason": "The instruction tells the agent to request and wait for the user to provide an API key. This encourages disclosure of a reusable secret in chat.",
         "severity": "high"
       },
       {
         "id": "blocker:SKILL.md:13:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "No system reconnaissance occurs at this location. The line is ordinary task response handling or documentation text, not host inspection."
+        "confidence": 1,
+        "reason": "The sentence is a marketing claim about workflow accuracy. It contains no instruction to inspect the host or discover system information."
       },
       {
         "id": "blocker:SKILL.md:107:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "No system reconnaissance occurs at this location. The line is ordinary task response handling or documentation text, not host inspection."
+        "confidence": 1,
+        "reason": "The line explains how to recognize an authorization error. It does not gather host, network, account, or environment details."
       },
       {
         "id": "blocker:SKILL.md:108:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "No system reconnaissance occurs at this location. The line is ordinary task response handling or documentation text, not host inspection."
+        "confidence": 1,
+        "reason": "The line defines retry behavior after a task error. It performs no system discovery or reconnaissance."
       }
     ],
     "semantic_findings": [
       {
-        "title": "Credential Sharing Guidance",
-        "description": "The skill asks the agent to request BROWSERACT_API_KEY when it is missing, and the script tells users they can provide the API key to the agent. This can expose credentials in chat, logs, or transcripts.",
-        "severity": "high",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 20,
-            "line_end": 20
-          },
-          {
-            "file": "scripts/reddit_competitor_analysis_api.py",
-            "line_start": 101,
-            "line_end": 101
-          }
-        ],
-        "confidence": 0.9,
-        "confidence_reasoning": "The documentation and runtime error text both directly ask the user to provide an API key when the environment variable is missing. The issue is unsafe credential handling guidance, not a hardcoded secret."
-      },
-      {
-        "title": "Shell Command Uses User Parameters",
-        "description": "The skill defines user-controlled search parameters and shows shell-style command strings for running the Python script. If an agent interpolates raw keywords into that command, shell metacharacters could alter execution.",
+        "title": "User Input May Reach a Shell Command",
+        "description": "The skill tells agents to place user-selected search values into a command-string template without defining escaping or argument-array execution. Quotes alone do not safely handle embedded shell characters.",
         "severity": "medium",
         "locations": [
           {
             "file": "SKILL.md",
             "line_start": 25,
-            "line_end": 30
+            "line_end": 25
           },
           {
             "file": "SKILL.md",
-            "line_start": 58,
+            "line_start": 56,
             "line_end": 60
           },
           {
             "file": "SKILL.md",
             "line_start": 73,
-            "line_end": 79
+            "line_end": 81
           }
         ],
         "confidence": 0.78,
-        "confidence_reasoning": "The input section identifies user-provided keywords and the usage examples show command strings. The script itself does not invoke a shell, so the risk depends on how the agent constructs the command."
+        "confidence_reasoning": "The documented exec interface uses a command string and parameters selected from user requests. Exploitation depends on how the hosting agent performs substitution."
       }
     ],
     "critical_findings": [],
@@ -1447,8 +1425,8 @@
         "review_kind": "capability",
         "source_category": "env_access",
         "source_severity": "high",
-        "confidence": 0.91,
-        "confidence_reasoning": "The script tells users they can provide the API key to the agent, which can expose credentials in chat or logs. Secrets should be set through environment or secret storage instead."
+        "confidence": 0.98,
+        "confidence_reasoning": "The message tells users they may provide an API key directly to the agent. That guidance can expose a reusable credential in conversation history."
       },
       {
         "title": "Generic API/secret keys",
@@ -1463,29 +1441,8 @@
         "review_kind": "capability",
         "source_category": "env_access",
         "source_severity": "high",
-        "confidence": 0.92,
-        "confidence_reasoning": "The documentation says to request and wait for the user to provide BROWSERACT_API_KEY when it is unset. That encourages sharing a credential with an AI agent instead of using a secure environment channel."
-      },
-      {
-        "title": "Credential Sharing Guidance",
-        "description": "The skill asks the agent to request BROWSERACT_API_KEY when it is missing, and the script tells users they can provide the API key to the agent. This can expose credentials in chat, logs, or transcripts.",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 20,
-            "line_end": 20
-          },
-          {
-            "file": "scripts/reddit_competitor_analysis_api.py",
-            "line_start": 101,
-            "line_end": 101
-          }
-        ],
-        "review_kind": "security",
-        "source_category": "semantic",
-        "source_severity": "high",
-        "confidence": 0.9,
-        "confidence_reasoning": "The documentation and runtime error text both directly ask the user to provide an API key when the environment variable is missing. The issue is unsafe credential handling guidance, not a hardcoded secret."
+        "confidence": 0.99,
+        "confidence_reasoning": "The instruction tells the agent to request and wait for the user to provide an API key. This encourages disclosure of a reusable secret in chat."
       }
     ],
     "medium_findings": [
@@ -1502,8 +1459,8 @@
         "review_kind": "capability",
         "source_category": "external_commands",
         "source_severity": "medium",
-        "confidence": 0.86,
-        "confidence_reasoning": "The documentation explicitly instructs the agent to execute the bundled Python script. Running local scripts is intended but remains an external command execution capability."
+        "confidence": 0.95,
+        "confidence_reasoning": "The text explicitly directs the agent to execute the bundled Python script. User-derived arguments require secure process invocation to avoid shell interpretation."
       },
       {
         "title": "Ruby/shell backtick execution",
@@ -1518,8 +1475,8 @@
         "review_kind": "capability",
         "source_category": "external_commands",
         "source_severity": "medium",
-        "confidence": 0.88,
-        "confidence_reasoning": "The fenced shell example contains the python3 command that launches the script with user-provided parameters. This is a real command execution path, even though it uses a bundled script."
+        "confidence": 0.98,
+        "confidence_reasoning": "The cited code block contains a Python command with placeholders for request-derived arguments. This is real external command execution despite the misleading pattern name."
       },
       {
         "title": "Ruby/shell backtick execution",
@@ -1534,8 +1491,8 @@
         "review_kind": "capability",
         "source_category": "external_commands",
         "source_severity": "medium",
-        "confidence": 0.82,
-        "confidence_reasoning": "The OpenClaw guide recommends using an exec tool to run the script in background mode. That is an intentional external command execution pattern."
+        "confidence": 0.96,
+        "confidence_reasoning": "The cited lines direct the agent to invoke the Python script through an exec tool in background mode. That is explicit process execution."
       },
       {
         "title": "Ruby/shell backtick execution",
@@ -1550,8 +1507,8 @@
         "review_kind": "capability",
         "source_category": "external_commands",
         "source_severity": "medium",
-        "confidence": 0.88,
-        "confidence_reasoning": "This line shows a command string that runs python3 with the bundled script. It is real command guidance and can include user-supplied arguments."
+        "confidence": 0.99,
+        "confidence_reasoning": "This line supplies a command string that runs the bundled Python script. It is a real external command, although the path is fixed."
       },
       {
         "title": "Ruby/shell backtick execution",
@@ -1566,34 +1523,34 @@
         "review_kind": "capability",
         "source_category": "external_commands",
         "source_severity": "medium",
-        "confidence": 0.88,
-        "confidence_reasoning": "This line repeats the python3 command string for the exec tool. It confirms that the skill expects an agent to invoke a local external command."
+        "confidence": 0.99,
+        "confidence_reasoning": "The line provides another command string for executing the bundled Python script. It therefore represents real external command behavior."
       },
       {
-        "title": "Shell Command Uses User Parameters",
-        "description": "The skill defines user-controlled search parameters and shows shell-style command strings for running the Python script. If an agent interpolates raw keywords into that command, shell metacharacters could alter execution.",
+        "title": "User Input May Reach a Shell Command",
+        "description": "The skill tells agents to place user-selected search values into a command-string template without defining escaping or argument-array execution. Quotes alone do not safely handle embedded shell characters.",
         "locations": [
           {
             "file": "SKILL.md",
             "line_start": 25,
-            "line_end": 30
+            "line_end": 25
           },
           {
             "file": "SKILL.md",
-            "line_start": 58,
+            "line_start": 56,
             "line_end": 60
           },
           {
             "file": "SKILL.md",
             "line_start": 73,
-            "line_end": 79
+            "line_end": 81
           }
         ],
         "review_kind": "security",
         "source_category": "semantic",
         "source_severity": "medium",
         "confidence": 0.78,
-        "confidence_reasoning": "The input section identifies user-provided keywords and the usage examples show command strings. The script itself does not invoke a shell, so the risk depends on how the agent constructs the command."
+        "confidence_reasoning": "The documented exec interface uses a command string and parameters selected from user requests. Exploitation depends on how the hosting agent performs substitution."
       }
     ],
     "low_findings": [
@@ -1610,8 +1567,8 @@
         "review_kind": "capability",
         "source_category": "network",
         "source_severity": "low",
-        "confidence": 0.92,
-        "confidence_reasoning": "The script sends user query parameters and an Authorization bearer token to the external BrowserAct workflow API. This is intended functionality, but it is real network egress and data disclosure."
+        "confidence": 0.99,
+        "confidence_reasoning": "The script sends search parameters and a bearer credential to BrowserAct. This expected third-party request still exposes user data to an external service."
       },
       {
         "title": "Python HTTP libraries",
@@ -1626,8 +1583,8 @@
         "review_kind": "capability",
         "source_category": "network",
         "source_severity": "low",
-        "confidence": 0.9,
-        "confidence_reasoning": "The script polls the BrowserAct status endpoint with the Authorization header and task id. This is legitimate, but it confirms ongoing network access to a third-party service."
+        "confidence": 0.99,
+        "confidence_reasoning": "The script polls BrowserAct over the network with the bearer credential and task identifier. This is intended but creates an external-service trust dependency."
       },
       {
         "title": "Python HTTP libraries",
@@ -1642,8 +1599,8 @@
         "review_kind": "capability",
         "source_category": "network",
         "source_severity": "low",
-        "confidence": 0.9,
-        "confidence_reasoning": "The script retrieves task results from BrowserAct over HTTP with the Authorization header. This is expected, but it returns externally processed data through network access."
+        "confidence": 0.99,
+        "confidence_reasoning": "The script retrieves task results from BrowserAct using an authenticated network request. Returned Reddit data therefore depends on an external service."
       },
       {
         "title": "Hardcoded URL",
@@ -1658,165 +1615,132 @@
         "review_kind": "capability",
         "source_category": "network",
         "source_severity": "low",
-        "confidence": 0.88,
-        "confidence_reasoning": "This constant fixes the external BrowserAct workflow endpoint used by subsequent requests. Hardcoded third-party network destinations should be disclosed and reviewed."
-      },
-      {
-        "title": "Python getenv function",
-        "description": "api_key = os.getenv(\"BROWSERACT_API_KEY\")",
-        "locations": [
-          {
-            "file": "scripts/reddit_competitor_analysis_api.py",
-            "line_start": 90,
-            "line_end": 90
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "env_access",
-        "source_severity": "low",
-        "confidence": 0.9,
-        "confidence_reasoning": "The script reads BROWSERACT_API_KEY from the environment and uses it for API authentication. This is expected, but it is real secret-bearing environment access."
-      },
-      {
-        "title": "getenv function call",
-        "description": "api_key = os.getenv(\"BROWSERACT_API_KEY\")",
-        "locations": [
-          {
-            "file": "scripts/reddit_competitor_analysis_api.py",
-            "line_start": 90,
-            "line_end": 90
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "env_access",
-        "source_severity": "low",
-        "confidence": 0.9,
-        "confidence_reasoning": "The getenv call accesses BROWSERACT_API_KEY directly. This is a legitimate configuration pattern, but it still touches a credential-bearing environment variable."
+        "confidence": 0.99,
+        "confidence_reasoning": "This constant fixes the destination for authenticated requests to api.browseract.com. The domain matches the stated service, but external transmission remains a low risk."
       }
     ],
     "dangerous_patterns": [],
     "files_scanned": 2,
     "total_lines": 225,
     "audit_model": "codex",
-    "audited_at": "2026-07-07T21:21:11.496Z",
-    "agent_auto_install_policy": "confirmation_required",
+    "audited_at": "2026-07-23T10:21:42.224Z",
+    "agent_auto_install_policy": "allowed",
     "manual_install_policy": "allowed"
   },
   "content": {
-    "user_title": "Analyze Reddit Competitor Mentions",
-    "value_statement": "Reddit competitor research is slow when posts and comments are scattered. This skill sends configured searches to BrowserAct and returns structured discussion data.",
+    "user_title": "Analyze Reddit Competitor Conversations",
+    "value_statement": "Manual Reddit research makes competitor signals difficult to collect consistently. This skill runs a BrowserAct workflow and returns posts with related comment details.",
     "seo_keywords": [
+      "Reddit competitor analysis",
+      "Reddit social listening",
+      "BrowserAct API",
+      "market research automation",
+      "brand sentiment research",
+      "Reddit comment extraction",
       "Claude",
       "Codex",
       "Claude Code",
-      "Reddit competitor analysis",
-      "BrowserAct API",
-      "social listening",
-      "market research",
-      "Reddit comments",
-      "brand monitoring",
-      "AI research skill"
+      "competitive intelligence"
     ],
     "actual_capabilities": [
-      "Runs a Python wrapper for a BrowserAct Reddit workflow template.",
-      "Accepts keywords, publication date, post sort, comment sort, and comment limit settings.",
-      "Starts a BrowserAct task and polls status until completion or timeout.",
-      "Returns the BrowserAct result string or the full task response when no string result exists.",
-      "Documents expected Reddit fields such as post title, subreddit, comment text, and upvotes."
+      "Submits keyword searches to a predefined BrowserAct Reddit workflow.",
+      "Filters posts by six supported publication periods.",
+      "Sorts posts and comments using documented Reddit sorting options.",
+      "Sets a requested comment limit for each post.",
+      "Polls task status and prints the returned post and comment data."
     ],
     "limitations": [
-      "Requires a valid BROWSERACT_API_KEY before execution.",
-      "Sends search terms and task settings to the external BrowserAct API.",
-      "BrowserAct tasks can take several minutes and may time out after polling.",
-      "Returned data depends on Reddit availability, BrowserAct coverage, and selected filters."
+      "Requires a BrowserAct API key and sends query data to BrowserAct.",
+      "Depends on BrowserAct availability, workflow behavior, and Reddit access.",
+      "Stops polling after five minutes, although some workflows may take longer.",
+      "Does not perform sentiment scoring, trend modeling, or persistent storage."
     ],
     "use_cases": [
       {
         "title": "Track competitor mentions",
-        "description": "Collect Reddit posts and comments that mention a competitor across a selected time window.",
-        "target_user": "Product marketer"
+        "description": "Collect recent Reddit posts and comments that mention selected competitors.",
+        "target_user": "Product marketers"
       },
       {
-        "title": "Research customer language",
-        "description": "Extract discussion text and comment context for market research and message testing.",
-        "target_user": "User researcher"
+        "title": "Research buyer language",
+        "description": "Gather discussion text for identifying recurring needs, objections, and product comparisons.",
+        "target_user": "Market researchers"
       },
       {
-        "title": "Monitor brand feedback",
-        "description": "Find recent Reddit discussions about a product, brand, or category and review structured comments.",
-        "target_user": "Community manager"
+        "title": "Monitor community feedback",
+        "description": "Review new or highly ranked discussions about a brand, category, or launch.",
+        "target_user": "Brand analysts"
       }
     ],
     "prompt_templates": [
       {
-        "title": "Basic brand search",
-        "scenario": "Beginner search for recent mentions.",
-        "prompt": "Search Reddit for posts and comments mentioning our brand during the past week. Use relevance sorting and return the main themes."
+        "title": "Find recent mentions",
+        "prompt": "Search Reddit for [competitor] from the past week. Use relevance sorting and return up to 10 comments per post.",
+        "scenario": "Beginner search for current competitor discussions"
       },
       {
-        "title": "Compare two competitors",
-        "scenario": "Intermediate competitor research.",
-        "prompt": "Search Reddit for Competitor A and Competitor B over the past month. Compare common complaints, praised features, and active subreddits."
+        "title": "Compare current discussions",
+        "prompt": "Collect Reddit discussions for [brand A] and [brand B] from the past month. Sort posts by top and comments by best.",
+        "scenario": "Side-by-side competitor research"
       },
       {
-        "title": "Analyze launch response",
-        "scenario": "Advanced research after a product announcement.",
-        "prompt": "Collect Reddit discussions about our new product launch from the past week. Prioritize new posts and summarize sentiment drivers with supporting comment patterns."
+        "title": "Study launch reactions",
+        "prompt": "Find Reddit posts about [launch] published today. Sort posts by new and comments by controversial, with 20 comments per post.",
+        "scenario": "Time-sensitive launch monitoring"
       },
       {
-        "title": "Build a research dataset",
-        "scenario": "Advanced structured data collection.",
-        "prompt": "Gather Reddit posts for these category keywords, include top comments per post, and organize the findings by subreddit, topic, and engagement level."
+        "title": "Build a research corpus",
+        "prompt": "Collect all-time Reddit discussions for [category terms]. Sort by comment count and retrieve 50 top comments per post for thematic analysis.",
+        "scenario": "Advanced qualitative research preparation"
       }
     ],
     "output_examples": [
       {
-        "input": "Search for a competitor name from the past week and sort posts by relevance.",
-        "output": "A concise report listing relevant Reddit threads, active subreddits, repeated user concerns, and notable comment themes."
+        "input": "Find recent Reddit discussions about Acme Cloud and include the best comments.",
+        "output": [
+          "Post title, publication time, subreddit, upvotes, and comment count.",
+          "Comment author, timestamp, text, upvotes, nesting level, profile link, and reply target."
+        ]
       },
       {
-        "input": "Collect recent comments about a product category and use top comment sorting.",
-        "output": "A structured summary of post titles, comment trends, upvote signals, and user language that can inform positioning."
-      },
-      {
-        "input": "Monitor a brand keyword today with a small comment limit.",
-        "output": "A focused update showing fresh mentions, discussion context, and items that may need follow-up by the team."
+        "input": "Collect top monthly posts comparing two project management tools.",
+        "output": "A structured set of matching posts and related comments, ordered using the requested post and comment sorting options."
       }
     ],
     "best_practices": [
-      "Set BROWSERACT_API_KEY through a secure environment variable before using the skill.",
-      "Use narrow keywords, date ranges, and comment limits to reduce noise and runtime.",
-      "Review raw discussion context before making product or marketing decisions."
+      "Set BROWSERACT_API_KEY securely outside the conversation before running the skill.",
+      "Use focused keywords, a suitable date range, and a practical comment limit.",
+      "Review Reddit policies and privacy obligations before storing or sharing collected data."
     ],
     "anti_patterns": [
-      "Do not paste API keys into chat or task prompts.",
-      "Do not run broad searches without a clear research question.",
-      "Do not treat Reddit comments as statistically representative customer sentiment."
+      "Do not paste API keys into prompts, chat messages, or command arguments.",
+      "Do not present collected text as verified sentiment analysis.",
+      "Do not insert untrusted values into a shell command without safe argument handling."
     ],
     "faq": [
       {
-        "question": "What does this skill collect?",
-        "answer": "It collects Reddit post and comment data returned by a BrowserAct workflow for the configured search."
+        "question": "Does this skill require an API key?",
+        "answer": "Yes. It requires BROWSERACT_API_KEY for authenticated BrowserAct requests."
       },
       {
-        "question": "Does it need an API key?",
-        "answer": "Yes. It requires BROWSERACT_API_KEY to authenticate with the BrowserAct API."
+        "question": "Does it call Reddit directly?",
+        "answer": "No. The bundled script submits a predefined workflow to BrowserAct."
       },
       {
-        "question": "Does it access the internet?",
-        "answer": "Yes. The Python script sends requests to BrowserAct workflow endpoints."
+        "question": "Which date filters are supported?",
+        "answer": "It supports all time, past year, past month, past week, today, and past hour."
       },
       {
-        "question": "Can I choose search filters?",
-        "answer": "Yes. The script supports keywords, publication date, post sort, comment sort, and a comment limit."
+        "question": "Can it analyze sentiment automatically?",
+        "answer": "No. It collects post and comment data but includes no sentiment model."
       },
       {
-        "question": "How long can a task take?",
-        "answer": "The documentation says BrowserAct tasks may take several minutes, and the script polls for up to five minutes."
+        "question": "How long can a task run?",
+        "answer": "The script polls for five minutes before timing out, even if the remote workflow continues."
       },
       {
-        "question": "Is the output ready for decisions?",
-        "answer": "Use it as research input. Human review is still needed for sentiment, context, and business conclusions."
+        "question": "What happens when authorization fails?",
+        "answer": "The instructions stop automatic retries and ask the user to verify the API key."
       }
     ]
   },
