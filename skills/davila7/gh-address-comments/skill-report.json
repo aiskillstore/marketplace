@@ -1,7 +1,7 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-07-08T06:52:51.503Z",
+    "generated_at": "2026-07-23T14:27:56.555Z",
     "slug": "davila7-gh-address-comments",
     "source_url": "https://github.com/davila7/claude-code-templates/tree/main/cli-tool/components/skills/development/gh-address-comments",
     "source_ref": "main",
@@ -23,10 +23,9 @@
   },
   "skill": {
     "name": "gh-address-comments",
-    "description": "Guide agents through GitHub PR review comments using the gh CLI, with authentication checks and user selection before fixes are applied.",
-    "summary": "Find and address GitHub PR review comments with gh CLI guidance.",
+    "description": "Organize and address review comments on the current branch's open GitHub pull request through the gh CLI.",
+    "summary": "Summarize GitHub PR feedback and apply only the fixes selected by the user.",
     "icon": "📦",
-    "version": "1.0.1",
     "author": "davila7",
     "license": "MIT",
     "category": "coding",
@@ -34,8 +33,7 @@
       "github",
       "pull-requests",
       "code-review",
-      "gh-cli",
-      "review-comments"
+      "gh-cli"
     ],
     "supported_tools": [
       "claude",
@@ -52,22 +50,17 @@
     "is_blocked": false,
     "safe_to_publish": false,
     "analysis_status": "ok",
-    "summary": "The skill contains legitimate GitHub PR review workflow guidance, but it also asks agents to use elevated network and sandbox permissions. The hidden PostToolUse logging hook is a confirmed filesystem risk because it writes to a hidden home-directory file without explicit user action.",
+    "summary": "Three backtick detections are Markdown code spans, and the fixed date substitution has no injection path. The hook performs a persistent hidden-home write after every Bash command, while the instructions request unnecessary workflow scope and broad elevation. Publication should wait until logging and privilege requests are narrowed.",
     "remediation": [
       {
-        "issue": "Hidden home-directory logging hook",
-        "suggestion": "Remove the PostToolUse hook or write only to a visible project-local log after explicit user opt-in.",
+        "issue": "A broad PostToolUse hook appends to a hidden file after every Bash command.",
+        "suggestion": "Remove the hook, or use a user-approved project log restricted to relevant gh operations with size controls.",
         "severity": "high"
       },
       {
-        "issue": "Blanket elevated permission guidance",
-        "suggestion": "Remove broad elevated network and sandbox guidance. Request the minimum GitHub CLI access needed for each step.",
+        "issue": "The instructions request workflow scope and blanket elevated access for gh commands.",
+        "suggestion": "Request only the minimum GitHub scopes and elevate individual commands only after explicit user approval.",
         "severity": "high"
-      },
-      {
-        "issue": "Overbroad GitHub authentication scopes",
-        "suggestion": "Avoid recommending workflow scope unless required. Document the minimum GitHub scopes needed for comment reading and replies.",
-        "severity": "medium"
       }
     ],
     "risk_factor_evidence": [
@@ -177,49 +170,47 @@
     "finding_verdicts": [
       {
         "id": "external_commands:SKILL.md:16:ruby-shell-backtick-execution",
-        "verdict": "confirmed",
-        "confidence": 0.82,
-        "reason": "The text directs agents to run gh commands with elevated network access, which enables external repository operations. The command name is fixed, but the elevated network instruction creates real operational risk.",
-        "severity": "medium"
+        "verdict": "false_positive",
+        "confidence": 0.99,
+        "reason": "Line 16 uses Markdown backticks to format the gh command name. It does not contain Ruby or shell execution syntax."
       },
       {
         "id": "external_commands:SKILL.md:18:ruby-shell-backtick-execution",
-        "verdict": "confirmed",
-        "confidence": 0.9,
-        "reason": "The instruction asks for escalated sandbox permissions and workflow/repo scopes for gh auth status. That can encourage broad token grants and bypass normal sandbox controls.",
-        "severity": "high"
+        "verdict": "false_positive",
+        "confidence": 0.99,
+        "reason": "Line 18 uses Markdown code spans for example gh commands and a permission value. The backticks do not execute those strings."
       },
       {
         "id": "external_commands:SKILL.md:31:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.75,
-        "reason": "The text only tells the user to run gh auth login if authentication or rate limits fail. It is a fixed, user-mediated recovery command with no credential capture or dynamic command construction."
+        "confidence": 0.99,
+        "reason": "Line 31 formats gh auth login as inline Markdown. No Ruby or shell backtick expression is present."
       },
       {
         "id": "external_commands:SKILL.md:11:shell-command-substitution",
         "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "The command substitution is only $(date) inside a fixed logging command. It does not include user input or dynamic command construction, so command injection is not evident."
+        "confidence": 0.98,
+        "reason": "The hook substitutes only the fixed date command into a constant log message. No user-controlled input reaches the shell substitution."
       },
       {
         "id": "filesystem:SKILL.md:11:hidden-file-in-home-directory",
         "verdict": "confirmed",
-        "confidence": 0.94,
-        "reason": "The PostToolUse hook appends to ~/.claude/gh-address-comments.log in a hidden home directory after Bash use. Persistent hidden logging is a real filesystem side effect that users may not expect.",
+        "confidence": 0.99,
+        "reason": "The PostToolUse hook appends to ~/.claude/gh-address-comments.log after every Bash action. This creates persistent, unbounded hidden state outside the project.",
         "severity": "high"
       },
       {
         "id": "filesystem:SKILL.md:11:hidden-file-access",
         "verdict": "confirmed",
-        "confidence": 0.9,
-        "reason": "The same hook writes to a hidden path in the user's home directory. Even though the message is generic, background hidden writes create privacy and auditability risk.",
+        "confidence": 0.99,
+        "reason": "Line 11 writes to a hidden path under the user's home directory through shell redirection. The broad Bash matcher triggers this side effect beyond gh commands.",
         "severity": "medium"
       }
     ],
     "semantic_findings": [
       {
-        "title": "Privilege Escalation Guidance",
-        "description": "The skill asks agents to run gh commands with elevated network access and to rerun gh auth status with sandbox_permissions=require_escalated and workflow/repo scopes. This can pressure agents or users into granting broad permissions for routine PR comment handling.",
+        "title": "Excessive GitHub Scope and Elevation Request",
+        "description": "The instructions elevate all gh commands and request workflow/repo scopes. Comment handling does not justify workflow scope.",
         "severity": "high",
         "locations": [
           {
@@ -228,28 +219,12 @@
             "line_end": 18
           }
         ],
-        "confidence": 0.92,
-        "confidence_reasoning": "Lines 16 and 18 explicitly request elevated network and sandbox permissions, plus broad GitHub scopes. This is intent-level permission escalation beyond ordinary command execution."
+        "confidence": 0.96,
+        "confidence_reasoning": "Line 18 explicitly requests workflow scope and sandbox escalation, while line 16 broadens elevation to every gh command."
       }
     ],
     "critical_findings": [],
     "high_findings": [
-      {
-        "title": "Ruby/shell backtick execution",
-        "description": "Prereq: ensure `gh` is authenticated (for example, run `gh auth login` once), then run `gh auth stat",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 18,
-            "line_end": 18
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "external_commands",
-        "source_severity": "medium",
-        "confidence": 0.9,
-        "confidence_reasoning": "The instruction asks for escalated sandbox permissions and workflow/repo scopes for gh auth status. That can encourage broad token grants and bypass normal sandbox controls."
-      },
       {
         "title": "Hidden file in home directory",
         "description": "command: \"echo \\\"[$(date)] GH Address Comments: Executed gh command to address PR comments\\\" >> ~/.c",
@@ -263,12 +238,12 @@
         "review_kind": "capability",
         "source_category": "filesystem",
         "source_severity": "high",
-        "confidence": 0.94,
-        "confidence_reasoning": "The PostToolUse hook appends to ~/.claude/gh-address-comments.log in a hidden home directory after Bash use. Persistent hidden logging is a real filesystem side effect that users may not expect."
+        "confidence": 0.99,
+        "confidence_reasoning": "The PostToolUse hook appends to ~/.claude/gh-address-comments.log after every Bash action. This creates persistent, unbounded hidden state outside the project."
       },
       {
-        "title": "Privilege Escalation Guidance",
-        "description": "The skill asks agents to run gh commands with elevated network access and to rerun gh auth status with sandbox_permissions=require_escalated and workflow/repo scopes. This can pressure agents or users into granting broad permissions for routine PR comment handling.",
+        "title": "Excessive GitHub Scope and Elevation Request",
+        "description": "The instructions elevate all gh commands and request workflow/repo scopes. Comment handling does not justify workflow scope.",
         "locations": [
           {
             "file": "SKILL.md",
@@ -279,27 +254,11 @@
         "review_kind": "security",
         "source_category": "semantic",
         "source_severity": "high",
-        "confidence": 0.92,
-        "confidence_reasoning": "Lines 16 and 18 explicitly request elevated network and sandbox permissions, plus broad GitHub scopes. This is intent-level permission escalation beyond ordinary command execution."
+        "confidence": 0.96,
+        "confidence_reasoning": "Line 18 explicitly requests workflow scope and sandbox escalation, while line 16 broadens elevation to every gh command."
       }
     ],
     "medium_findings": [
-      {
-        "title": "Ruby/shell backtick execution",
-        "description": "Guide to find the open PR for the current branch and address its comments with gh CLI. Run all `gh` ",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 16,
-            "line_end": 16
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "external_commands",
-        "source_severity": "medium",
-        "confidence": 0.82,
-        "confidence_reasoning": "The text directs agents to run gh commands with elevated network access, which enables external repository operations. The command name is fixed, but the elevated network instruction creates real operational risk."
-      },
       {
         "title": "Hidden file access",
         "description": "command: \"echo \\\"[$(date)] GH Address Comments: Executed gh command to address PR comments\\\" >> ~/.c",
@@ -313,8 +272,8 @@
         "review_kind": "capability",
         "source_category": "filesystem",
         "source_severity": "medium",
-        "confidence": 0.9,
-        "confidence_reasoning": "The same hook writes to a hidden path in the user's home directory. Even though the message is generic, background hidden writes create privacy and auditability risk."
+        "confidence": 0.99,
+        "confidence_reasoning": "Line 11 writes to a hidden path under the user's home directory through shell redirection. The broad Bash matcher triggers this side effect beyond gh commands."
       }
     ],
     "low_findings": [],
@@ -322,129 +281,129 @@
     "files_scanned": 1,
     "total_lines": 32,
     "audit_model": "codex",
-    "audited_at": "2026-07-08T06:52:51.503Z",
+    "audited_at": "2026-07-23T14:27:56.555Z",
     "agent_auto_install_policy": "confirmation_required",
     "manual_install_policy": "allowed"
   },
   "content": {
     "user_title": "Address GitHub PR Review Comments",
-    "value_statement": "Review comments can be hard to track across a busy pull request. This skill guides Claude, Codex, or Claude Code through finding comments, choosing fixes, and applying changes with GitHub CLI.",
+    "value_statement": "Review feedback can be difficult to organize and resolve. This skill summarizes open PR comments, asks which items to address, and guides selected fixes.",
     "seo_keywords": [
+      "GitHub PR comments",
+      "pull request review",
+      "gh CLI",
+      "code review feedback",
       "Claude",
       "Codex",
       "Claude Code",
-      "GitHub PR comments",
-      "GitHub CLI",
-      "code review automation",
-      "pull request review",
-      "review comment workflow",
-      "gh CLI skill",
-      "developer productivity"
+      "PR comment workflow",
+      "GitHub review threads"
     ],
     "actual_capabilities": [
-      "Guides use of gh CLI to find the open pull request for the current branch.",
-      "Checks GitHub CLI authentication before running PR comment tasks.",
-      "Directs the assistant to summarize review threads and ask which comments to address.",
-      "Helps apply fixes only for comments selected by the user.",
-      "Includes retry guidance for GitHub authentication or rate limit problems."
+      "Checks gh CLI authentication before pull request operations.",
+      "Guides use of a referenced helper script to list comments and review threads.",
+      "Numbers feedback items and summarizes the change required for each item.",
+      "Asks the user which comments to address before editing files.",
+      "Applies focused fixes for the comments selected by the user.",
+      "Prompts for reauthentication when gh encounters authentication or rate issues."
     ],
     "limitations": [
-      "Requires the GitHub CLI to be installed and authenticated.",
-      "Needs network access and repository permissions for the target pull request.",
-      "The referenced fetch_comments.py helper is not included in the packaged file structure.",
-      "Does not decide which comments to fix without user selection."
+      "The audited package does not include the referenced scripts/fetch_comments.py helper.",
+      "Requires a local gh CLI installation and an authenticated GitHub account.",
+      "Requests elevated network access and broader GitHub scopes than comment handling needs.",
+      "Does not define automatic replies, thread resolution, commits, or pull request updates."
     ],
     "use_cases": [
       {
-        "title": "Solo Developer Cleanup",
-        "description": "Review a current branch PR, list actionable comments, and fix only the items the developer selects.",
-        "target_user": "Individual developer"
+        "title": "Triage Personal PR Feedback",
+        "description": "List and summarize feedback before choosing which requested changes to implement.",
+        "target_user": "Software developer"
       },
       {
-        "title": "Maintainer Review Triage",
-        "description": "Summarize unresolved review threads before deciding which feedback should become code changes.",
+        "title": "Coordinate Maintainer Fixes",
+        "description": "Organize review threads and apply only the changes approved for the current maintenance cycle.",
         "target_user": "Repository maintainer"
       },
       {
-        "title": "Team PR Follow-Up",
-        "description": "Coordinate selected fixes after a review cycle while keeping GitHub authentication checks explicit.",
-        "target_user": "Engineering team member"
+        "title": "Plan Team Review Work",
+        "description": "Turn scattered pull request comments into a numbered action list for assignment and discussion.",
+        "target_user": "Engineering lead"
       }
     ],
     "prompt_templates": [
       {
         "title": "List Review Comments",
-        "prompt": "Use gh-address-comments to inspect the open PR for my current branch. Summarize each review thread and wait for my selection.",
-        "scenario": "Beginner PR review"
+        "prompt": "Find the open PR for my current branch, list review comments, and summarize each numbered item. Do not change files yet.",
+        "scenario": "Beginner review triage"
       },
       {
-        "title": "Fix Selected Comments",
-        "prompt": "Use gh-address-comments on this branch. Number the PR comments, ask which ones to fix, then apply changes for my selected items.",
-        "scenario": "Focused code changes"
+        "title": "Group Related Feedback",
+        "prompt": "Inspect PR comments, group related feedback, and explain required changes. Ask which numbered items to address before editing.",
+        "scenario": "Organizing several comments"
       },
       {
-        "title": "Triage Before Editing",
-        "prompt": "Use gh-address-comments to separate blocking comments from suggestions. Ask me which blocking items to address before editing files.",
-        "scenario": "Review prioritization"
+        "title": "Apply Selected Fixes",
+        "prompt": "Address comments [2, 4, 7]. Make focused edits, run relevant tests, and summarize changed files and unresolved feedback.",
+        "scenario": "Implementing approved feedback"
       },
       {
-        "title": "Recover Auth Issues",
-        "prompt": "Use gh-address-comments for this PR. If GitHub authentication or rate limits fail, pause and ask me before retrying authentication.",
-        "scenario": "Advanced troubleshooting"
+        "title": "Plan Complex Review Resolution",
+        "prompt": "Audit all current PR threads. Propose an ordered resolution plan, identify conflicts, then implement only my approved items.",
+        "scenario": "Advanced multi-thread review"
       }
     ],
     "output_examples": [
       {
-        "input": "Inspect review feedback for my current branch.",
-        "output": "The assistant presents a numbered list of review threads, each with a short summary and the likely fix."
-      },
-      {
-        "input": "Address comments 2 and 4 only.",
+        "input": "List the review comments on my current pull request.",
         "output": [
-          "Comment 2 is fixed with a targeted code change.",
-          "Comment 4 is addressed separately.",
-          "Unselected comments remain unchanged."
+          "1. Rename the validation helper for clarity.",
+          "2. Add a test for an empty response.",
+          "3. Explain the retry behavior in the documentation."
         ]
       },
       {
-        "input": "GitHub CLI auth fails during review triage.",
-        "output": "The assistant pauses, explains the authentication problem, and asks the user to re-authenticate before continuing."
+        "input": "Address comments 1 and 2, then summarize the result.",
+        "output": [
+          "Renamed the validation helper and updated its references.",
+          "Added coverage for the empty response case.",
+          "Comment 3 remains unchanged because it was not selected."
+        ]
       }
     ],
     "best_practices": [
-      "Review the numbered comment list before approving any edits.",
-      "Use the least GitHub access needed for the PR task.",
-      "Run tests or checks after selected fixes are applied."
+      "Review every numbered summary before approving file changes.",
+      "Grant only the GitHub scopes required for reading and updating the pull request.",
+      "Run relevant tests and inspect the final diff before responding to reviewers."
     ],
     "anti_patterns": [
-      "Do not grant broad GitHub scopes for simple comment reading.",
-      "Do not apply every review suggestion without user confirmation.",
-      "Do not rely on this skill when the GitHub CLI is unauthenticated."
+      "Do not grant workflow scope solely to read or address review comments.",
+      "Do not modify feedback items that the user did not select.",
+      "Do not assume the referenced helper script exists without checking the installed package."
     ],
     "faq": [
       {
-        "question": "Does this skill require GitHub CLI?",
-        "answer": "Yes. It depends on the GitHub CLI for authentication and PR comment access."
+        "question": "Does this skill require the GitHub CLI?",
+        "answer": "Yes. The gh CLI must be installed and authenticated before it can inspect the current pull request."
       },
       {
-        "question": "Can it choose which comments to fix?",
-        "answer": "No. It should list comments and wait for the user to choose items."
+        "question": "Will it change every requested item automatically?",
+        "answer": "No. It asks the user to select numbered comments before applying fixes."
       },
       {
-        "question": "Does it include a comment fetching script?",
-        "answer": "No. The packaged file references fetch_comments.py, but only SKILL.md is present."
+        "question": "Can it find comments without an open pull request?",
+        "answer": "No. The workflow expects an open pull request for the current branch."
       },
       {
-        "question": "Can it work without network access?",
-        "answer": "No. GitHub PR inspection requires network access to GitHub."
+        "question": "Does the package include its comment-fetching script?",
+        "answer": "No. The audited package references scripts/fetch_comments.py, but that file is absent."
       },
       {
-        "question": "Is it safe to grant workflow scope?",
-        "answer": "Grant workflow scope only when the task truly needs it. Most review comment work should use narrower access."
+        "question": "Does it resolve GitHub review threads?",
+        "answer": "No automatic thread resolution is defined. It focuses on summarizing feedback and applying selected file changes."
       },
       {
-        "question": "Which assistants can use it?",
-        "answer": "It declares support for Claude, Codex, and Claude Code."
+        "question": "What permissions should I grant?",
+        "answer": "Use the minimum repository permissions needed for the pull request. Workflow scope is not required for comment handling."
       }
     ]
   },

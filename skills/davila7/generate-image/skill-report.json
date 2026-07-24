@@ -1,7 +1,7 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-07-08T06:14:40.736Z",
+    "generated_at": "2026-07-23T14:14:50.776Z",
     "slug": "davila7-generate-image",
     "source_url": "https://github.com/davila7/claude-code-templates/tree/main/cli-tool/components/skills/scientific/generate-image",
     "source_ref": "main",
@@ -23,10 +23,9 @@
   },
   "skill": {
     "name": "generate-image",
-    "description": "Generate or edit general-purpose images through OpenRouter models such as Gemini and FLUX. It supports prompt-based image creation, image editing, model selection, and PNG output.",
-    "summary": "Create or edit visual assets with OpenRouter image models.",
+    "description": "Generate or edit photos, illustrations, artwork, concept art, and presentation assets with OpenRouter image models. Use a schematic-focused skill for technical diagrams.",
+    "summary": "Generate and edit visual assets with OpenRouter image models, custom prompts, optional source images, and local output files.",
     "icon": "📦",
-    "version": "1.0.1",
     "author": "davila7",
     "license": "MIT",
     "tags": [
@@ -54,26 +53,26 @@
     "is_blocked": false,
     "safe_to_publish": false,
     "analysis_status": "ok",
-    "summary": "The skill performs the advertised image generation workflow, but it uses OpenRouter network calls and handles API credentials. Most Markdown external-command alerts are false positives from examples and code formatting, while .env inspection, external image transfer, and output file writes are real risks.",
+    "summary": "The skill sends prompts and optional input images to OpenRouter, then writes generated image data to a selected local path. Most external-command alerts are Markdown formatting, and most key alerts reference placeholders or ordinary parameter handling. Parent credential discovery, command-line secrets, image uploads, and unrestricted output paths need stronger consent and scope controls.",
     "remediation": [
       {
-        "issue": "Parent directory .env scanning",
-        "suggestion": "Do not search parent directories automatically. Read only explicit environment variables or a user-selected config file after consent.",
+        "issue": "Credential discovery searches every parent directory.",
+        "suggestion": "Read OPENROUTER_API_KEY from the process environment or an explicit project file. Do not traverse above the workspace root.",
         "severity": "high"
       },
       {
-        "issue": "External transfer of prompts and input images",
-        "suggestion": "Show a clear privacy notice before sending prompts or image data to OpenRouter.",
+        "issue": "The --api-key option can expose credentials through command history and process listings.",
+        "suggestion": "Remove command-line secret input. Use the process environment, protected standard input, or an approved secret manager.",
+        "severity": "high"
+      },
+      {
+        "issue": "Editing uploads local image contents to OpenRouter without a separate confirmation step.",
+        "suggestion": "Show the selected path and destination, then require user confirmation before uploading an input image.",
         "severity": "medium"
       },
       {
-        "issue": "API key exposure through command-line arguments",
-        "suggestion": "Remove the --api-key option or warn that command-line secrets can appear in shell history and process listings.",
-        "severity": "high"
-      },
-      {
-        "issue": "Caller-controlled output path",
-        "suggestion": "Warn before overwriting files and reject unsafe absolute paths or parent directory traversal.",
+        "issue": "The output path is opened in write mode and can replace an existing file.",
+        "suggestion": "Reject existing paths by default. Require an explicit overwrite option and validate that the destination is inside the approved workspace.",
         "severity": "medium"
       }
     ],
@@ -1170,546 +1169,490 @@
       {
         "id": "network:scripts/generate_image.py:144:python-http-libraries",
         "verdict": "confirmed",
-        "confidence": 0.9,
-        "reason": "The script makes an outbound HTTPS request to OpenRouter as part of image generation. This is expected behavior, but it sends prompts and sometimes image data to an external service.",
+        "confidence": 0.99,
+        "reason": "The request sends prompts and optional image data to OpenRouter. This is expected functionality, but it creates a real external data transfer.",
         "severity": "low"
       },
       {
         "id": "network:scripts/generate_image.py:111:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.93,
-        "reason": "This URL is a user-facing OpenRouter setup or pricing link in documentation or an error message. It does not perform a network request or transmit data by itself."
+        "confidence": 0.98,
+        "reason": "This line only prints the official OpenRouter key-management URL. It does not make a request or transmit data."
       },
       {
         "id": "network:scripts/generate_image.py:145:hardcoded-url",
         "verdict": "confirmed",
-        "confidence": 0.88,
-        "reason": "The hardcoded URL is the OpenRouter chat completions endpoint used for outbound image requests. It is legitimate for the skill, but it confirms external network egress.",
+        "confidence": 0.99,
+        "reason": "This is the fixed OpenRouter API endpoint used for image requests. The destination is not user-controlled, but outbound transfer is a real capability.",
         "severity": "low"
       },
       {
         "id": "filesystem:scripts/generate_image.py:71:python-file-write-append",
         "verdict": "confirmed",
-        "confidence": 0.78,
-        "reason": "The script writes decoded image bytes to the caller-controlled output path. This is intended, but it can overwrite files if a risky path is supplied.",
+        "confidence": 0.99,
+        "reason": "The script opens the caller-selected output path in write mode. It can replace an existing file without confirmation.",
         "severity": "medium"
       },
       {
         "id": "env_access:scripts/generate_image.py:23:generic-api-secret-keys",
-        "verdict": "confirmed",
-        "confidence": 0.9,
-        "reason": "This line is part of reading OPENROUTER_API_KEY from a .env file. The skill handles a real credential from project files.",
-        "severity": "high"
+        "verdict": "false_positive",
+        "confidence": 0.98,
+        "reason": "This is a function docstring naming the required key. It does not access, expose, or transmit a credential."
       },
       {
         "id": "env_access:scripts/generate_image.py:31:generic-api-secret-keys",
         "verdict": "confirmed",
-        "confidence": 0.9,
-        "reason": "This line is part of reading OPENROUTER_API_KEY from a .env file. The skill handles a real credential from project files.",
+        "confidence": 0.98,
+        "reason": "This line identifies OPENROUTER_API_KEY inside a discovered .env file. The surrounding function searches every parent directory, expanding credential access beyond the project.",
         "severity": "high"
       },
       {
         "id": "env_access:scripts/generate_image.py:32:generic-api-secret-keys",
         "verdict": "confirmed",
-        "confidence": 0.9,
-        "reason": "This line is part of reading OPENROUTER_API_KEY from a .env file. The skill handles a real credential from project files.",
+        "confidence": 0.99,
+        "reason": "This line extracts the OpenRouter credential as plaintext from a discovered .env file. The value comes from an unbounded parent-directory search.",
         "severity": "high"
       },
       {
         "id": "env_access:scripts/generate_image.py:33:generic-api-secret-keys",
-        "verdict": "confirmed",
-        "confidence": 0.9,
-        "reason": "This line is part of reading OPENROUTER_API_KEY from a .env file. The skill handles a real credential from project files.",
-        "severity": "high"
+        "verdict": "false_positive",
+        "confidence": 0.98,
+        "reason": "This conditional only checks whether the local variable is nonempty. It does not independently read or expose a secret."
       },
       {
         "id": "env_access:scripts/generate_image.py:34:generic-api-secret-keys",
         "verdict": "confirmed",
-        "confidence": 0.9,
-        "reason": "This line is part of reading OPENROUTER_API_KEY from a .env file. The skill handles a real credential from project files.",
+        "confidence": 0.98,
+        "reason": "This returns a credential found through the parent-directory search for later network use. The secret source is not restricted to the current project.",
         "severity": "high"
       },
       {
         "id": "env_access:scripts/generate_image.py:79:generic-api-secret-keys",
-        "verdict": "confirmed",
-        "confidence": 0.74,
-        "reason": "This line is part of the API key data flow for the OpenRouter request. It is intended, but it still handles secret material.",
-        "severity": "high"
+        "verdict": "false_positive",
+        "confidence": 0.98,
+        "reason": "This is an optional function parameter declaration. It does not read an environment source or disclose a credential."
       },
       {
         "id": "env_access:scripts/generate_image.py:89:generic-api-secret-keys",
-        "verdict": "confirmed",
-        "confidence": 0.74,
-        "reason": "This line is part of the API key data flow for the OpenRouter request. It is intended, but it still handles secret material.",
-        "severity": "high"
+        "verdict": "false_positive",
+        "confidence": 0.98,
+        "reason": "This is argument documentation. The actual credential discovery behavior is covered by separate confirmed findings."
       },
       {
         "id": "env_access:scripts/generate_image.py:102:generic-api-secret-keys",
-        "verdict": "confirmed",
-        "confidence": 0.9,
-        "reason": "This line is part of reading OPENROUTER_API_KEY from a .env file. The skill handles a real credential from project files.",
-        "severity": "high"
+        "verdict": "false_positive",
+        "confidence": 0.98,
+        "reason": "This only checks whether a key value was supplied. It performs no secret access by itself."
       },
       {
         "id": "env_access:scripts/generate_image.py:103:generic-api-secret-keys",
         "verdict": "confirmed",
-        "confidence": 0.9,
-        "reason": "This line is part of reading OPENROUTER_API_KEY from a .env file. The skill handles a real credential from project files.",
+        "confidence": 0.99,
+        "reason": "This invokes the .env discovery routine whenever no key argument is supplied. That routine searches the current directory and all ancestors.",
         "severity": "high"
       },
       {
         "id": "env_access:scripts/generate_image.py:105:generic-api-secret-keys",
-        "verdict": "confirmed",
-        "confidence": 0.74,
-        "reason": "This line is part of the API key data flow for the OpenRouter request. It is intended, but it still handles secret material.",
-        "severity": "high"
+        "verdict": "false_positive",
+        "confidence": 0.98,
+        "reason": "This is a missing-value check after credential lookup. It does not read or reveal a key."
       },
       {
         "id": "env_access:scripts/generate_image.py:106:generic-api-secret-keys",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "This line prints setup guidance or a placeholder key value. It does not read, expose, or transmit a real secret."
+        "confidence": 0.98,
+        "reason": "This error message names the expected variable but contains no secret value. It is safe diagnostic text."
       },
       {
         "id": "env_access:scripts/generate_image.py:108:generic-api-secret-keys",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "This line prints setup guidance or a placeholder key value. It does not read, expose, or transmit a real secret."
+        "confidence": 0.98,
+        "reason": "This prints a placeholder setup example rather than a real key. No credential is embedded or disclosed."
       },
       {
         "id": "env_access:scripts/generate_image.py:110:generic-api-secret-keys",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "This line prints setup guidance or a placeholder key value. It does not read, expose, or transmit a real secret."
+        "confidence": 0.98,
+        "reason": "This prints a placeholder environment setup example. It does not read or expose a real credential."
       },
       {
         "id": "env_access:scripts/generate_image.py:147:generic-api-secret-keys",
-        "verdict": "confirmed",
-        "confidence": 0.95,
-        "reason": "The API key is placed into an Authorization header for the OpenRouter request. This is expected, but it is real credential handling over the network.",
-        "severity": "high"
+        "verdict": "false_positive",
+        "confidence": 0.98,
+        "reason": "The key is used in the standard Authorization header for the fixed OpenRouter endpoint. No alternate destination or logging of the value is present."
       },
       {
         "id": "env_access:scripts/generate_image.py:275:generic-api-secret-keys",
         "verdict": "confirmed",
-        "confidence": 0.74,
-        "reason": "This line is part of the API key data flow for the OpenRouter request. It is intended, but it still handles secret material.",
+        "confidence": 0.97,
+        "reason": "This passes a secret supplied through the --api-key command-line option. Command-line secrets can remain visible in shell history and process listings.",
         "severity": "high"
       },
       {
         "id": "obfuscation:scripts/generate_image.py:70:python-base64-decode",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "The base64 decode is used to save an image returned by the API. It is normal image handling, not hidden code or obfuscated execution."
+        "confidence": 0.98,
+        "reason": "The code decodes an image payload returned by the provider before saving it. It does not decode executable code or conceal behavior."
       },
       {
         "id": "sensitive:scripts/generate_image.py:23:environment-file-access",
-        "verdict": "confirmed",
-        "confidence": 0.92,
-        "reason": "The script searches for .env files in the current directory and parent directories. That can read credentials outside the immediate working project.",
-        "severity": "high"
+        "verdict": "false_positive",
+        "confidence": 0.98,
+        "reason": "This is a docstring describing the function. The actual parent-directory file access is covered by separate confirmed findings."
       },
       {
         "id": "sensitive:scripts/generate_image.py:24:environment-file-access",
         "verdict": "confirmed",
-        "confidence": 0.92,
-        "reason": "The script searches for .env files in the current directory and parent directories. That can read credentials outside the immediate working project.",
+        "confidence": 0.99,
+        "reason": "The code intentionally searches the current directory and every parent for .env files. This can select credentials outside the active project.",
         "severity": "high"
       },
       {
         "id": "sensitive:scripts/generate_image.py:27:environment-file-access",
         "verdict": "confirmed",
-        "confidence": 0.92,
-        "reason": "The script searches for .env files in the current directory and parent directories. That can read credentials outside the immediate working project.",
+        "confidence": 0.99,
+        "reason": "This constructs a .env path for each ancestor visited by the loop. The search has no repository or workspace boundary.",
         "severity": "high"
       },
       {
         "id": "sensitive:scripts/generate_image.py:89:environment-file-access",
-        "verdict": "confirmed",
-        "confidence": 0.76,
-        "reason": "This line documents or exposes the automatic .env fallback used by the script. The surrounding implementation does perform environment-file credential lookup.",
-        "severity": "high"
+        "verdict": "false_positive",
+        "confidence": 0.98,
+        "reason": "This is parameter documentation and performs no file operation. Actual .env discovery is covered elsewhere."
       },
       {
         "id": "sensitive:scripts/generate_image.py:107:environment-file-access",
         "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "This line prints setup guidance for creating a .env file. It does not access an environment file or read secret data."
+        "confidence": 0.98,
+        "reason": "This line prints setup guidance to create a .env file. It does not open or inspect a sensitive file."
       },
       {
         "id": "sensitive:scripts/generate_image.py:266:environment-file-access",
-        "verdict": "confirmed",
-        "confidence": 0.76,
-        "reason": "This line documents or exposes the automatic .env fallback used by the script. The surrounding implementation does perform environment-file credential lookup.",
-        "severity": "high"
+        "verdict": "false_positive",
+        "confidence": 0.98,
+        "reason": "This is command-line help text describing credential lookup. It does not access a .env file."
       },
       {
         "id": "external_commands:SKILL.md:30:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The match comes from Markdown backticks, fenced bash examples, or parameter documentation. There is no Ruby backtick execution or dynamic shell execution at this location."
+        "confidence": 0.99,
+        "reason": "The backticks are Markdown formatting around documentation text, paths, options, models, or placeholders. No Ruby or shell backtick expression is present."
       },
       {
         "id": "external_commands:SKILL.md:32:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The match comes from Markdown backticks, fenced bash examples, or parameter documentation. There is no Ruby backtick execution or dynamic shell execution at this location."
+        "confidence": 0.99,
+        "reason": "This is a Markdown code fence around documented CLI examples, not a Ruby or shell backtick expression. The Markdown does not execute by itself."
       },
       {
         "id": "external_commands:SKILL.md:38:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The match comes from Markdown backticks, fenced bash examples, or parameter documentation. There is no Ruby backtick execution or dynamic shell execution at this location."
+        "confidence": 0.99,
+        "reason": "This is a Markdown code fence around documented CLI examples, not a Ruby or shell backtick expression. The Markdown does not execute by itself."
       },
       {
         "id": "external_commands:SKILL.md:40:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The match comes from Markdown backticks, fenced bash examples, or parameter documentation. There is no Ruby backtick execution or dynamic shell execution at this location."
+        "confidence": 0.99,
+        "reason": "The backticks are Markdown formatting around documentation text, paths, options, models, or placeholders. No Ruby or shell backtick expression is present."
       },
       {
         "id": "external_commands:SKILL.md:46:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The match comes from Markdown backticks, fenced bash examples, or parameter documentation. There is no Ruby backtick execution or dynamic shell execution at this location."
+        "confidence": 0.99,
+        "reason": "The backticks are Markdown formatting around documentation text, paths, options, models, or placeholders. No Ruby or shell backtick expression is present."
       },
       {
         "id": "external_commands:SKILL.md:47:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The match comes from Markdown backticks, fenced bash examples, or parameter documentation. There is no Ruby backtick execution or dynamic shell execution at this location."
+        "confidence": 0.99,
+        "reason": "The backticks are Markdown formatting around documentation text, paths, options, models, or placeholders. No Ruby or shell backtick expression is present."
       },
       {
         "id": "external_commands:SKILL.md:49:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The match comes from Markdown backticks, fenced bash examples, or parameter documentation. There is no Ruby backtick execution or dynamic shell execution at this location."
+        "confidence": 0.99,
+        "reason": "The backticks are Markdown formatting around documentation text, paths, options, models, or placeholders. No Ruby or shell backtick expression is present."
       },
       {
         "id": "external_commands:SKILL.md:50:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The match comes from Markdown backticks, fenced bash examples, or parameter documentation. There is no Ruby backtick execution or dynamic shell execution at this location."
+        "confidence": 0.99,
+        "reason": "The backticks are Markdown formatting around documentation text, paths, options, models, or placeholders. No Ruby or shell backtick expression is present."
       },
       {
         "id": "external_commands:SKILL.md:53:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The match comes from Markdown backticks, fenced bash examples, or parameter documentation. There is no Ruby backtick execution or dynamic shell execution at this location."
+        "confidence": 0.99,
+        "reason": "The backticks are Markdown formatting around documentation text, paths, options, models, or placeholders. No Ruby or shell backtick expression is present."
       },
       {
         "id": "external_commands:SKILL.md:57:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The match comes from Markdown backticks, fenced bash examples, or parameter documentation. There is no Ruby backtick execution or dynamic shell execution at this location."
+        "confidence": 0.99,
+        "reason": "The backticks are Markdown formatting around documentation text, paths, options, models, or placeholders. No Ruby or shell backtick expression is present."
       },
       {
         "id": "external_commands:SKILL.md:60:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The match comes from Markdown backticks, fenced bash examples, or parameter documentation. There is no Ruby backtick execution or dynamic shell execution at this location."
+        "confidence": 0.99,
+        "reason": "The backticks are Markdown formatting around documentation text, paths, options, models, or placeholders. No Ruby or shell backtick expression is present."
       },
       {
         "id": "external_commands:SKILL.md:61:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The match comes from Markdown backticks, fenced bash examples, or parameter documentation. There is no Ruby backtick execution or dynamic shell execution at this location."
+        "confidence": 0.99,
+        "reason": "The backticks are Markdown formatting around documentation text, paths, options, models, or placeholders. No Ruby or shell backtick expression is present."
       },
       {
         "id": "external_commands:SKILL.md:64:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The match comes from Markdown backticks, fenced bash examples, or parameter documentation. There is no Ruby backtick execution or dynamic shell execution at this location."
+        "confidence": 0.99,
+        "reason": "The backticks are Markdown formatting around documentation text, paths, options, models, or placeholders. No Ruby or shell backtick expression is present."
       },
       {
         "id": "external_commands:SKILL.md:74:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The match comes from Markdown backticks, fenced bash examples, or parameter documentation. There is no Ruby backtick execution or dynamic shell execution at this location."
+        "confidence": 0.99,
+        "reason": "This is a Markdown code fence around documented CLI examples, not a Ruby or shell backtick expression. The Markdown does not execute by itself."
       },
       {
         "id": "external_commands:SKILL.md:76:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The match comes from Markdown backticks, fenced bash examples, or parameter documentation. There is no Ruby backtick execution or dynamic shell execution at this location."
+        "confidence": 0.99,
+        "reason": "This is a Markdown code fence around documented CLI examples, not a Ruby or shell backtick expression. The Markdown does not execute by itself."
       },
       {
         "id": "external_commands:SKILL.md:79:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The match comes from Markdown backticks, fenced bash examples, or parameter documentation. There is no Ruby backtick execution or dynamic shell execution at this location."
+        "confidence": 0.99,
+        "reason": "This is a Markdown code fence around documented CLI examples, not a Ruby or shell backtick expression. The Markdown does not execute by itself."
       },
       {
         "id": "external_commands:SKILL.md:81:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The match comes from Markdown backticks, fenced bash examples, or parameter documentation. There is no Ruby backtick execution or dynamic shell execution at this location."
+        "confidence": 0.99,
+        "reason": "This is a Markdown code fence around documented CLI examples, not a Ruby or shell backtick expression. The Markdown does not execute by itself."
       },
       {
         "id": "external_commands:SKILL.md:84:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The match comes from Markdown backticks, fenced bash examples, or parameter documentation. There is no Ruby backtick execution or dynamic shell execution at this location."
+        "confidence": 0.99,
+        "reason": "This is a Markdown code fence around documented CLI examples, not a Ruby or shell backtick expression. The Markdown does not execute by itself."
       },
       {
         "id": "external_commands:SKILL.md:86:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The match comes from Markdown backticks, fenced bash examples, or parameter documentation. There is no Ruby backtick execution or dynamic shell execution at this location."
+        "confidence": 0.99,
+        "reason": "This is a Markdown code fence around documented CLI examples, not a Ruby or shell backtick expression. The Markdown does not execute by itself."
       },
       {
         "id": "external_commands:SKILL.md:89:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The match comes from Markdown backticks, fenced bash examples, or parameter documentation. There is no Ruby backtick execution or dynamic shell execution at this location."
+        "confidence": 0.99,
+        "reason": "This is a Markdown code fence around documented CLI examples, not a Ruby or shell backtick expression. The Markdown does not execute by itself."
       },
       {
         "id": "external_commands:SKILL.md:91:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The match comes from Markdown backticks, fenced bash examples, or parameter documentation. There is no Ruby backtick execution or dynamic shell execution at this location."
+        "confidence": 0.99,
+        "reason": "This is a Markdown code fence around documented CLI examples, not a Ruby or shell backtick expression. The Markdown does not execute by itself."
       },
       {
         "id": "external_commands:SKILL.md:94:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The match comes from Markdown backticks, fenced bash examples, or parameter documentation. There is no Ruby backtick execution or dynamic shell execution at this location."
+        "confidence": 0.99,
+        "reason": "This is a Markdown code fence around documented CLI examples, not a Ruby or shell backtick expression. The Markdown does not execute by itself."
       },
       {
         "id": "external_commands:SKILL.md:96:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The match comes from Markdown backticks, fenced bash examples, or parameter documentation. There is no Ruby backtick execution or dynamic shell execution at this location."
+        "confidence": 0.99,
+        "reason": "This is a Markdown code fence around documented CLI examples, not a Ruby or shell backtick expression. The Markdown does not execute by itself."
       },
       {
         "id": "external_commands:SKILL.md:99:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The match comes from Markdown backticks, fenced bash examples, or parameter documentation. There is no Ruby backtick execution or dynamic shell execution at this location."
+        "confidence": 0.99,
+        "reason": "This is a Markdown code fence around documented CLI examples, not a Ruby or shell backtick expression. The Markdown does not execute by itself."
       },
       {
         "id": "external_commands:SKILL.md:101:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The match comes from Markdown backticks, fenced bash examples, or parameter documentation. There is no Ruby backtick execution or dynamic shell execution at this location."
+        "confidence": 0.99,
+        "reason": "This is a Markdown code fence around documented CLI examples, not a Ruby or shell backtick expression. The Markdown does not execute by itself."
       },
       {
         "id": "external_commands:SKILL.md:105:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The match comes from Markdown backticks, fenced bash examples, or parameter documentation. There is no Ruby backtick execution or dynamic shell execution at this location."
+        "confidence": 0.99,
+        "reason": "This is a Markdown code fence around documented CLI examples, not a Ruby or shell backtick expression. The Markdown does not execute by itself."
       },
       {
         "id": "external_commands:SKILL.md:108:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The match comes from Markdown backticks, fenced bash examples, or parameter documentation. There is no Ruby backtick execution or dynamic shell execution at this location."
+        "confidence": 0.99,
+        "reason": "This is a Markdown code fence around documented CLI examples, not a Ruby or shell backtick expression. The Markdown does not execute by itself."
       },
       {
         "id": "external_commands:SKILL.md:112:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The match comes from Markdown backticks, fenced bash examples, or parameter documentation. There is no Ruby backtick execution or dynamic shell execution at this location."
+        "confidence": 0.99,
+        "reason": "The backticks are Markdown formatting around documentation text, paths, options, models, or placeholders. No Ruby or shell backtick expression is present."
       },
       {
         "id": "external_commands:SKILL.md:113:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The match comes from Markdown backticks, fenced bash examples, or parameter documentation. There is no Ruby backtick execution or dynamic shell execution at this location."
+        "confidence": 0.99,
+        "reason": "The backticks are Markdown formatting around documentation text, paths, options, models, or placeholders. No Ruby or shell backtick expression is present."
       },
       {
         "id": "external_commands:SKILL.md:114:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The match comes from Markdown backticks, fenced bash examples, or parameter documentation. There is no Ruby backtick execution or dynamic shell execution at this location."
+        "confidence": 0.99,
+        "reason": "The backticks are Markdown formatting around documentation text, paths, options, models, or placeholders. No Ruby or shell backtick expression is present."
       },
       {
         "id": "external_commands:SKILL.md:115:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The match comes from Markdown backticks, fenced bash examples, or parameter documentation. There is no Ruby backtick execution or dynamic shell execution at this location."
+        "confidence": 0.99,
+        "reason": "The backticks are Markdown formatting around documentation text, paths, options, models, or placeholders. No Ruby or shell backtick expression is present."
       },
       {
         "id": "external_commands:SKILL.md:116:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The match comes from Markdown backticks, fenced bash examples, or parameter documentation. There is no Ruby backtick execution or dynamic shell execution at this location."
+        "confidence": 0.99,
+        "reason": "The backticks are Markdown formatting around documentation text, paths, options, models, or placeholders. No Ruby or shell backtick expression is present."
       },
       {
         "id": "external_commands:SKILL.md:121:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The match comes from Markdown backticks, fenced bash examples, or parameter documentation. There is no Ruby backtick execution or dynamic shell execution at this location."
+        "confidence": 0.99,
+        "reason": "This is a Markdown code fence around documented CLI examples, not a Ruby or shell backtick expression. The Markdown does not execute by itself."
       },
       {
         "id": "external_commands:SKILL.md:127:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The match comes from Markdown backticks, fenced bash examples, or parameter documentation. There is no Ruby backtick execution or dynamic shell execution at this location."
+        "confidence": 0.99,
+        "reason": "This is a Markdown code fence around documented CLI examples, not a Ruby or shell backtick expression. The Markdown does not execute by itself."
       },
       {
         "id": "external_commands:SKILL.md:130:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The match comes from Markdown backticks, fenced bash examples, or parameter documentation. There is no Ruby backtick execution or dynamic shell execution at this location."
+        "confidence": 0.99,
+        "reason": "This is a Markdown code fence around documented CLI examples, not a Ruby or shell backtick expression. The Markdown does not execute by itself."
       },
       {
         "id": "external_commands:SKILL.md:136:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The match comes from Markdown backticks, fenced bash examples, or parameter documentation. There is no Ruby backtick execution or dynamic shell execution at this location."
+        "confidence": 0.99,
+        "reason": "This is a Markdown code fence around documented CLI examples, not a Ruby or shell backtick expression. The Markdown does not execute by itself."
       },
       {
         "id": "external_commands:SKILL.md:139:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The match comes from Markdown backticks, fenced bash examples, or parameter documentation. There is no Ruby backtick execution or dynamic shell execution at this location."
+        "confidence": 0.99,
+        "reason": "This is a Markdown code fence around documented CLI examples, not a Ruby or shell backtick expression. The Markdown does not execute by itself."
       },
       {
         "id": "external_commands:SKILL.md:145:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The match comes from Markdown backticks, fenced bash examples, or parameter documentation. There is no Ruby backtick execution or dynamic shell execution at this location."
+        "confidence": 0.99,
+        "reason": "This is a Markdown code fence around documented CLI examples, not a Ruby or shell backtick expression. The Markdown does not execute by itself."
       },
       {
         "id": "external_commands:SKILL.md:160:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The match comes from Markdown backticks, fenced bash examples, or parameter documentation. There is no Ruby backtick execution or dynamic shell execution at this location."
+        "confidence": 0.99,
+        "reason": "The backticks are Markdown formatting around documentation text, paths, options, models, or placeholders. No Ruby or shell backtick expression is present."
       },
       {
         "id": "network:SKILL.md:51:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.93,
-        "reason": "This URL is a user-facing OpenRouter setup or pricing link in documentation or an error message. It does not perform a network request or transmit data by itself."
+        "confidence": 0.98,
+        "reason": "This is a documentation link to OpenRouter key management. Markdown text does not initiate a network request."
       },
       {
         "id": "network:SKILL.md:164:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.93,
-        "reason": "This URL is a user-facing OpenRouter setup or pricing link in documentation or an error message. It does not perform a network request or transmit data by itself."
+        "confidence": 0.98,
+        "reason": "This is a documentation link to OpenRouter model pricing. It does not transmit user data."
       },
       {
         "id": "env_access:SKILL.md:47:generic-api-secret-keys",
         "verdict": "confirmed",
-        "confidence": 0.84,
-        "reason": "The instructions tell the agent to check OPENROUTER_API_KEY inside a .env file. That is a real credential access instruction in the skill prose.",
+        "confidence": 0.96,
+        "reason": "The skill instructs the agent to inspect .env content for an OpenRouter credential. This is real secret access, even though it supports expected API authentication.",
         "severity": "high"
       },
       {
         "id": "env_access:SKILL.md:49:generic-api-secret-keys",
         "verdict": "false_positive",
-        "confidence": 0.84,
-        "reason": "This is setup guidance with placeholder syntax for users. It does not itself read or transmit a real API key."
+        "confidence": 0.98,
+        "reason": "This setup example contains an explicit placeholder, not a credential. It does not itself access an environment value."
       },
       {
         "id": "env_access:SKILL.md:50:generic-api-secret-keys",
         "verdict": "false_positive",
-        "confidence": 0.84,
-        "reason": "This is setup guidance with placeholder syntax for users. It does not itself read or transmit a real API key."
+        "confidence": 0.98,
+        "reason": "This is a placeholder shell setup example. It neither embeds a real key nor reads one."
       },
       {
         "id": "sensitive:SKILL.md:46:environment-file-access",
         "verdict": "confirmed",
-        "confidence": 0.86,
-        "reason": "The documentation instructs the agent or script to locate and inspect .env files for an API key. That is real sensitive-file access guidance.",
+        "confidence": 0.99,
+        "reason": "The instructions explicitly direct the agent to search project and parent directories for .env files. Parent traversal can expose unrelated credentials.",
         "severity": "high"
       },
       {
         "id": "sensitive:SKILL.md:47:environment-file-access",
         "verdict": "confirmed",
-        "confidence": 0.86,
-        "reason": "The documentation instructs the agent or script to locate and inspect .env files for an API key. That is real sensitive-file access guidance.",
+        "confidence": 0.98,
+        "reason": "The instructions direct the agent to inspect a .env file for a named secret. This creates sensitive-file access beyond merely documenting setup.",
         "severity": "high"
       },
       {
         "id": "sensitive:SKILL.md:49:environment-file-access",
         "verdict": "false_positive",
-        "confidence": 0.82,
-        "reason": "This is user setup documentation for where to place an API key. It does not itself access an environment file."
+        "confidence": 0.98,
+        "reason": "This line documents how a user may create a project .env file. It does not direct inspection of an existing sensitive file."
       },
       {
         "id": "sensitive:SKILL.md:53:environment-file-access",
-        "verdict": "confirmed",
-        "confidence": 0.86,
-        "reason": "The documentation instructs the agent or script to locate and inspect .env files for an API key. That is real sensitive-file access guidance.",
-        "severity": "high"
+        "verdict": "false_positive",
+        "confidence": 0.98,
+        "reason": "This sentence describes script behavior but performs no access itself. The actual discovery code has separate confirmed findings."
       },
       {
         "id": "sensitive:SKILL.md:116:environment-file-access",
-        "verdict": "confirmed",
-        "confidence": 0.72,
-        "reason": "The --api-key option handles secret material on the command line. This can expose credentials through shell history or process listings.",
-        "severity": "high"
+        "verdict": "false_positive",
+        "confidence": 0.98,
+        "reason": "This line documents the --api-key option and does not read a .env file. Command-line credential exposure is covered separately."
       }
     ],
     "semantic_findings": [
       {
-        "title": "Agent Instructions Encourage Secret File Inspection",
-        "description": "SKILL.md tells the assistant to look for a .env file and check OPENROUTER_API_KEY before running. This can expose project secrets to the agent context.",
-        "severity": "high",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 42,
-            "line_end": 53
-          }
-        ],
-        "confidence": 0.9,
-        "confidence_reasoning": "The prose directly instructs .env lookup and key checking. The behavior is credential-focused and appears before normal usage guidance."
-      },
-      {
-        "title": "Parent Directory Secret Search",
-        "description": "The script walks from the current directory through all parents to find .env. This can read credentials from a broader scope than the user intended.",
-        "severity": "high",
-        "locations": [
-          {
-            "file": "scripts/generate_image.py",
-            "line_start": 22,
-            "line_end": 34
-          }
-        ],
-        "confidence": 0.93,
-        "confidence_reasoning": "The implementation explicitly iterates over current_dir and current_dir.parents, then opens the first .env file and parses OPENROUTER_API_KEY."
-      },
-      {
-        "title": "User Images Are Sent to an External Service",
-        "description": "In edit mode, the script reads a local image, encodes it, and posts it to OpenRouter with the prompt. Users need clear consent before this transfer.",
+        "title": "Local Images Are Uploaded Without Separate Confirmation",
+        "description": "The edit path reads any supplied local image, embeds its contents, and sends it to OpenRouter. An autonomous invocation could disclose a sensitive image without separate upload confirmation.",
         "severity": "medium",
         "locations": [
           {
             "file": "scripts/generate_image.py",
-            "line_start": 56,
+            "line_start": 38,
             "line_end": 60
           },
           {
             "file": "scripts/generate_image.py",
-            "line_start": 122,
+            "line_start": 117,
             "line_end": 160
           }
         ],
-        "confidence": 0.91,
-        "confidence_reasoning": "The code reads the input file, builds an image_url data URL, and sends message_content in the outbound requests.post call."
+        "confidence": 0.98,
+        "confidence_reasoning": "The code directly reads the selected file, converts it to a data URL, and includes that data in the fixed OpenRouter request."
       }
     ],
     "critical_findings": [],
     "high_findings": [
-      {
-        "title": "Generic API/secret keys",
-        "description": "\"\"\"Check if .env file exists and contains OPENROUTER_API_KEY.\"\"\"",
-        "locations": [
-          {
-            "file": "scripts/generate_image.py",
-            "line_start": 23,
-            "line_end": 23
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "env_access",
-        "source_severity": "high",
-        "confidence": 0.9,
-        "confidence_reasoning": "This line is part of reading OPENROUTER_API_KEY from a .env file. The skill handles a real credential from project files."
-      },
       {
         "title": "Generic API/secret keys",
         "description": "if line.startswith('OPENROUTER_API_KEY='):",
@@ -1723,8 +1666,8 @@
         "review_kind": "capability",
         "source_category": "env_access",
         "source_severity": "high",
-        "confidence": 0.9,
-        "confidence_reasoning": "This line is part of reading OPENROUTER_API_KEY from a .env file. The skill handles a real credential from project files."
+        "confidence": 0.98,
+        "confidence_reasoning": "This line identifies OPENROUTER_API_KEY inside a discovered .env file. The surrounding function searches every parent directory, expanding credential access beyond the project."
       },
       {
         "title": "Generic API/secret keys",
@@ -1739,24 +1682,8 @@
         "review_kind": "capability",
         "source_category": "env_access",
         "source_severity": "high",
-        "confidence": 0.9,
-        "confidence_reasoning": "This line is part of reading OPENROUTER_API_KEY from a .env file. The skill handles a real credential from project files."
-      },
-      {
-        "title": "Generic API/secret keys",
-        "description": "if api_key:",
-        "locations": [
-          {
-            "file": "scripts/generate_image.py",
-            "line_start": 33,
-            "line_end": 33
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "env_access",
-        "source_severity": "high",
-        "confidence": 0.9,
-        "confidence_reasoning": "This line is part of reading OPENROUTER_API_KEY from a .env file. The skill handles a real credential from project files."
+        "confidence": 0.99,
+        "confidence_reasoning": "This line extracts the OpenRouter credential as plaintext from a discovered .env file. The value comes from an unbounded parent-directory search."
       },
       {
         "title": "Generic API/secret keys",
@@ -1771,56 +1698,8 @@
         "review_kind": "capability",
         "source_category": "env_access",
         "source_severity": "high",
-        "confidence": 0.9,
-        "confidence_reasoning": "This line is part of reading OPENROUTER_API_KEY from a .env file. The skill handles a real credential from project files."
-      },
-      {
-        "title": "Generic API/secret keys",
-        "description": "api_key: Optional[str] = None,",
-        "locations": [
-          {
-            "file": "scripts/generate_image.py",
-            "line_start": 79,
-            "line_end": 79
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "env_access",
-        "source_severity": "high",
-        "confidence": 0.74,
-        "confidence_reasoning": "This line is part of the API key data flow for the OpenRouter request. It is intended, but it still handles secret material."
-      },
-      {
-        "title": "Generic API/secret keys",
-        "description": "api_key: OpenRouter API key (will check .env if not provided)",
-        "locations": [
-          {
-            "file": "scripts/generate_image.py",
-            "line_start": 89,
-            "line_end": 89
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "env_access",
-        "source_severity": "high",
-        "confidence": 0.74,
-        "confidence_reasoning": "This line is part of the API key data flow for the OpenRouter request. It is intended, but it still handles secret material."
-      },
-      {
-        "title": "Generic API/secret keys",
-        "description": "if not api_key:",
-        "locations": [
-          {
-            "file": "scripts/generate_image.py",
-            "line_start": 102,
-            "line_end": 102
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "env_access",
-        "source_severity": "high",
-        "confidence": 0.9,
-        "confidence_reasoning": "This line is part of reading OPENROUTER_API_KEY from a .env file. The skill handles a real credential from project files."
+        "confidence": 0.98,
+        "confidence_reasoning": "This returns a credential found through the parent-directory search for later network use. The secret source is not restricted to the current project."
       },
       {
         "title": "Generic API/secret keys",
@@ -1835,40 +1714,8 @@
         "review_kind": "capability",
         "source_category": "env_access",
         "source_severity": "high",
-        "confidence": 0.9,
-        "confidence_reasoning": "This line is part of reading OPENROUTER_API_KEY from a .env file. The skill handles a real credential from project files."
-      },
-      {
-        "title": "Generic API/secret keys",
-        "description": "if not api_key:",
-        "locations": [
-          {
-            "file": "scripts/generate_image.py",
-            "line_start": 105,
-            "line_end": 105
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "env_access",
-        "source_severity": "high",
-        "confidence": 0.74,
-        "confidence_reasoning": "This line is part of the API key data flow for the OpenRouter request. It is intended, but it still handles secret material."
-      },
-      {
-        "title": "Generic API/secret keys",
-        "description": "\"Authorization\": f\"Bearer {api_key}\",",
-        "locations": [
-          {
-            "file": "scripts/generate_image.py",
-            "line_start": 147,
-            "line_end": 147
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "env_access",
-        "source_severity": "high",
-        "confidence": 0.95,
-        "confidence_reasoning": "The API key is placed into an Authorization header for the OpenRouter request. This is expected, but it is real credential handling over the network."
+        "confidence": 0.99,
+        "confidence_reasoning": "This invokes the .env discovery routine whenever no key argument is supplied. That routine searches the current directory and all ancestors."
       },
       {
         "title": "Generic API/secret keys",
@@ -1883,24 +1730,8 @@
         "review_kind": "capability",
         "source_category": "env_access",
         "source_severity": "high",
-        "confidence": 0.74,
-        "confidence_reasoning": "This line is part of the API key data flow for the OpenRouter request. It is intended, but it still handles secret material."
-      },
-      {
-        "title": "Environment file access",
-        "description": "\"\"\"Check if .env file exists and contains OPENROUTER_API_KEY.\"\"\"",
-        "locations": [
-          {
-            "file": "scripts/generate_image.py",
-            "line_start": 23,
-            "line_end": 23
-          }
-        ],
-        "review_kind": "security",
-        "source_category": "sensitive",
-        "source_severity": "high",
-        "confidence": 0.92,
-        "confidence_reasoning": "The script searches for .env files in the current directory and parent directories. That can read credentials outside the immediate working project."
+        "confidence": 0.97,
+        "confidence_reasoning": "This passes a secret supplied through the --api-key command-line option. Command-line secrets can remain visible in shell history and process listings."
       },
       {
         "title": "Environment file access",
@@ -1915,8 +1746,8 @@
         "review_kind": "security",
         "source_category": "sensitive",
         "source_severity": "high",
-        "confidence": 0.92,
-        "confidence_reasoning": "The script searches for .env files in the current directory and parent directories. That can read credentials outside the immediate working project."
+        "confidence": 0.99,
+        "confidence_reasoning": "The code intentionally searches the current directory and every parent for .env files. This can select credentials outside the active project."
       },
       {
         "title": "Environment file access",
@@ -1931,40 +1762,8 @@
         "review_kind": "security",
         "source_category": "sensitive",
         "source_severity": "high",
-        "confidence": 0.92,
-        "confidence_reasoning": "The script searches for .env files in the current directory and parent directories. That can read credentials outside the immediate working project."
-      },
-      {
-        "title": "Environment file access",
-        "description": "api_key: OpenRouter API key (will check .env if not provided)",
-        "locations": [
-          {
-            "file": "scripts/generate_image.py",
-            "line_start": 89,
-            "line_end": 89
-          }
-        ],
-        "review_kind": "security",
-        "source_category": "sensitive",
-        "source_severity": "high",
-        "confidence": 0.76,
-        "confidence_reasoning": "This line documents or exposes the automatic .env fallback used by the script. The surrounding implementation does perform environment-file credential lookup."
-      },
-      {
-        "title": "Environment file access",
-        "description": "help=\"OpenRouter API key (will check .env if not provided)\"",
-        "locations": [
-          {
-            "file": "scripts/generate_image.py",
-            "line_start": 266,
-            "line_end": 266
-          }
-        ],
-        "review_kind": "security",
-        "source_category": "sensitive",
-        "source_severity": "high",
-        "confidence": 0.76,
-        "confidence_reasoning": "This line documents or exposes the automatic .env fallback used by the script. The surrounding implementation does perform environment-file credential lookup."
+        "confidence": 0.99,
+        "confidence_reasoning": "This constructs a .env path for each ancestor visited by the loop. The search has no repository or workspace boundary."
       },
       {
         "title": "Generic API/secret keys",
@@ -1979,8 +1778,8 @@
         "review_kind": "capability",
         "source_category": "env_access",
         "source_severity": "high",
-        "confidence": 0.84,
-        "confidence_reasoning": "The instructions tell the agent to check OPENROUTER_API_KEY inside a .env file. That is a real credential access instruction in the skill prose."
+        "confidence": 0.96,
+        "confidence_reasoning": "The skill instructs the agent to inspect .env content for an OpenRouter credential. This is real secret access, even though it supports expected API authentication."
       },
       {
         "title": "Environment file access",
@@ -1995,8 +1794,8 @@
         "review_kind": "security",
         "source_category": "sensitive",
         "source_severity": "high",
-        "confidence": 0.86,
-        "confidence_reasoning": "The documentation instructs the agent or script to locate and inspect .env files for an API key. That is real sensitive-file access guidance."
+        "confidence": 0.99,
+        "confidence_reasoning": "The instructions explicitly direct the agent to search project and parent directories for .env files. Parent traversal can expose unrelated credentials."
       },
       {
         "title": "Environment file access",
@@ -2011,72 +1810,8 @@
         "review_kind": "security",
         "source_category": "sensitive",
         "source_severity": "high",
-        "confidence": 0.86,
-        "confidence_reasoning": "The documentation instructs the agent or script to locate and inspect .env files for an API key. That is real sensitive-file access guidance."
-      },
-      {
-        "title": "Environment file access",
-        "description": "The script will automatically detect the `.env` file and provide clear error messages if the API key",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 53,
-            "line_end": 53
-          }
-        ],
-        "review_kind": "security",
-        "source_category": "sensitive",
-        "source_severity": "high",
-        "confidence": 0.86,
-        "confidence_reasoning": "The documentation instructs the agent or script to locate and inspect .env files for an API key. That is real sensitive-file access guidance."
-      },
-      {
-        "title": "Environment file access",
-        "description": "- `--api-key`: OpenRouter API key (overrides .env file)",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 116,
-            "line_end": 116
-          }
-        ],
-        "review_kind": "security",
-        "source_category": "sensitive",
-        "source_severity": "high",
-        "confidence": 0.72,
-        "confidence_reasoning": "The --api-key option handles secret material on the command line. This can expose credentials through shell history or process listings."
-      },
-      {
-        "title": "Agent Instructions Encourage Secret File Inspection",
-        "description": "SKILL.md tells the assistant to look for a .env file and check OPENROUTER_API_KEY before running. This can expose project secrets to the agent context.",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 42,
-            "line_end": 53
-          }
-        ],
-        "review_kind": "security",
-        "source_category": "semantic",
-        "source_severity": "high",
-        "confidence": 0.9,
-        "confidence_reasoning": "The prose directly instructs .env lookup and key checking. The behavior is credential-focused and appears before normal usage guidance."
-      },
-      {
-        "title": "Parent Directory Secret Search",
-        "description": "The script walks from the current directory through all parents to find .env. This can read credentials from a broader scope than the user intended.",
-        "locations": [
-          {
-            "file": "scripts/generate_image.py",
-            "line_start": 22,
-            "line_end": 34
-          }
-        ],
-        "review_kind": "security",
-        "source_category": "semantic",
-        "source_severity": "high",
-        "confidence": 0.93,
-        "confidence_reasoning": "The implementation explicitly iterates over current_dir and current_dir.parents, then opens the first .env file and parses OPENROUTER_API_KEY."
+        "confidence": 0.98,
+        "confidence_reasoning": "The instructions direct the agent to inspect a .env file for a named secret. This creates sensitive-file access beyond merely documenting setup."
       }
     ],
     "medium_findings": [
@@ -2093,29 +1828,29 @@
         "review_kind": "capability",
         "source_category": "filesystem",
         "source_severity": "medium",
-        "confidence": 0.78,
-        "confidence_reasoning": "The script writes decoded image bytes to the caller-controlled output path. This is intended, but it can overwrite files if a risky path is supplied."
+        "confidence": 0.99,
+        "confidence_reasoning": "The script opens the caller-selected output path in write mode. It can replace an existing file without confirmation."
       },
       {
-        "title": "User Images Are Sent to an External Service",
-        "description": "In edit mode, the script reads a local image, encodes it, and posts it to OpenRouter with the prompt. Users need clear consent before this transfer.",
+        "title": "Local Images Are Uploaded Without Separate Confirmation",
+        "description": "The edit path reads any supplied local image, embeds its contents, and sends it to OpenRouter. An autonomous invocation could disclose a sensitive image without separate upload confirmation.",
         "locations": [
           {
             "file": "scripts/generate_image.py",
-            "line_start": 56,
+            "line_start": 38,
             "line_end": 60
           },
           {
             "file": "scripts/generate_image.py",
-            "line_start": 122,
+            "line_start": 117,
             "line_end": 160
           }
         ],
         "review_kind": "security",
         "source_category": "semantic",
         "source_severity": "medium",
-        "confidence": 0.91,
-        "confidence_reasoning": "The code reads the input file, builds an image_url data URL, and sends message_content in the outbound requests.post call."
+        "confidence": 0.98,
+        "confidence_reasoning": "The code directly reads the selected file, converts it to a data URL, and includes that data in the fixed OpenRouter request."
       }
     ],
     "low_findings": [
@@ -2132,8 +1867,8 @@
         "review_kind": "capability",
         "source_category": "network",
         "source_severity": "low",
-        "confidence": 0.9,
-        "confidence_reasoning": "The script makes an outbound HTTPS request to OpenRouter as part of image generation. This is expected behavior, but it sends prompts and sometimes image data to an external service."
+        "confidence": 0.99,
+        "confidence_reasoning": "The request sends prompts and optional image data to OpenRouter. This is expected functionality, but it creates a real external data transfer."
       },
       {
         "title": "Hardcoded URL",
@@ -2148,137 +1883,134 @@
         "review_kind": "capability",
         "source_category": "network",
         "source_severity": "low",
-        "confidence": 0.88,
-        "confidence_reasoning": "The hardcoded URL is the OpenRouter chat completions endpoint used for outbound image requests. It is legitimate for the skill, but it confirms external network egress."
+        "confidence": 0.99,
+        "confidence_reasoning": "This is the fixed OpenRouter API endpoint used for image requests. The destination is not user-controlled, but outbound transfer is a real capability."
       }
     ],
     "dangerous_patterns": [],
     "files_scanned": 2,
     "total_lines": 461,
     "audit_model": "codex",
-    "audited_at": "2026-07-08T06:14:40.736Z",
+    "audited_at": "2026-07-23T14:14:50.776Z",
     "agent_auto_install_policy": "confirmation_required",
     "manual_install_policy": "allowed"
   },
   "content": {
-    "user_title": "Generate AI Images Through OpenRouter",
-    "value_statement": "Creating custom visuals often requires switching tools and managing model settings. This skill wraps OpenRouter image models for prompt-based generation and image edits.",
+    "user_title": "Generate and Edit Images with OpenRouter",
+    "value_statement": "Creating polished visual assets can require separate tools and model-specific workflows. This skill generates or edits images through OpenRouter and saves the result locally.",
     "seo_keywords": [
-      "Claude image generation",
-      "Codex image generation",
-      "Claude Code image editing",
-      "OpenRouter image models",
-      "FLUX image generation",
-      "Gemini image generation",
-      "AI image editing skill",
-      "prompt to image workflow",
-      "visual asset generation",
-      "design automation"
+      "Claude",
+      "Codex",
+      "Claude Code",
+      "OpenRouter image generation",
+      "AI image editing",
+      "FLUX image generator",
+      "Gemini image generator",
+      "visual asset creation",
+      "concept art generation",
+      "Python image generation"
     ],
     "actual_capabilities": [
-      "Generates new images from text prompts using OpenRouter image models.",
-      "Edits an existing PNG, JPEG, GIF, or WebP image from a local path.",
-      "Supports model selection for Gemini and FLUX image models.",
-      "Saves the first returned image as a PNG file.",
-      "Reads an OpenRouter API key from an argument or local .env lookup.",
-      "Handles multiple OpenRouter image response formats."
+      "Sends text prompts to a selected OpenRouter image model.",
+      "Encodes a local input image for model-assisted editing.",
+      "Supports Gemini and FLUX model identifiers described by the skill.",
+      "Accepts custom input, output, and model selections through command-line options.",
+      "Handles two OpenRouter response layouts and saves the first returned image.",
+      "Accepts PNG, JPEG, GIF, and WebP files as editing inputs."
     ],
     "limitations": [
-      "Requires a valid OpenRouter API key and network access.",
-      "Sends prompts and edited input images to OpenRouter.",
-      "Does not create technical diagrams or schematics.",
-      "Does not validate image rights, licensing, or policy compliance."
+      "Requires the Python requests package, an OpenRouter API key, and network access.",
+      "Prompts and editing images leave the local machine, and provider charges may apply.",
+      "Only the first returned image is saved, and remote image URLs are not downloaded.",
+      "Model availability, output quality, and generation time depend on OpenRouter and the selected model."
     ],
     "use_cases": [
       {
-        "title": "Create Presentation Visuals",
-        "description": "Generate backgrounds, hero images, and concept visuals for slides or posters.",
-        "target_user": "Researchers and presenters"
+        "title": "Create Concept Visuals",
+        "description": "Generate focused artwork or photorealistic references for early design exploration.",
+        "target_user": "Product and visual designers"
       },
       {
-        "title": "Draft Marketing Assets",
-        "description": "Produce quick visual concepts for campaigns, social posts, and documentation pages.",
-        "target_user": "Marketing and content teams"
+        "title": "Illustrate Research Materials",
+        "description": "Create nontechnical concept images for presentations, posters, and explanatory documents.",
+        "target_user": "Researchers and educators"
       },
       {
-        "title": "Edit Existing Images",
-        "description": "Modify colors, backgrounds, or visible elements in an existing image.",
-        "target_user": "Designers and product teams"
+        "title": "Adapt Existing Assets",
+        "description": "Change backgrounds, colors, objects, or styling while preserving requested source elements.",
+        "target_user": "Content and marketing teams"
       }
     ],
     "prompt_templates": [
       {
-        "title": "Create a Simple Visual",
-        "scenario": "Beginner image generation",
-        "prompt": "Generate a clean product illustration of [subject] on a plain background. Use a modern style and balanced lighting."
+        "title": "Create a Simple Image",
+        "prompt": "Generate a [style] image of [subject]. Save it to [output path].",
+        "scenario": "Start with a clear subject and one visual style."
       },
       {
-        "title": "Edit One Image Element",
-        "scenario": "Basic image editing",
-        "prompt": "Edit [image] by changing [element] to [new appearance]. Preserve the main subject, composition, and realistic lighting."
+        "title": "Control Composition",
+        "prompt": "Generate [subject] with [lighting], [camera angle], [color palette], and [background]. Save it to [output path].",
+        "scenario": "Specify the main visual controls for a polished result."
       },
       {
-        "title": "Prepare Presentation Artwork",
-        "scenario": "Intermediate visual asset creation",
-        "prompt": "Generate a 16:9 presentation image showing [topic]. Use clear focal points, readable spacing, and colors that match [brand palette]."
+        "title": "Edit an Existing Image",
+        "prompt": "Edit [input image] by changing [target detail] to [desired result]. Preserve [unchanged elements] and save to [output path].",
+        "scenario": "Make a targeted change while protecting important source details."
       },
       {
-        "title": "Build a Multi-Model Workflow",
-        "scenario": "Advanced model comparison",
-        "prompt": "Generate three visual directions for [campaign]. Use [model] for quality, save separate outputs, and compare realism, cost, and editability."
+        "title": "Direct an Advanced Edit",
+        "prompt": "Edit [input image] with [model], preserve [elements], change [details], and save to [output path]. Do not alter [protected elements].",
+        "scenario": "Control the model, output, modifications, and preservation constraints."
       }
     ],
     "output_examples": [
       {
-        "input": "Prompt: A modern office team collaborating around a digital board.",
-        "output": "A PNG image is saved to the selected output path with status messages from the OpenRouter request."
+        "input": "Create a clean editorial photograph of a ceramic lamp on a white studio background.",
+        "output": "The skill requests the image and saves the first returned result as the selected PNG file."
       },
       {
-        "input": "Prompt: Make the sky purple in an existing landscape photo.",
-        "output": [
-          "The input image is encoded and sent to OpenRouter for editing.",
-          "The edited result is saved as a PNG file."
-        ]
+        "input": "Change the background of product.jpg to pale gray while preserving the product colors.",
+        "output": "The source image is sent with the edit request, and the returned image is saved to the selected path."
       },
       {
-        "input": "Prompt: A scientific concept illustration for an immunotherapy presentation.",
-        "output": "A general-purpose illustration is generated for presentation use, not a formal technical diagram."
+        "input": "Create a scientific concept illustration of immune cells approaching a tumor.",
+        "output": "The skill produces a conceptual illustration for review, not a precise technical or diagnostic diagram."
       }
     ],
     "best_practices": [
-      "Use detailed prompts that name the subject, style, lighting, and output purpose.",
-      "Confirm user consent before sending private images or sensitive prompts to OpenRouter.",
-      "Choose output paths carefully to avoid overwriting existing project files."
+      "Review prompts and input images for sensitive information before sending them to OpenRouter.",
+      "Use explicit output paths and confirm that existing files may be replaced.",
+      "Choose a model after checking its current availability, capabilities, and pricing."
     ],
     "anti_patterns": [
-      "Do not use this skill for flowcharts, circuits, or formal technical schematics.",
-      "Do not pass private images unless external processing is acceptable.",
-      "Do not place API keys in command history or shared documentation."
+      "Do not pass API keys on the command line or include them in prompts.",
+      "Do not upload confidential images without authorization and provider review.",
+      "Do not use this skill for precise technical diagrams or regulated visual evidence."
     ],
     "faq": [
       {
-        "question": "What does this skill generate?",
-        "answer": "It generates and edits general-purpose images such as photos, illustrations, visual concepts, and presentation assets."
+        "question": "Does this skill require an OpenRouter account?",
+        "answer": "Yes. Image requests require a valid OpenRouter API key and may incur provider charges."
       },
       {
-        "question": "Which models does it support?",
-        "answer": "The documentation lists Gemini image preview and FLUX image models through OpenRouter."
+        "question": "Are prompts and images processed locally?",
+        "answer": "No. Prompts and editing images are sent to OpenRouter, while returned image data is saved locally."
       },
       {
-        "question": "Does it need an API key?",
-        "answer": "Yes. The script requires an OpenRouter API key before it can make image requests."
+        "question": "Which input image formats are supported?",
+        "answer": "The script recognizes PNG, JPEG, GIF, and WebP extensions for image editing."
       },
       {
-        "question": "Where are generated images saved?",
-        "answer": "The script saves the first returned image to the selected output path as a PNG file."
+        "question": "Can I select a different model?",
+        "answer": "Yes. Provide an OpenRouter model identifier, but verify current generation and editing support first."
       },
       {
-        "question": "Can it edit existing images?",
-        "answer": "Yes. It can send a local input image with editing instructions to a supported OpenRouter model."
+        "question": "Can this skill create technical diagrams?",
+        "answer": "It can create conceptual visuals, but a schematic-focused skill is better for precise technical diagrams."
       },
       {
-        "question": "Is it suitable for technical diagrams?",
-        "answer": "No. The skill documentation directs users to a separate scientific schematics skill for technical diagrams."
+        "question": "Can the output replace an existing file?",
+        "answer": "Yes. The current script opens the selected output path in write mode without an overwrite prompt."
       }
     ]
   },

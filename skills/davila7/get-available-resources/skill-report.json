@@ -1,7 +1,7 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-07-08T06:38:51.245Z",
+    "generated_at": "2026-07-23T14:24:15.023Z",
     "slug": "davila7-get-available-resources",
     "source_url": "https://github.com/davila7/claude-code-templates/tree/main/cli-tool/components/skills/scientific/get-available-resources",
     "source_ref": "main",
@@ -23,18 +23,18 @@
   },
   "skill": {
     "name": "get-available-resources",
-    "description": "Detect local CPU, GPU, memory, and disk resources for scientific computing tasks. The skill writes a resource report and recommends parallel, memory, GPU, and large-data strategies.",
-    "summary": "Detect local compute resources and plan scientific workloads.",
+    "description": "Detects local CPU, GPU, memory, disk, and operating system details, then creates resource-based recommendations for scientific computing workloads.",
+    "summary": "Inventory local compute resources before planning intensive workloads.",
     "icon": "📦",
-    "version": "1.0.1",
     "author": "davila7",
     "license": "MIT",
+    "category": "devops",
     "tags": [
       "resource-detection",
+      "system-diagnostics",
       "scientific-computing",
       "gpu-detection",
-      "performance-planning",
-      "data-processing"
+      "capacity-planning"
     ],
     "supported_tools": [
       "claude",
@@ -45,16 +45,26 @@
       "scripts",
       "external_commands",
       "filesystem"
-    ],
-    "category": "data"
+    ]
   },
   "security_audit": {
-    "risk_level": "safe",
+    "risk_level": "low",
     "is_blocked": false,
     "safe_to_publish": true,
     "analysis_status": "ok",
-    "summary": "The static findings are explained by intended local resource detection, fixed subprocess calls, Markdown code examples, and a declared JSON output file. No evidence of prompt injection, network communication, credential access, or covert exfiltration was found in SKILL.md or scripts/detect_resources.py.",
-    "remediation": [],
+    "summary": "The fixed-argument subprocess calls and Markdown backticks are legitimate resource detection and documentation patterns, with no shell interpolation, network transfer, or prompt injection. Two local risks remain: the script intentionally inventories host details, and its custom output path can overwrite an existing file.",
+    "remediation": [
+      {
+        "issue": "A custom output path is opened in write mode and can replace an existing file.",
+        "suggestion": "Restrict output to the working directory and require explicit confirmation before replacing an existing file.",
+        "severity": "medium"
+      },
+      {
+        "issue": "The generated report includes host and working-directory details.",
+        "suggestion": "Make detailed OS, processor, and path fields optional, and create reports with owner-only permissions.",
+        "severity": "low"
+      }
+    ],
     "risk_factor_evidence": [
       {
         "factor": "scripts",
@@ -493,300 +503,354 @@
       {
         "id": "scripts:scripts/detect_resources.py:255:python-import-function",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The dynamic import is limited to the standard datetime module to create a timestamp. It does not load user-controlled module names or execute arbitrary code."
+        "confidence": 0.99,
+        "reason": "The literal datetime import only creates a timestamp; no user-controlled module name or dynamic code is involved."
       },
       {
         "id": "external_commands:scripts/detect_resources.py:87:python-subprocess-run",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "subprocess.run invokes nvidia-smi with a fixed argument list and shell execution is not used. The command is an expected local GPU detection probe."
+        "confidence": 0.97,
+        "reason": "The call runs nvidia-smi with a fixed argument list, shell execution disabled by default, captured output, and a timeout."
       },
       {
         "id": "external_commands:scripts/detect_resources.py:122:python-subprocess-run",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "subprocess.run invokes rocm-smi with fixed arguments and no shell interpolation. The command is used only to detect local AMD GPU information."
+        "confidence": 0.97,
+        "reason": "The call runs rocm-smi with fixed arguments, shell execution disabled by default, captured output, and a timeout."
       },
       {
         "id": "external_commands:scripts/detect_resources.py:156:python-subprocess-run",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "subprocess.run calls sysctl with fixed arguments on macOS to read the CPU brand string. No user input reaches the command or shell."
+        "confidence": 0.97,
+        "reason": "The call runs sysctl with fixed arguments only; it does not invoke a shell or include user-controlled command data."
       },
       {
         "id": "external_commands:scripts/detect_resources.py:177:python-subprocess-run",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "subprocess.run calls system_profiler with fixed arguments to collect Apple display information. It is declared local resource detection and does not transmit data."
+        "confidence": 0.97,
+        "reason": "The call runs system_profiler with a fixed argument list, no shell, captured output, and a timeout."
       },
       {
         "id": "filesystem:scripts/detect_resources.py:267:python-file-write-append",
-        "verdict": "false_positive",
-        "confidence": 0.82,
-        "reason": "The write creates the documented local resource report, using the default .claude_resources.json path unless the caller provides another output path. There is no hidden persistence or unauthorized file access."
+        "verdict": "confirmed",
+        "confidence": 0.94,
+        "reason": "The caller-controlled output path is opened in write mode, so an existing file at that path can be truncated.",
+        "severity": "medium"
       },
       {
         "id": "external_commands:SKILL.md:32:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "The backticks are Markdown formatting around the script path. This is documentation, not Ruby or shell backtick execution."
+        "confidence": 1,
+        "reason": "The backticks are Markdown formatting around a script path in explanatory prose, not an execution construct."
       },
       {
         "id": "external_commands:SKILL.md:60:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "The backticks format the documented output filename in Markdown. They do not execute commands or invoke a shell."
+        "confidence": 1,
+        "reason": "The backticks format the generated filename in Markdown and do not execute a command."
       },
       {
         "id": "external_commands:SKILL.md:62:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "This location starts a JSON example code block in Markdown. It is static documentation and contains no executable command."
+        "confidence": 1,
+        "reason": "This is the opening fence for a JSON example, not Ruby or shell backtick execution."
       },
       {
         "id": "external_commands:SKILL.md:119:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "This location closes the JSON example code block. It is Markdown syntax, not command execution."
+        "confidence": 1,
+        "reason": "This is the closing Markdown fence for a JSON example and has no execution behavior."
       },
       {
         "id": "external_commands:SKILL.md:152:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This location starts a Bash example fence in the documentation. The fenced command runs the local skill script as the intended user action."
+        "confidence": 1,
+        "reason": "This Markdown fence introduces a documented Bash invocation; the skill text itself does not execute Ruby backticks."
       },
       {
         "id": "external_commands:SKILL.md:154:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "This location closes the Bash example fence. It is Markdown formatting and not a runtime shell primitive."
+        "confidence": 1,
+        "reason": "This is a closing Markdown code fence, not an executable expression."
       },
       {
         "id": "external_commands:SKILL.md:157:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "The backticks format documented CLI flags and an output filename. This is option documentation, not command execution."
+        "confidence": 1,
+        "reason": "Inline backticks format CLI options and the default output filename; they do not execute a command."
       },
       {
         "id": "external_commands:SKILL.md:158:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "The backticks format the verbose CLI flag in Markdown. They do not represent Ruby or shell execution."
+        "confidence": 1,
+        "reason": "Inline backticks format the verbose CLI option in documentation only."
       },
       {
         "id": "external_commands:SKILL.md:162:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "The backticks format the generated resource filename. The text instructs reading the declared output report, not executing hidden commands."
+        "confidence": 1,
+        "reason": "The backticks format a local report filename in prose and have no command semantics."
       },
       {
         "id": "external_commands:SKILL.md:164:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "This location starts a Python example fence in Markdown. The example demonstrates reading the local report and is not shell execution."
+        "confidence": 1,
+        "reason": "This is an opening Markdown fence for illustrative Python code, not shell execution."
       },
       {
         "id": "external_commands:SKILL.md:186:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "This location closes a Python example fence. It is static Markdown syntax, not executable backtick behavior."
+        "confidence": 1,
+        "reason": "This is a closing Markdown code fence with no executable behavior."
       },
       {
         "id": "external_commands:SKILL.md:193:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "This location starts a Python example fence about resource-aware data loading. The code sample is documentation and not shell execution."
+        "confidence": 1,
+        "reason": "This is an opening Markdown fence for a Python usage example, not Ruby or shell execution."
       },
       {
         "id": "external_commands:SKILL.md:205:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "This location closes a Python example fence. It is Markdown syntax with no command execution semantics."
+        "confidence": 1,
+        "reason": "This is a closing Markdown code fence and does not execute anything."
       },
       {
         "id": "external_commands:SKILL.md:208:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "This location starts a Python example fence for joblib usage. It is documentation and does not execute through Markdown backticks."
+        "confidence": 1,
+        "reason": "This Markdown fence introduces an illustrative Python example and is not an execution construct."
       },
       {
         "id": "external_commands:SKILL.md:216:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "This location closes a Python example fence. It is not Ruby or shell command execution."
+        "confidence": 1,
+        "reason": "This is a closing Markdown code fence with no command execution."
       },
       {
         "id": "external_commands:SKILL.md:219:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "This location starts a Python example fence for GPU selection logic. The sample is explanatory and not a shell backtick execution path."
+        "confidence": 1,
+        "reason": "This Markdown fence introduces an illustrative Python GPU example and is not executable backtick syntax."
       },
       {
         "id": "external_commands:SKILL.md:230:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "This location closes a Python example fence. It is Markdown formatting only."
+        "confidence": 1,
+        "reason": "This is the closing fence for a documented Python example, not a command."
       },
       {
         "id": "external_commands:SKILL.md:236:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.93,
-        "reason": "This location starts a Bash dependency example fence. The documented command installs psutil for the skill and is not hidden execution."
+        "confidence": 1,
+        "reason": "This Markdown fence presents a dependency installation example; it does not itself trigger shell execution."
       },
       {
         "id": "external_commands:SKILL.md:238:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "This location closes the Bash dependency example fence. It is Markdown syntax and does not execute commands."
+        "confidence": 1,
+        "reason": "This is a closing Markdown code fence and has no execution semantics."
       },
       {
         "id": "external_commands:SKILL.md:253:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "The backticks format the generated resource filename in best-practice text. The text documents local report retention and is not a shell primitive."
+        "confidence": 1,
+        "reason": "The backticks format the local report filename in a best-practice statement."
       },
       {
         "id": "external_commands:SKILL.md:264:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "The backticks format a troubleshooting command to install psutil. This is explicit dependency guidance, not concealed command execution by the skill."
+        "confidence": 0.99,
+        "reason": "The package installation command is inline documentation and is not automatically executed by the skill."
       },
       {
         "id": "blocker:SKILL.md:128:system-reconnaissance",
-        "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "The line documents how to choose sequential processing when fewer than four cores are available. It is an expected resource-planning rule, not covert reconnaissance or exfiltration."
+        "verdict": "confirmed",
+        "confidence": 0.99,
+        "reason": "The skill intentionally inventories CPU, memory, disk, GPU, OS, and working-directory details, creating a low local information-disclosure risk.",
+        "severity": "low"
       }
     ],
     "semantic_findings": [],
     "critical_findings": [],
     "high_findings": [],
-    "medium_findings": [],
-    "low_findings": [],
-    "dangerous_patterns": [],
+    "medium_findings": [
+      {
+        "title": "Python file write/append",
+        "description": "with open(output_path, 'w') as f:",
+        "locations": [
+          {
+            "file": "scripts/detect_resources.py",
+            "line_start": 267,
+            "line_end": 267
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "filesystem",
+        "source_severity": "medium",
+        "confidence": 0.94,
+        "confidence_reasoning": "The caller-controlled output path is opened in write mode, so an existing file at that path can be truncated."
+      }
+    ],
+    "low_findings": [
+      {
+        "title": "System reconnaissance",
+        "description": "- **Sequential (< 4 cores)**: Prefer sequential processing to avoid overhead",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 128,
+            "line_end": 128
+          }
+        ],
+        "review_kind": "security",
+        "source_category": "blocker",
+        "source_severity": "low",
+        "confidence": 0.99,
+        "confidence_reasoning": "The skill intentionally inventories CPU, memory, disk, GPU, OS, and working-directory details, creating a low local information-disclosure risk."
+      }
+    ],
+    "dangerous_patterns": [
+      {
+        "title": "System reconnaissance",
+        "description": "- **Sequential (< 4 cores)**: Prefer sequential processing to avoid overhead",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 128,
+            "line_end": 128
+          }
+        ],
+        "review_kind": "security",
+        "source_category": "blocker",
+        "source_severity": "low",
+        "confidence": 0.99,
+        "confidence_reasoning": "The skill intentionally inventories CPU, memory, disk, GPU, OS, and working-directory details, creating a low local information-disclosure risk."
+      }
+    ],
     "files_scanned": 2,
     "total_lines": 674,
     "audit_model": "codex",
-    "audited_at": "2026-07-08T06:38:51.245Z",
+    "audited_at": "2026-07-23T14:24:15.023Z",
     "agent_auto_install_policy": "allowed",
     "manual_install_policy": "allowed"
   },
   "content": {
-    "user_title": "Detect Scientific Computing Resources",
-    "value_statement": "Scientific tasks fail when resource limits are unknown. This skill detects local CPU, GPU, memory, and disk capacity and recommends suitable computing strategies.",
+    "user_title": "Assess Compute Resources Before Scientific Work",
+    "value_statement": "Large scientific workloads can fail or underperform when hardware constraints are unknown. This skill inventories local resources and recommends suitable processing, memory, storage, and acceleration strategies.",
     "seo_keywords": [
-      "Claude resource detection",
-      "Codex scientific computing",
-      "Claude Code GPU detection",
-      "system resource audit",
-      "scientific computing resources",
-      "Dask planning",
-      "GPU availability",
-      "memory strategy",
-      "parallel processing",
-      "resource recommendations"
+      "Claude",
+      "Codex",
+      "Claude Code",
+      "system resource detection",
+      "CPU inventory",
+      "GPU detection",
+      "memory capacity planning",
+      "disk space analysis",
+      "scientific computing",
+      "workload optimization"
     ],
     "actual_capabilities": [
-      "Detects CPU core counts, architecture, processor name, and available frequency data.",
-      "Reports RAM, swap, and disk capacity for the current working directory.",
-      "Checks NVIDIA, AMD, and Apple Silicon GPU availability through local system utilities.",
-      "Writes a local .claude_resources.json file with a timestamped resource snapshot.",
-      "Recommends parallel processing, memory, GPU, and large-data handling strategies."
+      "Reports physical and logical CPU cores, architecture, processor details, and available frequency data.",
+      "Captures total, available, and used memory plus swap capacity.",
+      "Measures total, available, and used disk space for the working directory.",
+      "Detects NVIDIA, AMD, and Apple Silicon GPUs through platform utilities.",
+      "Identifies the operating system, release, machine architecture, and Python version.",
+      "Creates a local report with recommendations for parallelism, memory, storage, and GPU libraries."
     ],
     "limitations": [
-      "Requires psutil, and GPU detection depends on vendor utilities being installed.",
-      "Reports a point-in-time snapshot, so memory and disk availability can change quickly.",
-      "Does not benchmark workloads or guarantee library compatibility on the detected hardware.",
-      "The generated resource file may expose machine details if committed or shared."
+      "The script requires the third-party psutil package.",
+      "GPU detection depends on supported vendor utilities being installed and available on PATH.",
+      "Measurements are local snapshots and can change immediately after detection.",
+      "A custom output path can replace an existing file because the report uses write mode."
     ],
     "use_cases": [
       {
-        "title": "Plan Large Data Analysis",
-        "description": "Check whether a dataset fits in memory before choosing pandas, Dask, Zarr, or streaming workflows.",
-        "target_user": "Data scientist"
+        "title": "Plan Large Dataset Analysis",
+        "description": "Check memory and disk capacity before choosing in-memory or chunked processing.",
+        "target_user": "Data scientists"
       },
       {
-        "title": "Choose Training Hardware",
-        "description": "Detect CUDA, ROCm, or Metal support before selecting a machine learning backend.",
-        "target_user": "Machine learning engineer"
+        "title": "Select Model Training Hardware",
+        "description": "Identify available GPU backends and compatible acceleration libraries before training.",
+        "target_user": "Machine learning engineers"
       },
       {
-        "title": "Set Project Baselines",
-        "description": "Record local compute capacity before simulations, batch processing, or reproducibility planning.",
-        "target_user": "Research engineer"
+        "title": "Size Parallel Workloads",
+        "description": "Use detected CPU capacity to choose a conservative worker count for simulations or batch processing.",
+        "target_user": "Computational researchers"
       }
     ],
     "prompt_templates": [
       {
-        "title": "Check Before Analysis",
-        "scenario": "Beginner resource check before a data task.",
-        "prompt": "Use get-available-resources before analyzing this dataset. Summarize the detected limits and recommend a safe processing approach."
+        "title": "Check My Resources",
+        "prompt": "Detect the compute resources available in this project and summarize the main constraints.",
+        "scenario": "Beginner resource check"
       },
       {
-        "title": "Plan Parallel Work",
-        "scenario": "Intermediate planning for multi-core processing.",
-        "prompt": "Run get-available-resources and choose a worker count for this batch job. Explain whether joblib, multiprocessing, or Dask fits best."
+        "title": "Plan Data Processing",
+        "prompt": "Assess local resources for processing a [dataset size] dataset, then recommend an in-memory or out-of-core approach.",
+        "scenario": "Dataset planning"
       },
       {
-        "title": "Select Acceleration Backend",
-        "scenario": "Advanced model training setup.",
-        "prompt": "Use get-available-resources to detect available GPUs. Recommend a PyTorch, TensorFlow, JAX, or CPU backend for training."
+        "title": "Choose Training Backend",
+        "prompt": "Inspect available GPUs and memory, then recommend a backend and library for training [model type].",
+        "scenario": "Machine learning setup"
       },
       {
-        "title": "Design Resource-Aware Pipeline",
-        "scenario": "Advanced workflow architecture for large scientific data.",
-        "prompt": "Run get-available-resources, inspect the report, and design a pipeline for a dataset larger than memory with clear storage and compute choices."
+        "title": "Design a Resource-Aware Workflow",
+        "prompt": "Inventory this system and design a workflow for [task] using safe worker counts, memory limits, storage strategy, and hardware acceleration.",
+        "scenario": "Advanced workload architecture"
       }
     ],
     "output_examples": [
       {
-        "input": "Run the skill before analyzing a 50 GB table dataset.",
-        "output": "The report shows available memory is below the dataset size. Use chunked loading with Dask or Zarr and avoid loading all rows at once."
+        "input": "Check whether this machine can process a 40 GB dataset.",
+        "output": "Available memory is below the dataset size. Use chunked, out-of-core processing and monitor the reported disk capacity for intermediate files."
       },
       {
-        "input": "Check whether model training can use hardware acceleration.",
-        "output": "The report detects a supported GPU backend. Select the matching machine learning library and keep a CPU fallback for portability."
+        "input": "Find the best acceleration option for model training.",
+        "output": "One NVIDIA GPU is available with CUDA support. Use a CUDA-enabled framework after confirming the model and batch fit available GPU memory."
       },
       {
-        "input": "Prepare to process thousands of files in parallel.",
-        "output": "The report recommends a worker count based on logical cores and reserves capacity for the operating system and other tasks."
+        "input": "Recommend a worker count for a CPU simulation.",
+        "output": "The system has eight logical cores. Start with six workers, leave capacity for the operating system, and measure performance before increasing concurrency."
       }
     ],
     "best_practices": [
-      "Run the skill before long or expensive computations so resource limits guide design choices.",
-      "Review the generated resource file before committing, publishing, or sharing project artifacts.",
-      "Re-run detection after changing machines, closing large applications, or adding new hardware."
+      "Run detection immediately before a resource-intensive task because available memory and disk space change.",
+      "Review the report before applying recommendations to production or shared systems.",
+      "Use a new report filename or confirm replacement before selecting a custom output path."
     ],
     "anti_patterns": [
-      "Do not assume a resource report is current after system load or disk usage changes.",
-      "Do not publish .claude_resources.json when machine details should remain private.",
-      "Do not treat recommendations as a substitute for benchmarking critical workloads."
+      "Do not treat snapshot measurements as guaranteed capacity for a long-running workload.",
+      "Do not assume a detected GPU backend proves every required library is installed.",
+      "Do not expose generated reports publicly without reviewing system and path details."
     ],
     "faq": [
       {
-        "question": "Does this skill send resource data over the network?",
-        "answer": "No. The reviewed files only collect local information and write a local JSON report."
+        "question": "What resources does this skill inspect?",
+        "answer": "It inspects CPU, memory, disk, GPU, operating system, machine architecture, and Python version details."
       },
       {
-        "question": "What file does the skill create?",
-        "answer": "By default it creates .claude_resources.json in the current working directory."
+        "question": "Does the skill send resource data over the network?",
+        "answer": "No network behavior appears in the reviewed files. The script writes its report locally."
       },
       {
-        "question": "Can I choose a different output path?",
-        "answer": "Yes. The detection script documents an output option for choosing another local path."
+        "question": "Which dependency is required?",
+        "answer": "The script requires psutil. Other imported functionality comes from the Python standard library."
       },
       {
-        "question": "Which platforms are supported?",
-        "answer": "The skill documents support for macOS, Linux, and Windows, with GPU checks that depend on platform tools."
+        "question": "Which GPU platforms are supported?",
+        "answer": "It checks NVIDIA CUDA, AMD ROCm, and Apple Silicon Metal using available platform utilities."
       },
       {
-        "question": "Does it install dependencies automatically?",
-        "answer": "No. The documentation says psutil is required and gives a separate install command."
+        "question": "Are the recommendations benchmarks?",
+        "answer": "No. They are threshold-based suggestions derived from current resource measurements, not workload-specific performance tests."
       },
       {
-        "question": "Can the recommendations replace performance testing?",
-        "answer": "No. They are planning guidance based on detected resources, not measured workload benchmarks."
+        "question": "Can I choose another report location?",
+        "answer": "Yes. Review the path first because write mode can replace an existing file at the selected location."
       }
     ]
   },
