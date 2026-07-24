@@ -1,7 +1,7 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-07-08T09:28:12.102Z",
+    "generated_at": "2026-07-23T21:57:08.279Z",
     "slug": "sickn33-crewai",
     "source_url": "https://github.com/sickn33/antigravity-awesome-skills/tree/main/skills/crewai",
     "source_ref": "main",
@@ -23,18 +23,18 @@
   },
   "skill": {
     "name": "crewai",
-    "description": "Guides users through CrewAI agent design, task setup, crew orchestration, memory, tools, and flows for Python multi-agent workflows.",
-    "summary": "Build and review CrewAI agents, tasks, crews, memory, and flows for Python multi-agent systems.",
+    "description": "Design CrewAI agents, tasks, crews, memory, tools, and event-driven flows for structured multi-agent Python applications.",
+    "summary": "Build and review role-based multi-agent workflows with CrewAI.",
     "icon": "📦",
-    "version": "1.0.1",
     "author": "sickn33",
     "license": "MIT",
+    "category": "coding",
     "tags": [
       "crewai",
       "multi-agent",
-      "ai-agents",
       "python",
-      "orchestration"
+      "agent-orchestration",
+      "llm-workflows"
     ],
     "supported_tools": [
       "claude",
@@ -43,19 +43,23 @@
     ],
     "risk_factors": [
       "external_commands"
-    ],
-    "category": "coding"
+    ]
   },
   "security_audit": {
-    "risk_level": "medium",
+    "risk_level": "high",
     "is_blocked": false,
-    "safe_to_publish": true,
+    "safe_to_publish": false,
     "analysis_status": "ok",
-    "summary": "The seven external command detections are false positives from Markdown fences and inline skill names, not executable shell or Ruby syntax. One semantic concern remains: the database tool example directly executes agent-supplied SQL and should include safety controls.",
+    "summary": "All seven static command findings are false positives caused by Markdown fences or inline code, with no Ruby or shell execution present. Semantic review identified unrestricted agent-controlled SQL execution and untrusted web research flowing into a downstream agent. Add database controls and indirect prompt injection defenses before publication.",
     "remediation": [
       {
-        "issue": "Unsafe database tool example",
-        "suggestion": "Replace the direct SQL execution example with parameterized read-only queries, operation allow-lists, and explicit approval before database access.",
+        "issue": "The database tool executes agent-supplied SQL without validation or authorization controls.",
+        "suggestion": "Use parameterized read-only queries, allowlist operations and tables, apply a least-privilege database role, and require approval before any write.",
+        "severity": "high"
+      },
+      {
+        "issue": "Retrieved web content becomes downstream agent context without an explicit trust boundary.",
+        "suggestion": "Treat retrieved text as data, isolate it from instructions, detect instruction-like content, verify sources, and restrict downstream tools.",
         "severity": "medium"
       }
     ],
@@ -177,80 +181,121 @@
       {
         "id": "external_commands:SKILL.md:410:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "Line 410 begins a Markdown workflow fence with numbered planning steps. It is not Ruby backtick execution or a shell command."
+        "confidence": 0.99,
+        "reason": "Lines 410-415 are a Markdown fence around a numbered workflow. They contain no Ruby backtick expression or shell command."
       },
       {
         "id": "external_commands:SKILL.md:415:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "Line 415 closes a Markdown workflow fence and the next section is prose. No executable command or dynamic shell input is present."
+        "confidence": 0.99,
+        "reason": "Line 415 closes a Markdown block, and the following lines are prose headings. No command interpreter or executable command is involved."
       },
       {
         "id": "external_commands:SKILL.md:423:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "Line 423 opens a Markdown block listing workflow steps for an observable agent team. The content is documentation, not command execution."
+        "confidence": 0.99,
+        "reason": "Line 423 opens a Markdown fence containing four workflow steps. The backticks format documentation and do not execute external commands."
       },
       {
         "id": "external_commands:SKILL.md:428:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "Line 428 closes the Markdown workflow block. It does not invoke a shell, Ruby, or any external process."
+        "confidence": 0.99,
+        "reason": "Line 428 is a closing Markdown fence followed by prose. There is no Ruby or shell execution context."
       },
       {
         "id": "external_commands:SKILL.md:436:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "Line 436 opens a Markdown block that describes CrewAI Flow design steps. No command string or execution sink appears."
+        "confidence": 0.99,
+        "reason": "Line 436 opens a fenced list of design steps. The block contains documentation only and invokes no external process."
       },
       {
         "id": "external_commands:SKILL.md:441:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "Line 441 closes the Markdown workflow block. The detected backticks are formatting delimiters, not executable syntax."
+        "confidence": 0.99,
+        "reason": "Line 441 closes a Markdown fence before the related-skills section. It is not a shell or Ruby backtick expression."
       },
       {
         "id": "external_commands:SKILL.md:445:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "Line 445 uses inline Markdown backticks for related skill names. These names are not shell commands and have no execution path."
+        "confidence": 0.99,
+        "reason": "Line 445 uses inline backticks to format related skill names. The text is documentation and cannot execute commands."
       }
     ],
     "semantic_findings": [
       {
-        "title": "Unsafe Database Tool Example",
-        "description": "The custom tool example accepts a SQL string and executes it directly. CrewAI agents could issue unsafe database operations if users copy this pattern.",
+        "title": "Unrestricted Agent-Controlled SQL Execution",
+        "description": "The custom tool passes arbitrary SQL directly to db.execute and assigns the tool to an agent. Model-generated or injected SQL could expose, alter, or delete data.",
+        "severity": "high",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 383,
+            "line_end": 394
+          }
+        ],
+        "confidence": 0.97,
+        "confidence_reasoning": "The example directly connects an unrestricted SQL string to database execution and exposes that function as an agent tool. No validation, authorization, or read-only boundary is shown."
+      },
+      {
+        "title": "Untrusted Web Content Reaches a Downstream Agent",
+        "description": "The research agent uses web tools, and its output becomes writing-task context without isolation or validation. Malicious pages could influence downstream instructions through indirect prompt injection.",
         "severity": "medium",
         "locations": [
           {
             "file": "SKILL.md",
-            "line_start": 383,
-            "line_end": 386
+            "line_start": 86,
+            "line_end": 96
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 127,
+            "line_end": 139
           }
         ],
-        "confidence": 0.78,
-        "confidence_reasoning": "The example directly executes a string supplied through an agent tool argument. It is shown as a minimal pattern, so risk depends on the final implementation."
+        "confidence": 0.86,
+        "confidence_reasoning": "The configuration explicitly combines web retrieval with downstream task context. The absence of a trust-boundary control is clear, although exploit impact depends on the deployed tools and prompts."
       }
     ],
     "critical_findings": [],
-    "high_findings": [],
-    "medium_findings": [
+    "high_findings": [
       {
-        "title": "Unsafe Database Tool Example",
-        "description": "The custom tool example accepts a SQL string and executes it directly. CrewAI agents could issue unsafe database operations if users copy this pattern.",
+        "title": "Unrestricted Agent-Controlled SQL Execution",
+        "description": "The custom tool passes arbitrary SQL directly to db.execute and assigns the tool to an agent. Model-generated or injected SQL could expose, alter, or delete data.",
         "locations": [
           {
             "file": "SKILL.md",
             "line_start": 383,
-            "line_end": 386
+            "line_end": 394
+          }
+        ],
+        "review_kind": "security",
+        "source_category": "semantic",
+        "source_severity": "high",
+        "confidence": 0.97,
+        "confidence_reasoning": "The example directly connects an unrestricted SQL string to database execution and exposes that function as an agent tool. No validation, authorization, or read-only boundary is shown."
+      }
+    ],
+    "medium_findings": [
+      {
+        "title": "Untrusted Web Content Reaches a Downstream Agent",
+        "description": "The research agent uses web tools, and its output becomes writing-task context without isolation or validation. Malicious pages could influence downstream instructions through indirect prompt injection.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 86,
+            "line_end": 96
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 127,
+            "line_end": 139
           }
         ],
         "review_kind": "security",
         "source_category": "semantic",
         "source_severity": "medium",
-        "confidence": 0.78,
-        "confidence_reasoning": "The example directly executes a string supplied through an agent tool argument. It is shown as a minimal pattern, so risk depends on the final implementation."
+        "confidence": 0.86,
+        "confidence_reasoning": "The configuration explicitly combines web retrieval with downstream task context. The absence of a trust-boundary control is clear, although exploit impact depends on the deployed tools and prompts."
       }
     ],
     "low_findings": [],
@@ -258,126 +303,134 @@
     "files_scanned": 1,
     "total_lines": 459,
     "audit_model": "codex",
-    "audited_at": "2026-07-08T09:28:12.102Z",
-    "agent_auto_install_policy": "allowed",
+    "audited_at": "2026-07-23T21:57:08.279Z",
+    "agent_auto_install_policy": "confirmation_required",
     "manual_install_policy": "allowed"
   },
   "content": {
-    "user_title": "Build CrewAI Multi-Agent Workflows",
-    "value_statement": "Designing multi-agent systems requires clear roles, tasks, tools, and process choices. This skill guides CrewAI planning, implementation, and review for Python workflows.",
+    "user_title": "Design Reliable CrewAI Agent Teams",
+    "value_statement": "Multi-agent projects often fail because roles, tasks, dependencies, and control flow are unclear. This skill provides practical CrewAI patterns for structured Python workflows.",
     "seo_keywords": [
       "CrewAI",
-      "multi-agent workflows",
-      "AI agents",
+      "multi-agent orchestration",
+      "AI agent teams",
+      "Python agents",
+      "agent workflows",
+      "CrewAI Flows",
       "Claude",
       "Codex",
       "Claude Code",
-      "Python agents",
-      "agent orchestration",
-      "CrewAI tools",
-      "agent memory"
+      "hierarchical agents"
     ],
     "actual_capabilities": [
-      "Designs CrewAI agents with roles, goals, backstories, and tool assignments.",
-      "Defines tasks with dependencies, expected outputs, and context sharing.",
-      "Chooses sequential, hierarchical, or flow-based orchestration patterns.",
-      "Explains CrewAI memory options and custom storage integration points.",
-      "Shows how to add custom tools to agents with scoped responsibilities.",
-      "Combines CrewAI with related observability and structured output skills."
+      "Defines CrewAI agents with roles, goals, backstories, and assigned tools.",
+      "Structures tasks with expected outputs, dependencies, and shared context.",
+      "Recommends sequential or hierarchical orchestration based on workflow needs.",
+      "Configures planning, memory, and event-driven CrewAI Flows.",
+      "Shows class-based and decorator-based custom tool patterns."
     ],
     "limitations": [
-      "It assumes Python and basic multi-agent concepts.",
-      "It does not validate code against your local runtime or APIs.",
-      "It cannot provide credentials or configure live external services.",
-      "Simple tasks may not need a multi-agent design."
+      "Provides guidance and examples but does not run or test CrewAI projects.",
+      "Requires Python 3.10+, CrewAI, an LLM provider, and project-specific credentials.",
+      "Example code omits production controls such as authorization, input validation, and failure recovery.",
+      "Features and APIs may differ across CrewAI versions."
     ],
     "use_cases": [
       {
-        "title": "Plan an Agent Team",
-        "description": "Create a CrewAI design with clear roles, tasks, process type, inputs, and expected outputs.",
-        "target_user": "Python developer"
+        "title": "Build a Research and Writing Crew",
+        "description": "Design agents, tasks, and context dependencies for a repeatable research-to-content workflow.",
+        "target_user": "Python application developer"
       },
       {
-        "title": "Review Orchestration Choices",
-        "description": "Compare sequential, hierarchical, and flow-based designs for a specific workflow.",
-        "target_user": "AI architect"
+        "title": "Choose an Orchestration Process",
+        "description": "Compare sequential and hierarchical processes for a multi-agent workload with clear delegation needs.",
+        "target_user": "AI solutions architect"
       },
       {
-        "title": "Add Tools and Memory",
-        "description": "Scope agent tools, memory, and integrations before building a production workflow.",
-        "target_user": "Automation team"
+        "title": "Plan a Stateful Agent Workflow",
+        "description": "Map events, routers, memory, and specialized crews into a controlled CrewAI Flow.",
+        "target_user": "Machine learning platform engineer"
       }
     ],
     "prompt_templates": [
       {
-        "title": "Explain CrewAI Fit",
-        "scenario": "Beginner evaluation",
-        "prompt": "Use this CrewAI skill to explain whether my task needs agents, tasks, crews, and processes. My task is: {task}."
+        "title": "Create a Basic Crew",
+        "prompt": "Design a minimal CrewAI team for [goal]. Define each agent, task, expected output, and execution order. Explain the choices.",
+        "scenario": "Starting a first CrewAI project"
       },
       {
-        "title": "Design a Basic Crew",
-        "scenario": "Project planning",
-        "prompt": "Design a CrewAI crew for {goal}. Include agent roles, task order, expected outputs, process type, and required inputs."
+        "title": "Structure YAML Configuration",
+        "prompt": "Convert this workflow into CrewAI agent and task configuration: [workflow]. Include roles, goals, dependencies, inputs, and expected outputs.",
+        "scenario": "Separating workflow configuration from Python orchestration"
       },
       {
-        "title": "Review an Implementation",
-        "scenario": "Code review support",
-        "prompt": "Review this CrewAI design for role clarity, task dependencies, process choice, memory use, and tool scope: {design}."
+        "title": "Select the Process Model",
+        "prompt": "Assess this multi-agent workflow: [details]. Recommend sequential or hierarchical execution. Identify delegation boundaries, dependencies, and failure points.",
+        "scenario": "Choosing an orchestration strategy"
       },
       {
-        "title": "Plan a Production Flow",
-        "scenario": "Advanced architecture",
-        "prompt": "Plan a CrewAI Flow for {workflow}. Include state, routing decisions, crew boundaries, failure handling, observability, and validation checks."
+        "title": "Design a Production Flow",
+        "prompt": "Design a CrewAI Flow for [system]. Include state, routing, memory, approval gates, tool permissions, error handling, observability, and test criteria.",
+        "scenario": "Planning an advanced production workflow"
       }
     ],
     "output_examples": [
       {
-        "input": "Create a research and writing crew for a product launch brief.",
-        "output": "A plan with researcher and writer agents, sequenced tasks, expected outputs, required inputs, and review checkpoints."
+        "input": "Design a crew that researches a market and produces an executive brief.",
+        "output": [
+          "Research agent: gathers cited market evidence from approved sources.",
+          "Analyst agent: compares trends, competitors, and uncertainties.",
+          "Writer agent: produces the brief from reviewed research and analysis.",
+          "Process: sequential, with explicit expected outputs and a review gate."
+        ]
       },
       {
-        "input": "Review my CrewAI flow for a content pipeline.",
-        "output": "A review covering flow steps, routing choices, state handling, tool boundaries, and missing tests."
+        "input": "Should a support-triage crew use sequential or hierarchical execution?",
+        "output": "Use hierarchical execution when a manager must assign cases by specialty and resolve conflicts. Use sequential execution for a fixed classify, investigate, and respond pipeline."
       },
       {
-        "input": "Add memory and tools to an agent team.",
-        "output": "Guidance for memory scope, tool permissions, integration points, and safeguards before production use."
+        "input": "Review a CrewAI workflow that gives every agent every tool.",
+        "output": [
+          "Primary risk: excessive tool access increases the effect of mistakes and prompt injection.",
+          "Recommendation: assign only task-specific tools and require approval for sensitive actions.",
+          "Validation: test denied operations, malformed inputs, timeouts, and partial failures."
+        ]
       }
     ],
     "best_practices": [
-      "Start with clear roles, goals, and expected outputs before adding tools or memory.",
-      "Use sequential processes until coordination needs justify hierarchical management or flows.",
-      "Restrict tools to the minimum permissions needed by each agent."
+      "Give every agent one clear responsibility and measurable expected outputs.",
+      "Use least-privilege tools, validated inputs, and approval gates for sensitive actions.",
+      "Test task dependencies, routing, memory behavior, retries, and partial failures."
     ],
     "anti_patterns": [
-      "Do not give every agent broad tools when only one task needs them.",
-      "Do not use multi-agent orchestration for simple single-step prompts.",
-      "Do not skip tests around tools, memory, and external integrations."
+      "Do not create many agents when a deterministic function or single model call is sufficient.",
+      "Do not pass untrusted retrieved content into agent instructions without isolation and validation.",
+      "Do not expose unrestricted database, filesystem, or network tools to autonomous agents."
     ],
     "faq": [
       {
-        "question": "Does this skill run CrewAI code?",
-        "answer": "No. It guides design and review. You still run, test, and secure code in your environment."
+        "question": "What does this skill help me build?",
+        "answer": "It helps design CrewAI agents, tasks, crews, tools, memory, planning, and event-driven flows."
       },
       {
-        "question": "Which assistants can use it?",
-        "answer": "The report marks it as compatible with Claude, Codex, and Claude Code."
+        "question": "Does it install or run CrewAI?",
+        "answer": "No. It provides design and implementation guidance for a Python environment that you manage."
       },
       {
-        "question": "Can it help with YAML configuration?",
-        "answer": "Yes. It covers agent and task configuration patterns commonly used in CrewAI projects."
+        "question": "When should I use a sequential process?",
+        "answer": "Use sequential execution when tasks follow a stable order and each output feeds the next task."
       },
       {
-        "question": "Does it cover CrewAI Flows?",
-        "answer": "Yes. It includes guidance for event-driven flows, state, routing, and crew boundaries."
+        "question": "When should I use a hierarchical process?",
+        "answer": "Use hierarchical execution when a manager must delegate dynamic work among specialized agents."
       },
       {
-        "question": "Can it design custom tools?",
-        "answer": "Yes. Tool designs should use narrow permissions, validation, and approvals for sensitive actions."
+        "question": "Does it cover persistent workflows?",
+        "answer": "Yes. It describes memory configuration and CrewAI Flows with state, listeners, and routing."
       },
       {
-        "question": "Is it only for Python projects?",
-        "answer": "Yes. CrewAI is a Python framework, and the examples assume Python project structure."
+        "question": "What production safeguards are still required?",
+        "answer": "Add authorization, input validation, least-privilege tools, approval gates, observability, error handling, and tests."
       }
     ]
   },
