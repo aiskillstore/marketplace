@@ -1,7 +1,7 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-07-08T07:27:46.785Z",
+    "generated_at": "2026-07-23T17:10:13.474Z",
     "slug": "mattpocock-wizard",
     "source_url": "https://github.com/mattpocock/skills/tree/main/skills/in-progress/wizard/",
     "source_ref": "main",
@@ -23,18 +23,18 @@
   },
   "skill": {
     "name": "wizard",
-    "description": "Generate interactive Bash wizards for guided setup, migrations, and service configuration. The scripts open URLs, collect values, update .env files, and set GitHub secrets.",
-    "summary": "Creates guided Bash setup scripts with prompts, confirmations, .env updates, and GitHub secret support.",
+    "description": "Generates interactive Bash wizards for guided setup, migrations, and state changes, including URL opening, confirmations, environment files, and GitHub configuration.",
+    "summary": "Create guided Bash procedures that capture values, update environment files, and configure GitHub secrets.",
     "icon": "📦",
-    "version": "1.0.1",
     "author": "mattpocock",
     "license": "MIT",
+    "category": "devops",
     "tags": [
       "bash",
       "setup-automation",
-      "env-files",
       "github-actions",
-      "onboarding"
+      "environment-configuration",
+      "migration"
     ],
     "supported_tools": [
       "claude",
@@ -46,34 +46,33 @@
       "network",
       "filesystem",
       "env_access"
-    ],
-    "category": "devops"
+    ]
   },
   "security_audit": {
     "risk_level": "high",
     "is_blocked": false,
     "safe_to_publish": false,
     "analysis_status": "ok",
-    "summary": "The skill does not show prompt injection or malicious exfiltration intent, but it intentionally handles credentials and env files. Most command, filesystem, and network alerts are safe template mechanics; the confirmed issues are secret collection, .env access, and GitHub secret mutation.",
+    "summary": "Most command and device-file alerts are false positives caused by Markdown code spans, arithmetic expansion, fixed commands, and output redirection. Confirmed risks involve intentional environment-secret handling, authenticated GitHub configuration updates, and temporary storage of environment contents. No prompt injection or credential exfiltration intent was found.",
     "remediation": [
       {
-        "issue": "Existing .env files may contain secrets.",
-        "suggestion": "Prefer .env.example for discovery and ask the user before reading real .env or .env.* files.",
+        "issue": "Repository discovery can expose existing environment secrets to model context.",
+        "suggestion": "Inspect variable names from example files and CI references first. Read populated environment files only after explicit user approval, and never echo values.",
         "severity": "high"
       },
       {
-        "issue": "Generated wizards can persist API secrets in plaintext env files.",
-        "suggestion": "Warn users before writing secrets locally, add .env gitignore checks, and avoid logging captured values.",
-        "severity": "high"
+        "issue": "Environment values are written without rejecting embedded newlines.",
+        "suggestion": "Validate keys and reject newline or null characters in values. Use a dotenv-aware serializer and enforce restrictive file permissions.",
+        "severity": "medium"
       },
       {
-        "issue": "The template can update GitHub Actions secrets and variables.",
-        "suggestion": "Show the target repository and exact secret or variable names before calling gh secret set or gh variable set.",
-        "severity": "high"
+        "issue": "Temporary files containing environment values may remain after an interrupted write.",
+        "suggestion": "Create the temporary file beside the destination with restrictive permissions, register a cleanup trap, and remove it on every failure path.",
+        "severity": "low"
       },
       {
-        "issue": "ENV_FILE can redirect where captured values are read and written.",
-        "suggestion": "Resolve and display the env file path before writing, and prefer project-local paths by default.",
+        "issue": "GitHub secret and variable writes rely on the repository inferred by the gh CLI.",
+        "suggestion": "Display the resolved repository and require confirmation before remote writes. Support an explicit repository argument for every gh mutation.",
         "severity": "medium"
       }
     ],
@@ -715,273 +714,303 @@
       {
         "id": "external_commands:SKILL.md:9:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "This is Markdown prose with inline code formatting around .env, not shell backtick execution. The line describes intended wizard behavior and does not execute commands."
+        "confidence": 0.99,
+        "reason": "The backticks are Markdown code spans describing environment files and GitHub secrets. This line contains no Ruby or shell execution syntax."
       },
       {
         "id": "external_commands:SKILL.md:11:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.91,
-        "reason": "The matched backticks are Markdown around helper names such as template.sh and gh secret. There is no executable command substitution in the skill file."
+        "confidence": 0.99,
+        "reason": "The line documents template helper names inside Markdown code spans. It does not execute the displayed commands."
       },
       {
         "id": "external_commands:SKILL.md:13:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.93,
-        "reason": "The backticks around scripts/ are Markdown path formatting. This line gives storage guidance and does not run a command."
+        "confidence": 0.99,
+        "reason": "The backticks only format a suggested scripts directory in prose. No command substitution or executable construct is present."
       },
       {
         "id": "external_commands:SKILL.md:21:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The matched text is Markdown formatting for file globs and CI references. Sensitive file review is handled separately, but this is not shell execution."
+        "confidence": 0.99,
+        "reason": "This is a Markdown list of repository paths to inspect. The code spans are not shell backtick execution."
       },
       {
         "id": "external_commands:SKILL.md:26:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The line uses Markdown code spans for destination names such as .env. It describes where values are written and contains no executable command syntax."
+        "confidence": 0.99,
+        "reason": "The line uses Markdown code formatting for destination names. It contains no executable shell expression."
       },
       {
         "id": "external_commands:SKILL.md:36:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.91,
-        "reason": "The matched strings are Markdown code spans naming template helpers. The instruction is to author stages, not to execute dynamically generated shell text."
+        "confidence": 0.99,
+        "reason": "Helper and file names are shown as inline Markdown. The prose instructs later script authoring but does not itself execute commands."
       },
       {
         "id": "external_commands:SKILL.md:38:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.91,
-        "reason": "This is Markdown formatting around helper function names. It gives safe authoring rules and does not contain shell backtick execution."
+        "confidence": 0.99,
+        "reason": "Backticks format documented helper names only. There is no shell evaluation or attacker-controlled command construction on this line."
       },
       {
         "id": "external_commands:SKILL.md:42:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.84,
-        "reason": "The line recommends bash -n and shellcheck as validation commands. These are ordinary static checks, not command injection or hidden execution."
+        "confidence": 0.96,
+        "reason": "The line documents fixed syntax-checking commands in Markdown. These validation commands do not interpolate untrusted input or create a command-injection path."
       },
       {
         "id": "external_commands:SKILL.md:43:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "chmod +x is shown as a visible setup command for the generated script. It is not dynamic shell execution and does not create a command injection path."
+        "confidence": 0.93,
+        "reason": "This is a documented chmod handoff step with a local script placeholder. It is not backtick execution and does not construct a command from remote input."
       },
       {
         "id": "external_commands:SKILL.md:44:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.89,
-        "reason": "The backticks mark helper and CI reference names in Markdown. The line explicitly advises against running the wizard end to end during verification."
+        "confidence": 0.99,
+        "reason": "The code span names a helper while the prose explicitly prohibits end-to-end execution. No executable construct appears in the Markdown."
       },
       {
         "id": "sensitive:SKILL.md:3:environment-file-access",
         "verdict": "confirmed",
-        "confidence": 0.84,
-        "severity": "high",
-        "reason": "The skill description explicitly includes writing .env files and GitHub Actions secrets. That is intended secret handling and local configuration mutation."
+        "confidence": 0.96,
+        "reason": "The declared capability explicitly captures values and writes environment files and GitHub Actions secrets. This is legitimate but security-sensitive credential handling.",
+        "severity": "high"
       },
       {
         "id": "sensitive:SKILL.md:9:environment-file-access",
         "verdict": "confirmed",
-        "confidence": 0.84,
-        "severity": "high",
-        "reason": "The prose says the wizard captures values and writes them to .env and GitHub secrets. This creates real risk if credentials are stored or routed incorrectly."
+        "confidence": 0.98,
+        "reason": "The skill states that generated wizards capture values and write them to .env and GitHub secrets. Mishandling these values could expose credentials.",
+        "severity": "high"
       },
       {
         "id": "sensitive:SKILL.md:11:environment-file-access",
         "verdict": "confirmed",
-        "confidence": 0.86,
-        "severity": "high",
-        "reason": "The documented template supports hidden secret entry, .env upserts, and gh secret writes. Those features intentionally handle sensitive credentials."
+        "confidence": 0.99,
+        "reason": "The documented template performs idempotent .env updates and GitHub secret writes. These are real sensitive-file and remote credential operations.",
+        "severity": "high"
       },
       {
         "id": "sensitive:SKILL.md:21:environment-file-access",
         "verdict": "confirmed",
-        "confidence": 0.9,
-        "severity": "high",
-        "reason": "The process instructs the agent to read .env and .env.* files, which may contain existing secrets. This can expose credentials to the model context."
+        "confidence": 0.99,
+        "reason": "The instructions direct the agent to inspect populated .env variants and CI secret references. Reading populated files can place existing credentials into model context.",
+        "severity": "high"
       },
       {
         "id": "sensitive:SKILL.md:26:environment-file-access",
         "verdict": "confirmed",
-        "confidence": 0.85,
-        "severity": "high",
-        "reason": "The line requires mapping captured values to .env and GitHub secret destinations. That is legitimate functionality, but it is sensitive credential routing."
+        "confidence": 0.9,
+        "reason": "The workflow requires mapping captured values to .env or GitHub secret destinations and classifying secrecy. This confirms intentional handling of sensitive configuration.",
+        "severity": "high"
       },
       {
         "id": "external_commands:template.sh:15:shell-command-substitution",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "The command substitution only checks terminal color support through tput with a safe fallback. It does not execute user-controlled shell text."
+        "confidence": 0.98,
+        "reason": "The substitution runs the fixed tput colors command and falls back to a constant. No user-controlled command name or shell evaluation is involved."
       },
       {
         "id": "external_commands:template.sh:16:shell-command-substitution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "These are hardcoded tput calls used to assign terminal style escape sequences. No untrusted input controls the command or arguments."
+        "confidence": 0.98,
+        "reason": "These fixed tput calls only obtain terminal formatting sequences. Their arguments are constants and provide no command-injection vector."
       },
       {
         "id": "external_commands:template.sh:17:shell-command-substitution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "These hardcoded tput color calls are presentation logic. They do not run arbitrary shell text or touch user data."
+        "confidence": 0.98,
+        "reason": "The fixed tput calls select terminal colors. No external or user-supplied value controls the executed command."
       },
       {
         "id": "external_commands:template.sh:56:shell-command-substitution",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "This is arithmetic expansion, not command substitution. It increments an internal stage counter only."
+        "confidence": 0.99,
+        "reason": "This is Bash arithmetic expansion that increments an internal integer. It is not shell command substitution."
       },
       {
         "id": "external_commands:template.sh:57:shell-command-substitution",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "This is arithmetic expansion for progress display. It does not invoke an external command."
+        "confidence": 0.99,
+        "reason": "This is arithmetic using script-controlled progress totals. It does not invoke an external command."
       },
       {
         "id": "external_commands:template.sh:59:shell-command-substitution",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This is arithmetic expansion using a stage duration parameter. It does not execute shell commands."
+        "confidence": 0.98,
+        "reason": "The expression updates elapsed minutes with an authored numeric stage value. It is arithmetic expansion rather than command substitution."
       },
       {
         "id": "external_commands:template.sh:100:shell-command-substitution",
         "verdict": "false_positive",
-        "confidence": 0.78,
-        "reason": "The command substitution uses hardcoded grep and tail to read an existing env value. It is not arbitrary command execution, although the underlying .env access remains sensitive."
+        "confidence": 0.9,
+        "reason": "The fixed grep and tail pipeline reads a quoted environment-file path. The key is supplied by authored wizard stages, and no shell text is evaluated."
       },
       {
         "id": "external_commands:template.sh:108:shell-command-substitution",
         "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "This calls the local _existing helper through command substitution to load a default value. It does not execute user-supplied shell text."
+        "confidence": 0.96,
+        "reason": "The substitution calls the script's fixed _existing helper with a quoted key. It does not build or evaluate an arbitrary command."
       },
       {
         "id": "external_commands:template.sh:122:shell-command-substitution",
         "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "This calls the local _existing helper for hidden prompts. The risk is sensitive value handling, not external command execution."
+        "confidence": 0.96,
+        "reason": "The substitution calls the local _existing helper with a quoted stage-authored key. No attacker-controlled command name is executed."
       },
       {
         "id": "external_commands:template.sh:139:shell-command-substitution",
         "verdict": "false_positive",
-        "confidence": 0.82,
-        "reason": "mktemp is used in the standard safe pattern for creating a temporary file. The command is hardcoded and is not influenced by untrusted shell input."
+        "confidence": 0.97,
+        "reason": "The substitution invokes mktemp with no user-controlled options or command text. Temporary-file lifecycle risk is covered by the dedicated finding."
       },
       {
         "id": "network:template.sh:201:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.87,
-        "reason": "The hardcoded URL opens the official Stripe dashboard as an example stage. The script does not send captured data to that URL or make a scripted HTTP request."
+        "confidence": 0.97,
+        "reason": "The URL is Stripe's HTTPS test-key dashboard and is opened locally for the stated setup example. The script does not transmit data to that URL."
       },
       {
         "id": "filesystem:template.sh:15:standard-device-file-access",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "This line checks terminal capabilities and suppresses tput errors. It does not read or write user files."
+        "confidence": 0.99,
+        "reason": "The standard device is /dev/null, used only to suppress command output. It does not read or modify a sensitive device."
       },
       {
         "id": "filesystem:template.sh:37:standard-device-file-access",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The code clears the terminal using tput or escape sequences. It does not access the filesystem beyond checking for a local command."
+        "confidence": 0.99,
+        "reason": "The /dev/null redirection only hides command-discovery output. The terminal clearing behavior does not access sensitive device data."
       },
       {
         "id": "filesystem:template.sh:75:standard-device-file-access",
         "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "This checks whether wslview is available before opening a user-visible URL. It is not standard-device file access or arbitrary file handling."
+        "confidence": 0.99,
+        "reason": "The finding refers to /dev/null output redirection during browser-command detection. This is a standard, non-sensitive suppression pattern."
       },
       {
         "id": "filesystem:template.sh:76:standard-device-file-access",
         "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "This checks for explorer.exe as a browser opener. It does not read or write files and only runs with a visible URL argument."
+        "confidence": 0.99,
+        "reason": "The script redirects command-discovery output to /dev/null. It does not access a privileged or data-bearing device."
       },
       {
         "id": "filesystem:template.sh:77:standard-device-file-access",
         "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "This checks for xdg-open as a browser opener. It is cross-platform URL handling, not filesystem access to user data."
+        "confidence": 0.99,
+        "reason": "The only standard-device use is harmless /dev/null redirection. The URL argument is separately quoted."
       },
       {
         "id": "filesystem:template.sh:78:standard-device-file-access",
         "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "This checks for the macOS open command and launches a visible URL. The pattern is not file access in this context."
+        "confidence": 0.99,
+        "reason": "This line uses /dev/null only for command detection output. No sensitive device access occurs."
       },
       {
         "id": "filesystem:template.sh:80:standard-device-file-access",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "The redirection suppresses browser-opener output and falls back to a warning. It does not expose or modify local files."
+        "confidence": 0.99,
+        "reason": "Redirecting browser-launch output to /dev/null is a benign error-suppression pattern. It does not create a filesystem confidentiality risk."
       },
       {
         "id": "filesystem:template.sh:151:standard-device-file-access",
         "verdict": "false_positive",
-        "confidence": 0.82,
-        "reason": "This checks for an authenticated gh CLI before attempting a secret write. It is not filesystem access, although the related secret mutation is sensitive."
+        "confidence": 0.99,
+        "reason": "The finding is caused by /dev/null redirection around gh availability checks. Remote GitHub mutations are assessed separately from this device-file pattern."
       },
       {
         "id": "filesystem:template.sh:152:standard-device-file-access",
         "verdict": "false_positive",
-        "confidence": 0.8,
-        "reason": "The /dev/null redirection only suppresses gh command output. Secret handling is covered by env_access findings, but this is not filesystem data access."
+        "confidence": 0.99,
+        "reason": "The standard-device operation only suppresses gh output through /dev/null. It does not expose or overwrite device data."
       },
       {
         "id": "filesystem:template.sh:165:standard-device-file-access",
         "verdict": "false_positive",
-        "confidence": 0.82,
-        "reason": "This checks whether gh is present and authenticated before setting a variable. It does not read or write local files."
+        "confidence": 0.99,
+        "reason": "The /dev/null redirections hide gh status output and are not sensitive filesystem access. The authenticated remote action is a separate concern."
       },
       {
         "id": "filesystem:template.sh:166:standard-device-file-access",
         "verdict": "false_positive",
-        "confidence": 0.8,
-        "reason": "The command writes a GitHub Actions variable through gh and suppresses output. It is not standard-device file access."
+        "confidence": 0.99,
+        "reason": "Only command output is redirected to /dev/null. No meaningful device-file content is read or written."
       },
       {
         "id": "filesystem:template.sh:139:temp-file-creation",
-        "verdict": "false_positive",
-        "confidence": 0.78,
-        "reason": "mktemp is used to update .env atomically with a unique temporary file. The temporary file is created through the standard safe utility rather than a predictable path."
+        "verdict": "confirmed",
+        "confidence": 0.86,
+        "reason": "The temporary file receives the complete environment-file contents and a new value. No cleanup trap removes this credential-bearing file if a later command fails.",
+        "severity": "low"
       },
       {
         "id": "env_access:template.sh:205:generic-api-secret-keys",
         "verdict": "confirmed",
-        "confidence": 0.91,
-        "severity": "high",
-        "reason": "The example stage prompts for a Stripe secret key using hidden input. Handling a live API secret is sensitive even when user initiated."
+        "confidence": 0.99,
+        "reason": "The script intentionally captures a Stripe secret key into a shell variable. Hidden input protects display but the credential remains sensitive in process memory.",
+        "severity": "high"
       },
       {
         "id": "env_access:template.sh:207:generic-api-secret-keys",
         "verdict": "confirmed",
-        "confidence": 0.95,
-        "severity": "high",
-        "reason": "The template writes STRIPE_SECRET_KEY to the local env file in plaintext. This is a direct credential persistence risk if the file is exposed or committed."
+        "confidence": 0.99,
+        "reason": "The captured Stripe secret key is persisted in a plaintext environment file. File disclosure or accidental version control inclusion could expose the credential.",
+        "severity": "high"
       },
       {
         "id": "env_access:template.sh:208:generic-api-secret-keys",
         "verdict": "confirmed",
-        "confidence": 0.9,
-        "severity": "high",
-        "reason": "The template sends the Stripe secret key to gh secret set, mutating repository CI secrets. This is sensitive and requires explicit user review of the target repository."
+        "confidence": 0.99,
+        "reason": "The script sends the captured credential to GitHub through an authenticated gh secret command. This is an intentional remote secret mutation with meaningful impact.",
+        "severity": "high"
       },
       {
         "id": "sensitive:template.sh:28:environment-file-access",
         "verdict": "confirmed",
-        "confidence": 0.85,
-        "severity": "high",
-        "reason": "The script selects .env as the default persistence target and allows ENV_FILE to override it. This controls where captured values and secrets are read from and written to."
+        "confidence": 0.94,
+        "reason": "ENV_FILE selects the file later read and replaced by helper functions, defaulting to .env. The environment override can redirect sensitive reads and writes to another path.",
+        "severity": "high"
       },
       {
         "id": "sensitive:template.sh:104:environment-file-access",
         "verdict": "confirmed",
-        "confidence": 0.83,
-        "severity": "high",
-        "reason": "The ask helper loads existing values from the env file as defaults. That means previously stored local configuration and possible secrets enter the script context."
+        "confidence": 0.93,
+        "reason": "The documented ask behavior retrieves an existing .env value for reuse, and ask_secret uses the same path. This intentionally reads potentially sensitive credentials.",
+        "severity": "high"
       }
     ],
-    "semantic_findings": [],
+    "semantic_findings": [
+      {
+        "title": "Environment Value Injection",
+        "description": "write_env appends values without rejecting embedded newlines. A pasted multiline value can add or replace unintended environment assignments.",
+        "severity": "medium",
+        "locations": [
+          {
+            "file": "template.sh",
+            "line_start": 136,
+            "line_end": 142
+          }
+        ],
+        "confidence": 0.94,
+        "confidence_reasoning": "The value is written directly through printf, and Bash input can contain embedded newlines. No validation or dotenv escaping occurs before replacement."
+      },
+      {
+        "title": "Unscoped GitHub Configuration Writes",
+        "description": "set_secret and set_var mutate the repository inferred by gh without displaying or validating it. A wrong working directory can update another repository.",
+        "severity": "medium",
+        "locations": [
+          {
+            "file": "template.sh",
+            "line_start": 147,
+            "line_end": 166
+          }
+        ],
+        "confidence": 0.95,
+        "confidence_reasoning": "Both helpers invoke authenticated gh mutation commands without an explicit repository argument or repository confirmation. The target therefore depends on ambient CLI context."
+      }
+    ],
     "critical_findings": [],
     "high_findings": [
       {
@@ -997,8 +1026,8 @@
         "review_kind": "security",
         "source_category": "sensitive",
         "source_severity": "high",
-        "confidence": 0.84,
-        "confidence_reasoning": "The skill description explicitly includes writing .env files and GitHub Actions secrets. That is intended secret handling and local configuration mutation."
+        "confidence": 0.96,
+        "confidence_reasoning": "The declared capability explicitly captures values and writes environment files and GitHub Actions secrets. This is legitimate but security-sensitive credential handling."
       },
       {
         "title": "Environment file access",
@@ -1013,8 +1042,8 @@
         "review_kind": "security",
         "source_category": "sensitive",
         "source_severity": "high",
-        "confidence": 0.84,
-        "confidence_reasoning": "The prose says the wizard captures values and writes them to .env and GitHub secrets. This creates real risk if credentials are stored or routed incorrectly."
+        "confidence": 0.98,
+        "confidence_reasoning": "The skill states that generated wizards capture values and write them to .env and GitHub secrets. Mishandling these values could expose credentials."
       },
       {
         "title": "Environment file access",
@@ -1029,8 +1058,8 @@
         "review_kind": "security",
         "source_category": "sensitive",
         "source_severity": "high",
-        "confidence": 0.86,
-        "confidence_reasoning": "The documented template supports hidden secret entry, .env upserts, and gh secret writes. Those features intentionally handle sensitive credentials."
+        "confidence": 0.99,
+        "confidence_reasoning": "The documented template performs idempotent .env updates and GitHub secret writes. These are real sensitive-file and remote credential operations."
       },
       {
         "title": "Environment file access",
@@ -1045,8 +1074,8 @@
         "review_kind": "security",
         "source_category": "sensitive",
         "source_severity": "high",
-        "confidence": 0.9,
-        "confidence_reasoning": "The process instructs the agent to read .env and .env.* files, which may contain existing secrets. This can expose credentials to the model context."
+        "confidence": 0.99,
+        "confidence_reasoning": "The instructions direct the agent to inspect populated .env variants and CI secret references. Reading populated files can place existing credentials into model context."
       },
       {
         "title": "Environment file access",
@@ -1061,8 +1090,8 @@
         "review_kind": "security",
         "source_category": "sensitive",
         "source_severity": "high",
-        "confidence": 0.85,
-        "confidence_reasoning": "The line requires mapping captured values to .env and GitHub secret destinations. That is legitimate functionality, but it is sensitive credential routing."
+        "confidence": 0.9,
+        "confidence_reasoning": "The workflow requires mapping captured values to .env or GitHub secret destinations and classifying secrecy. This confirms intentional handling of sensitive configuration."
       },
       {
         "title": "Generic API/secret keys",
@@ -1077,8 +1106,8 @@
         "review_kind": "capability",
         "source_category": "env_access",
         "source_severity": "high",
-        "confidence": 0.91,
-        "confidence_reasoning": "The example stage prompts for a Stripe secret key using hidden input. Handling a live API secret is sensitive even when user initiated."
+        "confidence": 0.99,
+        "confidence_reasoning": "The script intentionally captures a Stripe secret key into a shell variable. Hidden input protects display but the credential remains sensitive in process memory."
       },
       {
         "title": "Generic API/secret keys",
@@ -1093,8 +1122,8 @@
         "review_kind": "capability",
         "source_category": "env_access",
         "source_severity": "high",
-        "confidence": 0.95,
-        "confidence_reasoning": "The template writes STRIPE_SECRET_KEY to the local env file in plaintext. This is a direct credential persistence risk if the file is exposed or committed."
+        "confidence": 0.99,
+        "confidence_reasoning": "The captured Stripe secret key is persisted in a plaintext environment file. File disclosure or accidental version control inclusion could expose the credential."
       },
       {
         "title": "Generic API/secret keys",
@@ -1109,8 +1138,8 @@
         "review_kind": "capability",
         "source_category": "env_access",
         "source_severity": "high",
-        "confidence": 0.9,
-        "confidence_reasoning": "The template sends the Stripe secret key to gh secret set, mutating repository CI secrets. This is sensitive and requires explicit user review of the target repository."
+        "confidence": 0.99,
+        "confidence_reasoning": "The script sends the captured credential to GitHub through an authenticated gh secret command. This is an intentional remote secret mutation with meaningful impact."
       },
       {
         "title": "Environment file access",
@@ -1125,8 +1154,8 @@
         "review_kind": "security",
         "source_category": "sensitive",
         "source_severity": "high",
-        "confidence": 0.85,
-        "confidence_reasoning": "The script selects .env as the default persistence target and allows ENV_FILE to override it. This controls where captured values and secrets are read from and written to."
+        "confidence": 0.94,
+        "confidence_reasoning": "ENV_FILE selects the file later read and replaced by helper functions, defaulting to .env. The environment override can redirect sensitive reads and writes to another path."
       },
       {
         "title": "Environment file access",
@@ -1141,136 +1170,198 @@
         "review_kind": "security",
         "source_category": "sensitive",
         "source_severity": "high",
-        "confidence": 0.83,
-        "confidence_reasoning": "The ask helper loads existing values from the env file as defaults. That means previously stored local configuration and possible secrets enter the script context."
+        "confidence": 0.93,
+        "confidence_reasoning": "The documented ask behavior retrieves an existing .env value for reuse, and ask_secret uses the same path. This intentionally reads potentially sensitive credentials."
       }
     ],
-    "medium_findings": [],
-    "low_findings": [],
+    "medium_findings": [
+      {
+        "title": "Environment Value Injection",
+        "description": "write_env appends values without rejecting embedded newlines. A pasted multiline value can add or replace unintended environment assignments.",
+        "locations": [
+          {
+            "file": "template.sh",
+            "line_start": 136,
+            "line_end": 142
+          }
+        ],
+        "review_kind": "security",
+        "source_category": "semantic",
+        "source_severity": "medium",
+        "confidence": 0.94,
+        "confidence_reasoning": "The value is written directly through printf, and Bash input can contain embedded newlines. No validation or dotenv escaping occurs before replacement."
+      },
+      {
+        "title": "Unscoped GitHub Configuration Writes",
+        "description": "set_secret and set_var mutate the repository inferred by gh without displaying or validating it. A wrong working directory can update another repository.",
+        "locations": [
+          {
+            "file": "template.sh",
+            "line_start": 147,
+            "line_end": 166
+          }
+        ],
+        "review_kind": "security",
+        "source_category": "semantic",
+        "source_severity": "medium",
+        "confidence": 0.95,
+        "confidence_reasoning": "Both helpers invoke authenticated gh mutation commands without an explicit repository argument or repository confirmation. The target therefore depends on ambient CLI context."
+      }
+    ],
+    "low_findings": [
+      {
+        "title": "Temp file creation",
+        "description": "tmp=$(mktemp)",
+        "locations": [
+          {
+            "file": "template.sh",
+            "line_start": 139,
+            "line_end": 139
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "filesystem",
+        "source_severity": "low",
+        "confidence": 0.86,
+        "confidence_reasoning": "The temporary file receives the complete environment-file contents and a new value. No cleanup trap removes this credential-bearing file if a later command fails."
+      }
+    ],
     "dangerous_patterns": [],
     "files_scanned": 2,
     "total_lines": 258,
     "audit_model": "codex",
-    "audited_at": "2026-07-08T07:27:46.785Z",
+    "audited_at": "2026-07-23T17:10:13.474Z",
     "agent_auto_install_policy": "confirmation_required",
     "manual_install_policy": "allowed"
   },
   "content": {
-    "user_title": "Build Guided Setup Wizards",
-    "value_statement": "Manual setup and migration steps are easy to miss or repeat incorrectly. This skill creates guided Bash wizards that collect values, confirm actions, and update project configuration.",
+    "user_title": "Build Guided Bash Setup Wizards",
+    "value_statement": "Manual setup and migration procedures are easy to miss or repeat incorrectly. This skill creates interactive Bash wizards with guided stages, confirmations, and value handling.",
     "seo_keywords": [
       "Claude",
       "Codex",
       "Claude Code",
-      "bash wizard",
-      "setup automation",
+      "Bash wizard",
+      "interactive setup script",
+      "DevOps automation",
+      "environment file setup",
       "GitHub Actions secrets",
-      "env file management",
-      "developer onboarding",
-      "migration script",
-      "interactive setup"
+      "migration workflow",
+      "third-party service setup"
     ],
     "actual_capabilities": [
-      "Creates staged Bash wizard scripts from a manual setup or migration plan.",
-      "Opens service URLs with cross-platform browser helpers.",
-      "Captures visible and hidden inputs, including API keys.",
-      "Writes values to .env files with idempotent updates.",
-      "Sets GitHub Actions secrets and variables through the gh CLI.",
-      "Adds progress, confirmations, and completion summaries."
+      "Reviews repository setup files and CI references to map required values.",
+      "Copies a reusable Bash template and authors ordered procedure stages.",
+      "Opens browser URLs through supported Windows, WSL, Linux, and macOS commands.",
+      "Captures visible or hidden input and reuses existing environment values.",
+      "Upserts environment values and configures GitHub Actions secrets or variables through gh.",
+      "Shows stage progress, remaining time, confirmations, and a closing summary."
     ],
     "limitations": [
-      "Requires the user to verify each external service path and current dashboard UI.",
-      "Generated scripts can handle secrets, so they need careful review before use.",
-      "It does not run the full wizard automatically because it blocks on human input.",
-      "GitHub secret setup depends on an installed and authenticated gh CLI."
+      "Generated wizards require human interaction and should not run unattended.",
+      "Current web interface steps may require documentation or user confirmation.",
+      "GitHub configuration requires an installed and authenticated gh CLI.",
+      "Local secrets remain in plaintext environment files and require access controls."
     ],
     "use_cases": [
       {
-        "title": "Create onboarding setup scripts",
-        "description": "Turn project setup requirements into a guided script that gathers environment values and confirms each step.",
-        "target_user": "New project maintainers"
+        "title": "Standardize Project Onboarding",
+        "description": "Create a repeatable wizard that collects configuration values and guides each setup stage.",
+        "target_user": "DevOps engineer"
       },
       {
-        "title": "Guide service credential setup",
-        "description": "Walk a developer through dashboard steps, capture API keys, and place values in local and CI configuration.",
-        "target_user": "DevOps engineers"
+        "title": "Configure Third-Party Services",
+        "description": "Guide dashboard navigation, capture service credentials, and place values in approved destinations.",
+        "target_user": "Application developer"
       },
       {
-        "title": "Package one-time migrations",
-        "description": "Convert a manual migration checklist into an interactive flow with confirmation gates before irreversible actions.",
-        "target_user": "Engineering leads"
+        "title": "Control One-Time Migrations",
+        "description": "Turn a state transition into ordered stages with confirmation before irreversible actions.",
+        "target_user": "Migration lead"
       }
     ],
     "prompt_templates": [
       {
-        "title": "Create a basic setup wizard",
-        "scenario": "Beginner project setup",
-        "prompt": "Use this skill to plan a Bash setup wizard for my project. Read README and .env.example, then show the stages before writing the script."
+        "title": "Create a Basic Wizard",
+        "prompt": "Create a Bash wizard for [procedure]. Include these stages: [stages]. Save captured values to [destination]. Ask before irreversible actions.",
+        "scenario": "Use this for a known procedure with a short stage list."
       },
       {
-        "title": "Add service credentials",
-        "scenario": "Intermediate third-party setup",
-        "prompt": "Create a wizard for adding a third-party service. Open the correct dashboard URL, ask for public and secret values, and write only the needed targets."
+        "title": "Set Up a Service",
+        "prompt": "Build a wizard for [service]. Open the required dashboard pages. Capture [values]. Store secrets locally and in GitHub only where required.",
+        "scenario": "Use this for third-party service configuration."
       },
       {
-        "title": "Convert a migration checklist",
-        "scenario": "Advanced migration workflow",
-        "prompt": "Turn this migration plan into a wizard. Include confirmation gates before destructive actions and summarize which steps still need manual verification."
+        "title": "Map Repository Configuration",
+        "prompt": "Review this repository for setup requirements. Propose ordered wizard stages and value destinations. Wait for approval before generating the script.",
+        "scenario": "Use this when setup requirements are distributed across project files."
       },
       {
-        "title": "Review a generated wizard",
-        "scenario": "Advanced safety review",
-        "prompt": "Review this wizard before I run it. Check every captured value, .env write, GitHub secret name, URL, and irreversible action."
+        "title": "Design a Migration Wizard",
+        "prompt": "Create a wizard that moves [system] from [current state] to [target state]. Include validation, rollback guidance, confirmations, and a final completion summary.",
+        "scenario": "Use this for complex transitions with irreversible or remote actions."
       }
     ],
     "output_examples": [
       {
-        "input": "I need a guided setup for Stripe test keys in a new web app.",
-        "output": "The skill produces a staged wizard plan, then a Bash script that opens Stripe, collects keys, updates local env values, and sets CI secrets."
+        "input": "Create a wizard for Stripe test credentials in local development and GitHub Actions.",
+        "output": [
+          "A Stripe API key stage opens the test dashboard and identifies both required keys.",
+          "The secret prompt hides input, while the publishable key uses visible input.",
+          "Both values update the environment file, and the secret also updates GitHub Actions."
+        ]
       },
       {
-        "input": "I want to move manual CI secret setup into a repeatable project script.",
-        "output": "The skill identifies required GitHub Actions secrets, asks for each value, confirms the target names, and reports what was written or skipped."
+        "input": "Plan a wizard for moving an application from staging to production.",
+        "output": [
+          "The plan lists preparation, data migration, verification, traffic change, and final checks.",
+          "Each irreversible stage includes a confirmation gate and clear success criteria.",
+          "Unknown provider steps are marked for documentation review before script generation."
+        ]
       },
       {
-        "input": "I have a one-time service migration with several dashboard steps.",
-        "output": "The skill creates an ordered flow with clear browser instructions, progress tracking, manual pauses, and confirmations before risky steps."
+        "input": "Generate a repeatable onboarding wizard from this repository.",
+        "output": [
+          "The wizard maps example environment variables and CI references without exposing existing values.",
+          "It groups related actions into focused stages with progress estimates.",
+          "The handoff includes syntax validation and the command needed to start the wizard."
+        ]
       }
     ],
     "best_practices": [
-      "Start from .env.example and CI references, then ask before reading real secret files.",
-      "Review every generated stage before running the script.",
-      "Use hidden prompts for secret values and confirm any GitHub secret write."
+      "Confirm the stage plan and every value destination before generating the wizard.",
+      "Use hidden input for secrets and write only credentials required by each destination.",
+      "Verify syntax statically and review every remote or irreversible action with the user."
     ],
     "anti_patterns": [
-      "Do not let a generated wizard invent dashboard steps without checking current documentation.",
-      "Do not commit scripts or logs that contain copied secret values.",
-      "Do not run the wizard end to end from automation without human confirmation."
+      "Do not invent dashboard steps when current provider documentation is unavailable.",
+      "Do not place secrets in visible prompts, logs, examples, or command arguments.",
+      "Do not run the interactive wizard end to end without the user controlling each stage."
     ],
     "faq": [
       {
-        "question": "What does this skill create?",
-        "answer": "It creates interactive Bash scripts that guide a person through setup, migration, or service configuration steps."
+        "question": "What does this skill generate?",
+        "answer": "It generates an interactive Bash script that guides a person through setup, migration, or state-change stages."
       },
       {
-        "question": "Can it handle API keys?",
-        "answer": "Yes. The template supports hidden secret prompts, .env writes, and GitHub Actions secret updates."
+        "question": "Can the wizard store secrets?",
+        "answer": "Yes. It can capture hidden input, update an environment file, and set GitHub Actions secrets through gh."
       },
       {
-        "question": "Does it run the wizard automatically?",
-        "answer": "No. The skill recommends static checks and avoids full execution because the script needs human input."
+        "question": "Does it run without human input?",
+        "answer": "No. The workflow opens browser pages, waits for copied values, and asks for confirmations."
       },
       {
-        "question": "Which tools can use this skill?",
-        "answer": "The report lists support for Claude, Codex, and Claude Code."
+        "question": "Which operating systems can open URLs?",
+        "answer": "The template supports common browser commands on Windows, WSL, Linux, and macOS."
       },
       {
-        "question": "What should users review before running a wizard?",
-        "answer": "Users should review URLs, secret names, .env writes, GitHub targets, and any irreversible action."
+        "question": "Does GitHub configuration always work?",
+        "answer": "No. The gh CLI must be installed, authenticated, and connected to the intended repository."
       },
       {
-        "question": "Is it safe for repeatable project setup?",
-        "answer": "It can be useful for repeatable setup, but generated scripts need review because they may handle credentials."
+        "question": "How should generated scripts be verified?",
+        "answer": "Check Bash syntax, run ShellCheck when available, and trace every captured value to its approved destination."
       }
     ]
   },

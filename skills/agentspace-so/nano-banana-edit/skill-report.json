@@ -1,7 +1,7 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-07-08T00:23:01.784Z",
+    "generated_at": "2026-07-23T09:11:32.299Z",
     "slug": "agentspace-so-nano-banana-edit",
     "source_url": "https://github.com/agentspace-so/runcomfy-agent-skills/tree/main/nano-banana-edit/",
     "source_ref": "main",
@@ -23,18 +23,18 @@
   },
   "skill": {
     "name": "nano-banana-edit",
-    "description": "Edit images with Google Nano Banana 2 through the RunComfy CLI for identity-preserving changes, background swaps, spatial edits, and batch variations.",
-    "summary": "Run Nano Banana 2 image edits on RunComfy with structured prompts and batch-friendly settings.",
+    "description": "Edit images with Google Nano Banana 2 (image-to-image edit endpoint) on RunComfy. Documents Nano Banana Edit's strengths (preserve subject identity, swap background, localize edits with spatial language, multi-image batch edits up to 20 inputs), the schema, and when to route to GPT Image 2 edit / Flux Kontext / Nano Banana 2 t2i instead. Calls `runcomfy run google/nano-banana-2/edit` through the local RunComfy CLI. Triggers on \"nano banana edit\", \"edit with nano banana\", \"image edit nano banana\", or any explicit ask to edit with this model.\n",
+    "summary": "Edit single images or batches with Nano Banana 2 through RunComfy while controlling preservation, framing, resolution, and output format.",
     "icon": "📦",
-    "version": "1.0.1",
     "author": "agentspace-so",
     "license": "MIT",
+    "category": "design",
     "tags": [
       "image-editing",
-      "runcomfy",
       "nano-banana",
-      "generative-ai",
-      "batch-editing"
+      "runcomfy",
+      "batch-processing",
+      "generative-ai"
     ],
     "supported_tools": [
       "claude",
@@ -45,30 +45,29 @@
       "external_commands",
       "network",
       "filesystem"
-    ],
-    "category": "design"
+    ]
   },
   "security_audit": {
-    "risk_level": "medium",
+    "risk_level": "high",
     "is_blocked": false,
-    "safe_to_publish": true,
+    "safe_to_publish": false,
     "analysis_status": "ok",
-    "summary": "Most static findings are false positives caused by Markdown backticks, example URLs, and abbreviated URL placeholders. Confirmed risks include RunComfy CLI execution, global CLI installation, third-party API processing, output downloads, and login side effects. No prompt injection attempt was found.",
+    "summary": "Most flags are false positives caused by Markdown backticks, placeholder URLs, and a documented token path. The skill still recommends unpinned package execution and sends prompts and image references to RunComfy. Its shell examples do not adequately protect generated user text from shell quoting failures.",
     "remediation": [
       {
-        "issue": "External CLI execution and global installation are required.",
-        "suggestion": "Recommend a pinned RunComfy CLI version, verify the package source, and ask users to confirm before running install or edit commands.",
+        "issue": "Generated prompt JSON can cross a shell boundary inside a single-quoted argument.",
+        "suggestion": "Invoke the CLI with an argument array and a JSON serializer, or use a protected input file. Never interpolate user text into a shell command.",
+        "severity": "high"
+      },
+      {
+        "issue": "The installation commands execute unpinned npm packages with global or remote effects.",
+        "suggestion": "Pin reviewed package versions, publish integrity information, and require user confirmation before package installation.",
         "severity": "medium"
       },
       {
-        "issue": "Prompts and image URL references are processed by RunComfy.",
-        "suggestion": "Add a short privacy warning before examples and advise users not to send confidential assets without approval.",
+        "issue": "Prompts and image references are transmitted to a third-party model service.",
+        "suggestion": "Require user consent, link the service privacy and retention terms, and warn against sending confidential images or expiring signed URLs.",
         "severity": "medium"
-      },
-      {
-        "issue": "RunComfy login stores an API token in the user config directory.",
-        "suggestion": "Document token revocation, avoid logging token values, and prefer RUNCOMFY_TOKEN in controlled CI environments.",
-        "severity": "low"
       }
     ],
     "risk_factor_evidence": [
@@ -823,344 +822,392 @@
     "finding_verdicts": [
       {
         "id": "external_commands:SKILL.md:10:ruby-shell-backtick-execution",
-        "verdict": "confirmed",
-        "confidence": 0.88,
-        "severity": "medium",
-        "reason": "The skill states it calls the local RunComfy CLI, which is intentional external command execution on the user machine. The command name is fixed, but users must trust the installed CLI and its network behavior."
+        "verdict": "false_positive",
+        "confidence": 0.99,
+        "reason": "The backticks are Markdown formatting around a fixed CLI command. They are not Ruby execution syntax or shell command substitution."
       },
       {
         "id": "external_commands:SKILL.md:23:ruby-shell-backtick-execution",
         "verdict": "confirmed",
-        "confidence": 0.82,
-        "severity": "medium",
-        "reason": "The bash block instructs users to run a global skill installation command from a community GitHub source. This is documented setup guidance, but it is still a real supply-chain and external-command exposure."
+        "confidence": 0.9,
+        "reason": "The fenced block contains an unpinned npx command that can download and execute npm code while installing a community skill globally.",
+        "severity": "medium"
       },
       {
         "id": "external_commands:SKILL.md:25:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "This finding comes from Markdown backticks, code fences, table field names, or prompt text rather than Ruby backtick execution. No evidence shows this specific text is evaluated by a shell."
+        "confidence": 0.99,
+        "reason": "This line is the closing marker of a Markdown code fence. It does not execute a command."
       },
       {
         "id": "external_commands:SKILL.md:42:ruby-shell-backtick-execution",
         "verdict": "confirmed",
-        "confidence": 0.84,
-        "severity": "medium",
-        "reason": "The prerequisite asks users to install the RunComfy CLI globally through npm. Installing and later executing a global CLI is a real external-command and package trust risk."
+        "confidence": 0.96,
+        "reason": "The prerequisite directs users to install an unpinned npm package globally. Package installation can execute lifecycle code with the user's privileges.",
+        "severity": "medium"
       },
       {
         "id": "external_commands:SKILL.md:43:ruby-shell-backtick-execution",
-        "verdict": "confirmed",
-        "confidence": 0.82,
-        "severity": "medium",
-        "reason": "The prerequisite asks users to execute runcomfy login, which starts an authentication flow and changes local credential state. This is expected for the service but remains a real command with security impact."
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "This is an inline Markdown example of a fixed authentication command. It contains no command substitution or user-controlled executable name."
       },
       {
         "id": "external_commands:SKILL.md:44:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "This finding comes from Markdown backticks, code fences, table field names, or prompt text rather than Ruby backtick execution. No evidence shows this specific text is evaluated by a shell."
+        "confidence": 0.99,
+        "reason": "The backticks format an environment variable name, a token placeholder, and a command name. They do not perform shell execution."
       },
       {
         "id": "external_commands:SKILL.md:48:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "This finding comes from Markdown backticks, code fences, table field names, or prompt text rather than Ruby backtick execution. No evidence shows this specific text is evaluated by a shell."
+        "confidence": 0.99,
+        "reason": "The text is a Markdown heading containing a model identifier. No executable expression is present."
       },
       {
         "id": "external_commands:SKILL.md:52:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "This finding comes from Markdown backticks, code fences, table field names, or prompt text rather than Ruby backtick execution. No evidence shows this specific text is evaluated by a shell."
+        "confidence": 0.99,
+        "reason": "The backticks format an input field name in a documentation table. No command is invoked."
       },
       {
         "id": "external_commands:SKILL.md:53:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "This finding comes from Markdown backticks, code fences, table field names, or prompt text rather than Ruby backtick execution. No evidence shows this specific text is evaluated by a shell."
+        "confidence": 0.99,
+        "reason": "The backticks format an input field name in a documentation table. No command is invoked."
       },
       {
         "id": "external_commands:SKILL.md:54:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "This finding comes from Markdown backticks, code fences, table field names, or prompt text rather than Ruby backtick execution. No evidence shows this specific text is evaluated by a shell."
+        "confidence": 0.99,
+        "reason": "The backticks format an input field name in a documentation table. No command is invoked."
       },
       {
         "id": "external_commands:SKILL.md:55:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "This finding comes from Markdown backticks, code fences, table field names, or prompt text rather than Ruby backtick execution. No evidence shows this specific text is evaluated by a shell."
+        "confidence": 0.99,
+        "reason": "The backticks format an input field name in a documentation table. No command is invoked."
       },
       {
         "id": "external_commands:SKILL.md:56:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "This finding comes from Markdown backticks, code fences, table field names, or prompt text rather than Ruby backtick execution. No evidence shows this specific text is evaluated by a shell."
+        "confidence": 0.99,
+        "reason": "The backticks format schema names and enum values. They are Markdown, not shell execution."
       },
       {
         "id": "external_commands:SKILL.md:57:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "This finding comes from Markdown backticks, code fences, table field names, or prompt text rather than Ruby backtick execution. No evidence shows this specific text is evaluated by a shell."
+        "confidence": 0.99,
+        "reason": "The backticks format schema names and resolution values. They are Markdown, not shell execution."
       },
       {
         "id": "external_commands:SKILL.md:58:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "This finding comes from Markdown backticks, code fences, table field names, or prompt text rather than Ruby backtick execution. No evidence shows this specific text is evaluated by a shell."
+        "confidence": 0.99,
+        "reason": "The backticks format schema names and output values. They are Markdown, not shell execution."
       },
       {
         "id": "external_commands:SKILL.md:59:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "This finding comes from Markdown backticks, code fences, table field names, or prompt text rather than Ruby backtick execution. No evidence shows this specific text is evaluated by a shell."
+        "confidence": 0.99,
+        "reason": "The backticks format a schema field name. No executable expression is present."
       },
       {
         "id": "external_commands:SKILL.md:60:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "This finding comes from Markdown backticks, code fences, table field names, or prompt text rather than Ruby backtick execution. No evidence shows this specific text is evaluated by a shell."
+        "confidence": 0.99,
+        "reason": "The backticks format a schema field name. No executable expression is present."
       },
       {
         "id": "external_commands:SKILL.md:61:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "This finding comes from Markdown backticks, code fences, table field names, or prompt text rather than Ruby backtick execution. No evidence shows this specific text is evaluated by a shell."
+        "confidence": 0.99,
+        "reason": "The backticks format a schema field name. No executable expression is present."
       },
       {
         "id": "external_commands:SKILL.md:67:ruby-shell-backtick-execution",
-        "verdict": "confirmed",
-        "confidence": 0.86,
-        "severity": "medium",
-        "reason": "The bash example runs runcomfy run with image URLs and an output directory, causing local command execution and remote API activity. The command is fixed, but it writes outputs and contacts RunComfy."
+        "verdict": "false_positive",
+        "confidence": 0.95,
+        "reason": "This is a fenced Bash example using a fixed CLI and model identifier, not backtick execution. The separate risk from generated shell quoting is recorded as a semantic finding."
       },
       {
         "id": "external_commands:SKILL.md:74:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "This finding comes from Markdown backticks, code fences, table field names, or prompt text rather than Ruby backtick execution. No evidence shows this specific text is evaluated by a shell."
+        "confidence": 0.99,
+        "reason": "This line is the closing marker of a Markdown code fence. It does not execute a command."
       },
       {
         "id": "external_commands:SKILL.md:78:ruby-shell-backtick-execution",
-        "verdict": "confirmed",
-        "confidence": 0.86,
-        "severity": "medium",
-        "reason": "The batch edit example runs the RunComfy CLI against multiple image URLs and writes files to an output directory. This is intended behavior, but it is real external command execution."
+        "verdict": "false_positive",
+        "confidence": 0.95,
+        "reason": "This is a fenced Bash example using a fixed CLI and model identifier, not backtick execution. The separate risk from generated shell quoting is recorded as a semantic finding."
       },
       {
         "id": "external_commands:SKILL.md:87:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "This finding comes from Markdown backticks, code fences, table field names, or prompt text rather than Ruby backtick execution. No evidence shows this specific text is evaluated by a shell."
+        "confidence": 0.99,
+        "reason": "This line is the closing marker of a Markdown code fence. It does not execute a command."
       },
       {
         "id": "external_commands:SKILL.md:91:ruby-shell-backtick-execution",
-        "verdict": "confirmed",
-        "confidence": 0.86,
-        "severity": "medium",
-        "reason": "The targeted edit example invokes runcomfy run with user-selected input data and an output directory. The fixed command limits injection risk, but it still executes a local CLI and performs network work."
+        "verdict": "false_positive",
+        "confidence": 0.95,
+        "reason": "This is a fenced Bash example using a fixed CLI and model identifier, not backtick execution. The separate risk from generated shell quoting is recorded as a semantic finding."
       },
       {
         "id": "external_commands:SKILL.md:98:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "This finding comes from Markdown backticks, code fences, table field names, or prompt text rather than Ruby backtick execution. No evidence shows this specific text is evaluated by a shell."
+        "confidence": 0.99,
+        "reason": "This line is the closing marker of a Markdown code fence. It does not execute a command."
       },
       {
         "id": "external_commands:SKILL.md:102:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "This finding comes from Markdown backticks, code fences, table field names, or prompt text rather than Ruby backtick execution. No evidence shows this specific text is evaluated by a shell."
+        "confidence": 0.99,
+        "reason": "The backticks format a sample prompt in prose. They do not invoke Ruby or a shell."
       },
       {
         "id": "external_commands:SKILL.md:106:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "This finding comes from Markdown backticks, code fences, table field names, or prompt text rather than Ruby backtick execution. No evidence shows this specific text is evaluated by a shell."
+        "confidence": 0.99,
+        "reason": "The backticks format two schema field names. No command is invoked."
       },
       {
         "id": "external_commands:SKILL.md:125:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "This finding comes from Markdown backticks, code fences, table field names, or prompt text rather than Ruby backtick execution. No evidence shows this specific text is evaluated by a shell."
+        "confidence": 0.99,
+        "reason": "The backticks format a schema field name in a use-case table. No executable expression is present."
       },
       {
         "id": "external_commands:SKILL.md:132:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "This finding comes from Markdown backticks, code fences, table field names, or prompt text rather than Ruby backtick execution. No evidence shows this specific text is evaluated by a shell."
+        "confidence": 0.99,
+        "reason": "This is the opening marker for a plain-text sample prompt. It does not execute code."
       },
       {
         "id": "external_commands:SKILL.md:135:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "This finding comes from Markdown backticks, code fences, table field names, or prompt text rather than Ruby backtick execution. No evidence shows this specific text is evaluated by a shell."
+        "confidence": 0.99,
+        "reason": "This is the closing marker for a plain-text sample prompt. It does not execute code."
       },
       {
         "id": "external_commands:SKILL.md:139:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "This finding comes from Markdown backticks, code fences, table field names, or prompt text rather than Ruby backtick execution. No evidence shows this specific text is evaluated by a shell."
+        "confidence": 0.99,
+        "reason": "This is the opening marker for a plain-text sample prompt. It does not execute code."
       },
       {
         "id": "external_commands:SKILL.md:143:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "This finding comes from Markdown backticks, code fences, table field names, or prompt text rather than Ruby backtick execution. No evidence shows this specific text is evaluated by a shell."
+        "confidence": 0.99,
+        "reason": "This is the closing marker for a plain-text sample prompt. It does not execute code."
       },
       {
         "id": "external_commands:SKILL.md:147:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "This finding comes from Markdown backticks, code fences, table field names, or prompt text rather than Ruby backtick execution. No evidence shows this specific text is evaluated by a shell."
+        "confidence": 0.99,
+        "reason": "This is the opening marker for a plain-text sample prompt. It does not execute code."
       },
       {
         "id": "external_commands:SKILL.md:152:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "This finding comes from Markdown backticks, code fences, table field names, or prompt text rather than Ruby backtick execution. No evidence shows this specific text is evaluated by a shell."
+        "confidence": 0.99,
+        "reason": "This is the closing marker for a plain-text sample prompt. It does not execute code."
       },
       {
         "id": "external_commands:SKILL.md:177:ruby-shell-backtick-execution",
-        "verdict": "confirmed",
-        "confidence": 0.9,
-        "severity": "medium",
-        "reason": "The how-it-works section confirms the skill invokes runcomfy, posts to model-api.runcomfy.net, polls, fetches results, and downloads output. This is intentional external command, network, and file-write behavior."
+        "verdict": "false_positive",
+        "confidence": 0.98,
+        "reason": "The backticks format command and domain names in an explanatory paragraph. There is no Ruby execution or shell command substitution on this line."
       },
       {
         "id": "external_commands:SKILL.md:181:ruby-shell-backtick-execution",
-        "verdict": "confirmed",
-        "confidence": 0.8,
-        "severity": "medium",
-        "reason": "The security section documents running runcomfy login and persisting an API token. This is expected CLI behavior, but it is still a command with credential side effects."
+        "verdict": "false_positive",
+        "confidence": 0.99,
+        "reason": "The backticks format a command, configuration path, and environment variable in documentation. They do not execute code."
       },
       {
         "id": "external_commands:SKILL.md:182:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "This finding comes from Markdown backticks, code fences, table field names, or prompt text rather than Ruby backtick execution. No evidence shows this specific text is evaluated by a shell."
+        "confidence": 0.98,
+        "reason": "The backticks format a CLI option in security documentation. The incomplete shell-boundary guidance is assessed separately as a semantic finding."
       },
       {
         "id": "external_commands:SKILL.md:184:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "This finding comes from Markdown backticks, code fences, table field names, or prompt text rather than Ruby backtick execution. No evidence shows this specific text is evaluated by a shell."
+        "confidence": 0.99,
+        "reason": "The backticks format endpoint names and wildcard domains. They do not create a command substitution."
       },
       {
         "id": "network:SKILL.md:13:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "This URL is a homepage, documentation link, or abbreviated example image URL in Markdown. It is not a hidden callback, credential exfiltration endpoint, or automatic request by the skill itself."
+        "confidence": 0.99,
+        "reason": "This URL is homepage metadata. It does not cause an automatic network request or transmit data."
       },
       {
         "id": "network:SKILL.md:19:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "This URL is a homepage, documentation link, or abbreviated example image URL in Markdown. It is not a hidden callback, credential exfiltration endpoint, or automatic request by the skill itself."
+        "confidence": 0.98,
+        "reason": "These are visible documentation and repository links. The skill does not automatically request them."
       },
       {
         "id": "network:SKILL.md:71:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "This URL is a homepage, documentation link, or abbreviated example image URL in Markdown. It is not a hidden callback, credential exfiltration endpoint, or automatic request by the skill itself."
+        "confidence": 0.99,
+        "reason": "The value is an ellipsis placeholder for a user-supplied HTTPS image URL, not a real hardcoded destination."
       },
       {
         "id": "network:SKILL.md:82:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "This URL is a homepage, documentation link, or abbreviated example image URL in Markdown. It is not a hidden callback, credential exfiltration endpoint, or automatic request by the skill itself."
+        "confidence": 0.99,
+        "reason": "The values are ellipsis placeholders for user-supplied HTTPS image URLs, not real hardcoded destinations."
       },
       {
         "id": "network:SKILL.md:95:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "This URL is a homepage, documentation link, or abbreviated example image URL in Markdown. It is not a hidden callback, credential exfiltration endpoint, or automatic request by the skill itself."
+        "confidence": 0.99,
+        "reason": "The value is an ellipsis placeholder for a user-supplied HTTPS image URL, not a real hardcoded destination."
       },
       {
         "id": "network:SKILL.md:173:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "This URL is a homepage, documentation link, or abbreviated example image URL in Markdown. It is not a hidden callback, credential exfiltration endpoint, or automatic request by the skill itself."
+        "confidence": 0.99,
+        "reason": "This is a visible troubleshooting documentation link. It is not an automatic request or data sink."
       },
       {
         "id": "network:SKILL.md:177:hardcoded-url",
         "verdict": "confirmed",
-        "confidence": 0.9,
-        "severity": "medium",
-        "reason": "The skill documents posting requests to the RunComfy model API and downloading generated outputs from RunComfy domains. This expected service behavior still transfers user edit data to a third party."
+        "confidence": 0.98,
+        "reason": "The paragraph explicitly states that the CLI posts requests to the RunComfy API, polls results, and downloads generated files. This is expected functionality but real outbound network activity.",
+        "severity": "low"
       },
       {
         "id": "filesystem:SKILL.md:71:path-traversal-sequence",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The apparent traversal sequence is the ellipsis in an abbreviated HTTPS example URL. It is not a local filesystem path and does not create a path traversal vector."
+        "confidence": 0.99,
+        "reason": "The two dots are part of an HTTPS ellipsis placeholder. They are not a filesystem path or traversal sequence."
       },
       {
         "id": "filesystem:SKILL.md:82:path-traversal-sequence",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The apparent traversal sequence is the ellipsis in an abbreviated HTTPS example URL. It is not a local filesystem path and does not create a path traversal vector."
+        "confidence": 0.99,
+        "reason": "The two dots are part of HTTPS ellipsis placeholders. They are not filesystem paths or traversal sequences."
       },
       {
         "id": "filesystem:SKILL.md:95:path-traversal-sequence",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The apparent traversal sequence is the ellipsis in an abbreviated HTTPS example URL. It is not a local filesystem path and does not create a path traversal vector."
+        "confidence": 0.99,
+        "reason": "The two dots are part of an HTTPS ellipsis placeholder. They are not a filesystem path or traversal sequence."
       },
       {
         "id": "filesystem:SKILL.md:181:hidden-file-in-home-directory",
         "verdict": "false_positive",
-        "confidence": 0.78,
-        "reason": "This documents standard RunComfy CLI credential storage under the user config directory with owner-only permissions. No evidence shows the skill reads, modifies, hides, or exfiltrates this file."
+        "confidence": 0.96,
+        "reason": "The line documents the CLI's normal credential location and states owner-only mode 0600. The skill does not read, expose, or modify that file directly."
       },
       {
         "id": "filesystem:SKILL.md:181:hidden-file-access",
         "verdict": "false_positive",
-        "confidence": 0.78,
-        "reason": "This documents standard RunComfy CLI credential storage under the user config directory with owner-only permissions. No evidence shows the skill reads, modifies, hides, or exfiltrates this file."
+        "confidence": 0.96,
+        "reason": "The hidden path appears only in security documentation about credential storage. No hidden-file access operation is supplied by the skill."
       },
       {
         "id": "blocker:SKILL.md:38:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.93,
-        "reason": "The line is a routing rule for explicit user requests to use this model. It does not perform system reconnaissance, environment probing, or privilege discovery."
+        "confidence": 0.99,
+        "reason": "The line is a model-routing rule based only on the user's explicit request. It gathers no system information and performs no reconnaissance."
       }
     ],
     "semantic_findings": [
       {
-        "title": "Third-Party Image and Prompt Processing",
-        "description": "The skill sends edit prompts and image URL references to the RunComfy model API, and RunComfy fetches user-provided media URLs. Users can expose private creative assets if they provide confidential URLs or prompts.",
+        "title": "Unsafe Shell Boundary for Generated Prompt JSON",
+        "description": "The examples place JSON inside a single-quoted shell argument, while the skill states that user prompts enter this argument. CLI-side non-expansion cannot stop shell parsing before the CLI starts.",
+        "severity": "high",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 67,
+            "line_end": 74
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 78,
+            "line_end": 87
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 91,
+            "line_end": 98
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 182,
+            "line_end": 182
+          }
+        ],
+        "confidence": 0.78,
+        "confidence_reasoning": "The documented Bash form has a real quoting boundary, and line 182 confirms user prompt data reaches that argument. Exploitation depends on how the agent constructs and launches the command."
+      },
+      {
+        "title": "Third-Party Prompt and Image Disclosure",
+        "description": "RunComfy receives the edit prompt and fetches user-provided image URLs. Sensitive images, signed URLs, and prompt content therefore leave the local environment.",
         "severity": "medium",
         "locations": [
           {
             "file": "SKILL.md",
+            "line_start": 53,
+            "line_end": 53
+          },
+          {
+            "file": "SKILL.md",
             "line_start": 177,
+            "line_end": 177
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 183,
             "line_end": 184
           }
         ],
-        "confidence": 0.88,
-        "confidence_reasoning": "Lines 177-184 describe posting to RunComfy, downloading outputs, and remote fetching of image URLs. The behavior is disclosed and expected, so this is a privacy risk rather than evidence of malicious exfiltration."
+        "confidence": 0.98,
+        "confidence_reasoning": "The skill explicitly documents public input URLs, API submission, server-side fetching, and outbound service domains."
       }
     ],
     "critical_findings": [],
-    "high_findings": [],
-    "medium_findings": [
+    "high_findings": [
       {
-        "title": "Ruby/shell backtick execution",
-        "description": "Calls `runcomfy run google/nano-banana-2/edit` through the local",
+        "title": "Unsafe Shell Boundary for Generated Prompt JSON",
+        "description": "The examples place JSON inside a single-quoted shell argument, while the skill states that user prompts enter this argument. CLI-side non-expansion cannot stop shell parsing before the CLI starts.",
         "locations": [
           {
             "file": "SKILL.md",
-            "line_start": 10,
-            "line_end": 10
+            "line_start": 67,
+            "line_end": 74
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 78,
+            "line_end": 87
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 91,
+            "line_end": 98
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 182,
+            "line_end": 182
           }
         ],
-        "review_kind": "capability",
-        "source_category": "external_commands",
-        "source_severity": "medium",
-        "confidence": 0.88,
-        "confidence_reasoning": "The skill states it calls the local RunComfy CLI, which is intentional external command execution on the user machine. The command name is fixed, but users must trust the installed CLI and its network behavior."
-      },
+        "review_kind": "security",
+        "source_category": "semantic",
+        "source_severity": "high",
+        "confidence": 0.78,
+        "confidence_reasoning": "The documented Bash form has a real quoting boundary, and line 182 confirms user prompt data reaches that argument. Exploitation depends on how the agent constructs and launches the command."
+      }
+    ],
+    "medium_findings": [
       {
         "title": "Ruby/shell backtick execution",
         "description": "```bash",
@@ -1174,8 +1221,8 @@
         "review_kind": "capability",
         "source_category": "external_commands",
         "source_severity": "medium",
-        "confidence": 0.82,
-        "confidence_reasoning": "The bash block instructs users to run a global skill installation command from a community GitHub source. This is documented setup guidance, but it is still a real supply-chain and external-command exposure."
+        "confidence": 0.9,
+        "confidence_reasoning": "The fenced block contains an unpinned npx command that can download and execute npm code while installing a community skill globally."
       },
       {
         "title": "Ruby/shell backtick execution",
@@ -1190,105 +1237,37 @@
         "review_kind": "capability",
         "source_category": "external_commands",
         "source_severity": "medium",
-        "confidence": 0.84,
-        "confidence_reasoning": "The prerequisite asks users to install the RunComfy CLI globally through npm. Installing and later executing a global CLI is a real external-command and package trust risk."
+        "confidence": 0.96,
+        "confidence_reasoning": "The prerequisite directs users to install an unpinned npm package globally. Package installation can execute lifecycle code with the user's privileges."
       },
       {
-        "title": "Ruby/shell backtick execution",
-        "description": "2. **RunComfy account** — `runcomfy login` opens a browser device-code flow.",
+        "title": "Third-Party Prompt and Image Disclosure",
+        "description": "RunComfy receives the edit prompt and fetches user-provided image URLs. Sensitive images, signed URLs, and prompt content therefore leave the local environment.",
         "locations": [
           {
             "file": "SKILL.md",
-            "line_start": 43,
-            "line_end": 44
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "external_commands",
-        "source_severity": "medium",
-        "confidence": 0.82,
-        "confidence_reasoning": "The prerequisite asks users to execute runcomfy login, which starts an authentication flow and changes local credential state. This is expected for the service but remains a real command with security impact."
-      },
-      {
-        "title": "Ruby/shell backtick execution",
-        "description": "```bash",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 67,
-            "line_end": 74
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "external_commands",
-        "source_severity": "medium",
-        "confidence": 0.86,
-        "confidence_reasoning": "The bash example runs runcomfy run with image URLs and an output directory, causing local command execution and remote API activity. The command is fixed, but it writes outputs and contacts RunComfy."
-      },
-      {
-        "title": "Ruby/shell backtick execution",
-        "description": "```bash",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 78,
-            "line_end": 87
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "external_commands",
-        "source_severity": "medium",
-        "confidence": 0.86,
-        "confidence_reasoning": "The batch edit example runs the RunComfy CLI against multiple image URLs and writes files to an output directory. This is intended behavior, but it is real external command execution."
-      },
-      {
-        "title": "Ruby/shell backtick execution",
-        "description": "```bash",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 91,
-            "line_end": 98
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "external_commands",
-        "source_severity": "medium",
-        "confidence": 0.86,
-        "confidence_reasoning": "The targeted edit example invokes runcomfy run with user-selected input data and an output directory. The fixed command limits injection risk, but it still executes a local CLI and performs network work."
-      },
-      {
-        "title": "Ruby/shell backtick execution",
-        "description": "The skill invokes `runcomfy run google/nano-banana-2/edit` with a JSON body matching the schema. The",
-        "locations": [
+            "line_start": 53,
+            "line_end": 53
+          },
           {
             "file": "SKILL.md",
             "line_start": 177,
             "line_end": 177
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "external_commands",
-        "source_severity": "medium",
-        "confidence": 0.9,
-        "confidence_reasoning": "The how-it-works section confirms the skill invokes runcomfy, posts to model-api.runcomfy.net, polls, fetches results, and downloads output. This is intentional external command, network, and file-write behavior."
-      },
-      {
-        "title": "Ruby/shell backtick execution",
-        "description": "- **Token storage**: `runcomfy login` writes the API token to `~/.config/runcomfy/token.json` with m",
-        "locations": [
+          },
           {
             "file": "SKILL.md",
-            "line_start": 181,
-            "line_end": 181
+            "line_start": 183,
+            "line_end": 184
           }
         ],
-        "review_kind": "capability",
-        "source_category": "external_commands",
+        "review_kind": "security",
+        "source_category": "semantic",
         "source_severity": "medium",
-        "confidence": 0.8,
-        "confidence_reasoning": "The security section documents running runcomfy login and persisting an API token. This is expected CLI behavior, but it is still a command with credential side effects."
-      },
+        "confidence": 0.98,
+        "confidence_reasoning": "The skill explicitly documents public input URLs, API submission, server-side fetching, and outbound service domains."
+      }
+    ],
+    "low_findings": [
       {
         "title": "Hardcoded URL",
         "description": "The skill invokes `runcomfy run google/nano-banana-2/edit` with a JSON body matching the schema. The",
@@ -1302,151 +1281,136 @@
         "review_kind": "capability",
         "source_category": "network",
         "source_severity": "low",
-        "confidence": 0.9,
-        "confidence_reasoning": "The skill documents posting requests to the RunComfy model API and downloading generated outputs from RunComfy domains. This expected service behavior still transfers user edit data to a third party."
-      },
-      {
-        "title": "Third-Party Image and Prompt Processing",
-        "description": "The skill sends edit prompts and image URL references to the RunComfy model API, and RunComfy fetches user-provided media URLs. Users can expose private creative assets if they provide confidential URLs or prompts.",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 177,
-            "line_end": 184
-          }
-        ],
-        "review_kind": "security",
-        "source_category": "semantic",
-        "source_severity": "medium",
-        "confidence": 0.88,
-        "confidence_reasoning": "Lines 177-184 describe posting to RunComfy, downloading outputs, and remote fetching of image URLs. The behavior is disclosed and expected, so this is a privacy risk rather than evidence of malicious exfiltration."
+        "confidence": 0.98,
+        "confidence_reasoning": "The paragraph explicitly states that the CLI posts requests to the RunComfy API, polls results, and downloads generated files. This is expected functionality but real outbound network activity."
       }
     ],
-    "low_findings": [],
     "dangerous_patterns": [],
     "files_scanned": 1,
     "total_lines": 186,
     "audit_model": "codex",
-    "audited_at": "2026-07-08T00:23:01.784Z",
-    "agent_auto_install_policy": "allowed",
+    "audited_at": "2026-07-23T09:11:32.299Z",
+    "agent_auto_install_policy": "confirmation_required",
     "manual_install_policy": "allowed"
   },
   "content": {
-    "user_title": "Edit Images with Nano Banana on RunComfy",
-    "value_statement": "Image editing prompts often drift from the intended subject, framing, or brand style. This skill gives Claude, Codex, and Claude Code structured guidance for RunComfy Nano Banana edits.",
+    "user_title": "Edit Images with Nano Banana 2",
+    "value_statement": "Image edits often change subjects, framing, or branding unintentionally. This skill structures Nano Banana 2 requests for focused edits, consistent batches, and controlled outputs through RunComfy.",
     "seo_keywords": [
-      "Claude",
-      "Codex",
-      "Claude Code",
-      "Nano Banana edit",
+      "Claude image editing",
+      "Codex image editing",
+      "Claude Code image editing",
+      "Nano Banana 2",
       "RunComfy CLI",
-      "AI image editing",
-      "image-to-image edit",
+      "AI image editor",
       "batch image editing",
-      "background swap",
-      "identity preservation"
+      "background replacement",
+      "image-to-image editing"
     ],
     "actual_capabilities": [
-      "Explains when to use Nano Banana Edit instead of GPT Image 2 edit, Flux Kontext, or text-to-image generation.",
-      "Provides the RunComfy endpoint name and input fields for image-to-image edits.",
-      "Shows single-image, batch, and targeted spatial edit invocation patterns.",
-      "Guides prompts that preserve identity, pose, clothing, framing, and brand details.",
-      "Documents batch controls such as aspect ratio, resolution, seed, and output count.",
-      "Summarizes RunComfy CLI exit codes, token storage, outbound endpoints, and output behavior."
+      "Edits one to twenty image URLs in a single RunComfy request.",
+      "Preserves specified subject, pose, clothing, branding, framing, or lighting details.",
+      "Targets backgrounds, objects, labels, and spatial regions with direct instructions.",
+      "Controls output count, seed, aspect ratio, resolution, format, and safety tolerance.",
+      "Downloads completed PNG, JPEG, or WebP results to a selected output directory."
     ],
     "limitations": [
-      "Requires the RunComfy CLI, a RunComfy account, and valid authentication.",
-      "Requires publicly reachable HTTPS image URLs for input images.",
-      "Does not perform edits locally; prompts and image references are processed by RunComfy.",
-      "Long compound edit prompts can cause model drift and should be split into smaller passes."
+      "Inputs must be publicly fetchable HTTPS URLs rather than local image paths.",
+      "Each request accepts at most twenty inputs and produces at most four outputs.",
+      "Long compound edits can drift and may require separate passes.",
+      "Multilingual text replacement may work better with another image editing model."
     ],
     "use_cases": [
       {
-        "title": "Create Product Gallery Variants",
-        "description": "Edit many product images with consistent framing, background style, and resolution settings.",
-        "target_user": "Ecommerce content teams"
+        "title": "Standardize product galleries",
+        "description": "Apply one background and framing treatment across multiple product images while preserving each product.",
+        "target_user": "E-commerce teams"
       },
       {
-        "title": "Refresh Ad Creative",
-        "description": "Generate controlled background, layout, or copy variants while preserving the main subject.",
-        "target_user": "Performance marketers"
+        "title": "Create campaign variants",
+        "description": "Generate controlled background, clothing, or label variations for visual review and testing.",
+        "target_user": "Designers and creative teams"
       },
       {
-        "title": "Localize Visual Assets",
-        "description": "Replace specific labels, backgrounds, or visible details while keeping the rest of the image stable.",
-        "target_user": "Design and localization teams"
+        "title": "Automate image revisions",
+        "description": "Run repeatable image edits with fixed dimensions, formats, seeds, and output locations.",
+        "target_user": "Developers and automation engineers"
       }
     ],
     "prompt_templates": [
       {
-        "title": "Basic Background Swap",
-        "scenario": "Beginner single-image edit",
-        "prompt": "Use Nano Banana Edit on this image URL. Keep the subject identity, pose, clothing, and framing unchanged. Replace only the background with a clean studio setting."
+        "title": "Replace a background",
+        "prompt": "Edit {image_url}. Keep the subject, pose, and clothing unchanged. Replace only the background with {background_description}. Save the result to {output_directory}.",
+        "scenario": "A beginner needs one focused background change."
       },
       {
-        "title": "Target One Area",
-        "scenario": "Intermediate spatial edit",
-        "prompt": "Use Nano Banana Edit. Keep the full composition unchanged except for the upper-right sign. Replace the sign text with the requested phrase in the same style."
+        "title": "Change one object",
+        "prompt": "Edit {image_url}. Preserve {protected_details}. Change only {target_region} to {requested_change}. Keep all other pixels as consistent as possible.",
+        "scenario": "A user needs a localized object or label edit."
       },
       {
-        "title": "Batch Product Update",
-        "scenario": "Advanced batch workflow",
-        "prompt": "Use Nano Banana Edit for these product image URLs. Apply the same background, aspect ratio, resolution, and prompt structure to every image for gallery consistency."
+        "title": "Process a consistent batch",
+        "prompt": "Edit all images from {image_urls}. Preserve {protected_features}. Apply {change} consistently. Lock the aspect ratio to {aspect_ratio} and resolution to {resolution}.",
+        "scenario": "A team needs matching edits across a product or portrait series."
       },
       {
-        "title": "Two-Pass Refinement Plan",
-        "scenario": "Advanced controlled revision",
-        "prompt": "Plan a two-pass Nano Banana Edit workflow. First preserve identity while changing the background. Then adjust only the clothing color without changing pose or face."
+        "title": "Generate controlled variants",
+        "prompt": "Edit {image_urls} with {change}. Preserve {protected_features}. Use seed {seed}, {aspect_ratio}, {resolution}, and {format}. Produce {count} variants with web search {web_search_setting}.",
+        "scenario": "An advanced user needs reproducible variants with explicit output controls."
       }
     ],
     "output_examples": [
       {
-        "input": "A portrait needs a new rainy city background while the person must remain recognizable.",
-        "output": "The assistant selects Nano Banana Edit, keeps identity and pose first in the prompt, and requests only a background change."
+        "input": "Keep the portrait subject unchanged and replace only the office background with a bright studio wall.",
+        "output": "One edited portrait with the original subject and pose, a bright studio wall, and the requested file format."
       },
       {
-        "input": "A product team needs the same object edited across several catalog images.",
-        "output": "The assistant recommends a batch edit, locked aspect ratio, fixed resolution, and consistent wording for every image."
+        "input": "Apply the same neutral background, square framing, and resolution to three product images.",
+        "output": [
+          "Three edited product images with matching backgrounds.",
+          "Consistent square framing and resolution across the batch.",
+          "Downloaded files stored in the selected output directory."
+        ]
       },
       {
-        "input": "A designer wants to remove only one object from the left side of a still life image.",
-        "output": "The assistant writes a spatially scoped edit that removes the left object and preserves the remaining objects, table, and lighting."
+        "input": "Remove only the leftmost object from a still life while preserving the table and lighting.",
+        "output": "An edited still life without the leftmost object, while the remaining objects, table, and lighting stay consistent."
       }
     ],
     "best_practices": [
-      "Start prompts with what must stay unchanged, then state the exact edit.",
-      "Use precise spatial language for local edits, such as background only or upper-right corner.",
-      "Lock aspect ratio and resolution when editing a related batch of images."
+      "State preservation requirements before describing the requested change.",
+      "Use precise spatial terms and split complex edits into separate passes.",
+      "Lock aspect ratio, resolution, prompt structure, and seed when comparing batch variants."
     ],
     "anti_patterns": [
-      "Do not combine many unrelated edits in one prompt when visual stability matters.",
-      "Do not use vague instructions such as make it better or more premium.",
-      "Do not send confidential image URLs unless RunComfy processing is approved."
+      "Do not combine many unrelated changes in one instruction.",
+      "Do not omit the features that must remain unchanged.",
+      "Do not send confidential images or URLs without reviewing RunComfy data handling terms."
     ],
     "faq": [
       {
-        "question": "What does this skill do?",
-        "answer": "It guides Nano Banana 2 image-to-image edits through the RunComfy CLI."
+        "question": "Does this skill edit local files directly?",
+        "answer": "No. Inputs must use publicly fetchable HTTPS URLs, and the CLI downloads generated outputs to the selected directory."
       },
       {
-        "question": "Does it edit images locally?",
-        "answer": "No. It uses the RunComfy model API through the local RunComfy CLI."
+        "question": "How many images can one request process?",
+        "answer": "One request accepts one to twenty input images and can produce one to four output images."
       },
       {
-        "question": "How many input images can it describe for one call?",
-        "answer": "The documented endpoint accepts 1 to 20 input image URLs per call."
+        "question": "Which output formats are supported?",
+        "answer": "The documented endpoint supports PNG, JPEG, and WebP output."
       },
       {
-        "question": "When should I use another model?",
-        "answer": "Use GPT Image 2 edit for stronger multilingual in-image text edits, and text-to-image generation for new images."
+        "question": "Can it preserve a person's identity?",
+        "answer": "It is designed for identity preservation, but results can drift. State every protected feature before the requested change."
       },
       {
-        "question": "What authentication is required?",
-        "answer": "The RunComfy CLI must be installed and authenticated with login or a RUNCOMFY_TOKEN value."
+        "question": "Where are prompts and images processed?",
+        "answer": "RunComfy receives the prompt, and its model server fetches the supplied image URLs for processing."
       },
       {
-        "question": "What privacy boundary should users know?",
-        "answer": "Prompts and image URL references are sent to RunComfy, so confidential assets need prior approval."
+        "question": "Is a RunComfy account required?",
+        "answer": "Yes. Interactive use requires RunComfy login, while automated environments can provide a RunComfy token."
       }
     ]
   },

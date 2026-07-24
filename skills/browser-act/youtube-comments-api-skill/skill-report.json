@@ -1,7 +1,7 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-07-07T22:03:30.120Z",
+    "generated_at": "2026-07-23T10:58:36.878Z",
     "slug": "browser-act-youtube-comments-api-skill",
     "source_url": "https://github.com/browser-act/skills/tree/main/solutions/video-platforms/youtube-comments-api-skill",
     "source_ref": "main",
@@ -23,18 +23,18 @@
   },
   "skill": {
     "name": "youtube-comments-api-skill",
-    "description": "Extract YouTube video metadata and public comment data through the BrowserAct API using keyword, comment limit, and scroll count inputs.",
-    "summary": "Runs a BrowserAct workflow to collect YouTube search results and public comments for research.",
+    "description": "Extract structured YouTube video metadata and public comments by keyword through a predefined BrowserAct workflow.",
+    "summary": "Collect YouTube search results and viewer comments for research and audience analysis.",
     "icon": "📦",
-    "version": "1.0.1",
     "author": "browser-act",
     "license": "MIT",
+    "category": "research",
     "tags": [
       "youtube",
       "comments",
-      "browseract",
-      "market-research",
-      "sentiment-analysis"
+      "audience-research",
+      "video-data",
+      "browseract"
     ],
     "supported_tools": [
       "claude",
@@ -45,34 +45,28 @@
       "network",
       "env_access",
       "external_commands"
-    ],
-    "category": "data"
+    ]
   },
   "security_audit": {
-    "risk_level": "high",
+    "risk_level": "medium",
     "is_blocked": false,
-    "safe_to_publish": false,
+    "safe_to_publish": true,
     "analysis_status": "ok",
-    "summary": "The skill is an authenticated BrowserAct API wrapper for collecting YouTube video and public comment data. Most static findings are false positives from Markdown backticks or normal API-key naming, but the skill still performs external network calls and one documented Python command. The main security concerns are unsafe API-key disclosure guidance and privacy risk from bulk comment collection.",
+    "summary": "Three outbound HTTPS calls to BrowserAct are confirmed low-severity network activity required by the skill. Guidance asks users to provide an API key directly, creating a high-severity credential exposure risk. Most other alerts are false positives from Markdown formatting, ordinary variable names, or fixed vendor URLs.",
     "remediation": [
       {
-        "issue": "API key guidance asks users to provide credentials to the agent.",
-        "suggestion": "Require BROWSERACT_API_KEY to be set in the environment or a secure secret store. Remove instructions that ask users to paste the key into chat.",
+        "issue": "The guidance asks users to provide a BrowserAct API key directly to the agent.",
+        "suggestion": "Require configuration through BROWSERACT_API_KEY or a secure secret store, and explicitly tell users never to paste credentials into chat.",
         "severity": "high"
       },
       {
-        "issue": "The skill collects public commenter identifiers and comment text at scale.",
-        "suggestion": "Document privacy, consent, retention, and YouTube policy requirements. Collect only fields needed for the stated task and avoid CRM export without a legal basis.",
+        "issue": "Retrieved YouTube comments are returned as untrusted text without agent-safety guidance.",
+        "suggestion": "Label remote comments as untrusted data and instruct agents never to follow commands or credential requests found in retrieved content.",
         "severity": "medium"
       },
       {
-        "issue": "The documented invocation runs a local Python script with user-provided parameters.",
-        "suggestion": "Tell agents to pass arguments without a shell and validate numeric bounds for Comments_limit and Scroll_count before execution.",
-        "severity": "medium"
-      },
-      {
-        "issue": "Network behavior depends on BrowserAct hosted workflow endpoints.",
-        "suggestion": "Document what data is sent to BrowserAct and which endpoints are contacted before users run the skill.",
+        "issue": "Search terms and collection settings are sent to the BrowserAct service.",
+        "suggestion": "Disclose the third-party data transfer before execution and avoid sending confidential search terms.",
         "severity": "low"
       }
     ],
@@ -754,382 +748,346 @@
       {
         "id": "network:scripts/youtube_comments_api.py:31:python-http-libraries",
         "verdict": "confirmed",
-        "confidence": 0.9,
-        "severity": "low",
-        "reason": "The script sends a POST request to BrowserAct to start a hosted workflow. This is expected behavior, but it is a real external network transfer with user query data and an authorization header."
+        "confidence": 0.99,
+        "reason": "The script sends search parameters and a bearer credential to the declared BrowserAct HTTPS API, creating an expected third-party network boundary.",
+        "severity": "low"
       },
       {
         "id": "network:scripts/youtube_comments_api.py:48:python-http-libraries",
         "verdict": "confirmed",
-        "confidence": 0.9,
-        "severity": "low",
-        "reason": "The script polls BrowserAct over HTTP for task status. This is expected for the workflow, but it depends on an external service and includes the authorization header."
+        "confidence": 0.99,
+        "reason": "The polling request sends the bearer credential to the fixed BrowserAct HTTPS API; this is necessary but remains real outbound network access.",
+        "severity": "low"
       },
       {
         "id": "network:scripts/youtube_comments_api.py:71:python-http-libraries",
         "verdict": "confirmed",
-        "confidence": 0.9,
-        "severity": "low",
-        "reason": "The script retrieves task results from BrowserAct over HTTP. This is an intended network call, but it transfers authenticated workflow context to an external API."
+        "confidence": 0.99,
+        "reason": "The result request sends the bearer credential to the fixed BrowserAct HTTPS API, confirming the documented external service dependency.",
+        "severity": "low"
       },
       {
         "id": "network:scripts/youtube_comments_api.py:15:hardcoded-url",
-        "verdict": "confirmed",
-        "confidence": 0.88,
-        "severity": "low",
-        "reason": "The hardcoded base URL directs all workflow requests to api.browseract.com. The fixed endpoint is expected, but it is still a real third-party network dependency."
+        "verdict": "false_positive",
+        "confidence": 0.99,
+        "reason": "This is the fixed HTTPS endpoint for the declared BrowserAct service, not an arbitrary or concealed destination."
       },
       {
         "id": "network:scripts/youtube_comments_api.py:97:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "This line only prints a BrowserAct Console link when the key is missing. It does not perform a network request or redirect data."
+        "confidence": 0.99,
+        "reason": "The URL is printed setup guidance for the declared BrowserAct integrations page and does not initiate a network request."
       },
       {
         "id": "env_access:scripts/youtube_comments_api.py:88:python-getenv-function",
-        "verdict": "confirmed",
-        "confidence": 0.86,
-        "severity": "low",
-        "reason": "The script reads BROWSERACT_API_KEY from the environment. This is a narrow and expected secret access pattern, but it still handles a credential."
+        "verdict": "false_positive",
+        "confidence": 0.98,
+        "reason": "The script reads only the documented BROWSERACT_API_KEY variable for authentication and does not enumerate or expose unrelated environment data."
       },
       {
         "id": "env_access:scripts/youtube_comments_api.py:88:getenv-function-call",
-        "verdict": "confirmed",
-        "confidence": 0.86,
-        "severity": "low",
-        "reason": "The getenv call reads only the named BrowserAct API key. It is expected for authentication, but it confirms environment-based credential handling."
+        "verdict": "false_positive",
+        "confidence": 0.98,
+        "reason": "This duplicate alert covers a targeted read of the documented BrowserAct credential, with no broad environment collection."
       },
       {
         "id": "env_access:scripts/youtube_comments_api.py:17:generic-api-secret-keys",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "This line defines a function parameter named api_key. It is not a hardcoded secret, and the value is only supplied by normal runtime configuration."
+        "confidence": 0.99,
+        "reason": "The function parameter names an expected credential but contains no hardcoded key, credential theft, or disclosure."
       },
       {
         "id": "env_access:scripts/youtube_comments_api.py:18:generic-api-secret-keys",
         "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "The API key is placed in the Authorization header for the fixed BrowserAct API. This is normal authenticated API usage, not evidence of secret exfiltration."
+        "confidence": 0.98,
+        "reason": "The credential is placed in the standard authorization header for the fixed BrowserAct HTTPS endpoint and is not logged."
       },
       {
         "id": "env_access:scripts/youtube_comments_api.py:88:generic-api-secret-keys",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "The code reads the specifically documented BROWSERACT_API_KEY environment variable. No secret value is hardcoded, printed, or enumerated from the environment."
+        "confidence": 0.98,
+        "reason": "The line retrieves the expected service credential from its documented environment variable and does not contain a secret value."
       },
       {
         "id": "env_access:scripts/youtube_comments_api.py:94:generic-api-secret-keys",
         "verdict": "false_positive",
-        "confidence": 0.93,
-        "reason": "This line only checks whether the API key variable is empty. It does not expose, transform, or transmit a secret."
+        "confidence": 0.99,
+        "reason": "This condition only checks whether the credential is absent; it does not access, transmit, or reveal secret material."
       },
       {
         "id": "env_access:scripts/youtube_comments_api.py:99:generic-api-secret-keys",
-        "verdict": "false_positive",
-        "confidence": 0.72,
-        "reason": "The static pattern matches the API key name in user guidance, not a stored secret. The unsafe guidance is captured separately as a semantic finding."
+        "verdict": "confirmed",
+        "confidence": 0.98,
+        "reason": "The message tells users they may provide an API key directly, which can expose a reusable credential in conversation history.",
+        "severity": "high"
       },
       {
         "id": "env_access:scripts/youtube_comments_api.py:106:generic-api-secret-keys",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "The API key variable is passed to the local function that calls BrowserAct. This is expected parameter flow for authentication, with no additional destination shown."
+        "confidence": 0.99,
+        "reason": "This is an ordinary internal function call using the already loaded credential and does not disclose or redirect it."
       },
       {
         "id": "blocker:scripts/youtube_comments_api.py:40:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The code reads a workflow task id from the BrowserAct API response. It is not collecting host, network, or system reconnaissance data."
+        "confidence": 1,
+        "reason": "The code extracts a workflow task identifier from the BrowserAct response and performs no host or system reconnaissance."
       },
       {
         "id": "external_commands:SKILL.md:20:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "The backticks mark an environment variable name in Markdown. There is no shell execution or dynamic command construction on this line."
+        "confidence": 1,
+        "reason": "Backticks format an environment variable name in Markdown; they do not perform Ruby or shell execution."
       },
       {
         "id": "external_commands:SKILL.md:28:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The backticks format the word string as Markdown. This is documentation syntax, not command execution."
+        "confidence": 1,
+        "reason": "Backticks format the word string as inline Markdown and contain no executable command."
       },
       {
         "id": "external_commands:SKILL.md:30:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The backticks format example search terms in Markdown. They do not instruct shell execution."
+        "confidence": 1,
+        "reason": "The backticked text lists example search keywords and does not invoke a shell."
       },
       {
         "id": "external_commands:SKILL.md:31:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The backticks format a default keyword value in Markdown. This is not a command or executable code."
+        "confidence": 1,
+        "reason": "The backticked text documents a default keyword and is not executable syntax."
       },
       {
         "id": "external_commands:SKILL.md:34:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The backticks format the word number in Markdown. No external command is present."
+        "confidence": 1,
+        "reason": "Backticks format the parameter type in Markdown and do not execute an external command."
       },
       {
         "id": "external_commands:SKILL.md:36:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The backticks format numeric examples in Markdown. There is no shell command or interpreter instruction."
+        "confidence": 1,
+        "reason": "The backticked values are numeric parameter examples, not shell commands."
       },
       {
         "id": "external_commands:SKILL.md:37:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The backticks format a default value in Markdown. This is documentation, not command execution."
+        "confidence": 1,
+        "reason": "The backticked value documents a numeric default and cannot execute."
       },
       {
         "id": "external_commands:SKILL.md:40:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The backticks format the word number in Markdown. No executable command appears on this line."
+        "confidence": 1,
+        "reason": "Backticks format the parameter type in Markdown and do not invoke Ruby or a shell."
       },
       {
         "id": "external_commands:SKILL.md:42:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The backticks format numeric examples. They do not invoke Ruby, shell, or any subprocess."
+        "confidence": 1,
+        "reason": "The backticked values are numeric scroll-count examples with no executable content."
       },
       {
         "id": "external_commands:SKILL.md:43:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The backticks format a default numeric value. This is harmless Markdown syntax."
+        "confidence": 1,
+        "reason": "The backticked value is documentation for the default scroll count, not code execution."
       },
       {
         "id": "external_commands:SKILL.md:48:ruby-shell-backtick-execution",
-        "verdict": "confirmed",
-        "confidence": 0.82,
-        "severity": "medium",
-        "reason": "The fenced bash block contains an instruction to run the included Python script. This is intended, but it is real external command execution with user-provided arguments."
+        "verdict": "false_positive",
+        "confidence": 0.99,
+        "reason": "Triple backticks delimit a Bash example containing a fixed local Python invocation; no shell backtick substitution is present."
       },
       {
         "id": "external_commands:SKILL.md:51:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "This finding starts at the closing Markdown fence rather than the command itself. The actual command risk is covered by the overlapping finding at line 48."
+        "confidence": 1,
+        "reason": "This line closes a Markdown code fence and contains no external command."
       },
       {
         "id": "external_commands:SKILL.md:54:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "The backticks format an example status log. The text describes monitoring output and does not execute a command."
+        "confidence": 1,
+        "reason": "Square brackets show an example timestamped status message; the prose contains no command execution."
       },
       {
         "id": "external_commands:SKILL.md:64:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The backticks format an output field name. This is documentation syntax, not shell execution."
+        "confidence": 1,
+        "reason": "Backticks format an output field name in Markdown and do not execute code."
       },
       {
         "id": "external_commands:SKILL.md:65:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The backticks format an output field name. No executable content is present."
+        "confidence": 1,
+        "reason": "Backticks format the video URL field name and contain no executable command."
       },
       {
         "id": "external_commands:SKILL.md:66:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The backticks format an output field name. This line does not run code."
+        "confidence": 1,
+        "reason": "Backticks format the publication-time field name and do not invoke a shell."
       },
       {
         "id": "external_commands:SKILL.md:67:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The backticks format an output field name. It is not a shell or Ruby command."
+        "confidence": 1,
+        "reason": "Backticks format the view-count field name and contain no executable syntax."
       },
       {
         "id": "external_commands:SKILL.md:70:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The backticks format an output field name for comments. There is no command execution."
+        "confidence": 1,
+        "reason": "Backticks format the commenter-name field and cannot trigger command execution."
       },
       {
         "id": "external_commands:SKILL.md:71:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The backticks format an output field name for commenter URLs. This is not executable code."
+        "confidence": 1,
+        "reason": "Backticks format the commenter URL field and contain no command."
       },
       {
         "id": "external_commands:SKILL.md:72:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The backticks format an output field name for comment text. No command is present."
+        "confidence": 1,
+        "reason": "Backticks format the comment-text field name and do not execute its future contents."
       },
       {
         "id": "external_commands:SKILL.md:73:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The backticks format an output field name for publish dates. This is harmless Markdown."
+        "confidence": 1,
+        "reason": "Backticks format the comment-date field name and contain no executable code."
       },
       {
         "id": "external_commands:SKILL.md:74:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The backticks format an output field name for like counts. It does not invoke a command."
+        "confidence": 1,
+        "reason": "Backticks format the comment-likes field name and cannot invoke a shell."
       },
       {
         "id": "external_commands:SKILL.md:75:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The backticks format an output field name for reply counts. This is documentation text only."
+        "confidence": 1,
+        "reason": "Backticks format the reply-count field name and do not perform command execution."
       },
       {
         "id": "external_commands:SKILL.md:81:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The backticks format a literal error message string. It does not cause code or shell execution."
+        "confidence": 1,
+        "reason": "Backticks quote an expected error message in Markdown and contain no executable command."
       },
       {
         "id": "external_commands:SKILL.md:82:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The backticks format a literal error prefix in retry guidance. There is no external command execution on this line."
+        "confidence": 1,
+        "reason": "Backticks quote an error prefix in retry guidance and do not execute a shell."
       },
       {
         "id": "network:SKILL.md:22:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "This is a documentation link to the BrowserAct Console. It does not perform a request or transfer user data by itself."
+        "confidence": 0.99,
+        "reason": "This is a visible HTTPS link to the declared BrowserAct console for credential setup, not a concealed request."
       },
       {
         "id": "env_access:SKILL.md:4:generic-api-secret-keys",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The metadata declares BROWSERACT_API_KEY as a required environment variable. It does not include a secret value or read arbitrary environment data."
+        "confidence": 0.99,
+        "reason": "Metadata declares the required environment variable by name but includes no secret value and performs no access."
       },
       {
         "id": "env_access:SKILL.md:20:generic-api-secret-keys",
-        "verdict": "false_positive",
-        "confidence": 0.78,
-        "reason": "This line mentions the required API key by name in setup guidance. The credential-disclosure concern is contextual and is recorded as a separate semantic finding."
+        "verdict": "confirmed",
+        "confidence": 0.99,
+        "reason": "The instruction directs the agent to request a missing API key from the user, risking credential disclosure in conversation history.",
+        "severity": "high"
       },
       {
         "id": "blocker:SKILL.md:13:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The text is a marketing feature claim about data accuracy. It does not instruct system reconnaissance or local host inspection."
+        "confidence": 1,
+        "reason": "This is a marketing claim about workflow accuracy and contains no system discovery instruction or code."
       },
       {
         "id": "blocker:SKILL.md:81:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "The line checks for an API authorization error string in command output. This is error handling, not system reconnaissance."
+        "confidence": 1,
+        "reason": "The line explains an authorization error and does not inspect the host, network, or system configuration."
       },
       {
         "id": "blocker:SKILL.md:82:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "The line describes retry behavior after task failure. It does not gather system information or probe the local environment."
+        "confidence": 1,
+        "reason": "The line defines retry behavior for task failures and performs no system reconnaissance."
       }
     ],
     "semantic_findings": [
       {
-        "title": "API Key Disclosure Guidance",
-        "description": "The skill tells the agent to request the BrowserAct API key from the user when it is missing. This can expose credentials in chat logs and tool transcripts.",
-        "severity": "high",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 20,
-            "line_end": 20
-          },
-          {
-            "file": "scripts/youtube_comments_api.py",
-            "line_start": 99,
-            "line_end": 99
-          }
-        ],
-        "confidence": 0.88,
-        "confidence_reasoning": "SKILL.md line 20 explicitly says to request and wait for the key, and the script prints guidance to provide it. The issue is contextual credential handling rather than a hardcoded secret."
-      },
-      {
-        "title": "Bulk Public Comment Collection Risk",
-        "description": "The skill collects commenter names, profile URLs, comment text, likes, and reply counts for research and CRM use cases. This creates privacy and platform-compliance risk.",
+        "title": "Indirect Prompt Injection Through Retrieved Comments",
+        "description": "The script returns public YouTube comments without marking them as untrusted data. Embedded instructions could influence an agent that analyzes the output.",
         "severity": "medium",
         "locations": [
           {
-            "file": "SKILL.md",
-            "line_start": 69,
-            "line_end": 75
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 87,
-            "line_end": 97
+            "file": "scripts/youtube_comments_api.py",
+            "line_start": 73,
+            "line_end": 81
           }
         ],
-        "confidence": 0.82,
-        "confidence_reasoning": "The documented output fields include commenter identifiers and comment text, and the use cases include market research and automated data integration. The risk depends on user compliance controls."
+        "confidence": 0.88,
+        "confidence_reasoning": "The code directly returns the service result string, and the skill defines comment_text as output without any trust-boundary guidance."
       }
     ],
     "critical_findings": [],
     "high_findings": [
       {
-        "title": "API Key Disclosure Guidance",
-        "description": "The skill tells the agent to request the BrowserAct API key from the user when it is missing. This can expose credentials in chat logs and tool transcripts.",
+        "title": "Generic API/secret keys",
+        "description": "print(\"3. Provide it to me or set it as an environment variable (BROWSERACT_API_KEY).\", flush=True)",
         "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 20,
-            "line_end": 20
-          },
           {
             "file": "scripts/youtube_comments_api.py",
             "line_start": 99,
             "line_end": 99
           }
         ],
-        "review_kind": "security",
-        "source_category": "semantic",
+        "review_kind": "capability",
+        "source_category": "env_access",
         "source_severity": "high",
-        "confidence": 0.88,
-        "confidence_reasoning": "SKILL.md line 20 explicitly says to request and wait for the key, and the script prints guidance to provide it. The issue is contextual credential handling rather than a hardcoded secret."
+        "confidence": 0.98,
+        "confidence_reasoning": "The message tells users they may provide an API key directly, which can expose a reusable credential in conversation history."
+      },
+      {
+        "title": "Generic API/secret keys",
+        "description": "Before running, you must first check the `BROWSERACT_API_KEY` environment variable. If it is not set",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 20,
+            "line_end": 20
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "env_access",
+        "source_severity": "high",
+        "confidence": 0.99,
+        "confidence_reasoning": "The instruction directs the agent to request a missing API key from the user, risking credential disclosure in conversation history."
       }
     ],
     "medium_findings": [
       {
-        "title": "Ruby/shell backtick execution",
-        "description": "```bash",
+        "title": "Indirect Prompt Injection Through Retrieved Comments",
+        "description": "The script returns public YouTube comments without marking them as untrusted data. Embedded instructions could influence an agent that analyzes the output.",
         "locations": [
           {
-            "file": "SKILL.md",
-            "line_start": 48,
-            "line_end": 51
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "external_commands",
-        "source_severity": "medium",
-        "confidence": 0.82,
-        "confidence_reasoning": "The fenced bash block contains an instruction to run the included Python script. This is intended, but it is real external command execution with user-provided arguments."
-      },
-      {
-        "title": "Bulk Public Comment Collection Risk",
-        "description": "The skill collects commenter names, profile URLs, comment text, likes, and reply counts for research and CRM use cases. This creates privacy and platform-compliance risk.",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 69,
-            "line_end": 75
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 87,
-            "line_end": 97
+            "file": "scripts/youtube_comments_api.py",
+            "line_start": 73,
+            "line_end": 81
           }
         ],
         "review_kind": "security",
         "source_category": "semantic",
         "source_severity": "medium",
-        "confidence": 0.82,
-        "confidence_reasoning": "The documented output fields include commenter identifiers and comment text, and the use cases include market research and automated data integration. The risk depends on user compliance controls."
+        "confidence": 0.88,
+        "confidence_reasoning": "The code directly returns the service result string, and the skill defines comment_text as output without any trust-boundary guidance."
       }
     ],
     "low_findings": [
@@ -1146,8 +1104,8 @@
         "review_kind": "capability",
         "source_category": "network",
         "source_severity": "low",
-        "confidence": 0.9,
-        "confidence_reasoning": "The script sends a POST request to BrowserAct to start a hosted workflow. This is expected behavior, but it is a real external network transfer with user query data and an authorization header."
+        "confidence": 0.99,
+        "confidence_reasoning": "The script sends search parameters and a bearer credential to the declared BrowserAct HTTPS API, creating an expected third-party network boundary."
       },
       {
         "title": "Python HTTP libraries",
@@ -1162,8 +1120,8 @@
         "review_kind": "capability",
         "source_category": "network",
         "source_severity": "low",
-        "confidence": 0.9,
-        "confidence_reasoning": "The script polls BrowserAct over HTTP for task status. This is expected for the workflow, but it depends on an external service and includes the authorization header."
+        "confidence": 0.99,
+        "confidence_reasoning": "The polling request sends the bearer credential to the fixed BrowserAct HTTPS API; this is necessary but remains real outbound network access."
       },
       {
         "title": "Python HTTP libraries",
@@ -1178,184 +1136,137 @@
         "review_kind": "capability",
         "source_category": "network",
         "source_severity": "low",
-        "confidence": 0.9,
-        "confidence_reasoning": "The script retrieves task results from BrowserAct over HTTP. This is an intended network call, but it transfers authenticated workflow context to an external API."
-      },
-      {
-        "title": "Hardcoded URL",
-        "description": "API_BASE_URL = \"https://api.browseract.com/v2/workflow\"",
-        "locations": [
-          {
-            "file": "scripts/youtube_comments_api.py",
-            "line_start": 15,
-            "line_end": 15
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "network",
-        "source_severity": "low",
-        "confidence": 0.88,
-        "confidence_reasoning": "The hardcoded base URL directs all workflow requests to api.browseract.com. The fixed endpoint is expected, but it is still a real third-party network dependency."
-      },
-      {
-        "title": "Python getenv function",
-        "description": "api_key = os.getenv(\"BROWSERACT_API_KEY\")",
-        "locations": [
-          {
-            "file": "scripts/youtube_comments_api.py",
-            "line_start": 88,
-            "line_end": 88
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "env_access",
-        "source_severity": "low",
-        "confidence": 0.86,
-        "confidence_reasoning": "The script reads BROWSERACT_API_KEY from the environment. This is a narrow and expected secret access pattern, but it still handles a credential."
-      },
-      {
-        "title": "getenv function call",
-        "description": "api_key = os.getenv(\"BROWSERACT_API_KEY\")",
-        "locations": [
-          {
-            "file": "scripts/youtube_comments_api.py",
-            "line_start": 88,
-            "line_end": 88
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "env_access",
-        "source_severity": "low",
-        "confidence": 0.86,
-        "confidence_reasoning": "The getenv call reads only the named BrowserAct API key. It is expected for authentication, but it confirms environment-based credential handling."
+        "confidence": 0.99,
+        "confidence_reasoning": "The result request sends the bearer credential to the fixed BrowserAct HTTPS API, confirming the documented external service dependency."
       }
     ],
     "dangerous_patterns": [],
     "files_scanned": 2,
     "total_lines": 206,
     "audit_model": "codex",
-    "audited_at": "2026-07-07T22:03:30.120Z",
-    "agent_auto_install_policy": "confirmation_required",
+    "audited_at": "2026-07-23T10:58:36.878Z",
+    "agent_auto_install_policy": "allowed",
     "manual_install_policy": "allowed"
   },
   "content": {
-    "user_title": "Extract YouTube Comments with BrowserAct",
-    "value_statement": "Teams need reliable YouTube comment data without manual scraping. This skill runs a BrowserAct workflow that returns video metadata, comments, and engagement fields.",
+    "user_title": "Extract YouTube Videos and Comments",
+    "value_statement": "Manual YouTube comment research is slow and difficult to structure. This skill runs a BrowserAct workflow to collect video metadata and public comments by keyword.",
     "seo_keywords": [
       "YouTube comments API",
-      "BrowserAct",
       "YouTube comment extraction",
+      "video audience research",
+      "BrowserAct",
+      "YouTube sentiment data",
+      "market research automation",
       "Claude",
       "Codex",
       "Claude Code",
-      "market research automation",
-      "audience sentiment",
-      "video metadata",
-      "comment scraping alternative"
+      "YouTube video metadata"
     ],
     "actual_capabilities": [
-      "Starts a BrowserAct workflow from a keyword query.",
-      "Sets comment limits and scroll counts for each run.",
-      "Polls BrowserAct until the workflow finishes or times out.",
-      "Returns video titles, URLs, publish times, and view counts.",
-      "Returns commenter names, profile URLs, comment text, likes, and reply counts."
+      "Starts a predefined BrowserAct workflow using YouTube search keywords.",
+      "Sets the maximum comment count for each returned video.",
+      "Controls how many times the workflow scrolls to load comments.",
+      "Polls workflow status for up to five minutes.",
+      "Returns video titles, URLs, publication times, and view counts.",
+      "Returns commenter details, comment text, dates, likes, and reply counts."
     ],
     "limitations": [
-      "Requires a valid BrowserAct API key before use.",
-      "Sends workflow requests and search parameters to BrowserAct.",
-      "Can take several minutes while the hosted task runs.",
-      "Does not perform sentiment analysis by itself."
+      "Requires a valid BrowserAct API key and network access.",
+      "Uses a fixed BrowserAct workflow template and does not call the YouTube Data API directly.",
+      "Runs for up to five minutes and polls every ten seconds.",
+      "Result completeness and regional availability depend on BrowserAct and YouTube."
     ],
     "use_cases": [
       {
-        "title": "Audience Research",
-        "description": "Collect comments for a topic so researchers can review common questions, complaints, and engagement signals.",
-        "target_user": "Market researcher"
+        "title": "Analyze Product Feedback",
+        "description": "Collect comments from product-related videos to identify recurring requests, objections, and viewer concerns.",
+        "target_user": "Product researcher"
       },
       {
-        "title": "Competitor Video Review",
-        "description": "Gather video metadata and viewer reactions for competing channels or product topics.",
-        "target_user": "Product marketer"
-      },
-      {
-        "title": "Content Planning",
-        "description": "Find high-interest videos and comments that reveal viewer needs before planning new content.",
+        "title": "Research Content Topics",
+        "description": "Compare video titles, engagement signals, and viewer discussions for a planned content theme.",
         "target_user": "Content strategist"
+      },
+      {
+        "title": "Monitor Competitor Discussion",
+        "description": "Track public comments around competitor names and summarize common praise or criticism.",
+        "target_user": "Market analyst"
       }
     ],
     "prompt_templates": [
       {
-        "title": "Basic Keyword Search",
-        "scenario": "Beginner request for a small comment sample.",
-        "prompt": "Use this skill to search YouTube for \"AI automation\" and return up to 10 comments per video."
+        "title": "Collect Topic Comments",
+        "prompt": "Find YouTube videos for [topic] and collect up to [number] comments per video using [scroll count] comment-section scrolls.",
+        "scenario": "Beginner collection request"
       },
       {
-        "title": "Compare Viewer Feedback",
-        "scenario": "Intermediate request across a product topic.",
-        "prompt": "Collect YouTube comments for \"workflow automation tools\" with 20 comments per video and summarize recurring viewer concerns."
+        "title": "Summarize Audience Reactions",
+        "prompt": "Search YouTube for [topic], collect [number] comments per video, and summarize repeated positive, negative, and neutral reactions.",
+        "scenario": "Audience sentiment review"
       },
       {
-        "title": "Research Competitor Topic",
-        "scenario": "Advanced market research request.",
-        "prompt": "Find videos about \"no-code browser automation\", collect comments, and group feedback by objections, desired features, and purchase intent."
+        "title": "Review Competitor Feedback",
+        "prompt": "Collect videos and comments for [competitor or product]. Group feedback by praise, complaints, questions, and feature requests.",
+        "scenario": "Competitive research"
       },
       {
-        "title": "Build Analysis Dataset",
-        "scenario": "Advanced request for structured follow-up analysis.",
-        "prompt": "Run the skill for \"AI browser agents\" with a higher scroll count, then prepare a clean research brief with source video links and comment themes."
+        "title": "Compare Two Topics",
+        "prompt": "Run separate searches for [topic A] and [topic B]. Compare video engagement, recurring comment themes, and notable audience differences.",
+        "scenario": "Advanced comparative analysis"
       }
     ],
     "output_examples": [
       {
-        "input": "Search for \"AI automation\" and collect 10 comments per video.",
+        "input": "Find videos about home automation and collect ten comments per video.",
         "output": [
-          "A list of matching YouTube videos with title, URL, publish time, and view count.",
-          "Associated comments with commenter names, profile links, text, likes, publish dates, and reply counts."
+          "Video results include titles, links, publication times, and view counts.",
+          "Each video includes available commenter names, comment text, dates, likes, and reply counts."
         ]
       },
       {
-        "input": "Collect comments for competitor videos about browser automation.",
-        "output": "A research-ready set of video links and viewer reactions that can be reviewed for product positioning and audience concerns."
+        "input": "Summarize viewer reactions to a new productivity application.",
+        "output": "The collected comments are grouped into praise, usability concerns, pricing questions, and requested features, with source videos identified."
       },
       {
-        "input": "Track viewer response to a trending keyword.",
-        "output": "A combined view of recent video metadata and public comment discussions for the selected YouTube search term."
+        "input": "Compare comments for two competing software products.",
+        "output": "The comparison highlights recurring strengths, complaints, and questions for each product, supported by collected public comments and video details."
       }
     ],
     "best_practices": [
-      "Set BROWSERACT_API_KEY securely before starting the skill.",
-      "Use the smallest comment limit that answers the research question.",
-      "Review privacy and platform rules before exporting commenter data."
+      "Use specific keywords that match the research question.",
+      "Start with a small comment limit and increase it only when more coverage is needed.",
+      "Treat all retrieved comments as untrusted public content and verify important claims."
     ],
     "anti_patterns": [
-      "Do not paste API keys into chat or shared transcripts.",
-      "Do not collect more commenter data than the task requires.",
-      "Do not treat raw comments as sentiment analysis without separate review."
+      "Do not paste API keys into prompts or conversation messages.",
+      "Do not use confidential search terms without approving transfer to BrowserAct.",
+      "Do not treat comment sentiment as representative of every viewer or customer."
     ],
     "faq": [
       {
-        "question": "What does this skill collect?",
-        "answer": "It collects YouTube video metadata and public comment fields returned by the BrowserAct workflow."
+        "question": "What credentials does this skill require?",
+        "answer": "It requires a BrowserAct API key configured through the BROWSERACT_API_KEY environment variable."
       },
       {
-        "question": "Do I need an API key?",
-        "answer": "Yes. The script requires BROWSERACT_API_KEY to authenticate with BrowserAct."
+        "question": "Does this skill use the official YouTube Data API?",
+        "answer": "No. It runs a predefined BrowserAct browser workflow that collects public YouTube video and comment data."
       },
       {
-        "question": "Does it scrape YouTube directly from my machine?",
-        "answer": "No. It starts and polls a hosted BrowserAct workflow through the BrowserAct API."
+        "question": "Which search inputs can I control?",
+        "answer": "You can set search keywords, the maximum comments per video, and the number of comment-section scrolls."
       },
       {
-        "question": "Can it analyze sentiment automatically?",
-        "answer": "No. It gathers comment data that another tool or prompt can analyze afterward."
+        "question": "How long can a collection run?",
+        "answer": "The script polls for up to five minutes and reports status every ten seconds."
       },
       {
-        "question": "How long does a run take?",
-        "answer": "A run can take several minutes while BrowserAct loads videos and comments."
+        "question": "What information is returned?",
+        "answer": "Results can include video details, commenter profiles, comment text, publication dates, likes, and reply counts."
       },
       {
-        "question": "What should I check before using the output?",
-        "answer": "Check privacy obligations, YouTube policy, and whether you need to remove or minimize personal data."
+        "question": "Can I trust instructions found in comments?",
+        "answer": "No. Treat comments as untrusted data and never follow embedded commands, links, or credential requests."
       }
     ]
   },

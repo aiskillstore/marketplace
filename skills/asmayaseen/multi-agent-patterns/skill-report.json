@@ -1,7 +1,7 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-07-07T21:57:16.215Z",
+    "generated_at": "2026-07-23T06:21:30.054Z",
     "slug": "asmayaseen-multi-agent-patterns",
     "source_url": "https://github.com/Asmayaseen/hackathon-2/tree/main/.claude/skills/multi-agent-patterns",
     "source_ref": "main",
@@ -23,18 +23,18 @@
   },
   "skill": {
     "name": "multi-agent-patterns",
-    "description": "Design multi-agent architectures for complex tasks that need context isolation, agent coordination, and specialized workflows.",
-    "summary": "Guides teams through practical multi-agent architecture patterns, coordination methods, and failure controls.",
+    "description": "Design multi-agent architectures for complex tasks using supervisor, swarm, or hierarchical patterns, with guidance for handoffs, consensus, context isolation, and failure recovery.",
+    "summary": "Design coordinated multi-agent systems that isolate context, divide work, and recover from failures.",
     "icon": "📦",
-    "version": "1.0.1",
     "author": "Asmayaseen",
     "license": "MIT",
+    "category": "coding",
     "tags": [
       "multi-agent",
-      "architecture",
-      "coordination",
-      "agent-workflows",
-      "context-management"
+      "agent-architecture",
+      "orchestration",
+      "context-engineering",
+      "coordination"
     ],
     "supported_tools": [
       "claude",
@@ -45,16 +45,26 @@
       "filesystem",
       "external_commands",
       "network"
-    ],
-    "category": "coding"
+    ]
   },
   "security_audit": {
     "risk_level": "safe",
     "is_blocked": false,
     "safe_to_publish": true,
     "analysis_status": "ok",
-    "summary": "The static findings are false positives from Markdown code fences, reference links, and local illustrative coordination examples. I found no evidence of malicious command execution, secret handling, prompt injection, data exfiltration, or unauthorized filesystem behavior.",
-    "remediation": [],
+    "summary": "The command, reconnaissance, sensitive-file, and network alerts are false positives caused by Markdown syntax, ordinary Python expressions, prose, and documentation links. Three filesystem examples construct write paths from unsanitized identifiers and can escape the intended workspace when copied into applications. No prompt injection or malicious intent was found.",
+    "remediation": [
+      {
+        "issue": "Shared-state and checkpoint examples interpolate identifiers directly into file paths.",
+        "suggestion": "Validate identifiers, resolve paths with pathlib, and reject any resolved path outside the configured workspace or checkpoint directory.",
+        "severity": "medium"
+      },
+      {
+        "issue": "The lock example uses a caller-provided resource name and a non-atomic existence check before writing.",
+        "suggestion": "Restrict resource names, create the lock directory safely, and acquire locks atomically with exclusive file creation.",
+        "severity": "medium"
+      }
+    ],
     "risk_factor_evidence": [
       {
         "factor": "filesystem",
@@ -492,320 +502,383 @@
     "finding_verdicts": [
       {
         "id": "filesystem:references/frameworks.md:300:python-file-write-append",
-        "verdict": "false_positive",
+        "verdict": "confirmed",
         "confidence": 0.9,
-        "reason": "The write occurs in a Markdown code example for shared agent state, not in executable skill logic. It writes to a caller-provided workspace path and shows coordination mechanics."
+        "reason": "The example writes to a path built directly from the caller-provided key. Values containing parent-directory segments can escape the configured workspace.",
+        "severity": "medium"
       },
       {
         "id": "filesystem:references/frameworks.md:315:python-file-write-append",
-        "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The lock-file write is part of a documented file-system coordination example. It is illustrative code and does not run during skill activation."
+        "verdict": "confirmed",
+        "confidence": 0.92,
+        "reason": "The lock path embeds the caller-provided resource without validation and then writes to it. Path traversal and the non-atomic check can affect files outside the intended lock directory.",
+        "severity": "medium"
       },
       {
         "id": "filesystem:references/frameworks.md:424:python-file-write-append",
-        "verdict": "false_positive",
+        "verdict": "confirmed",
         "confidence": 0.9,
-        "reason": "The checkpoint write appears in a Markdown example for workflow resume behavior. No autonomous file modification is performed by the skill itself."
+        "reason": "The checkpoint filename is formed from workflow_id without validation or a containment check. A crafted identifier can redirect the write beyond the checkpoint directory.",
+        "severity": "medium"
       },
       {
         "id": "filesystem:references/frameworks.md:413:python-os-file-operations",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "The directory creation appears inside a checkpointing example in the reference document. It demonstrates expected local state setup, not unauthorized filesystem access."
+        "confidence": 0.91,
+        "reason": "The constructor creates the explicitly configured checkpoint directory with exist_ok enabled. This is normal initialization and does not discover, delete, or covertly modify unrelated files."
       },
       {
         "id": "sensitive:scripts/coordination.py:368:certificate-key-files",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "Line 368 selects the consensus winner from weighted scores. There is no certificate, key material, secret path, or credential handling at this location."
+        "reason": "The token key is Python's max function keyword for selecting a weighted score. The line does not reference certificates, private keys, or sensitive files."
       },
       {
         "id": "blocker:scripts/coordination.py:11:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The uuid import is used to generate message identifiers. It does not inspect host state, enumerate system details, or perform reconnaissance."
+        "confidence": 0.99,
+        "reason": "The code imports uuid to generate message identifiers. It does not collect host, user, process, network, or environment information."
       },
       {
         "id": "blocker:scripts/coordination.py:130:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "This condition validates whether a worker identifier exists in an in-memory registry. It is not collecting host or environment information."
+        "confidence": 0.99,
+        "reason": "The condition validates that a worker identifier exists in an in-memory registry. It performs no system reconnaissance."
       },
       {
         "id": "blocker:scripts/coordination.py:154:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The list comprehension filters registered worker IDs by availability and capability. This is application state routing, not system reconnaissance."
+        "confidence": 0.99,
+        "reason": "The comprehension filters an in-memory worker dictionary by capability and status. It does not inspect the operating system or host."
       },
       {
         "id": "blocker:scripts/coordination.py:162:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The code filters in-memory worker records for available agents. It does not access host metadata, processes, users, or network configuration."
+        "confidence": 0.99,
+        "reason": "The comprehension selects available entries from an in-memory worker registry. No host discovery or system enumeration occurs."
       },
       {
         "id": "blocker:scripts/coordination.py:317:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "This check validates that a vote topic exists before accepting a vote. It is business logic over in-memory data, not reconnaissance."
+        "confidence": 0.99,
+        "reason": "The line checks whether a topic exists in an in-memory votes dictionary. It has no relationship to system reconnaissance."
       },
       {
         "id": "blocker:scripts/coordination.py:340:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "This check confirms a vote topic exists before consensus calculation. It does not query or inventory the runtime system."
+        "confidence": 0.99,
+        "reason": "The condition validates an in-memory topic identifier before calculating votes. It does not gather system information."
       },
       {
         "id": "blocker:scripts/coordination.py:429:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The circuit breaker check reads an in-memory dictionary of agent cooldowns. It is local workflow state, not host discovery."
+        "confidence": 0.99,
+        "reason": "The line checks an in-memory circuit-breaker map for an agent identifier. It does not enumerate or profile the host."
       },
       {
         "id": "external_commands:SKILL.md:63:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "The flagged line is a Markdown code fence around an architecture diagram. It is not Ruby backtick execution or any executable command."
+        "reason": "The matched backticks open a Markdown diagram showing agent flow. No shell or Ruby command is present or executed."
       },
       {
         "id": "external_commands:SKILL.md:65:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "The flagged range closes a Markdown diagram fence and continues explanatory prose. There is no shell command or dynamic execution context."
+        "reason": "The matched backticks close a Markdown diagram. They are documentation delimiters, not executable shell syntax."
       },
       {
         "id": "external_commands:SKILL.md:76:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "The backticks mark the inline name of a conceptual forward_message tool. They do not invoke a shell or execute Ruby code."
+        "reason": "The line uses inline Markdown to name a proposed forward_message function. It does not invoke an external command."
       },
       {
         "id": "external_commands:SKILL.md:78:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "This is a Markdown Python code fence for an illustrative function. It is static documentation, not a command execution path."
+        "reason": "The matched text starts a fenced Python example. The example returns message dictionaries and contains no process execution."
       },
       {
         "id": "external_commands:SKILL.md:91:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "The line is a closing Markdown fence after sample Python. No external command or shell evaluation is present."
+        "reason": "The matched text closes a fenced Python example. It is Markdown formatting and does not execute a command."
       },
       {
         "id": "external_commands:SKILL.md:100:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "This is a Markdown code fence before a short Python handoff example. It does not contain shell syntax or runtime execution."
+        "reason": "The line opens a fenced Python handoff example. The shown function returns an agent object and does not launch a process."
       },
       {
         "id": "external_commands:SKILL.md:108:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "The flagged line closes a Markdown example. It is formatting, not shell backtick execution."
+        "reason": "The matched backticks close a Python documentation example. No shell command or dynamic execution appears."
       },
       {
         "id": "external_commands:SKILL.md:121:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "This is a Markdown diagram fence for hierarchical architecture. It is not interpreted as Ruby or shell code by the skill."
+        "reason": "The backticks open a plain-text architecture diagram. They do not contain or execute an external command."
       },
       {
         "id": "external_commands:SKILL.md:123:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "The flagged range is Markdown formatting and surrounding prose. It contains no command invocation or untrusted input execution."
+        "reason": "The backticks close a plain-text architecture diagram. This is Markdown structure, not Ruby or shell execution."
       },
       {
         "id": "external_commands:SKILL.md:192:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "The line opens a text diagram code fence for an example research team. It is documentation formatting, not executable code."
+        "reason": "The line starts a fenced text diagram of research roles. It has no executable command content."
       },
       {
         "id": "external_commands:SKILL.md:198:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "This closes a Markdown text diagram. There is no shell command, subprocess call, or dynamic execution behavior."
+        "reason": "The line closes the research-team text diagram. It is not a shell execution construct in this Markdown context."
       },
       {
         "id": "external_commands:SKILL.md:201:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "The line opens a Python example for routing customer requests. It is documentation content and does not execute external commands."
+        "reason": "The line opens a fenced Python routing example. The shown code dispatches to agent functions and does not run operating-system commands."
       },
       {
         "id": "network:SKILL.md:202:http-client-library",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "The flagged line defines a sample request handler and does not import or call an HTTP client. No network access is performed there."
+        "reason": "This line defines a local customer-request routing function. It imports no HTTP client and performs no network request."
       },
       {
         "id": "network:SKILL.md:243:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The URL is a reference link to LangGraph documentation. It is not fetched automatically and does not transmit user data."
+        "confidence": 0.98,
+        "reason": "The URL is a visible Markdown citation to LangGraph documentation. The skill does not fetch it or transmit data to it."
       },
       {
         "id": "network:SKILL.md:244:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The URL is a reference link to AutoGen documentation. It is static documentation and not an automatic network request."
+        "confidence": 0.98,
+        "reason": "The URL is a visible Markdown citation to the AutoGen project. No automatic request or data transfer is implemented."
       },
       {
         "id": "network:SKILL.md:245:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The URL is a reference link to CrewAI documentation. It does not execute network access or exfiltrate data."
+        "confidence": 0.98,
+        "reason": "The URL is a visible Markdown citation to CrewAI documentation. It is informational and is not contacted by code."
       },
       {
         "id": "network:SKILL.md:246:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The URL is a reference link to an arXiv paper. It is informational and not used by executable code."
+        "confidence": 0.98,
+        "reason": "The URL cites an arXiv research paper in the references section. The skill performs no network access or data exfiltration."
       },
       {
         "id": "blocker:SKILL.md:24:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The line describes coordination protocols and failure modes in prose. It does not instruct agents to inspect the system or collect host data."
+        "confidence": 0.99,
+        "reason": "The line discusses coordination protocols, consensus, and failure modes in prose. It contains no reconnaissance instruction or system query."
       },
       {
         "id": "blocker:SKILL.md:110:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The line describes when to use swarm patterns. It contains no system inventory, host discovery, or reconnaissance behavior."
+        "confidence": 0.99,
+        "reason": "The line explains when peer-to-peer agent architecture is useful. It does not request or collect host information."
       }
     ],
     "semantic_findings": [],
     "critical_findings": [],
     "high_findings": [],
-    "medium_findings": [],
+    "medium_findings": [
+      {
+        "title": "Python file write/append",
+        "description": "with open(path, 'w') as f:",
+        "locations": [
+          {
+            "file": "references/frameworks.md",
+            "line_start": 300,
+            "line_end": 300
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "filesystem",
+        "source_severity": "medium",
+        "confidence": 0.9,
+        "confidence_reasoning": "The example writes to a path built directly from the caller-provided key. Values containing parent-directory segments can escape the configured workspace."
+      },
+      {
+        "title": "Python file write/append",
+        "description": "with open(lock_path, 'w') as f:",
+        "locations": [
+          {
+            "file": "references/frameworks.md",
+            "line_start": 315,
+            "line_end": 315
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "filesystem",
+        "source_severity": "medium",
+        "confidence": 0.92,
+        "confidence_reasoning": "The lock path embeds the caller-provided resource without validation and then writes to it. Path traversal and the non-atomic check can affect files outside the intended lock directory."
+      },
+      {
+        "title": "Python file write/append",
+        "description": "with open(path, 'w') as f:",
+        "locations": [
+          {
+            "file": "references/frameworks.md",
+            "line_start": 424,
+            "line_end": 424
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "filesystem",
+        "source_severity": "medium",
+        "confidence": 0.9,
+        "confidence_reasoning": "The checkpoint filename is formed from workflow_id without validation or a containment check. A crafted identifier can redirect the write beyond the checkpoint directory."
+      }
+    ],
     "low_findings": [],
     "dangerous_patterns": [],
     "files_scanned": 4,
     "total_lines": 1159,
     "audit_model": "codex",
-    "audited_at": "2026-07-07T21:57:16.215Z",
+    "audited_at": "2026-07-23T06:21:30.054Z",
     "agent_auto_install_policy": "allowed",
     "manual_install_policy": "allowed"
   },
   "content": {
     "user_title": "Design Reliable Multi-Agent Systems",
-    "value_statement": "Complex AI tasks can exceed one agent context or mix incompatible responsibilities. This skill helps Claude, Codex, and Claude Code plan coordinated agent systems with clear roles and controls.",
+    "value_statement": "Complex AI workflows can exceed one agent's context and coordination capacity. This skill guides architecture selection, context isolation, handoffs, consensus, and failure recovery.",
     "seo_keywords": [
-      "Claude multi-agent patterns",
-      "Codex agent architecture",
-      "Claude Code workflows",
+      "Claude",
+      "Codex",
+      "Claude Code",
       "multi-agent systems",
-      "agent coordination",
-      "context isolation",
-      "supervisor agent pattern",
-      "swarm agent pattern",
-      "hierarchical agents",
-      "AI workflow design"
+      "agent orchestration",
+      "supervisor architecture",
+      "agent swarm",
+      "context engineering",
+      "LangGraph patterns",
+      "AI coordination"
     ],
     "actual_capabilities": [
-      "Explains supervisor, swarm, and hierarchical agent architectures.",
-      "Guides task decomposition across specialized agent roles.",
-      "Describes context isolation strategies for complex workflows.",
-      "Provides coordination patterns for handoffs, voting, and debate.",
-      "Covers failure controls such as validation, retries, and circuit breakers.",
-      "Includes framework-oriented examples for LangGraph, AutoGen, and CrewAI."
+      "Compares supervisor, peer-to-peer, and hierarchical architectures by control, scalability, and coordination needs.",
+      "Guides task decomposition and context isolation across specialized agents.",
+      "Provides implementation patterns for LangGraph, AutoGen, and CrewAI-style systems.",
+      "Designs handoffs, weighted voting, debate protocols, checkpoints, retries, and circuit breakers.",
+      "Includes Python utilities for messaging, supervision, handoffs, consensus, and failure handling."
     ],
     "limitations": [
-      "It provides architecture guidance, not a complete production framework.",
-      "Example code needs adaptation before use in deployed systems.",
-      "It does not evaluate model costs or latency for a specific provider.",
-      "It does not replace security review for tools assigned to agents."
+      "Framework examples require adaptation, dependencies, authentication, and production integration.",
+      "The skill does not deploy agents, call models, or benchmark a completed system.",
+      "Token multipliers and model comparisons are illustrative and may become outdated.",
+      "Filesystem examples require path validation and atomic locking before production use."
     ],
     "use_cases": [
       {
-        "title": "Plan a Research Agent Team",
-        "description": "Design researchers, analysts, fact checkers, and writers with clear handoffs and validation steps.",
-        "target_user": "AI product manager"
+        "title": "Plan a research workflow",
+        "description": "Divide research, analysis, verification, and writing across agents with clear result aggregation.",
+        "target_user": "Research engineering lead"
       },
       {
-        "title": "Refactor a Single Agent Workflow",
-        "description": "Split a crowded agent prompt into focused workers that preserve context and reduce coordination noise.",
+        "title": "Design a support router",
+        "description": "Route billing, technical, sales, and general requests through explicit agent handoffs.",
         "target_user": "AI application engineer"
       },
       {
-        "title": "Review Agent Failure Modes",
-        "description": "Identify bottlenecks, divergence risks, consensus errors, and retry boundaries before production rollout.",
-        "target_user": "platform reliability lead"
+        "title": "Review production resilience",
+        "description": "Assess bottlenecks, divergence, error propagation, retry behavior, checkpoints, and human oversight.",
+        "target_user": "Software architect"
       }
     ],
     "prompt_templates": [
       {
-        "title": "Choose a Pattern",
-        "scenario": "Beginner planning for a new workflow.",
-        "prompt": "I need a multi-agent design for this task: [task]. Recommend supervisor, swarm, or hierarchy. Explain the main tradeoffs."
+        "title": "Choose an architecture",
+        "prompt": "Recommend a supervisor, swarm, or hierarchical architecture for [task]. Explain the choice, agent roles, and handoff points.",
+        "scenario": "Beginner selection for a new multi-agent workflow"
       },
       {
-        "title": "Define Agent Roles",
-        "scenario": "Intermediate decomposition of a complex task.",
-        "prompt": "Break this workflow into specialized agents: [workflow]. For each agent, define inputs, outputs, tools, and handoff rules."
+        "title": "Define agent responsibilities",
+        "prompt": "Design agents for [workflow] with isolated context. Specify each objective, inputs, tools, outputs, and completion criteria.",
+        "scenario": "Intermediate task decomposition and specialization"
       },
       {
-        "title": "Add Coordination Controls",
-        "scenario": "Advanced design for reliability.",
-        "prompt": "Review this agent architecture: [architecture]. Add validation, consensus, retry, timeout, and circuit breaker controls."
+        "title": "Plan coordination and recovery",
+        "prompt": "Create a coordination plan for [system]. Include state ownership, message schemas, consensus rules, timeouts, retries, checkpoints, and circuit breakers.",
+        "scenario": "Advanced reliability planning"
       },
       {
-        "title": "Optimize Production Architecture",
-        "scenario": "Advanced review before implementation.",
-        "prompt": "Evaluate this multi-agent system for context isolation, token cost, latency, failure propagation, and observability. Provide concrete design changes."
+        "title": "Audit a production design",
+        "prompt": "Review [architecture description]. Identify context bottlenecks, unsafe handoffs, convergence risks, error propagation, token costs, and concrete improvements.",
+        "scenario": "Expert architecture review and optimization"
       }
     ],
     "output_examples": [
       {
-        "input": "A team needs an agent system for long-form market research and report writing.",
-        "output": "A supervisor pattern with researcher, analyst, fact checker, and writer agents. The supervisor validates outputs and forwards final sections without rewriting details."
+        "input": "Choose an architecture for a research report that needs web research, analysis, fact-checking, and writing.",
+        "output": [
+          "Recommended pattern: Supervisor architecture with four specialized workers.",
+          "The supervisor assigns independent research tasks and aggregates validated summaries.",
+          "A fact-checker reviews claims before the writer receives approved evidence."
+        ]
       },
       {
-        "input": "A support workflow must route billing, technical, and sales questions to different specialists.",
-        "output": "A handoff design with a triage agent, three specialist agents, shared state, and confirmation messages after each transfer."
+        "input": "Design handoffs for a customer support system covering billing, technical support, sales, and general questions.",
+        "output": [
+          "A triage agent classifies the request and selects one specialist.",
+          "Each handoff includes the request, customer context, reason, priority, and required response.",
+          "Unknown requests return to the general agent, while repeated failures trigger human review."
+        ]
       },
       {
-        "input": "An existing agent loop fails when one worker repeats errors.",
-        "output": "A failure plan with retry limits, cooldown windows, alternate workers, output validation, and alerts for repeated task failures."
+        "input": "Review a swarm that often loops between two agents and produces inconsistent answers.",
+        "output": [
+          "Add a shared objective, explicit transfer conditions, and a maximum handoff count.",
+          "Store decisions in shared state and reject handoffs without new evidence.",
+          "Use independent critique before consensus and escalate unresolved conflicts to a coordinator."
+        ]
       }
     ],
     "best_practices": [
-      "Use separate agents only when context isolation or specialization improves the outcome.",
-      "Define handoff contracts before adding more agents to the workflow.",
-      "Validate each agent output before another agent depends on it."
+      "Use multiple agents only when context isolation or parallel work justifies the added cost.",
+      "Define typed handoffs, output validation, ownership, timeouts, and termination conditions before implementation.",
+      "Test agent failures, conflicting outputs, stale state, retry exhaustion, and supervisor saturation."
     ],
     "anti_patterns": [
-      "Creating many role names without clear task boundaries or shared state rules.",
-      "Letting a supervisor rewrite specialist outputs when exact details matter.",
-      "Using simple majority voting when agents have unequal expertise or confidence."
+      "Do not create agents only to imitate organizational job titles.",
+      "Do not pass complete histories to every agent when a bounded task specification is sufficient.",
+      "Do not accept majority consensus without confidence, evidence, or independent critique."
     ],
     "faq": [
       {
-        "question": "When should I use this skill?",
-        "answer": "Use it when one agent has too much context, too many tools, or too many distinct responsibilities."
+        "question": "When should I use more than one agent?",
+        "answer": "Use multiple agents when tasks decompose cleanly, require different tools, or exceed one context window. Simple workflows usually need one agent."
       },
       {
-        "question": "Does this skill build agent software automatically?",
-        "answer": "No. It provides design guidance, examples, and review prompts for building agent systems."
+        "question": "Which architecture should I choose first?",
+        "answer": "Choose a supervisor for controlled decomposition, a swarm for flexible handoffs, or a hierarchy for layered planning and execution."
       },
       {
-        "question": "Which architecture pattern is simplest to start with?",
-        "answer": "The supervisor pattern is usually simplest because one coordinator owns routing, validation, and final synthesis."
+        "question": "Does this skill install an agent framework?",
+        "answer": "No. It provides design guidance, examples, and local Python coordination utilities. You must install and configure any chosen framework."
       },
       {
-        "question": "How does it help with context limits?",
-        "answer": "It shows how to split work so each agent keeps only the context needed for its subtask."
+        "question": "How does the skill reduce context pressure?",
+        "answer": "It assigns bounded subtasks to agents with separate context windows. Agents return structured results instead of sharing every intermediate message."
       },
       {
-        "question": "Can I use it with Claude Code or Codex?",
-        "answer": "Yes. The guidance applies to Claude, Codex, and Claude Code workflows that coordinate specialized agents."
+        "question": "How should agents resolve disagreement?",
+        "answer": "Use weighted voting or structured debate with evidence and independent critique. Define an escalation path when agents cannot converge."
       },
       {
-        "question": "What should I review before production use?",
-        "answer": "Review tool permissions, data sharing, output validation, latency, token cost, and failure recovery behavior."
+        "question": "Are the filesystem examples production ready?",
+        "answer": "No. Validate path components, enforce directory containment, use atomic locks, control permissions, and protect checkpoint data before production use."
       }
     ]
   },

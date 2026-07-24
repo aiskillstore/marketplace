@@ -1,25 +1,20 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-07-17T11:01:38.121Z",
+    "generated_at": "2026-07-23T12:01:27.536Z",
     "slug": "chachamaru127-maintenance",
     "source_url": "https://github.com/Chachamaru127/claude-code-harness/tree/main/skills/maintenance",
     "source_ref": "main",
-    "model": "claude",
+    "model": "codex",
     "analysis_version": "3.0.0",
     "source_type": "community",
     "content_hash": "b0f7b12ed0dc93ac47e01ef9216013002afd99fffdb65187edf508efd6f78a4a",
     "tree_hash": "154c5964c921abab2f3109738ee83a6e1112d583c5e2f08058b84513ad8f47cd",
     "provenance": {
-      "model_effective": "claude",
+      "model_effective": "codex",
       "fallback_chain": [
         {
           "agent": "codex",
-          "outcome": "failed",
-          "error": "2026-07-17T11:01:38.263614Z ERROR codex_models_manager::manager: failed to refresh available models: Missing environment variable: `HELM_API_KEY`.\n2026-07-17T11:01:38.283003Z ERROR codex_models_manage…"
-        },
-        {
-          "agent": "claude",
           "outcome": "success"
         }
       ],
@@ -28,17 +23,17 @@
   },
   "skill": {
     "name": "maintenance",
-    "description": "Organizes project planning files, session logs, retained logs, and state files with scoped cleanup steps and backups.",
-    "summary": "Safely organize project records, logs, and state files.",
+    "description": "File cleanup and archiving. Tidies up bloated Plans.md, session-log.md, old logs, and state files. Trigger: /maintenance, cleanup, archive, organize, split session-log. Do NOT load for: implementation, review, release, new feature development.",
+    "summary": "Archive completed plans, split session logs, remove old logs, and trim growing state files.",
     "icon": "📦",
     "author": "Chachamaru127",
     "license": "MIT",
+    "category": "productivity",
     "tags": [
       "file-cleanup",
       "log-archiving",
       "project-maintenance",
-      "session-logs",
-      "claude-code"
+      "session-logs"
     ],
     "supported_tools": [
       "claude",
@@ -48,16 +43,21 @@
     "risk_factors": [
       "external_commands",
       "filesystem"
-    ],
-    "category": "productivity"
+    ]
   },
   "security_audit": {
-    "risk_level": "safe",
+    "risk_level": "medium",
     "is_blocked": false,
     "safe_to_publish": true,
     "analysis_status": "ok",
-    "summary": "All 29 static findings are false positives. Most detect Markdown inline-code formatting, while the timestamped backup example uses fixed local shell syntax. The two high-entropy alerts are explained by readable multilingual Markdown; no prompt injection, exfiltration intent, or hidden payload was found.",
-    "remediation": [],
+    "summary": "All 29 static findings are false positives caused by Markdown formatting, fixed command substitution, intentional project paths, and Japanese text. A semantic review found a medium-severity data-loss risk because deletion and in-place truncation can run without a mandatory preview or confirmation.",
+    "remediation": [
+      {
+        "issue": "Log deletion and state-file truncation can permanently remove local history without a mandatory preview or confirmation.",
+        "suggestion": "Make dry-run the default, require explicit confirmation before deletion or truncation, and verify backups before changing state files.",
+        "severity": "medium"
+      }
+    ],
     "risk_factor_evidence": [
       {
         "factor": "external_commands",
@@ -502,317 +502,361 @@
         "id": "external_commands:references/cleanup.md:37:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "The backticks only format a Markdown example of an archiveable task. They do not invoke a shell or execute code."
+        "reason": "Line 37 is a shell comment containing a Markdown-formatted task pattern. It does not execute a backtick command."
       },
       {
         "id": "external_commands:references/cleanup.md:83:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "The backticks format a Markdown heading pattern used to describe log entries. No command execution is present."
+        "reason": "Line 83 is a shell comment that documents a Markdown date header. The backticks only delimit inline code."
       },
       {
         "id": "external_commands:references/cleanup.md:96:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "The backticks identify a source path in prose. They do not execute a command or interpolate input."
+        "reason": "Line 96 is prose inside a Markdown example and uses backticks around a file path. It contains no executable shell expression."
       },
       {
         "id": "external_commands:references/cleanup.md:30:shell-command-substitution",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "This creates a timestamped local backup of the fixed Plans.md path before edits. The substitution supplies only date output and is not derived from user input."
+        "confidence": 0.98,
+        "reason": "The substitution invokes the fixed command date +%s only to create a unique backup suffix. It accepts no user-controlled command text, and the file variables are quoted."
       },
       {
         "id": "filesystem:references/cleanup.md:23:hidden-file-access",
         "verdict": "false_positive",
         "confidence": 0.97,
-        "reason": "The hidden marker is a local synchronization-status check before maintenance. It neither exposes secrets nor accesses unrelated files."
+        "reason": "The hidden path is an intentional local synchronization flag under the project .claude directory. The instruction checks its existence and does not read secrets or modify the flag."
       },
       {
         "id": "external_commands:SKILL.md:5:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "The backticks format the slash command name in front matter text. They are not executable shell syntax."
+        "reason": "The backticks appear in Japanese metadata to format the /maintenance trigger. YAML text is not shell execution."
       },
       {
         "id": "external_commands:SKILL.md:19:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "The backticks format a suggested slash command in documentation. The text contains no executable command."
+        "reason": "The backticks format the /memory sync skill command in prose. No Ruby or shell backtick expression is present."
       },
       {
         "id": "external_commands:SKILL.md:25:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "The backticks label a documented subcommand in a table. They are Markdown formatting only."
+        "reason": "This table cell uses backticks to format the maintenance plans subcommand. It is documentation, not executable syntax."
       },
       {
         "id": "external_commands:SKILL.md:26:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "The backticks label a documented subcommand in a table. They are Markdown formatting only."
+        "reason": "This table cell uses backticks to format the maintenance session-log subcommand. It is documentation, not executable syntax."
       },
       {
         "id": "external_commands:SKILL.md:27:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "The backticks label a documented subcommand and directory. They are Markdown formatting only."
+        "reason": "The backticks format a subcommand and a local directory path in a Markdown table. They do not invoke a shell."
       },
       {
         "id": "external_commands:SKILL.md:28:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "The backticks label documented filenames and a subcommand. They are Markdown formatting only."
+        "reason": "The backticks format a subcommand and state filenames in a Markdown table. No command execution occurs on this line."
       },
       {
         "id": "external_commands:SKILL.md:29:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "The backticks label a documented aggregate subcommand. They are Markdown formatting only."
+        "reason": "The backticks only format the maintenance all subcommand in documentation. There is no Ruby or shell backtick expression."
       },
       {
         "id": "external_commands:SKILL.md:31:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "The backticks format the dry-run option in explanatory text. They do not run a shell command."
+        "reason": "The backticks format the --dry-run option in prose. This line does not execute a command."
       },
       {
         "id": "external_commands:SKILL.md:38:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "The backticks format a local marker-file path. The text describes a check and does not execute code."
+        "reason": "The backticks delimit a local hidden-file path used for a synchronization check. They are Markdown formatting, not execution."
       },
       {
         "id": "external_commands:SKILL.md:39:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "The backticks format a suggested slash command. They are not a shell execution primitive."
+        "reason": "The line formats the /memory sync skill command with Markdown backticks. It contains no executable backtick expression."
       },
       {
         "id": "external_commands:SKILL.md:40:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.98,
-        "reason": "The template expression names a skill-relative reference file for reading. It does not execute the expression as a shell command."
+        "reason": "The backticks wrap a documented path using the CLAUDE_SKILL_DIR variable. The line instructs the agent to read a bundled reference and does not execute shell code."
       },
       {
         "id": "external_commands:SKILL.md:49:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "The backticks format referenced hook filenames in documentation. No hook is executed by this text."
+        "reason": "The backticks format referenced hook filenames in prose. The audited line does not invoke either hook."
       },
       {
         "id": "external_commands:SKILL.md:51:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "The backticks delimit a feedback message in prose. They are not executable shell syntax."
+        "reason": "The backticks quote a feedback message shown by a hook. The quoted text is not executable code."
       },
       {
         "id": "external_commands:SKILL.md:56:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "The backticks format status labels in a safety exclusion rule. They do not invoke commands."
+        "reason": "The backticks format task-status tags that must be excluded from cleanup. They are data labels, not commands."
       },
       {
         "id": "external_commands:SKILL.md:57:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "The backticks format a fixed archive path in a safety rule. They do not execute a command."
+        "reason": "The backticks format the fixed local archive directory. No shell expression appears on this line."
       },
       {
         "id": "external_commands:SKILL.md:59:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "This documents a local backup command before editing large files. The timestamp substitution is fixed and the placeholder file name is illustrative, not interpolated shell input."
+        "confidence": 0.98,
+        "reason": "The backticks present a shell backup example rather than Ruby-style execution. The example quotes the variable paths and runs only a fixed date command."
       },
       {
         "id": "external_commands:SKILL.md:65:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "The backticks format a related skill name. They are Markdown formatting only."
+        "reason": "The backticks format the name of a related skill. This is a Markdown list item without executable code."
       },
       {
         "id": "external_commands:SKILL.md:66:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "The backticks format a related skill name. They are Markdown formatting only."
+        "reason": "The backticks format two mentions of a related skill name. This prose does not execute either name as a command."
       },
       {
         "id": "external_commands:SKILL.md:67:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "The backticks format a related skill name. They are Markdown formatting only."
+        "reason": "The backticks format the name of a related skill. No external command is executed."
       },
       {
         "id": "external_commands:SKILL.md:59:shell-command-substitution",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "The documented date substitution creates a timestamped backup name. It is fixed syntax and does not evaluate user-provided content."
+        "confidence": 0.98,
+        "reason": "The command substitution is the fixed date +%s command used to timestamp a backup. It does not evaluate user-controlled shell text."
       },
       {
         "id": "external_commands:SKILL.md:59:template-literal-with-command-substitution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "This is a Markdown inline code example, not a JavaScript template literal. The static pattern is inapplicable."
+        "confidence": 0.99,
+        "reason": "This is a Markdown code span containing a shell backup example, not a JavaScript template literal. The scanner misclassified the surrounding backticks."
       },
       {
         "id": "filesystem:SKILL.md:38:hidden-file-access",
         "verdict": "false_positive",
         "confidence": 0.97,
-        "reason": "The hidden marker is a project-local synchronization check before destructive work. It is part of the documented safeguard."
+        "reason": "The path is a documented project-local synchronization marker under .claude/state. The skill only checks whether it exists before Plans.md maintenance."
       },
       {
         "id": "obfuscation:references/cleanup.md:1:heuristic-high-file-entropy-6-64-bits-possible-b",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The file is readable Markdown containing Japanese text, shell examples, and maintenance guidance. No encoded, encrypted, or binary payload is present."
+        "confidence": 0.99,
+        "reason": "The file is readable UTF-8 Markdown containing Japanese documentation, tables, and examples. Its character diversity explains the entropy score, with no binary or encoded payload present."
       },
       {
         "id": "obfuscation:SKILL.md:1:heuristic-high-file-entropy-6-47-bits-possible-b",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The file is readable Markdown with Japanese text and YAML front matter. The entropy heuristic does not indicate obfuscation here."
+        "confidence": 0.99,
+        "reason": "The file is readable YAML and UTF-8 Markdown with Japanese and English text. No encrypted, encoded, or binary content is present."
       }
     ],
-    "semantic_findings": [],
+    "semantic_findings": [
+      {
+        "title": "Destructive Cleanup Without Mandatory Confirmation",
+        "description": "The logs workflow uses find -delete, and the state workflow replaces a trace file after truncation. Dry-run is optional, and neither workflow requires explicit confirmation immediately before the destructive action.",
+        "severity": "medium",
+        "locations": [
+          {
+            "file": "references/cleanup.md",
+            "line_start": 118,
+            "line_end": 123
+          },
+          {
+            "file": "references/cleanup.md",
+            "line_start": 142,
+            "line_end": 148
+          }
+        ],
+        "confidence": 0.97,
+        "confidence_reasoning": "The documented commands directly delete old log files and overwrite the trace file. A general backup rule exists, but no confirmation gate or default preview is specified."
+      }
+    ],
     "critical_findings": [],
     "high_findings": [],
-    "medium_findings": [],
+    "medium_findings": [
+      {
+        "title": "Destructive Cleanup Without Mandatory Confirmation",
+        "description": "The logs workflow uses find -delete, and the state workflow replaces a trace file after truncation. Dry-run is optional, and neither workflow requires explicit confirmation immediately before the destructive action.",
+        "locations": [
+          {
+            "file": "references/cleanup.md",
+            "line_start": 118,
+            "line_end": 123
+          },
+          {
+            "file": "references/cleanup.md",
+            "line_start": 142,
+            "line_end": 148
+          }
+        ],
+        "review_kind": "security",
+        "source_category": "semantic",
+        "source_severity": "medium",
+        "confidence": 0.97,
+        "confidence_reasoning": "The documented commands directly delete old log files and overwrite the trace file. A general backup rule exists, but no confirmation gate or default preview is specified."
+      }
+    ],
     "low_findings": [],
     "dangerous_patterns": [],
     "files_scanned": 2,
     "total_lines": 282,
-    "audit_model": "claude",
-    "audited_at": "2026-07-17T11:01:38.121Z",
+    "audit_model": "codex",
+    "audited_at": "2026-07-23T12:01:27.536Z",
     "agent_auto_install_policy": "allowed",
     "manual_install_policy": "allowed"
   },
   "content": {
-    "user_title": "Organize project files and logs safely",
-    "value_statement": "Large planning files, session logs, and local state can become difficult to review and maintain. This skill organizes defined project files, creates backups, and reports the resulting changes.",
+    "user_title": "Clean and Archive Project Maintenance Files",
+    "value_statement": "Growing plans, session logs, and state files make project history difficult to manage. This skill archives completed work and trims selected project files.",
     "seo_keywords": [
-      "Claude",
-      "Codex",
-      "Claude Code",
-      "file cleanup",
-      "log archiving",
-      "session log management",
-      "project maintenance",
+      "Claude maintenance skill",
+      "Codex file cleanup",
+      "Claude Code archiving",
       "Plans.md cleanup",
-      "state file trimming"
+      "session log splitting",
+      "project log retention",
+      "state file trimming",
+      "AI project maintenance",
+      "dry run cleanup"
     ],
     "actual_capabilities": [
-      "Archives completed Plans.md tasks while excluding active task markers.",
-      "Splits older session-log.md entries into month-based archive files.",
-      "Lists or deletes retained log files older than a configured age.",
-      "Trims agent trace files to the most recent 1,000 lines.",
-      "Creates a timestamped Plans.md backup before editing large files.",
-      "Reports before-and-after line counts and affected file counts."
+      "Archives completed Plans.md tasks while excluding active work tags.",
+      "Splits old session log entries into monthly archive files.",
+      "Lists or deletes project log files older than a retention threshold.",
+      "Keeps the newest 1,000 lines of the agent trace file.",
+      "Reports line counts, moved entries, deleted files, and backup paths.",
+      "Supports plans, session-log, logs, state, and combined maintenance modes."
     ],
     "limitations": [
-      "It only covers the documented Plans.md, session log, logs, and state workflows.",
-      "It does not automatically edit decisions.md, patterns.md, CHANGELOG.md, or files under .git.",
-      "State JSON cleanup requires inspecting the current file structure before implementing filters.",
-      "Deletion and archival outcomes depend on file dates, task markers, and user-selected thresholds."
+      "The workflow targets the documented .claude project layout.",
+      "Log deletion and state trimming can remove history without a mandatory confirmation step.",
+      "Usage data cleanup depends on the existing JSON structure and requires inspection.",
+      "The skill does not edit CLAUDE.md, decisions.md, patterns.md, or CHANGELOG.md."
     ],
     "use_cases": [
       {
-        "title": "Archive completed plans",
-        "description": "Move old completed tasks into a clearly grouped archive after confirming active tasks remain untouched.",
-        "target_user": "Project maintainer"
+        "title": "Archive Completed Plan Items",
+        "description": "Move older completed tasks into monthly archive sections while preserving active work.",
+        "target_user": "Project leads managing a large Plans.md file"
       },
       {
-        "title": "Reduce session-log size",
-        "description": "Split older session records into monthly files while keeping recent entries in the working log.",
-        "target_user": "Frequent Claude Code user"
+        "title": "Split Long Session History",
+        "description": "Keep recent session entries in the main log and move older entries into monthly files.",
+        "target_user": "Developers maintaining long-running AI projects"
       },
       {
-        "title": "Control local log growth",
-        "description": "Preview and clean old log files or trim large trace files using defined retention rules.",
-        "target_user": "Development operations engineer"
+        "title": "Reduce Local Log Growth",
+        "description": "Review old logs and trim growing trace files with configurable retention thresholds.",
+        "target_user": "Tooling maintainers managing local project storage"
       }
     ],
     "prompt_templates": [
       {
-        "title": "Preview plan cleanup",
-        "prompt": "Run maintenance plans with --dry-run and show which completed tasks qualify for archiving.",
-        "scenario": "Beginner"
+        "title": "Preview Maintenance",
+        "prompt": "Run maintenance in dry-run mode. List every file or entry that would be moved, deleted, or trimmed.",
+        "scenario": "Begin with a non-destructive review."
       },
       {
-        "title": "Split session history",
-        "prompt": "Run maintenance session-log. Keep the most recent 30 days and report each monthly archive file.",
-        "scenario": "Intermediate"
+        "title": "Archive Completed Plans",
+        "prompt": "Archive completed Plans.md tasks older than seven days. Preserve active tags and report the backup path and changes.",
+        "scenario": "Organize a large project plan."
       },
       {
-        "title": "Review old logs",
-        "prompt": "Run maintenance logs with --dry-run using a 45-day retention period. Do not delete files yet.",
-        "scenario": "Intermediate"
+        "title": "Split Session Logs",
+        "prompt": "Split session-log.md by month. Keep the most recent 30 days and report each archive file and moved line count.",
+        "scenario": "Reduce the size of a long session log."
       },
       {
-        "title": "Run scoped maintenance",
-        "prompt": "Run maintenance all. Preserve active task markers, create required backups, stop on errors, and provide a before-and-after summary.",
-        "scenario": "Advanced"
+        "title": "Perform Controlled Full Maintenance",
+        "prompt": "Preview all maintenance with a 45-day log retention period. Exclude named files, then request confirmation before any deletion or truncation.",
+        "scenario": "Review plans, sessions, logs, and state with custom safeguards."
       }
     ],
     "output_examples": [
       {
-        "input": "Preview cleanup for Plans.md.",
+        "input": "Preview cleanup for logs older than 30 days.",
         "output": [
-          "Plans.md is below the configured line limit.",
-          "Six completed tasks were found, and none meet the archive age threshold.",
-          "No files were changed."
+          "Mode: dry run",
+          "Eligible log files: 12",
+          "Files retained: 34",
+          "No files were deleted"
         ]
       },
       {
-        "input": "Split the session log and report the result.",
+        "input": "Archive completed Plans.md tasks older than seven days.",
         "output": [
-          "Recent entries remain in session-log.md.",
-          "Older entries were organized into monthly archive files.",
-          "The report lists line-count changes and archive destinations."
+          "Plans.md changed from 250 to 178 lines",
+          "Nine completed tasks moved to the March 2026 archive",
+          "Active work tags were preserved",
+          "A timestamped backup was created"
         ]
       },
       {
-        "input": "Clean logs older than 30 days.",
+        "input": "Split the session log and keep the latest 30 days.",
         "output": [
-          "The report lists the number of deleted log files.",
-          "Remaining log files are counted after cleanup.",
-          "The task stops and reports an error if a stage fails."
+          "The main session log changed from 620 to 180 lines",
+          "Two monthly archive files received 440 lines",
+          "Recent entries remained in the main file"
         ]
       }
     ],
     "best_practices": [
-      "Use --dry-run before deleting or moving files.",
-      "Confirm important planning details are recorded before archiving completed tasks.",
-      "Review the before-and-after report and keep backups until the result is accepted."
+      "Use dry-run before every cleanup that deletes or truncates data.",
+      "Confirm synchronization and inspect backups before changing Plans.md or session history.",
+      "Set explicit retention thresholds and exclusions for each maintenance run."
     ],
     "anti_patterns": [
-      "Do not use this skill for feature implementation, code review, or releases.",
-      "Do not archive tasks marked as active or awaiting work.",
-      "Do not extend cleanup to unrelated directories without explicit user confirmation."
+      "Do not run full maintenance without reviewing the affected files.",
+      "Do not move active tasks marked with protected work-status tags.",
+      "Do not use this skill to edit protected history or source control files."
     ],
     "faq": [
       {
         "question": "What files can this skill maintain?",
-        "answer": "It handles Plans.md, session-log.md, files under .claude/logs, and selected state files."
+        "answer": "It handles Plans.md, session-log.md, project logs, agent trace data, and harness usage data."
       },
       {
         "question": "Can I preview changes first?",
-        "answer": "Yes. Add --dry-run to list proposed changes without performing them."
+        "answer": "Yes. Use dry-run mode to list planned moves, deletions, and trims without changing files."
       },
       {
-        "question": "Does it delete active tasks?",
-        "answer": "No. Tasks with documented active or pending markers are excluded from archiving."
+        "question": "How are completed plans selected?",
+        "answer": "The workflow uses completion dates and status tags while excluding active work markers."
       },
       {
-        "question": "Does it create backups?",
-        "answer": "It directs a timestamped backup before editing files that exceed 200 lines."
+        "question": "Where are session logs archived?",
+        "answer": "Older entries are grouped by month under .claude/memory/archive/sessions."
       },
       {
-        "question": "Can it edit project history files?",
-        "answer": "No. It does not automatically edit decisions.md, patterns.md, CHANGELOG.md, or .git files."
+        "question": "Does the skill create backups?",
+        "answer": "It requires timestamped backups before editing files over 200 lines. Other destructive workflows need stronger backup safeguards."
       },
       {
-        "question": "What happens if one maintenance stage fails?",
-        "answer": "The all workflow stops and reports the error rather than continuing silently."
+        "question": "Which files are protected?",
+        "answer": "It does not automatically edit CLAUDE.md, decisions.md, patterns.md, CHANGELOG.md, or files under .git."
       }
     ]
   },

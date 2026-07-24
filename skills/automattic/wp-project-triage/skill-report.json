@@ -1,7 +1,7 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-07-08T00:26:50.099Z",
+    "generated_at": "2026-07-23T08:53:51.575Z",
     "slug": "automattic-wp-project-triage",
     "source_url": "https://github.com/Automattic/agent-skills/tree/trunk/skills/wp-project-triage",
     "source_ref": "trunk",
@@ -23,18 +23,18 @@
   },
   "skill": {
     "name": "wp-project-triage",
-    "description": "Inspects a WordPress repository and reports project type, tooling, test signals, version hints, and workflow recommendations.",
-    "summary": "Detect WordPress project shape and tooling before coding.",
+    "description": "Inspect a WordPress repository and report its project type, tooling, tests, version hints, API usage, and recommended commands.",
+    "summary": "Classify WordPress repositories and identify tooling, tests, version hints, feature signals, and workflow recommendations.",
     "icon": "📦",
-    "version": "1.0.1",
     "author": "Automattic",
     "license": "MIT",
+    "category": "coding",
     "tags": [
       "wordpress",
       "repository-analysis",
       "project-triage",
-      "developer-workflows",
-      "tooling"
+      "developer-tooling",
+      "gutenberg"
     ],
     "supported_tools": [
       "claude",
@@ -45,24 +45,28 @@
       "network",
       "external_commands",
       "filesystem"
-    ],
-    "category": "coding"
+    ]
   },
   "security_audit": {
-    "risk_level": "safe",
+    "risk_level": "medium",
     "is_blocked": false,
     "safe_to_publish": true,
     "analysis_status": "ok",
-    "summary": "All static network, command, sensitive-file, and filesystem findings were reviewed against the source. The URL and backtick matches are schema identifiers, markdown code spans, template literals, or JSON output, not network calls or command execution. The filesystem reads are intentional local repository inspection, with no evidence of exfiltration.",
+    "summary": "Most static alerts are false positives caused by JavaScript template literals, Markdown code formatting, schema identifiers, and read-only filesystem inspection. The detector makes no network requests and does not execute generated command strings. Contextual risks remain in unbounded file reads, unsafe command recommendations, and absolute path disclosure.",
     "remediation": [
       {
-        "issue": "Local paths appear in the generated report.",
-        "suggestion": "Consider emitting relative paths or documenting that users should review output before sharing it.",
-        "severity": "low"
+        "issue": "Recommended package and Composer commands may invoke repository-controlled scripts.",
+        "suggestion": "Label commands as untrusted suggestions and require inspection of package scripts, Composer hooks, and executable targets before running them.",
+        "severity": "medium"
       },
       {
-        "issue": "Detector relies on filesystem scanning.",
-        "suggestion": "Keep ignore directories, file limits, and depth limits documented and conservative.",
+        "issue": "File size limits are applied after complete files are loaded into memory.",
+        "suggestion": "Check file size before reading or use bounded streaming reads to prevent memory exhaustion from unusually large files.",
+        "severity": "medium"
+      },
+      {
+        "issue": "The report includes the absolute repository root and other absolute local paths.",
+        "suggestion": "Emit relative paths by default, or add an explicit option before including absolute paths in shareable reports.",
         "severity": "low"
       }
     ],
@@ -444,287 +448,394 @@
       {
         "id": "network:references/triage.schema.json:2:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "This URL is JSON Schema metadata identifying the draft specification. No source code performs a request or transmits data."
+        "confidence": 0.99,
+        "reason": "This URL declares the JSON Schema dialect. The file contains no code that requests the URL or transmits data."
       },
       {
         "id": "network:references/triage.schema.json:3:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "This URL is a schema identifier for the local triage report contract. It is metadata only and is not fetched at runtime."
+        "confidence": 0.99,
+        "reason": "This local-domain URL is a schema identifier. It is metadata and is never used for a network request."
       },
       {
         "id": "external_commands:scripts/detect_wp_project.mjs:212:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The backticks are JavaScript template literals used to build a regular expression for local config text. There is no shell or process execution API."
+        "confidence": 0.99,
+        "reason": "The backticks form a JavaScript template literal used to construct a regular expression. No shell or subprocess API is called."
       },
       {
         "id": "external_commands:scripts/detect_wp_project.mjs:213:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The backticks are JavaScript template literals used to build a regular expression for local config text. There is no shell or process execution API."
+        "confidence": 0.99,
+        "reason": "The backticks form a JavaScript regular-expression template. The resulting expression only tests file content in memory."
       },
       {
         "id": "external_commands:scripts/detect_wp_project.mjs:215:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The template literal builds a regular expression for token detection in local files. It does not execute commands or invoke a shell."
+        "confidence": 0.99,
+        "reason": "This is JavaScript string interpolation for a regular expression, not Ruby or shell execution. It only searches local text."
       },
       {
         "id": "external_commands:scripts/detect_wp_project.mjs:270:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "The template literal creates recommended command text from a detected package manager. The detector appends strings to a report and does not execute them."
+        "confidence": 0.98,
+        "reason": "The code constructs a package-manager command string for the report. It does not execute the string or create a subprocess."
       },
       {
         "id": "external_commands:scripts/detect_wp_project.mjs:272:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "The template literal formats a suggested lint command for the report. It is not passed to child_process, eval, or a shell."
+        "confidence": 0.98,
+        "reason": "The template literal appends a lint recommendation to an output array. No command execution mechanism is present."
       },
       {
         "id": "external_commands:scripts/detect_wp_project.mjs:273:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "The template literal formats a suggested test command for the report. It is not executed by the detector."
+        "confidence": 0.98,
+        "reason": "The template literal records a test recommendation as data. The detector never passes it to a shell or process API."
       },
       {
         "id": "external_commands:scripts/detect_wp_project.mjs:274:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "The template literal formats a suggested build command for the report. No external command execution occurs."
+        "confidence": 0.98,
+        "reason": "The template literal records a build recommendation only. There is no subprocess invocation or dynamic code execution."
       },
       {
         "id": "external_commands:scripts/detect_wp_project.mjs:275:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "The template literal formats a suggested start command for the report. The detector only writes this text to output."
+        "confidence": 0.98,
+        "reason": "The template literal records a start recommendation in report data. The command is not executed by this script."
       },
       {
         "id": "external_commands:scripts/detect_wp_project.mjs:589:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The template literal writes serialized JSON to standard output. It does not create or run an external command."
+        "confidence": 1,
+        "reason": "This JavaScript template literal formats JSON and a newline for standard output. It has no shell execution behavior."
       },
       {
         "id": "filesystem:scripts/detect_wp_project.mjs:28:node-js-fs-operations",
         "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "The file read supports local repository detection and applies size limits. The reviewed code does not exfiltrate file contents or write files."
+        "confidence": 0.94,
+        "reason": "The read-only file access is the detector's declared local inspection function. It does not write files or transmit their contents."
       },
       {
         "id": "filesystem:scripts/detect_wp_project.mjs:101:node-js-fs-operations",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "The directory read is bounded by max file and depth limits and skips dependency directories. It supports local classification only."
+        "confidence": 0.96,
+        "reason": "Directory enumeration supports the declared repository scan and is bounded by depth and file limits. It performs no filesystem mutation."
       },
       {
         "id": "filesystem:scripts/detect_wp_project.mjs:335:node-js-fs-operations",
         "verdict": "false_positive",
-        "confidence": 0.89,
-        "reason": "This reads top-level repository entries to find WordPress plugin and theme headers. It is a local inspection pattern with no write or network behavior."
+        "confidence": 0.96,
+        "reason": "This read-only root listing identifies plugin and theme candidates. It neither modifies entries nor sends their names externally."
       },
       {
         "id": "filesystem:scripts/detect_wp_project.mjs:20:node-js-fs-stat-operations",
         "verdict": "false_positive",
-        "confidence": 0.91,
-        "reason": "The stat call checks local file and directory existence for WordPress signals. It does not expose file contents or modify the filesystem."
+        "confidence": 0.98,
+        "reason": "The stat call only checks whether expected project paths are files or directories. It is read-only and errors are contained."
       },
       {
         "id": "filesystem:scripts/detect_wp_project.mjs:28:synchronous-file-operations",
         "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "The synchronous read is used in a local CLI detector and caps bytes read. It is not paired with network transfer, writes, or command execution."
+        "confidence": 0.94,
+        "reason": "Synchronous reading is expected for this short-lived command-line detector and is not independently dangerous. File-size handling is addressed separately."
       },
       {
         "id": "sensitive:scripts/detect_wp_project.mjs:440:certificate-key-files",
         "verdict": "false_positive",
-        "confidence": 0.99,
-        "reason": "This line computes a boolean from WordPress interactivity scan matches. It does not reference certificates, keys, or sensitive credential files."
+        "confidence": 1,
+        "reason": "The line checks the number of interactivity token matches. It does not name, read, create, or expose certificate or key files."
       },
       {
         "id": "sensitive:scripts/detect_wp_project.mjs:441:certificate-key-files",
         "verdict": "false_positive",
-        "confidence": 0.99,
-        "reason": "This line computes a boolean from WordPress abilities scan matches. It does not reference certificates, keys, or sensitive credential files."
+        "confidence": 1,
+        "reason": "The line checks the number of abilities API matches. No certificate, key, credential, or secret is referenced."
       },
       {
         "id": "sensitive:scripts/detect_wp_project.mjs:442:certificate-key-files",
         "verdict": "false_positive",
-        "confidence": 0.99,
-        "reason": "This line computes a boolean from InnerBlocks scan matches. It does not reference certificates, keys, or sensitive credential files."
+        "confidence": 1,
+        "reason": "The line checks whether InnerBlocks tokens were found. It has no relationship to certificate or key material."
       },
       {
         "id": "sensitive:scripts/detect_wp_project.mjs:443:certificate-key-files",
         "verdict": "false_positive",
-        "confidence": 0.99,
-        "reason": "This line checks WP-CLI config and token scan results. It does not access certificate files, private keys, or credential material."
+        "confidence": 1,
+        "reason": "The line combines WP-CLI detection signals. It does not access certificates, private keys, or secret values."
       },
       {
         "id": "external_commands:SKILL.md:20:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.93,
-        "reason": "This is a markdown code span showing the fixed detector command for the reviewed bundled script. It does not contain dynamic shell construction."
+        "confidence": 1,
+        "reason": "Backticks are Markdown formatting around a documented Node command. The prose does not provide a shell execution primitive."
       },
       {
         "id": "external_commands:SKILL.md:22:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "This is a markdown code span showing the schema file path. It is documentation, not executable shell content."
+        "confidence": 1,
+        "reason": "Backticks format a relative schema file path in Markdown. The text is not executable code."
       },
       {
         "id": "external_commands:SKILL.md:32:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "This line uses markdown code spans for report field names. It does not instruct command execution."
+        "confidence": 1,
+        "reason": "Backticks format expected JSON field names in documentation. They do not execute a command."
       },
       {
         "id": "external_commands:SKILL.md:33:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "This line uses markdown code spans for filenames and build config examples. It does not invoke a shell or execute commands."
+        "confidence": 1,
+        "reason": "Backticks format example filenames in Markdown documentation. No Ruby or shell execution occurs."
       },
       {
         "id": "external_commands:SKILL.md:37:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "This line uses a markdown code span around the word unknown. It is prose guidance, not executable content."
+        "confidence": 1,
+        "reason": "Backticks format the literal classification value unknown. This is documentation, not executable syntax."
       }
     ],
-    "semantic_findings": [],
+    "semantic_findings": [
+      {
+        "title": "Untrusted Project Commands Recommended Without Validation",
+        "description": "The report recommends package, Composer, and PHPUnit commands from repository signals. Running them can execute repository-controlled scripts or lifecycle hooks.",
+        "severity": "medium",
+        "locations": [
+          {
+            "file": "scripts/detect_wp_project.mjs",
+            "line_start": 268,
+            "line_end": 282
+          }
+        ],
+        "confidence": 0.95,
+        "confidence_reasoning": "The code clearly adds executable commands to recommendations without trust warnings. The detector does not execute them, which limits the immediate impact."
+      },
+      {
+        "title": "File Limit Applied After Unbounded Read",
+        "description": "The reader loads each complete file before truncating its buffer. A crafted oversized source file can exhaust memory during repository inspection.",
+        "severity": "medium",
+        "locations": [
+          {
+            "file": "scripts/detect_wp_project.mjs",
+            "line_start": 26,
+            "line_end": 30
+          }
+        ],
+        "confidence": 0.98,
+        "confidence_reasoning": "The implementation calls readFileSync before checking byteLength. This directly defeats the intended memory bound."
+      },
+      {
+        "title": "Absolute Local Paths Included in Report",
+        "description": "The report includes the absolute current working directory and derived absolute paths. Shared output can disclose usernames or local directory structure.",
+        "severity": "low",
+        "locations": [
+          {
+            "file": "scripts/detect_wp_project.mjs",
+            "line_start": 291,
+            "line_end": 292
+          },
+          {
+            "file": "scripts/detect_wp_project.mjs",
+            "line_start": 480,
+            "line_end": 487
+          }
+        ],
+        "confidence": 0.98,
+        "confidence_reasoning": "process.cwd returns an absolute path, and the paths object places it in the emitted report. Disclosure requires the report to be shared."
+      }
+    ],
     "critical_findings": [],
     "high_findings": [],
-    "medium_findings": [],
-    "low_findings": [],
+    "medium_findings": [
+      {
+        "title": "Untrusted Project Commands Recommended Without Validation",
+        "description": "The report recommends package, Composer, and PHPUnit commands from repository signals. Running them can execute repository-controlled scripts or lifecycle hooks.",
+        "locations": [
+          {
+            "file": "scripts/detect_wp_project.mjs",
+            "line_start": 268,
+            "line_end": 282
+          }
+        ],
+        "review_kind": "security",
+        "source_category": "semantic",
+        "source_severity": "medium",
+        "confidence": 0.95,
+        "confidence_reasoning": "The code clearly adds executable commands to recommendations without trust warnings. The detector does not execute them, which limits the immediate impact."
+      },
+      {
+        "title": "File Limit Applied After Unbounded Read",
+        "description": "The reader loads each complete file before truncating its buffer. A crafted oversized source file can exhaust memory during repository inspection.",
+        "locations": [
+          {
+            "file": "scripts/detect_wp_project.mjs",
+            "line_start": 26,
+            "line_end": 30
+          }
+        ],
+        "review_kind": "security",
+        "source_category": "semantic",
+        "source_severity": "medium",
+        "confidence": 0.98,
+        "confidence_reasoning": "The implementation calls readFileSync before checking byteLength. This directly defeats the intended memory bound."
+      }
+    ],
+    "low_findings": [
+      {
+        "title": "Absolute Local Paths Included in Report",
+        "description": "The report includes the absolute current working directory and derived absolute paths. Shared output can disclose usernames or local directory structure.",
+        "locations": [
+          {
+            "file": "scripts/detect_wp_project.mjs",
+            "line_start": 291,
+            "line_end": 292
+          },
+          {
+            "file": "scripts/detect_wp_project.mjs",
+            "line_start": 480,
+            "line_end": 487
+          }
+        ],
+        "review_kind": "security",
+        "source_category": "semantic",
+        "source_severity": "low",
+        "confidence": 0.98,
+        "confidence_reasoning": "process.cwd returns an absolute path, and the paths object places it in the emitted report. Disclosure requires the report to be shared."
+      }
+    ],
     "dangerous_patterns": [],
     "files_scanned": 3,
     "total_lines": 776,
     "audit_model": "codex",
-    "audited_at": "2026-07-08T00:26:50.099Z",
+    "audited_at": "2026-07-23T08:53:51.575Z",
     "agent_auto_install_policy": "allowed",
     "manual_install_policy": "allowed"
   },
   "content": {
-    "user_title": "Analyze WordPress Project Structure",
-    "value_statement": "WordPress repositories can hide their project type, tooling, and test paths across many files. This skill inspects the repository and returns structured triage guidance.",
+    "user_title": "Inspect and Classify WordPress Projects",
+    "value_statement": "WordPress repositories often hide their project type, tooling, and test setup across many files. This skill scans local files and produces a consistent triage report.",
     "seo_keywords": [
+      "WordPress project triage",
+      "WordPress repository inspection",
+      "WordPress plugin detection",
+      "WordPress theme detection",
+      "Gutenberg repository",
+      "WP-CLI tooling",
+      "WordPress development workflow",
       "Claude",
       "Codex",
-      "Claude Code",
-      "WordPress triage",
-      "WordPress repository analysis",
-      "WP project detector",
-      "Gutenberg workflow",
-      "WordPress tooling",
-      "plugin theme detection",
-      "AI coding skill"
+      "Claude Code"
     ],
     "actual_capabilities": [
-      "Runs a Node.js detector against the current repository root.",
-      "Classifies WordPress projects as plugins, themes, block themes, WP core, Gutenberg, or sites.",
-      "Detects Composer, package manager, wp-env, PHPUnit, Playwright, Jest, and WordPress scripts signals.",
-      "Reports Interactivity API, Abilities API, InnerBlocks, WP-CLI, WordPress, and Gutenberg hints.",
-      "Produces structured JSON that follows the included triage schema.",
-      "Suggests likely lint, test, build, start, Composer, and PHPUnit commands without running them."
+      "Classifies plugins, themes, block projects, full sites, WordPress core, and Gutenberg repositories.",
+      "Detects Node package managers, WordPress scripts, Composer configuration, and installed vendor dependencies.",
+      "Identifies PHPUnit, wp-env, Playwright, and Jest test tooling from repository files.",
+      "Finds Interactivity API, Abilities API, InnerBlocks, WP-CLI, cache, and debugging signals.",
+      "Reports WordPress and Gutenberg version hints with their source files.",
+      "Suggests relevant lint, test, build, start, Composer, and PHPUnit commands without executing them."
     ],
     "limitations": [
-      "It reads the local repository but does not execute tests or build commands.",
-      "Large repositories may be truncated by file and depth limits.",
-      "Classification depends on recognizable WordPress files and package metadata.",
-      "The JSON output may include local path information from the current machine."
+      "Classification uses file and token heuristics, so unusual repository layouts can produce unknown or incomplete results.",
+      "Scans stop at configured depth and file limits, which can omit signals in large repositories.",
+      "The detector reads local files but does not validate behavior by running tests or project commands.",
+      "Recommended commands can invoke untrusted project scripts and require review before execution."
     ],
     "use_cases": [
       {
-        "title": "Prepare Plugin Changes",
-        "description": "Identify plugin type, test tools, and likely validation commands before editing a WordPress plugin.",
-        "target_user": "Plugin developers"
+        "title": "Prepare a WordPress Change",
+        "description": "Identify project type, tooling, and available tests before editing an unfamiliar WordPress repository.",
+        "target_user": "WordPress developer"
       },
       {
-        "title": "Review Core Or Gutenberg Work",
-        "description": "Detect core, Gutenberg, package, and testing signals before selecting a workflow.",
-        "target_user": "Core contributors"
+        "title": "Standardize Repository Intake",
+        "description": "Create a consistent technical inventory for plugins, themes, sites, core checkouts, and Gutenberg projects.",
+        "target_user": "Engineering maintainer"
       },
       {
-        "title": "Standardize Agent Guardrails",
-        "description": "Create consistent repository context for AI coding agents before they modify WordPress projects.",
-        "target_user": "Engineering teams"
+        "title": "Set Agent Guardrails",
+        "description": "Provide an AI coding agent with detected commands, version hints, and architecture signals before implementation.",
+        "target_user": "AI workflow operator"
       }
     ],
     "prompt_templates": [
       {
-        "title": "Identify This Repository",
-        "scenario": "Beginner repository orientation",
-        "prompt": "Use wp-project-triage on the current repository. Summarize the project type, primary tooling, and safest next workflow."
+        "title": "Basic Repository Inspection",
+        "prompt": "Inspect the current WordPress repository. Summarize its primary project type, detected tooling, tests, and recommended verification commands.",
+        "scenario": "Start work in an unfamiliar repository."
       },
       {
-        "title": "Plan Testing Before Edits",
-        "scenario": "Focused validation planning",
-        "prompt": "Run the triage detector, then recommend the smallest relevant validation commands for a WordPress change."
+        "title": "Explain Classification Signals",
+        "prompt": "Run WordPress project triage in {repo_path}. Explain each detected project kind and identify truncated scans or uncertain classifications.",
+        "scenario": "Review why a repository received its classification."
       },
       {
-        "title": "Compare Tooling Signals",
-        "scenario": "Intermediate workflow selection",
-        "prompt": "Inspect the triage report. Explain how Composer, package manager, wp-env, PHPUnit, Playwright, and Jest affect my workflow."
+        "title": "Design a Verification Workflow",
+        "prompt": "Triage {repo_path} before implementation. Compare its Node, PHP, and test tooling, then propose a workflow using only detected commands.",
+        "scenario": "Plan verification for a WordPress change."
       },
       {
-        "title": "Build Project Guardrails",
-        "scenario": "Advanced agent workflow design",
-        "prompt": "Use the triage schema and detector output to create guardrails for code changes. Note uncertain signals and missing evidence."
+        "title": "Audit Architecture and Command Trust",
+        "prompt": "Analyze {repo_path} for WordPress architecture signals. Validate the report against files, assess risky recommended scripts, and list unsupported assumptions.",
+        "scenario": "Perform advanced intake for an untrusted repository."
       }
     ],
     "output_examples": [
       {
-        "input": "A user asks what kind of WordPress repository is open.",
+        "input": "Inspect a standalone block plugin before adding a feature.",
         "output": [
-          "Identifies the primary project as a WordPress block plugin when matching signals exist.",
-          "Notes package scripts, Composer files, and test frameworks that are present.",
-          "Recommends likely validation steps without claiming they have run."
+          "Primary type: WordPress block plugin.",
+          "Detected tooling: npm, WordPress scripts, Composer, PHPUnit, and Jest.",
+          "Review the reported lint, test, and build scripts before running them."
         ]
       },
       {
-        "input": "A user asks which checks matter before editing a theme.",
-        "output": "Explains whether theme metadata, block theme files, package scripts, wp-env, and PHPUnit indicators were detected."
+        "input": "Triage a full WordPress site repository with performance tooling.",
+        "output": [
+          "Primary type: WordPress site.",
+          "Signals include object caching, Query Monitor, WP-CLI configuration, and wp-env.",
+          "The scan found local performance and test tooling but did not execute validation."
+        ]
       },
       {
-        "input": "A team wants consistent context for AI coding agents.",
-        "output": "Summarizes project classification, tooling, test signals, WordPress feature hints, and workflow notes for guardrails."
+        "input": "Explain an unknown classification.",
+        "output": "No plugin header, theme header, WordPress core structure, or wp-content directory was detected. Confirm the repository root and review scan limits."
       }
     ],
     "best_practices": [
-      "Run the detector from the repository root before making structural assumptions.",
-      "Treat generated commands as recommendations and review them before execution.",
-      "Re-run triage after adding build, test, theme, block, or WP-CLI files."
+      "Run triage from the intended repository root and confirm the reported primary type.",
+      "Inspect package scripts, Composer hooks, and executable targets before running recommended commands.",
+      "Re-run triage after changes to manifests, block metadata, theme configuration, or test tooling."
     ],
     "anti_patterns": [
-      "Do not assume a project type when the detector reports unknown.",
-      "Do not treat suggested commands as proof that tests passed.",
-      "Do not share raw triage output publicly if local paths are sensitive."
+      "Do not treat heuristic matches as proof that a feature works correctly.",
+      "Do not execute recommended commands automatically in repositories that you do not trust.",
+      "Do not assume a truncated scan represents the complete repository."
     ],
     "faq": [
       {
-        "question": "Does this skill run tests or builds?",
-        "answer": "No. It detects available tooling and suggests likely commands for review."
+        "question": "Does this skill modify repository files?",
+        "answer": "No. The detector performs read-only inspection and writes its report to standard output."
       },
       {
-        "question": "Does it require WP-CLI?",
-        "answer": "No. The detector can run without WP-CLI, but some recommended workflows may use it."
+        "question": "Which WordPress project types can it identify?",
+        "answer": "It identifies plugins, must-use plugins, themes, block projects, full sites, WordPress core, Gutenberg, and unknown repositories."
       },
       {
-        "question": "What files does the detector inspect?",
-        "answer": "It inspects WordPress metadata, package files, Composer files, and selected source files under the current repository root."
+        "question": "Does it run tests or build commands?",
+        "answer": "No. It reports detected commands and tooling but does not execute them."
       },
       {
-        "question": "Can it identify block themes and block plugins?",
-        "answer": "Yes. It checks for theme files, block metadata, templates, and related WordPress package signals."
+        "question": "Why can a scan return unknown?",
+        "answer": "The selected root may lack recognized headers or structures, or relevant files may exceed scan limits."
       },
       {
-        "question": "Does the detector send repository data over the network?",
-        "answer": "No. The reviewed detector reads local files and writes its report to standard output."
+        "question": "Can it detect WordPress versions?",
+        "answer": "It reports version hints from WordPress core and recognized Gutenberg package metadata when available."
       },
       {
-        "question": "What should I do when the project is unknown?",
-        "answer": "Verify that you ran it from the repository root and check for missing WordPress metadata files."
+        "question": "Is it safe to run on an untrusted repository?",
+        "answer": "The detector is read-only, but oversized files can affect memory. Review every recommended command before execution."
       }
     ]
   },

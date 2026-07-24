@@ -1,7 +1,7 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-07-07T20:44:25.617Z",
+    "generated_at": "2026-07-23T09:47:58.963Z",
     "slug": "browser-act-github-project-contributor-finder-api-skill",
     "source_url": "https://github.com/browser-act/skills/tree/main/solutions/lead-generation/github-project-contributor-finder-api-skill",
     "source_ref": "main",
@@ -23,18 +23,17 @@
   },
   "skill": {
     "name": "github-project-contributor-finder-api-skill",
-    "description": "Find GitHub repositories by keyword, star count, and update date, then return repository details and public contributor profile links through BrowserAct's hosted API workflow.",
-    "summary": "Search GitHub projects and public contributor profiles with BrowserAct.",
+    "description": "Search GitHub projects through BrowserAct using keyword, star, and update filters, then return repository details and public contributor profiles.",
+    "summary": "Find filtered GitHub repositories and public contributor profiles through a BrowserAct workflow.",
     "icon": "📦",
-    "version": "1.0.1",
     "author": "browser-act",
     "license": "MIT",
     "tags": [
       "github",
       "open-source",
       "contributors",
-      "lead-generation",
-      "research"
+      "repository-research",
+      "developer-discovery"
     ],
     "supported_tools": [
       "claude",
@@ -53,27 +52,27 @@
     "is_blocked": false,
     "safe_to_publish": false,
     "analysis_status": "ok",
-    "summary": "The skill makes expected BrowserAct API calls, reads a BrowserAct API key, and documents a local Python command invocation. Most SKILL.md backtick findings are Markdown false positives, but credential handling and direct key-sharing guidance are real risks. No prompt injection attempt was found in the scanned files.",
+    "summary": "The BrowserAct requests are expected but transmit search parameters and a bearer credential to a third-party service. Most static matches are benign Markdown or scoped credential handling, but the skill asks users to provide API keys directly. Raw GitHub-derived text and aggregated contact details also create prompt-injection, privacy, and compliance risks.",
     "remediation": [
       {
-        "issue": "Unsafe API key collection guidance",
-        "suggestion": "Do not ask users to paste API keys into chat. Require BROWSERACT_API_KEY or a secure secret store, and redact secrets from logs.",
+        "issue": "The instructions ask users to provide API keys directly to the agent.",
+        "suggestion": "Require BROWSERACT_API_KEY through an environment variable or approved secret manager. Never request or accept credentials in chat.",
         "severity": "high"
       },
       {
-        "issue": "External BrowserAct API dependency",
-        "suggestion": "Clearly state that search parameters and task requests are sent to BrowserAct. Ask for user consent before running networked collection tasks.",
+        "issue": "External repository and profile text is printed without trust boundaries.",
+        "suggestion": "Parse expected fields, label all returned text as untrusted data, and prevent repository content from becoming agent instructions.",
+        "severity": "high"
+      },
+      {
+        "issue": "The workflow aggregates personal links and social handles for outreach and profiling.",
+        "suggestion": "Add purpose limits, data minimization, retention rules, and consent or lawful-basis checks before recruiting or marketing use.",
         "severity": "medium"
       },
       {
-        "issue": "Contributor contact aggregation",
-        "suggestion": "Add acceptable-use guidance for public data only, and prohibit spam, harassment, sensitive profiling, or bulk unsolicited outreach.",
-        "severity": "medium"
-      },
-      {
-        "issue": "Local command execution",
-        "suggestion": "Keep invocation limited to the bundled Python script. Validate numeric arguments and avoid adding shell-interpreted user input.",
-        "severity": "medium"
+        "issue": "Search criteria, task identifiers, and credentials are transmitted to BrowserAct.",
+        "suggestion": "Disclose the third-party transfer, keep HTTPS endpoint allowlisting, and use a dedicated key with the narrowest available permissions.",
+        "severity": "low"
       }
     ],
     "risk_factor_evidence": [
@@ -929,390 +928,382 @@
       {
         "id": "network:scripts/github_project_contributor_finder_api.py:38:python-http-libraries",
         "verdict": "confirmed",
-        "confidence": 0.94,
-        "severity": "low",
-        "reason": "The script posts workflow requests to BrowserAct's external API. This is intended behavior, but it sends user search parameters to a third-party service."
+        "confidence": 0.99,
+        "reason": "The POST sends the BrowserAct bearer credential and user search parameters to api.browseract.com. This transfer is required for the skill but creates real third-party network exposure.",
+        "severity": "low"
       },
       {
         "id": "network:scripts/github_project_contributor_finder_api.py:65:python-http-libraries",
         "verdict": "confirmed",
-        "confidence": 0.93,
-        "severity": "low",
-        "reason": "The script polls BrowserAct's external API for task status using the task ID and authorization header. This creates a real network dependency."
+        "confidence": 0.99,
+        "reason": "The polling request sends the bearer credential and task identifier to BrowserAct. This is expected API traffic but remains an external data transfer.",
+        "severity": "low"
       },
       {
         "id": "network:scripts/github_project_contributor_finder_api.py:93:python-http-libraries",
         "verdict": "confirmed",
-        "confidence": 0.93,
-        "severity": "low",
-        "reason": "The script retrieves task results from BrowserAct's external API. The request is part of the skill's purpose, but it still transfers task context off host."
+        "confidence": 0.99,
+        "reason": "The result request sends the bearer credential and task identifier to BrowserAct. The call is intentional, but it depends on an external service receiving sensitive authentication data.",
+        "severity": "low"
       },
       {
         "id": "network:scripts/github_project_contributor_finder_api.py:15:hardcoded-url",
         "verdict": "confirmed",
-        "confidence": 0.94,
-        "severity": "low",
-        "reason": "The hardcoded BrowserAct API base URL is used by the script's HTTP requests. This is a real outbound service endpoint."
+        "confidence": 0.98,
+        "reason": "This constant is the external BrowserAct endpoint used for authenticated requests. It matches the declared function but establishes a third-party network dependency.",
+        "severity": "low"
       },
       {
         "id": "network:scripts/github_project_contributor_finder_api.py:51:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "This URL appears only in an error message about plan limits. It does not trigger a request or transmit data."
+        "confidence": 0.99,
+        "reason": "This URL appears only in user-facing setup or account guidance. It is printed or documented and is not used to initiate a network request."
       },
       {
         "id": "network:scripts/github_project_contributor_finder_api.py:119:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "This URL appears only in setup instructions for obtaining an API key. It is not an outbound call from the script."
+        "confidence": 0.99,
+        "reason": "This URL appears only in user-facing setup or account guidance. It is printed or documented and is not used to initiate a network request."
       },
       {
         "id": "env_access:scripts/github_project_contributor_finder_api.py:115:python-getenv-function",
-        "verdict": "confirmed",
-        "confidence": 0.92,
-        "severity": "low",
-        "reason": "The script reads BROWSERACT_API_KEY from the environment. That is expected, but it is real access to secret material."
+        "verdict": "false_positive",
+        "confidence": 0.99,
+        "reason": "The script reads only the dedicated BROWSERACT_API_KEY variable required for authentication. It does not enumerate or collect unrelated environment values."
       },
       {
         "id": "env_access:scripts/github_project_contributor_finder_api.py:115:getenv-function-call",
-        "verdict": "confirmed",
-        "confidence": 0.92,
-        "severity": "low",
-        "reason": "The getenv call accesses a named BrowserAct API key. This confirms environment secret access, even though the variable is explicit."
+        "verdict": "false_positive",
+        "confidence": 0.99,
+        "reason": "The script reads only the dedicated BROWSERACT_API_KEY variable required for authentication. It does not enumerate or collect unrelated environment values."
       },
       {
         "id": "env_access:scripts/github_project_contributor_finder_api.py:18:generic-api-secret-keys",
-        "verdict": "confirmed",
-        "confidence": 0.82,
-        "severity": "high",
-        "reason": "The function accepts an api_key parameter that is later used for authorization. The line is part of a real credential handling path."
+        "verdict": "false_positive",
+        "confidence": 0.99,
+        "reason": "The match is a function parameter named api_key, not a hardcoded or discovered credential. The parameter is necessary for the declared authenticated API call."
       },
       {
         "id": "env_access:scripts/github_project_contributor_finder_api.py:23:generic-api-secret-keys",
-        "verdict": "confirmed",
-        "confidence": 0.96,
-        "severity": "high",
-        "reason": "The API key is placed in a Bearer authorization header for BrowserAct requests. This is expected, but it is a sensitive credential sink."
+        "verdict": "false_positive",
+        "confidence": 0.97,
+        "reason": "The code places the user-supplied BrowserAct key in the standard bearer header for the matching HTTPS API. It does not embed a secret or send it to an unrelated destination."
       },
       {
         "id": "env_access:scripts/github_project_contributor_finder_api.py:115:generic-api-secret-keys",
-        "verdict": "confirmed",
-        "confidence": 0.95,
-        "severity": "high",
-        "reason": "The script reads BROWSERACT_API_KEY from the environment. This is direct access to an API credential."
+        "verdict": "false_positive",
+        "confidence": 0.99,
+        "reason": "The code retrieves the specifically declared BROWSERACT_API_KEY from the environment. No credential value is hardcoded, logged, or collected from unrelated variables."
       },
       {
         "id": "env_access:scripts/github_project_contributor_finder_api.py:116:generic-api-secret-keys",
         "verdict": "false_positive",
-        "confidence": 0.83,
-        "reason": "This line only checks whether the API key variable is missing. It does not expose, log, or transmit a secret."
+        "confidence": 0.99,
+        "reason": "This line only checks whether the local api_key variable is empty. It neither accesses a secret store nor exposes credential content."
       },
       {
         "id": "env_access:scripts/github_project_contributor_finder_api.py:121:generic-api-secret-keys",
         "verdict": "confirmed",
-        "confidence": 0.95,
-        "severity": "high",
-        "reason": "The script tells users they may provide the API key directly to the agent. That guidance can leak credentials into chat or logs."
+        "confidence": 0.99,
+        "reason": "The error message tells the user to provide an API key directly to the agent. Encouraging secret disclosure in conversation can expose the credential through chat history or logs.",
+        "severity": "high"
       },
       {
         "id": "env_access:scripts/github_project_contributor_finder_api.py:130:generic-api-secret-keys",
-        "verdict": "confirmed",
-        "confidence": 0.82,
-        "severity": "high",
-        "reason": "The local call passes the API key into the task runner that performs external API requests. It is part of the real credential flow."
+        "verdict": "false_positive",
+        "confidence": 0.98,
+        "reason": "This line passes the already loaded credential to the declared API helper. It does not print, persist, or redirect the key."
       },
       {
         "id": "blocker:scripts/github_project_contributor_finder_api.py:48:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.91,
-        "reason": "This is a string check for an API authorization error. It does not collect host, network, or system information."
+        "confidence": 0.99,
+        "reason": "The matched text describes API responses, task identifiers, or product behavior. It does not inspect the host, enumerate system details, or perform reconnaissance."
       },
       {
         "id": "blocker:scripts/github_project_contributor_finder_api.py:49:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "This line prints an invalid authorization message. It does not perform reconnaissance or disclose local system details."
+        "confidence": 0.99,
+        "reason": "The matched text describes API responses, task identifiers, or product behavior. It does not inspect the host, enumerate system details, or perform reconnaissance."
       },
       {
         "id": "blocker:scripts/github_project_contributor_finder_api.py:56:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "This line stores a remote BrowserAct task ID from the API response. It is not system reconnaissance."
+        "confidence": 0.99,
+        "reason": "The matched text describes API responses, task identifiers, or product behavior. It does not inspect the host, enumerate system details, or perform reconnaissance."
       },
       {
         "id": "external_commands:SKILL.md:20:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "The backticks format the BROWSERACT_API_KEY environment variable name in prose. The line does not execute a shell command."
+        "confidence": 0.99,
+        "reason": "The matched backticks are Markdown delimiters for identifiers, values, or a documented Python command. They are not Ruby or shell backtick execution constructs."
       },
       {
         "id": "external_commands:SKILL.md:28:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The backticks format the word string as documentation. There is no command execution on this line."
+        "confidence": 0.99,
+        "reason": "The matched backticks are Markdown delimiters for identifiers, values, or a documented Python command. They are not Ruby or shell backtick execution constructs."
       },
       {
         "id": "external_commands:SKILL.md:30:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The backticks contain keyword examples for repository search. They are Markdown formatting, not shell execution."
+        "confidence": 0.99,
+        "reason": "The matched backticks are Markdown delimiters for identifiers, values, or a documented Python command. They are not Ruby or shell backtick execution constructs."
       },
       {
         "id": "external_commands:SKILL.md:31:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The backticks contain a default keyword value. This is documentation text, not an executable command."
+        "confidence": 0.99,
+        "reason": "The matched backticks are Markdown delimiters for identifiers, values, or a documented Python command. They are not Ruby or shell backtick execution constructs."
       },
       {
         "id": "external_commands:SKILL.md:34:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The backticks format the word number as a parameter type. There is no shell execution."
+        "confidence": 0.99,
+        "reason": "The matched backticks are Markdown delimiters for identifiers, values, or a documented Python command. They are not Ruby or shell backtick execution constructs."
       },
       {
         "id": "external_commands:SKILL.md:36:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The backticks contain numeric examples. They are Markdown formatting, not commands."
+        "confidence": 0.99,
+        "reason": "The matched backticks are Markdown delimiters for identifiers, values, or a documented Python command. They are not Ruby or shell backtick execution constructs."
       },
       {
         "id": "external_commands:SKILL.md:37:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The backticks contain a numeric default value. This is not executable content."
+        "confidence": 0.99,
+        "reason": "The matched backticks are Markdown delimiters for identifiers, values, or a documented Python command. They are not Ruby or shell backtick execution constructs."
       },
       {
         "id": "external_commands:SKILL.md:40:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The backticks format the word string as a parameter type. There is no command execution."
+        "confidence": 0.99,
+        "reason": "The matched backticks are Markdown delimiters for identifiers, values, or a documented Python command. They are not Ruby or shell backtick execution constructs."
       },
       {
         "id": "external_commands:SKILL.md:41:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The backticks show a date format. They do not invoke a shell or local command."
+        "confidence": 0.99,
+        "reason": "The matched backticks are Markdown delimiters for identifiers, values, or a documented Python command. They are not Ruby or shell backtick execution constructs."
       },
       {
         "id": "external_commands:SKILL.md:42:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The backticks contain date examples. This is documentation text only."
+        "confidence": 0.99,
+        "reason": "The matched backticks are Markdown delimiters for identifiers, values, or a documented Python command. They are not Ruby or shell backtick execution constructs."
       },
       {
         "id": "external_commands:SKILL.md:43:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The backticks contain a default date value. It is not a command."
+        "confidence": 0.99,
+        "reason": "The matched backticks are Markdown delimiters for identifiers, values, or a documented Python command. They are not Ruby or shell backtick execution constructs."
       },
       {
         "id": "external_commands:SKILL.md:46:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The backticks format the word number as a parameter type. There is no shell execution."
+        "confidence": 0.99,
+        "reason": "The matched backticks are Markdown delimiters for identifiers, values, or a documented Python command. They are not Ruby or shell backtick execution constructs."
       },
       {
         "id": "external_commands:SKILL.md:47:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The backticks contain a pagination example value. This is not executable code."
+        "confidence": 0.99,
+        "reason": "The matched backticks are Markdown delimiters for identifiers, values, or a documented Python command. They are not Ruby or shell backtick execution constructs."
       },
       {
         "id": "external_commands:SKILL.md:48:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The backticks contain numeric examples. They are documentation, not shell commands."
+        "confidence": 0.99,
+        "reason": "The matched backticks are Markdown delimiters for identifiers, values, or a documented Python command. They are not Ruby or shell backtick execution constructs."
       },
       {
         "id": "external_commands:SKILL.md:49:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The backticks contain a default value. There is no command execution."
+        "confidence": 0.99,
+        "reason": "The matched backticks are Markdown delimiters for identifiers, values, or a documented Python command. They are not Ruby or shell backtick execution constructs."
       },
       {
         "id": "external_commands:SKILL.md:52:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The backticks format the word number as a parameter type. This is Markdown only."
+        "confidence": 0.99,
+        "reason": "The matched backticks are Markdown delimiters for identifiers, values, or a documented Python command. They are not Ruby or shell backtick execution constructs."
       },
       {
         "id": "external_commands:SKILL.md:54:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The backticks contain numeric examples. They are not shell commands."
+        "confidence": 0.99,
+        "reason": "The matched backticks are Markdown delimiters for identifiers, values, or a documented Python command. They are not Ruby or shell backtick execution constructs."
       },
       {
         "id": "external_commands:SKILL.md:55:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The backticks contain a default value. This does not execute anything."
+        "confidence": 0.99,
+        "reason": "The matched backticks are Markdown delimiters for identifiers, values, or a documented Python command. They are not Ruby or shell backtick execution constructs."
       },
       {
         "id": "external_commands:SKILL.md:60:ruby-shell-backtick-execution",
-        "verdict": "confirmed",
-        "confidence": 0.92,
-        "severity": "medium",
-        "reason": "This Markdown command block instructs the agent to run the bundled Python script. It is legitimate skill operation, but it is real local command execution."
+        "verdict": "false_positive",
+        "confidence": 0.99,
+        "reason": "The matched backticks are Markdown delimiters for identifiers, values, or a documented Python command. They are not Ruby or shell backtick execution constructs."
       },
       {
         "id": "external_commands:SKILL.md:66:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.84,
-        "reason": "This finding starts at the closing code fence and monitoring prose. The actual command is already covered by the line 60 finding."
+        "confidence": 0.99,
+        "reason": "The matched backticks are Markdown delimiters for identifiers, values, or a documented Python command. They are not Ruby or shell backtick execution constructs."
       },
       {
         "id": "external_commands:SKILL.md:69:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "This text describes monitoring long-running output. It does not introduce another executable command."
+        "confidence": 0.99,
+        "reason": "The matched backticks are Markdown delimiters for identifiers, values, or a documented Python command. They are not Ruby or shell backtick execution constructs."
       },
       {
         "id": "external_commands:SKILL.md:79:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The backticks format an output field name. There is no command execution."
+        "confidence": 0.99,
+        "reason": "The matched backticks are Markdown delimiters for identifiers, values, or a documented Python command. They are not Ruby or shell backtick execution constructs."
       },
       {
         "id": "external_commands:SKILL.md:80:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The backticks format an output field name. This is documentation only."
+        "confidence": 0.99,
+        "reason": "The matched backticks are Markdown delimiters for identifiers, values, or a documented Python command. They are not Ruby or shell backtick execution constructs."
       },
       {
         "id": "external_commands:SKILL.md:81:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The backticks format an output field name. It is not a shell command."
+        "confidence": 0.99,
+        "reason": "The matched backticks are Markdown delimiters for identifiers, values, or a documented Python command. They are not Ruby or shell backtick execution constructs."
       },
       {
         "id": "external_commands:SKILL.md:82:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The backticks format an output field name. There is no executable behavior."
+        "confidence": 0.99,
+        "reason": "The matched backticks are Markdown delimiters for identifiers, values, or a documented Python command. They are not Ruby or shell backtick execution constructs."
       },
       {
         "id": "external_commands:SKILL.md:83:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The backticks format output field names. This is Markdown documentation, not command execution."
+        "confidence": 0.99,
+        "reason": "The matched backticks are Markdown delimiters for identifiers, values, or a documented Python command. They are not Ruby or shell backtick execution constructs."
       },
       {
         "id": "external_commands:SKILL.md:86:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The backticks format a contributor field name. There is no command execution."
+        "confidence": 0.99,
+        "reason": "The matched backticks are Markdown delimiters for identifiers, values, or a documented Python command. They are not Ruby or shell backtick execution constructs."
       },
       {
         "id": "external_commands:SKILL.md:87:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The backticks format a contributor field name. It is documentation only."
+        "confidence": 0.99,
+        "reason": "The matched backticks are Markdown delimiters for identifiers, values, or a documented Python command. They are not Ruby or shell backtick execution constructs."
       },
       {
         "id": "external_commands:SKILL.md:88:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The backticks format a contributor field name. This is not executable content."
+        "confidence": 0.99,
+        "reason": "The matched backticks are Markdown delimiters for identifiers, values, or a documented Python command. They are not Ruby or shell backtick execution constructs."
       },
       {
         "id": "external_commands:SKILL.md:89:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The backticks format a contributor field name. There is no shell execution."
+        "confidence": 0.99,
+        "reason": "The matched backticks are Markdown delimiters for identifiers, values, or a documented Python command. They are not Ruby or shell backtick execution constructs."
       },
       {
         "id": "external_commands:SKILL.md:90:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The backticks format a contributor field name. It is not a command."
+        "confidence": 0.99,
+        "reason": "The matched backticks are Markdown delimiters for identifiers, values, or a documented Python command. They are not Ruby or shell backtick execution constructs."
       },
       {
         "id": "external_commands:SKILL.md:91:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The backticks format a contributor field name. This is documentation text only."
+        "confidence": 0.99,
+        "reason": "The matched backticks are Markdown delimiters for identifiers, values, or a documented Python command. They are not Ruby or shell backtick execution constructs."
       },
       {
         "id": "external_commands:SKILL.md:97:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "The backticks quote an error message for troubleshooting. They do not execute code."
+        "confidence": 0.99,
+        "reason": "The matched backticks are Markdown delimiters for identifiers, values, or a documented Python command. They are not Ruby or shell backtick execution constructs."
       },
       {
         "id": "external_commands:SKILL.md:98:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "The backticks quote error keywords for troubleshooting. They are not executable commands."
+        "confidence": 0.99,
+        "reason": "The matched backticks are Markdown delimiters for identifiers, values, or a documented Python command. They are not Ruby or shell backtick execution constructs."
       },
       {
         "id": "network:SKILL.md:22:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.89,
-        "reason": "This is a user-facing BrowserAct console link in setup instructions. It is not an automated network call."
+        "confidence": 0.99,
+        "reason": "This URL appears only in user-facing setup or account guidance. It is printed or documented and is not used to initiate a network request."
       },
       {
         "id": "network:SKILL.md:100:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.89,
-        "reason": "This is a user-facing plan upgrade link in an error message. It does not send data or make a request."
+        "confidence": 0.99,
+        "reason": "This URL appears only in user-facing setup or account guidance. It is printed or documented and is not used to initiate a network request."
       },
       {
         "id": "env_access:SKILL.md:4:generic-api-secret-keys",
-        "verdict": "confirmed",
-        "confidence": 0.91,
-        "severity": "high",
-        "reason": "The metadata declares BROWSERACT_API_KEY as a required environment variable. This confirms the skill is designed to use a secret credential."
+        "verdict": "false_positive",
+        "confidence": 0.99,
+        "reason": "The metadata declares BROWSERACT_API_KEY as a runtime requirement without containing its value. This is dependency metadata, not credential exposure."
       },
       {
         "id": "env_access:SKILL.md:20:generic-api-secret-keys",
         "verdict": "confirmed",
-        "confidence": 0.92,
-        "severity": "high",
-        "reason": "The instruction tells the agent to ask the user for the API key when the environment variable is missing. This is unsafe credential handling guidance."
+        "confidence": 0.99,
+        "reason": "The instruction explicitly asks the agent to wait for the user to provide a missing API key. This promotes unsafe secret sharing instead of secure environment configuration.",
+        "severity": "high"
       },
       {
         "id": "blocker:SKILL.md:13:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "This line is a marketing claim about stable extraction. It does not perform or instruct system reconnaissance."
+        "confidence": 0.99,
+        "reason": "The matched text describes API responses, task identifiers, or product behavior. It does not inspect the host, enumerate system details, or perform reconnaissance."
       },
       {
         "id": "blocker:SKILL.md:97:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.93,
-        "reason": "This line documents how to handle an invalid authorization error. It does not collect system information."
+        "confidence": 0.99,
+        "reason": "The matched text describes API responses, task identifiers, or product behavior. It does not inspect the host, enumerate system details, or perform reconnaissance."
       }
     ],
     "semantic_findings": [
       {
-        "title": "Unsafe API Key Collection Guidance",
-        "description": "The skill tells the agent to ask for the API key, and the script says users may provide it directly. This can expose credentials in chat logs instead of secure environment storage.",
+        "title": "Untrusted External Content Reaches Agent Output",
+        "description": "Repository descriptions and contributor profiles can contain attacker-controlled text. The script returns and prints BrowserAct results without separating data from agent instructions.",
         "severity": "high",
         "locations": [
           {
             "file": "SKILL.md",
-            "line_start": 20,
-            "line_end": 20
+            "line_start": 75,
+            "line_end": 91
           },
           {
             "file": "scripts/github_project_contributor_finder_api.py",
-            "line_start": 121,
-            "line_end": 121
+            "line_start": 93,
+            "line_end": 104
+          },
+          {
+            "file": "scripts/github_project_contributor_finder_api.py",
+            "line_start": 130,
+            "line_end": 132
           }
         ],
-        "confidence": 0.94,
-        "confidence_reasoning": "Both cited lines explicitly guide direct API key provision when the environment variable is absent. This is a clear credential handling risk."
+        "confidence": 0.91,
+        "confidence_reasoning": "The documented fields include repository descriptions and contributor bios, while the script prints the returned string unchanged. These public fields are controlled by external GitHub users."
       },
       {
-        "title": "Potential Misuse of Contributor Contact Aggregation",
-        "description": "The skill is designed to collect contributor websites and social handles for recruiting, outreach, marketing, and lead generation. This can support unsolicited contact or privacy-invasive profiling.",
+        "title": "Personal Data Aggregation for Outreach",
+        "description": "The skill collects public websites and social handles for recruiting, marketing, competitor analysis, and talent mapping. Bulk aggregation can enable unsolicited profiling.",
         "severity": "medium",
         "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 3,
-            "line_end": 3
-          },
           {
             "file": "SKILL.md",
             "line_start": 85,
@@ -1324,60 +1315,12 @@
             "line_end": 116
           }
         ],
-        "confidence": 0.9,
-        "confidence_reasoning": "The documented purpose and use cases repeatedly mention contributor contact links, recruiting, outreach, and lead generation. The risk is contextual rather than a code pattern."
+        "confidence": 0.98,
+        "confidence_reasoning": "The skill explicitly lists personal websites and Twitter handles as output and names recruiting, developer outreach, lead generation, and talent mapping as intended uses."
       }
     ],
     "critical_findings": [],
     "high_findings": [
-      {
-        "title": "Generic API/secret keys",
-        "description": "def run_github_project_contributor_finder_task(api_key, keywords, stars=100, updated=\"2026-01-01\", p",
-        "locations": [
-          {
-            "file": "scripts/github_project_contributor_finder_api.py",
-            "line_start": 18,
-            "line_end": 18
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "env_access",
-        "source_severity": "high",
-        "confidence": 0.82,
-        "confidence_reasoning": "The function accepts an api_key parameter that is later used for authorization. The line is part of a real credential handling path."
-      },
-      {
-        "title": "Generic API/secret keys",
-        "description": "headers = {\"Authorization\": f\"Bearer {api_key}\"}",
-        "locations": [
-          {
-            "file": "scripts/github_project_contributor_finder_api.py",
-            "line_start": 23,
-            "line_end": 23
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "env_access",
-        "source_severity": "high",
-        "confidence": 0.96,
-        "confidence_reasoning": "The API key is placed in a Bearer authorization header for BrowserAct requests. This is expected, but it is a sensitive credential sink."
-      },
-      {
-        "title": "Generic API/secret keys",
-        "description": "api_key = os.getenv(\"BROWSERACT_API_KEY\")",
-        "locations": [
-          {
-            "file": "scripts/github_project_contributor_finder_api.py",
-            "line_start": 115,
-            "line_end": 115
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "env_access",
-        "source_severity": "high",
-        "confidence": 0.95,
-        "confidence_reasoning": "The script reads BROWSERACT_API_KEY from the environment. This is direct access to an API credential."
-      },
       {
         "title": "Generic API/secret keys",
         "description": "print(\"3. Provide it to me or set it as an environment variable (BROWSERACT_API_KEY).\", flush=True)",
@@ -1391,40 +1334,8 @@
         "review_kind": "capability",
         "source_category": "env_access",
         "source_severity": "high",
-        "confidence": 0.95,
-        "confidence_reasoning": "The script tells users they may provide the API key directly to the agent. That guidance can leak credentials into chat or logs."
-      },
-      {
-        "title": "Generic API/secret keys",
-        "description": "result = run_github_project_contributor_finder_task(api_key, keywords, stars, updated, page_turns, d",
-        "locations": [
-          {
-            "file": "scripts/github_project_contributor_finder_api.py",
-            "line_start": 130,
-            "line_end": 130
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "env_access",
-        "source_severity": "high",
-        "confidence": 0.82,
-        "confidence_reasoning": "The local call passes the API key into the task runner that performs external API requests. It is part of the real credential flow."
-      },
-      {
-        "title": "Generic API/secret keys",
-        "description": "metadata: {\"openclaw\":{\"emoji\":\"🌐\",\"requires\":{\"bins\":[\"python\"],\"env\":[\"BROWSERACT_API_KEY\"]}}}",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 4,
-            "line_end": 4
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "env_access",
-        "source_severity": "high",
-        "confidence": 0.91,
-        "confidence_reasoning": "The metadata declares BROWSERACT_API_KEY as a required environment variable. This confirms the skill is designed to use a secret credential."
+        "confidence": 0.99,
+        "confidence_reasoning": "The error message tells the user to provide an API key directly to the agent. Encouraging secret disclosure in conversation can expose the credential through chat history or logs."
       },
       {
         "title": "Generic API/secret keys",
@@ -1439,57 +1350,41 @@
         "review_kind": "capability",
         "source_category": "env_access",
         "source_severity": "high",
-        "confidence": 0.92,
-        "confidence_reasoning": "The instruction tells the agent to ask the user for the API key when the environment variable is missing. This is unsafe credential handling guidance."
+        "confidence": 0.99,
+        "confidence_reasoning": "The instruction explicitly asks the agent to wait for the user to provide a missing API key. This promotes unsafe secret sharing instead of secure environment configuration."
       },
       {
-        "title": "Unsafe API Key Collection Guidance",
-        "description": "The skill tells the agent to ask for the API key, and the script says users may provide it directly. This can expose credentials in chat logs instead of secure environment storage.",
+        "title": "Untrusted External Content Reaches Agent Output",
+        "description": "Repository descriptions and contributor profiles can contain attacker-controlled text. The script returns and prints BrowserAct results without separating data from agent instructions.",
         "locations": [
           {
             "file": "SKILL.md",
-            "line_start": 20,
-            "line_end": 20
+            "line_start": 75,
+            "line_end": 91
           },
           {
             "file": "scripts/github_project_contributor_finder_api.py",
-            "line_start": 121,
-            "line_end": 121
+            "line_start": 93,
+            "line_end": 104
+          },
+          {
+            "file": "scripts/github_project_contributor_finder_api.py",
+            "line_start": 130,
+            "line_end": 132
           }
         ],
         "review_kind": "security",
         "source_category": "semantic",
         "source_severity": "high",
-        "confidence": 0.94,
-        "confidence_reasoning": "Both cited lines explicitly guide direct API key provision when the environment variable is absent. This is a clear credential handling risk."
+        "confidence": 0.91,
+        "confidence_reasoning": "The documented fields include repository descriptions and contributor bios, while the script prints the returned string unchanged. These public fields are controlled by external GitHub users."
       }
     ],
     "medium_findings": [
       {
-        "title": "Ruby/shell backtick execution",
-        "description": "```bash",
+        "title": "Personal Data Aggregation for Outreach",
+        "description": "The skill collects public websites and social handles for recruiting, marketing, competitor analysis, and talent mapping. Bulk aggregation can enable unsolicited profiling.",
         "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 60,
-            "line_end": 66
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "external_commands",
-        "source_severity": "medium",
-        "confidence": 0.92,
-        "confidence_reasoning": "This Markdown command block instructs the agent to run the bundled Python script. It is legitimate skill operation, but it is real local command execution."
-      },
-      {
-        "title": "Potential Misuse of Contributor Contact Aggregation",
-        "description": "The skill is designed to collect contributor websites and social handles for recruiting, outreach, marketing, and lead generation. This can support unsolicited contact or privacy-invasive profiling.",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 3,
-            "line_end": 3
-          },
           {
             "file": "SKILL.md",
             "line_start": 85,
@@ -1504,8 +1399,8 @@
         "review_kind": "security",
         "source_category": "semantic",
         "source_severity": "medium",
-        "confidence": 0.9,
-        "confidence_reasoning": "The documented purpose and use cases repeatedly mention contributor contact links, recruiting, outreach, and lead generation. The risk is contextual rather than a code pattern."
+        "confidence": 0.98,
+        "confidence_reasoning": "The skill explicitly lists personal websites and Twitter handles as output and names recruiting, developer outreach, lead generation, and talent mapping as intended uses."
       }
     ],
     "low_findings": [
@@ -1522,8 +1417,8 @@
         "review_kind": "capability",
         "source_category": "network",
         "source_severity": "low",
-        "confidence": 0.94,
-        "confidence_reasoning": "The script posts workflow requests to BrowserAct's external API. This is intended behavior, but it sends user search parameters to a third-party service."
+        "confidence": 0.99,
+        "confidence_reasoning": "The POST sends the BrowserAct bearer credential and user search parameters to api.browseract.com. This transfer is required for the skill but creates real third-party network exposure."
       },
       {
         "title": "Python HTTP libraries",
@@ -1538,8 +1433,8 @@
         "review_kind": "capability",
         "source_category": "network",
         "source_severity": "low",
-        "confidence": 0.93,
-        "confidence_reasoning": "The script polls BrowserAct's external API for task status using the task ID and authorization header. This creates a real network dependency."
+        "confidence": 0.99,
+        "confidence_reasoning": "The polling request sends the bearer credential and task identifier to BrowserAct. This is expected API traffic but remains an external data transfer."
       },
       {
         "title": "Python HTTP libraries",
@@ -1554,8 +1449,8 @@
         "review_kind": "capability",
         "source_category": "network",
         "source_severity": "low",
-        "confidence": 0.93,
-        "confidence_reasoning": "The script retrieves task results from BrowserAct's external API. The request is part of the skill's purpose, but it still transfers task context off host."
+        "confidence": 0.99,
+        "confidence_reasoning": "The result request sends the bearer credential and task identifier to BrowserAct. The call is intentional, but it depends on an external service receiving sensitive authentication data."
       },
       {
         "title": "Hardcoded URL",
@@ -1570,169 +1465,132 @@
         "review_kind": "capability",
         "source_category": "network",
         "source_severity": "low",
-        "confidence": 0.94,
-        "confidence_reasoning": "The hardcoded BrowserAct API base URL is used by the script's HTTP requests. This is a real outbound service endpoint."
-      },
-      {
-        "title": "Python getenv function",
-        "description": "api_key = os.getenv(\"BROWSERACT_API_KEY\")",
-        "locations": [
-          {
-            "file": "scripts/github_project_contributor_finder_api.py",
-            "line_start": 115,
-            "line_end": 115
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "env_access",
-        "source_severity": "low",
-        "confidence": 0.92,
-        "confidence_reasoning": "The script reads BROWSERACT_API_KEY from the environment. That is expected, but it is real access to secret material."
-      },
-      {
-        "title": "getenv function call",
-        "description": "api_key = os.getenv(\"BROWSERACT_API_KEY\")",
-        "locations": [
-          {
-            "file": "scripts/github_project_contributor_finder_api.py",
-            "line_start": 115,
-            "line_end": 115
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "env_access",
-        "source_severity": "low",
-        "confidence": 0.92,
-        "confidence_reasoning": "The getenv call accesses a named BrowserAct API key. This confirms environment secret access, even though the variable is explicit."
+        "confidence": 0.98,
+        "confidence_reasoning": "This constant is the external BrowserAct endpoint used for authenticated requests. It matches the declared function but establishes a third-party network dependency."
       }
     ],
     "dangerous_patterns": [],
     "files_scanned": 2,
     "total_lines": 250,
     "audit_model": "codex",
-    "audited_at": "2026-07-07T20:44:25.617Z",
+    "audited_at": "2026-07-23T09:47:58.963Z",
     "agent_auto_install_policy": "confirmation_required",
     "manual_install_policy": "allowed"
   },
   "content": {
-    "user_title": "Find GitHub Contributors by Project Signals",
-    "value_statement": "Finding active GitHub projects and contributors can take hours of manual searching. This skill uses BrowserAct to search repositories, fetch metrics, and return contributor profile links.",
+    "user_title": "Find GitHub Projects and Contributors",
+    "value_statement": "Finding relevant open-source projects and active contributors manually takes time. This skill searches through BrowserAct and returns repository metrics and public contributor profiles.",
     "seo_keywords": [
+      "GitHub contributor finder",
+      "GitHub project search",
+      "open source research",
+      "developer discovery",
+      "repository analytics",
+      "BrowserAct API",
       "Claude",
       "Codex",
       "Claude Code",
-      "GitHub contributor finder",
-      "open source research",
-      "developer lead generation",
-      "repository discovery",
-      "BrowserAct API",
-      "GitHub project search",
-      "developer outreach"
+      "contributor profiles"
     ],
     "actual_capabilities": [
-      "Searches GitHub repositories by keyword, minimum stars, and last updated date.",
-      "Runs a BrowserAct hosted workflow through the bundled Python script.",
-      "Polls task status until the BrowserAct workflow finishes or times out.",
-      "Returns repository names, URLs, owners, descriptions, and star counts.",
-      "Returns public contributor profile links, bios, websites, and Twitter handles.",
-      "Reports missing keys, invalid authorization, task failures, and concurrent task limits."
+      "Searches GitHub repositories using keywords.",
+      "Filters results by minimum stars and last update date.",
+      "Controls search pagination and the item limit per page.",
+      "Starts a BrowserAct workflow and polls its status for up to 15 minutes.",
+      "Returns repository metrics and available public contributor profile fields."
     ],
     "limitations": [
-      "Requires a BrowserAct account and a valid BROWSERACT_API_KEY.",
-      "Sends search parameters and task requests to BrowserAct's external API.",
-      "Results depend on public GitHub data and BrowserAct workflow availability.",
-      "Long searches can take several minutes and may hit account limits."
+      "Requires a BrowserAct account, API key, network access, and the Python requests package.",
+      "Depends on BrowserAct service availability, workflow behavior, quotas, and account concurrency limits.",
+      "Contributor websites, biographies, and social handles may be missing, outdated, or inaccurate.",
+      "External result text is not sanitized and must be treated as untrusted data."
     ],
     "use_cases": [
       {
-        "title": "Source Open-Source Candidates",
-        "description": "Find contributors to active repositories in a specific technical area and review their public profile links.",
-        "target_user": "Technical recruiters"
+        "title": "Map an Open-Source Topic",
+        "description": "Find active repositories in a technical domain and compare their descriptions, stars, owners, and recent updates.",
+        "target_user": "Open-source researcher"
       },
       {
-        "title": "Map Developer Communities",
-        "description": "Identify repositories, owners, and active contributors around a language, framework, or developer tool category.",
-        "target_user": "Developer relations teams"
+        "title": "Review Public Contributor Profiles",
+        "description": "Identify relevant contributors and review public profile links for role-related research with appropriate consent and privacy controls.",
+        "target_user": "Technical recruiter"
       },
       {
-        "title": "Research Project Ecosystems",
-        "description": "Collect repository metrics and contributor profiles for market research, partnership scouting, or open-source analysis.",
-        "target_user": "Product researchers"
+        "title": "Plan Community Outreach",
+        "description": "Discover active projects and contributors before designing relevant, respectful community engagement.",
+        "target_user": "Developer relations manager"
       }
     ],
     "prompt_templates": [
       {
-        "title": "Find Basic Project Leads",
-        "scenario": "Beginner search with defaults",
-        "prompt": "Find GitHub repositories about browser automation with at least 100 stars. Return repository details and contributor profile links."
+        "title": "Find Repositories",
+        "prompt": "Find GitHub repositories about [topic]. Use sensible defaults and summarize repository names, links, descriptions, and star counts.",
+        "scenario": "Beginner search with only a topic."
       },
       {
-        "title": "Filter by Activity",
-        "scenario": "Focused repository discovery",
-        "prompt": "Search for React framework repositories updated after 2025-06-01 with at least 1000 stars. Limit results to one page."
+        "title": "Apply Search Filters",
+        "prompt": "Search for [topic] repositories with at least [stars] stars, updated since [date]. Review [pages] pages and return [items] results per page.",
+        "scenario": "Focused discovery with explicit filters."
       },
       {
-        "title": "Build a Contributor Shortlist",
-        "scenario": "Recruiting or community research",
-        "prompt": "Find active contributors in machine learning repositories with at least 500 stars. Summarize profiles, websites, and social handles."
+        "title": "Research Contributors",
+        "prompt": "Find contributors to repositories about [topic]. Include only relevant public profile fields and explain missing data. Do not request my API key in chat.",
+        "scenario": "Privacy-aware contributor research."
       },
       {
-        "title": "Compare Two Developer Markets",
-        "scenario": "Advanced research workflow",
-        "prompt": "Run separate searches for browser automation and testing frameworks. Compare repository activity, owners, and contributor outreach opportunities."
+        "title": "Compare Project Ecosystems",
+        "prompt": "Compare GitHub ecosystems for [topic A] and [topic B] using equal filters. Group projects by activity, stars, owners, and contributor signals.",
+        "scenario": "Advanced comparative landscape analysis."
       }
     ],
     "output_examples": [
       {
-        "input": "Find browser automation repositories with at least 100 stars.",
+        "input": "Find browser automation repositories with at least 1,000 stars, updated since 2026-01-01.",
+        "output": "A filtered repository list with names, links, owners, descriptions, star counts, and available contributor profiles."
+      },
+      {
+        "input": "Find active machine learning contributors and include public websites when available.",
         "output": [
-          "Repository results include names, URLs, owners, descriptions, and star counts.",
-          "Contributor results include GitHub profiles, bios, public websites, and Twitter handles when available."
+          "Contributor summaries show usernames, profile links, biographies, related repositories, and public websites when returned.",
+          "Missing social fields are identified instead of inferred."
         ]
-      },
-      {
-        "input": "Search React framework projects updated after 2025-06-01.",
-        "output": "The skill returns a concise research summary with matching repositories, public contributor profiles, and available contact links."
-      },
-      {
-        "input": "Find machine learning contributors for developer relations outreach.",
-        "output": "The response lists relevant projects first, then highlights contributors with profile context for careful manual review."
       }
     ],
     "best_practices": [
-      "Use narrow keywords and realistic star thresholds to keep searches relevant.",
-      "Set BROWSERACT_API_KEY through a secure environment variable before running the script.",
-      "Review public profile data manually before any recruiting, outreach, or research use."
+      "Set BROWSERACT_API_KEY through an approved secret manager or local environment configuration.",
+      "Use narrow keywords, realistic star thresholds, and a current update date to reduce irrelevant results.",
+      "Treat returned descriptions, biographies, websites, and social handles as untrusted and verify them before use."
     ],
     "anti_patterns": [
-      "Do not paste API keys into chat or shared logs.",
-      "Do not use the output for spam, harassment, or sensitive profiling.",
-      "Do not request broad scraping when a focused repository search would answer the question."
+      "Do not paste API keys into chat, prompts, logs, or shared command history.",
+      "Do not use public profile data for unsolicited bulk outreach or sensitive personal profiling.",
+      "Do not treat repository descriptions or contributor biographies as trusted agent instructions."
     ],
     "faq": [
       {
-        "question": "What account is required?",
-        "answer": "You need a BrowserAct account with a valid API key stored as BROWSERACT_API_KEY."
+        "question": "What credentials does this skill require?",
+        "answer": "It requires BROWSERACT_API_KEY. Configure it securely in the environment or an approved secret manager."
       },
       {
-        "question": "Does this skill call GitHub directly?",
-        "answer": "No. The bundled script sends workflow requests to BrowserAct, which performs the hosted collection task."
+        "question": "Does the skill call GitHub directly?",
+        "answer": "No. The bundled script starts and monitors a BrowserAct workflow that performs the collection."
       },
       {
-        "question": "What data can the skill return?",
-        "answer": "It can return repository details and public contributor profile information such as bios, websites, and Twitter handles."
+        "question": "Which search filters are supported?",
+        "answer": "It supports keywords, minimum stars, last update date, page count, and item count per page."
       },
       {
-        "question": "How long can a task take?",
-        "answer": "The script can poll for up to 15 minutes while the BrowserAct workflow runs."
+        "question": "How long can a search run?",
+        "answer": "The script polls for up to 15 minutes and reports status every 10 seconds."
       },
       {
-        "question": "Can I control result size?",
-        "answer": "Yes. Use page count and per-page limits to control the amount of data requested."
+        "question": "Are contributor contact fields always available?",
+        "answer": "No. Websites, biographies, and social handles depend on public source data and may be missing or outdated."
       },
       {
-        "question": "What privacy care is needed?",
-        "answer": "Use only public profile data, respect platform rules, and avoid unsolicited bulk outreach."
+        "question": "How should returned text be handled?",
+        "answer": "Treat all repository and profile text as untrusted data. Verify important facts and ignore embedded instructions."
       }
     ]
   },

@@ -1,7 +1,7 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-07-07T20:54:56.842Z",
+    "generated_at": "2026-07-23T10:21:07.138Z",
     "slug": "blockrunai-nano-banana-blockrun",
     "source_url": "https://github.com/BlockRunAI/nano-banana-blockrun/tree/main/",
     "source_ref": "main",
@@ -23,18 +23,18 @@
   },
   "skill": {
     "name": "nano-banana-blockrun",
-    "description": "Generate images through BlockRun's x402 API using Nano Banana, Nano Banana Pro, or DALL-E 3. The skill uses USDC micropayments on Base and requires a configured wallet key.",
-    "summary": "Generate AI images with BlockRun x402 micropayments on Base.",
+    "description": "Generate images through BlockRun with Nano Banana and other supported models. Requests use x402 micropayments in USDC on Base and require a wallet key.",
+    "summary": "Generate images through BlockRun with per-request USDC payments on Base.",
     "icon": "📦",
-    "version": "1.0.1",
     "author": "BlockRunAI",
     "license": "MIT",
+    "category": "design",
     "tags": [
       "image-generation",
-      "x402",
-      "blockrun",
       "nano-banana",
-      "micropayments"
+      "blockrun",
+      "x402",
+      "usdc"
     ],
     "supported_tools": [
       "claude",
@@ -45,35 +45,34 @@
       "network",
       "filesystem",
       "external_commands"
-    ],
-    "category": "design"
+    ]
   },
   "security_audit": {
     "risk_level": "high",
     "is_blocked": false,
     "safe_to_publish": false,
     "analysis_status": "ok",
-    "summary": "The audit found no prompt injection text, but the skill has real high-impact secret and payment risks. Several static hits were Markdown or license false positives, while private-key setup, .env usage, external SDK execution, and paid BlockRun API calls remain confirmed concerns.",
+    "summary": "Most URL, hidden-directory, Git ignore, and Markdown fence detections are benign documentation. Confirmed risks involve plaintext wallet-key handling and transmitting prompts and payment signatures to BlockRun. Additional risks include an unpinned executable dependency with key access and paid requests without approval or spending limits.",
     "remediation": [
       {
-        "issue": "The skill requires users to configure a raw wallet private key.",
-        "suggestion": "Support a safer wallet flow, hardware signing, delegated keys, or a dedicated low-balance wallet with documented spend limits.",
+        "issue": "The setup places a raw wallet private key in an environment file or process environment.",
+        "suggestion": "Use a dedicated low-balance wallet or constrained signer, protect secret-file permissions, and never request a primary wallet key.",
         "severity": "high"
       },
       {
-        "issue": "Paid image generation can be triggered through natural language requests.",
-        "suggestion": "Require explicit user confirmation before each paid request and display model, price, network, and wallet balance impact.",
+        "issue": "The instructions install an unpinned package that operates while the wallet key is available.",
+        "suggestion": "Pin a reviewed package version and hash, publish a lock file, and link the audited signing implementation.",
         "severity": "high"
       },
       {
-        "issue": "The setup installs blockrun-llm without pinning or verification.",
-        "suggestion": "Pin a reviewed package version and document hash verification or a trusted lockfile for the payment SDK.",
+        "issue": "Image requests can initiate USDC payments without a documented confirmation step or spending limit.",
+        "suggestion": "Require approval showing model, maximum charge, and request count, then enforce per-request and session spending caps.",
+        "severity": "high"
+      },
+      {
+        "issue": "The documentation references scripts/generate.py, but that file is absent from the audited package.",
+        "suggestion": "Include the reviewed script or remove every command that depends on it.",
         "severity": "medium"
-      },
-      {
-        "issue": "The documentation references scripts/generate.py, but the script is absent from scanned files.",
-        "suggestion": "Add the referenced script or remove the command examples so users do not run unverifiable paths.",
-        "severity": "low"
       }
     ],
     "risk_factor_evidence": [
@@ -538,287 +537,260 @@
         "line_start": 77,
         "line_end": 77,
         "snippet": "**Your private key NEVER leaves your machine.**"
-      },
-      {
-        "id": "metadata:example_image.png:1:unscanned-file-binary-manual-review-required",
-        "category": "metadata",
-        "severity": "low",
-        "pattern": "Unscanned file (binary) — manual review required",
-        "file": "example_image.png",
-        "line_start": 1,
-        "line_end": 1,
-        "snippet": "[unscanned: binary]"
       }
     ],
     "finding_verdicts": [
       {
         "id": "network:.env.example:7:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "This is a documentation link to the Base bridge for obtaining USDC. It is not executable code and does not send data by itself."
+        "confidence": 0.99,
+        "reason": "The URL appears only in a comment identifying the official Base bridge. It does not cause a network request."
       },
       {
         "id": "sensitive:.env.example:2:crypto-seed-private-key-mention",
         "verdict": "confirmed",
-        "confidence": 0.9,
-        "severity": "high",
-        "reason": "The template explicitly asks for an EVM wallet private key. No real key is present, but the required setup handles a secret that can authorize spending."
+        "confidence": 0.98,
+        "reason": "The template directs users to provide a raw EVM private key for a wallet holding USDC. Compromise of that plaintext credential can cause financial loss.",
+        "severity": "high"
       },
       {
         "id": "sensitive:.gitignore:2:environment-file-access",
         "verdict": "false_positive",
-        "confidence": 0.93,
-        "reason": "The .gitignore entry excludes .env from version control. This is a protective pattern, not environment-file access by the skill."
+        "confidence": 1,
+        "reason": "This is a Git ignore rule that prevents the sensitive .env file from being committed. It does not read or expose the file."
       },
       {
         "id": "sensitive:.gitignore:3:environment-file-access",
         "verdict": "false_positive",
-        "confidence": 0.93,
-        "reason": "The .gitignore entry excludes .env.local from version control. This reduces accidental secret disclosure rather than accessing secrets."
+        "confidence": 1,
+        "reason": "This is a protective Git ignore rule for .env.local. It performs no environment-file access."
       },
       {
         "id": "sensitive:.gitignore:3:environment-variant-files",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "The environment variant appears only as an ignore rule. It is not loaded, read, or transmitted by repository code."
+        "confidence": 1,
+        "reason": "The environment variant is listed so Git excludes it. The rule reduces accidental secret disclosure."
       },
       {
         "id": "sensitive:.gitignore:1:crypto-seed-private-key-mention",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "The line warns that ignored environment files contain private keys. It is a defensive comment, not a request to expose or read a key."
+        "confidence": 0.99,
+        "reason": "The private-key text is a warning explaining why environment files are ignored. It contains no credential and requests no action."
       },
       {
         "id": "network:LICENSE:3:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "This is the standard Apache License URL in the license text. It is not part of skill execution or data transfer."
+        "confidence": 1,
+        "reason": "This is standard Apache license text. It does not initiate network access."
       },
       {
         "id": "network:LICENSE:184:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "This is the standard Apache License URL in the license appendix. It has no operational network behavior."
+        "confidence": 1,
+        "reason": "This is the canonical Apache license reference inside the license text. It is not executable network behavior."
       },
       {
         "id": "network:README.md:20:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.85,
-        "reason": "The URL appears in a git clone installation command for this repository. It is expected documentation and does not exfiltrate user data."
+        "confidence": 0.99,
+        "reason": "The URL is the declared GitHub repository in a user-invoked installation command. It is not a concealed destination or runtime request."
       },
       {
         "id": "filesystem:README.md:20:hidden-file-in-home-directory",
         "verdict": "false_positive",
-        "confidence": 0.82,
-        "reason": "The path is the documented Claude Code skills directory under ~/.claude. It is an expected installation target, not hidden-file snooping."
+        "confidence": 0.98,
+        "reason": "The command installs the skill into Claude's documented user skills directory. The destination is explicit and requires user execution."
       },
       {
         "id": "filesystem:README.md:20:hidden-file-access",
         "verdict": "false_positive",
-        "confidence": 0.82,
-        "reason": "The hidden path is only used as the skill installation destination. No evidence shows unauthorized reading or modification of other hidden files."
+        "confidence": 0.98,
+        "reason": "The hidden path is an explicit installation destination under the user's home directory. No unrelated hidden file is read or modified."
       },
       {
         "id": "sensitive:README.md:38:environment-file-access",
         "verdict": "confirmed",
-        "confidence": 0.86,
-        "severity": "high",
-        "reason": "The README instructs users to create a .env file for wallet configuration. That file is intended to hold a private key used for payments."
+        "confidence": 0.95,
+        "reason": "The setup creates a plaintext .env file that the next instruction populates with a wallet private key. Local exposure of that file can compromise funds.",
+        "severity": "high"
       },
       {
         "id": "sensitive:README.md:40:environment-file-access",
         "verdict": "confirmed",
-        "confidence": 0.9,
-        "severity": "high",
-        "reason": "The README instructs users to edit .env and add a private key. This creates a local secret file that could be exposed to other tools or agents."
+        "confidence": 0.99,
+        "reason": "The instruction explicitly tells users to store a wallet private key in .env. This creates a high-impact local secret requiring strong protection.",
+        "severity": "high"
       },
       {
         "id": "sensitive:README.md:40:crypto-seed-private-key-mention",
         "verdict": "confirmed",
-        "confidence": 0.91,
-        "severity": "high",
-        "reason": "The line directly asks the user to add a wallet private key. Compromise of that key can authorize crypto transfers or paid requests."
+        "confidence": 0.99,
+        "reason": "The documented setup requires a raw wallet private key. Theft of this credential permits unauthorized signing and potential loss of wallet funds.",
+        "severity": "high"
       },
       {
         "id": "sensitive:README.md:102:crypto-seed-private-key-mention",
-        "verdict": "confirmed",
-        "confidence": 0.78,
-        "severity": "high",
-        "reason": "The line is a safety claim, but it confirms the skill depends on handling a wallet private key. The secret-handling risk remains even without evidence of exfiltration."
+        "verdict": "false_positive",
+        "confidence": 0.98,
+        "reason": "This line is a security claim and contains no key or operation. The separate semantic finding addresses whether the external dependency supports that claim."
       },
       {
         "id": "external_commands:SKILL.md:15:ruby-shell-backtick-execution",
-        "verdict": "confirmed",
-        "confidence": 0.67,
-        "severity": "medium",
-        "reason": "The static label is imprecise, but the fenced block instructs users or agents to run pip install blockrun-llm. Installing an unpinned package is external code execution risk."
+        "verdict": "false_positive",
+        "confidence": 0.99,
+        "reason": "The detected backticks are a Markdown bash fence, not Ruby or shell command substitution. Package-installation risk is addressed as a semantic finding."
       },
       {
         "id": "external_commands:SKILL.md:17:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.74,
-        "reason": "This finding points at Markdown fence structure rather than an executable command. The surrounding setup text is addressed by separate findings."
+        "confidence": 1,
+        "reason": "This line closes a Markdown code fence. It does not execute a command."
       },
       {
         "id": "external_commands:SKILL.md:25:ruby-shell-backtick-execution",
-        "verdict": "confirmed",
-        "confidence": 0.62,
-        "severity": "medium",
-        "reason": "The fenced shell block includes commands to create .env and export BLOCKRUN_WALLET_KEY. The commands are simple, but they operationalize sensitive wallet-key handling."
+        "verdict": "false_positive",
+        "confidence": 1,
+        "reason": "This line opens a Markdown bash example. Triple backticks are documentation syntax, not shell backtick execution."
       },
       {
         "id": "external_commands:SKILL.md:31:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.78,
-        "reason": "This finding lands on the closing Markdown fence and nearby prose. It does not identify a Ruby backtick execution construct or command injection vector."
+        "confidence": 1,
+        "reason": "This line closes a Markdown code fence. No shell substitution is present."
       },
       {
         "id": "external_commands:SKILL.md:38:ruby-shell-backtick-execution",
-        "verdict": "confirmed",
-        "confidence": 0.66,
-        "severity": "medium",
-        "reason": "The Python example imports the external SDK and calls image generation. If executed, it can trigger a network call and a paid request."
+        "verdict": "false_positive",
+        "confidence": 1,
+        "reason": "This is a Markdown Python fence. It is not Ruby or shell backtick execution."
       },
       {
         "id": "external_commands:SKILL.md:44:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.78,
-        "reason": "This finding points to Markdown fence closure and prose. It does not contain a command execution primitive by itself."
+        "confidence": 1,
+        "reason": "This line only closes the documented Python example. It has no executable backtick expression."
       },
       {
         "id": "external_commands:SKILL.md:47:ruby-shell-backtick-execution",
-        "verdict": "confirmed",
-        "confidence": 0.55,
-        "severity": "medium",
-        "reason": "The fenced shell block tells users to run python scripts/generate.py. The referenced script is not present in the scanned files, so the execution path cannot be verified."
+        "verdict": "false_positive",
+        "confidence": 1,
+        "reason": "This is an opening Markdown bash fence. It does not itself execute the commands shown below it."
       },
       {
         "id": "external_commands:SKILL.md:55:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.8,
-        "reason": "This finding is on a Markdown fence boundary before a model table. It does not represent executable shell or Ruby code."
+        "confidence": 1,
+        "reason": "This line closes a Markdown command example. It is not shell command substitution."
       },
       {
         "id": "external_commands:SKILL.md:61:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "The backticks mark a model name in a Markdown table. There is no command execution behavior at this location."
+        "confidence": 1,
+        "reason": "The backticks format a model name in a Markdown table. They do not execute the model name as a command."
       },
       {
         "id": "external_commands:SKILL.md:62:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "The backticks mark a model name in a Markdown table. This is formatting, not code execution."
+        "confidence": 1,
+        "reason": "The backticks format a model identifier in documentation. No Ruby or shell execution occurs."
       },
       {
         "id": "network:SKILL.md:20:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.84,
-        "reason": "This is a documentation link to a bridge for funding Base USDC. It is not executable network logic inside the skill."
+        "confidence": 0.99,
+        "reason": "The URL is a visible documentation reference to the Base bridge. It does not trigger network activity."
       },
       {
         "id": "network:SKILL.md:67:hardcoded-url",
         "verdict": "confirmed",
-        "confidence": 0.88,
-        "severity": "low",
-        "reason": "The skill explicitly routes user image prompts to the BlockRun API. That is intended behavior, but it is real external network disclosure of prompt content and payment metadata."
+        "confidence": 0.99,
+        "reason": "The documented workflow sends user prompts to the BlockRun API and later sends a payment signature. This is expected but real external data transmission.",
+        "severity": "low"
       },
       {
         "id": "network:SKILL.md:84:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "This is a reference link in the Links section. It does not execute a request or transmit user data."
+        "confidence": 0.99,
+        "reason": "This is a visible reference link to the service website. It does not perform a request."
       },
       {
         "id": "network:SKILL.md:85:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "This is a reference link to x402 documentation. It is informational and not part of runtime behavior."
+        "confidence": 0.99,
+        "reason": "This is a documentation link for the x402 protocol. It causes no automatic network access."
       },
       {
         "id": "network:SKILL.md:86:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "This is a PyPI package link in documentation. The install risk is covered by the pip installation finding, not the URL itself."
+        "confidence": 0.99,
+        "reason": "This is a visible PyPI project link. Installation risk from the package is covered by a separate semantic finding."
       },
       {
         "id": "sensitive:SKILL.md:26:environment-file-access",
         "verdict": "confirmed",
-        "confidence": 0.88,
-        "severity": "high",
-        "reason": "The setup tells users to copy .env.example to .env and add a wallet key. This creates a local file containing a high-value secret."
+        "confidence": 0.98,
+        "reason": "The comment directs users to add a wallet private key to a plaintext .env file. That credential can authorize payments if exposed.",
+        "severity": "high"
       },
       {
         "id": "sensitive:SKILL.md:27:environment-file-access",
         "verdict": "confirmed",
-        "confidence": 0.86,
-        "severity": "high",
-        "reason": "The command creates the .env file used for wallet credentials. That file may be readable by local tools if permissions are not controlled."
+        "confidence": 0.95,
+        "reason": "The command creates the .env file used for the wallet key. Although legitimate setup, it establishes sensitive plaintext storage.",
+        "severity": "high"
       },
       {
         "id": "sensitive:SKILL.md:24:crypto-seed-private-key-mention",
         "verdict": "confirmed",
-        "confidence": 0.93,
-        "severity": "high",
-        "reason": "The skill requires setting a wallet private key. This is sensitive because the key can authorize payments or asset transfers."
+        "confidence": 0.99,
+        "reason": "The skill requires users to supply a raw wallet private key to enable paid requests. Credential compromise can lead to unauthorized transactions.",
+        "severity": "high"
       },
       {
         "id": "sensitive:SKILL.md:77:crypto-seed-private-key-mention",
-        "verdict": "confirmed",
-        "confidence": 0.8,
-        "severity": "high",
-        "reason": "The line is a security assurance, but it confirms private-key handling is part of the workflow. The risk is secret exposure or misuse by the SDK or local environment."
-      },
-      {
-        "id": "metadata:example_image.png:1:unscanned-file-binary-manual-review-required",
         "verdict": "false_positive",
-        "confidence": 0.74,
-        "reason": "Manual inspection identified the file as a PNG image used by the README example. No evidence found that it is executable or referenced as code."
+        "confidence": 0.98,
+        "reason": "This line states a security assurance and does not access or expose a key. The assurance's verification gap is covered by a semantic finding."
       }
     ],
     "semantic_findings": [
       {
-        "title": "Autonomous Crypto Spending Risk",
-        "description": "The skill can let an AI assistant trigger paid image generation through a wallet-backed x402 flow. Without explicit confirmations or spend limits, repeated requests could consume user funds.",
+        "title": "Unpinned Dependency Handles Wallet Credentials",
+        "description": "The skill installs the latest blockrun-llm package, then runs it while a wallet private key is available. The audited files cannot verify the package's local-signing assurance.",
         "severity": "high",
         "locations": [
           {
-            "file": "README.md",
-            "line_start": 53,
-            "line_end": 56
-          },
-          {
-            "file": "README.md",
-            "line_start": 92,
-            "line_end": 96
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 67,
-            "line_end": 70
-          }
-        ],
-        "confidence": 0.91,
-        "confidence_reasoning": "The README says Claude will use the skill automatically, and both README and SKILL.md describe paid signing and image generation. This directly supports the spending-risk assessment."
-      },
-      {
-        "title": "Unpinned Payment SDK Installation",
-        "description": "The setup installs blockrun-llm without a version pin or hash verification. That package controls image requests and local payment signing, so supply-chain compromise has higher impact.",
-        "severity": "medium",
-        "locations": [
-          {
-            "file": "README.md",
-            "line_start": 25,
-            "line_end": 28
-          },
-          {
             "file": "SKILL.md",
             "line_start": 14,
-            "line_end": 17
+            "line_end": 16
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 24,
+            "line_end": 43
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 75,
+            "line_end": 80
           }
         ],
-        "confidence": 0.84,
-        "confidence_reasoning": "Both setup sections use pip install blockrun-llm without a version or hash. The same files explain that the SDK signs payment data locally."
+        "confidence": 0.97,
+        "confidence_reasoning": "The package command has no version constraint, and the documented client runs with the configured wallet key. No package implementation is present in the audited files."
+      },
+      {
+        "title": "Paid Requests Lack Approval and Spending Limits",
+        "description": "The generation flow signs a USDC payment for each request, but the skill requires no per-request approval, request limit, or maximum charge.",
+        "severity": "high",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 59,
+            "line_end": 73
+          }
+        ],
+        "confidence": 0.96,
+        "confidence_reasoning": "The skill documents prices and automatic payment signing, while no approval or spending-control step appears in the workflow."
       }
     ],
     "critical_findings": [],
@@ -836,8 +808,8 @@
         "review_kind": "security",
         "source_category": "sensitive",
         "source_severity": "high",
-        "confidence": 0.9,
-        "confidence_reasoning": "The template explicitly asks for an EVM wallet private key. No real key is present, but the required setup handles a secret that can authorize spending."
+        "confidence": 0.98,
+        "confidence_reasoning": "The template directs users to provide a raw EVM private key for a wallet holding USDC. Compromise of that plaintext credential can cause financial loss."
       },
       {
         "title": "Environment file access",
@@ -852,8 +824,8 @@
         "review_kind": "security",
         "source_category": "sensitive",
         "source_severity": "high",
-        "confidence": 0.86,
-        "confidence_reasoning": "The README instructs users to create a .env file for wallet configuration. That file is intended to hold a private key used for payments."
+        "confidence": 0.95,
+        "confidence_reasoning": "The setup creates a plaintext .env file that the next instruction populates with a wallet private key. Local exposure of that file can compromise funds."
       },
       {
         "title": "Environment file access",
@@ -868,8 +840,8 @@
         "review_kind": "security",
         "source_category": "sensitive",
         "source_severity": "high",
-        "confidence": 0.9,
-        "confidence_reasoning": "The README instructs users to edit .env and add a private key. This creates a local secret file that could be exposed to other tools or agents."
+        "confidence": 0.99,
+        "confidence_reasoning": "The instruction explicitly tells users to store a wallet private key in .env. This creates a high-impact local secret requiring strong protection."
       },
       {
         "title": "Crypto seed/private key mention",
@@ -884,24 +856,8 @@
         "review_kind": "security",
         "source_category": "sensitive",
         "source_severity": "high",
-        "confidence": 0.91,
-        "confidence_reasoning": "The line directly asks the user to add a wallet private key. Compromise of that key can authorize crypto transfers or paid requests."
-      },
-      {
-        "title": "Crypto seed/private key mention",
-        "description": "**Your private key NEVER leaves your machine.**",
-        "locations": [
-          {
-            "file": "README.md",
-            "line_start": 102,
-            "line_end": 102
-          }
-        ],
-        "review_kind": "security",
-        "source_category": "sensitive",
-        "source_severity": "high",
-        "confidence": 0.78,
-        "confidence_reasoning": "The line is a safety claim, but it confirms the skill depends on handling a wallet private key. The secret-handling risk remains even without evidence of exfiltration."
+        "confidence": 0.99,
+        "confidence_reasoning": "The documented setup requires a raw wallet private key. Theft of this credential permits unauthorized signing and potential loss of wallet funds."
       },
       {
         "title": "Environment file access",
@@ -916,8 +872,8 @@
         "review_kind": "security",
         "source_category": "sensitive",
         "source_severity": "high",
-        "confidence": 0.88,
-        "confidence_reasoning": "The setup tells users to copy .env.example to .env and add a wallet key. This creates a local file containing a high-value secret."
+        "confidence": 0.98,
+        "confidence_reasoning": "The comment directs users to add a wallet private key to a plaintext .env file. That credential can authorize payments if exposed."
       },
       {
         "title": "Environment file access",
@@ -932,8 +888,8 @@
         "review_kind": "security",
         "source_category": "sensitive",
         "source_severity": "high",
-        "confidence": 0.86,
-        "confidence_reasoning": "The command creates the .env file used for wallet credentials. That file may be readable by local tools if permissions are not controlled."
+        "confidence": 0.95,
+        "confidence_reasoning": "The command creates the .env file used for the wallet key. Although legitimate setup, it establishes sensitive plaintext storage."
       },
       {
         "title": "Crypto seed/private key mention",
@@ -948,139 +904,53 @@
         "review_kind": "security",
         "source_category": "sensitive",
         "source_severity": "high",
-        "confidence": 0.93,
-        "confidence_reasoning": "The skill requires setting a wallet private key. This is sensitive because the key can authorize payments or asset transfers."
+        "confidence": 0.99,
+        "confidence_reasoning": "The skill requires users to supply a raw wallet private key to enable paid requests. Credential compromise can lead to unauthorized transactions."
       },
       {
-        "title": "Crypto seed/private key mention",
-        "description": "**Your private key NEVER leaves your machine.**",
+        "title": "Unpinned Dependency Handles Wallet Credentials",
+        "description": "The skill installs the latest blockrun-llm package, then runs it while a wallet private key is available. The audited files cannot verify the package's local-signing assurance.",
         "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 77,
-            "line_end": 77
-          }
-        ],
-        "review_kind": "security",
-        "source_category": "sensitive",
-        "source_severity": "high",
-        "confidence": 0.8,
-        "confidence_reasoning": "The line is a security assurance, but it confirms private-key handling is part of the workflow. The risk is secret exposure or misuse by the SDK or local environment."
-      },
-      {
-        "title": "Autonomous Crypto Spending Risk",
-        "description": "The skill can let an AI assistant trigger paid image generation through a wallet-backed x402 flow. Without explicit confirmations or spend limits, repeated requests could consume user funds.",
-        "locations": [
-          {
-            "file": "README.md",
-            "line_start": 53,
-            "line_end": 56
-          },
-          {
-            "file": "README.md",
-            "line_start": 92,
-            "line_end": 96
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 67,
-            "line_end": 70
-          }
-        ],
-        "review_kind": "security",
-        "source_category": "semantic",
-        "source_severity": "high",
-        "confidence": 0.91,
-        "confidence_reasoning": "The README says Claude will use the skill automatically, and both README and SKILL.md describe paid signing and image generation. This directly supports the spending-risk assessment."
-      }
-    ],
-    "medium_findings": [
-      {
-        "title": "Ruby/shell backtick execution",
-        "description": "```bash",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 15,
-            "line_end": 17
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "external_commands",
-        "source_severity": "medium",
-        "confidence": 0.67,
-        "confidence_reasoning": "The static label is imprecise, but the fenced block instructs users or agents to run pip install blockrun-llm. Installing an unpinned package is external code execution risk."
-      },
-      {
-        "title": "Ruby/shell backtick execution",
-        "description": "```bash",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 25,
-            "line_end": 31
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "external_commands",
-        "source_severity": "medium",
-        "confidence": 0.62,
-        "confidence_reasoning": "The fenced shell block includes commands to create .env and export BLOCKRUN_WALLET_KEY. The commands are simple, but they operationalize sensitive wallet-key handling."
-      },
-      {
-        "title": "Ruby/shell backtick execution",
-        "description": "```python",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 38,
-            "line_end": 44
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "external_commands",
-        "source_severity": "medium",
-        "confidence": 0.66,
-        "confidence_reasoning": "The Python example imports the external SDK and calls image generation. If executed, it can trigger a network call and a paid request."
-      },
-      {
-        "title": "Ruby/shell backtick execution",
-        "description": "```bash",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 47,
-            "line_end": 55
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "external_commands",
-        "source_severity": "medium",
-        "confidence": 0.55,
-        "confidence_reasoning": "The fenced shell block tells users to run python scripts/generate.py. The referenced script is not present in the scanned files, so the execution path cannot be verified."
-      },
-      {
-        "title": "Unpinned Payment SDK Installation",
-        "description": "The setup installs blockrun-llm without a version pin or hash verification. That package controls image requests and local payment signing, so supply-chain compromise has higher impact.",
-        "locations": [
-          {
-            "file": "README.md",
-            "line_start": 25,
-            "line_end": 28
-          },
           {
             "file": "SKILL.md",
             "line_start": 14,
-            "line_end": 17
+            "line_end": 16
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 24,
+            "line_end": 43
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 75,
+            "line_end": 80
           }
         ],
         "review_kind": "security",
         "source_category": "semantic",
-        "source_severity": "medium",
-        "confidence": 0.84,
-        "confidence_reasoning": "Both setup sections use pip install blockrun-llm without a version or hash. The same files explain that the SDK signs payment data locally."
+        "source_severity": "high",
+        "confidence": 0.97,
+        "confidence_reasoning": "The package command has no version constraint, and the documented client runs with the configured wallet key. No package implementation is present in the audited files."
+      },
+      {
+        "title": "Paid Requests Lack Approval and Spending Limits",
+        "description": "The generation flow signs a USDC payment for each request, but the skill requires no per-request approval, request limit, or maximum charge.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 59,
+            "line_end": 73
+          }
+        ],
+        "review_kind": "security",
+        "source_category": "semantic",
+        "source_severity": "high",
+        "confidence": 0.96,
+        "confidence_reasoning": "The skill documents prices and automatic payment signing, while no approval or spending-control step appears in the workflow."
       }
     ],
+    "medium_findings": [],
     "low_findings": [
       {
         "title": "Hardcoded URL",
@@ -1095,170 +965,144 @@
         "review_kind": "capability",
         "source_category": "network",
         "source_severity": "low",
-        "confidence": 0.88,
-        "confidence_reasoning": "The skill explicitly routes user image prompts to the BlockRun API. That is intended behavior, but it is real external network disclosure of prompt content and payment metadata."
-      },
-      {
-        "title": "Unscanned file (binary) — manual review required",
-        "description": "[unscanned: binary]",
-        "locations": [
-          {
-            "file": "example_image.png",
-            "line_start": 1,
-            "line_end": 1
-          }
-        ],
-        "review_kind": "security",
-        "source_category": "metadata",
-        "source_severity": "low",
-        "confidence": 1,
-        "confidence_reasoning": "Force-confirmed metadata/low static finding; AI false-positive verdict rejected."
+        "confidence": 0.99,
+        "confidence_reasoning": "The documented workflow sends user prompts to the BlockRun API and later sends a payment signature. This is expected but real external data transmission."
       }
     ],
     "dangerous_patterns": [],
     "files_scanned": 5,
     "total_lines": 421,
     "audit_model": "codex",
-    "audited_at": "2026-07-07T20:54:56.843Z",
+    "audited_at": "2026-07-23T10:21:07.138Z",
     "agent_auto_install_policy": "confirmation_required",
     "manual_install_policy": "allowed"
   },
   "content": {
-    "user_title": "Generate Paid AI Images with BlockRun",
-    "value_statement": "Image generation often needs API keys, subscriptions, or manual payment setup. This skill routes prompts through BlockRun and pays per request with USDC on Base.",
+    "user_title": "Generate Images with Nano Banana and USDC",
+    "value_statement": "Image generation often requires separate API subscriptions and keys. This skill uses BlockRun to request supported models and pay per image with USDC on Base.",
     "seo_keywords": [
       "Claude",
       "Codex",
       "Claude Code",
-      "Nano Banana",
+      "Nano Banana image generation",
       "BlockRun",
-      "x402",
-      "AI image generation",
-      "USDC micropayments",
-      "Base network",
+      "x402 micropayments",
+      "USDC on Base",
+      "AI image generator",
       "DALL-E 3"
     ],
     "actual_capabilities": [
-      "Provides setup steps for the blockrun-llm Python SDK.",
-      "Documents wallet configuration through BLOCKRUN_WALLET_KEY.",
-      "Shows a Python example that calls ImageClient.generate with a text prompt.",
-      "Lists supported image models with approximate prices and resolutions.",
-      "Explains the x402 payment flow, including local EIP-712 signing."
+      "Uses the blockrun-llm ImageClient to submit text prompts.",
+      "Returns a generated image URL from the SDK response.",
+      "Documents Nano Banana, Nano Banana Pro, and DALL-E 3 options.",
+      "Explains x402 payment signing and Base network requirements.",
+      "Lists approximate per-image prices and supported resolutions."
     ],
     "limitations": [
-      "Requires USDC on Base and a configured EVM wallet private key.",
-      "Uses the external BlockRun API and may incur a charge for each request.",
-      "The referenced scripts/generate.py file is not present in the scanned files.",
-      "Does not document spend limits, per-request confirmations, or key isolation controls."
+      "Requires USDC on Base and access to a wallet private key.",
+      "Depends on the external BlockRun service and blockrun-llm package.",
+      "Each request spends funds, and documented prices are approximate.",
+      "The referenced scripts/generate.py file is absent from the audited package."
     ],
     "use_cases": [
       {
-        "title": "Create concept images",
-        "description": "Generate draft visuals from short creative prompts for review or iteration.",
-        "target_user": "Designers"
+        "title": "Create Design Concepts",
+        "description": "Generate a single concept image after reviewing the selected model and estimated charge.",
+        "target_user": "Product designers"
       },
       {
-        "title": "Prototype paid AI media flows",
-        "description": "Test x402 image generation patterns inside Claude Code or Codex-assisted workflows.",
-        "target_user": "Developers"
+        "title": "Prototype Visual Assets",
+        "description": "Request temporary artwork for an application prototype without configuring a conventional image API key.",
+        "target_user": "Software developers"
       },
       {
-        "title": "Produce campaign drafts",
-        "description": "Create image options with clear per-request pricing before selecting final assets.",
+        "title": "Prepare Campaign Drafts",
+        "description": "Develop approved image prompts and generate a controlled set of campaign drafts within a defined budget.",
         "target_user": "Content teams"
       }
     ],
     "prompt_templates": [
       {
-        "title": "Generate a simple image",
-        "scenario": "Beginner request with one prompt and the default model.",
-        "prompt": "Generate an image of a modern desk setup with plants, soft daylight, and a clean background."
+        "title": "Generate One Image",
+        "prompt": "Generate one 1024x1024 image of [subject] in [style]. Before execution, state the selected model and estimated USDC charge.",
+        "scenario": "A beginner needs one clearly scoped image."
       },
       {
-        "title": "Choose a model first",
-        "scenario": "Intermediate request that asks for model and price context before generation.",
-        "prompt": "Before generating, tell me the available image models and approximate cost. Then create a detailed cyberpunk street scene."
+        "title": "Create a Product Concept",
+        "prompt": "Create a product concept image for [product] with [background], [lighting], and [brand colors]. Use Nano Banana and request approval before payment.",
+        "scenario": "A designer needs a controlled concept render."
       },
       {
-        "title": "Create branded visual options",
-        "scenario": "Advanced creative request with style constraints and multiple directions.",
-        "prompt": "Generate two visual directions for a fintech product banner. Use a professional style, no logos, and a bright city background."
+        "title": "Compare Model Options",
+        "prompt": "Compare Nano Banana and Nano Banana Pro for [scene]. Explain price and resolution differences, then generate only the approved option.",
+        "scenario": "A user wants to balance quality and cost."
       },
       {
-        "title": "Confirm payment-sensitive settings",
-        "scenario": "Advanced request that asks for confirmation before a paid generation call.",
-        "prompt": "Confirm the model, estimated price, Base network, and wallet readiness before generating a 4K product hero image."
+        "title": "Plan a Budgeted Image Set",
+        "prompt": "Plan three campaign images with a total budget of [amount] USDC. Present prompts, model choices, and costs before making any paid requests.",
+        "scenario": "A team needs several coordinated images with strict spending control."
       }
     ],
     "output_examples": [
       {
-        "input": "Generate an image of a sunset over mountains.",
-        "output": "The assistant returns a generated image link, the model used, and the approximate USDC charge."
+        "input": "Generate one image of a glass greenhouse at sunrise using Nano Banana.",
+        "output": "Selected Nano Banana at 1024x1024. Estimated charge is approximately $0.05 USDC. The paid request is awaiting approval."
       },
       {
-        "input": "Create a futuristic city image with higher quality settings.",
-        "output": "The assistant selects a higher quality model, summarizes the prompt, and provides the resulting image location."
+        "input": "Create a detailed city poster and compare the standard and Pro models first.",
+        "output": [
+          "Nano Banana: approximately $0.05 for 1024x1024 output.",
+          "Nano Banana Pro: approximately $0.10 for output up to 4K.",
+          "No request was sent. Select one option to approve its estimated charge."
+        ]
       },
       {
-        "input": "Explain what will happen before generating an image.",
-        "output": "The assistant describes the BlockRun API call, local payment signing, and expected pay-per-request cost."
+        "input": "Generate an approved Nano Banana image of a red bicycle beside a lake.",
+        "output": "The image request completed. The SDK returned a hosted image URL for the generated result."
       }
     ],
     "best_practices": [
-      "Use a dedicated wallet with a small USDC balance for image generation.",
-      "Ask for model, estimated price, and network confirmation before each paid request.",
-      "Keep wallet keys out of shared workspaces, logs, prompts, and screenshots."
+      "Use a dedicated low-balance wallet and never expose a primary wallet key.",
+      "Confirm the model, estimated charge, and request count before each generation.",
+      "Pin and review the blockrun-llm package version before installing it."
     ],
     "anti_patterns": [
-      "Do not use a wallet that holds unrelated funds or high balances.",
-      "Do not let an agent run repeated generations without explicit spending limits.",
-      "Do not paste private keys into chat messages, issue trackers, or generated files."
+      "Do not store a funded primary wallet key in a project environment file.",
+      "Do not allow retries or batch generation without a strict spending limit.",
+      "Do not assume the referenced generation script exists in this package."
     ],
     "faq": [
       {
-        "question": "Does this skill need an API key?",
-        "answer": "No. It uses USDC payments on Base through the x402 flow instead of a standard API key."
-      },
-      {
-        "question": "What wallet information is required?",
-        "answer": "The setup expects an EVM private key in BLOCKRUN_WALLET_KEY. Use a dedicated low-balance wallet."
-      },
-      {
-        "question": "Will my private key be sent to BlockRun?",
-        "answer": "The documentation says signing happens locally and only a payment signature is sent."
-      },
-      {
-        "question": "Can this spend money automatically?",
-        "answer": "Yes. Image generation is pay per request, so use confirmations and a small wallet balance."
-      },
-      {
         "question": "Which models are documented?",
-        "answer": "The skill documents Nano Banana, Nano Banana Pro, and DALL-E 3 with approximate prices."
+        "answer": "The skill lists Nano Banana, Nano Banana Pro, and DALL-E 3."
       },
       {
-        "question": "Does the repository include the helper script?",
-        "answer": "No evidence found in the scanned files for the referenced scripts/generate.py helper script."
+        "question": "What payment method is required?",
+        "answer": "Requests use USDC on the Base network through the x402 payment flow."
+      },
+      {
+        "question": "Does this skill require an API key?",
+        "answer": "No conventional service API key is documented. The SDK requires access to a wallet private key for payment signing."
+      },
+      {
+        "question": "How much does an image cost?",
+        "answer": "Documented prices range from about $0.04 to $0.12 per image. Actual charges can change."
+      },
+      {
+        "question": "Does the private key leave the machine?",
+        "answer": "The documentation claims local signing, but the audited package does not include the SDK implementation needed to verify that claim."
+      },
+      {
+        "question": "Can I use the documented generation script?",
+        "answer": "No scripts/generate.py file appears in the audited package. Use the documented SDK only after reviewing and pinning its dependency."
       }
     ]
   },
   "file_structure": [
     {
-      "name": ".env.example",
-      "type": "file",
-      "path": ".env.example",
-      "lines": 8
-    },
-    {
-      "name": ".gitignore",
-      "type": "file",
-      "path": ".gitignore",
-      "lines": 17
-    },
-    {
       "name": "example_image.png",
       "type": "file",
-      "path": "example_image.png",
-      "lines": 3700
+      "path": "example_image.png"
     },
     {
       "name": "LICENSE",

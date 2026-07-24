@@ -1,7 +1,7 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-07-08T03:58:59.057Z",
+    "generated_at": "2026-07-23T12:56:10.405Z",
     "slug": "caopulan-bark-notify",
     "source_url": "https://github.com/caopulan/Notification-Skill/tree/main/bark-notify",
     "source_ref": "main",
@@ -23,18 +23,17 @@
   },
   "skill": {
     "name": "bark-notify",
-    "description": "Send Bark push notifications when a Codex or Claude task finishes, using project, device, status, and summary details.",
-    "summary": "Send Bark completion alerts for Codex and Claude workflows.",
+    "description": "Send Bark push notifications when Codex or Claude tasks finish, including device, project, status, and a concise result summary.",
+    "summary": "Send structured Bark alerts when AI coding tasks finish.",
     "icon": "📦",
-    "version": "1.0.1",
     "author": "caopulan",
     "license": "MIT",
+    "category": "productivity",
     "tags": [
       "bark",
       "notifications",
       "task-completion",
-      "codex",
-      "claude"
+      "developer-tools"
     ],
     "supported_tools": [
       "claude",
@@ -46,35 +45,24 @@
       "env_access",
       "external_commands",
       "filesystem"
-    ],
-    "category": "communication"
+    ]
   },
   "security_audit": {
     "risk_level": "medium",
     "is_blocked": false,
     "safe_to_publish": true,
     "analysis_status": "ok",
-    "summary": "The skill intentionally sends Bark notifications to a configured endpoint and reads environment variables for that workflow. Most static Markdown, placeholder, and hidden-path matches are false positives, but task metadata egress and dry-run token exposure remain real risks.",
+    "summary": "Most static findings are false positives caused by Markdown code spans, shell line continuations, standard installation paths, and specific configuration variable reads. Two medium risks remain: dry-run output reveals the Bark key, and a custom endpoint receives that key plus task metadata. No prompt injection or malicious intent was found.",
     "remediation": [
       {
-        "issue": "Notification content can expose workspace metadata.",
-        "suggestion": "Add stronger guidance to omit secrets, user data, ticket details, private repository names, and sensitive summaries before sending alerts.",
+        "issue": "Dry-run output exposes the Bark key inside the request URL.",
+        "suggestion": "Redact the Bark key before printing the request URL, or omit the URL entirely.",
         "severity": "medium"
       },
       {
-        "issue": "Dry-run output prints the full Bark URL with the key.",
-        "suggestion": "Mask CODEX_BARK_KEY in dry-run output and any future debug logging.",
+        "issue": "A configurable endpoint receives the Bark key and task details.",
+        "suggestion": "Require HTTPS and reject unexpected schemes or untrusted hosts before sending credentials and task details.",
         "severity": "medium"
-      },
-      {
-        "issue": "The Bark key may be stored in shell startup files.",
-        "suggestion": "Recommend a secret manager or session-scoped environment variable when possible.",
-        "severity": "low"
-      },
-      {
-        "issue": "Custom Bark base URLs can receive all notification content.",
-        "suggestion": "Document that CODEX_BARK_BASE_URL should use a trusted HTTPS endpoint only.",
-        "severity": "low"
       }
     ],
     "risk_factor_evidence": [
@@ -444,412 +432,342 @@
     "finding_verdicts": [
       {
         "id": "network:scripts/send_bark_notification.py:88:hardcoded-url",
-        "verdict": "confirmed",
-        "confidence": 0.78,
-        "reason": "The helper defaults to the external Bark API endpoint and posts notification content there. This is expected for the skill, but it is real outbound network behavior.",
-        "severity": "low"
+        "verdict": "false_positive",
+        "confidence": 0.99,
+        "reason": "The URL is Bark's documented API default and matches the skill's stated notification purpose. It does not indicate an unrelated destination."
       },
       {
         "id": "env_access:scripts/send_bark_notification.py:86:python-environment-access",
-        "verdict": "confirmed",
-        "confidence": 0.72,
-        "reason": "The script reads CODEX_MACHINE_NAME and includes it in the notification body. This can disclose a device label to the configured Bark endpoint.",
-        "severity": "low"
+        "verdict": "false_positive",
+        "confidence": 0.99,
+        "reason": "The script reads only CODEX_MACHINE_NAME for the notification body. It does not enumerate the environment or access unrelated secrets."
       },
       {
         "id": "env_access:scripts/send_bark_notification.py:87:python-environment-access",
-        "verdict": "confirmed",
-        "confidence": 0.86,
-        "reason": "The script reads CODEX_BARK_KEY, which is an authentication token for the Bark service. Handling this secret is necessary but security-sensitive.",
-        "severity": "low"
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "Reading CODEX_BARK_KEY is required to address the configured Bark device. The environment access itself is narrow and purpose-specific."
       },
       {
         "id": "env_access:scripts/send_bark_notification.py:88:python-environment-access",
-        "verdict": "confirmed",
-        "confidence": 0.68,
-        "reason": "The script reads CODEX_BARK_BASE_URL to select the notification endpoint. This is expected configuration, but it controls where task metadata is sent.",
-        "severity": "low"
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "CODEX_BARK_BASE_URL is a documented endpoint setting for Bark or self-hosted service use. This line does not access unrelated environment data."
       },
       {
         "id": "external_commands:SKILL.md:16:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.93,
-        "reason": "Line 16 contains Markdown inline code for shell profile paths. It does not execute a command or invoke Ruby backtick execution."
+        "confidence": 0.99,
+        "reason": "This is prose recommending manual environment setup in standard shell files. It contains no Ruby backticks or command substitution."
       },
       {
         "id": "external_commands:SKILL.md:17:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "Lines 17-21 are a fenced shell configuration example. The backticks are Markdown formatting, not executable code inside the skill."
+        "confidence": 0.99,
+        "reason": "The detected characters open a Markdown code fence. They do not execute a shell or Ruby command."
       },
       {
         "id": "external_commands:SKILL.md:21:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This finding points at the closing Markdown fence and following prose. There is no Ruby or shell backtick execution at this location."
+        "confidence": 0.99,
+        "reason": "The detected characters close a Markdown code fence. They do not execute any content."
       },
       {
         "id": "external_commands:SKILL.md:32:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.93,
-        "reason": "Line 32 uses Markdown inline code to reference AGENTS.md. It describes a project name source and does not run a command."
+        "confidence": 0.99,
+        "reason": "The backticks format the AGENTS.md filename as inline Markdown. No command execution syntax is present."
       },
       {
         "id": "external_commands:SKILL.md:33:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.93,
-        "reason": "Line 33 shows inline frontmatter examples in Markdown. These examples are data labels, not shell or Ruby execution."
+        "confidence": 0.99,
+        "reason": "The backticks format project-name configuration examples. They are documentation, not executable Ruby or shell expressions."
       },
       {
         "id": "external_commands:SKILL.md:34:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.93,
-        "reason": "Line 34 shows inline project-name examples in Markdown. The text is configuration guidance and does not execute commands."
+        "confidence": 0.99,
+        "reason": "The backticks format plain project-name examples in two languages. No shell or Ruby execution occurs."
       },
       {
         "id": "external_commands:SKILL.md:40:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "Line 40 lists status words in Markdown inline code. These are string values for notifications, not command execution."
+        "confidence": 0.99,
+        "reason": "The backticks format example status values. They do not perform command substitution or execution."
       },
       {
         "id": "external_commands:SKILL.md:45:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "Lines 45-51 show a user-invoked command to run the skill helper. The static pattern is Markdown fence syntax, and the command is the documented notification workflow."
+        "confidence": 0.98,
+        "reason": "This is a Markdown shell code fence for a documented invocation. It is not Ruby backtick execution or command substitution."
       },
       {
         "id": "external_commands:SKILL.md:51:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "This location is the closing Markdown fence for the documented helper command. It does not create a hidden command execution path."
+        "confidence": 0.99,
+        "reason": "This line closes the documented shell code fence. It does not execute the preceding command."
       },
       {
         "id": "network:SKILL.md:19:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.84,
-        "reason": "Line 19 documents the Bark URL format in a comment for the required key. It is not code and does not send data by itself."
+        "confidence": 0.99,
+        "reason": "The URL appears in a comment explaining Bark key placement. It documents the intended service and performs no request."
       },
       {
         "id": "network:SKILL.md:20:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.82,
-        "reason": "Line 20 documents the expected Bark base URL for user configuration. The actual network behavior is covered by the script finding."
+        "confidence": 0.99,
+        "reason": "The documented URL is the expected Bark API endpoint assigned by the user. It is not an unrelated or deceptive destination."
       },
       {
         "id": "filesystem:SKILL.md:47:path-traversal-sequence",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The detected sequence is an ellipsis placeholder inside a quoted command argument. It is not a parent-directory traversal path."
+        "confidence": 0.99,
+        "reason": "The ellipsis is a task-title placeholder and the backslash continues a shell command. No parent-directory traversal sequence is present."
       },
       {
         "id": "filesystem:SKILL.md:49:path-traversal-sequence",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The detected sequence is an ellipsis placeholder for the summary argument. It does not reference or traverse the filesystem."
+        "confidence": 0.99,
+        "reason": "The ellipsis is a summary placeholder and the backslash continues a shell command. It does not reference a filesystem path."
       },
       {
         "id": "filesystem:SKILL.md:50:path-traversal-sequence",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The detected sequence is an ellipsis placeholder for the project name argument. It is not a path traversal pattern in context."
+        "confidence": 0.99,
+        "reason": "The ellipsis is a project-name placeholder inside a quoted argument. It contains no path traversal."
       },
       {
         "id": "filesystem:SKILL.md:16:hidden-file-in-home-directory",
         "verdict": "false_positive",
-        "confidence": 0.82,
-        "reason": "Line 16 mentions shell profile files as optional user configuration locations. The skill does not write to those hidden files or establish persistence."
+        "confidence": 0.96,
+        "reason": "The prose suggests manually adding dedicated exports to standard user shell configuration files. It does not modify hidden files automatically."
       },
       {
         "id": "filesystem:SKILL.md:46:hidden-file-in-home-directory",
         "verdict": "false_positive",
-        "confidence": 0.85,
-        "reason": "Line 46 uses the normal installed Codex skill path under ~/.codex. It is a documented user command, not hidden file modification."
+        "confidence": 0.98,
+        "reason": "The path targets this skill's expected installation under the user's Codex directory. It does not access an unrelated hidden file."
       },
       {
         "id": "filesystem:SKILL.md:16:hidden-file-access",
         "verdict": "false_positive",
-        "confidence": 0.82,
-        "reason": "The line references shell profile files only to explain environment setup. No code in the skill reads from or writes to those files."
+        "confidence": 0.96,
+        "reason": "This line only documents optional manual shell configuration. The skill does not read or write either hidden file."
       },
       {
         "id": "filesystem:SKILL.md:46:hidden-file-access",
         "verdict": "false_positive",
-        "confidence": 0.85,
-        "reason": "The line references the expected installed skill location. It does not access arbitrary hidden files or user data."
+        "confidence": 0.98,
+        "reason": "The command executes the bundled helper from the documented Codex installation path. This is expected skill access, not covert hidden-file access."
       },
       {
         "id": "blocker:SKILL.md:41:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "Line 41 tells the agent to write a brief result summary and avoid secrets. This is not system reconnaissance or data collection guidance."
+        "confidence": 0.99,
+        "reason": "The line instructs users to avoid secrets in summaries. It performs no host discovery or system reconnaissance."
       }
     ],
     "semantic_findings": [
       {
-        "title": "External Notification Content Exposure",
-        "description": "The script builds a notification body with device, project, status, and summary values, then sends it to the configured Bark service. This expected behavior can expose workspace metadata if summaries include sensitive details.",
-        "severity": "medium",
-        "locations": [
-          {
-            "file": "scripts/send_bark_notification.py",
-            "line_start": 109,
-            "line_end": 119
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 41,
-            "line_end": 41
-          }
-        ],
-        "confidence": 0.86,
-        "confidence_reasoning": "The payload construction and POST target are explicit in the helper script. The documentation warns to avoid secrets, so the risk is real but partly acknowledged."
-      },
-      {
-        "title": "Dry Run Can Reveal Bark Key",
-        "description": "The script embeds the Bark key in the request URL and prints that URL during dry-run mode. Captured terminal output could disclose the notification token.",
+        "title": "Dry-Run Output Exposes Bark Key",
+        "description": "Dry-run mode prints the complete request URL after placing the Bark key in its path, exposing the credential to terminals and logs.",
         "severity": "medium",
         "locations": [
           {
             "file": "scripts/send_bark_notification.py",
             "line_start": 118,
-            "line_end": 122
+            "line_end": 123
           }
         ],
-        "confidence": 0.9,
-        "confidence_reasoning": "The code directly builds the URL with bark_key and prints it when dry-run is enabled. This is a clear token exposure path in logs or shared transcripts."
+        "confidence": 0.99,
+        "confidence_reasoning": "The URL directly includes parse.quote(bark_key), and dry-run mode prints that URL without redaction."
+      },
+      {
+        "title": "Custom Endpoint Receives Credential and Task Context",
+        "description": "A custom CODEX_BARK_BASE_URL receives the Bark key, machine name, project, status, and summary, enabling leakage if configuration is untrusted.",
+        "severity": "medium",
+        "locations": [
+          {
+            "file": "scripts/send_bark_notification.py",
+            "line_start": 88,
+            "line_end": 88
+          },
+          {
+            "file": "scripts/send_bark_notification.py",
+            "line_start": 109,
+            "line_end": 130
+          }
+        ],
+        "confidence": 0.97,
+        "confidence_reasoning": "The environment controls the destination, while the request URL carries the Bark key and the payload contains task context."
       }
     ],
     "critical_findings": [],
     "high_findings": [],
     "medium_findings": [
       {
-        "title": "External Notification Content Exposure",
-        "description": "The script builds a notification body with device, project, status, and summary values, then sends it to the configured Bark service. This expected behavior can expose workspace metadata if summaries include sensitive details.",
-        "locations": [
-          {
-            "file": "scripts/send_bark_notification.py",
-            "line_start": 109,
-            "line_end": 119
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 41,
-            "line_end": 41
-          }
-        ],
-        "review_kind": "security",
-        "source_category": "semantic",
-        "source_severity": "medium",
-        "confidence": 0.86,
-        "confidence_reasoning": "The payload construction and POST target are explicit in the helper script. The documentation warns to avoid secrets, so the risk is real but partly acknowledged."
-      },
-      {
-        "title": "Dry Run Can Reveal Bark Key",
-        "description": "The script embeds the Bark key in the request URL and prints that URL during dry-run mode. Captured terminal output could disclose the notification token.",
+        "title": "Dry-Run Output Exposes Bark Key",
+        "description": "Dry-run mode prints the complete request URL after placing the Bark key in its path, exposing the credential to terminals and logs.",
         "locations": [
           {
             "file": "scripts/send_bark_notification.py",
             "line_start": 118,
-            "line_end": 122
+            "line_end": 123
           }
         ],
         "review_kind": "security",
         "source_category": "semantic",
         "source_severity": "medium",
-        "confidence": 0.9,
-        "confidence_reasoning": "The code directly builds the URL with bark_key and prints it when dry-run is enabled. This is a clear token exposure path in logs or shared transcripts."
-      }
-    ],
-    "low_findings": [
+        "confidence": 0.99,
+        "confidence_reasoning": "The URL directly includes parse.quote(bark_key), and dry-run mode prints that URL without redaction."
+      },
       {
-        "title": "Hardcoded URL",
-        "description": "base_url = os.environ.get(\"CODEX_BARK_BASE_URL\", \"https://api.day.app\")",
+        "title": "Custom Endpoint Receives Credential and Task Context",
+        "description": "A custom CODEX_BARK_BASE_URL receives the Bark key, machine name, project, status, and summary, enabling leakage if configuration is untrusted.",
         "locations": [
           {
             "file": "scripts/send_bark_notification.py",
             "line_start": 88,
             "line_end": 88
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "network",
-        "source_severity": "low",
-        "confidence": 0.78,
-        "confidence_reasoning": "The helper defaults to the external Bark API endpoint and posts notification content there. This is expected for the skill, but it is real outbound network behavior."
-      },
-      {
-        "title": "Python environment access",
-        "description": "machine_name = os.environ.get(\"CODEX_MACHINE_NAME\")",
-        "locations": [
+          },
           {
             "file": "scripts/send_bark_notification.py",
-            "line_start": 86,
-            "line_end": 86
+            "line_start": 109,
+            "line_end": 130
           }
         ],
-        "review_kind": "capability",
-        "source_category": "env_access",
-        "source_severity": "low",
-        "confidence": 0.72,
-        "confidence_reasoning": "The script reads CODEX_MACHINE_NAME and includes it in the notification body. This can disclose a device label to the configured Bark endpoint."
-      },
-      {
-        "title": "Python environment access",
-        "description": "bark_key = os.environ.get(\"CODEX_BARK_KEY\")",
-        "locations": [
-          {
-            "file": "scripts/send_bark_notification.py",
-            "line_start": 87,
-            "line_end": 87
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "env_access",
-        "source_severity": "low",
-        "confidence": 0.86,
-        "confidence_reasoning": "The script reads CODEX_BARK_KEY, which is an authentication token for the Bark service. Handling this secret is necessary but security-sensitive."
-      },
-      {
-        "title": "Python environment access",
-        "description": "base_url = os.environ.get(\"CODEX_BARK_BASE_URL\", \"https://api.day.app\")",
-        "locations": [
-          {
-            "file": "scripts/send_bark_notification.py",
-            "line_start": 88,
-            "line_end": 88
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "env_access",
-        "source_severity": "low",
-        "confidence": 0.68,
-        "confidence_reasoning": "The script reads CODEX_BARK_BASE_URL to select the notification endpoint. This is expected configuration, but it controls where task metadata is sent."
+        "review_kind": "security",
+        "source_category": "semantic",
+        "source_severity": "medium",
+        "confidence": 0.97,
+        "confidence_reasoning": "The environment controls the destination, while the request URL carries the Bark key and the payload contains task context."
       }
     ],
+    "low_findings": [],
     "dangerous_patterns": [],
     "files_scanned": 2,
     "total_lines": 202,
     "audit_model": "codex",
-    "audited_at": "2026-07-08T03:58:59.057Z",
+    "audited_at": "2026-07-23T12:56:10.406Z",
     "agent_auto_install_policy": "allowed",
     "manual_install_policy": "allowed"
   },
   "content": {
-    "user_title": "Send Bark Task Completion Alerts",
-    "value_statement": "AI coding runs can finish while the user is away from the terminal. This skill sends a Bark push alert with project, status, and summary details.",
+    "user_title": "Send Bark Notifications After AI Tasks",
+    "value_statement": "Long-running AI tasks can finish without drawing attention. This skill sends a Bark push with device, project, status, and summary details.",
     "seo_keywords": [
-      "Claude",
-      "Codex",
-      "Claude Code",
       "Bark notifications",
-      "day.app alerts",
-      "task completion alerts",
-      "AI coding workflow",
-      "push notification skill",
-      "agent run notifications",
+      "AI task alerts",
+      "Codex",
+      "Claude",
+      "Claude Code",
+      "day.app",
+      "push notifications",
+      "task completion",
       "developer productivity"
     ],
     "actual_capabilities": [
-      "Sends Bark push notifications through the day.app API.",
-      "Reads CODEX_MACHINE_NAME, CODEX_BARK_KEY, and CODEX_BARK_BASE_URL from the environment.",
-      "Includes device, project, status, and summary fields in the alert body.",
-      "Resolves project names from AGENTS.md frontmatter or project name lines.",
-      "Supports a command-line project override, timeout option, and dry-run mode."
+      "Sends Bark notifications through an HTTP POST request.",
+      "Includes device, project, status, and result summary in each notification.",
+      "Accepts task title, status, summary, project name, and timeout options.",
+      "Resolves project names from AGENTS.md or the current folder.",
+      "Supports dry-run previews and configurable Bark endpoints."
     ],
     "limitations": [
-      "Requires a valid Bark key and machine name before sending alerts.",
-      "Sends task metadata to the configured Bark endpoint.",
-      "Does not redact secrets from titles, summaries, or project names.",
-      "Cannot guarantee delivery when the network or Bark service fails."
+      "Requires Python 3, network access, and a working Bark service.",
+      "Requires manually configured machine name and Bark key environment variables.",
+      "Sends notification content to the configured endpoint without automatic secret redaction.",
+      "Reports supplied status text and does not independently verify task success."
     ],
     "use_cases": [
       {
-        "title": "Notify after long coding runs",
-        "description": "Send a phone alert when a Codex or Claude task completes away from the terminal.",
-        "target_user": "Software developer"
+        "title": "Monitor Long Coding Tasks",
+        "description": "Receive a mobile alert when a local Codex or Claude coding task finishes.",
+        "target_user": "Individual developer"
       },
       {
-        "title": "Track automation outcomes",
-        "description": "Receive status alerts for maintenance tasks, test runs, or documentation updates.",
-        "target_user": "DevOps engineer"
+        "title": "Track Automated Maintenance",
+        "description": "Send concise completion status after repository checks, migrations, or documentation updates.",
+        "target_user": "Team lead"
       },
       {
-        "title": "Monitor shared project work",
-        "description": "Include project names and concise results so reviewers know which task finished.",
-        "target_user": "Technical lead"
+        "title": "Follow Remote Workflows",
+        "description": "Receive project and status details while working away from the development machine.",
+        "target_user": "Remote operator"
       }
     ],
     "prompt_templates": [
       {
-        "title": "Basic completion alert",
-        "scenario": "Beginner notification after one task",
-        "prompt": "Notify me when this run finishes. Use bark-notify with a short title, final status, and brief summary."
+        "title": "Send a Basic Completion Alert",
+        "prompt": "Send a Bark notification that this task completed successfully with the summary: updated the documentation.",
+        "scenario": "Beginner notification after a simple task"
       },
       {
-        "title": "Project-aware alert",
-        "scenario": "Include project context in the message",
-        "prompt": "After completing the requested changes, send a Bark alert that names the project and states the final result in one sentence."
+        "title": "Include Project Details",
+        "prompt": "Notify me through Bark when this refactor finishes, including project name, success status, and a concise summary without secrets.",
+        "scenario": "Routine development work"
       },
       {
-        "title": "Test result alert",
-        "scenario": "Report verification status",
-        "prompt": "When you finish the test run, send a Bark notification with status partial if any checks could not run."
+        "title": "Report Partial or Failed Work",
+        "prompt": "At the end of this run, send Bark status failed or partial based on results and summarize unresolved test failures.",
+        "scenario": "Workflows with uncertain outcomes"
       },
       {
-        "title": "Redacted workflow alert",
-        "scenario": "Advanced use with privacy review",
-        "prompt": "For this repository task, derive the project name from AGENTS.md, redact sensitive details, then send a concise Bark completion alert."
+        "title": "Resolve Context Automatically",
+        "prompt": "Complete deployment checks, derive the project name from AGENTS.md, then send a Bark notification with accurate status and sanitized results.",
+        "scenario": "Advanced project-aware automation"
       }
     ],
     "output_examples": [
       {
-        "input": "A user asks Codex to fix a bug and notify them when done.",
-        "output": "The user receives a Bark alert titled Bug fix complete. The body lists device, project, success status, and a short outcome summary."
+        "input": "Notify me after the documentation update succeeds.",
+        "output": "Bark notification sent: Documentation Update; device Workstation; project API Docs; status success; summary Documentation examples updated."
       },
       {
-        "input": "A test command fails during a maintenance task.",
-        "output": "The user receives a Bark alert with failed status and a concise summary of the failing check."
+        "input": "Report the test run even when some tests fail.",
+        "output": "Bark notification sent: Test Run; device Build Host; project Payments; status partial; summary Two integration tests remain failing."
       },
       {
-        "input": "A task completes but one verification step could not run.",
-        "output": "The user receives a Bark alert with partial status and a note explaining the missing verification."
+        "input": "Send a completion alert using the project name from AGENTS.md.",
+        "output": "Bark notification sent: Dependency Review; device Laptop; project Client Portal; status success; summary Dependencies reviewed and lockfile updated."
       }
     ],
     "best_practices": [
-      "Keep notification summaries short and free of secrets.",
-      "Use a trusted HTTPS Bark endpoint and rotate the Bark key when needed.",
-      "Use dry-run mode only in private terminals because it may show sensitive values."
+      "Keep task summaries concise and remove credentials, customer data, and private source content.",
+      "Use a trusted HTTPS Bark endpoint and protect the key environment variable.",
+      "Keep dry-run output private because the current helper prints the Bark request URL."
     ],
     "anti_patterns": [
-      "Do not include access tokens, customer data, or private incident details in summaries.",
-      "Do not send alerts to an untrusted custom base URL.",
-      "Do not rely on notifications as the only record of task results."
+      "Do not place secrets or complete command output in notification summaries.",
+      "Do not send notifications to an endpoint that you do not control or trust.",
+      "Do not treat a notification status as independent proof that a task succeeded."
     ],
     "faq": [
       {
-        "question": "What does this skill send?",
-        "answer": "It sends a Bark push notification with device name, project name, status, task title, and summary."
+        "question": "What configuration is required?",
+        "answer": "Set CODEX_MACHINE_NAME and CODEX_BARK_KEY. CODEX_BARK_BASE_URL is optional and defaults to the Bark API."
       },
       {
-        "question": "Which tools can use it?",
-        "answer": "The report declares support for Claude, Codex, and Claude Code workflows."
+        "question": "How is the project name selected?",
+        "answer": "The helper uses an explicit argument, then AGENTS.md metadata, then the current project folder name."
       },
       {
-        "question": "Does it require a Bark account?",
-        "answer": "It requires a Bark key for the day.app service or a compatible self-hosted endpoint."
+        "question": "Can I use a self-hosted Bark server?",
+        "answer": "Yes. Set CODEX_BARK_BASE_URL to a trusted HTTPS endpoint that you control."
       },
       {
-        "question": "Can it choose a project name automatically?",
-        "answer": "Yes. The helper checks AGENTS.md for project name fields, then falls back to the folder name."
+        "question": "What data leaves my machine?",
+        "answer": "The configured endpoint receives the Bark key, task title, machine name, project name, status, and summary."
       },
       {
-        "question": "Does it protect secrets automatically?",
-        "answer": "No. Users and agents must avoid putting secrets or sensitive data in notification text."
+        "question": "Can I test without sending a notification?",
+        "answer": "Yes. Dry-run mode previews the request, but its current output includes the Bark key in the URL."
       },
       {
-        "question": "Can I test it without sending a notification?",
-        "answer": "Yes. Dry-run mode prints the request details, but it can show sensitive values."
+        "question": "Which status values are supported?",
+        "answer": "The helper accepts any text. Common values include success, failed, partial, and blocked."
       }
     ]
   },

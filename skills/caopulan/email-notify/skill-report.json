@@ -1,7 +1,7 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-07-08T04:03:06.771Z",
+    "generated_at": "2026-07-23T12:59:43.929Z",
     "slug": "caopulan-email-notify",
     "source_url": "https://github.com/caopulan/Notification-Skill/tree/main/email-notify",
     "source_ref": "main",
@@ -23,18 +23,16 @@
   },
   "skill": {
     "name": "email-notify",
-    "description": "Send SMTP email notifications when a Codex or Claude task finishes, with device, project, status, and summary details.",
-    "summary": "Send task completion notifications through a user-configured SMTP email account.",
+    "description": "Send task completion emails through a configured SMTP server with device, project, status, and summary details.",
+    "summary": "Send configurable SMTP notifications when Claude or Codex tasks finish.",
     "icon": "📦",
-    "version": "1.0.1",
     "author": "caopulan",
     "license": "MIT",
     "tags": [
-      "email",
-      "notifications",
+      "email-notifications",
       "smtp",
-      "codex",
-      "task-completion"
+      "task-completion",
+      "workflow-automation"
     ],
     "supported_tools": [
       "claude",
@@ -54,21 +52,21 @@
     "is_blocked": false,
     "safe_to_publish": false,
     "analysis_status": "ok",
-    "summary": "The skill intentionally sends SMTP email through user-configured settings and reads SMTP credentials from environment variables. I confirmed the outbound email capability and shell-profile credential guidance, and dismissed markdown backtick and system reconnaissance matches as false positives.",
+    "summary": "Most static alerts are false positives caused by Markdown formatting, local validation, and scoped configuration reads. Confirmed risks include shell-profile credential storage, optional unencrypted SMTP authentication, environment access to the SMTP password, and intended outbound SMTP connections.",
     "remediation": [
       {
-        "issue": "SMTP credentials are documented for shell startup files.",
-        "suggestion": "Recommend a dedicated secret manager or a restricted-permission env file instead of exporting CODEX_EMAIL_PASSWORD globally.",
+        "issue": "The setup stores the SMTP password in .bashrc or .zshrc.",
+        "suggestion": "Use a credential manager or an invocation-scoped secret source. Do not export the password from a general shell startup file.",
         "severity": "high"
       },
       {
-        "issue": "Task summaries can be sent outside the local workspace by email.",
-        "suggestion": "Keep notifications minimal, sanitize summaries, and document that secrets and private data must not be included.",
-        "severity": "medium"
+        "issue": "Authenticated SMTP is allowed when both SSL and STARTTLS are disabled.",
+        "suggestion": "Reject authenticated connections unless SSL or STARTTLS is enabled. Permit plaintext SMTP only for unauthenticated, explicitly approved local relays.",
+        "severity": "high"
       },
       {
-        "issue": "Outbound SMTP delivery depends on user-provided recipients and server settings.",
-        "suggestion": "Require explicit user opt-in before first use and encourage dry-run verification of recipients and transport mode.",
+        "issue": "Notifications can include sensitive task summaries and project metadata.",
+        "suggestion": "Require a dry-run before first use, document the transmitted fields, and keep secrets out of task titles and summaries.",
         "severity": "medium"
       }
     ],
@@ -1034,876 +1032,410 @@
     "finding_verdicts": [
       {
         "id": "network:scripts/send_email_notification.py:5:email-sending-capability",
-        "verdict": "confirmed",
-        "confidence": 0.86,
-        "severity": "medium",
-        "reason": "The helper implements outbound SMTP email and can send task metadata and summaries to configured recipients. This is intended behavior, but it is a real network data-transfer capability."
+        "verdict": "false_positive",
+        "confidence": 0.98,
+        "reason": "This line only imports the standard SMTP library. Importing a module does not open a connection or send data."
       },
       {
         "id": "network:scripts/send_email_notification.py:89:email-sending-capability",
-        "verdict": "confirmed",
-        "confidence": 0.86,
-        "severity": "medium",
-        "reason": "The helper implements outbound SMTP email and can send task metadata and summaries to configured recipients. This is intended behavior, but it is a real network data-transfer capability."
+        "verdict": "false_positive",
+        "confidence": 0.98,
+        "reason": "This line is the command-line help description. It documents intended behavior but performs no network operation."
       },
       {
         "id": "network:scripts/send_email_notification.py:103:email-sending-capability",
-        "verdict": "confirmed",
-        "confidence": 0.86,
-        "severity": "medium",
-        "reason": "The helper implements outbound SMTP email and can send task metadata and summaries to configured recipients. This is intended behavior, but it is a real network data-transfer capability."
+        "verdict": "false_positive",
+        "confidence": 0.98,
+        "reason": "This reads the user-configured SMTP host from a dedicated environment variable. It does not connect or transmit data."
       },
       {
         "id": "network:scripts/send_email_notification.py:104:email-sending-capability",
-        "verdict": "confirmed",
-        "confidence": 0.86,
-        "severity": "medium",
-        "reason": "The helper implements outbound SMTP email and can send task metadata and summaries to configured recipients. This is intended behavior, but it is a real network data-transfer capability."
+        "verdict": "false_positive",
+        "confidence": 0.98,
+        "reason": "This reads the user-configured SMTP port and applies a standard default. It performs no network operation."
       },
       {
         "id": "network:scripts/send_email_notification.py:105:email-sending-capability",
-        "verdict": "confirmed",
-        "confidence": 0.86,
-        "severity": "medium",
-        "reason": "The helper implements outbound SMTP email and can send task metadata and summaries to configured recipients. This is intended behavior, but it is a real network data-transfer capability."
+        "verdict": "false_positive",
+        "confidence": 0.98,
+        "reason": "This reads the dedicated SMTP username configuration. The line does not transmit the value."
       },
       {
         "id": "network:scripts/send_email_notification.py:106:email-sending-capability",
-        "verdict": "confirmed",
-        "confidence": 0.86,
-        "severity": "medium",
-        "reason": "The helper implements outbound SMTP email and can send task metadata and summaries to configured recipients. This is intended behavior, but it is a real network data-transfer capability."
+        "verdict": "false_positive",
+        "confidence": 0.98,
+        "reason": "This reads the dedicated SMTP password required for optional authentication. The network detector does not identify a transmission on this line."
       },
       {
         "id": "network:scripts/send_email_notification.py:107:email-sending-capability",
-        "verdict": "confirmed",
-        "confidence": 0.86,
-        "severity": "medium",
-        "reason": "The helper implements outbound SMTP email and can send task metadata and summaries to configured recipients. This is intended behavior, but it is a real network data-transfer capability."
+        "verdict": "false_positive",
+        "confidence": 0.98,
+        "reason": "This reads the configured sender address. It performs no network operation."
       },
       {
         "id": "network:scripts/send_email_notification.py:108:email-sending-capability",
-        "verdict": "confirmed",
-        "confidence": 0.86,
-        "severity": "medium",
-        "reason": "The helper implements outbound SMTP email and can send task metadata and summaries to configured recipients. This is intended behavior, but it is a real network data-transfer capability."
+        "verdict": "false_positive",
+        "confidence": 0.98,
+        "reason": "This reads the configured recipient list. It performs no network operation."
       },
       {
         "id": "network:scripts/send_email_notification.py:113:email-sending-capability",
-        "verdict": "confirmed",
-        "confidence": 0.86,
-        "severity": "medium",
-        "reason": "The helper implements outbound SMTP email and can send task metadata and summaries to configured recipients. This is intended behavior, but it is a real network data-transfer capability."
+        "verdict": "false_positive",
+        "confidence": 0.98,
+        "reason": "This is a presence check for the SMTP host. Validation does not send email or open a connection."
       },
       {
         "id": "network:scripts/send_email_notification.py:114:email-sending-capability",
-        "verdict": "confirmed",
-        "confidence": 0.86,
-        "severity": "medium",
-        "reason": "The helper implements outbound SMTP email and can send task metadata and summaries to configured recipients. This is intended behavior, but it is a real network data-transfer capability."
+        "verdict": "false_positive",
+        "confidence": 0.98,
+        "reason": "This writes a missing-configuration error to standard error. It performs no network operation."
       },
       {
         "id": "network:scripts/send_email_notification.py:116:email-sending-capability",
-        "verdict": "confirmed",
-        "confidence": 0.86,
-        "severity": "medium",
-        "reason": "The helper implements outbound SMTP email and can send task metadata and summaries to configured recipients. This is intended behavior, but it is a real network data-transfer capability."
+        "verdict": "false_positive",
+        "confidence": 0.98,
+        "reason": "This validates that a sender address is configured. It performs no network operation."
       },
       {
         "id": "network:scripts/send_email_notification.py:119:email-sending-capability",
-        "verdict": "confirmed",
-        "confidence": 0.86,
-        "severity": "medium",
-        "reason": "The helper implements outbound SMTP email and can send task metadata and summaries to configured recipients. This is intended behavior, but it is a real network data-transfer capability."
+        "verdict": "false_positive",
+        "confidence": 0.98,
+        "reason": "This validates that recipients are configured. It performs no network operation."
       },
       {
         "id": "network:scripts/send_email_notification.py:122:email-sending-capability",
-        "verdict": "confirmed",
-        "confidence": 0.86,
-        "severity": "medium",
-        "reason": "The helper implements outbound SMTP email and can send task metadata and summaries to configured recipients. This is intended behavior, but it is a real network data-transfer capability."
+        "verdict": "false_positive",
+        "confidence": 0.98,
+        "reason": "This checks that an SMTP password accompanies a configured username. It is local validation rather than network activity."
       },
       {
         "id": "network:scripts/send_email_notification.py:125:email-sending-capability",
-        "verdict": "confirmed",
-        "confidence": 0.86,
-        "severity": "medium",
-        "reason": "The helper implements outbound SMTP email and can send task metadata and summaries to configured recipients. This is intended behavior, but it is a real network data-transfer capability."
+        "verdict": "false_positive",
+        "confidence": 0.98,
+        "reason": "This checks that an SMTP username accompanies a configured password. It is local validation rather than network activity."
       },
       {
         "id": "network:scripts/send_email_notification.py:130:email-sending-capability",
-        "verdict": "confirmed",
-        "confidence": 0.86,
-        "severity": "medium",
-        "reason": "The helper implements outbound SMTP email and can send task metadata and summaries to configured recipients. This is intended behavior, but it is a real network data-transfer capability."
+        "verdict": "false_positive",
+        "confidence": 0.98,
+        "reason": "This converts the configured port to an integer. It performs no network operation."
       },
       {
         "id": "network:scripts/send_email_notification.py:132:email-sending-capability",
-        "verdict": "confirmed",
-        "confidence": 0.86,
-        "severity": "medium",
-        "reason": "The helper implements outbound SMTP email and can send task metadata and summaries to configured recipients. This is intended behavior, but it is a real network data-transfer capability."
+        "verdict": "false_positive",
+        "confidence": 0.98,
+        "reason": "This writes a port-validation error to standard error. It performs no network operation."
       },
       {
         "id": "network:scripts/send_email_notification.py:145:email-sending-capability",
-        "verdict": "confirmed",
-        "confidence": 0.86,
-        "severity": "medium",
-        "reason": "The helper implements outbound SMTP email and can send task metadata and summaries to configured recipients. This is intended behavior, but it is a real network data-transfer capability."
+        "verdict": "false_positive",
+        "confidence": 0.98,
+        "reason": "This parses a user-configured recipient list locally. It does not send a message."
       },
       {
         "id": "network:scripts/send_email_notification.py:173:email-sending-capability",
-        "verdict": "confirmed",
-        "confidence": 0.86,
-        "severity": "medium",
-        "reason": "The helper implements outbound SMTP email and can send task metadata and summaries to configured recipients. This is intended behavior, but it is a real network data-transfer capability."
+        "verdict": "false_positive",
+        "confidence": 0.98,
+        "reason": "This assigns the configured sender to an in-memory email header. It does not transmit the message."
       },
       {
         "id": "network:scripts/send_email_notification.py:178:email-sending-capability",
-        "verdict": "confirmed",
-        "confidence": 0.86,
-        "severity": "medium",
-        "reason": "The helper implements outbound SMTP email and can send task metadata and summaries to configured recipients. This is intended behavior, but it is a real network data-transfer capability."
+        "verdict": "false_positive",
+        "confidence": 0.98,
+        "reason": "This prints the configured SMTP host only during an explicit dry run. It does not connect to that host."
       },
       {
         "id": "network:scripts/send_email_notification.py:179:email-sending-capability",
-        "verdict": "confirmed",
-        "confidence": 0.86,
-        "severity": "medium",
-        "reason": "The helper implements outbound SMTP email and can send task metadata and summaries to configured recipients. This is intended behavior, but it is a real network data-transfer capability."
+        "verdict": "false_positive",
+        "confidence": 0.98,
+        "reason": "This prints the configured SMTP port only during an explicit dry run. It performs no network operation."
       },
       {
         "id": "network:scripts/send_email_notification.py:182:email-sending-capability",
-        "verdict": "confirmed",
-        "confidence": 0.86,
-        "severity": "medium",
-        "reason": "The helper implements outbound SMTP email and can send task metadata and summaries to configured recipients. This is intended behavior, but it is a real network data-transfer capability."
+        "verdict": "false_positive",
+        "confidence": 0.98,
+        "reason": "This prints the configured sender only during an explicit dry run. It does not send a message."
       },
       {
         "id": "network:scripts/send_email_notification.py:190:email-sending-capability",
         "verdict": "confirmed",
-        "confidence": 0.86,
-        "severity": "medium",
-        "reason": "The helper implements outbound SMTP email and can send task metadata and summaries to configured recipients. This is intended behavior, but it is a real network data-transfer capability."
+        "confidence": 0.99,
+        "reason": "This creates an outbound SSL SMTP connection to the configured host. The connection is intended, but it is a real network and data-egress capability.",
+        "severity": "medium"
       },
       {
         "id": "network:scripts/send_email_notification.py:191:email-sending-capability",
         "verdict": "confirmed",
-        "confidence": 0.86,
-        "severity": "medium",
-        "reason": "The helper implements outbound SMTP email and can send task metadata and summaries to configured recipients. This is intended behavior, but it is a real network data-transfer capability."
+        "confidence": 0.98,
+        "reason": "This supplies the configured host and port to the SSL SMTP client. It is part of the real outbound connection path.",
+        "severity": "medium"
       },
       {
         "id": "network:scripts/send_email_notification.py:194:email-sending-capability",
         "verdict": "confirmed",
-        "confidence": 0.86,
-        "severity": "medium",
-        "reason": "The helper implements outbound SMTP email and can send task metadata and summaries to configured recipients. This is intended behavior, but it is a real network data-transfer capability."
+        "confidence": 0.99,
+        "reason": "This creates a plain SMTP connection before optional STARTTLS. It enables outbound traffic and can remain unencrypted when TLS is disabled.",
+        "severity": "medium"
       },
       {
         "id": "network:scripts/send_email_notification.py:200:email-sending-capability",
-        "verdict": "confirmed",
-        "confidence": 0.86,
-        "severity": "medium",
-        "reason": "The helper implements outbound SMTP email and can send task metadata and summaries to configured recipients. This is intended behavior, but it is a real network data-transfer capability."
+        "verdict": "false_positive",
+        "confidence": 0.98,
+        "reason": "This condition checks whether authentication was configured. The actual credential use occurs on the following line."
       },
       {
         "id": "network:scripts/send_email_notification.py:201:email-sending-capability",
         "verdict": "confirmed",
-        "confidence": 0.86,
-        "severity": "medium",
-        "reason": "The helper implements outbound SMTP email and can send task metadata and summaries to configured recipients. This is intended behavior, but it is a real network data-transfer capability."
+        "confidence": 0.99,
+        "reason": "This transmits the configured SMTP username and password to the server. The credentials can cross an unencrypted connection when both transport-security options are disabled.",
+        "severity": "high"
       },
       {
         "id": "network:scripts/send_email_notification.py:203:email-sending-capability",
-        "verdict": "confirmed",
-        "confidence": 0.86,
-        "severity": "medium",
-        "reason": "The helper implements outbound SMTP email and can send task metadata and summaries to configured recipients. This is intended behavior, but it is a real network data-transfer capability."
+        "verdict": "false_positive",
+        "confidence": 0.98,
+        "reason": "This line begins exception handling for SMTP failures. It does not initiate or transmit network data."
       },
       {
         "id": "network:scripts/send_email_notification.py:5:python-email-libraries",
-        "verdict": "confirmed",
-        "confidence": 0.86,
-        "severity": "medium",
-        "reason": "The helper implements outbound SMTP email and can send task metadata and summaries to configured recipients. This is intended behavior, but it is a real network data-transfer capability."
+        "verdict": "false_positive",
+        "confidence": 0.98,
+        "reason": "This line only imports the standard SMTP library. Importing it does not send email."
       },
       {
         "id": "network:scripts/send_email_notification.py:190:python-email-libraries",
         "verdict": "confirmed",
-        "confidence": 0.86,
-        "severity": "medium",
-        "reason": "The helper implements outbound SMTP email and can send task metadata and summaries to configured recipients. This is intended behavior, but it is a real network data-transfer capability."
+        "confidence": 0.99,
+        "reason": "This uses the Python SMTP library to create an outbound SSL connection. It is an actual network operation rather than a library reference.",
+        "severity": "medium"
       },
       {
         "id": "network:scripts/send_email_notification.py:194:python-email-libraries",
         "verdict": "confirmed",
-        "confidence": 0.86,
-        "severity": "medium",
-        "reason": "The helper implements outbound SMTP email and can send task metadata and summaries to configured recipients. This is intended behavior, but it is a real network data-transfer capability."
+        "confidence": 0.99,
+        "reason": "This uses the Python SMTP library to open a network connection. STARTTLS is optional, so this path can remain unencrypted.",
+        "severity": "medium"
       },
       {
         "id": "network:scripts/send_email_notification.py:203:python-email-libraries",
-        "verdict": "confirmed",
-        "confidence": 0.86,
-        "severity": "medium",
-        "reason": "The helper implements outbound SMTP email and can send task metadata and summaries to configured recipients. This is intended behavior, but it is a real network data-transfer capability."
+        "verdict": "false_positive",
+        "confidence": 0.98,
+        "reason": "This catches standard SMTP exceptions. Exception handling does not create a network capability by itself."
       },
       {
         "id": "env_access:scripts/send_email_notification.py:71:python-environment-access",
         "verdict": "false_positive",
-        "confidence": 0.81,
-        "reason": "This reads user-provided notification settings such as host, port, sender, recipient, or TLS flags. No evidence shows these values are collected beyond the configured email workflow."
+        "confidence": 0.98,
+        "reason": "This helper reads only the named boolean setting supplied by internal calls. It does not enumerate or export the environment."
       },
       {
         "id": "env_access:scripts/send_email_notification.py:102:python-environment-access",
         "verdict": "false_positive",
-        "confidence": 0.81,
-        "reason": "This reads user-provided notification settings such as host, port, sender, recipient, or TLS flags. No evidence shows these values are collected beyond the configured email workflow."
+        "confidence": 0.98,
+        "reason": "This reads the dedicated machine-name setting used in the notification body. It does not access unrelated environment data."
       },
       {
         "id": "env_access:scripts/send_email_notification.py:103:python-environment-access",
         "verdict": "false_positive",
-        "confidence": 0.81,
-        "reason": "This reads user-provided notification settings such as host, port, sender, recipient, or TLS flags. No evidence shows these values are collected beyond the configured email workflow."
+        "confidence": 0.98,
+        "reason": "This reads the dedicated SMTP host setting required by the skill. It does not enumerate unrelated variables."
       },
       {
         "id": "env_access:scripts/send_email_notification.py:104:python-environment-access",
         "verdict": "false_positive",
-        "confidence": 0.81,
-        "reason": "This reads user-provided notification settings such as host, port, sender, recipient, or TLS flags. No evidence shows these values are collected beyond the configured email workflow."
+        "confidence": 0.98,
+        "reason": "This reads the dedicated SMTP port setting required by the skill. It does not enumerate unrelated variables."
       },
       {
         "id": "env_access:scripts/send_email_notification.py:105:python-environment-access",
-        "verdict": "confirmed",
-        "confidence": 0.78,
-        "severity": "low",
-        "reason": "The script reads SMTP account credentials from environment variables. This is expected for SMTP login, but access to credential material is security-sensitive."
+        "verdict": "false_positive",
+        "confidence": 0.98,
+        "reason": "This reads the dedicated SMTP username setting required for optional authentication. It does not access unrelated variables."
       },
       {
         "id": "env_access:scripts/send_email_notification.py:106:python-environment-access",
         "verdict": "confirmed",
-        "confidence": 0.78,
-        "severity": "low",
-        "reason": "The script reads SMTP account credentials from environment variables. This is expected for SMTP login, but access to credential material is security-sensitive."
+        "confidence": 0.99,
+        "reason": "This reads a password from the process environment. The access is expected for SMTP authentication, but it gives the skill direct access to a credential.",
+        "severity": "low"
       },
       {
         "id": "env_access:scripts/send_email_notification.py:107:python-environment-access",
         "verdict": "false_positive",
-        "confidence": 0.81,
-        "reason": "This reads user-provided notification settings such as host, port, sender, recipient, or TLS flags. No evidence shows these values are collected beyond the configured email workflow."
+        "confidence": 0.98,
+        "reason": "This reads the dedicated sender-address setting required by the skill. It does not access unrelated variables."
       },
       {
         "id": "env_access:scripts/send_email_notification.py:108:python-environment-access",
         "verdict": "false_positive",
-        "confidence": 0.81,
-        "reason": "This reads user-provided notification settings such as host, port, sender, recipient, or TLS flags. No evidence shows these values are collected beyond the configured email workflow."
+        "confidence": 0.98,
+        "reason": "This reads the dedicated recipient setting required by the skill. It does not access unrelated variables."
       },
       {
         "id": "blocker:scripts/send_email_notification.py:79:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "The cited text is validation or safety guidance, not host reconnaissance. No evidence shows collection of system inventory or privilege information."
+        "confidence": 0.98,
+        "reason": "This raises an error for an invalid boolean environment value. It does not inspect system identity, processes, hardware, or network state."
       },
       {
         "id": "external_commands:SKILL.md:16:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "The match is markdown formatting, inline examples, or a user-facing command block in SKILL.md. It is not Ruby backtick execution or dynamic command execution inside code."
+        "confidence": 0.98,
+        "reason": "The backticks delimit inline Markdown paths in setup documentation. No Ruby expression or shell substitution is present."
       },
       {
         "id": "external_commands:SKILL.md:18:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "The match is markdown formatting, inline examples, or a user-facing command block in SKILL.md. It is not Ruby backtick execution or dynamic command execution inside code."
+        "confidence": 0.98,
+        "reason": "These backticks open a Markdown configuration example. They are not executable shell substitution."
       },
       {
         "id": "external_commands:SKILL.md:28:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "The match is markdown formatting, inline examples, or a user-facing command block in SKILL.md. It is not Ruby backtick execution or dynamic command execution inside code."
+        "confidence": 0.98,
+        "reason": "These backticks close a Markdown configuration example. They are not executable shell substitution."
       },
       {
         "id": "external_commands:SKILL.md:30:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "The match is markdown formatting, inline examples, or a user-facing command block in SKILL.md. It is not Ruby backtick execution or dynamic command execution inside code."
+        "confidence": 0.98,
+        "reason": "The backticks format environment variable names in prose. The line contains no command execution."
       },
       {
         "id": "external_commands:SKILL.md:31:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "The match is markdown formatting, inline examples, or a user-facing command block in SKILL.md. It is not Ruby backtick execution or dynamic command execution inside code."
+        "confidence": 0.98,
+        "reason": "The backticks format SMTP option names and values in prose. The line contains no command execution."
       },
       {
         "id": "external_commands:SKILL.md:32:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "The match is markdown formatting, inline examples, or a user-facing command block in SKILL.md. It is not Ruby backtick execution or dynamic command execution inside code."
+        "confidence": 0.98,
+        "reason": "The backticks format two environment variable names. The line contains no command execution."
       },
       {
         "id": "external_commands:SKILL.md:43:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "The match is markdown formatting, inline examples, or a user-facing command block in SKILL.md. It is not Ruby backtick execution or dynamic command execution inside code."
+        "confidence": 0.98,
+        "reason": "The backticks format the AGENTS.md filename in documentation. The line contains no command execution."
       },
       {
         "id": "external_commands:SKILL.md:44:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "The match is markdown formatting, inline examples, or a user-facing command block in SKILL.md. It is not Ruby backtick execution or dynamic command execution inside code."
+        "confidence": 0.98,
+        "reason": "The backticks format project-name examples in Markdown. The line contains no command execution."
       },
       {
         "id": "external_commands:SKILL.md:45:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "The match is markdown formatting, inline examples, or a user-facing command block in SKILL.md. It is not Ruby backtick execution or dynamic command execution inside code."
+        "confidence": 0.98,
+        "reason": "The backticks format a project-name example in Markdown. The line contains no command execution."
       },
       {
         "id": "external_commands:SKILL.md:51:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "The match is markdown formatting, inline examples, or a user-facing command block in SKILL.md. It is not Ruby backtick execution or dynamic command execution inside code."
+        "confidence": 0.98,
+        "reason": "The backticks format allowed status examples. The line contains no command execution."
       },
       {
         "id": "external_commands:SKILL.md:56:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "The match is markdown formatting, inline examples, or a user-facing command block in SKILL.md. It is not Ruby backtick execution or dynamic command execution inside code."
+        "confidence": 0.98,
+        "reason": "This is a fenced Bash example containing a fixed Python script invocation with separate quoted arguments. It is not Ruby backtick execution or dynamic shell substitution."
       },
       {
         "id": "external_commands:SKILL.md:62:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "The match is markdown formatting, inline examples, or a user-facing command block in SKILL.md. It is not Ruby backtick execution or dynamic command execution inside code."
+        "confidence": 0.98,
+        "reason": "These backticks close the fenced Bash example. They do not execute a command."
       },
       {
         "id": "network:SKILL.md:3:email-sending-capability",
-        "verdict": "confirmed",
-        "confidence": 0.82,
-        "severity": "medium",
-        "reason": "The documentation instructs users to configure SMTP email delivery for task notifications. This confirms the skill has intentional outbound email behavior."
+        "verdict": "false_positive",
+        "confidence": 0.98,
+        "reason": "This frontmatter text declares the skill's intended SMTP purpose. Documentation alone does not send data."
       },
       {
         "id": "network:SKILL.md:10:email-sending-capability",
-        "verdict": "confirmed",
-        "confidence": 0.82,
-        "severity": "medium",
-        "reason": "The documentation instructs users to configure SMTP email delivery for task notifications. This confirms the skill has intentional outbound email behavior."
+        "verdict": "false_positive",
+        "confidence": 0.98,
+        "reason": "This overview describes the intended notification workflow. It performs no network operation."
       },
       {
         "id": "network:SKILL.md:20:email-sending-capability",
-        "verdict": "confirmed",
-        "confidence": 0.82,
-        "severity": "medium",
-        "reason": "The documentation instructs users to configure SMTP email delivery for task notifications. This confirms the skill has intentional outbound email behavior."
+        "verdict": "false_positive",
+        "confidence": 0.98,
+        "reason": "This setup example assigns a placeholder SMTP host. It does not connect to the placeholder or transmit data."
       },
       {
         "id": "network:SKILL.md:21:email-sending-capability",
-        "verdict": "confirmed",
-        "confidence": 0.82,
-        "severity": "medium",
-        "reason": "The documentation instructs users to configure SMTP email delivery for task notifications. This confirms the skill has intentional outbound email behavior."
+        "verdict": "false_positive",
+        "confidence": 0.98,
+        "reason": "This setup example assigns an SMTP port. It performs no network operation."
       },
       {
         "id": "network:SKILL.md:30:email-sending-capability",
-        "verdict": "confirmed",
-        "confidence": 0.82,
-        "severity": "medium",
-        "reason": "The documentation instructs users to configure SMTP email delivery for task notifications. This confirms the skill has intentional outbound email behavior."
+        "verdict": "false_positive",
+        "confidence": 0.98,
+        "reason": "This is documentation for optional SMTP authentication. It performs no network operation."
       },
       {
         "id": "network:SKILL.md:31:email-sending-capability",
-        "verdict": "confirmed",
-        "confidence": 0.82,
-        "severity": "medium",
-        "reason": "The documentation instructs users to configure SMTP email delivery for task notifications. This confirms the skill has intentional outbound email behavior."
+        "verdict": "false_positive",
+        "confidence": 0.98,
+        "reason": "This is documentation for selecting SSL or STARTTLS. It performs no network operation."
       },
       {
         "id": "filesystem:SKILL.md:16:hidden-file-in-home-directory",
         "verdict": "confirmed",
-        "confidence": 0.88,
-        "severity": "high",
-        "reason": "The setup instructions direct users to put exported SMTP settings, including an email password, in shell startup files. This can persist sensitive credentials in plaintext in hidden home-directory files."
+        "confidence": 0.98,
+        "reason": "The setup directs users to persist the SMTP password in a shell startup file. This exposes the credential to every child process and leaves it in a long-lived plaintext file.",
+        "severity": "high"
       },
       {
         "id": "filesystem:SKILL.md:57:hidden-file-in-home-directory",
         "verdict": "false_positive",
-        "confidence": 0.84,
-        "reason": "The path references the normal installed skill location under ~/.codex for running the helper script. No evidence shows hidden persistence, stealth storage, or unauthorized file access."
+        "confidence": 0.98,
+        "reason": "This documented path points to the skill's normal installation under the user's Codex directory. It does not create or modify a hidden file."
       },
       {
         "id": "filesystem:SKILL.md:16:hidden-file-access",
         "verdict": "confirmed",
-        "confidence": 0.88,
-        "severity": "medium",
-        "reason": "The setup instructions direct users to put exported SMTP settings, including an email password, in shell startup files. This can persist sensitive credentials in plaintext in hidden home-directory files."
+        "confidence": 0.98,
+        "reason": "The documented edit places SMTP credentials in .bashrc or .zshrc. Persisting secrets in shell profiles broadens credential exposure beyond this skill.",
+        "severity": "high"
       },
       {
         "id": "filesystem:SKILL.md:57:hidden-file-access",
         "verdict": "false_positive",
-        "confidence": 0.84,
-        "reason": "The path references the normal installed skill location under ~/.codex for running the helper script. No evidence shows hidden persistence, stealth storage, or unauthorized file access."
+        "confidence": 0.98,
+        "reason": "This fixed command reads the installed skill script from the documented Codex directory. It does not access unrelated hidden data."
       },
       {
         "id": "blocker:SKILL.md:52:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "The cited text is validation or safety guidance, not host reconnaissance. No evidence shows collection of system inventory or privilege information."
+        "confidence": 0.98,
+        "reason": "This instruction tells the agent to write a brief summary and avoid secrets. It does not request system discovery."
       }
     ],
     "semantic_findings": [
       {
-        "title": "Plaintext SMTP Credential Storage Guidance",
-        "description": "The setup guide recommends exporting SMTP settings, including CODEX_EMAIL_PASSWORD, from shell startup files. This can persist an email password in plaintext and expose it to future shell sessions.",
+        "title": "Authenticated SMTP Can Run Without Encryption",
+        "description": "When both TLS options are disabled, the plain SMTP path still calls login. Network observers could capture SMTP credentials and notification content.",
         "severity": "high",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 16,
-            "line_end": 27
-          }
-        ],
-        "confidence": 0.9,
-        "confidence_reasoning": "SKILL.md directs users to edit ~/.bashrc or ~/.zshrc and includes CODEX_EMAIL_PASSWORD in the exported variables. That is clear evidence of plaintext credential storage guidance."
-      }
-    ],
-    "critical_findings": [],
-    "high_findings": [
-      {
-        "title": "Hidden file in home directory",
-        "description": "Add the following lines to `~/.bashrc` (Linux) or `~/.zshrc` (macOS):",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 16,
-            "line_end": 16
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "filesystem",
-        "source_severity": "high",
-        "confidence": 0.88,
-        "confidence_reasoning": "The setup instructions direct users to put exported SMTP settings, including an email password, in shell startup files. This can persist sensitive credentials in plaintext in hidden home-directory files."
-      },
-      {
-        "title": "Plaintext SMTP Credential Storage Guidance",
-        "description": "The setup guide recommends exporting SMTP settings, including CODEX_EMAIL_PASSWORD, from shell startup files. This can persist an email password in plaintext and expose it to future shell sessions.",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 16,
-            "line_end": 27
-          }
-        ],
-        "review_kind": "security",
-        "source_category": "semantic",
-        "source_severity": "high",
-        "confidence": 0.9,
-        "confidence_reasoning": "SKILL.md directs users to edit ~/.bashrc or ~/.zshrc and includes CODEX_EMAIL_PASSWORD in the exported variables. That is clear evidence of plaintext credential storage guidance."
-      }
-    ],
-    "medium_findings": [
-      {
-        "title": "Email sending capability",
-        "description": "import smtplib",
-        "locations": [
-          {
-            "file": "scripts/send_email_notification.py",
-            "line_start": 5,
-            "line_end": 5
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "network",
-        "source_severity": "medium",
-        "confidence": 0.86,
-        "confidence_reasoning": "The helper implements outbound SMTP email and can send task metadata and summaries to configured recipients. This is intended behavior, but it is a real network data-transfer capability."
-      },
-      {
-        "title": "Email sending capability",
-        "description": "description=\"Send an SMTP email notification for a Codex task.\"",
-        "locations": [
-          {
-            "file": "scripts/send_email_notification.py",
-            "line_start": 89,
-            "line_end": 89
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "network",
-        "source_severity": "medium",
-        "confidence": 0.86,
-        "confidence_reasoning": "The helper implements outbound SMTP email and can send task metadata and summaries to configured recipients. This is intended behavior, but it is a real network data-transfer capability."
-      },
-      {
-        "title": "Email sending capability",
-        "description": "smtp_host = os.environ.get(\"CODEX_EMAIL_SMTP_HOST\")",
-        "locations": [
-          {
-            "file": "scripts/send_email_notification.py",
-            "line_start": 103,
-            "line_end": 103
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "network",
-        "source_severity": "medium",
-        "confidence": 0.86,
-        "confidence_reasoning": "The helper implements outbound SMTP email and can send task metadata and summaries to configured recipients. This is intended behavior, but it is a real network data-transfer capability."
-      },
-      {
-        "title": "Email sending capability",
-        "description": "smtp_port_raw = os.environ.get(\"CODEX_EMAIL_SMTP_PORT\", \"587\")",
-        "locations": [
-          {
-            "file": "scripts/send_email_notification.py",
-            "line_start": 104,
-            "line_end": 104
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "network",
-        "source_severity": "medium",
-        "confidence": 0.86,
-        "confidence_reasoning": "The helper implements outbound SMTP email and can send task metadata and summaries to configured recipients. This is intended behavior, but it is a real network data-transfer capability."
-      },
-      {
-        "title": "Email sending capability",
-        "description": "smtp_user = os.environ.get(\"CODEX_EMAIL_USERNAME\")",
-        "locations": [
-          {
-            "file": "scripts/send_email_notification.py",
-            "line_start": 105,
-            "line_end": 105
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "network",
-        "source_severity": "medium",
-        "confidence": 0.86,
-        "confidence_reasoning": "The helper implements outbound SMTP email and can send task metadata and summaries to configured recipients. This is intended behavior, but it is a real network data-transfer capability."
-      },
-      {
-        "title": "Email sending capability",
-        "description": "smtp_password = os.environ.get(\"CODEX_EMAIL_PASSWORD\")",
-        "locations": [
-          {
-            "file": "scripts/send_email_notification.py",
-            "line_start": 106,
-            "line_end": 106
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "network",
-        "source_severity": "medium",
-        "confidence": 0.86,
-        "confidence_reasoning": "The helper implements outbound SMTP email and can send task metadata and summaries to configured recipients. This is intended behavior, but it is a real network data-transfer capability."
-      },
-      {
-        "title": "Email sending capability",
-        "description": "smtp_from = os.environ.get(\"CODEX_EMAIL_FROM\")",
-        "locations": [
-          {
-            "file": "scripts/send_email_notification.py",
-            "line_start": 107,
-            "line_end": 107
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "network",
-        "source_severity": "medium",
-        "confidence": 0.86,
-        "confidence_reasoning": "The helper implements outbound SMTP email and can send task metadata and summaries to configured recipients. This is intended behavior, but it is a real network data-transfer capability."
-      },
-      {
-        "title": "Email sending capability",
-        "description": "smtp_to_raw = os.environ.get(\"CODEX_EMAIL_TO\")",
-        "locations": [
-          {
-            "file": "scripts/send_email_notification.py",
-            "line_start": 108,
-            "line_end": 108
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "network",
-        "source_severity": "medium",
-        "confidence": 0.86,
-        "confidence_reasoning": "The helper implements outbound SMTP email and can send task metadata and summaries to configured recipients. This is intended behavior, but it is a real network data-transfer capability."
-      },
-      {
-        "title": "Email sending capability",
-        "description": "if not smtp_host:",
-        "locations": [
-          {
-            "file": "scripts/send_email_notification.py",
-            "line_start": 113,
-            "line_end": 113
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "network",
-        "source_severity": "medium",
-        "confidence": 0.86,
-        "confidence_reasoning": "The helper implements outbound SMTP email and can send task metadata and summaries to configured recipients. This is intended behavior, but it is a real network data-transfer capability."
-      },
-      {
-        "title": "Email sending capability",
-        "description": "sys.stderr.write(\"Missing CODEX_EMAIL_SMTP_HOST.\\n\")",
-        "locations": [
-          {
-            "file": "scripts/send_email_notification.py",
-            "line_start": 114,
-            "line_end": 114
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "network",
-        "source_severity": "medium",
-        "confidence": 0.86,
-        "confidence_reasoning": "The helper implements outbound SMTP email and can send task metadata and summaries to configured recipients. This is intended behavior, but it is a real network data-transfer capability."
-      },
-      {
-        "title": "Email sending capability",
-        "description": "if not smtp_from:",
-        "locations": [
-          {
-            "file": "scripts/send_email_notification.py",
-            "line_start": 116,
-            "line_end": 116
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "network",
-        "source_severity": "medium",
-        "confidence": 0.86,
-        "confidence_reasoning": "The helper implements outbound SMTP email and can send task metadata and summaries to configured recipients. This is intended behavior, but it is a real network data-transfer capability."
-      },
-      {
-        "title": "Email sending capability",
-        "description": "if not smtp_to_raw:",
-        "locations": [
-          {
-            "file": "scripts/send_email_notification.py",
-            "line_start": 119,
-            "line_end": 119
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "network",
-        "source_severity": "medium",
-        "confidence": 0.86,
-        "confidence_reasoning": "The helper implements outbound SMTP email and can send task metadata and summaries to configured recipients. This is intended behavior, but it is a real network data-transfer capability."
-      },
-      {
-        "title": "Email sending capability",
-        "description": "if smtp_user and not smtp_password:",
-        "locations": [
-          {
-            "file": "scripts/send_email_notification.py",
-            "line_start": 122,
-            "line_end": 122
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "network",
-        "source_severity": "medium",
-        "confidence": 0.86,
-        "confidence_reasoning": "The helper implements outbound SMTP email and can send task metadata and summaries to configured recipients. This is intended behavior, but it is a real network data-transfer capability."
-      },
-      {
-        "title": "Email sending capability",
-        "description": "if smtp_password and not smtp_user:",
-        "locations": [
-          {
-            "file": "scripts/send_email_notification.py",
-            "line_start": 125,
-            "line_end": 125
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "network",
-        "source_severity": "medium",
-        "confidence": 0.86,
-        "confidence_reasoning": "The helper implements outbound SMTP email and can send task metadata and summaries to configured recipients. This is intended behavior, but it is a real network data-transfer capability."
-      },
-      {
-        "title": "Email sending capability",
-        "description": "smtp_port = int(smtp_port_raw)",
-        "locations": [
-          {
-            "file": "scripts/send_email_notification.py",
-            "line_start": 130,
-            "line_end": 130
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "network",
-        "source_severity": "medium",
-        "confidence": 0.86,
-        "confidence_reasoning": "The helper implements outbound SMTP email and can send task metadata and summaries to configured recipients. This is intended behavior, but it is a real network data-transfer capability."
-      },
-      {
-        "title": "Email sending capability",
-        "description": "sys.stderr.write(\"CODEX_EMAIL_SMTP_PORT must be an integer.\\n\")",
-        "locations": [
-          {
-            "file": "scripts/send_email_notification.py",
-            "line_start": 132,
-            "line_end": 132
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "network",
-        "source_severity": "medium",
-        "confidence": 0.86,
-        "confidence_reasoning": "The helper implements outbound SMTP email and can send task metadata and summaries to configured recipients. This is intended behavior, but it is a real network data-transfer capability."
-      },
-      {
-        "title": "Email sending capability",
-        "description": "recipients = _split_recipients(smtp_to_raw)",
-        "locations": [
-          {
-            "file": "scripts/send_email_notification.py",
-            "line_start": 145,
-            "line_end": 145
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "network",
-        "source_severity": "medium",
-        "confidence": 0.86,
-        "confidence_reasoning": "The helper implements outbound SMTP email and can send task metadata and summaries to configured recipients. This is intended behavior, but it is a real network data-transfer capability."
-      },
-      {
-        "title": "Email sending capability",
-        "description": "msg[\"From\"] = smtp_from",
-        "locations": [
-          {
-            "file": "scripts/send_email_notification.py",
-            "line_start": 173,
-            "line_end": 173
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "network",
-        "source_severity": "medium",
-        "confidence": 0.86,
-        "confidence_reasoning": "The helper implements outbound SMTP email and can send task metadata and summaries to configured recipients. This is intended behavior, but it is a real network data-transfer capability."
-      },
-      {
-        "title": "Email sending capability",
-        "description": "print(\"SMTP host:\", smtp_host)",
-        "locations": [
-          {
-            "file": "scripts/send_email_notification.py",
-            "line_start": 178,
-            "line_end": 178
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "network",
-        "source_severity": "medium",
-        "confidence": 0.86,
-        "confidence_reasoning": "The helper implements outbound SMTP email and can send task metadata and summaries to configured recipients. This is intended behavior, but it is a real network data-transfer capability."
-      },
-      {
-        "title": "Email sending capability",
-        "description": "print(\"SMTP port:\", smtp_port)",
-        "locations": [
-          {
-            "file": "scripts/send_email_notification.py",
-            "line_start": 179,
-            "line_end": 179
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "network",
-        "source_severity": "medium",
-        "confidence": 0.86,
-        "confidence_reasoning": "The helper implements outbound SMTP email and can send task metadata and summaries to configured recipients. This is intended behavior, but it is a real network data-transfer capability."
-      },
-      {
-        "title": "Email sending capability",
-        "description": "print(\"from:\", smtp_from)",
-        "locations": [
-          {
-            "file": "scripts/send_email_notification.py",
-            "line_start": 182,
-            "line_end": 182
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "network",
-        "source_severity": "medium",
-        "confidence": 0.86,
-        "confidence_reasoning": "The helper implements outbound SMTP email and can send task metadata and summaries to configured recipients. This is intended behavior, but it is a real network data-transfer capability."
-      },
-      {
-        "title": "Email sending capability",
-        "description": "client: smtplib.SMTP = smtplib.SMTP_SSL(",
-        "locations": [
-          {
-            "file": "scripts/send_email_notification.py",
-            "line_start": 190,
-            "line_end": 190
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "network",
-        "source_severity": "medium",
-        "confidence": 0.86,
-        "confidence_reasoning": "The helper implements outbound SMTP email and can send task metadata and summaries to configured recipients. This is intended behavior, but it is a real network data-transfer capability."
-      },
-      {
-        "title": "Email sending capability",
-        "description": "smtp_host, smtp_port, timeout=args.timeout",
-        "locations": [
-          {
-            "file": "scripts/send_email_notification.py",
-            "line_start": 191,
-            "line_end": 191
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "network",
-        "source_severity": "medium",
-        "confidence": 0.86,
-        "confidence_reasoning": "The helper implements outbound SMTP email and can send task metadata and summaries to configured recipients. This is intended behavior, but it is a real network data-transfer capability."
-      },
-      {
-        "title": "Email sending capability",
-        "description": "client = smtplib.SMTP(smtp_host, smtp_port, timeout=args.timeout)",
         "locations": [
           {
             "file": "scripts/send_email_notification.py",
             "line_start": 194,
-            "line_end": 194
+            "line_end": 201
           }
         ],
-        "review_kind": "capability",
-        "source_category": "network",
-        "source_severity": "medium",
-        "confidence": 0.86,
-        "confidence_reasoning": "The helper implements outbound SMTP email and can send task metadata and summaries to configured recipients. This is intended behavior, but it is a real network data-transfer capability."
-      },
-      {
-        "title": "Email sending capability",
-        "description": "if smtp_user:",
-        "locations": [
-          {
-            "file": "scripts/send_email_notification.py",
-            "line_start": 200,
-            "line_end": 200
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "network",
-        "source_severity": "medium",
-        "confidence": 0.86,
-        "confidence_reasoning": "The helper implements outbound SMTP email and can send task metadata and summaries to configured recipients. This is intended behavior, but it is a real network data-transfer capability."
-      },
+        "confidence": 0.97,
+        "confidence_reasoning": "The plain SMTP client is created on line 194, while STARTTLS is conditional and login remains available. The control flow directly confirms the exposure condition."
+      }
+    ],
+    "critical_findings": [],
+    "high_findings": [
       {
         "title": "Email sending capability",
         "description": "client.login(smtp_user, smtp_password)",
@@ -1917,184 +1449,24 @@
         "review_kind": "capability",
         "source_category": "network",
         "source_severity": "medium",
-        "confidence": 0.86,
-        "confidence_reasoning": "The helper implements outbound SMTP email and can send task metadata and summaries to configured recipients. This is intended behavior, but it is a real network data-transfer capability."
+        "confidence": 0.99,
+        "confidence_reasoning": "This transmits the configured SMTP username and password to the server. The credentials can cross an unencrypted connection when both transport-security options are disabled."
       },
       {
-        "title": "Email sending capability",
-        "description": "except smtplib.SMTPException as exc:",
-        "locations": [
-          {
-            "file": "scripts/send_email_notification.py",
-            "line_start": 203,
-            "line_end": 203
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "network",
-        "source_severity": "medium",
-        "confidence": 0.86,
-        "confidence_reasoning": "The helper implements outbound SMTP email and can send task metadata and summaries to configured recipients. This is intended behavior, but it is a real network data-transfer capability."
-      },
-      {
-        "title": "Python email libraries",
-        "description": "import smtplib",
-        "locations": [
-          {
-            "file": "scripts/send_email_notification.py",
-            "line_start": 5,
-            "line_end": 5
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "network",
-        "source_severity": "medium",
-        "confidence": 0.86,
-        "confidence_reasoning": "The helper implements outbound SMTP email and can send task metadata and summaries to configured recipients. This is intended behavior, but it is a real network data-transfer capability."
-      },
-      {
-        "title": "Python email libraries",
-        "description": "client: smtplib.SMTP = smtplib.SMTP_SSL(",
-        "locations": [
-          {
-            "file": "scripts/send_email_notification.py",
-            "line_start": 190,
-            "line_end": 190
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "network",
-        "source_severity": "medium",
-        "confidence": 0.86,
-        "confidence_reasoning": "The helper implements outbound SMTP email and can send task metadata and summaries to configured recipients. This is intended behavior, but it is a real network data-transfer capability."
-      },
-      {
-        "title": "Python email libraries",
-        "description": "client = smtplib.SMTP(smtp_host, smtp_port, timeout=args.timeout)",
-        "locations": [
-          {
-            "file": "scripts/send_email_notification.py",
-            "line_start": 194,
-            "line_end": 194
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "network",
-        "source_severity": "medium",
-        "confidence": 0.86,
-        "confidence_reasoning": "The helper implements outbound SMTP email and can send task metadata and summaries to configured recipients. This is intended behavior, but it is a real network data-transfer capability."
-      },
-      {
-        "title": "Python email libraries",
-        "description": "except smtplib.SMTPException as exc:",
-        "locations": [
-          {
-            "file": "scripts/send_email_notification.py",
-            "line_start": 203,
-            "line_end": 203
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "network",
-        "source_severity": "medium",
-        "confidence": 0.86,
-        "confidence_reasoning": "The helper implements outbound SMTP email and can send task metadata and summaries to configured recipients. This is intended behavior, but it is a real network data-transfer capability."
-      },
-      {
-        "title": "Email sending capability",
-        "description": "description: Send SMTP email notifications after Codex completes a task. Use when one Codex or Claud",
+        "title": "Hidden file in home directory",
+        "description": "Add the following lines to `~/.bashrc` (Linux) or `~/.zshrc` (macOS):",
         "locations": [
           {
             "file": "SKILL.md",
-            "line_start": 3,
-            "line_end": 3
+            "line_start": 16,
+            "line_end": 16
           }
         ],
         "review_kind": "capability",
-        "source_category": "network",
-        "source_severity": "medium",
-        "confidence": 0.82,
-        "confidence_reasoning": "The documentation instructs users to configure SMTP email delivery for task notifications. This confirms the skill has intentional outbound email behavior."
-      },
-      {
-        "title": "Email sending capability",
-        "description": "Send an email notification after each Codex task. Use the helper script to resolve the project name ",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 10,
-            "line_end": 10
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "network",
-        "source_severity": "medium",
-        "confidence": 0.82,
-        "confidence_reasoning": "The documentation instructs users to configure SMTP email delivery for task notifications. This confirms the skill has intentional outbound email behavior."
-      },
-      {
-        "title": "Email sending capability",
-        "description": "export CODEX_EMAIL_SMTP_HOST=\"smtp.example.com\"",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 20,
-            "line_end": 20
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "network",
-        "source_severity": "medium",
-        "confidence": 0.82,
-        "confidence_reasoning": "The documentation instructs users to configure SMTP email delivery for task notifications. This confirms the skill has intentional outbound email behavior."
-      },
-      {
-        "title": "Email sending capability",
-        "description": "export CODEX_EMAIL_SMTP_PORT=\"587\"",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 21,
-            "line_end": 21
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "network",
-        "source_severity": "medium",
-        "confidence": 0.82,
-        "confidence_reasoning": "The documentation instructs users to configure SMTP email delivery for task notifications. This confirms the skill has intentional outbound email behavior."
-      },
-      {
-        "title": "Email sending capability",
-        "description": "If your SMTP server does not require auth, leave `CODEX_EMAIL_USERNAME` and `CODEX_EMAIL_PASSWORD` u",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 30,
-            "line_end": 30
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "network",
-        "source_severity": "medium",
-        "confidence": 0.82,
-        "confidence_reasoning": "The documentation instructs users to configure SMTP email delivery for task notifications. This confirms the skill has intentional outbound email behavior."
-      },
-      {
-        "title": "Email sending capability",
-        "description": "Set `CODEX_EMAIL_USE_SSL` to `true` for SMTPS (typically port 465) and `CODEX_EMAIL_USE_TLS` to `tru",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 31,
-            "line_end": 31
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "network",
-        "source_severity": "medium",
-        "confidence": 0.82,
-        "confidence_reasoning": "The documentation instructs users to configure SMTP email delivery for task notifications. This confirms the skill has intentional outbound email behavior."
+        "source_category": "filesystem",
+        "source_severity": "high",
+        "confidence": 0.98,
+        "confidence_reasoning": "The setup directs users to persist the SMTP password in a shell startup file. This exposes the credential to every child process and leaves it in a long-lived plaintext file."
       },
       {
         "title": "Hidden file access",
@@ -2109,27 +1481,109 @@
         "review_kind": "capability",
         "source_category": "filesystem",
         "source_severity": "medium",
-        "confidence": 0.88,
-        "confidence_reasoning": "The setup instructions direct users to put exported SMTP settings, including an email password, in shell startup files. This can persist sensitive credentials in plaintext in hidden home-directory files."
-      }
-    ],
-    "low_findings": [
+        "confidence": 0.98,
+        "confidence_reasoning": "The documented edit places SMTP credentials in .bashrc or .zshrc. Persisting secrets in shell profiles broadens credential exposure beyond this skill."
+      },
       {
-        "title": "Python environment access",
-        "description": "smtp_user = os.environ.get(\"CODEX_EMAIL_USERNAME\")",
+        "title": "Authenticated SMTP Can Run Without Encryption",
+        "description": "When both TLS options are disabled, the plain SMTP path still calls login. Network observers could capture SMTP credentials and notification content.",
         "locations": [
           {
             "file": "scripts/send_email_notification.py",
-            "line_start": 105,
-            "line_end": 105
+            "line_start": 194,
+            "line_end": 201
+          }
+        ],
+        "review_kind": "security",
+        "source_category": "semantic",
+        "source_severity": "high",
+        "confidence": 0.97,
+        "confidence_reasoning": "The plain SMTP client is created on line 194, while STARTTLS is conditional and login remains available. The control flow directly confirms the exposure condition."
+      }
+    ],
+    "medium_findings": [
+      {
+        "title": "Email sending capability",
+        "description": "client: smtplib.SMTP = smtplib.SMTP_SSL(",
+        "locations": [
+          {
+            "file": "scripts/send_email_notification.py",
+            "line_start": 190,
+            "line_end": 190
           }
         ],
         "review_kind": "capability",
-        "source_category": "env_access",
-        "source_severity": "low",
-        "confidence": 0.78,
-        "confidence_reasoning": "The script reads SMTP account credentials from environment variables. This is expected for SMTP login, but access to credential material is security-sensitive."
+        "source_category": "network",
+        "source_severity": "medium",
+        "confidence": 0.99,
+        "confidence_reasoning": "This creates an outbound SSL SMTP connection to the configured host. The connection is intended, but it is a real network and data-egress capability."
       },
+      {
+        "title": "Email sending capability",
+        "description": "smtp_host, smtp_port, timeout=args.timeout",
+        "locations": [
+          {
+            "file": "scripts/send_email_notification.py",
+            "line_start": 191,
+            "line_end": 191
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "network",
+        "source_severity": "medium",
+        "confidence": 0.98,
+        "confidence_reasoning": "This supplies the configured host and port to the SSL SMTP client. It is part of the real outbound connection path."
+      },
+      {
+        "title": "Email sending capability",
+        "description": "client = smtplib.SMTP(smtp_host, smtp_port, timeout=args.timeout)",
+        "locations": [
+          {
+            "file": "scripts/send_email_notification.py",
+            "line_start": 194,
+            "line_end": 194
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "network",
+        "source_severity": "medium",
+        "confidence": 0.99,
+        "confidence_reasoning": "This creates a plain SMTP connection before optional STARTTLS. It enables outbound traffic and can remain unencrypted when TLS is disabled."
+      },
+      {
+        "title": "Python email libraries",
+        "description": "client: smtplib.SMTP = smtplib.SMTP_SSL(",
+        "locations": [
+          {
+            "file": "scripts/send_email_notification.py",
+            "line_start": 190,
+            "line_end": 190
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "network",
+        "source_severity": "medium",
+        "confidence": 0.99,
+        "confidence_reasoning": "This uses the Python SMTP library to create an outbound SSL connection. It is an actual network operation rather than a library reference."
+      },
+      {
+        "title": "Python email libraries",
+        "description": "client = smtplib.SMTP(smtp_host, smtp_port, timeout=args.timeout)",
+        "locations": [
+          {
+            "file": "scripts/send_email_notification.py",
+            "line_start": 194,
+            "line_end": 194
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "network",
+        "source_severity": "medium",
+        "confidence": 0.99,
+        "confidence_reasoning": "This uses the Python SMTP library to open a network connection. STARTTLS is optional, so this path can remain unencrypted."
+      }
+    ],
+    "low_findings": [
       {
         "title": "Python environment access",
         "description": "smtp_password = os.environ.get(\"CODEX_EMAIL_PASSWORD\")",
@@ -2143,134 +1597,132 @@
         "review_kind": "capability",
         "source_category": "env_access",
         "source_severity": "low",
-        "confidence": 0.78,
-        "confidence_reasoning": "The script reads SMTP account credentials from environment variables. This is expected for SMTP login, but access to credential material is security-sensitive."
+        "confidence": 0.99,
+        "confidence_reasoning": "This reads a password from the process environment. The access is expected for SMTP authentication, but it gives the skill direct access to a credential."
       }
     ],
     "dangerous_patterns": [],
     "files_scanned": 2,
     "total_lines": 282,
     "audit_model": "codex",
-    "audited_at": "2026-07-08T04:03:06.771Z",
+    "audited_at": "2026-07-23T12:59:43.929Z",
     "agent_auto_install_policy": "confirmation_required",
     "manual_install_policy": "allowed"
   },
   "content": {
     "user_title": "Send Task Completion Emails",
-    "value_statement": "Codex runs can finish when you are away from the terminal. This skill sends SMTP email notifications with status, project, device, and summary details.",
+    "value_statement": "Finished agent tasks can be missed when users leave the terminal. This skill sends concise SMTP emails with task status and project context.",
     "seo_keywords": [
       "Claude",
       "Codex",
       "Claude Code",
-      "Codex email notifications",
-      "Claude task alerts",
-      "Claude Code task emails",
       "SMTP notifications",
-      "AI agent completion email",
-      "developer productivity",
-      "task completion alerts"
+      "task completion email",
+      "AI agent alerts",
+      "developer workflow automation",
+      "email automation",
+      "project status notifications"
     ],
     "actual_capabilities": [
-      "Sends plain text task completion emails through SMTP or SMTPS.",
-      "Supports STARTTLS or SSL, with validation that only one mode is enabled.",
-      "Includes device, project, status, and summary fields in each notification.",
-      "Reads the project name from AGENTS.md or the current folder.",
-      "Supports multiple recipients separated by commas or semicolons.",
-      "Provides a dry-run mode for checking settings without sending email."
+      "Sends plain-text completion emails with device, project, status, and summary fields.",
+      "Supports authenticated SMTP over SSL or STARTTLS.",
+      "Accepts multiple recipients separated by commas or semicolons.",
+      "Resolves project names from arguments, AGENTS.md, or the current directory.",
+      "Previews connection details and email content with a dry-run option."
     ],
     "limitations": [
-      "Requires user-managed SMTP server settings and recipient addresses.",
-      "Does not provide OAuth setup, provider-specific APIs, or credential rotation.",
-      "Sends plain text notifications only, without attachments or rich templates.",
-      "The user must prevent secrets from being included in task summaries."
+      "Requires Python 3, a reachable SMTP server, and user-provided environment configuration.",
+      "Sends plain-text messages only and does not support HTML or attachments.",
+      "Runs only when an agent invokes the helper script; it does not monitor tasks independently.",
+      "Does not redact secrets from user-provided titles or summaries."
     ],
     "use_cases": [
       {
-        "title": "Remote Task Monitoring",
-        "description": "Receive an email when a long Codex run finishes, including project name, status, and a short summary.",
-        "target_user": "Solo developer"
+        "title": "Monitor Long Development Tasks",
+        "description": "Receive an email when a long Codex implementation or test run finishes.",
+        "target_user": "Software developers"
       },
       {
-        "title": "Team Build Awareness",
-        "description": "Notify a small team when an agent completes a repository task that needs review or follow-up.",
-        "target_user": "Engineering lead"
+        "title": "Track Remote Agent Runs",
+        "description": "See completion status and project context without maintaining a terminal connection.",
+        "target_user": "Remote engineering teams"
       },
       {
-        "title": "Workstation Status Alerts",
-        "description": "Identify which machine completed a task when multiple development devices run AI coding agents.",
-        "target_user": "Power user"
+        "title": "Report Automation Outcomes",
+        "description": "Send concise success, failure, or blocked summaries after scheduled agent work.",
+        "target_user": "DevOps engineers"
       }
     ],
     "prompt_templates": [
       {
         "title": "Send a Basic Completion Email",
-        "scenario": "Beginner setup after a single successful task.",
-        "prompt": "Use email-notify to send a success notification for this completed task. Include the project name and a one-sentence summary."
+        "prompt": "Send a completion email for this finished task. Use title [title], status [status], and summary [summary]. Preview it before sending.",
+        "scenario": "A beginner wants one clear notification."
       },
       {
-        "title": "Notify About a Partial Result",
-        "scenario": "Report useful progress when some work remains.",
-        "prompt": "Use email-notify to send a partial status email. Summarize what changed, what remains, and avoid including secrets."
+        "title": "Use the Detected Project Name",
+        "prompt": "Notify me that [task] finished with status [status]. Resolve the project name automatically and summarize the result without secrets.",
+        "scenario": "A developer wants project context without specifying a name."
       },
       {
-        "title": "Verify Settings Before Sending",
-        "scenario": "Check recipient and SMTP configuration safely.",
-        "prompt": "Use email-notify in dry-run mode for this project. Show the notification details without sending the email."
+        "title": "Report a Failed Run",
+        "prompt": "Send an email for the failed task [task]. State the failure status, summarize the cause, and list the next safe action.",
+        "scenario": "An operator needs an actionable failure notification."
       },
       {
-        "title": "Send a Team Handoff Notice",
-        "scenario": "Advanced workflow for review handoff.",
-        "prompt": "Use email-notify to send a concise handoff email after this agent run. Include status, review needs, and any blocker summary."
+        "title": "Validate and Send a Team Notification",
+        "prompt": "Prepare a completion notification for [task] and [project]. Dry-run it, verify recipients and transport security, then send after approval.",
+        "scenario": "A team needs controlled delivery to multiple recipients."
       }
     ],
     "output_examples": [
       {
-        "input": "Send a success notification for a finished dependency update.",
-        "output": "An email is prepared with the task title, success status, device name, project name, and a short dependency update summary."
+        "input": "Notify me that the Billing API tests passed.",
+        "output": "Subject: Billing API tests passed\nDevice: build-runner\nProject: Billing API\nStatus: success\nSummary: All requested tests passed."
       },
       {
-        "input": "Notify the team that a task is blocked by missing credentials.",
-        "output": "A blocked status email is sent with a concise summary of the missing credential requirement and no secret values."
+        "input": "Report that deployment work is blocked by missing credentials.",
+        "output": "Subject: Deployment blocked\nDevice: workstation\nProject: Release Pipeline\nStatus: blocked\nSummary: Deployment requires approved credentials before work can continue."
       },
       {
-        "input": "Run a dry check before enabling notifications.",
-        "output": "The tool prints the SMTP host, port, sender, recipients, subject, and body without sending a message."
+        "input": "Preview a partial documentation update for the client portal.",
+        "output": "Dry run: recipient and SMTP settings are displayed with the email subject and body. No message is sent."
       }
     ],
     "best_practices": [
-      "Use dry-run mode when configuring a new SMTP account or recipient list.",
-      "Keep summaries short and remove secrets, tokens, customer data, and private URLs.",
-      "Store SMTP credentials with the least exposure possible and rotate them regularly."
+      "Run a dry preview before sending to new recipients or through a new SMTP server.",
+      "Keep task titles and summaries concise, accurate, and free of secrets.",
+      "Use SSL or STARTTLS whenever SMTP authentication is enabled."
     ],
     "anti_patterns": [
-      "Do not send full logs, stack traces, tokens, or private customer data in summaries.",
-      "Do not configure broad recipient lists for sensitive project notifications.",
-      "Do not enable both STARTTLS and SSL for the same SMTP connection."
+      "Do not place SMTP passwords in shared files, prompts, task summaries, or source control.",
+      "Do not send notifications to unverified recipient lists.",
+      "Do not disable transport encryption for authenticated internet SMTP servers."
     ],
     "faq": [
       {
-        "question": "What email service does this skill use?",
-        "answer": "It uses the SMTP server configured by the user through environment variables."
+        "question": "Which SMTP modes are supported?",
+        "answer": "The helper supports implicit SSL, STARTTLS, and plain SMTP. Authenticated connections should always use SSL or STARTTLS."
       },
       {
-        "question": "Can it send to more than one recipient?",
-        "answer": "Yes. The recipient setting accepts multiple addresses separated by commas or semicolons."
+        "question": "Can one notification reach multiple recipients?",
+        "answer": "Yes. Configure recipient addresses as a comma-separated or semicolon-separated list."
       },
       {
-        "question": "Does it support secure SMTP transport?",
-        "answer": "Yes. It supports STARTTLS or SSL, but only one transport mode should be enabled."
+        "question": "How is the project name selected?",
+        "answer": "An explicit argument has priority. Otherwise, the helper checks AGENTS.md and then uses the project directory name."
       },
       {
-        "question": "Will it detect the project name automatically?",
-        "answer": "Yes. It can read a project name from AGENTS.md or use the current folder name."
+        "question": "Can I preview a message without sending it?",
+        "answer": "Yes. The dry-run option prints connection details and message content without opening an SMTP connection."
       },
       {
-        "question": "Does it store email credentials for me?",
-        "answer": "No. Users provide credentials through their own environment configuration."
+        "question": "Does the skill remove secrets from summaries?",
+        "answer": "No. Users and agents must exclude credentials, tokens, personal data, and other sensitive content."
       },
       {
-        "question": "Should task summaries include sensitive data?",
-        "answer": "No. Summaries should be brief and should exclude secrets, tokens, customer data, and private links."
+        "question": "Does the skill send notifications automatically?",
+        "answer": "No. An agent must invoke the helper after a task or follow a project instruction that requests notification."
       }
     ]
   },

@@ -1,7 +1,7 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-07-07T21:20:17.221Z",
+    "generated_at": "2026-07-23T05:46:31.754Z",
     "slug": "asmayaseen-deploying-cloud-k8s",
     "source_url": "https://github.com/Asmayaseen/hackathon-2/tree/main/.claude/skills/deploying-cloud-k8s",
     "source_ref": "main",
@@ -23,18 +23,18 @@
   },
   "skill": {
     "name": "deploying-cloud-k8s",
-    "description": "Guides production deployment of applications to cloud Kubernetes platforms such as AKS, GKE, and DOKS. It covers CI/CD pipelines, Docker build architecture, Helm deployment, runtime configuration, and troubleshooting.",
-    "summary": "Deploy applications to cloud Kubernetes with CI/CD, Helm, and production troubleshooting guidance.",
+    "description": "Guides application deployments to AKS, GKE, and DOKS with Kubernetes, Helm, GitHub Actions, GitOps, observability, security, and troubleshooting patterns.",
+    "summary": "Plan, deploy, and troubleshoot production applications on managed Kubernetes.",
     "icon": "📦",
-    "version": "1.0.1",
     "author": "Asmayaseen",
     "license": "MIT",
+    "category": "devops",
     "tags": [
       "kubernetes",
       "cloud-deployment",
-      "cicd",
       "helm",
-      "troubleshooting"
+      "github-actions",
+      "gitops"
     ],
     "supported_tools": [
       "claude",
@@ -46,16 +46,46 @@
       "filesystem",
       "env_access",
       "external_commands"
-    ],
-    "category": "devops"
+    ]
   },
   "security_audit": {
-    "risk_level": "safe",
+    "risk_level": "high",
     "is_blocked": false,
-    "safe_to_publish": true,
+    "safe_to_publish": false,
     "analysis_status": "ok",
-    "summary": "All 90 static findings were assessed as false positives after reviewing the referenced files. The matches are Markdown examples, placeholder Kubernetes manifests, public documentation URLs, and a local verifier that only checks skill structure. No prompt injection, credential exfiltration, or unauthorized execution intent was found.",
-    "remediation": [],
+    "summary": "Most static detections are false positives caused by Markdown code formatting, placeholders, or standard Kubernetes configuration. Confirmed risks involve an unpinned remote manifest, command-line database secrets, and predictable temporary files. Additional concerns include mutable CI actions, disabled image provenance, and broad access to Kubernetes Secrets.",
+    "remediation": [
+      {
+        "issue": "A database connection string is expanded into a Helm command argument.",
+        "suggestion": "Reference a pre-created Kubernetes Secret from the chart instead of passing secret values through command arguments.",
+        "severity": "high"
+      },
+      {
+        "issue": "Application RBAC permits listing every Secret in the namespace.",
+        "suggestion": "Grant only required verbs and restrict Secret access with resourceNames or a dedicated service account.",
+        "severity": "high"
+      },
+      {
+        "issue": "GitHub Actions use mutable major-version tags.",
+        "suggestion": "Pin every third-party action to a reviewed commit SHA and use dependency tooling for controlled updates.",
+        "severity": "medium"
+      },
+      {
+        "issue": "Docker image provenance is disabled in deployment examples.",
+        "suggestion": "Keep provenance enabled and solve platform compatibility through explicit image outputs, manifests, and tested Buildx settings.",
+        "severity": "medium"
+      },
+      {
+        "issue": "A predictable file is written under the shared temporary directory.",
+        "suggestion": "Create the file with mktemp, set restrictive permissions, and remove it with a cleanup trap.",
+        "severity": "medium"
+      },
+      {
+        "issue": "An Argo CD installation manifest is applied from a mutable stable branch.",
+        "suggestion": "Pin the manifest to a reviewed release or commit and verify its checksum before applying it.",
+        "severity": "low"
+      }
+    ],
     "risk_factor_evidence": [
       {
         "factor": "network",
@@ -454,56 +484,6 @@
             "file": "SKILL.md",
             "line_start": 265,
             "line_end": 282
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 282,
-            "line_end": 286
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 286,
-            "line_end": 299
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 299,
-            "line_end": 303
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 303,
-            "line_end": 312
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 312,
-            "line_end": 316
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 316,
-            "line_end": 335
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 335,
-            "line_end": 341
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 341,
-            "line_end": 345
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 345,
-            "line_end": 346
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 346,
-            "line_end": 347
           }
         ]
       }
@@ -1413,685 +1393,878 @@
     "finding_verdicts": [
       {
         "id": "network:references/production-patterns.md:9:hardcoded-url",
-        "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "This is a public ArgoCD manifest URL inside a documented installation command. The skill does not execute the URL automatically or send data to it."
+        "verdict": "confirmed",
+        "confidence": 0.98,
+        "reason": "The command applies a remote Argo CD manifest from the mutable stable branch directly to the cluster. A compromised or changed upstream file could alter cluster resources.",
+        "severity": "low"
       },
       {
         "id": "network:references/production-patterns.md:26:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This is a placeholder Git repository URL in an example ArgoCD Application manifest. It is not executable code or an exfiltration destination."
+        "confidence": 0.99,
+        "reason": "This is a placeholder Git repository URL inside an Argo CD manifest example. It does not initiate a request or identify a real destination."
       },
       {
         "id": "network:references/production-patterns.md:30:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "This is the standard in-cluster Kubernetes API service address in sample YAML. It is configuration documentation, not a network call made by the skill."
+        "confidence": 0.99,
+        "reason": "This is Kubernetes standard in-cluster API service addressing in a declarative example. It is not an external or suspicious endpoint."
       },
       {
         "id": "network:references/production-patterns.md:51:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This is a placeholder GitOps repository URL in an example manifest. No code path in the skill contacts this URL automatically."
+        "confidence": 0.99,
+        "reason": "This is a placeholder GitOps repository URL in sample YAML. It does not contain a real organization or trigger network activity."
       },
       {
         "id": "network:references/production-patterns.md:54:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "This is the standard in-cluster Kubernetes API service address in sample YAML. It is not a hidden outbound network request."
+        "confidence": 0.99,
+        "reason": "This is Kubernetes standard in-cluster API service addressing in a declarative example. It is not an external or suspicious endpoint."
       },
       {
         "id": "network:references/production-patterns.md:108:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.93,
-        "reason": "This is a Helm chart repository URL in an observability example. It is documentation for a user-controlled deployment, not automatic network behavior."
+        "confidence": 0.98,
+        "reason": "The URL identifies the public Prometheus community Helm repository in a configuration example. No data is sent and the destination matches the documented purpose."
       },
       {
         "id": "network:references/production-patterns.md:130:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "This is the standard Kubernetes service address in an example ArgoCD destination. The skill does not perform network access itself."
+        "confidence": 0.99,
+        "reason": "This is Kubernetes standard in-cluster API service addressing in a declarative example. It is not an external or suspicious endpoint."
       },
       {
         "id": "filesystem:references/production-patterns.md:86:path-traversal-sequence",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The ../../base path is a normal Kustomize overlay reference within the documented repository layout. It is not attacker-controlled path traversal or runtime filesystem access."
+        "confidence": 0.99,
+        "reason": "The relative path is a normal Kustomize overlay reference to the repository base directory. It is static configuration, not user-controlled path traversal."
       },
       {
         "id": "env_access:references/production-patterns.md:299:database-connection-strings",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "DATABASE_URL is a Kubernetes ExternalSecret key name in an example manifest. No database connection string or credential value is embedded."
+        "confidence": 0.99,
+        "reason": "The YAML maps the name DATABASE_URL to an external secret reference without containing or reading a connection string. It demonstrates secret indirection."
       },
       {
         "id": "env_access:references/production-patterns.md:302:generic-api-secret-keys",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "API_KEY is a placeholder ExternalSecret key name, not an actual secret value. The example references a secret manager entry rather than exposing a credential."
+        "confidence": 0.99,
+        "reason": "The YAML contains only the API_KEY field name and an external secret reference. No credential value is embedded or accessed."
       },
       {
         "id": "blocker:references/production-patterns.md:227:network-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "Ingress and Egress are Kubernetes NetworkPolicy enum values. They do not indicate network scanning or reconnaissance behavior."
+        "confidence": 1,
+        "reason": "Ingress is a Kubernetes NetworkPolicy type value. It performs no discovery or network reconnaissance."
       },
       {
         "id": "blocker:scripts/verify.py:28:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The verifier prints a local validation error if the skill name is missing. It does not inspect the host system or gather reconnaissance data."
+        "confidence": 1,
+        "reason": "The line prints a fixed validation error when frontmatter is invalid. It does not collect host, user, process, or network information."
       },
       {
         "id": "external_commands:SKILL.md:13:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The matched backticks are Markdown inline formatting or fenced examples in SKILL.md. They are not Ruby code, and the skill has no mechanism that executes them automatically."
+        "confidence": 0.99,
+        "reason": "Backticks are Markdown delimiters around an explicit kubectl example. The skill contains no Ruby execution mechanism and does not execute the text automatically."
       },
       {
         "id": "external_commands:SKILL.md:16:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The matched backticks are Markdown inline formatting or fenced examples in SKILL.md. They are not Ruby code, and the skill has no mechanism that executes them automatically."
+        "confidence": 0.99,
+        "reason": "Backticks format the Helm option name as inline Markdown. They are not shell substitution or executable Ruby syntax."
       },
       {
         "id": "external_commands:SKILL.md:22:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The matched backticks are Markdown inline formatting or fenced examples in SKILL.md. They are not Ruby code, and the skill has no mechanism that executes them automatically."
+        "confidence": 1,
+        "reason": "Backticks format a Next.js variable pattern in prose. No command execution occurs."
       },
       {
         "id": "external_commands:SKILL.md:24:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The matched backticks are Markdown inline formatting or fenced examples in SKILL.md. They are not Ruby code, and the skill has no mechanism that executes them automatically."
+        "confidence": 1,
+        "reason": "The detected token opens a Dockerfile Markdown fence. It is documentation syntax, not command substitution."
       },
       {
         "id": "external_commands:SKILL.md:31:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The matched backticks are Markdown inline formatting or fenced examples in SKILL.md. They are not Ruby code, and the skill has no mechanism that executes them automatically."
+        "confidence": 1,
+        "reason": "The detected token closes a Markdown code fence. It cannot execute a command."
       },
       {
         "id": "external_commands:SKILL.md:37:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The matched backticks are Markdown inline formatting or fenced examples in SKILL.md. They are not Ruby code, and the skill has no mechanism that executes them automatically."
+        "confidence": 1,
+        "reason": "Backticks format an environment variable name in a Markdown table. No execution path exists."
       },
       {
         "id": "external_commands:SKILL.md:38:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The matched backticks are Markdown inline formatting or fenced examples in SKILL.md. They are not Ruby code, and the skill has no mechanism that executes them automatically."
+        "confidence": 1,
+        "reason": "Backticks format an environment variable name in a Markdown table. No execution path exists."
       },
       {
         "id": "external_commands:SKILL.md:39:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The matched backticks are Markdown inline formatting or fenced examples in SKILL.md. They are not Ruby code, and the skill has no mechanism that executes them automatically."
+        "confidence": 1,
+        "reason": "Backticks format an environment variable name in a Markdown table. No execution path exists."
       },
       {
         "id": "external_commands:SKILL.md:45:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The matched backticks are Markdown inline formatting or fenced examples in SKILL.md. They are not Ruby code, and the skill has no mechanism that executes them automatically."
+        "confidence": 1,
+        "reason": "Backticks format a secret variable name in a Markdown table. No shell or Ruby execution occurs."
       },
       {
         "id": "external_commands:SKILL.md:46:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The matched backticks are Markdown inline formatting or fenced examples in SKILL.md. They are not Ruby code, and the skill has no mechanism that executes them automatically."
+        "confidence": 1,
+        "reason": "Backticks format a configuration variable and service URL in a Markdown table. They are not executable syntax."
       },
       {
         "id": "external_commands:SKILL.md:47:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The matched backticks are Markdown inline formatting or fenced examples in SKILL.md. They are not Ruby code, and the skill has no mechanism that executes them automatically."
+        "confidence": 1,
+        "reason": "Backticks format a secret variable name in a Markdown table. No shell or Ruby execution occurs."
       },
       {
         "id": "external_commands:SKILL.md:53:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The matched backticks are Markdown inline formatting or fenced examples in SKILL.md. They are not Ruby code, and the skill has no mechanism that executes them automatically."
+        "confidence": 1,
+        "reason": "The detected token opens a Bash Markdown fence. It labels documentation and does not execute its contents."
       },
       {
         "id": "external_commands:SKILL.md:56:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The matched backticks are Markdown inline formatting or fenced examples in SKILL.md. They are not Ruby code, and the skill has no mechanism that executes them automatically."
+        "confidence": 1,
+        "reason": "The detected token closes a Markdown code fence. It cannot execute a command."
       },
       {
         "id": "external_commands:SKILL.md:60:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The matched backticks are Markdown inline formatting or fenced examples in SKILL.md. They are not Ruby code, and the skill has no mechanism that executes them automatically."
+        "confidence": 1,
+        "reason": "The detected token opens a YAML Markdown fence. It is documentation syntax, not command substitution."
       },
       {
         "id": "external_commands:SKILL.md:66:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The matched backticks are Markdown inline formatting or fenced examples in SKILL.md. They are not Ruby code, and the skill has no mechanism that executes them automatically."
+        "confidence": 1,
+        "reason": "The detected token closes a Markdown code fence. It cannot execute a command."
       },
       {
         "id": "external_commands:SKILL.md:68:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The matched backticks are Markdown inline formatting or fenced examples in SKILL.md. They are not Ruby code, and the skill has no mechanism that executes them automatically."
+        "confidence": 1,
+        "reason": "Backticks format a YAML setting in explanatory prose. No command execution occurs at this line."
       },
       {
         "id": "external_commands:SKILL.md:74:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The matched backticks are Markdown inline formatting or fenced examples in SKILL.md. They are not Ruby code, and the skill has no mechanism that executes them automatically."
+        "confidence": 1,
+        "reason": "The detected token opens a YAML Markdown fence. It is documentation syntax, not command substitution."
       },
       {
         "id": "external_commands:SKILL.md:94:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The matched backticks are Markdown inline formatting or fenced examples in SKILL.md. They are not Ruby code, and the skill has no mechanism that executes them automatically."
+        "confidence": 1,
+        "reason": "The detected token closes a Markdown code fence. It cannot execute a command."
       },
       {
         "id": "external_commands:SKILL.md:98:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The matched backticks are Markdown inline formatting or fenced examples in SKILL.md. They are not Ruby code, and the skill has no mechanism that executes them automatically."
+        "confidence": 1,
+        "reason": "The detected token opens a YAML Markdown fence. It is documentation syntax, not command substitution."
       },
       {
         "id": "external_commands:SKILL.md:105:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The matched backticks are Markdown inline formatting or fenced examples in SKILL.md. They are not Ruby code, and the skill has no mechanism that executes them automatically."
+        "confidence": 1,
+        "reason": "The detected token closes a Markdown code fence. It cannot execute a command."
       },
       {
         "id": "external_commands:SKILL.md:109:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The matched backticks are Markdown inline formatting or fenced examples in SKILL.md. They are not Ruby code, and the skill has no mechanism that executes them automatically."
+        "confidence": 1,
+        "reason": "The detected token opens a YAML Markdown fence. It is documentation syntax, not command substitution."
       },
       {
         "id": "external_commands:SKILL.md:116:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The matched backticks are Markdown inline formatting or fenced examples in SKILL.md. They are not Ruby code, and the skill has no mechanism that executes them automatically."
+        "confidence": 1,
+        "reason": "The detected token closes a Markdown code fence. It cannot execute a command."
       },
       {
         "id": "external_commands:SKILL.md:122:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The matched backticks are Markdown inline formatting or fenced examples in SKILL.md. They are not Ruby code, and the skill has no mechanism that executes them automatically."
+        "confidence": 1,
+        "reason": "The detected token opens a plain Markdown diagram fence. It contains diagnostic prose, not executable code."
       },
       {
         "id": "external_commands:SKILL.md:138:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The matched backticks are Markdown inline formatting or fenced examples in SKILL.md. They are not Ruby code, and the skill has no mechanism that executes them automatically."
+        "confidence": 1,
+        "reason": "The detected token closes a Markdown code fence. It cannot execute a command."
       },
       {
         "id": "external_commands:SKILL.md:142:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The matched backticks are Markdown inline formatting or fenced examples in SKILL.md. They are not Ruby code, and the skill has no mechanism that executes them automatically."
+        "confidence": 0.99,
+        "reason": "The token opens a Bash documentation fence containing explicit diagnostic examples. The Markdown itself has no automatic execution mechanism."
       },
       {
         "id": "external_commands:SKILL.md:147:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The matched backticks are Markdown inline formatting or fenced examples in SKILL.md. They are not Ruby code, and the skill has no mechanism that executes them automatically."
+        "confidence": 1,
+        "reason": "The detected token closes a Markdown code fence. It cannot execute a command."
       },
       {
         "id": "external_commands:SKILL.md:163:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The matched backticks are Markdown inline formatting or fenced examples in SKILL.md. They are not Ruby code, and the skill has no mechanism that executes them automatically."
+        "confidence": 1,
+        "reason": "The detected token opens a YAML Markdown fence. It is documentation syntax, not command substitution."
       },
       {
         "id": "external_commands:SKILL.md:167:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The matched backticks are Markdown inline formatting or fenced examples in SKILL.md. They are not Ruby code, and the skill has no mechanism that executes them automatically."
+        "confidence": 1,
+        "reason": "The detected token closes a Markdown code fence. It cannot execute a command."
       },
       {
         "id": "external_commands:SKILL.md:173:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The matched backticks are Markdown inline formatting or fenced examples in SKILL.md. They are not Ruby code, and the skill has no mechanism that executes them automatically."
+        "confidence": 1,
+        "reason": "Backticks format a build option in troubleshooting prose. No command substitution or execution occurs."
       },
       {
         "id": "external_commands:SKILL.md:177:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The matched backticks are Markdown inline formatting or fenced examples in SKILL.md. They are not Ruby code, and the skill has no mechanism that executes them automatically."
+        "confidence": 1,
+        "reason": "The detected token opens a plain Markdown error-output fence. It is not executable content."
       },
       {
         "id": "external_commands:SKILL.md:179:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The matched backticks are Markdown inline formatting or fenced examples in SKILL.md. They are not Ruby code, and the skill has no mechanism that executes them automatically."
+        "confidence": 1,
+        "reason": "The detected token closes a Markdown code fence. It cannot execute a command."
       },
       {
         "id": "external_commands:SKILL.md:184:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The matched backticks are Markdown inline formatting or fenced examples in SKILL.md. They are not Ruby code, and the skill has no mechanism that executes them automatically."
+        "confidence": 1,
+        "reason": "The detected token opens a YAML Markdown fence. It is documentation syntax, not command substitution."
       },
       {
         "id": "external_commands:SKILL.md:193:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The matched backticks are Markdown inline formatting or fenced examples in SKILL.md. They are not Ruby code, and the skill has no mechanism that executes them automatically."
+        "confidence": 1,
+        "reason": "The detected token closes a Markdown code fence. It cannot execute a command."
       },
       {
         "id": "external_commands:SKILL.md:197:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The matched backticks are Markdown inline formatting or fenced examples in SKILL.md. They are not Ruby code, and the skill has no mechanism that executes them automatically."
+        "confidence": 1,
+        "reason": "Backticks format base64 punctuation in explanatory prose. No command execution occurs."
       },
       {
         "id": "external_commands:SKILL.md:200:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The matched backticks are Markdown inline formatting or fenced examples in SKILL.md. They are not Ruby code, and the skill has no mechanism that executes them automatically."
+        "confidence": 0.99,
+        "reason": "The token opens a Bash documentation fence with random-value examples. The Markdown does not execute those commands automatically."
       },
       {
         "id": "external_commands:SKILL.md:206:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The matched backticks are Markdown inline formatting or fenced examples in SKILL.md. They are not Ruby code, and the skill has no mechanism that executes them automatically."
+        "confidence": 1,
+        "reason": "The detected token closes a Markdown code fence. It cannot execute a command."
       },
       {
         "id": "external_commands:SKILL.md:210:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The matched backticks are Markdown inline formatting or fenced examples in SKILL.md. They are not Ruby code, and the skill has no mechanism that executes them automatically."
+        "confidence": 1,
+        "reason": "Backticks format a request property in explanatory prose. No command execution occurs."
       },
       {
         "id": "external_commands:SKILL.md:213:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The matched backticks are Markdown inline formatting or fenced examples in SKILL.md. They are not Ruby code, and the skill has no mechanism that executes them automatically."
+        "confidence": 1,
+        "reason": "The detected token opens a TypeScript Markdown fence. It is documentation syntax, not command substitution."
       },
       {
         "id": "external_commands:SKILL.md:216:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The matched backticks are Markdown inline formatting or fenced examples in SKILL.md. They are not Ruby code, and the skill has no mechanism that executes them automatically."
+        "confidence": 1,
+        "reason": "The detected token closes a Markdown code fence. It cannot execute a command."
       },
       {
         "id": "external_commands:SKILL.md:225:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The matched backticks are Markdown inline formatting or fenced examples in SKILL.md. They are not Ruby code, and the skill has no mechanism that executes them automatically."
+        "confidence": 1,
+        "reason": "Backticks format a YAML setting in a checklist. No shell or Ruby execution occurs."
       },
       {
         "id": "external_commands:SKILL.md:226:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The matched backticks are Markdown inline formatting or fenced examples in SKILL.md. They are not Ruby code, and the skill has no mechanism that executes them automatically."
+        "confidence": 1,
+        "reason": "Backticks format a platform setting in a checklist. No shell or Ruby execution occurs."
       },
       {
         "id": "external_commands:SKILL.md:230:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The matched backticks are Markdown inline formatting or fenced examples in SKILL.md. They are not Ruby code, and the skill has no mechanism that executes them automatically."
+        "confidence": 1,
+        "reason": "Backticks format an environment variable pattern in a checklist. No execution path exists."
       },
       {
         "id": "external_commands:SKILL.md:231:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The matched backticks are Markdown inline formatting or fenced examples in SKILL.md. They are not Ruby code, and the skill has no mechanism that executes them automatically."
+        "confidence": 1,
+        "reason": "Backticks format a Helm option in a checklist. This specific detector does not represent command execution."
       },
       {
         "id": "external_commands:SKILL.md:235:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The matched backticks are Markdown inline formatting or fenced examples in SKILL.md. They are not Ruby code, and the skill has no mechanism that executes them automatically."
+        "confidence": 1,
+        "reason": "Backticks format a Helm option in a checklist. No command execution occurs at this line."
       },
       {
         "id": "external_commands:SKILL.md:243:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The matched backticks are Markdown inline formatting or fenced examples in SKILL.md. They are not Ruby code, and the skill has no mechanism that executes them automatically."
+        "confidence": 0.99,
+        "reason": "The token opens a Bash documentation fence containing explicit kubectl log examples. The Markdown itself cannot execute them."
       },
       {
         "id": "external_commands:SKILL.md:252:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The matched backticks are Markdown inline formatting or fenced examples in SKILL.md. They are not Ruby code, and the skill has no mechanism that executes them automatically."
+        "confidence": 1,
+        "reason": "The detected token closes a Markdown code fence. It cannot execute a command."
       },
       {
         "id": "external_commands:SKILL.md:258:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The matched backticks are Markdown inline formatting or fenced examples in SKILL.md. They are not Ruby code, and the skill has no mechanism that executes them automatically."
+        "confidence": 1,
+        "reason": "Backticks format an error message in a Markdown table. No executable syntax is present."
       },
       {
         "id": "external_commands:SKILL.md:259:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The matched backticks are Markdown inline formatting or fenced examples in SKILL.md. They are not Ruby code, and the skill has no mechanism that executes them automatically."
+        "confidence": 1,
+        "reason": "Backticks format an HTTP error in a Markdown table. No executable syntax is present."
       },
       {
         "id": "external_commands:SKILL.md:261:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The matched backticks are Markdown inline formatting or fenced examples in SKILL.md. They are not Ruby code, and the skill has no mechanism that executes them automatically."
+        "confidence": 1,
+        "reason": "Backticks format an exception message in a Markdown table. No executable syntax is present."
       },
       {
         "id": "external_commands:SKILL.md:265:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The matched backticks are Markdown inline formatting or fenced examples in SKILL.md. They are not Ruby code, and the skill has no mechanism that executes them automatically."
+        "confidence": 1,
+        "reason": "The detected token opens a YAML Markdown fence. It is documentation syntax, not command substitution."
       },
       {
         "id": "external_commands:SKILL.md:282:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The matched backticks are Markdown inline formatting or fenced examples in SKILL.md. They are not Ruby code, and the skill has no mechanism that executes them automatically."
+        "confidence": 1,
+        "reason": "The detected token closes a Markdown code fence. It cannot execute a command."
       },
       {
         "id": "external_commands:SKILL.md:286:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The matched backticks are Markdown inline formatting or fenced examples in SKILL.md. They are not Ruby code, and the skill has no mechanism that executes them automatically."
+        "confidence": 1,
+        "reason": "The detected token opens a YAML Markdown fence. It is documentation syntax, not command substitution."
       },
       {
         "id": "external_commands:SKILL.md:299:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The matched backticks are Markdown inline formatting or fenced examples in SKILL.md. They are not Ruby code, and the skill has no mechanism that executes them automatically."
+        "confidence": 1,
+        "reason": "The detected token closes a Markdown code fence. It cannot execute a command."
       },
       {
         "id": "external_commands:SKILL.md:303:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The matched backticks are Markdown inline formatting or fenced examples in SKILL.md. They are not Ruby code, and the skill has no mechanism that executes them automatically."
+        "confidence": 1,
+        "reason": "The detected token opens a YAML Markdown fence. It is documentation syntax, not command substitution."
       },
       {
         "id": "external_commands:SKILL.md:312:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The matched backticks are Markdown inline formatting or fenced examples in SKILL.md. They are not Ruby code, and the skill has no mechanism that executes them automatically."
+        "confidence": 1,
+        "reason": "The detected token closes a Markdown code fence. It cannot execute a command."
       },
       {
         "id": "external_commands:SKILL.md:316:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The matched backticks are Markdown inline formatting or fenced examples in SKILL.md. They are not Ruby code, and the skill has no mechanism that executes them automatically."
+        "confidence": 1,
+        "reason": "The detected token opens a YAML Markdown fence. It is documentation syntax, not command substitution."
       },
       {
         "id": "external_commands:SKILL.md:335:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The matched backticks are Markdown inline formatting or fenced examples in SKILL.md. They are not Ruby code, and the skill has no mechanism that executes them automatically."
+        "confidence": 1,
+        "reason": "The detected token closes a Markdown code fence. It cannot execute a command."
       },
       {
         "id": "external_commands:SKILL.md:341:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The matched backticks are Markdown inline formatting or fenced examples in SKILL.md. They are not Ruby code, and the skill has no mechanism that executes them automatically."
+        "confidence": 0.99,
+        "reason": "Backticks format an explicit local verification command in Markdown. The skill does not invoke the script automatically."
       },
       {
         "id": "external_commands:SKILL.md:345:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The matched backticks are Markdown inline formatting or fenced examples in SKILL.md. They are not Ruby code, and the skill has no mechanism that executes them automatically."
+        "confidence": 1,
+        "reason": "Backticks format a related skill name. There is no command or execution mechanism."
       },
       {
         "id": "external_commands:SKILL.md:346:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The matched backticks are Markdown inline formatting or fenced examples in SKILL.md. They are not Ruby code, and the skill has no mechanism that executes them automatically."
+        "confidence": 1,
+        "reason": "Backticks format a related skill name. There is no command or execution mechanism."
       },
       {
         "id": "network:SKILL.md:26:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "The URL is an api.example.com placeholder in a Dockerfile example. It is documentation and is not contacted by the skill."
+        "confidence": 1,
+        "reason": "The example.com address is an IANA-reserved placeholder used in a deliberately incorrect Dockerfile example. It is not a real service destination."
       },
       {
         "id": "network:SKILL.md:29:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "The URL is an api.example.com placeholder in a Docker build argument example. It is not an outbound request or credential sink."
+        "confidence": 1,
+        "reason": "The example.com address is an IANA-reserved placeholder demonstrating a build argument. It is not a real service destination."
       },
       {
         "id": "network:SKILL.md:46:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "The URL is an internal Kubernetes service example for SSO configuration. It is not external network behavior by the skill."
+        "confidence": 0.99,
+        "reason": "The URL is a Kubernetes internal service address documented as runtime configuration. It does not target an external host."
       },
       {
         "id": "network:SKILL.md:103:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.93,
-        "reason": "The URL is a templated GitHub Actions build argument using a domain variable. It is an example value, not automatic network access."
+        "confidence": 0.99,
+        "reason": "The hostname is composed from a repository variable in a GitHub Actions example. It is not a fixed or attacker-controlled endpoint."
       },
       {
         "id": "network:SKILL.md:104:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.93,
-        "reason": "The URL is a templated GitHub Actions build argument using a domain variable. It does not execute or transmit data by itself."
+        "confidence": 0.99,
+        "reason": "The hostname is composed from a repository variable in a GitHub Actions example. It is not a fixed or attacker-controlled endpoint."
       },
       {
         "id": "network:SKILL.md:190:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "These are example allowed origins used to demonstrate Helm comma parsing. They are placeholders and not destinations used by the skill."
+        "confidence": 1,
+        "reason": "The a.com and b.com origins are placeholders demonstrating Helm comma parsing. They do not represent operational destinations."
       },
       {
         "id": "network:SKILL.md:214:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "The localhost URL is a fallback in a TypeScript redirect example. It is not a hidden network request or exfiltration endpoint."
+        "confidence": 0.99,
+        "reason": "The localhost URL is a conventional development fallback for redirects. It does not create external network access or exfiltration."
       },
       {
         "id": "network:SKILL.md:273:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This is a placeholder Git repository URL in an example ArgoCD manifest. It is not used by executable skill code."
+        "confidence": 0.99,
+        "reason": "This is a placeholder Git repository URL inside an Argo CD manifest example. It does not initiate a request or identify a real destination."
       },
       {
         "id": "network:SKILL.md:276:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "This is the standard in-cluster Kubernetes API service address in sample YAML. It is deployment documentation, not autonomous network access."
+        "confidence": 0.99,
+        "reason": "This is Kubernetes standard in-cluster API service addressing in a declarative example. It is not an external or suspicious endpoint."
       },
       {
         "id": "network:SKILL.md:208:hardcoded-ip-address",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The 0.0.0.0 text appears in a troubleshooting heading describing a redirect bug. It is not a configured listener or outbound address."
+        "confidence": 1,
+        "reason": "The address appears only in an error heading describing an invalid container redirect. It is not configured as a connection target."
       },
       {
         "id": "filesystem:SKILL.md:187:temp-directory-access",
-        "verdict": "false_positive",
-        "confidence": 0.91,
-        "reason": "The /tmp path appears in a documented CI workaround that writes a temporary Helm values file. The skill does not create the file automatically."
+        "verdict": "confirmed",
+        "confidence": 0.82,
+        "reason": "The example writes to a predictable shared temporary path without secure creation or cleanup. Symlink attacks or stale files could redirect or alter deployment input.",
+        "severity": "medium"
       },
       {
         "id": "filesystem:SKILL.md:192:temp-directory-access",
-        "verdict": "false_positive",
-        "confidence": 0.91,
-        "reason": "The /tmp path is read by a sample Helm command after the example creates the same temporary values file. It is documentation, not autonomous filesystem access."
+        "verdict": "confirmed",
+        "confidence": 0.82,
+        "reason": "Helm consumes a predictable file from the shared temporary directory without ownership or permission checks. Another local process could replace the deployment input.",
+        "severity": "medium"
       },
       {
         "id": "env_access:SKILL.md:214:environment-variable-access-dot-notation",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "process.env.NEXT_PUBLIC_APP_URL is shown in a TypeScript redirect example. It reads a public application URL, not a secret or environment file."
+        "confidence": 0.99,
+        "reason": "The example reads one explicitly named public application URL and uses a localhost fallback. It does not enumerate or expose the environment."
       },
       {
         "id": "env_access:SKILL.md:214:environment-variable-object",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "process.env appears in a small TypeScript example for application URL configuration. There is no secret extraction or transmission."
+        "confidence": 0.99,
+        "reason": "The process.env object is used only to access one named public URL. No secret discovery, logging, or transmission occurs."
       },
       {
         "id": "env_access:SKILL.md:45:database-connection-strings",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "DATABASE_URL is listed as a variable name whose source should be a Kubernetes Secret. No connection string value is present."
+        "confidence": 0.99,
+        "reason": "The Markdown table contains only the DATABASE_URL variable name and correctly classifies it as a Secret. No connection string value is present."
       },
       {
         "id": "env_access:SKILL.md:114:database-connection-strings",
-        "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "The sample uses GitHub Actions secret interpolation rather than a literal database connection string. The static pattern does not show an embedded credential."
+        "verdict": "confirmed",
+        "confidence": 0.93,
+        "reason": "The workflow expands DATABASE_URL into a Helm command argument. Secret values can become visible to process inspection, shell tracing, or insufficiently masked CI logs.",
+        "severity": "high"
       },
       {
         "id": "sensitive:SKILL.md:214:environment-file-access",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "The example reads a single public environment variable through process.env. It does not access a .env file or enumerate environment contents."
+        "confidence": 1,
+        "reason": "The TypeScript reads a named environment variable through process.env; it never opens an environment file. The detected pattern does not match the code."
       },
       {
         "id": "blocker:SKILL.md:64:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "provenance: false is a Docker build setting shown in sample YAML. It does not perform host or system reconnaissance."
+        "confidence": 1,
+        "reason": "The line disables Buildx provenance in sample YAML. It performs no host, process, account, or network reconnaissance."
       }
     ],
-    "semantic_findings": [],
+    "semantic_findings": [
+      {
+        "title": "Overbroad Kubernetes Secret RBAC",
+        "description": "The sample Role grants get and list access to every Secret in the namespace. A compromised application could enumerate unrelated credentials.",
+        "severity": "high",
+        "locations": [
+          {
+            "file": "references/production-patterns.md",
+            "line_start": 191,
+            "line_end": 197
+          }
+        ],
+        "confidence": 0.98,
+        "confidence_reasoning": "The Role explicitly includes secrets with get and list verbs and no resourceNames restriction. This directly expands credential exposure."
+      },
+      {
+        "title": "Mutable GitHub Actions Dependencies",
+        "description": "CI examples reference actions by mutable major tags. A moved or compromised tag could execute changed code with workflow credentials.",
+        "severity": "medium",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 61,
+            "line_end": 61
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 82,
+            "line_end": 82
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 100,
+            "line_end": 100
+          }
+        ],
+        "confidence": 0.97,
+        "confidence_reasoning": "Each uses entry ends in a major-version tag instead of an immutable commit SHA. This is a recognized CI supply-chain risk."
+      },
+      {
+        "title": "Container Image Provenance Disabled",
+        "description": "The guidance repeatedly disables Buildx provenance. This removes attestations that can support image origin and build verification.",
+        "severity": "medium",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 60,
+            "line_end": 68
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 224,
+            "line_end": 226
+          }
+        ],
+        "confidence": 0.96,
+        "confidence_reasoning": "The setting is explicitly recommended and added to the deployment checklist. Its documented purpose confirms intentional attestation removal."
+      }
+    ],
     "critical_findings": [],
-    "high_findings": [],
-    "medium_findings": [],
-    "low_findings": [],
+    "high_findings": [
+      {
+        "title": "Database connection strings",
+        "description": "--set \"secrets.databaseUrl=${{ secrets.DATABASE_URL }}\" \\",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 114,
+            "line_end": 114
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "env_access",
+        "source_severity": "high",
+        "confidence": 0.93,
+        "confidence_reasoning": "The workflow expands DATABASE_URL into a Helm command argument. Secret values can become visible to process inspection, shell tracing, or insufficiently masked CI logs."
+      },
+      {
+        "title": "Overbroad Kubernetes Secret RBAC",
+        "description": "The sample Role grants get and list access to every Secret in the namespace. A compromised application could enumerate unrelated credentials.",
+        "locations": [
+          {
+            "file": "references/production-patterns.md",
+            "line_start": 191,
+            "line_end": 197
+          }
+        ],
+        "review_kind": "security",
+        "source_category": "semantic",
+        "source_severity": "high",
+        "confidence": 0.98,
+        "confidence_reasoning": "The Role explicitly includes secrets with get and list verbs and no resourceNames restriction. This directly expands credential exposure."
+      }
+    ],
+    "medium_findings": [
+      {
+        "title": "Temp directory access",
+        "description": "cat > /tmp/overrides.yaml << EOF",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 187,
+            "line_end": 187
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "filesystem",
+        "source_severity": "medium",
+        "confidence": 0.82,
+        "confidence_reasoning": "The example writes to a predictable shared temporary path without secure creation or cleanup. Symlink attacks or stale files could redirect or alter deployment input."
+      },
+      {
+        "title": "Temp directory access",
+        "description": "helm upgrade --install app ./chart --values /tmp/overrides.yaml",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 192,
+            "line_end": 192
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "filesystem",
+        "source_severity": "medium",
+        "confidence": 0.82,
+        "confidence_reasoning": "Helm consumes a predictable file from the shared temporary directory without ownership or permission checks. Another local process could replace the deployment input."
+      },
+      {
+        "title": "Mutable GitHub Actions Dependencies",
+        "description": "CI examples reference actions by mutable major tags. A moved or compromised tag could execute changed code with workflow credentials.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 61,
+            "line_end": 61
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 82,
+            "line_end": 82
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 100,
+            "line_end": 100
+          }
+        ],
+        "review_kind": "security",
+        "source_category": "semantic",
+        "source_severity": "medium",
+        "confidence": 0.97,
+        "confidence_reasoning": "Each uses entry ends in a major-version tag instead of an immutable commit SHA. This is a recognized CI supply-chain risk."
+      },
+      {
+        "title": "Container Image Provenance Disabled",
+        "description": "The guidance repeatedly disables Buildx provenance. This removes attestations that can support image origin and build verification.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 60,
+            "line_end": 68
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 224,
+            "line_end": 226
+          }
+        ],
+        "review_kind": "security",
+        "source_category": "semantic",
+        "source_severity": "medium",
+        "confidence": 0.96,
+        "confidence_reasoning": "The setting is explicitly recommended and added to the deployment checklist. Its documented purpose confirms intentional attestation removal."
+      }
+    ],
+    "low_findings": [
+      {
+        "title": "Hardcoded URL",
+        "description": "kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/insta",
+        "locations": [
+          {
+            "file": "references/production-patterns.md",
+            "line_start": 9,
+            "line_end": 9
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "network",
+        "source_severity": "low",
+        "confidence": 0.98,
+        "confidence_reasoning": "The command applies a remote Argo CD manifest from the mutable stable branch directly to the cluster. A compromised or changed upstream file could alter cluster resources."
+      }
+    ],
     "dangerous_patterns": [],
     "files_scanned": 3,
     "total_lines": 817,
     "audit_model": "codex",
-    "audited_at": "2026-07-07T21:20:17.221Z",
-    "agent_auto_install_policy": "allowed",
+    "audited_at": "2026-07-23T05:46:31.754Z",
+    "agent_auto_install_policy": "confirmation_required",
     "manual_install_policy": "allowed"
   },
   "content": {
-    "user_title": "Deploy Production Apps to Cloud Kubernetes",
-    "value_statement": "Cloud Kubernetes deployments fail when builds, secrets, and runtime settings drift. This skill guides AKS, GKE, and DOKS deployments with CI/CD, Helm, and troubleshooting patterns.",
+    "user_title": "Deploy Applications to Cloud Kubernetes",
+    "value_statement": "Production Kubernetes deployments often fail because images, variables, pipelines, and clusters use incompatible settings. This skill provides practical deployment, GitOps, security, observability, and troubleshooting guidance.",
     "seo_keywords": [
-      "Claude",
-      "Codex",
-      "Claude Code",
       "Kubernetes deployment",
-      "cloud Kubernetes",
       "AKS",
       "GKE",
       "DOKS",
-      "Helm CI/CD",
-      "GitHub Actions"
+      "GitHub Actions CI/CD",
+      "Helm",
+      "ArgoCD",
+      "Claude",
+      "Codex",
+      "Claude Code"
     ],
     "actual_capabilities": [
-      "Explains build-time and runtime variables for Next.js Kubernetes deployments.",
-      "Shows GitHub Actions path filters and Docker build platform settings.",
-      "Guides Helm deployment with image tags, values overrides, and release commands.",
-      "Diagnoses ImagePullBackOff, CrashLoopBackOff, and CPU architecture mismatches.",
-      "References GitOps, observability, RBAC, network policy, HPA, and PDB patterns."
+      "Distinguishes Next.js build-time variables from Kubernetes runtime configuration.",
+      "Guides cluster architecture detection and matching Docker build platforms.",
+      "Provides GitHub Actions patterns for selective builds and Helm deployments.",
+      "Supplies Kubernetes commands for pod, event, image, and application log diagnosis.",
+      "Explains Argo CD, Kustomize, Prometheus, autoscaling, probes, and disruption budgets.",
+      "Provides examples for security contexts, NetworkPolicies, RBAC, and external secrets."
     ],
     "limitations": [
-      "It does not connect to a cluster or deploy workloads by itself.",
-      "Examples use placeholders and require environment-specific review before use.",
-      "It does not replace cloud IAM, network, or compliance review.",
-      "It focuses on web application deployment, not every Kubernetes workload type."
+      "The skill does not authenticate to cloud providers or provision managed clusters.",
+      "All example names, domains, namespaces, platforms, and resource values require project-specific review.",
+      "Cloud IAM, billing, registry creation, and provider-specific networking are outside its detailed scope.",
+      "Several secret-handling and supply-chain examples require security hardening before production use."
     ],
     "use_cases": [
       {
-        "title": "Prepare a Cloud Kubernetes Release",
-        "description": "Plan build platforms, Helm values, image tags, and runtime variables before production deployment.",
-        "target_user": "Platform engineer"
+        "title": "Prepare a First Managed Deployment",
+        "description": "Create a deployment checklist covering image architecture, build variables, Helm values, namespaces, and basic runtime validation.",
+        "target_user": "Application developer"
       },
       {
-        "title": "Create a CI/CD Deployment Flow",
-        "description": "Build a GitHub Actions workflow with path filters, Docker build settings, and Helm release steps.",
+        "title": "Build a Selective Delivery Pipeline",
+        "description": "Plan GitHub Actions jobs that build changed services, publish matching images, and deploy reviewed Helm releases.",
         "target_user": "DevOps engineer"
       },
       {
-        "title": "Troubleshoot a Failed Rollout",
-        "description": "Use Kubernetes events, logs, image errors, and architecture checks to isolate deployment failures.",
-        "target_user": "Application developer"
+        "title": "Stabilize a Production Cluster",
+        "description": "Review GitOps, observability, RBAC, pod security, autoscaling, probes, and disruption controls for an existing workload.",
+        "target_user": "Platform engineer"
       }
     ],
     "prompt_templates": [
       {
-        "title": "Check Deployment Readiness",
-        "scenario": "Beginner review before the first cloud Kubernetes deploy.",
-        "prompt": "Use this skill to review my Kubernetes deployment plan. Check build platform, runtime variables, image tags, Helm values, and missing production steps."
+        "title": "Create a Deployment Checklist",
+        "prompt": "Create a deployment checklist for my application on [AKS, GKE, or DOKS]. Include architecture, variables, images, Helm, and validation steps.",
+        "scenario": "Beginner planning a first deployment"
       },
       {
-        "title": "Design a CI/CD Pipeline",
-        "scenario": "Intermediate setup for GitHub Actions and Helm.",
-        "prompt": "Use this skill to design a GitHub Actions pipeline for my app. Include path filters, Docker build settings, image tagging, and Helm deployment steps."
+        "title": "Diagnose a Failed Pod",
+        "prompt": "Diagnose this Kubernetes pod failure: [status and logs]. Rank likely causes, request missing evidence, and provide safe verification steps.",
+        "scenario": "Developer troubleshooting a deployment"
       },
       {
-        "title": "Debug a Rollout Failure",
-        "scenario": "Intermediate incident response for a failing Kubernetes release.",
-        "prompt": "Use this skill to troubleshoot my failed rollout. I will provide pod status, events, logs, image tag, cluster architecture, and Helm release details."
+        "title": "Design a CI/CD Workflow",
+        "prompt": "Design a GitHub Actions and Helm workflow for [repository structure]. Include path filters, architecture matching, secret references, approvals, and rollback checks.",
+        "scenario": "DevOps engineer building delivery automation"
       },
       {
-        "title": "Review Production Patterns",
-        "scenario": "Advanced review of GitOps, observability, security, and resilience.",
-        "prompt": "Use this skill to review my production Kubernetes architecture. Evaluate GitOps structure, observability, RBAC, network policy, autoscaling, and disruption handling."
+        "title": "Review Production Kubernetes Controls",
+        "prompt": "Review my deployment approach for GitOps, immutable dependencies, least-privilege RBAC, image provenance, observability, resilience, secret handling, and recovery. Prioritize risks.",
+        "scenario": "Platform engineer conducting an advanced production review"
       }
     ],
     "output_examples": [
       {
-        "input": "A user asks why a pod fails with an architecture error after deployment.",
+        "input": "The pod reports ImagePullBackOff after a new release.",
         "output": [
-          "The response identifies a likely build platform mismatch.",
-          "It asks for node architecture and image platform details.",
-          "It recommends rebuilding the image for the cluster architecture and redeploying with a fresh tag."
+          "First compare the deployed image tag with the registry tag.",
+          "Then verify registry credentials and the image repository path.",
+          "Finally inspect events for architecture or manifest compatibility errors."
         ]
       },
       {
-        "input": "A team wants a production checklist before deploying a Next.js app to GKE.",
+        "input": "Plan a Next.js deployment with separate browser and server configuration.",
         "output": [
-          "The response separates build-time public variables from runtime secrets.",
-          "It checks Docker platform settings, Helm values, and image tag consistency.",
-          "It includes validation steps for logs, events, ingress, and service connectivity."
+          "Classify public browser variables as image build inputs.",
+          "Keep database and authentication values in managed runtime secrets.",
+          "Validate redirect URLs and internal service names after deployment."
         ]
       },
       {
-        "input": "A platform engineer asks for production Kubernetes patterns.",
+        "input": "Review a production workload for resilience.",
         "output": [
-          "The response outlines GitOps structure, monitoring, security controls, and resilience settings.",
-          "It calls out where placeholders must be replaced with real cluster values.",
-          "It recommends validating RBAC, network policy, autoscaling, and disruption budgets before release."
+          "Set realistic resource requests before configuring autoscaling.",
+          "Add startup, readiness, and liveness probes with distinct purposes.",
+          "Use multiple replicas and a disruption budget for planned maintenance."
         ]
       }
     ],
     "best_practices": [
-      "Confirm cluster CPU architecture before building container images.",
-      "Separate build-time public variables from runtime secrets and configuration.",
-      "Use Kubernetes events, pod descriptions, and logs before changing deployment settings."
+      "Confirm node architecture before selecting a Docker build platform.",
+      "Pin remote manifests and CI actions to reviewed immutable versions.",
+      "Reference managed secrets without placing secret values in command arguments."
     ],
     "anti_patterns": [
-      "Do not assume amd64 images will run on arm64 clusters.",
-      "Do not rely on runtime environment variables for Next.js public browser values.",
-      "Do not debug Helm values by repeatedly changing production releases without checking rendered output."
+      "Do not treat public build variables and runtime secrets as interchangeable.",
+      "Do not deploy mutable tags or remote manifests without review and verification.",
+      "Do not grant applications broad namespace access to Kubernetes Secrets."
     ],
     "faq": [
       {
-        "question": "Which Kubernetes platforms does this skill cover?",
-        "answer": "It focuses on cloud Kubernetes platforms such as AKS, GKE, and DOKS."
+        "question": "Which managed Kubernetes services does this skill cover?",
+        "answer": "It targets common deployment patterns for AKS, GKE, and DOKS. Most guidance also applies to other conformant Kubernetes services."
       },
       {
-        "question": "Can this skill deploy my application automatically?",
-        "answer": "No. It provides deployment guidance, examples, and troubleshooting steps for an AI assistant or engineer to apply."
+        "question": "Can this skill create my cloud cluster?",
+        "answer": "No. It focuses on application delivery and operations after cluster access exists."
       },
       {
-        "question": "Does it support GitHub Actions?",
-        "answer": "Yes. It includes guidance for path filters, Docker build settings, image tagging, and Helm deployment steps."
+        "question": "Does it generate a complete production pipeline?",
+        "answer": "It can help design one, but repository layout, credentials, approval rules, and provider settings still require project-specific decisions."
       },
       {
-        "question": "Does it handle Next.js environment variables?",
-        "answer": "Yes. It explains which variables must be supplied at build time and which belong in runtime configuration."
+        "question": "How does it handle Next.js public variables?",
+        "answer": "It treats NEXT_PUBLIC variables as build-time inputs because Next.js embeds them in browser bundles."
       },
       {
-        "question": "What deployment failures can it help diagnose?",
-        "answer": "It covers image pull failures, platform mismatches, crash loops, pending pods, Helm parsing issues, and runtime URL problems."
+        "question": "Can it troubleshoot failed deployments?",
+        "answer": "Yes. It covers image pulls, architecture mismatches, crash loops, pending pods, logs, events, Helm parsing, and redirect problems."
       },
       {
-        "question": "Is this a replacement for a security review?",
-        "answer": "No. Production clusters still need IAM, network, secret, and compliance review by the responsible team."
+        "question": "Is every included example production-ready?",
+        "answer": "No. Replace placeholders and harden dependency pinning, secret delivery, temporary files, RBAC, and provenance settings before production use."
       }
     ]
   },

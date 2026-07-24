@@ -1,7 +1,7 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-07-07T19:53:53.238Z",
+    "generated_at": "2026-07-23T04:37:04.976Z",
     "slug": "artemxtech-tasknotes",
     "source_url": "https://github.com/ArtemXTech/personal-os-skills/tree/main/skills/tasknotes",
     "source_ref": "main",
@@ -23,18 +23,17 @@
   },
   "skill": {
     "name": "tasknotes",
-    "description": "Manage Obsidian TaskNotes tasks through the local plugin API for listing, creating, updating, deleting, statistics, and options.",
-    "summary": "Create, list, update, and delete TaskNotes tasks in Obsidian through the local HTTP API.",
+    "description": "Manage Obsidian TaskNotes through its local API, including task listing, filtering, creation, updates, deletion, statistics, and configuration discovery.",
+    "summary": "Manage Obsidian tasks through the local TaskNotes API.",
     "icon": "📦",
-    "version": "1.0.1",
     "author": "ArtemXTech",
     "license": "MIT",
     "tags": [
       "obsidian",
       "tasknotes",
       "task-management",
-      "local-api",
-      "productivity"
+      "productivity",
+      "automation"
     ],
     "supported_tools": [
       "claude",
@@ -53,26 +52,21 @@
     "is_blocked": false,
     "safe_to_publish": false,
     "analysis_status": "ok",
-    "summary": "The skill intentionally runs local CLI commands and uses the TaskNotes localhost HTTP API to read, create, update, and delete Obsidian tasks. No prompt injection or external cloud endpoint was found, but the skill handles an API token, loads a vault-root .env file, and has mutating and destructive task operations.",
+    "summary": "Most static findings are false positives caused by Markdown backticks, placeholders, or intended requests to the local TaskNotes API. Semantic review found unvalidated URL construction, optional authentication, and deletion without confirmation. No prompt injection or malicious exfiltration intent was found.",
     "remediation": [
       {
-        "issue": "API port value is not validated before URL construction.",
-        "suggestion": "Parse TASKNOTES_API_PORT as an integer from 1 to 65535 and reject values containing URL metacharacters before building BASE_URL.",
+        "issue": "TASKNOTES_API_PORT can alter the request authority and redirect bearer credentials.",
+        "suggestion": "Accept only integer ports from 1 through 65535, keep the hostname fixed, and send authorization only to the expected origin.",
         "severity": "high"
       },
       {
-        "issue": "The script loads a vault-root .env file.",
-        "suggestion": "Use a skill-specific config file or read only explicit process variables, and document that unrelated secrets should not be placed in that .env file.",
-        "severity": "high"
-      },
-      {
-        "issue": "Delete operations have no built-in confirmation or dry run.",
-        "suggestion": "Require a --force flag, add a confirmation prompt for interactive use, or prefer archive behavior when the TaskNotes API supports it.",
+        "issue": "Task creation, updates, and deletion can use an unauthenticated local API.",
+        "suggestion": "Require a TaskNotes token for mutation commands and recommend authenticated API configuration in the setup guide.",
         "severity": "medium"
       },
       {
-        "issue": "The skill documents mutating shell commands for agents.",
-        "suggestion": "State that create, update, and delete commands should be confirmed by the user before execution in agent workflows.",
+        "issue": "The delete command performs a destructive request without confirmation.",
+        "suggestion": "Add an interactive confirmation and a separate explicit flag for approved noninteractive deletion.",
         "severity": "medium"
       }
     ],
@@ -973,427 +967,408 @@
     "finding_verdicts": [
       {
         "id": "network:scripts/tasks.py:49:http-client-library",
-        "verdict": "confirmed",
-        "confidence": 0.82,
-        "reason": "api_request constructs HTTP calls to the TaskNotes API and is used by list, create, update, delete, stats, and options commands. The endpoint is intended for localhost, but this confirms network access to task data.",
-        "severity": "low"
+        "verdict": "false_positive",
+        "confidence": 0.98,
+        "reason": "This line declares the API helper and makes no request by itself. Its callers implement the skill's documented local TaskNotes operations."
       },
       {
         "id": "network:scripts/tasks.py:53:http-client-library",
-        "verdict": "confirmed",
-        "confidence": 0.9,
-        "reason": "requests.request sends parameters, JSON bodies, and headers to BASE_URL. The URL is intended for localhost, but the skill performs real HTTP network I/O.",
-        "severity": "low"
+        "verdict": "false_positive",
+        "confidence": 0.94,
+        "reason": "The request is necessary for the documented local TaskNotes operation and uses fixed API paths. The URL validation weakness is recorded separately."
       },
       {
         "id": "network:scripts/tasks.py:83:http-client-library",
-        "verdict": "confirmed",
-        "confidence": 0.88,
-        "reason": "GET /tasks reads TaskNotes task metadata from the local Obsidian API. This is intended behavior, but it confirms task data access over HTTP.",
-        "severity": "low"
+        "verdict": "false_positive",
+        "confidence": 0.94,
+        "reason": "The request is necessary for the documented local TaskNotes operation and uses fixed API paths. The URL validation weakness is recorded separately."
       },
       {
         "id": "network:scripts/tasks.py:152:http-client-library",
-        "verdict": "confirmed",
-        "confidence": 0.88,
-        "reason": "POST /tasks creates TaskNotes entries through the local API. This is an intended but mutating network operation against the user vault.",
-        "severity": "medium"
+        "verdict": "false_positive",
+        "confidence": 0.94,
+        "reason": "The request is necessary for the documented local TaskNotes operation and uses fixed API paths. The URL validation weakness is recorded separately."
       },
       {
         "id": "network:scripts/tasks.py:189:http-client-library",
-        "verdict": "confirmed",
-        "confidence": 0.88,
-        "reason": "PUT /tasks/{id} updates existing task records through the local API. This can alter task metadata and body details in the vault.",
-        "severity": "medium"
+        "verdict": "false_positive",
+        "confidence": 0.94,
+        "reason": "The request is necessary for the documented local TaskNotes operation and uses fixed API paths. The URL validation weakness is recorded separately."
       },
       {
         "id": "network:scripts/tasks.py:206:http-client-library",
-        "verdict": "confirmed",
-        "confidence": 0.9,
-        "reason": "DELETE /tasks/{id} removes a task through the local API. This is a destructive operation even though it is part of the skill purpose.",
-        "severity": "medium"
+        "verdict": "false_positive",
+        "confidence": 0.94,
+        "reason": "The request is necessary for the documented local TaskNotes operation and uses fixed API paths. The URL validation weakness is recorded separately."
       },
       {
         "id": "network:scripts/tasks.py:219:http-client-library",
-        "verdict": "confirmed",
-        "confidence": 0.84,
-        "reason": "GET /stats reads aggregate task information from the local API. It is low risk, but it is still network access to user task data.",
-        "severity": "low"
+        "verdict": "false_positive",
+        "confidence": 0.94,
+        "reason": "The request is necessary for the documented local TaskNotes operation and uses fixed API paths. The URL validation weakness is recorded separately."
       },
       {
         "id": "network:scripts/tasks.py:238:http-client-library",
-        "verdict": "confirmed",
-        "confidence": 0.84,
-        "reason": "GET /filter-options reads project, status, and priority metadata from TaskNotes. It is expected local API access, not external exfiltration.",
-        "severity": "low"
+        "verdict": "false_positive",
+        "confidence": 0.94,
+        "reason": "The request is necessary for the documented local TaskNotes operation and uses fixed API paths. The URL validation weakness is recorded separately."
       },
       {
         "id": "network:scripts/tasks.py:53:python-http-libraries",
-        "verdict": "confirmed",
-        "confidence": 0.9,
-        "reason": "The requests library is used to send actual HTTP requests to BASE_URL. Context shows the calls target the local TaskNotes API.",
-        "severity": "low"
+        "verdict": "false_positive",
+        "confidence": 0.94,
+        "reason": "The request is necessary for the documented local TaskNotes operation and uses fixed API paths. The URL validation weakness is recorded separately."
       },
       {
         "id": "network:scripts/tasks.py:58:python-http-libraries",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "This line only catches requests.exceptions.ConnectionError. It does not initiate a network request or transfer data."
+        "confidence": 0.99,
+        "reason": "The cited line references requests exception classes for error handling. It does not initiate a network request."
       },
       {
         "id": "network:scripts/tasks.py:60:python-http-libraries",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "This line only catches requests.exceptions.HTTPError. It is error handling, not a network operation."
+        "confidence": 0.99,
+        "reason": "The cited line references requests exception classes for error handling. It does not initiate a network request."
       },
       {
         "id": "network:scripts/tasks.py:39:hardcoded-url",
-        "verdict": "confirmed",
-        "confidence": 0.78,
-        "reason": "BASE_URL hardcodes an HTTP localhost API endpoint with an environment-supplied port. It is not an external domain, but it confirms local HTTP API use.",
-        "severity": "low"
+        "verdict": "false_positive",
+        "confidence": 0.95,
+        "reason": "The configured endpoint intentionally uses localhost for TaskNotes. The separate risk from failing to validate the port value is recorded as a semantic finding."
       },
       {
         "id": "env_access:scripts/tasks.py:37:python-getenv-function",
-        "verdict": "confirmed",
-        "confidence": 0.82,
-        "reason": "The script reads TASKNOTES_API_KEY from the environment for API authentication. This is legitimate, but it is real access to sensitive configuration.",
-        "severity": "medium"
+        "verdict": "false_positive",
+        "confidence": 0.97,
+        "reason": "The code reads only the named TaskNotes authentication variable required by the documented local API."
       },
       {
         "id": "env_access:scripts/tasks.py:38:python-getenv-function",
-        "verdict": "confirmed",
-        "confidence": 0.72,
-        "reason": "The script reads TASKNOTES_API_PORT from the environment and uses it to construct the API URL. This is configuration access that influences the network target.",
-        "severity": "low"
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "The code reads the documented TaskNotes port setting with a local default. The missing numeric validation is recorded as a semantic finding."
       },
       {
         "id": "env_access:scripts/tasks.py:37:getenv-function-call",
-        "verdict": "confirmed",
-        "confidence": 0.82,
-        "reason": "os.getenv reads TASKNOTES_API_KEY, which can contain an authentication token. The value is later used in the Authorization header.",
-        "severity": "medium"
+        "verdict": "false_positive",
+        "confidence": 0.97,
+        "reason": "The code reads only the named TaskNotes authentication variable required by the documented local API."
       },
       {
         "id": "env_access:scripts/tasks.py:38:getenv-function-call",
-        "verdict": "confirmed",
-        "confidence": 0.72,
-        "reason": "os.getenv reads TASKNOTES_API_PORT and feeds endpoint construction. The value is not a secret, but it controls connection behavior.",
-        "severity": "low"
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "The code reads the documented TaskNotes port setting with a local default. The missing numeric validation is recorded as a semantic finding."
       },
       {
         "id": "env_access:scripts/tasks.py:4:dotenv-library",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "This is only a script dependency declaration for python-dotenv. Actual environment file loading is covered by the load_dotenv findings."
+        "confidence": 0.99,
+        "reason": "The line declares python-dotenv as a dependency. A dependency declaration does not access environment data."
       },
       {
         "id": "env_access:scripts/tasks.py:30:dotenv-library",
-        "verdict": "confirmed",
-        "confidence": 0.68,
-        "reason": "The dotenv import enables the load_dotenv call later in the file. By itself it is not dangerous, but context confirms environment-file support.",
-        "severity": "low"
+        "verdict": "false_positive",
+        "confidence": 0.99,
+        "reason": "The line imports the dotenv loader but does not read a file or environment variable."
       },
       {
         "id": "env_access:scripts/tasks.py:35:dotenv-library",
-        "verdict": "confirmed",
-        "confidence": 0.92,
-        "reason": "load_dotenv reads a .env file from the computed vault root. This can load sensitive variables into the process.",
-        "severity": "high"
+        "verdict": "false_positive",
+        "confidence": 0.94,
+        "reason": "The loader reads one fixed vault configuration file for TaskNotes settings. The code accesses only the named key and port variables."
       },
       {
         "id": "env_access:scripts/tasks.py:30:python-dotenv-loader",
-        "verdict": "confirmed",
-        "confidence": 0.68,
-        "reason": "The python-dotenv import is part of an actual dotenv loading flow at line 35. It confirms environment-file handling in the skill.",
-        "severity": "low"
+        "verdict": "false_positive",
+        "confidence": 0.99,
+        "reason": "The line imports the dotenv loader but does not read a file or environment variable."
       },
       {
         "id": "env_access:scripts/tasks.py:35:python-dotenv-loader",
-        "verdict": "confirmed",
-        "confidence": 0.92,
-        "reason": "The loader reads the vault-root .env file before any command is executed. This is real environment file access, not a placeholder.",
-        "severity": "high"
+        "verdict": "false_positive",
+        "confidence": 0.94,
+        "reason": "The loader reads one fixed vault configuration file for TaskNotes settings. The code accesses only the named key and port variables."
       },
       {
         "id": "env_access:scripts/tasks.py:18:generic-api-secret-keys",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "The docstring names TASKNOTES_API_KEY but does not include a credential value. No hardcoded secret is present on this line."
+        "confidence": 0.99,
+        "reason": "The cited line only documents the expected variable name. It contains no credential value."
       },
       {
         "id": "env_access:scripts/tasks.py:37:generic-api-secret-keys",
-        "verdict": "confirmed",
-        "confidence": 0.78,
-        "reason": "No secret is hardcoded, but the code reads TASKNOTES_API_KEY from the environment. A community skill handling API tokens is security-sensitive.",
-        "severity": "high"
+        "verdict": "false_positive",
+        "confidence": 0.97,
+        "reason": "The code reads one named TaskNotes token from the environment. It does not enumerate, log, or embed secrets."
       },
       {
         "id": "env_access:scripts/tasks.py:44:generic-api-secret-keys",
-        "verdict": "confirmed",
-        "confidence": 0.74,
-        "reason": "The conditional shows API_KEY is used in the request flow when present. This confirms runtime credential handling, although the value is user supplied.",
-        "severity": "high"
+        "verdict": "false_positive",
+        "confidence": 0.99,
+        "reason": "The condition only checks whether the configured TaskNotes token exists. It does not reveal or transform the token."
       },
       {
         "id": "env_access:scripts/tasks.py:45:generic-api-secret-keys",
-        "verdict": "confirmed",
-        "confidence": 0.82,
-        "reason": "The API key is placed into an Authorization bearer header for HTTP requests. If the endpoint is misconfigured, the token could be exposed.",
-        "severity": "high"
+        "verdict": "false_positive",
+        "confidence": 0.94,
+        "reason": "The token is used as intended for TaskNotes bearer authentication. The possible destination change from an invalid port value is recorded separately."
       },
       {
         "id": "sensitive:scripts/tasks.py:32:environment-file-access",
-        "verdict": "confirmed",
-        "confidence": 0.82,
-        "reason": "The comment describes loading .env from the vault root, and the following code performs that load. A vault-root environment file may contain unrelated secrets.",
-        "severity": "high"
+        "verdict": "false_positive",
+        "confidence": 0.99,
+        "reason": "The cited line is a comment describing the next fixed-path configuration load. It performs no file access."
       },
       {
         "id": "sensitive:scripts/tasks.py:35:environment-file-access",
-        "verdict": "confirmed",
-        "confidence": 0.93,
-        "reason": "load_dotenv(VAULT_ROOT / \".env\") reads an environment file outside the skill directory. This is sensitive file access in a community skill.",
-        "severity": "high"
+        "verdict": "false_positive",
+        "confidence": 0.94,
+        "reason": "The code loads a fixed vault configuration file for documented TaskNotes settings. It does not enumerate or transmit the file contents."
       },
       {
         "id": "blocker:scripts/tasks.py:169:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "urllib.parse.quote URL-encodes a user supplied task id before an API request. It is input sanitization, not system reconnaissance."
+        "confidence": 0.99,
+        "reason": "The code URL-encodes a supplied task identifier before adding it to an API path. This is defensive input handling, not system reconnaissance."
       },
       {
         "id": "blocker:scripts/tasks.py:205:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "urllib.parse.quote URL-encodes the task id for DELETE /tasks/{id}. It does not inspect the system or gather host information."
+        "confidence": 0.99,
+        "reason": "The code URL-encodes a supplied task identifier before adding it to an API path. This is defensive input handling, not system reconnaissance."
       },
       {
         "id": "external_commands:SKILL.md:18:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "The backticks describe a .env file path in markdown. There is no shell execution on this line."
+        "confidence": 0.99,
+        "reason": "The cited text is Markdown formatting, inline field names, or documented uv commands. It contains no Ruby backtick operator or dynamic shell execution."
       },
       {
         "id": "external_commands:SKILL.md:19:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.93,
-        "reason": "The fenced block contains .env key-value examples, not commands to execute. It includes a placeholder token value only."
+        "confidence": 0.99,
+        "reason": "The cited text is Markdown formatting, inline field names, or documented uv commands. It contains no Ruby backtick operator or dynamic shell execution."
       },
       {
         "id": "external_commands:SKILL.md:22:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "This is a closing markdown fence. It is not executable code or a shell command."
+        "confidence": 0.99,
+        "reason": "The cited text is Markdown formatting, inline field names, or documented uv commands. It contains no Ruby backtick operator or dynamic shell execution."
       },
       {
         "id": "external_commands:SKILL.md:23:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "The line documents when a .env file is unnecessary. It does not ask the agent to run a command."
+        "confidence": 0.99,
+        "reason": "The cited text is Markdown formatting, inline field names, or documented uv commands. It contains no Ruby backtick operator or dynamic shell execution."
       },
       {
         "id": "external_commands:SKILL.md:27:ruby-shell-backtick-execution",
-        "verdict": "confirmed",
-        "confidence": 0.87,
-        "reason": "The bash block documents uv run scripts/tasks.py commands that agents may execute, including create, update, and delete. The commands are local and purposeful, but external command execution is real.",
-        "severity": "medium"
+        "verdict": "false_positive",
+        "confidence": 0.99,
+        "reason": "The cited text is Markdown formatting, inline field names, or documented uv commands. It contains no Ruby backtick operator or dynamic shell execution."
       },
       {
         "id": "external_commands:SKILL.md:57:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.91,
-        "reason": "This finding points to the end of a markdown command block and nearby prose. The line itself does not introduce a separate executable command."
+        "confidence": 0.99,
+        "reason": "The cited text is Markdown formatting, inline field names, or documented uv commands. It contains no Ruby backtick operator or dynamic shell execution."
       },
       {
         "id": "external_commands:SKILL.md:61:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "The backticks wrap the word options as a command name in prose. It is documentation text, not shell execution."
+        "confidence": 0.99,
+        "reason": "The cited text is Markdown formatting, inline field names, or documented uv commands. It contains no Ruby backtick operator or dynamic shell execution."
       },
       {
         "id": "external_commands:SKILL.md:62:ruby-shell-backtick-execution",
-        "verdict": "confirmed",
-        "confidence": 0.83,
-        "reason": "The fenced bash example runs uv run scripts/tasks.py options --table. This is local command execution for discovery of configured TaskNotes values.",
-        "severity": "medium"
+        "verdict": "false_positive",
+        "confidence": 0.99,
+        "reason": "The cited text is Markdown formatting, inline field names, or documented uv commands. It contains no Ruby backtick operator or dynamic shell execution."
       },
       {
         "id": "external_commands:SKILL.md:64:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This is a closing markdown fence followed by field documentation. It does not contain an executable shell command."
+        "confidence": 0.99,
+        "reason": "The cited text is Markdown formatting, inline field names, or documented uv commands. It contains no Ruby backtick operator or dynamic shell execution."
       },
       {
         "id": "external_commands:SKILL.md:67:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "Backticks mark the projects field name and an example array. This is markdown formatting, not command execution."
+        "confidence": 0.99,
+        "reason": "The cited text is Markdown formatting, inline field names, or documented uv commands. It contains no Ruby backtick operator or dynamic shell execution."
       },
       {
         "id": "external_commands:SKILL.md:68:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "Backticks mark the contexts field name and example values. There is no shell command."
+        "confidence": 0.99,
+        "reason": "The cited text is Markdown formatting, inline field names, or documented uv commands. It contains no Ruby backtick operator or dynamic shell execution."
       },
       {
         "id": "external_commands:SKILL.md:69:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "Backticks mark the due field name. This is task property documentation, not execution."
+        "confidence": 0.99,
+        "reason": "The cited text is Markdown formatting, inline field names, or documented uv commands. It contains no Ruby backtick operator or dynamic shell execution."
       },
       {
         "id": "external_commands:SKILL.md:70:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "Backticks mark the scheduled field name. The line documents a date format, not a command."
+        "confidence": 0.99,
+        "reason": "The cited text is Markdown formatting, inline field names, or documented uv commands. It contains no Ruby backtick operator or dynamic shell execution."
       },
       {
         "id": "external_commands:SKILL.md:71:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "Backticks mark the timeEstimate field name. No shell or subprocess behavior is present."
+        "confidence": 0.99,
+        "reason": "The cited text is Markdown formatting, inline field names, or documented uv commands. It contains no Ruby backtick operator or dynamic shell execution."
       },
       {
         "id": "external_commands:SKILL.md:72:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "Backticks mark the tags field name. This is markdown formatting only."
+        "confidence": 0.99,
+        "reason": "The cited text is Markdown formatting, inline field names, or documented uv commands. It contains no Ruby backtick operator or dynamic shell execution."
       },
       {
         "id": "external_commands:SKILL.md:73:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "Backticks mark the details field name. The text describes task content, not external command execution."
+        "confidence": 0.99,
+        "reason": "The cited text is Markdown formatting, inline field names, or documented uv commands. It contains no Ruby backtick operator or dynamic shell execution."
       },
       {
         "id": "external_commands:SKILL.md:77:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "Backticks wrap a localhost URL. This is API documentation and not Ruby or shell execution."
+        "confidence": 0.99,
+        "reason": "The cited text is Markdown formatting, inline field names, or documented uv commands. It contains no Ruby backtick operator or dynamic shell execution."
       },
       {
         "id": "external_commands:SKILL.md:90:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "Backticks mark the status query parameter. This is API documentation, not a command."
+        "confidence": 0.99,
+        "reason": "The cited text is Markdown formatting, inline field names, or documented uv commands. It contains no Ruby backtick operator or dynamic shell execution."
       },
       {
         "id": "external_commands:SKILL.md:91:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "Backticks mark the project query parameter. There is no executable command on this line."
+        "confidence": 0.99,
+        "reason": "The cited text is Markdown formatting, inline field names, or documented uv commands. It contains no Ruby backtick operator or dynamic shell execution."
       },
       {
         "id": "external_commands:SKILL.md:92:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "Backticks mark the priority query parameter. This is not shell execution."
+        "confidence": 0.99,
+        "reason": "The cited text is Markdown formatting, inline field names, or documented uv commands. It contains no Ruby backtick operator or dynamic shell execution."
       },
       {
         "id": "external_commands:SKILL.md:93:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "Backticks mark the tag query parameter. The line is API reference text only."
+        "confidence": 0.99,
+        "reason": "The cited text is Markdown formatting, inline field names, or documented uv commands. It contains no Ruby backtick operator or dynamic shell execution."
       },
       {
         "id": "external_commands:SKILL.md:94:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "Backticks mark the overdue query parameter. No command execution is described."
+        "confidence": 0.99,
+        "reason": "The cited text is Markdown formatting, inline field names, or documented uv commands. It contains no Ruby backtick operator or dynamic shell execution."
       },
       {
         "id": "external_commands:SKILL.md:95:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "Backticks mark the sort query parameter. This is documentation, not executable code."
+        "confidence": 0.99,
+        "reason": "The cited text is Markdown formatting, inline field names, or documented uv commands. It contains no Ruby backtick operator or dynamic shell execution."
       },
       {
         "id": "external_commands:SKILL.md:96:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "Backticks mark the limit query parameter. There is no shell command."
+        "confidence": 0.99,
+        "reason": "The cited text is Markdown formatting, inline field names, or documented uv commands. It contains no Ruby backtick operator or dynamic shell execution."
       },
       {
         "id": "external_commands:SKILL.md:97:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "Backticks mark the offset query parameter. This is markdown formatting only."
+        "confidence": 0.99,
+        "reason": "The cited text is Markdown formatting, inline field names, or documented uv commands. It contains no Ruby backtick operator or dynamic shell execution."
       },
       {
         "id": "external_commands:SKILL.md:109:ruby-shell-backtick-execution",
-        "verdict": "confirmed",
-        "confidence": 0.88,
-        "reason": "The workflow bash block instructs running local CLI commands that list, create, and update TaskNotes tasks. This confirms intended external command use with mutating effects.",
-        "severity": "medium"
+        "verdict": "false_positive",
+        "confidence": 0.99,
+        "reason": "The cited text is Markdown formatting, inline field names, or documented uv commands. It contains no Ruby backtick operator or dynamic shell execution."
       },
       {
         "id": "network:SKILL.md:77:hardcoded-url",
-        "verdict": "confirmed",
-        "confidence": 0.8,
-        "reason": "The skill documents http://localhost:8080/api as its base endpoint. It is local rather than external, but it confirms dependence on a plaintext local HTTP API.",
-        "severity": "low"
+        "verdict": "false_positive",
+        "confidence": 0.99,
+        "reason": "The URL is documentation for the intended TaskNotes loopback API. It does not identify or contact an external service."
       },
       {
         "id": "env_access:SKILL.md:21:generic-api-secret-keys",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "TASKNOTES_API_KEY=your_token_here is a placeholder in documentation, not an embedded real secret. No credential value is exposed in the skill file."
+        "confidence": 0.99,
+        "reason": "The cited value is an explicit placeholder in setup documentation, not a hardcoded credential or captured secret."
       },
       {
         "id": "sensitive:SKILL.md:18:environment-file-access",
-        "verdict": "confirmed",
-        "confidence": 0.72,
-        "reason": "The documentation instructs users to keep TaskNotes API configuration in a vault-root .env file. This is sensitive configuration guidance, though the actual file read is in scripts/tasks.py.",
-        "severity": "high"
+        "verdict": "false_positive",
+        "confidence": 0.99,
+        "reason": "The cited text documents optional TaskNotes configuration. It does not read an environment file or expose its contents."
       },
       {
         "id": "sensitive:SKILL.md:23:environment-file-access",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "This line says a .env file is not needed when no auth token is set. It does not access a file or disclose a secret."
+        "confidence": 0.99,
+        "reason": "The cited text documents optional TaskNotes configuration. It does not read an environment file or expose its contents."
       },
       {
         "id": "blocker:SKILL.md:103:network-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The phrase show in-progress tasks describes filtering tasks by status. It is not network reconnaissance."
+        "confidence": 0.99,
+        "reason": "The cited text documents a task status or a fixed local CLI example. It performs no host discovery, scanning, or network reconnaissance."
       },
       {
         "id": "blocker:SKILL.md:111:network-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The command lists tasks with status in-progress. It queries the TaskNotes API and does not scan networks or discover hosts."
+        "confidence": 0.99,
+        "reason": "The cited text documents a task status or a fixed local CLI example. It performs no host discovery, scanning, or network reconnaissance."
       }
     ],
     "semantic_findings": [
       {
-        "title": "Unvalidated API Port Can Redirect Authenticated Requests",
-        "description": "TASKNOTES_API_PORT is inserted into BASE_URL without numeric validation, and TASKNOTES_API_KEY is sent as a bearer header. A crafted port value could change URL parsing and send task data or the token away from localhost.",
+        "title": "Unvalidated port value can redirect authenticated requests",
+        "description": "TASKNOTES_API_PORT enters the URL authority without numeric validation. A crafted value can change the destination and expose the bearer token.",
         "severity": "high",
         "locations": [
           {
             "file": "scripts/tasks.py",
-            "line_start": 37,
-            "line_end": 39
+            "line_start": 38,
+            "line_end": 55
+          }
+        ],
+        "confidence": 0.96,
+        "confidence_reasoning": "The port value flows directly into the URL authority, while the API key becomes a bearer header. No validation restricts the port to digits."
+      },
+      {
+        "title": "Task mutation API can operate without authentication",
+        "description": "The setup permits an empty API token, and the client then omits authorization. Other local processes could modify or delete TaskNotes data.",
+        "severity": "medium",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 13,
+            "line_end": 23
           },
           {
             "file": "scripts/tasks.py",
             "line_start": 42,
-            "line_end": 45
-          },
-          {
-            "file": "scripts/tasks.py",
-            "line_start": 53,
-            "line_end": 54
+            "line_end": 46
           }
         ],
-        "confidence": 0.76,
-        "confidence_reasoning": "The code directly interpolates API_PORT into an HTTP URL and sends headers through requests. Exploitation requires malicious environment or config control, so confidence is high but not absolute."
+        "confidence": 0.93,
+        "confidence_reasoning": "The documentation explicitly permits an empty token, and the client omits Authorization when absent. This behavior is direct and unambiguous."
       },
       {
-        "title": "Destructive Task Deletion Without Confirmation",
-        "description": "The CLI exposes a delete command that calls DELETE /tasks/{id} without an in-script confirmation, dry-run, or soft-delete safeguard. A mistaken task path can remove a TaskNotes task from the vault.",
+        "title": "Delete command has no confirmation safeguard",
+        "description": "The CLI sends a DELETE request immediately for the supplied task identifier. An agent mistake can cause unintended task loss without confirmation.",
         "severity": "medium",
         "locations": [
           {
@@ -1407,299 +1382,54 @@
             "line_end": 206
           }
         ],
-        "confidence": 0.92,
-        "confidence_reasoning": "The documented delete command maps directly to a DELETE API request in code. No confirmation or recovery safeguard is visible in the cited lines."
+        "confidence": 0.97,
+        "confidence_reasoning": "The delete command directly issues DELETE after argument parsing. No confirmation flag or prompt exists in the complete CLI implementation."
       }
     ],
     "critical_findings": [],
     "high_findings": [
       {
-        "title": "dotenv library",
-        "description": "load_dotenv(VAULT_ROOT / \".env\")",
+        "title": "Unvalidated port value can redirect authenticated requests",
+        "description": "TASKNOTES_API_PORT enters the URL authority without numeric validation. A crafted value can change the destination and expose the bearer token.",
         "locations": [
           {
             "file": "scripts/tasks.py",
-            "line_start": 35,
-            "line_end": 35
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "env_access",
-        "source_severity": "low",
-        "confidence": 0.92,
-        "confidence_reasoning": "load_dotenv reads a .env file from the computed vault root. This can load sensitive variables into the process."
-      },
-      {
-        "title": "Python dotenv loader",
-        "description": "load_dotenv(VAULT_ROOT / \".env\")",
-        "locations": [
-          {
-            "file": "scripts/tasks.py",
-            "line_start": 35,
-            "line_end": 35
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "env_access",
-        "source_severity": "low",
-        "confidence": 0.92,
-        "confidence_reasoning": "The loader reads the vault-root .env file before any command is executed. This is real environment file access, not a placeholder."
-      },
-      {
-        "title": "Generic API/secret keys",
-        "description": "API_KEY = os.getenv(\"TASKNOTES_API_KEY\")",
-        "locations": [
-          {
-            "file": "scripts/tasks.py",
-            "line_start": 37,
-            "line_end": 37
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "env_access",
-        "source_severity": "high",
-        "confidence": 0.78,
-        "confidence_reasoning": "No secret is hardcoded, but the code reads TASKNOTES_API_KEY from the environment. A community skill handling API tokens is security-sensitive."
-      },
-      {
-        "title": "Generic API/secret keys",
-        "description": "if API_KEY:",
-        "locations": [
-          {
-            "file": "scripts/tasks.py",
-            "line_start": 44,
-            "line_end": 44
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "env_access",
-        "source_severity": "high",
-        "confidence": 0.74,
-        "confidence_reasoning": "The conditional shows API_KEY is used in the request flow when present. This confirms runtime credential handling, although the value is user supplied."
-      },
-      {
-        "title": "Generic API/secret keys",
-        "description": "headers[\"Authorization\"] = f\"Bearer {API_KEY}\"",
-        "locations": [
-          {
-            "file": "scripts/tasks.py",
-            "line_start": 45,
-            "line_end": 45
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "env_access",
-        "source_severity": "high",
-        "confidence": 0.82,
-        "confidence_reasoning": "The API key is placed into an Authorization bearer header for HTTP requests. If the endpoint is misconfigured, the token could be exposed."
-      },
-      {
-        "title": "Environment file access",
-        "description": "# Load .env from vault root",
-        "locations": [
-          {
-            "file": "scripts/tasks.py",
-            "line_start": 32,
-            "line_end": 32
-          }
-        ],
-        "review_kind": "security",
-        "source_category": "sensitive",
-        "source_severity": "high",
-        "confidence": 0.82,
-        "confidence_reasoning": "The comment describes loading .env from the vault root, and the following code performs that load. A vault-root environment file may contain unrelated secrets."
-      },
-      {
-        "title": "Environment file access",
-        "description": "load_dotenv(VAULT_ROOT / \".env\")",
-        "locations": [
-          {
-            "file": "scripts/tasks.py",
-            "line_start": 35,
-            "line_end": 35
-          }
-        ],
-        "review_kind": "security",
-        "source_category": "sensitive",
-        "source_severity": "high",
-        "confidence": 0.93,
-        "confidence_reasoning": "load_dotenv(VAULT_ROOT / \".env\") reads an environment file outside the skill directory. This is sensitive file access in a community skill."
-      },
-      {
-        "title": "Environment file access",
-        "description": "3. **Environment variables** in `.env` file at vault root (if using auth):",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 18,
-            "line_end": 18
-          }
-        ],
-        "review_kind": "security",
-        "source_category": "sensitive",
-        "source_severity": "high",
-        "confidence": 0.72,
-        "confidence_reasoning": "The documentation instructs users to keep TaskNotes API configuration in a vault-root .env file. This is sensitive configuration guidance, though the actual file read is in scripts/tasks.py."
-      },
-      {
-        "title": "Unvalidated API Port Can Redirect Authenticated Requests",
-        "description": "TASKNOTES_API_PORT is inserted into BASE_URL without numeric validation, and TASKNOTES_API_KEY is sent as a bearer header. A crafted port value could change URL parsing and send task data or the token away from localhost.",
-        "locations": [
-          {
-            "file": "scripts/tasks.py",
-            "line_start": 37,
-            "line_end": 39
-          },
-          {
-            "file": "scripts/tasks.py",
-            "line_start": 42,
-            "line_end": 45
-          },
-          {
-            "file": "scripts/tasks.py",
-            "line_start": 53,
-            "line_end": 54
+            "line_start": 38,
+            "line_end": 55
           }
         ],
         "review_kind": "security",
         "source_category": "semantic",
         "source_severity": "high",
-        "confidence": 0.76,
-        "confidence_reasoning": "The code directly interpolates API_PORT into an HTTP URL and sends headers through requests. Exploitation requires malicious environment or config control, so confidence is high but not absolute."
+        "confidence": 0.96,
+        "confidence_reasoning": "The port value flows directly into the URL authority, while the API key becomes a bearer header. No validation restricts the port to digits."
       }
     ],
     "medium_findings": [
       {
-        "title": "HTTP client library",
-        "description": "result = api_request(\"POST\", \"/tasks\", data=data)",
-        "locations": [
-          {
-            "file": "scripts/tasks.py",
-            "line_start": 152,
-            "line_end": 152
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "network",
-        "source_severity": "low",
-        "confidence": 0.88,
-        "confidence_reasoning": "POST /tasks creates TaskNotes entries through the local API. This is an intended but mutating network operation against the user vault."
-      },
-      {
-        "title": "HTTP client library",
-        "description": "result = api_request(\"PUT\", f\"/tasks/{task_id}\", data=data)",
-        "locations": [
-          {
-            "file": "scripts/tasks.py",
-            "line_start": 189,
-            "line_end": 189
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "network",
-        "source_severity": "low",
-        "confidence": 0.88,
-        "confidence_reasoning": "PUT /tasks/{id} updates existing task records through the local API. This can alter task metadata and body details in the vault."
-      },
-      {
-        "title": "HTTP client library",
-        "description": "result = api_request(\"DELETE\", f\"/tasks/{task_id}\")",
-        "locations": [
-          {
-            "file": "scripts/tasks.py",
-            "line_start": 206,
-            "line_end": 206
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "network",
-        "source_severity": "low",
-        "confidence": 0.9,
-        "confidence_reasoning": "DELETE /tasks/{id} removes a task through the local API. This is a destructive operation even though it is part of the skill purpose."
-      },
-      {
-        "title": "Python getenv function",
-        "description": "API_KEY = os.getenv(\"TASKNOTES_API_KEY\")",
-        "locations": [
-          {
-            "file": "scripts/tasks.py",
-            "line_start": 37,
-            "line_end": 37
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "env_access",
-        "source_severity": "low",
-        "confidence": 0.82,
-        "confidence_reasoning": "The script reads TASKNOTES_API_KEY from the environment for API authentication. This is legitimate, but it is real access to sensitive configuration."
-      },
-      {
-        "title": "getenv function call",
-        "description": "API_KEY = os.getenv(\"TASKNOTES_API_KEY\")",
-        "locations": [
-          {
-            "file": "scripts/tasks.py",
-            "line_start": 37,
-            "line_end": 37
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "env_access",
-        "source_severity": "low",
-        "confidence": 0.82,
-        "confidence_reasoning": "os.getenv reads TASKNOTES_API_KEY, which can contain an authentication token. The value is later used in the Authorization header."
-      },
-      {
-        "title": "Ruby/shell backtick execution",
-        "description": "```bash",
+        "title": "Task mutation API can operate without authentication",
+        "description": "The setup permits an empty API token, and the client then omits authorization. Other local processes could modify or delete TaskNotes data.",
         "locations": [
           {
             "file": "SKILL.md",
-            "line_start": 27,
-            "line_end": 57
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "external_commands",
-        "source_severity": "medium",
-        "confidence": 0.87,
-        "confidence_reasoning": "The bash block documents uv run scripts/tasks.py commands that agents may execute, including create, update, and delete. The commands are local and purposeful, but external command execution is real."
-      },
-      {
-        "title": "Ruby/shell backtick execution",
-        "description": "```bash",
-        "locations": [
+            "line_start": 13,
+            "line_end": 23
+          },
           {
-            "file": "SKILL.md",
-            "line_start": 62,
-            "line_end": 64
+            "file": "scripts/tasks.py",
+            "line_start": 42,
+            "line_end": 46
           }
         ],
-        "review_kind": "capability",
-        "source_category": "external_commands",
+        "review_kind": "security",
+        "source_category": "semantic",
         "source_severity": "medium",
-        "confidence": 0.83,
-        "confidence_reasoning": "The fenced bash example runs uv run scripts/tasks.py options --table. This is local command execution for discovery of configured TaskNotes values."
+        "confidence": 0.93,
+        "confidence_reasoning": "The documentation explicitly permits an empty token, and the client omits Authorization when absent. This behavior is direct and unambiguous."
       },
       {
-        "title": "Ruby/shell backtick execution",
-        "description": "```bash",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 109,
-            "line_end": 121
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "external_commands",
-        "source_severity": "medium",
-        "confidence": 0.88,
-        "confidence_reasoning": "The workflow bash block instructs running local CLI commands that list, create, and update TaskNotes tasks. This confirms intended external command use with mutating effects."
-      },
-      {
-        "title": "Destructive Task Deletion Without Confirmation",
-        "description": "The CLI exposes a delete command that calls DELETE /tasks/{id} without an in-script confirmation, dry-run, or soft-delete safeguard. A mistaken task path can remove a TaskNotes task from the vault.",
+        "title": "Delete command has no confirmation safeguard",
+        "description": "The CLI sends a DELETE request immediately for the supplied task identifier. An agent mistake can cause unintended task loss without confirmation.",
         "locations": [
           {
             "file": "SKILL.md",
@@ -1715,328 +1445,135 @@
         "review_kind": "security",
         "source_category": "semantic",
         "source_severity": "medium",
-        "confidence": 0.92,
-        "confidence_reasoning": "The documented delete command maps directly to a DELETE API request in code. No confirmation or recovery safeguard is visible in the cited lines."
+        "confidence": 0.97,
+        "confidence_reasoning": "The delete command directly issues DELETE after argument parsing. No confirmation flag or prompt exists in the complete CLI implementation."
       }
     ],
-    "low_findings": [
-      {
-        "title": "HTTP client library",
-        "description": "def api_request(method: str, endpoint: str, params: dict = None, data: dict = None):",
-        "locations": [
-          {
-            "file": "scripts/tasks.py",
-            "line_start": 49,
-            "line_end": 49
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "network",
-        "source_severity": "low",
-        "confidence": 0.82,
-        "confidence_reasoning": "api_request constructs HTTP calls to the TaskNotes API and is used by list, create, update, delete, stats, and options commands. The endpoint is intended for localhost, but this confirms network access to task data."
-      },
-      {
-        "title": "HTTP client library",
-        "description": "response = requests.request(",
-        "locations": [
-          {
-            "file": "scripts/tasks.py",
-            "line_start": 53,
-            "line_end": 53
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "network",
-        "source_severity": "low",
-        "confidence": 0.9,
-        "confidence_reasoning": "requests.request sends parameters, JSON bodies, and headers to BASE_URL. The URL is intended for localhost, but the skill performs real HTTP network I/O."
-      },
-      {
-        "title": "HTTP client library",
-        "description": "result = api_request(\"GET\", \"/tasks\", params=params)",
-        "locations": [
-          {
-            "file": "scripts/tasks.py",
-            "line_start": 83,
-            "line_end": 83
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "network",
-        "source_severity": "low",
-        "confidence": 0.88,
-        "confidence_reasoning": "GET /tasks reads TaskNotes task metadata from the local Obsidian API. This is intended behavior, but it confirms task data access over HTTP."
-      },
-      {
-        "title": "HTTP client library",
-        "description": "result = api_request(\"GET\", \"/stats\")",
-        "locations": [
-          {
-            "file": "scripts/tasks.py",
-            "line_start": 219,
-            "line_end": 219
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "network",
-        "source_severity": "low",
-        "confidence": 0.84,
-        "confidence_reasoning": "GET /stats reads aggregate task information from the local API. It is low risk, but it is still network access to user task data."
-      },
-      {
-        "title": "HTTP client library",
-        "description": "result = api_request(\"GET\", \"/filter-options\")",
-        "locations": [
-          {
-            "file": "scripts/tasks.py",
-            "line_start": 238,
-            "line_end": 238
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "network",
-        "source_severity": "low",
-        "confidence": 0.84,
-        "confidence_reasoning": "GET /filter-options reads project, status, and priority metadata from TaskNotes. It is expected local API access, not external exfiltration."
-      },
-      {
-        "title": "Python HTTP libraries",
-        "description": "response = requests.request(",
-        "locations": [
-          {
-            "file": "scripts/tasks.py",
-            "line_start": 53,
-            "line_end": 53
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "network",
-        "source_severity": "low",
-        "confidence": 0.9,
-        "confidence_reasoning": "The requests library is used to send actual HTTP requests to BASE_URL. Context shows the calls target the local TaskNotes API."
-      },
-      {
-        "title": "Hardcoded URL",
-        "description": "BASE_URL = f\"http://localhost:{API_PORT}/api\"",
-        "locations": [
-          {
-            "file": "scripts/tasks.py",
-            "line_start": 39,
-            "line_end": 39
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "network",
-        "source_severity": "low",
-        "confidence": 0.78,
-        "confidence_reasoning": "BASE_URL hardcodes an HTTP localhost API endpoint with an environment-supplied port. It is not an external domain, but it confirms local HTTP API use."
-      },
-      {
-        "title": "Python getenv function",
-        "description": "API_PORT = os.getenv(\"TASKNOTES_API_PORT\", \"8080\")",
-        "locations": [
-          {
-            "file": "scripts/tasks.py",
-            "line_start": 38,
-            "line_end": 38
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "env_access",
-        "source_severity": "low",
-        "confidence": 0.72,
-        "confidence_reasoning": "The script reads TASKNOTES_API_PORT from the environment and uses it to construct the API URL. This is configuration access that influences the network target."
-      },
-      {
-        "title": "getenv function call",
-        "description": "API_PORT = os.getenv(\"TASKNOTES_API_PORT\", \"8080\")",
-        "locations": [
-          {
-            "file": "scripts/tasks.py",
-            "line_start": 38,
-            "line_end": 38
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "env_access",
-        "source_severity": "low",
-        "confidence": 0.72,
-        "confidence_reasoning": "os.getenv reads TASKNOTES_API_PORT and feeds endpoint construction. The value is not a secret, but it controls connection behavior."
-      },
-      {
-        "title": "dotenv library",
-        "description": "from dotenv import load_dotenv",
-        "locations": [
-          {
-            "file": "scripts/tasks.py",
-            "line_start": 30,
-            "line_end": 30
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "env_access",
-        "source_severity": "low",
-        "confidence": 0.68,
-        "confidence_reasoning": "The dotenv import enables the load_dotenv call later in the file. By itself it is not dangerous, but context confirms environment-file support."
-      },
-      {
-        "title": "Python dotenv loader",
-        "description": "from dotenv import load_dotenv",
-        "locations": [
-          {
-            "file": "scripts/tasks.py",
-            "line_start": 30,
-            "line_end": 30
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "env_access",
-        "source_severity": "low",
-        "confidence": 0.68,
-        "confidence_reasoning": "The python-dotenv import is part of an actual dotenv loading flow at line 35. It confirms environment-file handling in the skill."
-      },
-      {
-        "title": "Hardcoded URL",
-        "description": "Base URL: `http://localhost:8080/api`",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 77,
-            "line_end": 77
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "network",
-        "source_severity": "low",
-        "confidence": 0.8,
-        "confidence_reasoning": "The skill documents http://localhost:8080/api as its base endpoint. It is local rather than external, but it confirms dependence on a plaintext local HTTP API."
-      }
-    ],
+    "low_findings": [],
     "dangerous_patterns": [],
     "files_scanned": 2,
     "total_lines": 447,
     "audit_model": "codex",
-    "audited_at": "2026-07-07T19:53:53.238Z",
+    "audited_at": "2026-07-23T04:37:04.976Z",
     "agent_auto_install_policy": "confirmation_required",
     "manual_install_policy": "allowed"
   },
   "content": {
-    "user_title": "Manage Obsidian TaskNotes Tasks",
-    "value_statement": "Obsidian task management can be slow when tasks live behind plugin screens. This skill lets Claude, Codex, and Claude Code manage TaskNotes through the local API.",
+    "user_title": "Manage Obsidian Tasks with TaskNotes",
+    "value_statement": "Manual TaskNotes maintenance can slow daily planning. This skill uses the local API to list, create, update, and delete Obsidian tasks.",
     "seo_keywords": [
-      "TaskNotes",
-      "Obsidian tasks",
       "Claude",
       "Codex",
       "Claude Code",
-      "task management",
-      "local API",
-      "productivity automation",
-      "project planning",
-      "to do list"
+      "Obsidian TaskNotes",
+      "Obsidian task management",
+      "TaskNotes API",
+      "AI task automation",
+      "task CLI",
+      "productivity workflow",
+      "local task manager"
     ],
     "actual_capabilities": [
-      "List TaskNotes tasks with filters for status, project, priority, overdue state, and result limit.",
-      "Create tasks with title, project, priority, status, dates, contexts, estimates, and details.",
-      "Update existing tasks by file path with new status, priority, title, dates, or details.",
-      "Delete TaskNotes tasks through the local TaskNotes API.",
-      "Show task statistics and available projects, statuses, and priorities.",
-      "Return human-readable tables or structured output for agent workflows."
+      "List tasks with status, project, priority, overdue, and result-limit filters.",
+      "Create tasks with projects, priorities, dates, contexts, time estimates, and details.",
+      "Update task titles, statuses, priorities, dates, and descriptions.",
+      "Delete tasks by TaskNotes file identifier.",
+      "Display task statistics and configured filter options.",
+      "Return readable tables or structured output for agent workflows."
     ],
     "limitations": [
-      "Requires Obsidian with the TaskNotes HTTP API enabled and reachable on localhost.",
-      "Can only use fields and filters exposed by the TaskNotes plugin API.",
-      "Create, update, and delete actions can change local task notes.",
-      "Authentication depends on a local API token stored outside the skill."
+      "Requires Obsidian, the TaskNotes plugin, and its HTTP API to be running locally.",
+      "Supports only the fields and commands implemented by the included CLI.",
+      "Uses configured status and priority values without validating them before requests.",
+      "Does not provide interactive confirmation before task updates or deletion."
     ],
     "use_cases": [
       {
-        "title": "Review Daily Tasks",
-        "description": "List active or overdue TaskNotes items before planning the workday.",
-        "target_user": "Obsidian power user"
+        "title": "Plan a personal workday",
+        "description": "Review active and overdue tasks, then identify the next items by priority and due date.",
+        "target_user": "Individual Obsidian user"
       },
       {
-        "title": "Capture Project Work",
-        "description": "Create linked tasks with priority, schedule, context, and project metadata.",
-        "target_user": "Project manager"
+        "title": "Maintain project tasks",
+        "description": "Create project-linked tasks and update their status as work progresses.",
+        "target_user": "Project coordinator"
       },
       {
-        "title": "Automate Task Updates",
-        "description": "Let an agent mark completed work, update details, or pull task statistics after a session.",
-        "target_user": "Claude Code or Codex user"
+        "title": "Automate task workflows",
+        "description": "Use structured task results to support agent-driven planning and reporting.",
+        "target_user": "AI workflow developer"
       }
     ],
     "prompt_templates": [
       {
-        "title": "List Current Work",
-        "scenario": "Beginner task review",
-        "prompt": "Show my open TaskNotes tasks. Limit the result to 10 items and use a readable table."
+        "title": "Review current tasks",
+        "prompt": "Show my current TaskNotes tasks in a readable table.",
+        "scenario": "Beginner task review"
       },
       {
-        "title": "Create a Project Task",
-        "scenario": "Basic task capture",
-        "prompt": "Create a TaskNotes task titled \"Prepare release notes\" for the Website Redesign project with high priority."
+        "title": "Create a project task",
+        "prompt": "Create a TaskNotes task titled [title], linked to [project], with priority [priority] and due date [date].",
+        "scenario": "Routine task creation"
       },
       {
-        "title": "Review a Project Queue",
-        "scenario": "Filtered planning",
-        "prompt": "List TaskNotes tasks for the Website Redesign project, grouped by status, and include due dates when available."
+        "title": "Prioritize overdue work",
+        "prompt": "List up to five overdue tasks for [project], then summarize them by priority and due date.",
+        "scenario": "Filtered planning"
       },
       {
-        "title": "Update After Work Session",
-        "scenario": "Advanced maintenance",
-        "prompt": "Find in-progress TaskNotes items for Website Redesign. Ask before changing anything, then mark selected completed tasks as done."
+        "title": "Review and update a project",
+        "prompt": "Inspect available TaskNotes options, find active tasks for [project], propose status changes, and ask before applying any update.",
+        "scenario": "Advanced controlled workflow"
       }
     ],
     "output_examples": [
       {
-        "input": "Show in-progress tasks for Website Redesign.",
-        "output": "A concise table with task titles, statuses, priorities, due dates, and project links."
+        "input": "Show my in-progress tasks.",
+        "output": "Three in-progress tasks found. The table includes status, priority, title, and project for each task."
       },
       {
-        "input": "Create a high priority task for release notes.",
-        "output": "A confirmation with the created task title, path, status, and priority."
+        "input": "Create a high-priority task named Prepare launch notes for the Website project.",
+        "output": "Created 'Prepare launch notes' with high priority and linked it to the Website project."
       },
       {
-        "input": "What TaskNotes options can I use?",
-        "output": "A readable list of configured projects, statuses, and priorities from the local plugin."
+        "input": "What statuses and priorities are available?",
+        "output": "Available statuses and priorities are listed from the current TaskNotes configuration."
       }
     ],
     "best_practices": [
-      "Run the options command first to confirm valid status and priority names.",
-      "Use an API token for the local TaskNotes API and store only required variables.",
-      "Confirm task file paths before update or delete operations."
+      "Enable a TaskNotes API token before allowing automated task changes.",
+      "Run the options command before using status or priority values from a new vault.",
+      "Review task identifiers and proposed changes before update or delete operations."
     ],
     "anti_patterns": [
-      "Do not use this skill when Obsidian or the TaskNotes HTTP API is closed.",
-      "Do not store unrelated secrets in the vault root .env file.",
-      "Do not delete tasks by guessed file paths."
+      "Do not place unrelated secrets in the vault environment file.",
+      "Do not expose the TaskNotes API port beyond the local machine.",
+      "Do not delete tasks from ambiguous natural-language references."
     ],
     "faq": [
       {
-        "question": "Does this skill require Obsidian?",
-        "answer": "Yes. Obsidian must be running with the TaskNotes plugin and HTTP API enabled."
+        "question": "What does this skill require?",
+        "answer": "It requires Obsidian, the TaskNotes plugin, and the plugin HTTP API enabled on the local machine."
       },
       {
-        "question": "Does it work with Claude, Codex, and Claude Code?",
-        "answer": "Yes. The skill declares support for Claude, Codex, and Claude Code."
+        "question": "Is an API token required?",
+        "answer": "The client supports token-free access, but a TaskNotes API token is recommended for task changes."
       },
       {
-        "question": "Can it create and update tasks?",
-        "answer": "Yes. It can create tasks and update status, priority, title, due dates, scheduled dates, and details."
+        "question": "Which task fields can it change?",
+        "answer": "It can change titles, statuses, priorities, due dates, scheduled dates, and details."
       },
       {
-        "question": "Can it delete tasks?",
-        "answer": "Yes. It can call the TaskNotes delete endpoint, so confirm the task path first."
+        "question": "Can it filter task lists?",
+        "answer": "Yes. It filters by status, project, priority, overdue state, and result limit."
       },
       {
-        "question": "Where does the API token come from?",
-        "answer": "The script reads TASKNOTES_API_KEY from the vault root .env file or the process environment."
+        "question": "Does task data stay local?",
+        "answer": "The CLI targets localhost. Task content can still pass through the active AI tool when prompts or responses include it."
       },
       {
-        "question": "Does it send data to a cloud service?",
-        "answer": "No cloud endpoint is shown. The code targets a localhost TaskNotes API, but the port value should be validated."
+        "question": "Can the CLI undo a deleted task?",
+        "answer": "The CLI offers no undo command. Use Obsidian or TaskNotes recovery features when available."
       }
     ]
   },
