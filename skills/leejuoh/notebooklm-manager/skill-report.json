@@ -1,7 +1,7 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-07-08T05:01:40.714Z",
+    "generated_at": "2026-07-23T17:38:08.605Z",
     "slug": "leejuoh-notebooklm-manager",
     "source_url": "https://github.com/LeeJuOh/claude-code-zero/tree/main/plugins/notebooklm-connector/skills/notebooklm-manager",
     "source_ref": "main",
@@ -23,18 +23,18 @@
   },
   "skill": {
     "name": "notebooklm-manager",
-    "description": "Manage NotebookLM notebooks from Claude, Codex, and Claude Code. The skill can query registered notebooks, add NotebookLM URLs, search the local notebook library, and manage notebook status through a Chrome agent.",
-    "summary": "Query and organize NotebookLM notebooks through a local registry and Chrome automation.",
+    "description": "Manage a local NotebookLM registry and query registered notebooks through a companion Chrome agent. Add, search, enable, disable, remove, and analyze notebook content.",
+    "summary": "Organize NotebookLM notebooks and retrieve covered answers through browser-assisted queries.",
     "icon": "📦",
-    "version": "1.0.1",
     "author": "LeeJuOh",
     "license": "MIT",
+    "category": "research",
     "tags": [
       "notebooklm",
       "research",
-      "chrome-automation",
       "knowledge-management",
-      "claude-code"
+      "browser-automation",
+      "notebook-search"
     ],
     "supported_tools": [
       "claude",
@@ -45,30 +45,29 @@
       "network",
       "external_commands",
       "filesystem"
-    ],
-    "category": "research"
+    ]
   },
   "security_audit": {
-    "risk_level": "medium",
+    "risk_level": "high",
     "is_blocked": false,
-    "safe_to_publish": true,
+    "safe_to_publish": false,
     "analysis_status": "ok",
-    "summary": "Static findings are mostly false positives caused by Markdown backticks, NotebookLM example URLs, and plugin-scoped data paths. I found two contextual risks: dynamic URL delegation lacks explicit NotebookLM validation, and DATA_DIR is trusted from a hidden data-path file. No prompt injection attempt or obvious credential exfiltration was found.",
+    "summary": "All 64 static alerts are false positives caused by documented NotebookLM URLs, Markdown code formatting, app-owned storage paths, and ordinary lookup behavior. Context review found browser-agent prompt injection exposure, an unvalidated data-directory pointer, and spoofable response markers.",
     "remediation": [
       {
-        "issue": "URL validation before browser delegation",
-        "suggestion": "Validate that every URL uses https, the notebooklm.google.com host, and the expected notebook path before storing it or sending it to the Chrome agent.",
+        "issue": "User-controlled URLs and questions enter a browser-capable agent prompt without structural isolation.",
+        "suggestion": "Validate NotebookLM hosts and paths, serialize input as data, and instruct the agent to reject embedded commands.",
+        "severity": "high"
+      },
+      {
+        "issue": "The data-path locator can redirect later file operations to any absolute path.",
+        "suggestion": "Resolve canonical paths, reject symlinks and paths outside approved plugin roots, and confirm migrations before writing.",
         "severity": "medium"
       },
       {
-        "issue": "DATA_DIR trust boundary",
-        "suggestion": "After reading data-path, verify that DATA_DIR is inside CLAUDE_PLUGIN_DATA or the documented notebooklm-connector directory before any read, write, or edit.",
+        "issue": "Reserved strings inside agent answers can trigger error or truncation branches.",
+        "suggestion": "Return a validated status envelope and keep status fields separate from the untrusted NotebookLM answer.",
         "severity": "medium"
-      },
-      {
-        "issue": "Permission disclosure",
-        "suggestion": "Document that the skill uses an authenticated browser session and local plugin storage, so users understand what data may leave the chat.",
-        "severity": "low"
       }
     ],
     "risk_factor_evidence": [
@@ -1039,394 +1038,399 @@
       {
         "id": "network:references/commands.md:24:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.93,
-        "reason": "The URL is an example or stored NotebookLM notebook URL, which is the expected service for this skill. It does not target an unrelated endpoint or show secret transmission."
+        "confidence": 0.99,
+        "reason": "This is a NotebookLM URL template in command documentation, not a network request or unexpected destination."
       },
       {
         "id": "network:references/commands.md:50:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.93,
-        "reason": "The URL is an example or stored NotebookLM notebook URL, which is the expected service for this skill. It does not target an unrelated endpoint or show secret transmission."
+        "confidence": 0.99,
+        "reason": "This known NotebookLM domain appears only in an example registry record and does not initiate network traffic."
       },
       {
         "id": "blocker:references/commands.md:25:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "The cited text describes notebook ID parsing, similar-ID suggestions, or hook behavior. It is not system reconnaissance and does not collect host or account details."
+        "confidence": 0.99,
+        "reason": "The arrow demonstrates extracting a notebook identifier from a URL; it performs no host or system reconnaissance."
       },
       {
         "id": "blocker:references/gotchas.md:37:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "The cited text describes notebook ID parsing, similar-ID suggestions, or hook behavior. It is not system reconnaissance and does not collect host or account details."
+        "confidence": 0.99,
+        "reason": "This sentence documents hook behavior after a known agent task and does not inspect the operating system or network."
       },
       {
         "id": "network:references/schemas.md:15:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.93,
-        "reason": "The URL is an example or stored NotebookLM notebook URL, which is the expected service for this skill. It does not target an unrelated endpoint or show secret transmission."
+        "confidence": 0.99,
+        "reason": "The URL is a schema example for the expected NotebookLM service and contains a placeholder notebook identifier."
       },
       {
         "id": "network:references/schemas.md:39:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.93,
-        "reason": "The URL is an example or stored NotebookLM notebook URL, which is the expected service for this skill. It does not target an unrelated endpoint or show secret transmission."
+        "confidence": 0.99,
+        "reason": "The URL is repeated as sample notebook metadata and is not executable network code."
       },
       {
         "id": "external_commands:SKILL.md:18:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The backticks are Markdown formatting around config keys, examples, or allowed tool calls. The skill text does not execute Ruby backticks or spawn a shell command."
+        "confidence": 0.99,
+        "reason": "Backticks format an MCP tool name in Markdown; the line explicitly prohibits direct calls and contains no shell syntax."
       },
       {
         "id": "external_commands:SKILL.md:22:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The backticks are Markdown formatting around config keys, examples, or allowed tool calls. The skill text does not execute Ruby backticks or spawn a shell command."
+        "confidence": 0.99,
+        "reason": "Backticks delimit a literal file path for the Read tool and do not execute Ruby or shell code."
       },
       {
         "id": "external_commands:SKILL.md:26:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The backticks are Markdown formatting around config keys, examples, or allowed tool calls. The skill text does not execute Ruby backticks or spawn a shell command."
+        "confidence": 0.99,
+        "reason": "The backticked DATA_DIR token is a documentation placeholder, not command substitution."
       },
       {
         "id": "external_commands:SKILL.md:31:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The backticks are Markdown formatting around config keys, examples, or allowed tool calls. The skill text does not execute Ruby backticks or spawn a shell command."
+        "confidence": 0.99,
+        "reason": "This line names a configuration file for the Read tool and contains no process invocation."
       },
       {
         "id": "external_commands:SKILL.md:32:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The backticks are Markdown formatting around config keys, examples, or allowed tool calls. The skill text does not execute Ruby backticks or spawn a shell command."
+        "confidence": 0.99,
+        "reason": "The backticked text is a configuration key described in Markdown, not executable code."
       },
       {
         "id": "external_commands:SKILL.md:33:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The backticks are Markdown formatting around config keys, examples, or allowed tool calls. The skill text does not execute Ruby backticks or spawn a shell command."
+        "confidence": 0.99,
+        "reason": "The backticked text is a configuration key described in Markdown, not executable code."
       },
       {
         "id": "external_commands:SKILL.md:34:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The backticks are Markdown formatting around config keys, examples, or allowed tool calls. The skill text does not execute Ruby backticks or spawn a shell command."
+        "confidence": 0.99,
+        "reason": "The backticked text is a configuration key described in Markdown, not executable code."
       },
       {
         "id": "external_commands:SKILL.md:35:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The backticks are Markdown formatting around config keys, examples, or allowed tool calls. The skill text does not execute Ruby backticks or spawn a shell command."
+        "confidence": 0.99,
+        "reason": "The backticked text is a configuration key described in Markdown, not executable code."
       },
       {
         "id": "external_commands:SKILL.md:42:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The backticks are Markdown formatting around config keys, examples, or allowed tool calls. The skill text does not execute Ruby backticks or spawn a shell command."
+        "confidence": 0.99,
+        "reason": "This is an inline field name used during request parsing and has no execution semantics."
       },
       {
         "id": "external_commands:SKILL.md:43:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The backticks are Markdown formatting around config keys, examples, or allowed tool calls. The skill text does not execute Ruby backticks or spawn a shell command."
+        "confidence": 0.99,
+        "reason": "This is an inline field name used during request parsing and has no execution semantics."
       },
       {
         "id": "external_commands:SKILL.md:47:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The backticks are Markdown formatting around config keys, examples, or allowed tool calls. The skill text does not execute Ruby backticks or spawn a shell command."
+        "confidence": 0.99,
+        "reason": "The backticks identify a local data file for the Read tool and do not invoke a shell."
       },
       {
         "id": "external_commands:SKILL.md:53:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The backticks are Markdown formatting around config keys, examples, or allowed tool calls. The skill text does not execute Ruby backticks or spawn a shell command."
+        "confidence": 0.99,
+        "reason": "The text is a documented Boolean option inside Markdown and cannot execute a command."
       },
       {
         "id": "external_commands:SKILL.md:55:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The backticks are Markdown formatting around config keys, examples, or allowed tool calls. The skill text does not execute Ruby backticks or spawn a shell command."
+        "confidence": 0.99,
+        "reason": "The text is a documented Boolean option inside Markdown and cannot execute a command."
       },
       {
         "id": "external_commands:SKILL.md:62:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The backticks are Markdown formatting around config keys, examples, or allowed tool calls. The skill text does not execute Ruby backticks or spawn a shell command."
+        "confidence": 0.99,
+        "reason": "This line reads a named configuration value and contains no external command."
       },
       {
         "id": "external_commands:SKILL.md:64:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The backticks are Markdown formatting around config keys, examples, or allowed tool calls. The skill text does not execute Ruby backticks or spawn a shell command."
+        "confidence": 0.99,
+        "reason": "This is pseudocode for a length comparison, not Ruby backtick or shell execution."
       },
       {
         "id": "external_commands:SKILL.md:71:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The backticks are Markdown formatting around config keys, examples, or allowed tool calls. The skill text does not execute Ruby backticks or spawn a shell command."
+        "confidence": 0.99,
+        "reason": "The detected characters open a fenced Markdown example and are not shell backticks."
       },
       {
         "id": "external_commands:SKILL.md:80:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The backticks are Markdown formatting around config keys, examples, or allowed tool calls. The skill text does not execute Ruby backticks or spawn a shell command."
+        "confidence": 0.98,
+        "reason": "The backtick closes a template string in documented agent pseudocode; no Ruby or operating-system command is present."
       },
       {
         "id": "external_commands:SKILL.md:82:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The backticks are Markdown formatting around config keys, examples, or allowed tool calls. The skill text does not execute Ruby backticks or spawn a shell command."
+        "confidence": 0.99,
+        "reason": "The detected characters close a fenced Markdown example and are not shell execution."
       },
       {
         "id": "external_commands:SKILL.md:93:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The backticks are Markdown formatting around config keys, examples, or allowed tool calls. The skill text does not execute Ruby backticks or spawn a shell command."
+        "confidence": 0.99,
+        "reason": "The backticked text is an agent error marker in a parsing table, not a command."
       },
       {
         "id": "external_commands:SKILL.md:94:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The backticks are Markdown formatting around config keys, examples, or allowed tool calls. The skill text does not execute Ruby backticks or spawn a shell command."
+        "confidence": 0.99,
+        "reason": "The backticked text is an agent error marker in a parsing table, not a command."
       },
       {
         "id": "external_commands:SKILL.md:95:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The backticks are Markdown formatting around config keys, examples, or allowed tool calls. The skill text does not execute Ruby backticks or spawn a shell command."
+        "confidence": 0.99,
+        "reason": "The backticked text is an agent error marker in a parsing table, not a command."
       },
       {
         "id": "external_commands:SKILL.md:97:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The backticks are Markdown formatting around config keys, examples, or allowed tool calls. The skill text does not execute Ruby backticks or spawn a shell command."
+        "confidence": 0.99,
+        "reason": "The backticked text is a response field checked by the workflow and does not invoke a process."
       },
       {
         "id": "external_commands:SKILL.md:103:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The backticks are Markdown formatting around config keys, examples, or allowed tool calls. The skill text does not execute Ruby backticks or spawn a shell command."
+        "confidence": 0.99,
+        "reason": "This is a browser settings URL in troubleshooting guidance, not a shell command or external process."
       },
       {
         "id": "external_commands:SKILL.md:106:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The backticks are Markdown formatting around config keys, examples, or allowed tool calls. The skill text does not execute Ruby backticks or spawn a shell command."
+        "confidence": 0.98,
+        "reason": "The slash command is a documented user action inside Claude Code and is not automatic shell execution."
       },
       {
         "id": "external_commands:SKILL.md:114:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The backticks are Markdown formatting around config keys, examples, or allowed tool calls. The skill text does not execute Ruby backticks or spawn a shell command."
+        "confidence": 0.99,
+        "reason": "Backticks format a configuration key and Boolean value; no command is executed."
       },
       {
         "id": "external_commands:SKILL.md:117:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The backticks are Markdown formatting around config keys, examples, or allowed tool calls. The skill text does not execute Ruby backticks or spawn a shell command."
+        "confidence": 0.99,
+        "reason": "The text names a hook reminder token in Markdown and contains no execution mechanism."
       },
       {
         "id": "external_commands:SKILL.md:126:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The backticks are Markdown formatting around config keys, examples, or allowed tool calls. The skill text does not execute Ruby backticks or spawn a shell command."
+        "confidence": 0.97,
+        "reason": "This is documented agent-task pseudocode, not Ruby or shell execution; browser delegation risk is assessed separately."
       },
       {
         "id": "external_commands:SKILL.md:131:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The backticks are Markdown formatting around config keys, examples, or allowed tool calls. The skill text does not execute Ruby backticks or spawn a shell command."
+        "confidence": 0.99,
+        "reason": "The backticked token is a configured follow-up limit and cannot execute a command."
       },
       {
         "id": "external_commands:SKILL.md:138:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The backticks are Markdown formatting around config keys, examples, or allowed tool calls. The skill text does not execute Ruby backticks or spawn a shell command."
+        "confidence": 0.99,
+        "reason": "The detected characters open a fenced response-format example."
       },
       {
         "id": "external_commands:SKILL.md:139:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The backticks are Markdown formatting around config keys, examples, or allowed tool calls. The skill text does not execute Ruby backticks or spawn a shell command."
+        "confidence": 0.99,
+        "reason": "The backticked notebook identifier is an output placeholder with no execution semantics."
       },
       {
         "id": "external_commands:SKILL.md:147:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The backticks are Markdown formatting around config keys, examples, or allowed tool calls. The skill text does not execute Ruby backticks or spawn a shell command."
+        "confidence": 0.99,
+        "reason": "The detected characters close a fenced response-format example."
       },
       {
         "id": "external_commands:SKILL.md:149:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The backticks are Markdown formatting around config keys, examples, or allowed tool calls. The skill text does not execute Ruby backticks or spawn a shell command."
+        "confidence": 0.99,
+        "reason": "This line references a language preference key and does not invoke any command."
       },
       {
         "id": "external_commands:SKILL.md:159:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The backticks are Markdown formatting around config keys, examples, or allowed tool calls. The skill text does not execute Ruby backticks or spawn a shell command."
+        "confidence": 0.99,
+        "reason": "The backticks format a skill command name in a documentation table; no shell is invoked."
       },
       {
         "id": "external_commands:SKILL.md:160:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The backticks are Markdown formatting around config keys, examples, or allowed tool calls. The skill text does not execute Ruby backticks or spawn a shell command."
+        "confidence": 0.99,
+        "reason": "The backticks format a skill command and argument placeholder in documentation."
       },
       {
         "id": "external_commands:SKILL.md:161:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The backticks are Markdown formatting around config keys, examples, or allowed tool calls. The skill text does not execute Ruby backticks or spawn a shell command."
+        "confidence": 0.99,
+        "reason": "The backticks format a skill command and argument placeholder in documentation."
       },
       {
         "id": "external_commands:SKILL.md:162:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The backticks are Markdown formatting around config keys, examples, or allowed tool calls. The skill text does not execute Ruby backticks or spawn a shell command."
+        "confidence": 0.99,
+        "reason": "The backticks format a skill command and argument placeholder in documentation."
       },
       {
         "id": "external_commands:SKILL.md:169:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The backticks are Markdown formatting around config keys, examples, or allowed tool calls. The skill text does not execute Ruby backticks or spawn a shell command."
+        "confidence": 0.98,
+        "reason": "The environment variable appears as a documented storage placeholder and is not shell command substitution."
       },
       {
         "id": "external_commands:SKILL.md:170:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The backticks are Markdown formatting around config keys, examples, or allowed tool calls. The skill text does not execute Ruby backticks or spawn a shell command."
+        "confidence": 0.99,
+        "reason": "The backticks delimit a fallback directory path in prose and do not execute it."
       },
       {
         "id": "external_commands:SKILL.md:172:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The backticks are Markdown formatting around config keys, examples, or allowed tool calls. The skill text does not execute Ruby backticks or spawn a shell command."
+        "confidence": 0.99,
+        "reason": "The detected characters open a fenced directory-layout example."
       },
       {
         "id": "external_commands:SKILL.md:185:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The backticks are Markdown formatting around config keys, examples, or allowed tool calls. The skill text does not execute Ruby backticks or spawn a shell command."
+        "confidence": 0.99,
+        "reason": "The detected characters close a fenced directory-layout example."
       },
       {
         "id": "external_commands:SKILL.md:187:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The backticks are Markdown formatting around config keys, examples, or allowed tool calls. The skill text does not execute Ruby backticks or spawn a shell command."
+        "confidence": 0.99,
+        "reason": "Backticks format a filename and fixed storage path in prose; no external command exists."
       },
       {
         "id": "external_commands:SKILL.md:188:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The backticks are Markdown formatting around config keys, examples, or allowed tool calls. The skill text does not execute Ruby backticks or spawn a shell command."
+        "confidence": 0.99,
+        "reason": "The backticked text is a literal filename in storage documentation."
       },
       {
         "id": "external_commands:SKILL.md:191:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The backticks are Markdown formatting around config keys, examples, or allowed tool calls. The skill text does not execute Ruby backticks or spawn a shell command."
+        "confidence": 0.99,
+        "reason": "The backticks identify source and destination directories in migration documentation, not shell commands."
       },
       {
         "id": "external_commands:SKILL.md:192:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The backticks are Markdown formatting around config keys, examples, or allowed tool calls. The skill text does not execute Ruby backticks or spawn a shell command."
+        "confidence": 0.99,
+        "reason": "This line documents legacy migration paths and contains no executable command."
       },
       {
         "id": "external_commands:SKILL.md:193:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The backticks are Markdown formatting around config keys, examples, or allowed tool calls. The skill text does not execute Ruby backticks or spawn a shell command."
+        "confidence": 0.99,
+        "reason": "This line documents a storage migration path and environment placeholder, not shell execution."
       },
       {
         "id": "filesystem:SKILL.md:22:hidden-file-in-home-directory",
         "verdict": "false_positive",
-        "confidence": 0.76,
-        "reason": "The hidden path is plugin-scoped storage for the notebook registry and configuration. It does not instruct reading unrelated dotfiles, credentials, or arbitrary home-directory content."
+        "confidence": 0.91,
+        "reason": "The fixed hidden path is an app-owned locator for plugin state, not secret harvesting or hidden-file discovery; pointer validation is assessed separately."
       },
       {
         "id": "filesystem:SKILL.md:170:hidden-file-in-home-directory",
         "verdict": "false_positive",
-        "confidence": 0.76,
-        "reason": "The hidden path is plugin-scoped storage for the notebook registry and configuration. It does not instruct reading unrelated dotfiles, credentials, or arbitrary home-directory content."
+        "confidence": 0.99,
+        "reason": "This line only documents the plugin's fallback storage directory under the user's home directory."
       },
       {
         "id": "filesystem:SKILL.md:174:hidden-file-in-home-directory",
         "verdict": "false_positive",
-        "confidence": 0.76,
-        "reason": "The hidden path is plugin-scoped storage for the notebook registry and configuration. It does not instruct reading unrelated dotfiles, credentials, or arbitrary home-directory content."
+        "confidence": 0.99,
+        "reason": "The hidden path appears in a directory-layout diagram and does not direct access to unrelated user data."
       },
       {
         "id": "filesystem:SKILL.md:187:hidden-file-in-home-directory",
         "verdict": "false_positive",
-        "confidence": 0.76,
-        "reason": "The hidden path is plugin-scoped storage for the notebook registry and configuration. It does not instruct reading unrelated dotfiles, credentials, or arbitrary home-directory content."
+        "confidence": 0.98,
+        "reason": "This is storage documentation for the plugin's fixed locator file, not covert persistence or secret access."
       },
       {
         "id": "filesystem:SKILL.md:192:hidden-file-in-home-directory",
         "verdict": "false_positive",
-        "confidence": 0.76,
-        "reason": "The hidden path is plugin-scoped storage for the notebook registry and configuration. It does not instruct reading unrelated dotfiles, credentials, or arbitrary home-directory content."
+        "confidence": 0.97,
+        "reason": "The line describes migration from legacy Claude plugin directories and does not target unrelated hidden files."
       },
       {
         "id": "filesystem:SKILL.md:193:hidden-file-in-home-directory",
         "verdict": "false_positive",
-        "confidence": 0.76,
-        "reason": "The hidden path is plugin-scoped storage for the notebook registry and configuration. It does not instruct reading unrelated dotfiles, credentials, or arbitrary home-directory content."
+        "confidence": 0.97,
+        "reason": "The line describes migration of this plugin's own data to the configured plugin-data directory."
       },
       {
         "id": "filesystem:SKILL.md:22:hidden-file-access",
         "verdict": "false_positive",
-        "confidence": 0.76,
-        "reason": "The hidden path is plugin-scoped storage for the notebook registry and configuration. It does not instruct reading unrelated dotfiles, credentials, or arbitrary home-directory content."
+        "confidence": 0.91,
+        "reason": "Reading this fixed app-owned locator is expected configuration access; the risk from trusting its contents is recorded separately."
       },
       {
         "id": "filesystem:SKILL.md:170:hidden-file-access",
         "verdict": "false_positive",
-        "confidence": 0.76,
-        "reason": "The hidden path is plugin-scoped storage for the notebook registry and configuration. It does not instruct reading unrelated dotfiles, credentials, or arbitrary home-directory content."
+        "confidence": 0.99,
+        "reason": "The path is a documented fallback for plugin-owned state and does not expose unrelated hidden data."
       },
       {
         "id": "filesystem:SKILL.md:174:hidden-file-access",
         "verdict": "false_positive",
-        "confidence": 0.76,
-        "reason": "The hidden path is plugin-scoped storage for the notebook registry and configuration. It does not instruct reading unrelated dotfiles, credentials, or arbitrary home-directory content."
+        "confidence": 0.99,
+        "reason": "This occurrence is a comment in a storage diagram rather than a file-access instruction."
       },
       {
         "id": "filesystem:SKILL.md:187:hidden-file-access",
         "verdict": "false_positive",
-        "confidence": 0.76,
-        "reason": "The hidden path is plugin-scoped storage for the notebook registry and configuration. It does not instruct reading unrelated dotfiles, credentials, or arbitrary home-directory content."
+        "confidence": 0.98,
+        "reason": "This occurrence documents where the plugin stores its locator and is not access to sensitive user configuration."
       },
       {
         "id": "filesystem:SKILL.md:192:hidden-file-access",
         "verdict": "false_positive",
-        "confidence": 0.76,
-        "reason": "The hidden path is plugin-scoped storage for the notebook registry and configuration. It does not instruct reading unrelated dotfiles, credentials, or arbitrary home-directory content."
+        "confidence": 0.97,
+        "reason": "The referenced hidden directories are legacy locations for the same plugin's data migration."
       },
       {
         "id": "filesystem:SKILL.md:193:hidden-file-access",
         "verdict": "false_positive",
-        "confidence": 0.76,
-        "reason": "The hidden path is plugin-scoped storage for the notebook registry and configuration. It does not instruct reading unrelated dotfiles, credentials, or arbitrary home-directory content."
+        "confidence": 0.97,
+        "reason": "The referenced hidden directory is the same plugin's legacy storage source, not an unrelated target."
       },
       {
         "id": "blocker:SKILL.md:49:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "The cited text describes notebook ID parsing, similar-ID suggestions, or hook behavior. It is not system reconnaissance and does not collect host or account details."
+        "confidence": 0.99,
+        "reason": "The skill compares notebook identifiers to offer similar registry entries; it performs no system reconnaissance."
       }
     ],
     "semantic_findings": [
       {
-        "title": "Unvalidated Browser Navigation Target",
-        "description": "The workflow passes a supplied URL into the chrome-mcp-query agent without an explicit NotebookLM domain and path validation step. A non-NotebookLM URL could make the authenticated browser visit an unintended page.",
-        "severity": "medium",
+        "title": "Untrusted Values Cross Browser-Agent Boundary",
+        "description": "The skill inserts a stored URL and user question into a free-form prompt for a browser-capable agent. Crafted values can add instructions and steer an authenticated browser outside the intended NotebookLM workflow.",
+        "severity": "high",
         "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 47,
+            "line_end": 47
+          },
           {
             "file": "SKILL.md",
             "line_start": 71,
@@ -1435,39 +1439,62 @@
           {
             "file": "references/commands.md",
             "line_start": 18,
-            "line_end": 33
+            "line_end": 32
           }
         ],
-        "confidence": 0.66,
-        "confidence_reasoning": "The cited workflow shows URL forwarding to the browser agent, and no validation step appears in the add workflow. The skill description narrows intended use to NotebookLM, so confidence is moderate."
+        "confidence": 0.86,
+        "confidence_reasoning": "Direct interpolation into a privileged agent prompt is explicit. The companion agent's unseen constraints may reduce exploitability, so confidence is high but not absolute."
       },
       {
         "title": "Unvalidated Data Directory Pointer",
-        "description": "The skill reads an absolute DATA_DIR value from a hidden data-path file and uses it for all subsequent file operations. If that pointer is changed, reads and writes could leave the intended plugin storage area.",
+        "description": "The skill trusts an absolute path from a fixed locator and applies it to later file operations. A tampered locator can redirect configuration and registry access outside plugin storage.",
         "severity": "medium",
         "locations": [
           {
             "file": "SKILL.md",
             "line_start": 22,
-            "line_end": 27
+            "line_end": 26
           },
           {
             "file": "SKILL.md",
             "line_start": 31,
+            "line_end": 31
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 47,
             "line_end": 47
           }
         ],
-        "confidence": 0.7,
-        "confidence_reasoning": "The instructions explicitly trust a single-line absolute path and then use it for config and library operations. The hook may normally write a safe path, but the skill text does not require path validation."
+        "confidence": 0.92,
+        "confidence_reasoning": "The instructions explicitly trust an absolute path for all later operations. No canonicalization, symlink check, or approved-root validation is specified."
+      },
+      {
+        "title": "Reserved Marker Injection in Agent Responses",
+        "description": "The workflow selects error and truncation branches by searching agent output for reserved strings. Notebook content containing those strings can spoof errors, suppress coverage, or mislead users.",
+        "severity": "medium",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 89,
+            "line_end": 99
+          }
+        ],
+        "confidence": 0.84,
+        "confidence_reasoning": "The response table explicitly uses content markers for control flow. Exploitation depends on whether the agent preserves matching text from notebook answers."
       }
     ],
     "critical_findings": [],
-    "high_findings": [],
-    "medium_findings": [
+    "high_findings": [
       {
-        "title": "Unvalidated Browser Navigation Target",
-        "description": "The workflow passes a supplied URL into the chrome-mcp-query agent without an explicit NotebookLM domain and path validation step. A non-NotebookLM URL could make the authenticated browser visit an unintended page.",
+        "title": "Untrusted Values Cross Browser-Agent Boundary",
+        "description": "The skill inserts a stored URL and user question into a free-form prompt for a browser-capable agent. Crafted values can add instructions and steer an authenticated browser outside the intended NotebookLM workflow.",
         "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 47,
+            "line_end": 47
+          },
           {
             "file": "SKILL.md",
             "line_start": 71,
@@ -1476,35 +1503,58 @@
           {
             "file": "references/commands.md",
             "line_start": 18,
-            "line_end": 33
+            "line_end": 32
           }
         ],
         "review_kind": "security",
         "source_category": "semantic",
-        "source_severity": "medium",
-        "confidence": 0.66,
-        "confidence_reasoning": "The cited workflow shows URL forwarding to the browser agent, and no validation step appears in the add workflow. The skill description narrows intended use to NotebookLM, so confidence is moderate."
-      },
+        "source_severity": "high",
+        "confidence": 0.86,
+        "confidence_reasoning": "Direct interpolation into a privileged agent prompt is explicit. The companion agent's unseen constraints may reduce exploitability, so confidence is high but not absolute."
+      }
+    ],
+    "medium_findings": [
       {
         "title": "Unvalidated Data Directory Pointer",
-        "description": "The skill reads an absolute DATA_DIR value from a hidden data-path file and uses it for all subsequent file operations. If that pointer is changed, reads and writes could leave the intended plugin storage area.",
+        "description": "The skill trusts an absolute path from a fixed locator and applies it to later file operations. A tampered locator can redirect configuration and registry access outside plugin storage.",
         "locations": [
           {
             "file": "SKILL.md",
             "line_start": 22,
-            "line_end": 27
+            "line_end": 26
           },
           {
             "file": "SKILL.md",
             "line_start": 31,
+            "line_end": 31
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 47,
             "line_end": 47
           }
         ],
         "review_kind": "security",
         "source_category": "semantic",
         "source_severity": "medium",
-        "confidence": 0.7,
-        "confidence_reasoning": "The instructions explicitly trust a single-line absolute path and then use it for config and library operations. The hook may normally write a safe path, but the skill text does not require path validation."
+        "confidence": 0.92,
+        "confidence_reasoning": "The instructions explicitly trust an absolute path for all later operations. No canonicalization, symlink check, or approved-root validation is specified."
+      },
+      {
+        "title": "Reserved Marker Injection in Agent Responses",
+        "description": "The workflow selects error and truncation branches by searching agent output for reserved strings. Notebook content containing those strings can spoof errors, suppress coverage, or mislead users.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 89,
+            "line_end": 99
+          }
+        ],
+        "review_kind": "security",
+        "source_category": "semantic",
+        "source_severity": "medium",
+        "confidence": 0.84,
+        "confidence_reasoning": "The response table explicitly uses content markers for control flow. Exploitation depends on whether the agent preserves matching text from notebook answers."
       }
     ],
     "low_findings": [],
@@ -1512,129 +1562,129 @@
     "files_scanned": 4,
     "total_lines": 407,
     "audit_model": "codex",
-    "audited_at": "2026-07-08T05:01:40.714Z",
-    "agent_auto_install_policy": "allowed",
+    "audited_at": "2026-07-23T17:38:08.605Z",
+    "agent_auto_install_policy": "confirmation_required",
     "manual_install_policy": "allowed"
   },
   "content": {
-    "user_title": "Manage NotebookLM Notebooks from Claude",
-    "value_statement": "Research notebooks become hard to manage when URLs, topics, and follow-up questions are scattered across chats. This skill creates a local notebook registry and uses a Chrome agent to query NotebookLM consistently.",
+    "user_title": "Manage NotebookLM Research from Your AI Assistant",
+    "value_statement": "Managing multiple NotebookLM notebooks and complete research queries is repetitive. This skill organizes the registry and delegates browser queries with bounded coverage checks.",
     "seo_keywords": [
+      "NotebookLM",
+      "NotebookLM manager",
       "Claude",
       "Codex",
       "Claude Code",
-      "NotebookLM",
-      "NotebookLM manager",
-      "research assistant",
-      "Chrome automation",
-      "knowledge management",
-      "AI notebooks",
-      "Claude in Chrome"
+      "NotebookLM automation",
+      "notebook research",
+      "Chrome MCP",
+      "AI research assistant",
+      "notebook queries"
     ],
     "actual_capabilities": [
-      "Reads a local notebook library and configuration from the resolved plugin data directory.",
-      "Queries registered NotebookLM notebooks through the chrome-mcp-query agent.",
-      "Adds NotebookLM URLs with smart metadata discovery or manual metadata entry.",
-      "Lists, shows, searches, enables, disables, and removes notebook records.",
-      "Runs coverage checks and follow-up queries when NotebookLM misses requested topics.",
-      "Handles Chrome connection errors, authentication errors, empty answers, and long queries."
+      "Adds NotebookLM URLs with automatic title, topic, and description discovery.",
+      "Lists, searches, shows, enables, disables, and removes notebooks in a local registry.",
+      "Sends questions to registered notebooks through a companion Chrome browser agent.",
+      "Preserves chat history unless the user explicitly requests a fresh conversation.",
+      "Condenses questions above the configured length before submission.",
+      "Checks multi-topic answer coverage and launches bounded follow-up queries."
     ],
     "limitations": [
-      "Requires the claude-in-chrome MCP setup and a connected Chrome or Edge session.",
-      "Requires a Google account with access to the target NotebookLM notebooks.",
-      "Works only with notebooks in its local library unless a notebook is added first.",
-      "May need updates when NotebookLM changes its browser interface or selectors."
+      "Requires the companion Chrome agent, Claude in Chrome extension, a running supported browser, and Google authentication.",
+      "Direct browser access is unavailable to this skill; all NotebookLM interactions depend on the companion agent.",
+      "Google interface changes can break selectors and clear-history behavior.",
+      "Native Codex use requires equivalent hooks, browser tooling, and data-path setup."
     ],
     "use_cases": [
       {
-        "title": "Research Notebook Lookup",
-        "description": "Ask a saved NotebookLM notebook for answers without finding and opening the notebook URL manually.",
+        "title": "Synthesize Research Topics",
+        "description": "Query a research notebook across several topics and fill coverage gaps with focused follow-ups.",
         "target_user": "Researchers"
       },
       {
-        "title": "Team Knowledge Registry",
-        "description": "Keep project notebooks searchable by ID, topic, and status across repeated Claude Code sessions.",
-        "target_user": "Engineering leads"
+        "title": "Find Technical Guidance",
+        "description": "Search documentation notebooks and retrieve a covered answer for an implementation question.",
+        "target_user": "Software developers"
       },
       {
-        "title": "Documentation Review",
-        "description": "Query documentation notebooks and run follow-up checks when answers skip required topics.",
-        "target_user": "Technical writers"
+        "title": "Maintain a Notebook Catalog",
+        "description": "Add, search, archive, restore, and remove notebooks while keeping searchable local metadata.",
+        "target_user": "Knowledge managers"
       }
     ],
     "prompt_templates": [
       {
-        "title": "List Notebooks",
-        "scenario": "Beginner registry check",
-        "prompt": "List my active NotebookLM notebooks and show their IDs, names, and topics."
+        "title": "List Active Notebooks",
+        "prompt": "List my active NotebookLM notebooks with each notebook name, identifier, and topics.",
+        "scenario": "Review the available notebook registry."
       },
       {
-        "title": "Add Notebook",
-        "scenario": "Register a new source",
-        "prompt": "Add this NotebookLM URL to my library and discover its title, topics, and description."
+        "title": "Search the Library",
+        "prompt": "Search my NotebookLM library for {topic}, then show the best matching notebook identifiers and descriptions.",
+        "scenario": "Find the right notebook before querying."
       },
       {
-        "title": "Query Notebook",
-        "scenario": "Ask a saved notebook",
-        "prompt": "Ask the claude-docs notebook: What setup steps are required for Chrome MCP and hooks?"
+        "title": "Add and Query a Notebook",
+        "prompt": "Add {notebook_url} with Smart Add, then ask it: {question}. Keep the existing chat history.",
+        "scenario": "Register a new notebook and use it immediately."
       },
       {
-        "title": "Check Coverage",
-        "scenario": "Advanced multi-topic research",
-        "prompt": "Ask the product-research notebook about pricing, onboarding, objections, and integrations. Run coverage checks and follow up on missing topics."
+        "title": "Run Coverage Follow-Ups",
+        "prompt": "Query {notebook_id} about {topics}. Check every topic, run at most {followup_count} focused follow-ups, then synthesize the results.",
+        "scenario": "Build a complete answer for a multi-topic request."
       }
     ],
     "output_examples": [
       {
-        "input": "List my NotebookLM notebooks.",
+        "input": "List my active NotebookLM notebooks.",
         "output": [
-          "Shows active notebook names with IDs and topics.",
-          "Keeps archived notebooks hidden unless the user requests them."
+          "Claude Code Documentation: identifier claude-docs; topics include CLI, plugins, MCP, and hooks.",
+          "API Research: identifier api-research; topics include authentication, rate limits, and integrations."
         ]
       },
       {
-        "input": "Ask the claude-docs notebook about MCP setup and hooks.",
-        "output": "Returns the NotebookLM answer, checks whether both topics were covered, and suggests focused follow-up questions."
+        "input": "Search my notebooks for browser automation.",
+        "output": "Best match: Chrome Automation Notes. Identifier: chrome-automation. Topics: Chrome MCP, selectors, extension setup, and troubleshooting."
       },
       {
-        "input": "Add a NotebookLM URL with smart discovery.",
-        "output": "Extracts the notebook title and topics through the Chrome agent, then registers the notebook in the local library."
+        "input": "Ask claude-docs about plugin hooks and installation scope.",
+        "output": "Notebook: Claude Code Documentation. Answer: Plugin hooks run around tool calls, while installation scope determines whether data is shared or project-specific."
       }
     ],
     "best_practices": [
-      "Use stable, descriptive notebook IDs so search and follow-up prompts remain clear.",
-      "Keep questions focused when NotebookLM must answer from large or mixed-source notebooks.",
-      "Review smart-add metadata before relying on a notebook for repeated project work."
+      "Use specific notebook identifiers and focused questions for more reliable answers.",
+      "Review condensed questions before relying on responses to large inputs.",
+      "Keep follow-up limits small and confirm before extending coverage analysis."
     ],
     "anti_patterns": [
-      "Do not use it for non-NotebookLM URLs or arbitrary web browsing.",
-      "Do not paste private data into NotebookLM unless that data is approved for Google services.",
-      "Do not disable coverage checks for broad multi-topic research unless speed matters more than completeness."
+      "Do not submit unrelated websites as NotebookLM notebook URLs.",
+      "Do not place secrets or privileged browser instructions inside notebook questions.",
+      "Do not clear chat history unless the user explicitly requests a fresh context."
     ],
     "faq": [
       {
-        "question": "Does this skill open NotebookLM directly?",
-        "answer": "It delegates browser work to the chrome-mcp-query agent instead of calling Chrome MCP tools directly."
+        "question": "Does this skill require a Google account?",
+        "answer": "Yes. The browser must be signed in to Google with access to the requested NotebookLM notebooks."
       },
       {
-        "question": "What setup is required?",
-        "answer": "You need claude-in-chrome MCP, a connected Chrome or Edge browser, and access to the target NotebookLM notebooks."
+        "question": "Does this skill control Chrome directly?",
+        "answer": "No. It delegates browser work to the companion chrome-mcp-query agent."
       },
       {
-        "question": "Where are notebook records stored?",
-        "answer": "Records are stored in the plugin data directory resolved from the notebooklm-connector data-path file."
+        "question": "Where is notebook metadata stored?",
+        "answer": "The companion hook resolves a local data directory for global or project-specific registry files."
       },
       {
-        "question": "Can it add notebooks automatically?",
-        "answer": "Yes. Smart add queries the notebook for title, topics, and description, then stores the result locally."
+        "question": "What happens when a question is too long?",
+        "answer": "The skill condenses the question, shows the shortened version, and suggests smaller queries when needed."
       },
       {
-        "question": "Can it handle very long questions?",
-        "answer": "It checks the configured length limit and asks for smaller focused queries when needed."
+        "question": "Does the skill clear NotebookLM chat history?",
+        "answer": "It preserves history by default and clears it only after an explicit user request."
       },
       {
-        "question": "Does it replace NotebookLM source management?",
-        "answer": "No. It manages a local registry and queries notebooks, but source files still live inside NotebookLM."
+        "question": "Can Codex run this workflow without additional setup?",
+        "answer": "No. Codex needs equivalent hooks, browser-agent tooling, and data-path support for this Claude-oriented workflow."
       }
     ]
   },
