@@ -1,7 +1,7 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-07-07T20:58:10.915Z",
+    "generated_at": "2026-07-23T05:26:31.783Z",
     "slug": "asmayaseen-containerizing-applications",
     "source_url": "https://github.com/Asmayaseen/hackathon-2/tree/main/.claude/skills/containerizing-applications",
     "source_ref": "main",
@@ -23,18 +23,17 @@
   },
   "skill": {
     "name": "containerizing-applications",
-    "description": "Creates Docker, Docker Compose, and Helm guidance for application containerization. Covers multi-stage builds, service networking, health checks, container security scanning, and BuildKit secret patterns.",
-    "summary": "Generate Docker, Compose, and Helm templates for secure application containers.",
+    "description": "Creates Dockerfiles, Docker Compose configurations, and Helm chart guidance with multi-stage builds, container networking, health checks, and production security patterns.",
+    "summary": "Containerize applications for Docker and Kubernetes with practical configuration and security guidance.",
     "icon": "📦",
-    "version": "1.0.1",
     "author": "Asmayaseen",
     "license": "MIT",
     "tags": [
       "docker",
-      "kubernetes",
+      "docker-compose",
       "helm",
-      "container-security",
-      "devops"
+      "kubernetes",
+      "container-security"
     ],
     "supported_tools": [
       "claude",
@@ -50,12 +49,23 @@
     "category": "devops"
   },
   "security_audit": {
-    "risk_level": "safe",
+    "risk_level": "high",
     "is_blocked": false,
-    "safe_to_publish": true,
+    "safe_to_publish": false,
     "analysis_status": "ok",
-    "summary": "Static alerts were caused by Markdown code blocks, Docker examples, localhost networking, and secret-exclusion guidance. No evidence found of prompt injection, credential exfiltration, unauthorized network access, or dangerous runtime behavior in SKILL.md, references/production-security.md, or scripts/verify.py.",
-    "remediation": [],
+    "summary": "Most static alerts are false positives caused by Markdown syntax, local networking examples, protected secret mounts, and exclusion rules. Context review found mutable CI action references and distroless examples that may run as root. No prompt injection or credential exfiltration intent was found.",
+    "remediation": [
+      {
+        "issue": "CI examples use mutable action references.",
+        "suggestion": "Pin every GitHub Action to a reviewed full commit SHA and use dependency automation to propose controlled updates.",
+        "severity": "high"
+      },
+      {
+        "issue": "Distroless examples may run application processes as root.",
+        "suggestion": "Use the nonroot image variant or set a numeric USER, then verify the runtime UID in the generated container.",
+        "severity": "high"
+      }
+    ],
     "risk_factor_evidence": [
       {
         "factor": "external_commands",
@@ -309,26 +319,6 @@
             "file": "SKILL.md",
             "line_start": 302,
             "line_end": 306
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 306,
-            "line_end": 307
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 307,
-            "line_end": 308
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 295,
-            "line_end": 295
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 292,
-            "line_end": 296
           }
         ]
       },
@@ -1254,618 +1244,742 @@
       {
         "id": "external_commands:references/production-security.md:151:shell-command-substitution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The command substitution appears inside a Docker BuildKit secret example for package installation. It demonstrates mounted build secrets and does not exfiltrate host files or credentials."
+        "confidence": 0.98,
+        "reason": "This is a documented BuildKit secret-mount pattern that reads the intended token only for npm. It does not execute attacker-controlled input or transmit the token elsewhere."
       },
       {
         "id": "network:references/production-security.md:69:hardcoded-ip-address",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "Binding a containerized web server to 0.0.0.0 is a standard Docker pattern so published ports work. This is not an outbound network request or exfiltration endpoint."
+        "confidence": 0.99,
+        "reason": "The address 0.0.0.0 is a standard container bind address in a documented ENTRYPOINT. It is not a remote destination or evidence of unauthorized network activity."
       },
       {
         "id": "filesystem:references/production-security.md:154:hidden-file-access",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The .netrc path is a Docker BuildKit secret mount for a private package install example. The surrounding text states the secret is mounted at build time and not stored in image layers."
+        "confidence": 0.99,
+        "reason": "The hidden path is the explicit target of an ephemeral BuildKit secret mount for pip authentication. The example does not search for or collect arbitrary hidden files."
       },
       {
         "id": "sensitive:references/production-security.md:201:environment-file-access",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The environment file pattern appears in a dockerignore section labeled secrets never include. The skill instructs excluding these files from images rather than reading them."
+        "confidence": 1,
+        "reason": "The .env entry appears in a .dockerignore example under a secrets exclusion section. It prevents the sensitive file from entering the build context."
       },
       {
         "id": "sensitive:references/production-security.md:202:environment-file-access",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The environment file pattern appears in a dockerignore section labeled secrets never include. The skill instructs excluding these files from images rather than reading them."
+        "confidence": 1,
+        "reason": "The .env.* glob appears in a .dockerignore example to exclude environment files. This is a protective rule, not an instruction to read secrets."
       },
       {
         "id": "sensitive:references/production-security.md:154:netrc-credentials-file",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The .netrc reference is used as a BuildKit secret mount target for private PyPI access. It is secure secret-handling guidance, not credential collection or persistence."
+        "confidence": 0.99,
+        "reason": "The .netrc file is supplied through an ephemeral BuildKit secret mount for a private package install. The documented pattern avoids storing credentials in image layers."
       },
       {
         "id": "sensitive:references/production-security.md:205:credential-json-file",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "credentials.json appears in the dockerignore secrets exclusion list. The guidance prevents credential files from entering images and does not access the file."
+        "confidence": 1,
+        "reason": "credentials.json is listed in a .dockerignore secrets section. The example excludes the file from container build contexts and does not access its contents."
       },
       {
         "id": "sensitive:references/production-security.md:102:certificate-key-files",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "This copies the public CA certificate bundle into a scratch image. It is not a private key, client certificate, or credential extraction pattern."
+        "confidence": 0.99,
+        "reason": "The copied file is the public CA certificate trust bundle required by a scratch image, not a private key. This is standard TLS runtime setup."
       },
       {
         "id": "sensitive:references/production-security.md:203:certificate-key-files",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The certificate or key pattern appears in the dockerignore secrets exclusion list. The skill tells users to omit sensitive files from container contexts."
+        "confidence": 1,
+        "reason": "The *.pem pattern is a .dockerignore exclusion under the secrets heading. It protects certificate material from being copied into the image."
       },
       {
         "id": "sensitive:references/production-security.md:204:certificate-key-files",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The certificate or key pattern appears in the dockerignore secrets exclusion list. The skill tells users to omit sensitive files from container contexts."
+        "confidence": 1,
+        "reason": "The *.key pattern is a .dockerignore exclusion under the secrets heading. It protects private keys from being copied into the image."
       },
       {
         "id": "blocker:scripts/verify.py:28:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.99,
-        "reason": "The script only validates that expected SKILL.md text exists and prints an error when it does not. Line 28 is not system reconnaissance."
+        "confidence": 1,
+        "reason": "The line only prints a fixed validation error when expected frontmatter is absent. It gathers no system information and performs no reconnaissance."
       },
       {
         "id": "external_commands:SKILL.md:22:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The match is a Markdown code fence or inline backtick in SKILL.md documentation. It is not Ruby backtick execution and no code is run by the skill text."
+        "confidence": 0.99,
+        "reason": "The match is a Markdown code fence or inline documentation span in SKILL.md, not Ruby backtick execution. The skill presents examples and does not evaluate this text."
       },
       {
         "id": "external_commands:SKILL.md:38:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The match is a Markdown code fence or inline backtick in SKILL.md documentation. It is not Ruby backtick execution and no code is run by the skill text."
+        "confidence": 0.99,
+        "reason": "The match is a Markdown code fence or inline documentation span in SKILL.md, not Ruby backtick execution. The skill presents examples and does not evaluate this text."
       },
       {
         "id": "external_commands:SKILL.md:42:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The match is a Markdown code fence or inline backtick in SKILL.md documentation. It is not Ruby backtick execution and no code is run by the skill text."
+        "confidence": 0.99,
+        "reason": "The match is a Markdown code fence or inline documentation span in SKILL.md, not Ruby backtick execution. The skill presents examples and does not evaluate this text."
       },
       {
         "id": "external_commands:SKILL.md:69:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The match is a Markdown code fence or inline backtick in SKILL.md documentation. It is not Ruby backtick execution and no code is run by the skill text."
+        "confidence": 0.99,
+        "reason": "The match is a Markdown code fence or inline documentation span in SKILL.md, not Ruby backtick execution. The skill presents examples and does not evaluate this text."
       },
       {
         "id": "external_commands:SKILL.md:73:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The match is a Markdown code fence or inline backtick in SKILL.md documentation. It is not Ruby backtick execution and no code is run by the skill text."
+        "confidence": 0.99,
+        "reason": "The match is a Markdown code fence or inline documentation span in SKILL.md, not Ruby backtick execution. The skill presents examples and does not evaluate this text."
       },
       {
         "id": "external_commands:SKILL.md:103:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The match is a Markdown code fence or inline backtick in SKILL.md documentation. It is not Ruby backtick execution and no code is run by the skill text."
+        "confidence": 0.99,
+        "reason": "The match is a Markdown code fence or inline documentation span in SKILL.md, not Ruby backtick execution. The skill presents examples and does not evaluate this text."
       },
       {
         "id": "external_commands:SKILL.md:107:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The match is a Markdown code fence or inline backtick in SKILL.md documentation. It is not Ruby backtick execution and no code is run by the skill text."
+        "confidence": 0.99,
+        "reason": "The match is a Markdown code fence or inline documentation span in SKILL.md, not Ruby backtick execution. The skill presents examples and does not evaluate this text."
       },
       {
         "id": "external_commands:SKILL.md:118:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The match is a Markdown code fence or inline backtick in SKILL.md documentation. It is not Ruby backtick execution and no code is run by the skill text."
+        "confidence": 0.99,
+        "reason": "The match is a Markdown code fence or inline documentation span in SKILL.md, not Ruby backtick execution. The skill presents examples and does not evaluate this text."
       },
       {
         "id": "external_commands:SKILL.md:122:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The match is a Markdown code fence or inline backtick in SKILL.md documentation. It is not Ruby backtick execution and no code is run by the skill text."
+        "confidence": 0.99,
+        "reason": "The match is a Markdown code fence or inline documentation span in SKILL.md, not Ruby backtick execution. The skill presents examples and does not evaluate this text."
       },
       {
         "id": "external_commands:SKILL.md:127:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The match is a Markdown code fence or inline backtick in SKILL.md documentation. It is not Ruby backtick execution and no code is run by the skill text."
+        "confidence": 0.99,
+        "reason": "The match is a Markdown code fence or inline documentation span in SKILL.md, not Ruby backtick execution. The skill presents examples and does not evaluate this text."
       },
       {
         "id": "external_commands:SKILL.md:131:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The match is a Markdown code fence or inline backtick in SKILL.md documentation. It is not Ruby backtick execution and no code is run by the skill text."
+        "confidence": 0.99,
+        "reason": "The match is a Markdown code fence or inline documentation span in SKILL.md, not Ruby backtick execution. The skill presents examples and does not evaluate this text."
       },
       {
         "id": "external_commands:SKILL.md:145:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The match is a Markdown code fence or inline backtick in SKILL.md documentation. It is not Ruby backtick execution and no code is run by the skill text."
+        "confidence": 0.99,
+        "reason": "The match is a Markdown code fence or inline documentation span in SKILL.md, not Ruby backtick execution. The skill presents examples and does not evaluate this text."
       },
       {
         "id": "external_commands:SKILL.md:149:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The match is a Markdown code fence or inline backtick in SKILL.md documentation. It is not Ruby backtick execution and no code is run by the skill text."
+        "confidence": 0.99,
+        "reason": "The match is a Markdown code fence or inline documentation span in SKILL.md, not Ruby backtick execution. The skill presents examples and does not evaluate this text."
       },
       {
         "id": "external_commands:SKILL.md:156:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The match is a Markdown code fence or inline backtick in SKILL.md documentation. It is not Ruby backtick execution and no code is run by the skill text."
+        "confidence": 0.99,
+        "reason": "The match is a Markdown code fence or inline documentation span in SKILL.md, not Ruby backtick execution. The skill presents examples and does not evaluate this text."
       },
       {
         "id": "external_commands:SKILL.md:162:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The match is a Markdown code fence or inline backtick in SKILL.md documentation. It is not Ruby backtick execution and no code is run by the skill text."
+        "confidence": 0.99,
+        "reason": "The match is a Markdown code fence or inline documentation span in SKILL.md, not Ruby backtick execution. The skill presents examples and does not evaluate this text."
       },
       {
         "id": "external_commands:SKILL.md:168:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The match is a Markdown code fence or inline backtick in SKILL.md documentation. It is not Ruby backtick execution and no code is run by the skill text."
+        "confidence": 0.99,
+        "reason": "The match is a Markdown code fence or inline documentation span in SKILL.md, not Ruby backtick execution. The skill presents examples and does not evaluate this text."
       },
       {
         "id": "external_commands:SKILL.md:171:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The match is a Markdown code fence or inline backtick in SKILL.md documentation. It is not Ruby backtick execution and no code is run by the skill text."
+        "confidence": 0.99,
+        "reason": "The match is a Markdown code fence or inline documentation span in SKILL.md, not Ruby backtick execution. The skill presents examples and does not evaluate this text."
       },
       {
         "id": "external_commands:SKILL.md:172:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The match is a Markdown code fence or inline backtick in SKILL.md documentation. It is not Ruby backtick execution and no code is run by the skill text."
+        "confidence": 0.99,
+        "reason": "The match is a Markdown code fence or inline documentation span in SKILL.md, not Ruby backtick execution. The skill presents examples and does not evaluate this text."
       },
       {
         "id": "external_commands:SKILL.md:175:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The match is a Markdown code fence or inline backtick in SKILL.md documentation. It is not Ruby backtick execution and no code is run by the skill text."
+        "confidence": 0.99,
+        "reason": "The match is a Markdown code fence or inline documentation span in SKILL.md, not Ruby backtick execution. The skill presents examples and does not evaluate this text."
       },
       {
         "id": "external_commands:SKILL.md:179:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The match is a Markdown code fence or inline backtick in SKILL.md documentation. It is not Ruby backtick execution and no code is run by the skill text."
+        "confidence": 0.99,
+        "reason": "The match is a Markdown code fence or inline documentation span in SKILL.md, not Ruby backtick execution. The skill presents examples and does not evaluate this text."
       },
       {
         "id": "external_commands:SKILL.md:183:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The match is a Markdown code fence or inline backtick in SKILL.md documentation. It is not Ruby backtick execution and no code is run by the skill text."
+        "confidence": 0.99,
+        "reason": "The match is a Markdown code fence or inline documentation span in SKILL.md, not Ruby backtick execution. The skill presents examples and does not evaluate this text."
       },
       {
         "id": "external_commands:SKILL.md:186:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The match is a Markdown code fence or inline backtick in SKILL.md documentation. It is not Ruby backtick execution and no code is run by the skill text."
+        "confidence": 0.99,
+        "reason": "The match is a Markdown code fence or inline documentation span in SKILL.md, not Ruby backtick execution. The skill presents examples and does not evaluate this text."
       },
       {
         "id": "external_commands:SKILL.md:187:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The match is a Markdown code fence or inline backtick in SKILL.md documentation. It is not Ruby backtick execution and no code is run by the skill text."
+        "confidence": 0.99,
+        "reason": "The match is a Markdown code fence or inline documentation span in SKILL.md, not Ruby backtick execution. The skill presents examples and does not evaluate this text."
       },
       {
         "id": "external_commands:SKILL.md:191:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The match is a Markdown code fence or inline backtick in SKILL.md documentation. It is not Ruby backtick execution and no code is run by the skill text."
+        "confidence": 0.99,
+        "reason": "The match is a Markdown code fence or inline documentation span in SKILL.md, not Ruby backtick execution. The skill presents examples and does not evaluate this text."
       },
       {
         "id": "external_commands:SKILL.md:194:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The match is a Markdown code fence or inline backtick in SKILL.md documentation. It is not Ruby backtick execution and no code is run by the skill text."
+        "confidence": 0.99,
+        "reason": "The match is a Markdown code fence or inline documentation span in SKILL.md, not Ruby backtick execution. The skill presents examples and does not evaluate this text."
       },
       {
         "id": "external_commands:SKILL.md:198:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The match is a Markdown code fence or inline backtick in SKILL.md documentation. It is not Ruby backtick execution and no code is run by the skill text."
+        "confidence": 0.99,
+        "reason": "The match is a Markdown code fence or inline documentation span in SKILL.md, not Ruby backtick execution. The skill presents examples and does not evaluate this text."
       },
       {
         "id": "external_commands:SKILL.md:200:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The match is a Markdown code fence or inline backtick in SKILL.md documentation. It is not Ruby backtick execution and no code is run by the skill text."
+        "confidence": 0.99,
+        "reason": "The match is a Markdown code fence or inline documentation span in SKILL.md, not Ruby backtick execution. The skill presents examples and does not evaluate this text."
       },
       {
         "id": "external_commands:SKILL.md:203:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The match is a Markdown code fence or inline backtick in SKILL.md documentation. It is not Ruby backtick execution and no code is run by the skill text."
+        "confidence": 0.99,
+        "reason": "The match is a Markdown code fence or inline documentation span in SKILL.md, not Ruby backtick execution. The skill presents examples and does not evaluate this text."
       },
       {
         "id": "external_commands:SKILL.md:206:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The match is a Markdown code fence or inline backtick in SKILL.md documentation. It is not Ruby backtick execution and no code is run by the skill text."
+        "confidence": 0.99,
+        "reason": "The match is a Markdown code fence or inline documentation span in SKILL.md, not Ruby backtick execution. The skill presents examples and does not evaluate this text."
       },
       {
         "id": "external_commands:SKILL.md:215:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The match is a Markdown code fence or inline backtick in SKILL.md documentation. It is not Ruby backtick execution and no code is run by the skill text."
+        "confidence": 0.99,
+        "reason": "The match is a Markdown code fence or inline documentation span in SKILL.md, not Ruby backtick execution. The skill presents examples and does not evaluate this text."
       },
       {
         "id": "external_commands:SKILL.md:218:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The match is a Markdown code fence or inline backtick in SKILL.md documentation. It is not Ruby backtick execution and no code is run by the skill text."
+        "confidence": 0.99,
+        "reason": "The match is a Markdown code fence or inline documentation span in SKILL.md, not Ruby backtick execution. The skill presents examples and does not evaluate this text."
       },
       {
         "id": "external_commands:SKILL.md:221:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The match is a Markdown code fence or inline backtick in SKILL.md documentation. It is not Ruby backtick execution and no code is run by the skill text."
+        "confidence": 0.99,
+        "reason": "The match is a Markdown code fence or inline documentation span in SKILL.md, not Ruby backtick execution. The skill presents examples and does not evaluate this text."
       },
       {
         "id": "external_commands:SKILL.md:227:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The match is a Markdown code fence or inline backtick in SKILL.md documentation. It is not Ruby backtick execution and no code is run by the skill text."
+        "confidence": 0.99,
+        "reason": "The match is a Markdown code fence or inline documentation span in SKILL.md, not Ruby backtick execution. The skill presents examples and does not evaluate this text."
       },
       {
         "id": "external_commands:SKILL.md:230:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The match is a Markdown code fence or inline backtick in SKILL.md documentation. It is not Ruby backtick execution and no code is run by the skill text."
+        "confidence": 0.99,
+        "reason": "The match is a Markdown code fence or inline documentation span in SKILL.md, not Ruby backtick execution. The skill presents examples and does not evaluate this text."
       },
       {
         "id": "external_commands:SKILL.md:238:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The match is a Markdown code fence or inline backtick in SKILL.md documentation. It is not Ruby backtick execution and no code is run by the skill text."
+        "confidence": 0.99,
+        "reason": "The match is a Markdown code fence or inline documentation span in SKILL.md, not Ruby backtick execution. The skill presents examples and does not evaluate this text."
       },
       {
         "id": "external_commands:SKILL.md:244:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The match is a Markdown code fence or inline backtick in SKILL.md documentation. It is not Ruby backtick execution and no code is run by the skill text."
+        "confidence": 0.99,
+        "reason": "The match is a Markdown code fence or inline documentation span in SKILL.md, not Ruby backtick execution. The skill presents examples and does not evaluate this text."
       },
       {
         "id": "external_commands:SKILL.md:256:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The match is a Markdown code fence or inline backtick in SKILL.md documentation. It is not Ruby backtick execution and no code is run by the skill text."
+        "confidence": 0.99,
+        "reason": "The match is a Markdown code fence or inline documentation span in SKILL.md, not Ruby backtick execution. The skill presents examples and does not evaluate this text."
       },
       {
         "id": "external_commands:SKILL.md:258:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The match is a Markdown code fence or inline backtick in SKILL.md documentation. It is not Ruby backtick execution and no code is run by the skill text."
+        "confidence": 0.99,
+        "reason": "The match is a Markdown code fence or inline documentation span in SKILL.md, not Ruby backtick execution. The skill presents examples and does not evaluate this text."
       },
       {
         "id": "external_commands:SKILL.md:261:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The match is a Markdown code fence or inline backtick in SKILL.md documentation. It is not Ruby backtick execution and no code is run by the skill text."
+        "confidence": 0.99,
+        "reason": "The match is a Markdown code fence or inline documentation span in SKILL.md, not Ruby backtick execution. The skill presents examples and does not evaluate this text."
       },
       {
         "id": "external_commands:SKILL.md:263:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The match is a Markdown code fence or inline backtick in SKILL.md documentation. It is not Ruby backtick execution and no code is run by the skill text."
+        "confidence": 0.99,
+        "reason": "The match is a Markdown code fence or inline documentation span in SKILL.md, not Ruby backtick execution. The skill presents examples and does not evaluate this text."
       },
       {
         "id": "external_commands:SKILL.md:267:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The match is a Markdown code fence or inline backtick in SKILL.md documentation. It is not Ruby backtick execution and no code is run by the skill text."
+        "confidence": 0.99,
+        "reason": "The match is a Markdown code fence or inline documentation span in SKILL.md, not Ruby backtick execution. The skill presents examples and does not evaluate this text."
       },
       {
         "id": "external_commands:SKILL.md:270:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The match is a Markdown code fence or inline backtick in SKILL.md documentation. It is not Ruby backtick execution and no code is run by the skill text."
+        "confidence": 0.99,
+        "reason": "The match is a Markdown code fence or inline documentation span in SKILL.md, not Ruby backtick execution. The skill presents examples and does not evaluate this text."
       },
       {
         "id": "external_commands:SKILL.md:274:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The match is a Markdown code fence or inline backtick in SKILL.md documentation. It is not Ruby backtick execution and no code is run by the skill text."
+        "confidence": 0.99,
+        "reason": "The match is a Markdown code fence or inline documentation span in SKILL.md, not Ruby backtick execution. The skill presents examples and does not evaluate this text."
       },
       {
         "id": "external_commands:SKILL.md:278:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The match is a Markdown code fence or inline backtick in SKILL.md documentation. It is not Ruby backtick execution and no code is run by the skill text."
+        "confidence": 0.99,
+        "reason": "The match is a Markdown code fence or inline documentation span in SKILL.md, not Ruby backtick execution. The skill presents examples and does not evaluate this text."
       },
       {
         "id": "external_commands:SKILL.md:282:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The match is a Markdown code fence or inline backtick in SKILL.md documentation. It is not Ruby backtick execution and no code is run by the skill text."
+        "confidence": 0.99,
+        "reason": "The match is a Markdown code fence or inline documentation span in SKILL.md, not Ruby backtick execution. The skill presents examples and does not evaluate this text."
       },
       {
         "id": "external_commands:SKILL.md:288:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The match is a Markdown code fence or inline backtick in SKILL.md documentation. It is not Ruby backtick execution and no code is run by the skill text."
+        "confidence": 0.99,
+        "reason": "The match is a Markdown code fence or inline documentation span in SKILL.md, not Ruby backtick execution. The skill presents examples and does not evaluate this text."
       },
       {
         "id": "external_commands:SKILL.md:292:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The match is a Markdown code fence or inline backtick in SKILL.md documentation. It is not Ruby backtick execution and no code is run by the skill text."
+        "confidence": 0.99,
+        "reason": "The match is a Markdown code fence or inline documentation span in SKILL.md, not Ruby backtick execution. The skill presents examples and does not evaluate this text."
       },
       {
         "id": "external_commands:SKILL.md:296:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The match is a Markdown code fence or inline backtick in SKILL.md documentation. It is not Ruby backtick execution and no code is run by the skill text."
+        "confidence": 0.99,
+        "reason": "The match is a Markdown code fence or inline documentation span in SKILL.md, not Ruby backtick execution. The skill presents examples and does not evaluate this text."
       },
       {
         "id": "external_commands:SKILL.md:302:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The match is a Markdown code fence or inline backtick in SKILL.md documentation. It is not Ruby backtick execution and no code is run by the skill text."
+        "confidence": 0.99,
+        "reason": "The match is a Markdown code fence or inline documentation span in SKILL.md, not Ruby backtick execution. The skill presents examples and does not evaluate this text."
       },
       {
         "id": "external_commands:SKILL.md:306:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The match is a Markdown code fence or inline backtick in SKILL.md documentation. It is not Ruby backtick execution and no code is run by the skill text."
+        "confidence": 0.99,
+        "reason": "The match is a Markdown code fence or inline documentation span in SKILL.md, not Ruby backtick execution. The skill presents examples and does not evaluate this text."
       },
       {
         "id": "external_commands:SKILL.md:307:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The match is a Markdown code fence or inline backtick in SKILL.md documentation. It is not Ruby backtick execution and no code is run by the skill text."
+        "confidence": 0.99,
+        "reason": "The match is a Markdown code fence or inline documentation span in SKILL.md, not Ruby backtick execution. The skill presents examples and does not evaluate this text."
       },
       {
         "id": "external_commands:SKILL.md:295:shell-command-substitution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The command substitution appears inside a Docker BuildKit secret example for package installation. It demonstrates mounted build secrets and does not exfiltrate host files or credentials."
+        "confidence": 0.98,
+        "reason": "This command is a documented BuildKit secret-mount example with a fixed local secret path. It passes the intended token to npm without attacker-controlled command construction."
       },
       {
         "id": "external_commands:SKILL.md:292:template-literal-with-command-substitution",
         "verdict": "false_positive",
-        "confidence": 0.93,
-        "reason": "The match is the start of a Dockerfile documentation block, not executable template code. The later substitution is a BuildKit secret example, not hidden execution."
+        "confidence": 1,
+        "reason": "The matched text is a Markdown Dockerfile fence, not a JavaScript template literal. No template evaluation or command construction occurs."
       },
       {
         "id": "network:SKILL.md:80:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.91,
-        "reason": "The URL or IP is localhost, loopback, or a Docker service-name example for Compose routing and health checks. No external endpoint or unauthorized network call is present."
+        "confidence": 0.99,
+        "reason": "The URL is a localhost browser endpoint in a Docker Compose example. It identifies the user's local service and sends no data to an external host."
       },
       {
         "id": "network:SKILL.md:83:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.91,
-        "reason": "The URL or IP is localhost, loopback, or a Docker service-name example for Compose routing and health checks. No external endpoint or unauthorized network call is present."
+        "confidence": 0.99,
+        "reason": "The URL uses the internal Docker service name api in a Compose example. It is expected service-to-service configuration, not an external destination."
       },
       {
         "id": "network:SKILL.md:94:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.91,
-        "reason": "The URL or IP is localhost, loopback, or a Docker service-name example for Compose routing and health checks. No external endpoint or unauthorized network call is present."
+        "confidence": 0.99,
+        "reason": "These origins identify localhost and the internal web service for a documented CORS example. No network request or data transfer is performed."
       },
       {
         "id": "network:SKILL.md:98:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.91,
-        "reason": "The URL or IP is localhost, loopback, or a Docker service-name example for Compose routing and health checks. No external endpoint or unauthorized network call is present."
+        "confidence": 1,
+        "reason": "The URL is a loopback health-check endpoint inside the container. It cannot target an external service."
       },
       {
         "id": "network:SKILL.md:165:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.91,
-        "reason": "The URL or IP is localhost, loopback, or a Docker service-name example for Compose routing and health checks. No external endpoint or unauthorized network call is present."
+        "confidence": 0.99,
+        "reason": "The URL is explicitly documented as the browser's localhost endpoint. It is local application configuration without exfiltration behavior."
       },
       {
         "id": "network:SKILL.md:167:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.91,
-        "reason": "The URL or IP is localhost, loopback, or a Docker service-name example for Compose routing and health checks. No external endpoint or unauthorized network call is present."
+        "confidence": 0.99,
+        "reason": "The URL points to the internal Docker service named api. It demonstrates container networking and does not contact an external domain."
       },
       {
         "id": "network:SKILL.md:171:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.91,
-        "reason": "The URL or IP is localhost, loopback, or a Docker service-name example for Compose routing and health checks. No external endpoint or unauthorized network call is present."
+        "confidence": 1,
+        "reason": "The URL appears only in prose describing a localhost IPv6 health-check issue. It is not an executed request."
       },
       {
         "id": "network:SKILL.md:174:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.91,
-        "reason": "The URL or IP is localhost, loopback, or a Docker service-name example for Compose routing and health checks. No external endpoint or unauthorized network call is present."
+        "confidence": 1,
+        "reason": "The URL is a loopback-only health check in a Compose example. It does not expose or transmit data outside the container."
       },
       {
         "id": "network:SKILL.md:37:hardcoded-ip-address",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "Binding a containerized web server to 0.0.0.0 is a standard Docker pattern so published ports work. This is not an outbound network request or exfiltration endpoint."
+        "confidence": 0.99,
+        "reason": "The address 0.0.0.0 is the conventional bind address for a service inside a container. It is not a remote target."
       },
       {
         "id": "network:SKILL.md:98:hardcoded-ip-address",
         "verdict": "false_positive",
-        "confidence": 0.91,
-        "reason": "The URL or IP is localhost, loopback, or a Docker service-name example for Compose routing and health checks. No external endpoint or unauthorized network call is present."
+        "confidence": 1,
+        "reason": "The 127.0.0.1 address limits a health check to the current container. It is a protective local-only network scope."
       },
       {
         "id": "network:SKILL.md:174:hardcoded-ip-address",
         "verdict": "false_positive",
-        "confidence": 0.91,
-        "reason": "The URL or IP is localhost, loopback, or a Docker service-name example for Compose routing and health checks. No external endpoint or unauthorized network call is present."
+        "confidence": 1,
+        "reason": "The 127.0.0.1 address is deliberately used for a local container health check. It cannot route to an external system."
       },
       {
         "id": "network:SKILL.md:181:hardcoded-ip-address",
         "verdict": "false_positive",
-        "confidence": 0.78,
-        "reason": "The address appears in a local container host allowlist example for FastMCP troubleshooting. It is documentation and does not perform network access or transfer data."
+        "confidence": 0.98,
+        "reason": "The addresses are entries in a local and container-host allowlist example. They are not outbound destinations, and the list does not include a wildcard hostname."
       },
       {
         "id": "filesystem:SKILL.md:63:hidden-file-access",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "The hidden path is a Next.js .next build artifact copied between Docker stages. It is not a hidden credential file or host filesystem access."
+        "confidence": 1,
+        "reason": "The .next path is standard Next.js build output copied between Docker stages. It is application artifact handling, not hidden user-file access."
       },
       {
         "id": "filesystem:SKILL.md:64:hidden-file-access",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "The hidden path is a Next.js .next build artifact copied between Docker stages. It is not a hidden credential file or host filesystem access."
+        "confidence": 1,
+        "reason": "The .next/static path contains generated Next.js assets. Copying it between Docker stages does not access sensitive hidden files."
       },
       {
         "id": "filesystem:SKILL.md:252:hard-link-creation",
         "verdict": "false_positive",
-        "confidence": 0.99,
-        "reason": "The match is the term OpenVEX in a Markdown table describing vulnerability metadata. It is not a filesystem hard-link operation."
+        "confidence": 1,
+        "reason": "The line is a documentation table entry describing OpenVEX. It contains no link command, filesystem operation, or hard-link creation."
       },
       {
         "id": "env_access:SKILL.md:93:database-connection-strings",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "DATABASE_URL is shown as Compose variable interpolation for runtime configuration. No database credential value is hardcoded, read, logged, or transmitted."
+        "confidence": 0.98,
+        "reason": "The Compose example forwards an existing DATABASE_URL variable without embedding or reading a credential value. This is standard runtime configuration and shows no disclosure path."
       },
       {
         "id": "blocker:SKILL.md:221:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.99,
-        "reason": "The line gives an example admin email value for pgAdmin validation. It does not inspect the system or collect host information."
+        "confidence": 1,
+        "reason": "The line gives a fixed example email for pgAdmin validation. It does not inspect the host, enumerate accounts, or gather system data."
       }
     ],
-    "semantic_findings": [],
+    "semantic_findings": [
+      {
+        "title": "Mutable CI Action References",
+        "description": "CI examples reference actions through mutable branch or version tags. An upstream tag change can execute altered code in privileged workflow jobs.",
+        "severity": "high",
+        "locations": [
+          {
+            "file": "references/production-security.md",
+            "line_start": 10,
+            "line_end": 10
+          },
+          {
+            "file": "references/production-security.md",
+            "line_start": 115,
+            "line_end": 115
+          },
+          {
+            "file": "references/production-security.md",
+            "line_start": 118,
+            "line_end": 118
+          },
+          {
+            "file": "references/production-security.md",
+            "line_start": 121,
+            "line_end": 121
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 283,
+            "line_end": 283
+          }
+        ],
+        "confidence": 0.97,
+        "confidence_reasoning": "The files explicitly use @master, @v3, and @v5 instead of immutable commit SHAs. Mutable workflow references are a well-established CI supply-chain risk."
+      },
+      {
+        "title": "Distroless Examples May Run as Root",
+        "description": "The examples claim unqualified distroless images run as non-root, but they omit USER and do not select a nonroot image variant. Generated containers may run as root.",
+        "severity": "high",
+        "locations": [
+          {
+            "file": "references/production-security.md",
+            "line_start": 62,
+            "line_end": 69
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 274,
+            "line_end": 278
+          }
+        ],
+        "confidence": 0.96,
+        "confidence_reasoning": "Both examples use the default distroless tag while asserting non-root behavior. Distroless publishes a separate nonroot variant, and neither example sets USER."
+      }
+    ],
     "critical_findings": [],
-    "high_findings": [],
+    "high_findings": [
+      {
+        "title": "Mutable CI Action References",
+        "description": "CI examples reference actions through mutable branch or version tags. An upstream tag change can execute altered code in privileged workflow jobs.",
+        "locations": [
+          {
+            "file": "references/production-security.md",
+            "line_start": 10,
+            "line_end": 10
+          },
+          {
+            "file": "references/production-security.md",
+            "line_start": 115,
+            "line_end": 115
+          },
+          {
+            "file": "references/production-security.md",
+            "line_start": 118,
+            "line_end": 118
+          },
+          {
+            "file": "references/production-security.md",
+            "line_start": 121,
+            "line_end": 121
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 283,
+            "line_end": 283
+          }
+        ],
+        "review_kind": "security",
+        "source_category": "semantic",
+        "source_severity": "high",
+        "confidence": 0.97,
+        "confidence_reasoning": "The files explicitly use @master, @v3, and @v5 instead of immutable commit SHAs. Mutable workflow references are a well-established CI supply-chain risk."
+      },
+      {
+        "title": "Distroless Examples May Run as Root",
+        "description": "The examples claim unqualified distroless images run as non-root, but they omit USER and do not select a nonroot image variant. Generated containers may run as root.",
+        "locations": [
+          {
+            "file": "references/production-security.md",
+            "line_start": 62,
+            "line_end": 69
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 274,
+            "line_end": 278
+          }
+        ],
+        "review_kind": "security",
+        "source_category": "semantic",
+        "source_severity": "high",
+        "confidence": 0.96,
+        "confidence_reasoning": "Both examples use the default distroless tag while asserting non-root behavior. Distroless publishes a separate nonroot variant, and neither example sets USER."
+      }
+    ],
     "medium_findings": [],
     "low_findings": [],
     "dangerous_patterns": [],
     "files_scanned": 3,
     "total_lines": 589,
     "audit_model": "codex",
-    "audited_at": "2026-07-07T20:58:10.915Z",
-    "agent_auto_install_policy": "allowed",
+    "audited_at": "2026-07-23T05:26:31.783Z",
+    "agent_auto_install_policy": "confirmation_required",
     "manual_install_policy": "allowed"
   },
   "content": {
-    "user_title": "Containerize Apps for Docker and Kubernetes",
-    "value_statement": "Container setup often fails because runtime, networking, and security details are scattered. This skill helps Claude, Codex, and Claude Code create Docker, Compose, and Helm guidance from one workflow.",
+    "user_title": "Containerize Applications for Docker and Kubernetes",
+    "value_statement": "Container configuration is easy to misalign across local and production environments. This skill creates Dockerfiles, Compose setups, Helm structures, and security checks.",
     "seo_keywords": [
+      "Docker application containerization",
+      "Docker Compose configuration",
+      "Helm chart generation",
+      "Kubernetes deployment",
+      "multi-stage Docker builds",
+      "container security",
       "Claude",
       "Codex",
       "Claude Code",
-      "Dockerfile generation",
-      "Docker Compose",
-      "Helm charts",
-      "Kubernetes deployment",
-      "container security",
-      "multi-stage builds",
-      "BuildKit secrets"
+      "DevOps automation"
     ],
     "actual_capabilities": [
-      "Drafts multi-stage Dockerfile patterns for Python FastAPI and Next.js applications.",
-      "Creates Docker Compose service layouts with build args, environment variables, ports, dependencies, and health checks.",
-      "Outlines Helm chart structure, values files, and common install or upgrade commands.",
-      "Documents container networking fixes for browser URLs, service names, health checks, and startup order.",
-      "Adds production security guidance for hardened images, distroless images, Trivy scans, SBOMs, and BuildKit secrets."
+      "Creates multi-stage Dockerfile patterns for FastAPI and Next.js applications.",
+      "Structures Docker Compose services with networking, environment variables, dependencies, and health checks.",
+      "Outlines Helm charts with deployments, services, configuration, secrets, ingress, and resource limits.",
+      "Explains browser, server, container, CORS, startup, and health-check configuration differences.",
+      "Recommends image scanning, SBOM generation, secret mounts, and reduced container attack surfaces."
     ],
     "limitations": [
-      "Generated templates still need review against the application repository and deployment environment.",
-      "The skill does not deploy workloads or verify Kubernetes cluster access by itself.",
-      "Image tags, tool versions, and cloud policies may need updates for each organization.",
-      "It does not replace threat modeling, compliance review, or production incident procedures."
+      "The skill provides patterns and guidance but does not deploy or operate containers automatically.",
+      "Generated configuration requires review for each application's ports, commands, dependencies, and secret sources.",
+      "The examples do not cover every language runtime, cloud provider, or Kubernetes policy.",
+      "Security claims and image defaults require verification against current upstream documentation."
     ],
     "use_cases": [
       {
-        "title": "Containerize a web API",
-        "description": "Create a Dockerfile plan for a FastAPI service with non-root execution, exposed ports, and dependency installation.",
-        "target_user": "Backend developers"
+        "title": "Package a Web Application",
+        "description": "Create coordinated Dockerfiles and Compose services for a frontend, API, database, and health checks.",
+        "target_user": "Application developer"
       },
       {
-        "title": "Prepare local service orchestration",
-        "description": "Design a Docker Compose setup for web, API, and database services with internal URLs and health checks.",
-        "target_user": "Full-stack teams"
+        "title": "Prepare Kubernetes Packaging",
+        "description": "Translate container requirements into a Helm chart structure with services, configuration, ingress, and resource limits.",
+        "target_user": "Platform engineer"
       },
       {
-        "title": "Package a Kubernetes release",
-        "description": "Draft Helm chart files, values, resource limits, and deployment notes for a containerized application.",
-        "target_user": "Platform engineers"
+        "title": "Strengthen Container Builds",
+        "description": "Review image stages, runtime users, secret handling, vulnerability scans, and software bill of materials generation.",
+        "target_user": "Security engineer"
       }
     ],
     "prompt_templates": [
       {
-        "title": "Create a basic Dockerfile",
-        "scenario": "Beginner request for one service.",
-        "prompt": "Containerize this application with a production Dockerfile. Identify the runtime, dependency files, ports, and required environment variables first."
+        "title": "Create a Basic Dockerfile",
+        "prompt": "Create a production Dockerfile for my [runtime] application. It starts with [command], listens on [port], and installs dependencies from [file].",
+        "scenario": "Beginner container packaging"
       },
       {
-        "title": "Build Docker Compose services",
-        "scenario": "Intermediate request for local development.",
-        "prompt": "Create a Docker Compose plan for this web and API project. Include service names, health checks, startup order, and browser versus server URLs."
+        "title": "Build a Compose Environment",
+        "prompt": "Create Docker Compose configuration for [services]. Include internal networking, environment placeholders, health checks, startup dependencies, and persistent storage where required.",
+        "scenario": "Multi-service local development"
       },
       {
-        "title": "Add production security checks",
-        "scenario": "Advanced request for release preparation.",
-        "prompt": "Review this container setup for production. Add hardened image options, Trivy scanning, SBOM generation, non-root users, and secret handling guidance."
+        "title": "Package with Helm",
+        "prompt": "Design a Helm chart for [application]. Include deployments, services, ingress, configuration, secret references, probes, resource limits, and environment-specific values.",
+        "scenario": "Kubernetes application packaging"
       },
       {
-        "title": "Prepare a Helm deployment",
-        "scenario": "Advanced request for Kubernetes packaging.",
-        "prompt": "Package this app as a Helm chart. Include values for images, replicas, services, ingress, resources, secrets, and safe upgrade commands."
+        "title": "Audit a Container Architecture",
+        "prompt": "Review my container files for image provenance, root execution, leaked secrets, unsafe networking, missing probes, mutable tags, and deployment reliability risks.",
+        "scenario": "Advanced production security review"
       }
     ],
     "output_examples": [
       {
-        "input": "Containerize a FastAPI service that listens on port 8000.",
-        "output": "A Dockerfile plan with build and runtime stages, dependency installation, a non-root user, an exposed port, and a Uvicorn start command."
+        "input": "Containerize a FastAPI service that uses PostgreSQL and listens on port 8000.",
+        "output": [
+          "A multi-stage Python image with a non-root runtime user.",
+          "A Compose service connected to PostgreSQL through its internal service name.",
+          "A loopback health check with startup timing and database dependency guidance."
+        ]
       },
       {
-        "input": "Create local containers for a Next.js frontend and API backend.",
-        "output": "A Compose plan that separates browser URLs from service URLs, adds health checks, and waits for the API before starting dependent services."
+        "input": "Prepare a Next.js frontend and API for Kubernetes deployment.",
+        "output": [
+          "Separate frontend and API image plans with build-time and runtime variables.",
+          "A Helm structure covering deployments, services, ingress, probes, and limits.",
+          "Notes for browser URLs, internal service discovery, CORS, and secret references."
+        ]
       },
       {
-        "input": "Prepare this image for a production Kubernetes release.",
-        "output": "A release checklist covering hardened base images, vulnerability scanning, SBOM output, BuildKit secrets, resource limits, and Helm values."
+        "input": "Review an existing container build for production security.",
+        "output": [
+          "Findings for runtime users, image tags, build context, secrets, and package installation.",
+          "Recommended vulnerability scanning, signature verification, and software bill of materials checks.",
+          "Prioritized changes with deployment-specific validation steps."
+        ]
       }
     ],
     "best_practices": [
-      "Run an impact analysis before writing container files, including ports, secrets, CORS, and service dependencies.",
-      "Use multi-stage builds, non-root users, health checks, and minimal runtime images for production services.",
-      "Keep secrets out of images by using BuildKit mounts, environment injection, and a strict dockerignore file."
+      "Pin base images and CI actions to reviewed immutable references.",
+      "Use multi-stage builds, non-root runtime users, minimal images, and explicit health checks.",
+      "Keep secrets outside images and pass them through dedicated secret mechanisms."
     ],
     "anti_patterns": [
-      "Do not bake database passwords, API keys, or private certificates into Docker images.",
-      "Do not use localhost for server-to-server calls inside Docker Compose networks.",
-      "Do not deploy generated Helm values without reviewing resource limits, ingress settings, and secret management."
+      "Do not place credentials, environment files, or private keys in build contexts.",
+      "Do not use localhost for communication between separate containers.",
+      "Do not deploy mutable latest tags or assume an image runs as non-root."
     ],
     "faq": [
       {
-        "question": "What application types does this skill cover?",
-        "answer": "It includes patterns for FastAPI, Next.js, Docker Compose services, and Helm-based Kubernetes deployments."
+        "question": "Which application stacks are included?",
+        "answer": "The examples cover FastAPI, Next.js, and general container workflows. Adapt package commands and runtime details for other stacks."
       },
       {
-        "question": "Can it create production-ready Dockerfiles?",
-        "answer": "It provides production-oriented templates, but each Dockerfile needs review against the real repository and runtime requirements."
+        "question": "Does the skill run Docker or Kubernetes commands?",
+        "answer": "No. It provides configuration patterns and command guidance. Users must review and execute commands in their own environments."
       },
       {
-        "question": "Does it run Docker or Kubernetes commands?",
-        "answer": "No. The skill provides guidance and command examples. The user or agent decides what to execute."
+        "question": "Are generated files production ready?",
+        "answer": "They are starting points. Validate images, ports, users, secrets, probes, resources, network policy, and deployment requirements before release."
       },
       {
-        "question": "How does it handle secrets?",
-        "answer": "It recommends BuildKit secret mounts, environment injection, and dockerignore entries for sensitive files."
+        "question": "How should build secrets be handled?",
+        "answer": "Use BuildKit secret mounts or platform secret stores. Never copy secret files into image layers or commit them."
       },
       {
-        "question": "Does it support Helm charts?",
-        "answer": "Yes. It outlines chart structure, values files, templating checks, and install or upgrade workflows."
+        "question": "Can it create Helm charts?",
+        "answer": "It outlines chart structure and common values for deployments, services, configuration, secrets, ingress, probes, and resource limits."
       },
       {
-        "question": "Which AI tools can use this skill?",
-        "answer": "The report lists support for Claude, Codex, and Claude Code."
+        "question": "Does it include security scanning guidance?",
+        "answer": "Yes. It covers Trivy scanning, SBOM generation, image signatures, minimal images, non-root execution, and sensitive build-context exclusions."
       }
     ]
   },
