@@ -691,7 +691,7 @@ test('sync workflow uses an artifact-backed bounded invalidator and preserves do
   assert.match(triggerJob, /needs: \[sync, cache-invalidate, finalize-english-cache\]/);
   assert.match(
     triggerJob,
-    /if: always\(\) && needs\.sync\.result == 'success' && needs\.cache-invalidate\.result == 'success'/,
+    /if: always\(\) && vars\.CACHE_FINALIZER_AUTOMATION_ENABLED == 'true' && needs\.sync\.result == 'success' && needs\.cache-invalidate\.result == 'success'/,
   );
 });
 
