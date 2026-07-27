@@ -688,6 +688,7 @@ test('sync workflow uses an artifact-backed bounded invalidator and preserves do
   assert.doesNotMatch(invalidationJob, /needs\.sync\.outputs\.synced_slugs/);
   assert.match(finalizerJob, /needs: \[sync, calculate-scores, cache-invalidate\]/);
   assert.match(finalizerJob, /needs\.cache-invalidate\.result == 'success'/);
+  assert.match(workflow, /runs\?status=success&event=push&per_page=5/);
   assert.match(triggerJob, /needs: \[sync, cache-invalidate, finalize-english-cache\]/);
   assert.match(
     triggerJob,
