@@ -179,6 +179,22 @@ test('selection plan repository accepts canonical punctuation but rejects leadin
   }
 });
 
+test('selection plans reject overlapping parent and child skill paths', () => {
+  const base = {
+    schemaVersion: 1,
+    repository: 'starchild-ai-agent/official-skills',
+    sourceCommit: MAIN_SHA,
+    scope: { path: 'monad', reason: 'explicit_path' },
+  };
+  assert.throws(() => validateSelectionPlan({
+    ...base,
+    skills: [
+      { slug: 'monad', path: 'monad' },
+      { slug: 'addresses', path: 'monad/addresses' },
+    ],
+  }), /selection plan skill paths overlap: monad and monad\/addresses/);
+});
+
 test('repository-root discovery honors the Codex plugin publication scope and reports ignored mirrors', () => withDirectory((root) => {
   mkdirSync(join(root, '.codex-plugin'), { recursive: true });
   mkdirSync(join(root, 'skills', 'public-one'), { recursive: true });

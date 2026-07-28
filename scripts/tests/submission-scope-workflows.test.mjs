@@ -3,6 +3,7 @@ import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import {
   chmodSync,
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -366,6 +367,38 @@ test('an invalid selection plan still produces an uploadable diagnostic manifest
   ]);
   assert.equal(result.status, 0, result.stderr);
   assert.equal(readFileSync(join(resultDir, 'selection-plan.invalid.json'), 'utf8'), '{not-json\n');
+  const manifest = JSON.parse(readFileSync(join(resultDir, 'shard-manifest.json'), 'utf8'));
+  assert.equal(manifest.reasonCode, 'process_step_failed');
+  assert.equal(manifest.selectionPlan, null);
+}));
+
+test('overlapping skill paths fail before the submission CLI is invoked', () => withTempDirectory((root) => {
+  const fakeCli = join(root, 'fake-cli.sh');
+  const invoked = join(root, 'cli-invoked');
+  const resultDir = join(root, 'result');
+  const selectionPlan = writeSelectionPlan(root, [
+    { slug: 'monad', path: 'skills/monad' },
+    { slug: 'addresses', path: 'skills/monad/addresses' },
+  ]);
+  writeFileSync(fakeCli, '#!/usr/bin/env bash\nset -eu\ntouch "$CLI_INVOKED"\nexit 23\n');
+  chmodSync(fakeCli, 0o755);
+
+  const result = runNode(processShardScript, [
+    '--cli', fakeCli,
+    '--github-url', 'https://github.com/starchild-ai-agent/official-skills',
+    '--selection-plan', selectionPlan,
+    '--result-dir', resultDir,
+    '--marketplace-repo', 'aiskillstore/marketplace',
+    '--shard-index', '0',
+    '--retry-delay-ms', '0',
+  ], { env: { CLI_INVOKED: invoked } });
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(existsSync(invoked), false, 'invalid overlapping plan must not invoke the CLI');
+  assert.match(
+    readFileSync(join(resultDir, 'process-output-0.log'), 'utf8'),
+    /selection plan skill paths overlap: skills\/monad and skills\/monad\/addresses/,
+  );
   const manifest = JSON.parse(readFileSync(join(resultDir, 'shard-manifest.json'), 'utf8'));
   assert.equal(manifest.reasonCode, 'process_step_failed');
   assert.equal(manifest.selectionPlan, null);

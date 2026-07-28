@@ -41,6 +41,7 @@ function validateSkills(skills) {
   const slugs = new Set();
   const paths = new Set();
   const foldedPaths = new Set();
+  const validatedPaths = [];
   for (const [index, skill] of skills.entries()) {
     if (!skill || typeof skill !== 'object' || Array.isArray(skill)
       || JSON.stringify(Object.keys(skill).sort()) !== JSON.stringify(['path', 'slug'])) {
@@ -53,9 +54,17 @@ function validateSkills(skills) {
     if (paths.has(path)) fail(`selection plan has duplicate path ${path}`);
     const foldedPath = path.normalize('NFC').toLocaleLowerCase('en-US');
     if (foldedPaths.has(foldedPath)) fail(`selection plan has an NFC/case-fold path collision at ${path}`);
+    for (const previous of validatedPaths) {
+      if (previous.foldedPath === '.' || foldedPath === '.'
+        || foldedPath.startsWith(`${previous.foldedPath}/`)
+        || previous.foldedPath.startsWith(`${foldedPath}/`)) {
+        fail(`selection plan skill paths overlap: ${previous.path} and ${path}`);
+      }
+    }
     slugs.add(skill.slug);
     paths.add(path);
     foldedPaths.add(foldedPath);
+    validatedPaths.push({ path, foldedPath });
   }
   return skills.map(({ slug, path }) => ({ slug, path }));
 }
