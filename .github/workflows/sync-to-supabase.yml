@@ -89,8 +89,11 @@ jobs:
         run: |
           # Find the commit SHA of the last successful sync workflow run
           # This ensures we catch ALL changes since the last sync, even if multiple PRs merged
-          LAST_SHA=$(gh api "repos/${{ github.repository }}/actions/workflows/sync-to-supabase.yml/runs?status=success&event=push&per_page=5" \
-            --jq '.workflow_runs[0].head_sha' 2>/dev/null || echo "")
+          LAST_RUN=$(gh api "repos/${{ github.repository }}/actions/workflows/sync-to-supabase.yml/runs?status=success&event=push&per_page=5" \
+            --jq '.workflow_runs[0] // {}' 2>/dev/null || echo '{}')
+          LAST_SHA=$(jq -r '.head_sha // ""' <<< "$LAST_RUN")
+          LAST_CREATED_AT=$(jq -r '.created_at // ""' <<< "$LAST_RUN")
+          echo "base_run_created_at=$LAST_CREATED_AT" >> "$GITHUB_OUTPUT"
           
           if [ -n "$LAST_SHA" ] && [ "$LAST_SHA" != "null" ] && [ "$LAST_SHA" != "${{ github.sha }}" ]; then
             # Verify the commit exists in our history
@@ -110,9 +113,12 @@ jobs:
         id: changes
         env:
           BASE_SHA: ${{ steps.last_sync.outputs.base_sha }}
+          BASE_RUN_CREATED_AT: ${{ steps.last_sync.outputs.base_run_created_at }}
           HEAD_SHA: ${{ github.sha }}
           INPUT_SLUGS: ${{ inputs.slugs }}
+          GH_TOKEN: ${{ github.token }}
         run: |
+          set -euo pipefail
           echo "Comparing HEAD against: $BASE_SHA"
           
           if [ -n "$INPUT_SLUGS" ]; then
@@ -127,10 +133,83 @@ jobs:
           else
             # Resolve both the diff and the published-skill inventory from pinned
             # Git trees. A self-hosted runner checkout may be sparse or mutable;
-            # it must never turn a real commit diff into an empty sync plan.
+            # it must never turn a real commit diff into an empty sync plan. A
+            # successful bounded manual recovery can subtract only its verified
+            # artifact slugs whose entire pinned skill tree is still unchanged.
+            MAX_RECOVERY_RUNS=100
+            RECOVERIES_FILE="$RUNNER_TEMP/recovered-syncs.json"
+            jq -n '[]' > "$RECOVERIES_FILE"
+
+            if [ -n "$BASE_RUN_CREATED_AT" ]; then
+              RUNS_RESPONSE=$(gh api "repos/${{ github.repository }}/actions/workflows/sync-to-supabase.yml/runs?status=success&event=workflow_dispatch&per_page=$MAX_RECOVERY_RUNS")
+              PAGE_COUNT=$(jq '.workflow_runs | length' <<< "$RUNS_RESPONSE")
+              OLDEST_CREATED_AT=$(jq -r '.workflow_runs[-1].created_at // ""' <<< "$RUNS_RESPONSE")
+              if [ "$PAGE_COUNT" -eq "$MAX_RECOVERY_RUNS" ] && [[ "$OLDEST_CREATED_AT" > "$BASE_RUN_CREATED_AT" ]]; then
+                echo "::error::More than $MAX_RECOVERY_RUNS successful manual recoveries exist after the push baseline"
+                exit 1
+              fi
+
+              RECOVERY_RUNS=$(jq --arg baseline "$BASE_RUN_CREATED_AT" --arg repository "${{ github.repository }}" '
+                [.workflow_runs[]
+                  | select(.created_at > $baseline)
+                  | select(.head_branch == "main")
+                  | select(.head_repository.full_name == $repository)
+                  | {runId: .id, headSha: .head_sha}]
+              ' <<< "$RUNS_RESPONSE")
+
+              while IFS=$'\t' read -r run_id run_head; do
+                [ -n "$run_id" ] || continue
+                ARTIFACTS=$(gh api "repos/${{ github.repository }}/actions/runs/$run_id/artifacts?per_page=100")
+                ARTIFACT_COUNT=$(jq '[.artifacts[] | select(.name == "synced-slugs" and .expired == false)] | length' <<< "$ARTIFACTS")
+                if [ "$ARTIFACT_COUNT" -eq 0 ]; then
+                  continue
+                fi
+                if [ "$ARTIFACT_COUNT" -ne 1 ]; then
+                  echo "::error::Recovery run $run_id has duplicate synced-slugs artifacts"
+                  exit 1
+                fi
+
+                ARTIFACT=$(jq -c '[.artifacts[] | select(.name == "synced-slugs" and .expired == false)][0]' <<< "$ARTIFACTS")
+                artifact_id=$(jq -r '.id' <<< "$ARTIFACT")
+                artifact_digest=$(jq -r '.digest // ""' <<< "$ARTIFACT")
+                artifact_size=$(jq -r '.size_in_bytes // 0' <<< "$ARTIFACT")
+                if [ "$artifact_size" -le 0 ] || [ "$artifact_size" -gt 1048576 ]; then
+                  echo "::error::Recovery artifact $artifact_id has invalid bounded size: $artifact_size"
+                  exit 1
+                fi
+
+                ZIP_PATH="$RUNNER_TEMP/recovered-sync-$run_id.zip"
+                gh api "repos/${{ github.repository }}/actions/artifacts/$artifact_id/zip" > "$ZIP_PATH"
+                actual_digest="sha256:$(sha256sum "$ZIP_PATH" | cut -d' ' -f1)"
+                if [ "$actual_digest" != "$artifact_digest" ]; then
+                  echo "::error::Recovery artifact $artifact_id digest mismatch"
+                  exit 1
+                fi
+                if [ "$(unzip -Z1 "$ZIP_PATH")" != "synced-slugs.txt" ]; then
+                  echo "::error::Recovery artifact $artifact_id has an unexpected archive manifest"
+                  exit 1
+                fi
+
+                SLUGS_JSON=$(unzip -p "$ZIP_PATH" synced-slugs.txt | jq -Rs '
+                  split("\n") | map(gsub("^\\s+|\\s+$"; "")) | map(select(length > 0))
+                ')
+                NEXT_RECOVERIES=$(mktemp "$RUNNER_TEMP/recovered-syncs.XXXXXX")
+                jq \
+                  --argjson runId "$run_id" \
+                  --arg headSha "$run_head" \
+                  --argjson artifactId "$artifact_id" \
+                  --arg digest "$artifact_digest" \
+                  --argjson slugs "$SLUGS_JSON" \
+                  '. + [{runId: $runId, headSha: $headSha, artifactId: $artifactId, digest: $digest, slugs: $slugs}]' \
+                  "$RECOVERIES_FILE" > "$NEXT_RECOVERIES"
+                mv "$NEXT_RECOVERIES" "$RECOVERIES_FILE"
+              done < <(jq -r '.[] | [.runId, .headSha] | @tsv' <<< "$RECOVERY_RUNS")
+            fi
+
             CHANGED=$(node ./scripts/detect-changed-skills.mjs \
               --base "$BASE_SHA" \
-              --head "$HEAD_SHA")
+              --head "$HEAD_SHA" \
+              --recoveries "$RECOVERIES_FILE")
             echo "mode=incremental" >> $GITHUB_OUTPUT
             echo "Diff range: $BASE_SHA..$HEAD_SHA"
           fi
@@ -676,7 +755,7 @@ jobs:
         with:
           name: synced-slugs
           path: synced-slugs.txt
-          retention-days: 1
+          retention-days: 30
 
   # ============================================================
   # CALCULATE QUALITY SCORES

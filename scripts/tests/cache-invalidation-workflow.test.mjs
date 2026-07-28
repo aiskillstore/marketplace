@@ -128,6 +128,22 @@ test('incremental detection resolves both sides from pinned Git trees', () => {
   assert.doesNotMatch(detectJob, /get_skill_slug|\[ -f "skills\/\$first/);
 });
 
+test('incremental detection subtracts only verified successful manual recovery artifacts', () => {
+  const workflow = readFileSync(WORKFLOW, 'utf8');
+  const lastSync = section(workflow, '      - name: Find last successful sync commit', '      - name: Detect changed skills');
+  const detect = section(workflow, '      - name: Detect changed skills', '      - name: Download skillstore-cli');
+
+  assert.match(lastSync, /status=success&event=push/);
+  assert.doesNotMatch(lastSync, /status=success&event=workflow_dispatch/);
+  assert.match(detect, /status=success&event=workflow_dispatch/);
+  assert.match(detect, /synced-slugs/);
+  assert.match(detect, /sha256sum/);
+  assert.match(detect, /artifact_digest/);
+  assert.match(detect, /--recoveries "\$RECOVERIES_FILE"/);
+  assert.match(detect, /MAX_RECOVERY_RUNS=100/);
+  assert.match(workflow, /retention-days: 30/);
+});
+
 test('sync normalizes a retained sparse checkout before invoking pinned-tree resolvers', () => {
   const workflow = readFileSync(WORKFLOW, 'utf8');
   const checkout = section(workflow, '      - name: Checkout repository', '      - name: Generate GitHub App Token');
