@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import {
   detectChangedSkillPathsFromGit,
+  filterRecoveredSkillPathsFromGit,
   resolveChangedSkillPaths,
 } from '../detect-changed-skills.mjs';
 
@@ -62,6 +63,66 @@ test('uses pinned commit trees instead of the mutable runner working tree', () =
     assert.deepEqual(
       detectChangedSkillPathsFromGit({ repositoryRoot, base, head }),
       ['owner/demo'],
+    );
+  } finally {
+    rmSync(repositoryRoot, { recursive: true, force: true });
+  }
+});
+
+test('subtracts only successful manual recovery slugs whose pinned skill tree is unchanged', () => {
+  const repositoryRoot = mkdtempSync(join(tmpdir(), 'recovered-sync-git-'));
+  try {
+    git(repositoryRoot, ['init', '--initial-branch=main']);
+    git(repositoryRoot, ['config', 'user.name', 'Skillstore Test']);
+    git(repositoryRoot, ['config', 'user.email', 'test@skillstore.local']);
+
+    write(repositoryRoot, 'skills/owner/recovered/SKILL.md', '# Recovered\n');
+    write(repositoryRoot, 'skills/owner/recovered/skill-report.json', JSON.stringify({
+      meta: { slug: 'owner-recovered' },
+    }));
+    write(repositoryRoot, 'skills/owner/changed/SKILL.md', '# Before\n');
+    write(repositoryRoot, 'skills/owner/changed/skill-report.json', JSON.stringify({
+      meta: { slug: 'owner-changed' },
+    }));
+    git(repositoryRoot, ['add', '.']);
+    git(repositoryRoot, ['commit', '-m', 'manual recovery tree']);
+    const recoveryHead = git(repositoryRoot, ['rev-parse', 'HEAD']);
+
+    write(repositoryRoot, 'skills/owner/changed/SKILL.md', '# After\n');
+    git(repositoryRoot, ['add', '.']);
+    git(repositoryRoot, ['commit', '-m', 'later skill change']);
+    const head = git(repositoryRoot, ['rev-parse', 'HEAD']);
+
+    assert.deepEqual(
+      filterRecoveredSkillPathsFromGit({
+        repositoryRoot,
+        head,
+        skillPaths: ['owner/recovered', 'owner/changed'],
+        recoveries: [{
+          runId: 123,
+          headSha: recoveryHead,
+          artifactId: 456,
+          digest: `sha256:${'a'.repeat(64)}`,
+          slugs: ['owner-recovered', 'owner-changed'],
+        }],
+      }),
+      ['owner/changed'],
+    );
+
+    assert.throws(
+      () => filterRecoveredSkillPathsFromGit({
+        repositoryRoot,
+        head,
+        skillPaths: ['owner/recovered'],
+        recoveries: [{
+          runId: 123,
+          headSha: recoveryHead,
+          artifactId: 456,
+          digest: `sha256:${'a'.repeat(64)}`,
+          slugs: ['owner-recovered', 'owner-recovered'],
+        }],
+      }),
+      /duplicate recovery slug/,
     );
   } finally {
     rmSync(repositoryRoot, { recursive: true, force: true });
