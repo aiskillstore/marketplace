@@ -754,7 +754,18 @@ jobs:
           fi
 
           echo "📦 Cloning fresh repository to $WORK_DIR..."
-          git clone --depth 1 "https://x-access-token:${APP_TOKEN}@github.com/${REPOSITORY}.git" "$WORK_DIR"
+          for CLONE_ATTEMPT in 1 2 3; do
+            rm -rf "$WORK_DIR"
+            if git clone --depth 1 "https://x-access-token:${APP_TOKEN}@github.com/${REPOSITORY}.git" "$WORK_DIR"; then
+              break
+            fi
+            if [ "$CLONE_ATTEMPT" -eq 3 ]; then
+              echo "::error::Fresh aggregation clone failed after 3 attempts"
+              exit 1
+            fi
+            echo "::warning::Fresh aggregation clone failed; retrying attempt $((CLONE_ATTEMPT + 1))/3"
+            sleep "$((CLONE_ATTEMPT * 5))"
+          done
           cd "$WORK_DIR"
 
           git config user.name "ai-skill-store[bot]"
