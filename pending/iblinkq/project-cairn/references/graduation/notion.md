@@ -1,0 +1,21 @@
+# Notion adapter
+
+> Read [`../graduation.md`](../graduation.md) first — it owns the shared human-confirmed graduation workflow; this file carries only the Notion execution path.
+> Read [`../provider-interface.md`](../provider-interface.md) only when adding or changing an adapter, not merely to execute this flow.
+
+**Step 0 — preflight (run before any write).** `scripts/notion-preflight.sh --db <DATABASE_ID>` is read-only and returns a JSON verdict: `not_authed` (`NOTION_API_TOKEN` unset/invalid), `db_unshared` (the integration can't see the DB — share it in Notion → ••• → Connections), `db_props_missing` (required property names are absent), `db_prop_type_mismatch` (names exist but one or more Notion property types are incompatible; inspect `property_type_mismatches`), `net_error` (proxy/SSL give-up), or `ok`. Don't write until `ok`.
+
+Verified path for graduating into a Notion knowledge base:
+
+- **Data model = database.** The DB is the knowledge-base container AND the INDEX (its views/properties are the index) — so there is **no `update_index` step** and no INDEX page to append into. Each graduated note is one DB row (page). Frontmatter maps to DB **properties**, not YAML: `type`/`authoring_mode`→Select, `contains`/`tags`/`contributors`/`graduated_by`→Multi-select, `graduated_from`→Text, `graduated_at`→Date. Existing databases are not migrated automatically: preflight reports missing properties and schema changes require confirmation.
+- **Transport = direct REST (curl), not the `ntn` CLI.** `ntn` fetches an OpenAPI spec to resolve endpoints, does not honor `HTTPS_PROXY`, and fails `PATCH`/`query` behind a proxy. Direct REST via curl honors the proxy; wrap every request in backoff **retry** to ride out random SSL EOFs.
+- **Auth = internal-integration token** in `NOTION_API_TOKEN` (kept in `.env`, referenced by name in config — never stored in `.cairn/config.yaml`). The DB (or its parent page) must be **shared with the integration** — this is the read dependency for `create_note`.
+- **Pin `Notion-Version: 2022-06-28`** (classic single-source database; avoids 2025-09-03+ data-source semantics).
+- **Write loop:** create mode sends one `POST /v1/pages` with `properties` + `children`. Update mode receives the existing page ID, PATCHes its properties, archives all existing top-level child blocks, and PATCHes replacement children. Both modes read back with `GET /v1/pages/{id}` to verify the title round-trips.
+- **Origin quotes stay native.** A contiguous Markdown `>` group (direct excerpt plus attribution) becomes one Notion `quote` block, preserving both parts together. Quote absence remains valid and creates no placeholder block.
+- **`[[wikilinks]]` → real page mentions need a batch two-pass** (create all pages, collect title→id, then write bodies with `mention` blocks). The single-note adapter renders wikilinks as bold title text; use the batch tool when graduating an interlinked set at once.
+- **Executable adapters** (all curl/REST + retry, pinned version; `--dry-run` previews):
+  - `scripts/notion-init-db.sh --parent-page-id PAGE_ID --title "<knowledge base name>"` — create the KB database with the Cairn property schema under a shared parent page. `--title` is required — it's the database's display name, collected from the user at init time (see `init.md` → provider target naming), never a hardcoded default.
+  - `scripts/notion-graduate.sh --db ID [--page-id EXISTING_PAGE_ID] --title T --content body.md [properties/provenance flags…]` — without `--page-id`, creates one page; with it, replaces that page's properties/body. Repeated provenance names→Multi-select, quote groups→native quote blocks, wikilinks→bold text. `--props-json` remains an expert override; the caller passes the complete current properties.
+  - `scripts/notion-graduate-batch.py --db ID --graduated-at DATE --src-dir DIR [--repo-prefix P]` — interlinked set, two-pass so `[[wikilinks]]` become real page mentions; frontmatter→properties (legacy scalar provenance names are tolerated but always written as first-seen de-duplicated Multi-select arrays); quote groups→native quote blocks. An existing title is updated in place (properties merged by PATCH, body replaced), not skipped. Python (urllib+retry) because the title→id graph is awkward in bash.
+
