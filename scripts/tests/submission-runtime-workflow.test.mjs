@@ -239,6 +239,16 @@ test('all submission entrypoints and the aggregation import closure are immutabl
   );
 });
 
+test('aggregation retries a transient fresh-clone failure without reusing a partial checkout', () => {
+  const aggregation = extractRunBlock(reusable, 'Merge results and create PR');
+
+  assert.match(aggregation, /for CLONE_ATTEMPT in 1 2 3/);
+  assert.match(aggregation, /rm -rf "\$WORK_DIR"/);
+  assert.match(aggregation, /git clone --depth 1/);
+  assert.match(aggregation, /sleep "\$\(\(CLONE_ATTEMPT \* 5\)\)"/);
+  assert.match(aggregation, /exit 1/);
+});
+
 test('all submission audit entrypoints pass the existing HELM credential through the reusable secret contract', () => {
   for (const [name, workflow] of [
     ['repository dispatch', caller],
