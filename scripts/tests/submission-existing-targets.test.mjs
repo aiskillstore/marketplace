@@ -46,13 +46,14 @@ function writeTarget(root, slug, {
   skillPath = `skills/${slug}`,
   malformed = false,
   targetOwner = 'example',
+  skillName = slug,
   sourceUrl = null,
   schemaValid = true,
 } = {}) {
   const relative = layout === 'community' ? `skills/${targetOwner}/${slug}` : `skills/${slug}`;
   const directory = join(root, ...relative.split('/'));
   mkdirSync(directory, { recursive: true });
-  writeFileSync(join(directory, 'SKILL.md'), `---\nname: ${slug}\n---\n`);
+  writeFileSync(join(directory, 'SKILL.md'), `---\nname: ${skillName}\n---\n`);
   if (malformed) {
     writeFileSync(join(directory, 'skill-report.json'), '{not-json\n');
   } else {
@@ -69,7 +70,7 @@ function writeTarget(root, slug, {
         source_type: layout === 'community' ? 'community' : 'official',
       },
       skill: {
-        name: slug,
+        name: skillName,
         author: layout === 'community' ? targetOwner : owner,
         description: 'fixture',
         supported_tools: ['codex'],
@@ -130,6 +131,30 @@ test('all exact community targets become a handled rejection', () => withMarketp
     existingCount: 2,
     existingTargets: ['skills/example/alpha', 'skills/example/beta'],
   });
+}));
+
+test('an exact repository-bound alias validates the published display name', () => withMarketplace((root) => {
+  const path = '装修水电避坑指南';
+  const slug = 'zhuangxiu-shuidian-bikeng';
+  const repository = 'zx029w/zhuangxiu-skills';
+  writeTarget(root, slug, {
+    repository,
+    targetOwner: 'zx029w',
+    skillPath: path,
+    skillName: path,
+  });
+  const plan = selectionPlan([{ slug, path }], repository);
+  plan.scope = { reason: 'repository_fallback', path: '.' };
+  const result = classifySubmissionTargets({
+    marketplaceRoot: root,
+    selectionPlan: plan,
+    sourceRef: 'main',
+    slugAliasRegistry: {
+      schemaVersion: 1,
+      aliases: [{ repository, path, expectedName: path, baseSlug: slug }],
+    },
+  });
+  assert.equal(result.disposition, 'all_existing');
 }));
 
 test('an exact official flat target is recognized without weakening community identity', () => withMarketplace((root) => {
