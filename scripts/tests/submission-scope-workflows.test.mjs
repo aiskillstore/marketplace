@@ -678,10 +678,16 @@ test('submission callers emit distinct terminal callbacks for legal no-op, rejec
 
 test('merged approval scope comes only from immutable PR changed files', () => {
   assert.match(approval, /pulls\/\$PR_NUMBER\/files\?per_page=100/);
+  assert.match(approval, /for CLONE_ATTEMPT in 1 2 3/);
+  assert.match(approval, /git clone --depth 1 --filter=blob:none --no-checkout/);
+  assert.match(approval, /sparse-checkout set --no-cone --stdin/);
+  assert.match(approval, /ls-tree HEAD/);
+  assert.match(approval, /symlink or non-directory path component/);
   assert.match(approval, /node scripts\/resolve-approved-submission\.mjs/);
   assert.match(approval, /mapfile -t SKILL_PATHS/);
   assert.match(approval, /Refusing to overwrite existing published target/);
   assert.match(approval, /git diff --quiet "\$MERGE_COMMIT_SHA" HEAD -- "\$PENDING_DIR"/);
+  assert.match(approval, /git add -A -- "\$\{SKILL_PATHS\[@\]\}" "\$\{TARGET_PATHS\[@\]\}"/);
   assert.match(approval, /PUSHED=false/);
   assert.match(approval, /test "\$PUSHED" = true/);
   assert.doesNotMatch(approval, /cherry-pick HEAD@\{1\} \|\| true/);

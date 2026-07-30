@@ -50,34 +50,130 @@ jobs:
 
           # Use temp directory for clean git operations
           WORK_DIR="/tmp/marketplace-approve-${{ github.run_id }}"
+          PR_FILES="${WORK_DIR}.pr-files.txt"
+          APPROVAL_PLAN="${WORK_DIR}.approval-plan.json"
+          MATERIALIZE_PATTERNS="${WORK_DIR}.marketplace-patterns"
 
           cleanup() {
             echo "🧹 Cleaning up temp directory..."
-            rm -rf "$WORK_DIR" "${WORK_DIR}.approval-plan.json" "${WORK_DIR}.pr-files.txt" 2>/dev/null || true
+            rm -rf "$WORK_DIR" "$APPROVAL_PLAN" "$PR_FILES" "$MATERIALIZE_PATTERNS" 2>/dev/null || true
           }
           trap cleanup EXIT
 
-          echo "📦 Cloning fresh repository to $WORK_DIR..."
-          git clone --depth 1 "https://x-access-token:${APP_TOKEN}@github.com/${REPOSITORY}.git" "$WORK_DIR"
-          cd "$WORK_DIR"
-
-          git config user.name "ai-skill-store[bot]"
-          git config user.email "2628292+ai-skill-store[bot]@users.noreply.github.com"
-
           # Freeze approval scope to this merged PR. Never scan the repository's
           # shared pending tree: another submission may be present concurrently.
-          PR_FILES="${WORK_DIR}.pr-files.txt"
-          APPROVAL_PLAN="${WORK_DIR}.approval-plan.json"
           gh api --paginate "repos/$REPOSITORY/pulls/$PR_NUMBER/files?per_page=100" \
             --jq '.[].filename' > "$PR_FILES"
+
+          mapfile -t MATERIALIZE_PENDING_PATHS < <(
+            awk -F/ '
+              $1 == "pending" && $NF == "SKILL.md" && NF == 3 { print $1 "/" $2 }
+              $1 == "pending" && $NF == "SKILL.md" && NF == 4 { print $1 "/" $2 "/" $3 }
+            ' "$PR_FILES" | LC_ALL=C sort -u
+          )
+          test "${#MATERIALIZE_PENDING_PATHS[@]}" -gt 0 || {
+            echo "::error::Merged PR contains no canonical pending SKILL.md"
+            exit 1
+          }
+          MATERIALIZE_TARGET_PATHS=()
+          for pending_dir in "${MATERIALIZE_PENDING_PATHS[@]}"; do
+            IFS='/' read -r -a segments <<< "$pending_dir"
+            for segment in "${segments[@]:1}"; do
+              [[ "$segment" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] && [ "$segment" != pending ] || {
+                echo "::error::Invalid pending path selected from merged PR: $pending_dir"
+                exit 1
+              }
+            done
+            MATERIALIZE_TARGET_PATHS+=("skills/${pending_dir#pending/}")
+          done
+
+          echo "📦 Cloning fresh repository to $WORK_DIR..."
+          for CLONE_ATTEMPT in 1 2 3; do
+            rm -rf "$WORK_DIR"
+            if git clone --depth 1 --filter=blob:none --no-checkout \
+              "https://x-access-token:${APP_TOKEN}@github.com/${REPOSITORY}.git" "$WORK_DIR"; then
+              break
+            fi
+            if [ "$CLONE_ATTEMPT" -eq 3 ]; then
+              echo "::error::Fresh approval clone failed after 3 attempts"
+              exit 1
+            fi
+            echo "::warning::Fresh approval clone failed; retrying attempt $((CLONE_ATTEMPT + 1))/3"
+            sleep "$((CLONE_ATTEMPT * 5))"
+          done
+
+          git -C "$WORK_DIR" config user.name "ai-skill-store[bot]"
+          git -C "$WORK_DIR" config user.email "2628292+ai-skill-store[bot]@users.noreply.github.com"
+
+          assert_approval_path_shape() {
+            local candidate="$1" current='' entry type segment
+            local path_segments=()
+            IFS='/' read -r -a path_segments <<< "$candidate"
+            for segment in "${path_segments[@]}"; do
+              current="${current:+$current/}$segment"
+              entry=$(git -C "$WORK_DIR" ls-tree HEAD -- "$current")
+              [ -n "$entry" ] || return 0
+              type=$(awk 'NR == 1 { print $2 }' <<< "$entry")
+              [ "$type" = tree ] || {
+                echo "::error::Approval target has a symlink or non-directory path component: $candidate"
+                exit 1
+              }
+            done
+          }
+          for candidate in "${MATERIALIZE_PENDING_PATHS[@]}" "${MATERIALIZE_TARGET_PATHS[@]}"; do
+            assert_approval_path_shape "$candidate"
+          done
+
+          {
+            printf '/scripts/resolve-approved-submission.mjs\n'
+            printf '/%s/\n' "${MATERIALIZE_PENDING_PATHS[@]}" "${MATERIALIZE_TARGET_PATHS[@]}"
+          } > "$MATERIALIZE_PATTERNS"
+          git -C "$WORK_DIR" sparse-checkout init --no-cone
+          MATERIALIZE_SUCCEEDED=false
+          for MATERIALIZE_ATTEMPT in 1 2 3; do
+            if git -C "$WORK_DIR" sparse-checkout set --no-cone --stdin < "$MATERIALIZE_PATTERNS" \
+              && git -C "$WORK_DIR" checkout --force; then
+              MATERIALIZE_SUCCEEDED=true
+              break
+            fi
+            if [ "$MATERIALIZE_ATTEMPT" -lt 3 ]; then
+              echo "::warning::Approval target materialization failed; retrying attempt $((MATERIALIZE_ATTEMPT + 1))/3"
+              sleep "$((MATERIALIZE_ATTEMPT * 5))"
+            fi
+          done
+          test "$MATERIALIZE_SUCCEEDED" = true || {
+            echo "::error::Approval target materialization failed after 3 attempts"
+            exit 1
+          }
+          if git -C "$WORK_DIR" ls-files -v -- \
+              scripts/resolve-approved-submission.mjs \
+              "${MATERIALIZE_PENDING_PATHS[@]}" "${MATERIALIZE_TARGET_PATHS[@]}" \
+            | awk '$1 ~ /^S/ { found=1 } END { exit !found }'; then
+            echo "::error::A tracked approval path was not materialized"
+            exit 1
+          fi
+          test -f "$WORK_DIR/scripts/resolve-approved-submission.mjs" \
+            && test ! -L "$WORK_DIR/scripts/resolve-approved-submission.mjs" || {
+              echo "::error::Approval resolver is missing or not a regular file"
+              exit 1
+            }
+          test "$(git -C "$WORK_DIR" hash-object -- scripts/resolve-approved-submission.mjs)" \
+            = "$(git -C "$WORK_DIR" rev-parse HEAD:scripts/resolve-approved-submission.mjs)" || {
+              echo "::error::Approval resolver does not match the cloned main head"
+              exit 1
+            }
+
+          cd "$WORK_DIR"
           node scripts/resolve-approved-submission.mjs \
             --repo-root "$WORK_DIR" \
             --files "$PR_FILES" \
             --output "$APPROVAL_PLAN"
 
           mapfile -t SKILL_PATHS < <(jq -r '.skills[].pendingDir' "$APPROVAL_PLAN")
+          mapfile -t TARGET_PATHS < <(jq -r '.skills[].targetDir' "$APPROVAL_PLAN")
           SKILL_NAMES=$(jq -r '[.skills[].reportSlug | "/" + .] | join(" ")' "$APPROVAL_PLAN")
           test "${#SKILL_PATHS[@]}" -gt 0
+          test "${#SKILL_PATHS[@]}" -eq "${#TARGET_PATHS[@]}"
           echo "Frozen pending skills: ${SKILL_PATHS[*]}"
 
           [[ "$MERGE_COMMIT_SHA" =~ ^[0-9a-f]{40}$ ]] || {
@@ -94,30 +190,21 @@ jobs:
 
           echo "=== Moving skills from pending to skills ==="
           for PENDING_DIR in "${SKILL_PATHS[@]}"; do
-            if [ -d "$PENDING_DIR" ] && [ -f "$PENDING_DIR/SKILL.md" ]; then
-              TARGET_DIR=$(jq -r --arg pendingDir "$PENDING_DIR" \
-                '.skills[] | select(.pendingDir == $pendingDir) | .targetDir' "$APPROVAL_PLAN")
+            TARGET_DIR=$(jq -r --arg pendingDir "$PENDING_DIR" \
+              '.skills[] | select(.pendingDir == $pendingDir) | .targetDir' "$APPROVAL_PLAN")
 
-              echo "Moving $PENDING_DIR to $TARGET_DIR"
+            echo "Moving $PENDING_DIR to $TARGET_DIR"
 
-              mkdir -p "$(dirname "$TARGET_DIR")"
-              test ! -e "$TARGET_DIR" || {
-                echo "::error::Refusing to overwrite existing published target $TARGET_DIR"
-                exit 1
-              }
-              mv "$PENDING_DIR" "$TARGET_DIR"
-            fi
+            mkdir -p "$(dirname "$TARGET_DIR")"
+            test ! -e "$TARGET_DIR" && test ! -L "$TARGET_DIR" || {
+              echo "::error::Refusing to overwrite existing published target $TARGET_DIR"
+              exit 1
+            }
+            mv "$PENDING_DIR" "$TARGET_DIR"
           done
 
           echo "=== Committing and pushing ==="
-          # Stage all changes including deletions from pending/
-          git add -A
-
-          # Remove empty pending directory
-          if [ -d "pending" ] && [ -z "$(ls -A pending 2>/dev/null)" ]; then
-            rmdir pending 2>/dev/null || true
-            git add -A
-          fi
+          git add -A -- "${SKILL_PATHS[@]}" "${TARGET_PATHS[@]}"
 
           if git diff --staged --quiet; then
             echo "No changes to commit"
