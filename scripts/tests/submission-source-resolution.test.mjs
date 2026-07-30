@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { test } from 'node:test';
@@ -12,6 +12,10 @@ import { validateSelectionPlan } from '../submission-selection-plan.mjs';
 
 const MAIN_SHA = '1'.repeat(40);
 const READY_SHA = '2'.repeat(40);
+const SLUG_ALIAS_REGISTRY = JSON.parse(readFileSync(
+  new URL('../../governance/submission-slug-aliases.json', import.meta.url),
+  'utf8',
+));
 
 function refs(...entries) {
   return `${entries.map(([sha, ref]) => `${sha}\t${ref}`).join('\n')}\n`;
@@ -406,6 +410,25 @@ test('pure Chinese path and frontmatter use an exact repository-bound alias', ()
     repository: 'zx029w/zhuangxiu-skills',
   }), /no verified path alias/);
 }));
+
+test('the zhuangxiu registry covers the current Chinese-only submission paths', () => {
+  for (const [path, baseSlug] of [
+    ['装修水电避坑指南', 'zhuangxiu-shuidian-bikeng'],
+    ['适童化装修指南', 'shictonghua-zhuangxiu-zhinan'],
+  ]) {
+    withDirectory((root) => {
+      mkdirSync(join(root, path));
+      writeFileSync(join(root, path, 'SKILL.md'), `---\nname: ${path}\n---\n`);
+      assert.deepEqual(discoverSubmissionSkills({
+        sourceDir: root,
+        skillPath: path,
+        explicitPath: true,
+        repository: 'zx029w/zhuangxiu-skills',
+        slugAliasRegistry: SLUG_ALIAS_REGISTRY,
+      }).skills, [{ slug: baseSlug, path }]);
+    });
+  }
+});
 
 test('aliases cannot override ASCII identities and exact expected names fail closed', () => withDirectory((root) => {
   mkdirSync(join(root, 'skill'));
