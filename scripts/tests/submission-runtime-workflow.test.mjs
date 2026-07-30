@@ -161,8 +161,11 @@ test('process checkout clears inherited sparse state before cloning the immutabl
     assert.equal(existsSync(join(fixture.workspace, 'schemas/skill-report.schema.json')), true);
     assert.equal(run('git', ['-C', fixture.workspace, 'config', '--bool', 'core.sparseCheckout'], { allowFailure: true }).stdout.trim(), '');
 
-    assert.match(reusable, /ref: \$\{\{ github\.workflow_sha \}\}/);
-    assert.match(reusable, /fetch-depth: 1/);
+    const checkout = extractNamedBlock(reusable, '- name: Checkout immutable discovery runtime');
+    assert.match(checkout, /ref: \$\{\{ github\.workflow_sha \}\}/);
+    assert.match(checkout, /fetch-depth: 1/);
+    assert.match(checkout, /filter: blob:none/);
+    assert.doesNotMatch(checkout, /sparse-checkout:/);
   } finally {
     rmSync(fixture.root, { recursive: true, force: true });
   }
