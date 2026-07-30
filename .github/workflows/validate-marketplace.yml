@@ -229,12 +229,13 @@ jobs:
             const fs = require('fs');
             const path = require('path');
             const matter = require('gray-matter');
+            const { validateSkillName } = require('./scripts/validate-marketplace-skill-name.cjs');
 
             /**
              * Validate that content has valid SKILL.md structure (YAML frontmatter + required fields)
              * Returns array of error messages, empty if valid
              */
-            function validateSkillMdContent(rawContent, dirName) {
+            function validateSkillMdContent(rawContent, dirName, skillMdPath) {
               const errors = [];
 
               // Check for binary content (null bytes)
@@ -267,16 +268,15 @@ jobs:
                 const { data } = matter(rawContent);
 
                 // Check required field: name
-                // Per specification: lowercase alphanumeric + hyphens only, 1-64 chars
-                const NAME_PATTERN = /^[a-z0-9]+(-[a-z0-9]+)*$/;
                 if (!data.name) {
                   errors.push('Missing required field: name');
                 } else if (typeof data.name !== 'string') {
                   errors.push('Field \"name\" must be a string');
                 } else if (data.name.length > 64) {
                   errors.push('Field \"name\" exceeds 64 characters');
-                } else if (!NAME_PATTERN.test(data.name)) {
-                  errors.push(\`Field \"name\" must be lowercase alphanumeric with hyphens (got: \${data.name})\`);
+                } else {
+                  const nameError = validateSkillName({ repoRoot: process.cwd(), skillMdPath, name: data.name });
+                  if (nameError) errors.push(nameError);
                 }
 
                 // Check required field: description
@@ -321,7 +321,7 @@ jobs:
                 }
 
                 const dirName = path.basename(path.dirname(file));
-                const validationErrors = validateSkillMdContent(content, dirName);
+                const validationErrors = validateSkillMdContent(content, dirName, file);
 
                 if (validationErrors.length > 0) {
                   // Check if it's just a binary skip
@@ -415,8 +415,9 @@ jobs:
             const fs = require('fs');
             const path = require('path');
             const matter = require('gray-matter');
+            const { validateSkillName } = require('./scripts/validate-marketplace-skill-name.cjs');
 
-            function validateSkillMdContent(rawContent, dirName) {
+            function validateSkillMdContent(rawContent, dirName, skillMdPath) {
               const errors = [];
               if (rawContent.includes('\\x00')) return ['binary'];
               if (!rawContent.startsWith('---')) {
@@ -430,9 +431,11 @@ jobs:
               }
               try {
                 const { data } = matter(rawContent);
-                const NAME_PATTERN = /^[a-z0-9]+(-[a-z0-9]+)*$/;
                 if (!data.name) errors.push('Missing name');
-                else if (!NAME_PATTERN.test(data.name)) errors.push('Invalid name format');
+                else {
+                  const nameError = validateSkillName({ repoRoot: process.cwd(), skillMdPath, name: data.name });
+                  if (nameError) errors.push(nameError);
+                }
                 if (!data.description) errors.push('Missing description');
               } catch (e) {
                 errors.push('YAML parse error');
@@ -461,7 +464,7 @@ jobs:
                 const content = fs.readFileSync(file, 'utf8');
                 if (!content.trim()) continue;
                 const dirName = path.basename(path.dirname(file));
-                const errors = validateSkillMdContent(content, dirName);
+                const errors = validateSkillMdContent(content, dirName, file);
                 if (errors.length > 0 && errors[0] !== 'binary') {
                   console.error(\`Still invalid: \${file} - \${errors.join(', ')}\`);
                   hasInvalidFiles = true;
