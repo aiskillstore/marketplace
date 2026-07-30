@@ -147,6 +147,11 @@ test('discovery checkout fetches only immutable runtime blobs before exact targe
     writeFileSync(join(fixture.workspace, 'stale-runner-file'), 'stale\n');
 
     const reset = extractRunBlock(reusable, 'Clear inherited marketplace checkout');
+    assert.doesNotMatch(
+      reset,
+      /sparse-checkout disable/,
+      'clearing a partial clone must not hydrate omitted blobs before deletion',
+    );
     run('bash', ['-c', reset], {
       cwd: fixture.workspace,
       env: {
