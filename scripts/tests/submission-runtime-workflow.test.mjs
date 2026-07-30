@@ -95,12 +95,14 @@ function extractNamedBlock(workflow, name) {
 function createFixture() {
   const root = mkdtempSync(join(tmpdir(), 'submission-runtime-'));
   const seed = join(root, 'seed');
-  const origin = join(root, 'origin.git');
+  const githubServer = join(root, 'github');
+  const origin = join(githubServer, 'aiskillstore', 'marketplace.git');
   const runnerWorkspace = join(root, 'runner-workspace');
   const workspace = join(runnerWorkspace, 'marketplace');
   const runnerTemp = join(root, 'runner-temp');
 
   mkdirSync(seed, { recursive: true });
+  mkdirSync(join(origin, '..'), { recursive: true });
   mkdirSync(runnerWorkspace, { recursive: true });
   mkdirSync(runnerTemp, { recursive: true });
   run('git', ['init', '-q', seed]);
@@ -133,10 +135,10 @@ function createFixture() {
   run('git', ['clone', '--bare', '-q', seed, origin]);
   run('git', ['clone', '-q', origin, workspace]);
 
-  return { root, origin, runnerWorkspace, runnerTemp, workspace, head };
+  return { root, githubServer, origin, runnerWorkspace, runnerTemp, workspace, head };
 }
 
-test('process checkout clears inherited sparse state before cloning the immutable workflow head', () => {
+test('discovery checkout fetches only immutable runtime blobs before exact target materialization', () => {
   const fixture = createFixture();
   try {
     run('git', ['-C', fixture.workspace, 'sparse-checkout', 'init', '--cone']);
@@ -157,23 +159,64 @@ test('process checkout clears inherited sparse state before cloning the immutabl
     });
 
     assert.deepEqual(readdirSync(fixture.workspace), []);
-    run('git', ['clone', '-q', '--no-local', fixture.origin, fixture.workspace]);
-    assert.equal(existsSync(join(fixture.workspace, 'schemas/skill-report.schema.json')), true);
-    assert.equal(run('git', ['-C', fixture.workspace, 'config', '--bool', 'core.sparseCheckout'], { allowFailure: true }).stdout.trim(), '');
+    const checkout = extractRunBlock(reusable, 'Checkout immutable discovery runtime');
+    run('bash', ['-c', checkout], {
+      cwd: fixture.runnerTemp,
+      env: {
+        ...process.env,
+        GITHUB_WORKSPACE: fixture.workspace,
+        GITHUB_SERVER_URL: `file://${fixture.githubServer}`,
+        GITHUB_REPOSITORY: 'aiskillstore/marketplace',
+        GITHUB_RUN_ATTEMPT: '1',
+        GITHUB_RUN_ID: '1',
+        EXPECTED_WORKFLOW_SHA: fixture.head,
+        RUNNER_TEMP: fixture.runnerTemp,
+        SUBMISSION_RUNTIME_SPARSE_PATHS: runtimeFiles.map((file) => `/${file}`).join('\n'),
+      },
+    });
+    assert.equal(run('git', ['-C', fixture.workspace, 'rev-parse', 'HEAD']).stdout.trim(), fixture.head);
+    for (const file of runtimeFiles) assert.equal(existsSync(join(fixture.workspace, file)), true, `${file} missing`);
+    assert.equal(existsSync(join(fixture.workspace, 'skills/example/SKILL.md')), false);
+    assert.equal(run('git', ['-C', fixture.workspace, 'config', '--bool', 'core.sparseCheckout']).stdout.trim(), 'true');
+    assert.match(checkout, /for CHECKOUT_ATTEMPT in 1 2 3/);
+    assert.match(checkout, /--filter=blob:none/);
+    assert.match(checkout, /sparse-checkout set --no-cone --stdin/);
 
-    const checkout = extractNamedBlock(reusable, '- name: Checkout immutable discovery runtime');
-    assert.match(checkout, /ref: \$\{\{ github\.workflow_sha \}\}/);
-    assert.match(checkout, /fetch-depth: 1/);
-    assert.match(checkout, /filter: blob:none/);
-    assert.doesNotMatch(checkout, /sparse-checkout:/);
+    const materialize = extractRunBlock(reusable, 'Materialize exact Marketplace candidate paths');
+    run('bash', ['-c', materialize], {
+      cwd: fixture.workspace,
+      env: {
+        ...process.env,
+        FULL_SELECTION_PLAN: JSON.stringify({
+          schemaVersion: 1,
+          repository: 'aiskillstore/source',
+          sourceCommit: fixture.head,
+          scope: { reason: 'conventional_skills', path: 'skills' },
+          skills: [{ slug: 'example', path: 'skills/example' }],
+        }),
+        GITHUB_WORKSPACE: fixture.workspace,
+        GITHUB_RUN_ATTEMPT: '1',
+        GITHUB_RUN_ID: '1',
+        RUNNER_TEMP: fixture.runnerTemp,
+      },
+    });
+    assert.equal(existsSync(join(fixture.workspace, 'skills/example/SKILL.md')), true);
+    assert.match(materialize, /for MATERIALIZE_ATTEMPT in 1 2 3/);
+    assert.match(materialize, /sparse-checkout add --stdin/);
+    assert.match(materialize, /ls-tree HEAD/);
+    assert.match(materialize, /symlink or non-directory path component/);
   } finally {
     rmSync(fixture.root, { recursive: true, force: true });
   }
 });
 
-test('runtime preflight rejects every missing, modified, symlinked, or skip-worktree runtime and a mismatched head', () => {
+test('runtime preflight rejects every missing, modified, symlinked runtime and a mismatched head', () => {
   const fixture = createFixture();
   try {
+    run('git', ['-C', fixture.workspace, 'sparse-checkout', 'init', '--no-cone']);
+    run('git', ['-C', fixture.workspace, 'sparse-checkout', 'set', '--no-cone', '--stdin'], {
+      input: `${runtimeFiles.map((file) => `/${file}`).join('\n')}\n`,
+    });
     const preflight = extractRunBlock(reusable, 'Verify immutable processing runtime');
     const baseOptions = {
       cwd: fixture.workspace,
@@ -202,10 +245,6 @@ test('runtime preflight rejects every missing, modified, symlinked, or skip-work
       rmSync(absolute);
       run('git', ['-C', fixture.workspace, 'checkout', '--', file]);
     }
-
-    run('git', ['-C', fixture.workspace, 'update-index', '--skip-worktree', runtimeFiles[0]]);
-    assert.notEqual(run('bash', ['-c', preflight], { ...baseOptions, allowFailure: true }).status, 0);
-    run('git', ['-C', fixture.workspace, 'update-index', '--no-skip-worktree', runtimeFiles[0]]);
 
     const wrongHeadOptions = {
       ...baseOptions,
@@ -247,7 +286,11 @@ test('aggregation retries a transient fresh-clone failure without reusing a part
 
   assert.match(aggregation, /for CLONE_ATTEMPT in 1 2 3/);
   assert.match(aggregation, /rm -rf "\$WORK_DIR"/);
-  assert.match(aggregation, /git clone --depth 1/);
+  assert.match(aggregation, /git clone --depth 1 --filter=blob:none --no-checkout/);
+  assert.match(aggregation, /for MATERIALIZE_ATTEMPT in 1 2 3/);
+  assert.match(aggregation, /sparse-checkout set --no-cone --stdin/);
+  assert.match(aggregation, /ls-tree HEAD/);
+  assert.match(aggregation, /symlink or non-directory path component/);
   assert.match(aggregation, /sleep "\$\(\(CLONE_ATTEMPT \* 5\)\)"/);
   assert.match(aggregation, /exit 1/);
 });

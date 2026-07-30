@@ -105,6 +105,19 @@ on:
 env:
   SHARD_THRESHOLD: 30
   MAX_SHARDS: 6
+  SUBMISSION_RUNTIME_SPARSE_PATHS: |
+    /schemas/skill-report.schema.json
+    /governance/submission-slug-aliases.json
+    /.github/actions/download-skillstore-cli/action.yml
+    /.github/workflows/reusable-process-skills.yml
+    /scripts/resolve-submission-source.mjs
+    /scripts/discover-submission-skills.mjs
+    /scripts/classify-submission-targets.mjs
+    /scripts/process-submission-shard.mjs
+    /scripts/submission-selection-plan.mjs
+    /scripts/submission-shard-contract.mjs
+    /scripts/aggregate-submission-shards.mjs
+    /scripts/resolve-approved-submission.mjs
 
 jobs:
   # ============================================================
@@ -155,13 +168,38 @@ jobs:
           test -z "$(find "$GITHUB_WORKSPACE" -mindepth 1 -maxdepth 1 -print -quit)"
 
       - name: Checkout immutable discovery runtime
-        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
-        with:
-          ref: ${{ github.workflow_sha }}
-          fetch-depth: 1
-          filter: blob:none
-          clean: true
-          persist-credentials: false
+        env:
+          EXPECTED_WORKFLOW_SHA: ${{ github.workflow_sha }}
+        run: |
+          set -euo pipefail
+          PATTERNS_FILE="${RUNNER_TEMP:?}/submission-runtime-${GITHUB_RUN_ID:?}-${GITHUB_RUN_ATTEMPT:?}.patterns"
+          trap 'rm -f "$PATTERNS_FILE"' EXIT
+          printf '%s\n' "$SUBMISSION_RUNTIME_SPARSE_PATHS" > "$PATTERNS_FILE"
+          CHECKOUT_SUCCEEDED=false
+          for CHECKOUT_ATTEMPT in 1 2 3; do
+            cd "${RUNNER_TEMP:?}"
+            find "$GITHUB_WORKSPACE" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
+            git init "$GITHUB_WORKSPACE"
+            git -C "$GITHUB_WORKSPACE" remote add origin "${GITHUB_SERVER_URL:?}/${GITHUB_REPOSITORY:?}.git"
+            git -C "$GITHUB_WORKSPACE" config gc.auto 0
+            git -C "$GITHUB_WORKSPACE" sparse-checkout init --no-cone
+            git -C "$GITHUB_WORKSPACE" sparse-checkout set --no-cone --stdin < "$PATTERNS_FILE"
+            if git -C "$GITHUB_WORKSPACE" -c protocol.version=2 fetch \
+                --no-tags --prune --no-recurse-submodules --filter=blob:none --depth=1 \
+                origin "$EXPECTED_WORKFLOW_SHA" \
+              && git -C "$GITHUB_WORKSPACE" checkout --detach --force "$EXPECTED_WORKFLOW_SHA"; then
+              CHECKOUT_SUCCEEDED=true
+              break
+            fi
+            if [ "$CHECKOUT_ATTEMPT" -lt 3 ]; then
+              echo "::warning::Immutable sparse checkout failed; retrying attempt $((CHECKOUT_ATTEMPT + 1))/3"
+              sleep "$((CHECKOUT_ATTEMPT * 5))"
+            fi
+          done
+          test "$CHECKOUT_SUCCEEDED" = true || {
+            echo "::error::Immutable sparse checkout failed after 3 attempts"
+            exit 1
+          }
 
       - name: Verify immutable discovery runtime
         env:
@@ -183,8 +221,8 @@ jobs:
             "scripts/resolve-approved-submission.mjs"
           )
           test "$(git rev-parse HEAD)" = "$EXPECTED_WORKFLOW_SHA"
-          test "$(git config --bool core.sparseCheckout 2>/dev/null || echo false)" != "true"
-          test ! -f "$(git rev-parse --git-path info/sparse-checkout)"
+          test "$(git config --bool core.sparseCheckout)" = "true"
+          test -f "$(git rev-parse --git-path info/sparse-checkout)"
           if git ls-files -v -- "${REQUIRED_RUNTIME_FILES[@]}" | awk '$1 ~ /^S/ { found=1 } END { exit !found }'; then
             echo "::error::Immutable discovery runtime contains skip-worktree files"
             exit 1
@@ -324,6 +362,69 @@ jobs:
             echo "| Identical mirror groups | $IDENTICAL_MIRRORS |"
             echo "| Conflicting ignored mirror groups | $CONFLICTING_MIRRORS |"
           } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Materialize exact Marketplace candidate paths
+        env:
+          FULL_SELECTION_PLAN: ${{ steps.discover.outputs.selection_plan }}
+        run: |
+          set -euo pipefail
+          PLAN_FILE="${RUNNER_TEMP:?}/candidate-plan-${GITHUB_RUN_ID:?}-${GITHUB_RUN_ATTEMPT:?}.json"
+          PATTERNS_FILE="${RUNNER_TEMP:?}/candidate-paths-${GITHUB_RUN_ID:?}-${GITHUB_RUN_ATTEMPT:?}.patterns"
+          cleanup_candidate_files() { rm -f "$PLAN_FILE" "$PATTERNS_FILE"; }
+          trap cleanup_candidate_files EXIT
+          umask 077
+          printf '%s\n' "$FULL_SELECTION_PLAN" > "$PLAN_FILE"
+          node "$GITHUB_WORKSPACE/scripts/submission-selection-plan.mjs" --input "$PLAN_FILE" --output "$PLAN_FILE"
+          OWNER=$(jq -er '.repository | split("/")[0]' "$PLAN_FILE")
+          SLUGS=()
+          while IFS= read -r slug; do SLUGS+=("$slug"); done < <(jq -er '.skills[].slug' "$PLAN_FILE")
+          test "${#SLUGS[@]}" -gt 0
+          CANDIDATE_PATHS=()
+          for slug in "${SLUGS[@]}"; do
+            CANDIDATE_PATHS+=(
+              "pending/$OWNER/$slug"
+              "pending/$slug"
+              "skills/$OWNER/$slug"
+              "skills/$slug"
+            )
+          done
+          assert_candidate_path_shape() {
+            local candidate="$1" current='' entry type segment
+            local segments=()
+            IFS='/' read -r -a segments <<< "$candidate"
+            for segment in "${segments[@]}"; do
+              current="${current:+$current/}$segment"
+              entry=$(git -C "$GITHUB_WORKSPACE" ls-tree HEAD -- "$current")
+              [ -n "$entry" ] || return 0
+              type=$(awk 'NR == 1 { print $2 }' <<< "$entry")
+              [ "$type" = tree ] || {
+                echo "::error::Marketplace candidate has a symlink or non-directory path component: $candidate"
+                exit 1
+              }
+            done
+          }
+          for candidate in "${CANDIDATE_PATHS[@]}"; do assert_candidate_path_shape "$candidate"; done
+          printf '/%s/\n' "${CANDIDATE_PATHS[@]}" > "$PATTERNS_FILE"
+          MATERIALIZE_SUCCEEDED=false
+          for MATERIALIZE_ATTEMPT in 1 2 3; do
+            if git -C "$GITHUB_WORKSPACE" sparse-checkout add --stdin < "$PATTERNS_FILE"; then
+              MATERIALIZE_SUCCEEDED=true
+              break
+            fi
+            if [ "$MATERIALIZE_ATTEMPT" -lt 3 ]; then
+              echo "::warning::Exact candidate materialization failed; retrying attempt $((MATERIALIZE_ATTEMPT + 1))/3"
+              sleep "$((MATERIALIZE_ATTEMPT * 5))"
+            fi
+          done
+          test "$MATERIALIZE_SUCCEEDED" = true || {
+            echo "::error::Exact candidate materialization failed after 3 attempts"
+            exit 1
+          }
+          if git -C "$GITHUB_WORKSPACE" ls-files -v -- "${CANDIDATE_PATHS[@]}" \
+            | awk '$1 ~ /^S/ { found=1 } END { exit !found }'; then
+            echo "::error::A tracked Marketplace candidate path was not materialized"
+            exit 1
+          fi
 
       - name: Classify submission targets
         id: targets
@@ -487,13 +588,39 @@ jobs:
           test -z "$(find "$GITHUB_WORKSPACE" -mindepth 1 -maxdepth 1 -print -quit)"
 
       - name: Checkout marketplace
-        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          ref: ${{ github.workflow_sha }}
-          fetch-depth: 1
-          clean: true
-          persist-credentials: false
+        env:
+          EXPECTED_WORKFLOW_SHA: ${{ github.workflow_sha }}
+          SHARD_INDEX: ${{ matrix.shard }}
+        run: |
+          set -euo pipefail
+          PATTERNS_FILE="${RUNNER_TEMP:?}/submission-runtime-${GITHUB_RUN_ID:?}-${GITHUB_RUN_ATTEMPT:?}-${SHARD_INDEX:?}.patterns"
+          trap 'rm -f "$PATTERNS_FILE"' EXIT
+          printf '%s\n' "$SUBMISSION_RUNTIME_SPARSE_PATHS" > "$PATTERNS_FILE"
+          CHECKOUT_SUCCEEDED=false
+          for CHECKOUT_ATTEMPT in 1 2 3; do
+            cd "${RUNNER_TEMP:?}"
+            find "$GITHUB_WORKSPACE" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
+            git init "$GITHUB_WORKSPACE"
+            git -C "$GITHUB_WORKSPACE" remote add origin "${GITHUB_SERVER_URL:?}/${GITHUB_REPOSITORY:?}.git"
+            git -C "$GITHUB_WORKSPACE" config gc.auto 0
+            git -C "$GITHUB_WORKSPACE" sparse-checkout init --no-cone
+            git -C "$GITHUB_WORKSPACE" sparse-checkout set --no-cone --stdin < "$PATTERNS_FILE"
+            if git -C "$GITHUB_WORKSPACE" -c protocol.version=2 fetch \
+                --no-tags --prune --no-recurse-submodules --filter=blob:none --depth=1 \
+                origin "$EXPECTED_WORKFLOW_SHA" \
+              && git -C "$GITHUB_WORKSPACE" checkout --detach --force "$EXPECTED_WORKFLOW_SHA"; then
+              CHECKOUT_SUCCEEDED=true
+              break
+            fi
+            if [ "$CHECKOUT_ATTEMPT" -lt 3 ]; then
+              echo "::warning::Immutable sparse checkout failed; retrying attempt $((CHECKOUT_ATTEMPT + 1))/3"
+              sleep "$((CHECKOUT_ATTEMPT * 5))"
+            fi
+          done
+          test "$CHECKOUT_SUCCEEDED" = true || {
+            echo "::error::Immutable sparse checkout failed after 3 attempts"
+            exit 1
+          }
 
       - name: Verify immutable processing runtime
         env:
@@ -507,14 +634,8 @@ jobs:
             exit 1
           fi
 
-          if [ "$(git config --bool core.sparseCheckout 2>/dev/null || echo false)" = "true" ]; then
-            echo "::error::Marketplace checkout is still sparse"
-            exit 1
-          fi
-          test ! -f "$(git rev-parse --git-path info/sparse-checkout)" || {
-            echo "::error::Inherited sparse-checkout definition is still present"
-            exit 1
-          }
+          test "$(git config --bool core.sparseCheckout)" = "true"
+          test -f "$(git rev-parse --git-path info/sparse-checkout)"
 
           REQUIRED_RUNTIME_FILES=(
             "schemas/skill-report.schema.json"
@@ -687,12 +808,38 @@ jobs:
           test -z "$(find "$GITHUB_WORKSPACE" -mindepth 1 -maxdepth 1 -print -quit)"
 
       - name: Checkout immutable aggregation runtime
-        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
-        with:
-          ref: ${{ github.workflow_sha }}
-          fetch-depth: 1
-          clean: true
-          persist-credentials: false
+        env:
+          EXPECTED_WORKFLOW_SHA: ${{ github.workflow_sha }}
+        run: |
+          set -euo pipefail
+          PATTERNS_FILE="${RUNNER_TEMP:?}/submission-runtime-${GITHUB_RUN_ID:?}-${GITHUB_RUN_ATTEMPT:?}-aggregate.patterns"
+          trap 'rm -f "$PATTERNS_FILE"' EXIT
+          printf '%s\n' "$SUBMISSION_RUNTIME_SPARSE_PATHS" > "$PATTERNS_FILE"
+          CHECKOUT_SUCCEEDED=false
+          for CHECKOUT_ATTEMPT in 1 2 3; do
+            cd "${RUNNER_TEMP:?}"
+            find "$GITHUB_WORKSPACE" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
+            git init "$GITHUB_WORKSPACE"
+            git -C "$GITHUB_WORKSPACE" remote add origin "${GITHUB_SERVER_URL:?}/${GITHUB_REPOSITORY:?}.git"
+            git -C "$GITHUB_WORKSPACE" config gc.auto 0
+            git -C "$GITHUB_WORKSPACE" sparse-checkout init --no-cone
+            git -C "$GITHUB_WORKSPACE" sparse-checkout set --no-cone --stdin < "$PATTERNS_FILE"
+            if git -C "$GITHUB_WORKSPACE" -c protocol.version=2 fetch \
+                --no-tags --prune --no-recurse-submodules --filter=blob:none --depth=1 \
+                origin "$EXPECTED_WORKFLOW_SHA" \
+              && git -C "$GITHUB_WORKSPACE" checkout --detach --force "$EXPECTED_WORKFLOW_SHA"; then
+              CHECKOUT_SUCCEEDED=true
+              break
+            fi
+            if [ "$CHECKOUT_ATTEMPT" -lt 3 ]; then
+              echo "::warning::Immutable sparse checkout failed; retrying attempt $((CHECKOUT_ATTEMPT + 1))/3"
+              sleep "$((CHECKOUT_ATTEMPT * 5))"
+            fi
+          done
+          test "$CHECKOUT_SUCCEEDED" = true || {
+            echo "::error::Immutable sparse checkout failed after 3 attempts"
+            exit 1
+          }
 
       - name: Verify immutable aggregation runtime
         env:
@@ -713,8 +860,8 @@ jobs:
             "scripts/resolve-approved-submission.mjs"
           )
           test "$(git rev-parse HEAD)" = "$EXPECTED_WORKFLOW_SHA"
-          test "$(git config --bool core.sparseCheckout 2>/dev/null || echo false)" != "true"
-          test ! -f "$(git rev-parse --git-path info/sparse-checkout)"
+          test "$(git config --bool core.sparseCheckout)" = "true"
+          test -f "$(git rev-parse --git-path info/sparse-checkout)"
           if git ls-files -v -- "${REQUIRED_RUNTIME_FILES[@]}" | awk '$1 ~ /^S/ { found=1 } END { exit !found }'; then
             echo "::error::Immutable aggregation runtime contains skip-worktree files"
             exit 1
@@ -760,7 +907,8 @@ jobs:
           cleanup() {
             echo "🧹 Cleaning up temp directories..."
             rm -rf "$WORK_DIR" "$ARTIFACTS_DIR" "${ARTIFACTS_DIR}.approval-plan.json" \
-              "${ARTIFACTS_DIR}.summary.json" "${ARTIFACTS_DIR}.merged" 2>/dev/null || true
+              "${ARTIFACTS_DIR}.summary.json" "${ARTIFACTS_DIR}.merged" \
+              "${ARTIFACTS_DIR}.marketplace-patterns" 2>/dev/null || true
           }
           trap cleanup EXIT
 
@@ -772,7 +920,8 @@ jobs:
           echo "📦 Cloning fresh repository to $WORK_DIR..."
           for CLONE_ATTEMPT in 1 2 3; do
             rm -rf "$WORK_DIR"
-            if git clone --depth 1 "https://x-access-token:${APP_TOKEN}@github.com/${REPOSITORY}.git" "$WORK_DIR"; then
+            if git clone --depth 1 --filter=blob:none --no-checkout \
+              "https://x-access-token:${APP_TOKEN}@github.com/${REPOSITORY}.git" "$WORK_DIR"; then
               break
             fi
             if [ "$CLONE_ATTEMPT" -eq 3 ]; then
@@ -782,10 +931,9 @@ jobs:
             echo "::warning::Fresh aggregation clone failed; retrying attempt $((CLONE_ATTEMPT + 1))/3"
             sleep "$((CLONE_ATTEMPT * 5))"
           done
-          cd "$WORK_DIR"
 
-          git config user.name "ai-skill-store[bot]"
-          git config user.email "2628292+ai-skill-store[bot]@users.noreply.github.com"
+          git -C "$WORK_DIR" config user.name "ai-skill-store[bot]"
+          git -C "$WORK_DIR" config user.email "2628292+ai-skill-store[bot]@users.noreply.github.com"
 
           echo "=== Resolving frozen results from all shards ==="
           APPROVAL_PLAN="${ARTIFACTS_DIR}.approval-plan.json"
@@ -813,7 +961,53 @@ jobs:
           fi
           test "$AGGREGATION_STATUS" = "has_results"
           mapfile -t SUBMISSION_PATHS < <(jq -r '.skills[].pendingDir' "$APPROVAL_PLAN")
+          mapfile -t TARGET_PATHS < <(jq -r '.skills[].targetDir' "$APPROVAL_PLAN")
           test "${#SUBMISSION_PATHS[@]}" -gt 0
+          test "${#SUBMISSION_PATHS[@]}" -eq "${#TARGET_PATHS[@]}"
+
+          assert_aggregation_path_shape() {
+            local candidate="$1" current='' entry type segment
+            local segments=()
+            IFS='/' read -r -a segments <<< "$candidate"
+            for segment in "${segments[@]}"; do
+              current="${current:+$current/}$segment"
+              entry=$(git -C "$WORK_DIR" ls-tree HEAD -- "$current")
+              [ -n "$entry" ] || return 0
+              type=$(awk 'NR == 1 { print $2 }' <<< "$entry")
+              [ "$type" = tree ] || {
+                echo "::error::Aggregation target has a symlink or non-directory path component: $candidate"
+                exit 1
+              }
+            done
+          }
+          for candidate in "${SUBMISSION_PATHS[@]}" "${TARGET_PATHS[@]}"; do
+            assert_aggregation_path_shape "$candidate"
+          done
+          MATERIALIZE_PATTERNS="${ARTIFACTS_DIR}.marketplace-patterns"
+          printf '/%s/\n' "${SUBMISSION_PATHS[@]}" "${TARGET_PATHS[@]}" > "$MATERIALIZE_PATTERNS"
+          git -C "$WORK_DIR" sparse-checkout init --no-cone
+          MATERIALIZE_SUCCEEDED=false
+          for MATERIALIZE_ATTEMPT in 1 2 3; do
+            if git -C "$WORK_DIR" sparse-checkout set --no-cone --stdin < "$MATERIALIZE_PATTERNS" \
+              && git -C "$WORK_DIR" checkout --force; then
+              MATERIALIZE_SUCCEEDED=true
+              break
+            fi
+            if [ "$MATERIALIZE_ATTEMPT" -lt 3 ]; then
+              echo "::warning::Aggregation target materialization failed; retrying attempt $((MATERIALIZE_ATTEMPT + 1))/3"
+              sleep "$((MATERIALIZE_ATTEMPT * 5))"
+            fi
+          done
+          test "$MATERIALIZE_SUCCEEDED" = true || {
+            echo "::error::Aggregation target materialization failed after 3 attempts"
+            exit 1
+          }
+          if git -C "$WORK_DIR" ls-files -v -- "${SUBMISSION_PATHS[@]}" "${TARGET_PATHS[@]}" \
+            | awk '$1 ~ /^S/ { found=1 } END { exit !found }'; then
+            echo "::error::A tracked aggregation target path was not materialized"
+            exit 1
+          fi
+          cd "$WORK_DIR"
 
           echo "=== Copying only frozen submission results ==="
           for pending_dir in "${SUBMISSION_PATHS[@]}"; do
