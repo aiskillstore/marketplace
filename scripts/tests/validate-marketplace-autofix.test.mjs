@@ -1,11 +1,15 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
+import { createRequire } from 'node:module';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { calculateCanonicalTreeHash } from '../resolve-approved-submission.mjs';
+
+const require = createRequire(import.meta.url);
+const { validateSkillName } = require('../validate-marketplace-skill-name.cjs');
 
 const workflow = readFileSync('.github/workflows/validate-marketplace.yml', 'utf8');
 
@@ -24,9 +28,75 @@ const rebind = runBlock('Rebind reports to auto-fixed SKILL.md artifacts');
 const rebindReport = runBlock('Rebind reports to auto-fixed skill-report artifacts');
 const verifyReportHashContract = runBlock('Verify skill-report hash contract after auto-fix');
 const verifyChangedReportHashContract = runBlock('Verify changed skill-report hash contracts');
+const validateSkill = runBlock('Validate SKILL.md files have proper YAML frontmatter');
+const revalidateSkill = runBlock('Re-validate SKILL.md after auto-fix');
 const commitSkill = runBlock('Commit auto-fixed SKILL.md artifacts locally');
 const commitReport = runBlock('Commit auto-fixed skill-report.json files locally');
 const publish = runBlock('Publish validated auto-fixes');
+
+test('SKILL.md validation uses the repository-bound alias validator before and after auto-fix', () => {
+  for (const block of [validateSkill, revalidateSkill]) {
+    assert.match(block, /require\('\.\/scripts\/validate-marketplace-skill-name\.cjs'\)/);
+    assert.match(block, /validateSkillName\(\{ repoRoot: process\.cwd\(\), skillMdPath, name: data\.name \}\)/);
+    assert.doesNotMatch(block, /NAME_PATTERN/);
+  }
+});
+
+test('SKILL.md validation accepts the exact checked-in repository identities', () => {
+  const result = spawnSync('bash', ['-c', validateSkill], {
+    cwd: process.cwd(),
+    encoding: 'utf8',
+    env: { ...process.env, CI: 'true' },
+  });
+  assert.equal(result.status, 0, result.stderr);
+});
+
+test('SKILL.md validation accepts only an exact source-bound non-ASCII alias', () => {
+  const root = mkdtempSync(join(tmpdir(), 'validate-skill-alias-'));
+  const skillDirectory = join(root, 'pending', 'zx029w', 'zhuangxiu-shuidian-bikeng');
+  const aliasesPath = join(root, 'aliases.json');
+  const reportPath = join(skillDirectory, 'skill-report.json');
+  try {
+    mkdirSync(skillDirectory, { recursive: true });
+    writeFileSync(join(skillDirectory, 'SKILL.md'), '---\nname: 装修水电避坑指南\ndescription: fixture\n---\n');
+    writeFileSync(aliasesPath, `${JSON.stringify({
+      schemaVersion: 1,
+      aliases: [{
+        repository: 'zx029w/zhuangxiu-skills',
+        path: '装修水电避坑指南',
+        expectedName: '装修水电避坑指南',
+        baseSlug: 'zhuangxiu-shuidian-bikeng',
+      }],
+    })}\n`);
+    const report = {
+      meta: {
+        slug: 'zx029w-zhuangxiu-shuidian-bikeng',
+        source_url: `https://github.com/zx029w/zhuangxiu-skills/tree/${'a'.repeat(40)}/${encodeURIComponent('装修水电避坑指南')}`,
+        source_ref: 'a'.repeat(40),
+      },
+      skill: { name: '装修水电避坑指南' },
+    };
+    writeFileSync(reportPath, `${JSON.stringify(report)}\n`);
+
+    assert.equal(validateSkillName({
+      repoRoot: root,
+      skillMdPath: join(skillDirectory, 'SKILL.md'),
+      name: '装修水电避坑指南',
+      aliasesPath,
+    }), null);
+
+    report.meta.source_url = `https://github.com/attacker/source/tree/${'a'.repeat(40)}/${encodeURIComponent('装修水电避坑指南')}`;
+    writeFileSync(reportPath, `${JSON.stringify(report)}\n`);
+    assert.match(validateSkillName({
+      repoRoot: root,
+      skillMdPath: join(skillDirectory, 'SKILL.md'),
+      name: '装修水电避坑指南',
+      aliasesPath,
+    }), /verified path alias/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
 
 test('auto-fix binds final artifact hashes before creating local commits', () => {
   assert.match(rebind, /git diff --name-only -z --diff-filter=ACMRT HEAD/);
