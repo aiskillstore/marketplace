@@ -343,6 +343,16 @@ test('clone step accepts repository-root false and explicit-path true without we
   assert.notEqual(invalid.status, 0);
 });
 
+test('submission source metadata lookup retries transient GitHub failures', () => {
+  const clone = extractRunBlock(reusable, 'Clone source repository');
+
+  assert.match(clone, /for SOURCE_METADATA_ATTEMPT in 1 2 3/);
+  assert.match(clone, /DEFAULT_REF=\$\(gh api "repos\/\$OWNER_REPO" --jq '\.default_branch'\)/);
+  assert.match(clone, /git ls-remote --heads --tags .* > "\$REFS_FILE"/);
+  assert.match(clone, /Source metadata lookup failed; retrying attempt/);
+  assert.match(clone, /test -s "\$REFS_FILE"/);
+});
+
 test('repository dispatch caller preserves reusable failure and callback status contracts', () => {
   assert.match(caller, /notify:\n\s+needs: process-skills\n\s+if: always\(\) && github\.event_name == 'repository_dispatch'/);
   assert.match(caller, /name: Notify skillstore - PR created\n\s+if: needs\.process-skills\.outputs\.pr_url/);
