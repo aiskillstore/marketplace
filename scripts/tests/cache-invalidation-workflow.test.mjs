@@ -144,15 +144,19 @@ test('incremental detection subtracts only verified successful manual recovery a
   assert.match(workflow, /retention-days: 30/);
 });
 
-test('sync normalizes a retained sparse checkout before invoking pinned-tree resolvers', () => {
+test('sync uses a blobless sparse checkout before invoking pinned-tree resolvers', () => {
   const workflow = readFileSync(WORKFLOW, 'utf8');
-  const checkout = section(workflow, '      - name: Checkout repository', '      - name: Generate GitHub App Token');
+  const checkout = section(workflow, '      - name: Clear inherited sync checkout', '      - name: Normalize pinned sync runtime checkout');
   const runtime = section(workflow, '      - name: Normalize pinned sync runtime checkout', '      - name: Generate GitHub App Token');
   const detect = section(workflow, '      - name: Detect changed skills', '      - name: Download skillstore-cli');
 
-  assert.match(checkout, /fetch-depth: 0/);
+  assert.match(checkout, /for CHECKOUT_ATTEMPT in 1 2 3/);
+  assert.match(checkout, /--filter=blob:none/);
+  assert.match(checkout, /sparse-checkout init --no-cone/);
+  assert.match(checkout, /checkout --detach --force "\$EXPECTED_SHA"/);
   assert.match(runtime, /checked_out_sha=\$\(git rev-parse HEAD\)/);
-  assert.match(runtime, /git sparse-checkout disable[\s\S]*git reset --hard "\$EXPECTED_SHA"/);
+  assert.doesNotMatch(runtime, /sparse-checkout disable|git reset --hard/);
+  assert.match(runtime, /git config --bool core\.sparseCheckout/);
   assert.match(runtime, /scripts\/resolve-manual-skills\.mjs/);
   assert.match(runtime, /scripts\/detect-changed-skills\.mjs/);
   assert.match(runtime, /scripts\/materialize-changed-skills\.mjs/);

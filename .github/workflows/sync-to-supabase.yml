@@ -32,11 +32,58 @@ jobs:
       synced_skill_count: ${{ steps.synced-plan.outputs.skill_count }}
       skip_sync: ${{ steps.changes.outputs.skip_sync }}
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
-        with:
-          # Full history needed to diff against last successful sync
-          fetch-depth: 0
+      - name: Clear inherited sync checkout
+        run: |
+          set -euo pipefail
+          EXPECTED_WORKSPACE="${RUNNER_WORKSPACE:?}/${GITHUB_REPOSITORY#*/}"
+          if [ "${GITHUB_WORKSPACE:?}" != "$EXPECTED_WORKSPACE" ]; then
+            echo "::error::Refusing to clear unexpected workspace: $GITHUB_WORKSPACE"
+            exit 1
+          fi
+          cd "${RUNNER_TEMP:?}"
+          find "$GITHUB_WORKSPACE" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
+          test -z "$(find "$GITHUB_WORKSPACE" -mindepth 1 -maxdepth 1 -print -quit)"
+
+      - name: Checkout immutable sync runtime
+        env:
+          EXPECTED_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          PATTERNS_FILE="${RUNNER_TEMP:?}/sync-runtime-${GITHUB_RUN_ID:?}-${GITHUB_RUN_ATTEMPT:?}.patterns"
+          trap 'rm -f "$PATTERNS_FILE"' EXIT
+          cat > "$PATTERNS_FILE" <<'EOF'
+          /scripts/resolve-manual-skills.mjs
+          /scripts/detect-changed-skills.mjs
+          /scripts/materialize-changed-skills.mjs
+          /.github/actions/download-skillstore-cli/
+          EOF
+
+          CHECKOUT_SUCCEEDED=false
+          for CHECKOUT_ATTEMPT in 1 2 3; do
+            cd "${RUNNER_TEMP:?}"
+            find "$GITHUB_WORKSPACE" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
+            git init "$GITHUB_WORKSPACE"
+            git -C "$GITHUB_WORKSPACE" remote add origin "${GITHUB_SERVER_URL:?}/${GITHUB_REPOSITORY:?}.git"
+            git -C "$GITHUB_WORKSPACE" config gc.auto 0
+            git -C "$GITHUB_WORKSPACE" sparse-checkout init --no-cone
+            git -C "$GITHUB_WORKSPACE" sparse-checkout set --no-cone --stdin < "$PATTERNS_FILE"
+            if git -C "$GITHUB_WORKSPACE" -c protocol.version=2 fetch \
+                --no-tags --prune --no-recurse-submodules --filter=blob:none \
+                origin '+refs/heads/main:refs/remotes/origin/main' \
+              && git -C "$GITHUB_WORKSPACE" cat-file -e "$EXPECTED_SHA^{commit}" \
+              && git -C "$GITHUB_WORKSPACE" checkout --detach --force "$EXPECTED_SHA"; then
+              CHECKOUT_SUCCEEDED=true
+              break
+            fi
+            if [ "$CHECKOUT_ATTEMPT" -lt 3 ]; then
+              echo "::warning::Immutable sync checkout failed; retrying attempt $((CHECKOUT_ATTEMPT + 1))/3"
+              sleep "$((CHECKOUT_ATTEMPT * 5))"
+            fi
+          done
+          test "$CHECKOUT_SUCCEEDED" = true || {
+            echo "::error::Immutable sync checkout failed after 3 attempts"
+            exit 1
+          }
 
       - name: Normalize pinned sync runtime checkout
         env:
@@ -52,16 +99,17 @@ jobs:
             echo "::error::checkout SHA mismatch: expected=$EXPECTED_SHA actual=$checked_out_sha"
             exit 1
           fi
-          # Self-hosted runners can retain sparse-checkout state even when this
-          # job did not request it. The resolvers are pinned-tree readers, so
-          # restore their exact workflow-commit bytes before any plan is made.
-          git sparse-checkout disable
-          git reset --hard "$EXPECTED_SHA"
+          test "$(git config --bool core.sparseCheckout)" = true
+          test -f "$(git rev-parse --git-path info/sparse-checkout)"
           for required_path in \
             scripts/resolve-manual-skills.mjs \
             scripts/detect-changed-skills.mjs \
             scripts/materialize-changed-skills.mjs \
             .github/actions/download-skillstore-cli/action.yml; do
+            if git ls-files -v -- "$required_path" | awk '$1 ~ /^S/ { found=1 } END { exit !found }'; then
+              echo "::error::required pinned runtime file was not materialized: $required_path"
+              exit 1
+            fi
             if [ ! -f "$required_path" ] || [ -L "$required_path" ]; then
               echo "::error::required pinned runtime file is missing or not regular: $required_path"
               exit 1
