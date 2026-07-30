@@ -209,9 +209,24 @@ jobs:
           REPOSITORY_ID=$(node "$GITHUB_WORKSPACE/scripts/resolve-submission-source.mjs" \
             --github-url "$SUBMISSION_URL" --repository-only)
           OWNER_REPO=$(jq -er '"\(.owner)/\(.repo)"' <<< "$REPOSITORY_ID")
-          DEFAULT_REF=$(gh api "repos/$OWNER_REPO" --jq '.default_branch')
           REFS_FILE="${RUNNER_TEMP:?}/submission-refs-${{ github.run_id }}-${{ github.run_attempt }}.txt"
-          git ls-remote --heads --tags "https://github.com/$OWNER_REPO.git" > "$REFS_FILE"
+          DEFAULT_REF=''
+          for SOURCE_METADATA_ATTEMPT in 1 2 3; do
+            rm -f "$REFS_FILE"
+            if DEFAULT_REF=$(gh api "repos/$OWNER_REPO" --jq '.default_branch') \
+              && git ls-remote --heads --tags "https://github.com/$OWNER_REPO.git" > "$REFS_FILE"; then
+              break
+            fi
+            rm -f "$REFS_FILE"
+            if [ "$SOURCE_METADATA_ATTEMPT" -eq 3 ]; then
+              echo "::error::Source metadata lookup failed after 3 attempts"
+              exit 1
+            fi
+            echo "::warning::Source metadata lookup failed; retrying attempt $((SOURCE_METADATA_ATTEMPT + 1))/3"
+            sleep "$((SOURCE_METADATA_ATTEMPT * 5))"
+          done
+          test -n "$DEFAULT_REF"
+          test -s "$REFS_FILE"
           RESOLVED=$(node "$GITHUB_WORKSPACE/scripts/resolve-submission-source.mjs" \
             --github-url "$SUBMISSION_URL" \
             --default-ref "$DEFAULT_REF" \
