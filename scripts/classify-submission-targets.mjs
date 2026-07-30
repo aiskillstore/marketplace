@@ -7,6 +7,7 @@ import {
 } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { validateSlugAliasRegistry } from './discover-submission-skills.mjs';
 import { parseSelectionPlan, validateSelectionPlan } from './submission-selection-plan.mjs';
 
 const SOURCE_TYPES = new Set(['community', 'official']);
@@ -233,8 +234,8 @@ function validateCandidate(candidate, identity) {
   if (report?.meta?.slug !== expectedReportSlug) {
     fail(`published target report slug mismatch at ${reportPath}: expected ${expectedReportSlug}`);
   }
-  if (report?.skill?.name !== identity.slug) {
-    fail(`published target skill name mismatch at ${reportPath}: expected ${identity.slug}`);
+  if (report?.skill?.name !== identity.expectedName) {
+    fail(`published target skill name mismatch at ${reportPath}: expected ${identity.expectedName}`);
   }
   if (candidate.layout === 'community') {
     if (report.meta.source_type !== 'community') {
@@ -260,7 +261,12 @@ function assertNoPendingCollision(root, owner, slug) {
   }
 }
 
-export function classifySubmissionTargets({ marketplaceRoot, selectionPlan, sourceRef }) {
+export function classifySubmissionTargets({
+  marketplaceRoot,
+  selectionPlan,
+  sourceRef,
+  slugAliasRegistry = { schemaVersion: 1, aliases: [] },
+}) {
   const plan = typeof selectionPlan === 'string'
     ? parseSelectionPlan(selectionPlan)
     : validateSelectionPlan(selectionPlan);
@@ -269,11 +275,18 @@ export function classifySubmissionTargets({ marketplaceRoot, selectionPlan, sour
   if (typeof sourceRef !== 'string' || sourceRef === '') fail('source ref must be a non-empty string');
 
   const [owner] = plan.repository.split('/');
+  const aliases = new Map(validateSlugAliasRegistry(slugAliasRegistry)
+    .filter((alias) => alias.repository === plan.repository)
+    .map((alias) => [alias.path, alias]));
   const expectedLayout = OFFICIAL_REPOSITORIES.has(plan.repository) ? 'official' : 'community';
   const existingTargets = [];
   const newTargets = [];
 
   for (const skill of plan.skills) {
+    const alias = aliases.get(skill.path);
+    if (alias && alias.baseSlug !== skill.slug) {
+      fail(`slug alias does not match planned slug for ${skill.path}: expected ${alias.baseSlug}`);
+    }
     assertNoPendingCollision(root, owner, skill.slug);
     const identity = {
       repository: plan.repository,
@@ -281,6 +294,7 @@ export function classifySubmissionTargets({ marketplaceRoot, selectionPlan, sour
       skillPath: skill.path,
       owner,
       slug: skill.slug,
+      expectedName: alias?.expectedName ?? skill.slug,
     };
     const candidates = [
       {
@@ -354,10 +368,12 @@ export function classifySubmissionTargets({ marketplaceRoot, selectionPlan, sour
 function main() {
   const args = process.argv.slice(2);
   const selectionPlanPath = option(args, '--selection-plan');
+  const slugAliasesPath = option(args, '--slug-aliases-file');
   const result = classifySubmissionTargets({
     marketplaceRoot: option(args, '--marketplace-root'),
     selectionPlan: readFileSync(selectionPlanPath, 'utf8'),
     sourceRef: option(args, '--source-ref'),
+    slugAliasRegistry: JSON.parse(readFileSync(slugAliasesPath, 'utf8')),
   });
   process.stdout.write(`${JSON.stringify(result)}\n`);
 }
