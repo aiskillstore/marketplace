@@ -145,13 +145,47 @@ jobs:
           test -z "$(find "$GITHUB_WORKSPACE" -mindepth 1 -maxdepth 1 -print -quit)"
 
       - name: Checkout immutable source monitor runtime
-        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
-        with:
-          ref: ${{ github.workflow_sha }}
-          token: ${{ steps.app-token.outputs.token }}
-          fetch-depth: 1
-          clean: true
-          persist-credentials: false
+        env:
+          EXPECTED_SHA: ${{ github.workflow_sha }}
+        run: |
+          set -euo pipefail
+          PATTERNS_FILE="${RUNNER_TEMP:?}/source-monitor-runtime-${GITHUB_RUN_ID:?}-${GITHUB_RUN_ATTEMPT:?}.patterns"
+          trap 'rm -f "$PATTERNS_FILE"' EXIT
+          cat > "$PATTERNS_FILE" <<'EOF'
+          /.github/actions/download-skillstore-cli/
+          /.github/workflows/monitor-skill-sources.yml
+          /scripts/rebind-skill-report-hashes.mjs
+          /scripts/verify-source-monitor-selection.mjs
+          /skills/**/skill-report.json
+          EOF
+
+          CHECKOUT_SUCCEEDED=false
+          for CHECKOUT_ATTEMPT in 1 2 3; do
+            cd "${RUNNER_TEMP:?}"
+            find "$GITHUB_WORKSPACE" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
+            git init "$GITHUB_WORKSPACE"
+            git -C "$GITHUB_WORKSPACE" remote add origin "${GITHUB_SERVER_URL:?}/${GITHUB_REPOSITORY:?}.git"
+            git -C "$GITHUB_WORKSPACE" config gc.auto 0
+            git -C "$GITHUB_WORKSPACE" config http.version HTTP/1.1
+            git -C "$GITHUB_WORKSPACE" sparse-checkout init --no-cone
+            git -C "$GITHUB_WORKSPACE" sparse-checkout set --no-cone --stdin < "$PATTERNS_FILE"
+            if git -C "$GITHUB_WORKSPACE" -c protocol.version=2 fetch \
+                --no-tags --no-recurse-submodules --filter=blob:none --depth=1 \
+                origin "$EXPECTED_SHA" \
+              && git -C "$GITHUB_WORKSPACE" cat-file -e "$EXPECTED_SHA^{commit}" \
+              && git -C "$GITHUB_WORKSPACE" checkout --detach --force "$EXPECTED_SHA"; then
+              CHECKOUT_SUCCEEDED=true
+              break
+            fi
+            if [ "$CHECKOUT_ATTEMPT" -lt 3 ]; then
+              echo "::warning::Immutable source monitor checkout failed; retrying attempt $((CHECKOUT_ATTEMPT + 1))/3"
+              sleep "$((CHECKOUT_ATTEMPT * 5))"
+            fi
+          done
+          test "$CHECKOUT_SUCCEEDED" = true || {
+            echo "::error::Immutable source monitor checkout failed after 3 attempts"
+            exit 1
+          }
 
       - name: Verify immutable source monitor runtime
         env:
@@ -175,8 +209,8 @@ jobs:
           } > "$DIAGNOSTIC_DIR/post-checkout.txt"
 
           test "$(git rev-parse HEAD)" = "$EXPECTED_WORKFLOW_SHA"
-          test "$(git config --bool core.sparseCheckout 2>/dev/null || echo false)" != "true"
-          test ! -f "$(git rev-parse --git-path info/sparse-checkout)"
+          test "$(git config --bool core.sparseCheckout)" = true
+          test -f "$(git rev-parse --git-path info/sparse-checkout)"
           if git ls-files -v -- "${REQUIRED_RUNTIME_FILES[@]}" | awk '$1 ~ /^S/ { found=1 } END { exit !found }'; then
             echo "::error::Immutable source monitor runtime contains skip-worktree files"
             exit 1
@@ -400,13 +434,15 @@ jobs:
 
           LC_ALL=C sort -z -u "$CHANGED_SKILLS" -o "$CHANGED_SKILLS"
           while IFS= read -r -d '' skill_path; do
-            git add -A -f -- "${skill_path%/SKILL.md}"
+            skill_dir="${skill_path%/SKILL.md}"
+            git ls-files -z -- "$skill_dir" | git update-index -z --no-skip-worktree --stdin
+            git add --sparse -A -f -- "$skill_dir"
           done < "$CHANGED_SKILLS"
           node scripts/rebind-skill-report-hashes.mjs \
             --repo-root "$PWD" \
             --skill-paths-file "$CHANGED_SKILLS"
           while IFS= read -r -d '' skill_path; do
-            git add -- "${skill_path%/SKILL.md}/skill-report.json"
+            git add --sparse -f -- "${skill_path%/SKILL.md}/skill-report.json"
           done < "$CHANGED_SKILLS"
           echo "::notice::Bound source monitor report hashes to the exact packaged Marketplace trees"
 

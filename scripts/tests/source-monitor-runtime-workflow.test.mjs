@@ -74,7 +74,7 @@ function createFixture() {
   mkdirSync(seed, { recursive: true });
   mkdirSync(runnerWorkspace, { recursive: true });
   mkdirSync(runnerTemp, { recursive: true });
-  run('git', ['init', '-q', seed]);
+  run('git', ['init', '-q', '-b', 'main', seed]);
   run('git', ['-C', seed, 'config', 'user.name', 'Fixture']);
   run('git', ['-C', seed, 'config', 'user.email', 'fixture@example.com']);
   const files = {
@@ -82,6 +82,9 @@ function createFixture() {
     '.github/workflows/monitor-skill-sources.yml': 'name: fixture workflow\n',
     'scripts/rebind-skill-report-hashes.mjs': 'export const fixture = true;\n',
     'scripts/verify-source-monitor-selection.mjs': 'export const fixture = true;\n',
+    'skills/owner/demo/SKILL.md': '# Demo\n',
+    'skills/owner/demo/skill-report.json': '{"meta":{"slug":"owner-demo"}}\n',
+    'skills/owner/demo/references/large.txt': 'not needed by the monitor runtime checkout\n',
     'README.md': 'fixture\n',
   };
   for (const [path, content] of Object.entries(files)) {
@@ -97,7 +100,23 @@ function createFixture() {
   return { root, origin, runnerWorkspace, runnerTemp, workspace, diagnosticDir, head };
 }
 
-test('source monitor clears inherited sparse state and verifies an immutable full checkout', () => {
+function checkoutFixture(fixture) {
+  const checkout = extractRunBlock('Checkout immutable source monitor runtime')
+    .replace('"${GITHUB_SERVER_URL:?}/${GITHUB_REPOSITORY:?}.git"', `"${fixture.origin}"`);
+  run('bash', ['-c', checkout], {
+    cwd: fixture.runnerTemp,
+    env: {
+      ...process.env,
+      GITHUB_WORKSPACE: fixture.workspace,
+      RUNNER_TEMP: fixture.runnerTemp,
+      GITHUB_RUN_ID: '1234',
+      GITHUB_RUN_ATTEMPT: '1',
+      EXPECTED_SHA: fixture.head,
+    },
+  });
+}
+
+test('source monitor clears inherited state and verifies an immutable blobless sparse checkout', () => {
   const cleanup = extractRunBlock('Clear inherited source monitor checkout');
   assert.doesNotMatch(cleanup, /sparse-checkout disable|git reset --hard/);
   const fixture = createFixture();
@@ -121,7 +140,9 @@ test('source monitor clears inherited sparse state and verifies an immutable ful
 
     assert.deepEqual(readdirSync(fixture.workspace), []);
     assert.match(readFileSync(join(fixture.diagnosticDir, 'pre-checkout.txt'), 'utf8'), /skip_worktree_count=/);
-    run('git', ['clone', '-q', '--no-local', fixture.origin, fixture.workspace]);
+    checkoutFixture(fixture);
+    assert.equal(existsSync(join(fixture.workspace, 'skills/owner/demo/skill-report.json')), true);
+    assert.equal(existsSync(join(fixture.workspace, 'skills/owner/demo/references/large.txt')), false);
     run('bash', ['-c', extractRunBlock('Verify immutable source monitor runtime')], {
       cwd: fixture.workspace,
       env: {
@@ -140,6 +161,18 @@ test('source monitor clears inherited sparse state and verifies an immutable ful
 test('source monitor runtime preflight rejects missing, modified, symlinked, skip-worktree, and wrong-head files', () => {
   const fixture = createFixture();
   try {
+    run('bash', ['-c', extractRunBlock('Clear inherited source monitor checkout')], {
+      cwd: fixture.workspace,
+      env: {
+        ...process.env,
+        GITHUB_WORKSPACE: fixture.workspace,
+        RUNNER_WORKSPACE: fixture.runnerWorkspace,
+        RUNNER_TEMP: fixture.runnerTemp,
+        GITHUB_REPOSITORY: `aiskillstore/${basename(fixture.workspace)}`,
+        DIAGNOSTIC_DIR: fixture.diagnosticDir,
+      },
+    });
+    checkoutFixture(fixture);
     const preflight = extractRunBlock('Verify immutable source monitor runtime');
     const base = {
       cwd: fixture.workspace,
@@ -164,9 +197,9 @@ test('source monitor runtime preflight rejects missing, modified, symlinked, ski
       rmSync(absolute);
       run('git', ['-C', fixture.workspace, 'checkout', '--', file]);
     }
-    run('git', ['-C', fixture.workspace, 'update-index', '--skip-worktree', runtimeFiles[0]]);
+    run('git', ['-C', fixture.workspace, 'sparse-checkout', 'set', '--no-cone', '/skills/**/skill-report.json']);
     assert.notEqual(run('bash', ['-c', preflight], { ...base, allowFailure: true }).status, 0);
-    run('git', ['-C', fixture.workspace, 'update-index', '--no-skip-worktree', runtimeFiles[0]]);
+    checkoutFixture(fixture);
     assert.notEqual(run('bash', ['-c', preflight], {
       ...base,
       env: { ...base.env, EXPECTED_WORKFLOW_SHA: '0000000000000000000000000000000000000000' },
@@ -179,9 +212,14 @@ test('source monitor runtime preflight rejects missing, modified, symlinked, ski
 
 test('source monitor binds checkout and artifacts to immutable runtime evidence', () => {
   assert.ok(workflow.indexOf('name: Initialize source monitor diagnostics') < workflow.indexOf('name: Generate GitHub App Token'));
-  assert.match(workflow, /ref: \$\{\{ github\.workflow_sha \}\}/);
-  assert.match(workflow, /fetch-depth: 1/);
-  assert.match(workflow, /persist-credentials: false/);
+  const checkout = extractRunBlock('Checkout immutable source monitor runtime');
+  assert.match(workflow, /EXPECTED_SHA: \$\{\{ github\.workflow_sha \}\}/);
+  assert.match(checkout, /--filter=blob:none/);
+  assert.match(checkout, /config http\.version HTTP\/1\.1/);
+  assert.match(checkout, /sparse-checkout init --no-cone/);
+  assert.match(checkout, /\/skills\/\*\*\/skill-report\.json/);
+  assert.match(checkout, /checkout --detach --force "\$EXPECTED_SHA"/);
+  assert.doesNotMatch(checkout, /actions\/checkout/);
   assert.match(workflow, /version: 2\.15\.8/);
   assert.match(workflow, /minimum-version: 2\.14\.5/);
   assert.match(workflow, /require-checksum: true/);
@@ -214,6 +252,8 @@ test('source monitor binds every changed report to its packaged tree before crea
   assert.match(binding, /scripts\/rebind-skill-report-hashes\.mjs/);
   assert.match(binding, /--skill-paths-file/);
   assert.match(binding, /--diff-filter=D/);
+  assert.match(binding, /update-index -z --no-skip-worktree --stdin/);
+  assert.match(binding, /git add --sparse -A -f/);
   assert.ok(
     workflow.indexOf('name: Bind source monitor reports to packaged trees')
       < workflow.indexOf('name: Create source monitor PR'),
@@ -232,6 +272,7 @@ test('source monitor commits upstream files hidden by a copied skill .gitignore'
     copyFileSync('scripts/rebind-skill-report-hashes.mjs', join(workspace, 'scripts/rebind-skill-report-hashes.mjs'));
     copyFileSync('scripts/resolve-approved-submission.mjs', join(workspace, 'scripts/resolve-approved-submission.mjs'));
     writeFileSync(join(absoluteSkillDirectory, 'SKILL.md'), '# old\n');
+    writeFileSync(join(absoluteSkillDirectory, 'legacy.txt'), 'removed upstream\n');
     writeFileSync(join(absoluteSkillDirectory, 'skill-report.json'), `${JSON.stringify({
       meta: {
         source_url: 'https://github.com/owner/repository',
@@ -246,8 +287,24 @@ test('source monitor commits upstream files hidden by a copied skill .gitignore'
     run('git', ['-C', workspace, 'add', '.']);
     run('git', ['-C', workspace, 'commit', '-qm', 'fixture']);
 
+    run('git', ['-C', workspace, 'sparse-checkout', 'init', '--no-cone']);
+    run('git', ['-C', workspace, 'sparse-checkout', 'set', '--no-cone', '/scripts/', '/skills/**/skill-report.json']);
+    assert.equal(existsSync(join(absoluteSkillDirectory, 'SKILL.md')), false);
+    assert.equal(existsSync(join(absoluteSkillDirectory, 'legacy.txt')), false);
+
+    rmSync(absoluteSkillDirectory, { recursive: true, force: true });
+    mkdirSync(absoluteSkillDirectory, { recursive: true });
+
     writeFileSync(join(absoluteSkillDirectory, '.gitignore'), 'references/\n');
     writeFileSync(join(absoluteSkillDirectory, 'SKILL.md'), '# updated\n');
+    writeFileSync(join(absoluteSkillDirectory, 'skill-report.json'), `${JSON.stringify({
+      meta: {
+        source_url: 'https://github.com/owner/repository',
+        source_ref: 'main',
+        content_hash: 'old',
+        tree_hash: 'old',
+      },
+    })}\n`);
     mkdirSync(join(absoluteSkillDirectory, 'references'));
     writeFileSync(join(absoluteSkillDirectory, 'references', 'ignored.md'), 'tracked upstream resource\n');
 
@@ -259,9 +316,11 @@ test('source monitor commits upstream files hidden by a copied skill .gitignore'
     const staged = run('git', ['-C', workspace, 'diff', '--cached', '--name-only']).stdout.trim().split('\n');
     assert.ok(staged.includes(`${skillDirectory}/references/ignored.md`));
     assert.ok(staged.includes(`${skillDirectory}/skill-report.json`));
+    assert.ok(staged.includes(`${skillDirectory}/legacy.txt`));
     run('git', ['-C', workspace, 'commit', '-qm', 'source monitor update']);
     const committed = run('git', ['-C', workspace, 'ls-tree', '-r', '--name-only', 'HEAD']).stdout.trim().split('\n');
     assert.ok(committed.includes(`${skillDirectory}/references/ignored.md`));
+    assert.ok(!committed.includes(`${skillDirectory}/legacy.txt`));
     const report = JSON.parse(readFileSync(join(absoluteSkillDirectory, 'skill-report.json'), 'utf8'));
     assert.equal(report.meta.tree_hash, calculateCanonicalTreeHash(workspace, skillDirectory));
   } finally {
