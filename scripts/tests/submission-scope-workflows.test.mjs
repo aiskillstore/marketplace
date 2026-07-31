@@ -219,12 +219,30 @@ test('submission processing isolates every shard and stages only its frozen plan
   assert.match(reusable, /--selection-plan "\$INPUT_PLAN"/);
   assert.match(reusable, /PLAN_EVIDENCE=\(\)/);
   assert.match(reusable, /selection-plan\.invalid\.json/);
-  assert.match(reusable, /git add -- "\$\{SUBMISSION_PATHS\[@\]\}"/);
+  assert.match(reusable, /git add -f -- "\$\{SUBMISSION_PATHS\[@\]\}"/);
   assert.doesNotMatch(reusable, /continue-on-error:\s*true/);
   assert.doesNotMatch(reusable, /skill process[\s\S]{0,500}\|\| true/);
   assert.match(reusable, /Enforce shard terminal status/);
   assert.match(reusable, /Published target already exists; use the explicit update workflow/);
 });
+
+test('submission staging preserves frozen tracked files hidden by a copied .gitignore', () => withTempDirectory((root) => {
+  const pendingDir = 'pending/owner/skill';
+  mkdirSync(join(root, pendingDir, 'dist'), { recursive: true });
+  writeFileSync(join(root, pendingDir, '.gitignore'), 'dist/\n');
+  writeFileSync(join(root, pendingDir, 'SKILL.md'), '# Skill\n');
+  writeFileSync(join(root, pendingDir, 'dist/cli.js'), 'export default true;\n');
+  for (const args of [
+    ['init', '-q'],
+    ['add', '-f', '--', pendingDir],
+  ]) {
+    const result = spawnSync('git', args, { cwd: root, encoding: 'utf8' });
+    assert.equal(result.status, 0, result.stderr);
+  }
+  const staged = spawnSync('git', ['diff', '--cached', '--name-only'], { cwd: root, encoding: 'utf8' });
+  assert.equal(staged.status, 0, staged.stderr);
+  assert.match(staged.stdout, /pending\/owner\/skill\/dist\/cli\.js/);
+}));
 
 test('real CLI two-round failure produces a failed manifest and cannot aggregate as no-op', () => withTempDirectory((root) => {
   const fakeCli = join(root, 'fake-cli.sh');

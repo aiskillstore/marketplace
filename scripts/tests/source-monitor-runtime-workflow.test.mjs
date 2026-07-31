@@ -98,6 +98,8 @@ function createFixture() {
 }
 
 test('source monitor clears inherited sparse state and verifies an immutable full checkout', () => {
+  const cleanup = extractRunBlock('Clear inherited source monitor checkout');
+  assert.doesNotMatch(cleanup, /sparse-checkout disable|git reset --hard/);
   const fixture = createFixture();
   try {
     run('git', ['-C', fixture.workspace, 'sparse-checkout', 'init', '--cone']);
@@ -105,7 +107,7 @@ test('source monitor clears inherited sparse state and verifies an immutable ful
     assert.equal(existsSync(join(fixture.workspace, runtimeFiles[0])), false);
     writeFileSync(join(fixture.workspace, 'stale-runner-file'), 'stale\n');
 
-    run('bash', ['-c', extractRunBlock('Clear inherited source monitor checkout')], {
+    run('bash', ['-c', cleanup], {
       cwd: fixture.workspace,
       env: {
         ...process.env,

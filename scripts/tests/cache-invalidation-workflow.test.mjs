@@ -153,6 +153,7 @@ test('sync uses a blobless sparse checkout before invoking pinned-tree resolvers
   assert.match(checkout, /for CHECKOUT_ATTEMPT in 1 2 3/);
   assert.match(checkout, /--filter=blob:none/);
   assert.match(checkout, /sparse-checkout init --no-cone/);
+  assert.match(checkout, /scripts\/refresh-security-research-stats\.sh/);
   assert.match(checkout, /checkout --detach --force "\$EXPECTED_SHA"/);
   assert.match(runtime, /checked_out_sha=\$\(git rev-parse HEAD\)/);
   assert.doesNotMatch(runtime, /sparse-checkout disable|git reset --hard/);
@@ -160,6 +161,7 @@ test('sync uses a blobless sparse checkout before invoking pinned-tree resolvers
   assert.match(runtime, /scripts\/resolve-manual-skills\.mjs/);
   assert.match(runtime, /scripts\/detect-changed-skills\.mjs/);
   assert.match(runtime, /scripts\/materialize-changed-skills\.mjs/);
+  assert.match(runtime, /scripts\/refresh-security-research-stats\.sh/);
   assert.match(runtime, /\.github\/actions\/download-skillstore-cli\/action\.yml/);
   assert.match(runtime, /git rev-parse "\$EXPECTED_SHA:\$required_path"/);
   assert.match(runtime, /git hash-object "\$required_path"/);

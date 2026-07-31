@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import {
@@ -57,6 +57,29 @@ test('resolves paths and report slugs from the exact Git tree when skills is abs
     );
   } finally {
     rmSync(repositoryRoot, { recursive: true, force: true });
+  }
+});
+
+test('path-derived slugs do not hydrate report blobs from a partial clone', () => {
+  const { repositoryRoot, commit } = makeRepository();
+  const bin = mkdtempSync(join(tmpdir(), 'resolve-manual-skills-git-'));
+  const marker = join(bin, 'cat-file-blob-called');
+  const realGit = execFileSync('which', ['git'], { encoding: 'utf8' }).trim();
+  const wrapper = join(bin, 'git');
+  writeFileSync(wrapper, `#!/bin/sh\nif [ "$1" = cat-file ] && [ "$2" = blob ]; then : > '${marker}'; fi\nexec '${realGit}' "$@"\n`);
+  chmodSync(wrapper, 0o755);
+  const previousPath = process.env.PATH;
+  try {
+    process.env.PATH = `${bin}:${previousPath}`;
+    assert.deepEqual(
+      resolveManualSkillPaths({ repositoryRoot, commit, skills: 'owner-demo,other/tool' }),
+      ['other/tool', 'owner/demo'],
+    );
+    assert.equal(existsSync(marker), false);
+  } finally {
+    process.env.PATH = previousPath;
+    rmSync(repositoryRoot, { recursive: true, force: true });
+    rmSync(bin, { recursive: true, force: true });
   }
 });
 
