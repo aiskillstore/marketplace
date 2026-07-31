@@ -112,22 +112,28 @@ export function resolveManualSkillPaths({ repositoryRoot = '.', commit, skills }
     : parseManualSkillIdentifiers(skills);
   const byPath = new Map();
   const bySlug = new Map();
+  const reports = reportBlobsAtCommit(repositoryRoot, exactCommit);
 
-  for (const report of reportBlobsAtCommit(repositoryRoot, exactCommit)) {
+  for (const report of reports) {
     const relativePath = posix.dirname(report.treePath).slice('skills/'.length);
     if (!relativePath || relativePath === '.') continue;
     addMapping(byPath, relativePath, relativePath);
     addMapping(bySlug, relativePath.replaceAll('/', '-'), relativePath);
+  }
 
-    try {
-      const document = JSON.parse(
-        git(repositoryRoot, ['cat-file', 'blob', report.oid], { encoding: 'utf8' }),
-      );
-      if (typeof document?.meta?.slug === 'string' && document.meta.slug.trim()) {
-        addMapping(bySlug, document.meta.slug.trim(), relativePath);
+  if (requested.some((identifier) => !byPath.has(identifier) && !bySlug.has(identifier))) {
+    for (const report of reports) {
+      const relativePath = posix.dirname(report.treePath).slice('skills/'.length);
+      try {
+        const document = JSON.parse(
+          git(repositoryRoot, ['cat-file', 'blob', report.oid], { encoding: 'utf8' }),
+        );
+        if (typeof document?.meta?.slug === 'string' && document.meta.slug.trim()) {
+          addMapping(bySlug, document.meta.slug.trim(), relativePath);
+        }
+      } catch {
+        // Path-derived lookup remains available for malformed legacy reports.
       }
-    } catch {
-      // Path-derived lookup remains available for malformed legacy reports.
     }
   }
 
