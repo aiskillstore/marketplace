@@ -13,7 +13,11 @@ from unittest.mock import patch
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURES = ROOT / "tests" / "fixtures"
 sys.path.insert(0, str(ROOT / "scripts"))
-from authority_verify import trusted_search, trusted_search_timeout_seconds
+from authority_verify import (
+    trusted_search,
+    trusted_search_timeout_seconds,
+    untrusted_content_boundary,
+)
 
 
 def run(arguments: list[str]) -> None:
@@ -45,12 +49,12 @@ def main() -> int:
     os.environ["TRUSTED_SEARCH_KEY"] = "test-key"
     try:
         with patch(
-            "authority_verify.urllib.request.urlopen",
+            "authority_verify.open_no_redirect",
             side_effect=OSError("The read operation timed out"),
         ):
             timeout_result = trusted_search("测试读取超时", "", 1)
         assert timeout_result["status"] == "service_error"
-        assert "timed out" in timeout_result["error"]
+        assert "服务暂时不可用" in timeout_result["error"]
     finally:
         if previous_key is None:
             os.environ.pop("TRUSTED_SEARCH_KEY", None)
@@ -602,6 +606,7 @@ def main() -> int:
             request = json.loads(json.dumps(request_template, ensure_ascii=False))
             request_id = f"P{index}"
             request["requestId"] = request_id
+            request["securityBoundary"] = untrusted_content_boundary(request_id)
             request["knowledgePoint"]["id"] = request_id
             request["cloudPayload"]["knowledgePoint"]["id"] = request_id
             (requests_dir / f"{request_id}.json").write_text(json.dumps(request, ensure_ascii=False), encoding="utf-8")

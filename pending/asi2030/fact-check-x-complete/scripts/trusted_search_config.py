@@ -10,6 +10,7 @@ import sys
 import urllib.error
 import urllib.request
 from pathlib import Path
+from urllib.parse import urlsplit
 
 
 PROVIDER_URL = "https://platform.dknowc.cn/auth/#/login"
@@ -26,6 +27,56 @@ class InvalidCredentialError(ConfigurationError):
 
 class ServiceUnavailableError(ConfigurationError):
     pass
+
+
+def validate_trusted_search_endpoint(endpoint: str) -> str:
+    """Allow production endpoint exactly, or explicit loopback test endpoint."""
+    value = str(endpoint or "").strip()
+    try:
+        parsed = urlsplit(value)
+    except ValueError as exc:
+        raise ConfigurationError("可信搜索服务地址不受允许。") from exc
+    if value == DEFAULT_ENDPOINT:
+        return value
+    test_mode = os.getenv("FACT_CHECK_X_TEST_MODE", "").strip() == "1"
+    if not test_mode:
+        raise ConfigurationError("可信搜索服务地址不受允许。")
+    try:
+        port = parsed.port
+    except ValueError as exc:
+        raise ConfigurationError("可信搜索测试地址不受允许。") from exc
+    loopback_netloc = parsed.netloc == "127.0.0.1" or (
+        parsed.netloc.startswith("127.0.0.1:") and str(port) == parsed.netloc.split(":", 1)[1]
+    )
+    ipv6_netloc = parsed.netloc == "[::1]" or (
+        parsed.netloc.startswith("[::1]:") and str(port) == parsed.netloc[6:]
+    )
+    if (
+        parsed.scheme not in {"http", "https"}
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.hostname not in {"127.0.0.1", "::1"}
+        or not (loopback_netloc or ipv6_netloc)
+        or parsed.path != "/dependable/search"
+        or parsed.query
+        or parsed.fragment
+    ):
+        raise ConfigurationError("可信搜索测试地址不受允许。")
+    return value
+
+
+class NoRedirectHandler(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, request, fp, code, msg, headers, newurl):
+        return None
+
+
+def open_no_redirect(
+    request: urllib.request.Request, *, timeout: float, context: ssl.SSLContext
+):
+    opener = urllib.request.build_opener(
+        NoRedirectHandler(), urllib.request.HTTPSHandler(context=context)
+    )
+    return opener.open(request, timeout=timeout)
 
 
 def trusted_search_ssl_context() -> ssl.SSLContext:
@@ -112,7 +163,9 @@ def clear_trusted_search_key() -> bool:
 
 def validate_trusted_search_key(key: str) -> None:
     normalized = _validate_key_shape(key)
-    endpoint = os.getenv("FACTCHECK_TRUSTED_SEARCH_URL", DEFAULT_ENDPOINT).strip()
+    endpoint = validate_trusted_search_endpoint(
+        os.getenv("FACTCHECK_TRUSTED_SEARCH_URL", DEFAULT_ENDPOINT)
+    )
     payload = {
         "query": "住房公积金管理条例",
         "segmentCount": 1,
@@ -126,7 +179,7 @@ def validate_trusted_search_key(key: str) -> None:
         headers={"Content-Type": "application/json", "api-key": normalized},
     )
     try:
-        with urllib.request.urlopen(
+        with open_no_redirect(
             request,
             timeout=20,
             context=trusted_search_ssl_context(),

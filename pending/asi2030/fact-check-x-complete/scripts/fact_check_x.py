@@ -5,6 +5,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -17,6 +18,7 @@ from trusted_search_config import (
     ConfigurationError,
     load_trusted_search_key,
     trusted_search_key_for_execution,
+    validate_trusted_search_endpoint,
 )
 
 
@@ -563,6 +565,29 @@ def differing_claims(point: dict) -> list[dict]:
     return []
 
 
+def authority_untrusted_content_boundary(request_id: str) -> dict:
+    safe_request_id = str(request_id or "").strip()
+    if not re.fullmatch(r"[A-Za-z0-9_-]+", safe_request_id):
+        raise PipelineError("requestId 不合法")
+    return {
+        "policy": "UNTRUSTED_CONTENT_BOUNDARY",
+        "untrustedText": ["external answers", "citations", "evidence"],
+        "forbiddenCapabilities": ["shell", "browser", "network", "credentials", "tool execution"],
+        "fileAccess": {
+            "root": "current-run",
+            "denyOutsideRoot": True,
+            "read": [
+                f"authority/requests/{safe_request_id}.json",
+                f"authority/evidence/{safe_request_id}.json",
+            ],
+            "write": [
+                f"authority/assessments/{safe_request_id}.json",
+                f"authority/results/{safe_request_id}.json",
+            ],
+        },
+    }
+
+
 def build_requests(comparison: dict, requests_dir: Path) -> dict:
     if comparison.get("schemaVersion") != "fact-check-x/comparison@1":
         raise PipelineError("comparison.json 版本不正确")
@@ -583,6 +608,7 @@ def build_requests(comparison: dict, requests_dir: Path) -> dict:
             payload["differingClaims"] = differences
         request = {
             "schemaVersion": "fact-check-x/authority-request@1",
+            "securityBoundary": authority_untrusted_content_boundary(point["id"]),
             "requestId": point["id"],
             "title": comparison.get("question"),
             "comparisonStatus": (point.get("comparison") or {}).get("status"),
@@ -662,6 +688,12 @@ def search_authority(args: argparse.Namespace, skills: dict[str, Path]) -> dict:
     required_count = sum(not entry.get("dknowExempt") for entry in requests_manifest.get("requests") or [])
     key = trusted_search_key()
     if required_count and not args.fixtures:
+        try:
+            validate_trusted_search_endpoint(
+                os.getenv("FACTCHECK_TRUSTED_SEARCH_URL", "https://open.dknowc.cn/dependable/search")
+            )
+        except ConfigurationError as exc:
+            raise PipelineError(str(exc)) from None
         key = validated_authority_key()
     configured = bool(key)
     if required_count and not configured and not args.fixtures:

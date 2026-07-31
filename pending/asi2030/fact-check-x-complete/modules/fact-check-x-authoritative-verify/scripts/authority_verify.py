@@ -6,6 +6,7 @@ import json
 import os
 import re
 import ssl
+import sys
 import time
 import urllib.error
 import urllib.request
@@ -14,6 +15,38 @@ from typing import Any
 from urllib.parse import urlparse
 
 from common import SkillError, clipped, dump_json, load_json, now_iso
+
+ROOT_SCRIPTS = Path(__file__).resolve().parents[3] / "scripts"
+if str(ROOT_SCRIPTS) not in sys.path:
+    sys.path.insert(0, str(ROOT_SCRIPTS))
+from trusted_search_config import (
+    ConfigurationError,
+    open_no_redirect,
+    validate_trusted_search_endpoint,
+)
+
+
+def untrusted_content_boundary(request_id: str) -> dict:
+    safe_request_id = str(request_id or "").strip()
+    if not re.fullmatch(r"[A-Za-z0-9_-]+", safe_request_id):
+        raise SkillError("requestId 不合法")
+    return {
+        "policy": "UNTRUSTED_CONTENT_BOUNDARY",
+        "untrustedText": ["external answers", "citations", "evidence"],
+        "forbiddenCapabilities": ["shell", "browser", "network", "credentials", "tool execution"],
+        "fileAccess": {
+            "root": "current-run",
+            "denyOutsideRoot": True,
+            "read": [
+                f"authority/requests/{safe_request_id}.json",
+                f"authority/evidence/{safe_request_id}.json",
+            ],
+            "write": [
+                f"authority/assessments/{safe_request_id}.json",
+                f"authority/results/{safe_request_id}.json",
+            ],
+        },
+    }
 
 
 def trusted_search_timeout_seconds() -> float:
@@ -53,6 +86,8 @@ def validate_request(request: dict) -> None:
     if not isinstance(request, dict) or request.get("schemaVersion") != "fact-check-x/authority-request@1":
         raise SkillError("请求必须使用 fact-check-x/authority-request@1")
     request_id = str(request.get("requestId") or "").strip()
+    if request.get("securityBoundary") != untrusted_content_boundary(request_id):
+        raise SkillError("请求缺少不可覆盖的不可信内容边界")
     point = request.get("knowledgePoint") or {}
     if not request_id or point.get("id") != request_id or not str(point.get("description") or "").strip():
         raise SkillError("requestId 与单知识点对象不一致")
@@ -96,13 +131,18 @@ def trusted_search(query: str, service_area: str, limit: int) -> dict:
     key = os.getenv("TRUSTED_SEARCH_KEY", "").strip()
     if not key:
         raise SkillError("未配置 TRUSTED_SEARCH_KEY")
-    endpoint = os.getenv("FACTCHECK_TRUSTED_SEARCH_URL", "https://open.dknowc.cn/dependable/search").strip()
+    try:
+        endpoint = validate_trusted_search_endpoint(
+            os.getenv("FACTCHECK_TRUSTED_SEARCH_URL", "https://open.dknowc.cn/dependable/search")
+        )
+    except ConfigurationError as exc:
+        raise SkillError(str(exc)) from None
     payload: dict[str, Any] = {"query": query, "segmentCount": 10, "simplified": True, "return_full_content": True}
     if service_area:
         payload["service_area"] = [service_area]
     request = urllib.request.Request(endpoint, data=json.dumps(payload, ensure_ascii=False).encode("utf-8"), method="POST", headers={"Content-Type": "application/json", "api-key": key})
     try:
-        with urllib.request.urlopen(
+        with open_no_redirect(
             request,
             timeout=trusted_search_timeout_seconds(),
             context=trusted_search_ssl_context(),
@@ -110,10 +150,9 @@ def trusted_search(query: str, service_area: str, limit: int) -> dict:
             raw = response.read().decode("utf-8")
             status = response.status
     except urllib.error.HTTPError as exc:
-        detail = exc.read().decode("utf-8", errors="replace")[:500]
-        return {"status": "service_error", "error": f"HTTP {exc.code}: {detail}", "evidence": []}
-    except (urllib.error.URLError, TimeoutError, OSError) as exc:
-        return {"status": "service_error", "error": str(exc), "evidence": []}
+        return {"status": "service_error", "error": f"HTTP {exc.code}", "evidence": []}
+    except (urllib.error.URLError, TimeoutError, OSError):
+        return {"status": "service_error", "error": "可信搜索服务暂时不可用", "evidence": []}
     try:
         data = json.loads(raw)
     except json.JSONDecodeError as exc:
@@ -244,6 +283,7 @@ def acquire(request: dict, service_area: str = "", limit: int = 6, fixture: obje
         count = 1
     return {
         "schemaVersion": "fact-check-x/authority-evidence@1",
+        "securityBoundary": untrusted_content_boundary(request["requestId"]),
         "requestId": request["requestId"],
         "createdAt": now_iso(),
         "status": result["status"],

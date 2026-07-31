@@ -63,6 +63,7 @@ def main() -> int:
             key_file.chmod(0o600)
             os.environ["TRUSTED_SEARCH_KEY"] = "fixture_stale_environment_key_123456"
             os.environ["FACT_CHECK_X_TRUSTED_SEARCH_KEY_FILE"] = str(key_file)
+            os.environ["FACT_CHECK_X_TEST_MODE"] = "1"
             os.environ["FACTCHECK_TRUSTED_SEARCH_URL"] = (
                 f"http://127.0.0.1:{server.server_port}/dependable/search"
             )
@@ -81,7 +82,7 @@ def main() -> int:
             assert locate_onboarding_script().name == "trusted-search-onboarding.js"
 
             with patch(
-                "trusted_search_config.urllib.request.urlopen",
+                "trusted_search_config.open_no_redirect",
                 side_effect=OSError("The read operation timed out"),
             ):
                 executable, executable_source, validation = (
