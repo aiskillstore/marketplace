@@ -7,6 +7,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  renameSync,
   rmSync,
   writeFileSync,
 } from 'node:fs';
@@ -242,6 +243,40 @@ test('submission staging preserves frozen tracked files hidden by a copied .giti
   const staged = spawnSync('git', ['diff', '--cached', '--name-only'], { cwd: root, encoding: 'utf8' });
   assert.equal(staged.status, 0, staged.stderr);
   assert.match(staged.stdout, /pending\/owner\/skill\/dist\/cli\.js/);
+}));
+
+test('approval staging preserves reviewed files hidden by the packaged .gitignore', () => withTempDirectory((root) => {
+  const pending = join(root, 'pending', 'owner', 'skill');
+  const published = join(root, 'skills', 'owner', 'skill');
+  mkdirSync(join(pending, 'dist'), { recursive: true });
+  writeFileSync(join(root, '.gitignore'), 'dist/\n');
+  writeFileSync(join(pending, 'SKILL.md'), '# Skill\n');
+  writeFileSync(join(pending, 'dist', 'runtime.js'), 'export const ready = true;\n');
+
+  for (const args of [
+    ['init'],
+    ['config', 'user.email', 'test@example.com'],
+    ['config', 'user.name', 'Test'],
+    ['add', '-A', '-f'],
+    ['commit', '-m', 'fixture'],
+  ]) {
+    const result = spawnSync('git', args, { cwd: root, encoding: 'utf8' });
+    assert.equal(result.status, 0, result.stderr);
+  }
+
+  mkdirSync(dirname(published), { recursive: true });
+  renameSync(pending, published);
+  const stage = spawnSync('git', [
+    'add', '-A', '-f', '--', 'pending/owner/skill', 'skills/owner/skill',
+  ], { cwd: root, encoding: 'utf8' });
+  assert.equal(stage.status, 0, stage.stderr);
+
+  const staged = spawnSync('git', ['diff', '--cached', '--name-status'], {
+    cwd: root,
+    encoding: 'utf8',
+  });
+  assert.equal(staged.status, 0, staged.stderr);
+  assert.match(staged.stdout, /skills\/owner\/skill\/dist\/runtime\.js/);
 }));
 
 test('real CLI two-round failure produces a failed manifest and cannot aggregate as no-op', () => withTempDirectory((root) => {
@@ -705,7 +740,7 @@ test('merged approval scope comes only from immutable PR changed files', () => {
   assert.match(approval, /mapfile -t SKILL_PATHS/);
   assert.match(approval, /Refusing to overwrite existing published target/);
   assert.match(approval, /git diff --quiet "\$MERGE_COMMIT_SHA" HEAD -- "\$PENDING_DIR"/);
-  assert.match(approval, /git add -A -- "\$\{SKILL_PATHS\[@\]\}" "\$\{TARGET_PATHS\[@\]\}"/);
+  assert.match(approval, /git add -A -f -- "\$\{SKILL_PATHS\[@\]\}" "\$\{TARGET_PATHS\[@\]\}"/);
   assert.match(approval, /PUSHED=false/);
   assert.match(approval, /test "\$PUSHED" = true/);
   assert.doesNotMatch(approval, /cherry-pick HEAD@\{1\} \|\| true/);
