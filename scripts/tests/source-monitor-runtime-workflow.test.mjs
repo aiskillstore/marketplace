@@ -220,8 +220,8 @@ test('source monitor binds checkout and artifacts to immutable runtime evidence'
   assert.match(checkout, /\/skills\/\*\*\/skill-report\.json/);
   assert.match(checkout, /checkout --detach --force "\$EXPECTED_SHA"/);
   assert.doesNotMatch(checkout, /actions\/checkout/);
-  assert.match(workflow, /version: 2\.15\.8/);
-  assert.match(workflow, /minimum-version: 2\.14\.5/);
+  assert.match(workflow, /version: 2\.16\.1/);
+  assert.match(workflow, /minimum-version: 2\.16\.1/);
   assert.match(workflow, /require-checksum: true/);
   assert.match(workflow, /\$\{\{ runner\.temp \}\}\/source-monitor-diagnostics-\$\{\{ github\.run_id \}\}\//);
   assert.match(workflow, /name: Upload monitor evidence\n\s+if: always\(\)/);
@@ -230,6 +230,8 @@ test('source monitor binds checkout and artifacts to immutable runtime evidence'
 
 test('source monitor verifies every explicit requested slug before later workflow steps', () => {
   const monitor = extractRunBlock('Run source monitor');
+  assert.match(monitor, /UPDATE_SELECTION_OFFSET=\$\(\( GITHUB_RUN_NUMBER \* MAX_UPDATES_PER_RUN \)\)/);
+  assert.match(monitor, /--updateSelectionOffset "\$UPDATE_SELECTION_OFFSET"/);
   assert.match(monitor, /A slug-scoped update PR requires expected_upstream_commit/);
   assert.match(monitor, /if \[ "\$CREATE_PR" = "true" \] && \[ -n "\$SLUGS" \]; then/);
   assert.match(monitor, /CMD\+=\(--updateLocal\)/);
@@ -429,6 +431,7 @@ SUMMARY
       GITHUB_WORKSPACE: workspace,
       GITHUB_RUN_ID: '1234',
       GITHUB_OUTPUT: join(root, 'github-output'),
+      GITHUB_RUN_NUMBER: '7',
       GH_TOKEN: 'fixture',
       SLUGS: 'owner-one',
       LIMIT: '1',
@@ -454,6 +457,7 @@ SUMMARY
     assert.match(result.stdout, /Verified exact source monitor selection: 1\/1/);
     const invoked = readFileSync(argsFile, 'utf8');
     assert.match(invoked, /--updateLocal/);
+    assert.match(invoked, /--updateSelectionOffset 7/);
     assert.doesNotMatch(invoked, /(^|\s)--write(\s|$)/);
 
     rmSync(argsFile);
