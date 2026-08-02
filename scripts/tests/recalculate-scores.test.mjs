@@ -518,7 +518,7 @@ test('download action invalidates stale local CLI cache entries', () => {
 
 test('source monitor pins its audited CLI contract and falls back when checkout-cache support is unavailable', () => {
 	const workflow = readFileSync(MONITOR_WORKFLOW, 'utf8');
-	assert.match(workflow, /version: 2\.15\.8/, 'source monitor must download the audited CLI contract version');
+	assert.match(workflow, /version: 2\.16\.1/, 'source monitor must download the audited CLI contract version');
 	assert.doesNotMatch(workflow, /cli_version:/, 'source monitor must not expose a fixed CLI version input');
 	assert.doesNotMatch(workflow, /inputs\.cli_version/, 'source monitor must not consume a fixed CLI version input');
 	assert.match(workflow, /MONITOR_HELP=/, 'workflow must feature-probe monitor-upstream once before building the command');
