@@ -22,6 +22,7 @@ const runtimeFiles = [
   '.github/actions/download-skillstore-cli/action.yml',
   '.github/workflows/monitor-skill-sources.yml',
   'scripts/rebind-skill-report-hashes.mjs',
+  'scripts/resolve-approved-submission.mjs',
   'scripts/verify-source-monitor-selection.mjs',
 ];
 
@@ -81,6 +82,7 @@ function createFixture() {
     '.github/actions/download-skillstore-cli/action.yml': 'name: fixture action\n',
     '.github/workflows/monitor-skill-sources.yml': 'name: fixture workflow\n',
     'scripts/rebind-skill-report-hashes.mjs': 'export const fixture = true;\n',
+    'scripts/resolve-approved-submission.mjs': 'export const fixture = true;\n',
     'scripts/verify-source-monitor-selection.mjs': 'export const fixture = true;\n',
     'skills/owner/demo/SKILL.md': '# Demo\n',
     'skills/owner/demo/skill-report.json': '{"meta":{"slug":"owner-demo"}}\n',
