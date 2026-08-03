@@ -137,7 +137,7 @@ enrich='
     | round;
   ($inst|map(nrm)) as $instn
   | map(. + { match: matchpct(.name; .summary),
-              installed: ((.name|nrm) as $x | $instn|index($x))!=null })'
+              installed: (((.name|nrm) as $x | ($instn|index($x))) != null) })'
 
 SK=$(jq -s --argjson qt "$QTOKENS" --argjson inst "$INSTALLED_JSON" \
       "$enrich | sort_by(-.installs)" "$TMP/skillssh.ndjson" 2>/dev/null); [ -z "$SK" ] && SK="[]"
@@ -152,8 +152,8 @@ GH=$(jq -s --argjson qt "$QTOKENS" --argjson inst "$INSTALLED_JSON" \
 # can be missed.
 CL_NORMS=$(jq -c '[.[].name | ascii_downcase | gsub("[^a-z0-9]+";"")]' <<<"$CL")
 SK_NORMS=$(jq -c '[.[].name | ascii_downcase | gsub("[^a-z0-9]+";"")]' <<<"$SK")
-SK=$(jq -c --argjson o "$CL_NORMS" 'map(. + {also_other: ((.name|ascii_downcase|gsub("[^a-z0-9]+";"")) as $n | $o|index($n))!=null})' <<<"$SK")
-CL=$(jq -c --argjson o "$SK_NORMS" 'map(. + {also_other: ((.name|ascii_downcase|gsub("[^a-z0-9]+";"")) as $n | $o|index($n))!=null})' <<<"$CL")
+SK=$(jq -c --argjson o "$CL_NORMS" 'map(. + {also_other: (((.name|ascii_downcase|gsub("[^a-z0-9]+";"")) as $n | ($o|index($n))) != null)})' <<<"$SK")
+CL=$(jq -c --argjson o "$SK_NORMS" 'map(. + {also_other: (((.name|ascii_downcase|gsub("[^a-z0-9]+";"")) as $n | ($o|index($n))) != null)})' <<<"$CL")
 
 # ---- security scan: top installable candidates on each registry ----------
 scan_body() { local f="$1" flags="" level="clean"
@@ -231,14 +231,14 @@ else printf '  github      (no match / gh unavailable)\n'; fi
 
 # ---- already installed & relevant (positive nudge) -----------------------
 inst_hits=$(jq -c '[(.skills_sh[],.clawhub[]) | select(.installed)] | unique_by(.name)' "$OUT")
-if [ "$(jq 'length' <<<"$inst_hits")" -gt 0 ]; then
+if [ "$(jq 'length // 0' <<<"$inst_hits")" -gt 0 ]; then
   printf '\n%s\n✓ ALREADY ON YOUR MACHINE (relevant — no install needed)\n' "$RULE"
   jq -r '.[] | "  • \(.name)  — already installed, ⬇ \(.installs) installs, match \(.match)%. A solid match you already have."' <<<"$inst_hits"
 fi
 
 board_list() { # $1=array $2=metric-fmt
   local arr="$1" fmt="$2"
-  if [ "$(jq 'length' <<<"$arr")" -eq 0 ]; then echo "  (no matches for this query)"; return; fi
+  if [ "$(jq 'length // 0' <<<"$arr")" -eq 0 ]; then echo "  (no matches for this query)"; return; fi
   jq -r --argjson lim "$LIMIT" --arg fmt "$fmt" '
     to_entries | .[:$lim][] | (.key+1) as $i | .value |
     " [\($i)] \(.name)" +
