@@ -1,13 +1,13 @@
 # Working with Obsidian Bases
 
-The user maintains "Bases" in `Templates/Bases/*.base` which define the schema and properties for different types of notes (e.g., Recipes, Clippings, People).
+The user maintains "Bases" in `Bases/*.base` which define the schema and properties for different types of notes (e.g., Recipes, Clippings, People).
 
 ## Workflow
 
 1.  **Identify the Category:** Determine the type of content the user wants to clip (e.g., a Recipe, a News Article, a YouTube video).
-2.  **Find the Base:** Search `Templates/Bases/` for a matching `.base` file.
-    *   Example: For a recipe, look for `Templates/Bases/Recipes.base`.
-    *   Example: For a generic article, look for `Templates/Bases/Clippings.base`.
+2.  **Find the Base:** Search `Bases/` for a matching `.base` file.
+    *   Example: For a recipe, look for `Bases/Recipes.base`.
+    *   Example: For a generic article, look for `Bases/Clippings.base`.
 3.  **Read the Base:** Read the content of the `.base` file to understand the required properties.
 
 ## Interpreting .base Files

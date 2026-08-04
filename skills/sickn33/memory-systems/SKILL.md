@@ -1,8 +1,9 @@
 ---
 name: memory-systems
-description: "Design short-term, long-term, and graph-based memory architectures"
-source: "https://github.com/muratcankoylan/Agent-Skills-for-Context-Engineering/tree/main/skills/memory-systems"
+description: "Design short-term, long-term, and graph-based memory architectures. Use when building agents that must persist across sessions, needing to maintain entity consistency across conversations, or implementing reasoning over accumulated knowledge."
 risk: safe
+source: "https://github.com/muratcankoylan/Agent-Skills-for-Context-Engineering/tree/main/skills/memory-systems"
+date_added: "2026-02-27"
 ---
 
 ## When to Use This Skill
@@ -14,8 +15,7 @@ Use this skill when working with design short-term, long-term, and graph-based m
 
 Memory provides the persistence layer that allows agents to maintain continuity across sessions and reason over accumulated knowledge. Simple agents rely entirely on context for memory, losing all state when sessions end. Sophisticated agents implement layered memory architectures that balance immediate context needs with long-term knowledge retention. The evolution from vector stores to knowledge graphs to temporal knowledge graphs represents increasing investment in structured memory for improved retrieval and reasoning.
 
-## When to Activate
-
+## When to Use
 Activate this skill when:
 - Building agents that must persist across sessions
 - Needing to maintain entity consistency across conversations
@@ -207,7 +207,7 @@ This skill builds on context-fundamentals. It connects to:
 ## References
 
 Internal reference:
-- [Implementation Reference](./references/implementation.md) - Detailed implementation patterns
+- Implementation Reference - Detailed implementation patterns
 
 Related skills in this collection:
 - context-fundamentals - Context basics
@@ -226,3 +226,8 @@ External resources:
 **Last Updated**: 2025-12-20
 **Author**: Agent Skills for Context Engineering Contributors
 **Version**: 1.0.0
+
+## Limitations
+- Use this skill only when the task clearly matches the scope described above.
+- Do not treat the output as a substitute for environment-specific validation, testing, or expert review.
+- Stop and ask for clarification if required inputs, permissions, safety boundaries, or success criteria are missing.

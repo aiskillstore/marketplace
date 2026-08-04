@@ -1,10 +1,9 @@
 ---
 name: mermaid-expert
-description: Create Mermaid diagrams for flowcharts, sequences, ERDs, and
-  architectures. Masters syntax for all diagram types and styling. Use
-  PROACTIVELY for visual documentation, system diagrams, or process flows.
-metadata:
-  model: haiku
+description: Create Mermaid diagrams for flowcharts, sequences, ERDs, and architectures. Masters syntax for all diagram types and styling.
+risk: critical
+source: community
+date_added: '2026-02-27'
 ---
 
 ## Use this skill when
@@ -57,3 +56,8 @@ gitGraph, journey, quadrantChart, timeline
 - Export recommendations
 
 Always provide both basic and styled versions. Include comments explaining complex syntax.
+
+## Limitations
+- Use this skill only when the task clearly matches the scope described above.
+- Do not treat the output as a substitute for environment-specific validation, testing, or expert review.
+- Stop and ask for clarification if required inputs, permissions, safety boundaries, or success criteria are missing.
