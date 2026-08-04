@@ -74,6 +74,6 @@ Selectors must be verified against the fetched HTML or DOM snapshot. Do not gues
 
 ## 3. Verify Against Base
 
-Compare the available data from your analysis with the properties required by the user's Base (see `references/bases-workflow.md`).
+Compare the available data from your analysis with the properties required by the user's Base (see [bases-workflow.md](bases-workflow.md)).
 
 - If the Base requires `ingredients` but the page has no Schema or clear list structure, warn the user that this field might need manual entry or a prompt variable.

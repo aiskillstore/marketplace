@@ -1,10 +1,25 @@
 ---
 name: network-101
-description: This skill should be used when the user asks to "set up a web server", "configure HTTP or HTTPS", "perform SNMP enumeration", "configure SMB shares", "test network services", or needs guidance on configuring and testing network services for penetration testing labs.
-metadata:
-  author: zebbern
-  version: "1.1"
+description: "Configure and test common network services (HTTP, HTTPS, SNMP, SMB) for penetration testing lab environments. Enable hands-on practice with service enumeration, log analysis, and security testing against properly configured target systems."
+risk: offensive
+source: community
+author: zebbern
+date_added: "2026-02-27"
 ---
+
+> **⚠️ AUTHORIZED USE ONLY**
+> This skill is for educational purposes or authorized security assessments only.
+> You must have explicit, written permission from the system owner before using this tool.
+> Misuse of this tool is illegal and strictly prohibited.
+
+> **Mandatory confirmation gate**
+> Before running any command that probes, exploits, changes, persists on, extracts data from, or attempts credential access against a target:
+> 1. Ask the user to state the exact target URL, IP, account, or resource.
+> 2. Ask the user to confirm written authorization and the permitted scope.
+> 3. Show the exact command(s) and explain their expected effect.
+> 4. Wait for explicit confirmation in the current conversation.
+>
+> Without that confirmation, remain read-only and provide defensive guidance only. Prefer a sandbox, disposable VM, or controlled lab.
 
 # Network 101
 
@@ -169,9 +184,8 @@ Set up SMB file shares for enumeration:
 # Install Samba
 sudo apt install samba
 
-# Create share directory
-sudo mkdir -p /srv/samba/share
-sudo chmod 777 /srv/samba/share
+# Create a group-scoped share directory instead of a world-writable one
+sudo install -d -m 0770 -o root -g sambashare /srv/samba/share
 
 # Configure Samba
 sudo nano /etc/samba/smb.conf
@@ -323,8 +337,8 @@ snmpwalk -c public -v1 localhost
 ```bash
 # Configure anonymous share
 sudo apt install samba
-sudo mkdir /srv/samba/anonymous
-sudo chmod 777 /srv/samba/anonymous
+# Keep the service-owned anonymous share non-world-writable.
+sudo install -d -m 0770 -o root -g sambashare /srv/samba/anonymous
 
 # Test access
 smbclient //localhost/anonymous -N
@@ -340,3 +354,6 @@ smbclient //localhost/anonymous -N
 | SMB access denied | Verify share permissions and user credentials |
 | HTTPS certificate error | Accept self-signed cert or add to trusted store |
 | Cannot connect remotely | Bind service to 0.0.0.0 instead of localhost |
+
+## When to Use
+This skill is applicable to execute the workflow or actions described in the overview.

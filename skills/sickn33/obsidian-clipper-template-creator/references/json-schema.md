@@ -28,6 +28,7 @@ The Obsidian Web Clipper imports templates via JSON files.
 *   **`noteContentFormat`**: The body of the note.
     *   Use `\n` for newlines.
     *   Can use all variables (e.g., `{{content}}`, `{{selection}}`).
+    *   Supports **template logic** (conditionals, loops, variable assignment) as documented in [logic.md](logic.md).
 *   **`noteNameFormat`**: The filename pattern (e.g., `{{date}} - {{title}}`).
 *   **`path`**: The location to save the note.
     *   For `create` behavior: The *folder* to save the note in (e.g., `Clippings/` or `Recipes/`).
@@ -67,5 +68,10 @@ The `properties` array defines the YAML frontmatter of the note.
 ### Property Object Structure
 
 *   **`name`**: The key in the YAML frontmatter.
-*   **`value`**: The value to populate. Can contain variables.
+*   **`value`**: The value to populate. Can contain variables and the same **template logic** (conditionals, loops, variable assignment) as `noteContentFormat`; see [logic.md](logic.md).
 *   **`type`**: One of the types listed above.
+
+## Template validation
+
+The Clipper template editor checks template syntax. 
+Invalid logic in `noteContentFormat` or property `value` fields will be reported in the editor; use valid syntax as described in the [Logic](https://help.obsidian.md/web-clipper/logic) documentation.

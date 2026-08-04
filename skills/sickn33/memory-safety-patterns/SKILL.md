@@ -1,6 +1,9 @@
 ---
 name: memory-safety-patterns
-description: Implement memory-safe programming with RAII, ownership, smart pointers, and resource management across Rust, C++, and C. Use when writing safe systems code, managing resources, or preventing memory bugs.
+description: "Cross-language patterns for memory-safe programming including RAII, ownership, smart pointers, and resource management."
+risk: safe
+source: community
+date_added: "2026-02-27"
 ---
 
 # Memory Safety Patterns
@@ -31,3 +34,8 @@ Cross-language patterns for memory-safe programming including RAII, ownership, s
 ## Resources
 
 - `resources/implementation-playbook.md` for detailed patterns and examples.
+
+## Limitations
+- Use this skill only when the task clearly matches the scope described above.
+- Do not treat the output as a substitute for environment-specific validation, testing, or expert review.
+- Stop and ask for clarification if required inputs, permissions, safety boundaries, or success criteria are missing.

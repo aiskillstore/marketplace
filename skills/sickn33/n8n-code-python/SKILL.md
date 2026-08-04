@@ -1,8 +1,8 @@
 ---
 name: n8n-code-python
-description: "Write Python code in n8n Code nodes. Use when writing Python in n8n, using _input/_json/_node syntax, working with standard library, or need to understand Python limitations in n8n Code nodes."
-source: "https://github.com/czlonkowski/n8n-skills/tree/main/skills/n8n-code-python"
-risk: safe
+description: Write Python code in n8n Code nodes. Use when writing Python in n8n, using _input/_json/_node syntax, working with standard library, or need to understand Python limitations in n8n Code nodes.
+risk: critical
+source: community
 ---
 
 # Python Code Node (Beta)
@@ -233,7 +233,7 @@ return [{
 }]
 ```
 
-**See**: [DATA_ACCESS.md](DATA_ACCESS.md) for comprehensive guide
+**See**: DATA_ACCESS.md for comprehensive guide
 
 ---
 
@@ -257,7 +257,7 @@ name = webhook_data.get("name")
 
 **Why**: Webhook node wraps all request data under `body` property. This includes POST data, query parameters, and JSON payloads.
 
-**See**: [DATA_ACCESS.md](DATA_ACCESS.md) for full webhook structure details
+**See**: DATA_ACCESS.md for full webhook structure details
 
 ---
 
@@ -320,7 +320,7 @@ return [{"data": value}]  # Should be {"json": value}
 
 **Why it matters**: Next nodes expect list format. Incorrect format causes workflow execution to fail.
 
-**See**: [ERROR_PATTERNS.md](ERROR_PATTERNS.md) #2 for detailed error solutions
+**See**: ERROR_PATTERNS.md #2 for detailed error solutions
 
 ---
 
@@ -370,7 +370,7 @@ import statistics  # ✅ Statistical functions
 - ✅ Use **HTTP Request node** + **HTML Extract node**
 - ✅ Or switch to **JavaScript** with regex/string methods
 
-**See**: [STANDARD_LIBRARY.md](STANDARD_LIBRARY.md) for complete reference
+**See**: STANDARD_LIBRARY.md for complete reference
 
 ---
 
@@ -490,7 +490,7 @@ else:
     return [{"json": {"error": "No values found"}}]
 ```
 
-**See**: [COMMON_PATTERNS.md](COMMON_PATTERNS.md) for 10 detailed Python patterns
+**See**: COMMON_PATTERNS.md for 10 detailed Python patterns
 
 ---
 
@@ -554,7 +554,7 @@ email = _json["body"]["email"]
 email = _json.get("body", {}).get("email", "no-email")
 ```
 
-**See**: [ERROR_PATTERNS.md](ERROR_PATTERNS.md) for comprehensive error guide
+**See**: ERROR_PATTERNS.md for comprehensive error guide
 
 ---
 
@@ -598,7 +598,7 @@ from statistics import mean, median, stdev
 average = mean([1, 2, 3, 4, 5])
 ```
 
-**See**: [STANDARD_LIBRARY.md](STANDARD_LIBRARY.md) for complete reference
+**See**: STANDARD_LIBRARY.md for complete reference
 
 ---
 
@@ -736,10 +736,10 @@ Before deploying Python Code nodes, verify:
 ## Additional Resources
 
 ### Related Files
-- [DATA_ACCESS.md](DATA_ACCESS.md) - Comprehensive Python data access patterns
-- [COMMON_PATTERNS.md](COMMON_PATTERNS.md) - 10 Python patterns for n8n
-- [ERROR_PATTERNS.md](ERROR_PATTERNS.md) - Top 5 errors and solutions
-- [STANDARD_LIBRARY.md](STANDARD_LIBRARY.md) - Complete standard library reference
+- DATA_ACCESS.md - Comprehensive Python data access patterns
+- COMMON_PATTERNS.md - 10 Python patterns for n8n
+- ERROR_PATTERNS.md - Top 5 errors and solutions
+- STANDARD_LIBRARY.md - Complete standard library reference
 
 ### n8n Documentation
 - Code Node Guide: https://docs.n8n.io/code/code-node/
@@ -748,3 +748,8 @@ Before deploying Python Code nodes, verify:
 ---
 
 **Ready to write Python in n8n Code nodes - but consider JavaScript first!** Use Python for specific needs, reference the error patterns guide to avoid common mistakes, and leverage the standard library effectively.
+
+## Limitations
+- Use this skill only when the task clearly matches the scope described above.
+- Do not treat the output as a substitute for environment-specific validation, testing, or expert review.
+- Stop and ask for clarification if required inputs, permissions, safety boundaries, or success criteria are missing.

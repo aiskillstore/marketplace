@@ -255,7 +255,7 @@ Note: The MCP server uses the same Patchright library but via TypeScript/npm eco
 
 ### Dependencies
 - **patchright==1.55.2**: Browser automation
-- **python-dotenv==1.0.0**: Environment configuration
+- **python-dotenv==1.2.2**: Environment configuration
 - Automatically installed in `.venv` on first use
 
 ### Data Storage
@@ -265,12 +265,13 @@ All data is stored locally within the skill directory:
 ```
 ~/.claude/skills/notebooklm/data/
 ├── library.json       - Your notebook library with metadata
-├── auth_info.json     - Authentication status info
-└── browser_state/     - Browser cookies and session data
+~/.local/share/agentic-awesome-skills/notebooklm/
+├── auth_info.json     - Authentication status info (0600)
+└── browser_state/     - Browser cookies and session data (0700)
 ```
 
 **Important Security Note:**
-- The `data/` directory contains sensitive authentication data and personal notebooks
+- The private per-user state directory contains sensitive authentication data and personal notebooks
 - It's automatically excluded from git via `.gitignore`
 - NEVER manually commit or share the contents of the `data/` directory
 
