@@ -21,6 +21,7 @@ const workflow = readFileSync('.github/workflows/monitor-skill-sources.yml', 'ut
 const runtimeFiles = [
   '.github/actions/download-skillstore-cli/action.yml',
   '.github/workflows/monitor-skill-sources.yml',
+  'schemas/skill-report.schema.json',
   'scripts/rebind-skill-report-hashes.mjs',
   'scripts/resolve-approved-submission.mjs',
   'scripts/verify-source-monitor-selection.mjs',
@@ -81,6 +82,7 @@ function createFixture() {
   const files = {
     '.github/actions/download-skillstore-cli/action.yml': 'name: fixture action\n',
     '.github/workflows/monitor-skill-sources.yml': 'name: fixture workflow\n',
+    'schemas/skill-report.schema.json': '{}\n',
     'scripts/rebind-skill-report-hashes.mjs': 'export const fixture = true;\n',
     'scripts/resolve-approved-submission.mjs': 'export const fixture = true;\n',
     'scripts/verify-source-monitor-selection.mjs': 'export const fixture = true;\n',
@@ -228,6 +230,14 @@ test('source monitor binds checkout and artifacts to immutable runtime evidence'
   assert.match(workflow, /\$\{\{ runner\.temp \}\}\/source-monitor-diagnostics-\$\{\{ github\.run_id \}\}\//);
   assert.match(workflow, /name: Upload monitor evidence\n\s+if: always\(\)/);
   for (const file of runtimeFiles) assert.match(workflow, new RegExp(file.replaceAll('.', '\\.')));
+});
+
+test('source monitor cannot publish a batch larger than incremental sync admits', () => {
+  assert.match(workflow, /max_updates_per_run:[\s\S]{0,220}default: 25/);
+  assert.equal((workflow.match(/inputs\.max_updates_per_run \|\| 25/g) ?? []).length, 2);
+  const monitor = extractRunBlock('Run source monitor');
+  assert.match(monitor, /MAX_UPDATES_PER_RUN < 1 \|\| MAX_UPDATES_PER_RUN > 25/);
+  assert.match(monitor, /max_updates_per_run must be between 1 and 25/);
 });
 
 test('source monitor verifies every explicit requested slug before later workflow steps', () => {

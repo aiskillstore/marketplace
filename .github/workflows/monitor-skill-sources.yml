@@ -27,10 +27,10 @@ on:
         type: number
         default: 2
       max_updates_per_run:
-        description: 'Maximum updated skills to refresh into a marketplace PR in one run; 0 means unlimited'
+        description: 'Maximum updated skills to refresh into a marketplace PR in one run, 1-25'
         required: false
         type: number
-        default: 100
+        default: 25
       dry_run:
         description: 'Preview only; do not write Supabase, update local files, or create PRs'
         required: false
@@ -154,6 +154,7 @@ jobs:
           cat > "$PATTERNS_FILE" <<'EOF'
           /.github/actions/download-skillstore-cli/
           /.github/workflows/monitor-skill-sources.yml
+          /schemas/skill-report.schema.json
           /scripts/rebind-skill-report-hashes.mjs
           /scripts/resolve-approved-submission.mjs
           /scripts/verify-source-monitor-selection.mjs
@@ -198,6 +199,7 @@ jobs:
           REQUIRED_RUNTIME_FILES=(
             ".github/actions/download-skillstore-cli/action.yml"
             ".github/workflows/monitor-skill-sources.yml"
+            "schemas/skill-report.schema.json"
             "scripts/rebind-skill-report-hashes.mjs"
             "scripts/resolve-approved-submission.mjs"
             "scripts/verify-source-monitor-selection.mjs"
@@ -258,7 +260,7 @@ jobs:
           LIMIT: ${{ inputs.limit || 0 }}
           CONCURRENCY: ${{ inputs.concurrency || 8 }}
           WRITE_CONCURRENCY: ${{ inputs.write_concurrency || 2 }}
-          MAX_UPDATES_PER_RUN: ${{ inputs.max_updates_per_run || 100 }}
+          MAX_UPDATES_PER_RUN: ${{ inputs.max_updates_per_run || 25 }}
           CHECKOUT_CACHE_DIR: ${{ inputs.checkout_cache_dir || '/home/runner/_work/_cache/skill-source-monitor' }}
           DRY_RUN: ${{ github.event_name == 'schedule' && 'false' || inputs.dry_run }}
           CREATE_PR: ${{ github.event_name == 'schedule' && 'true' || inputs.create_pr }}
@@ -272,6 +274,10 @@ jobs:
           set -euo pipefail
 
           mkdir -p source-monitor-results "$CHECKOUT_CACHE_DIR"
+          if (( MAX_UPDATES_PER_RUN < 1 || MAX_UPDATES_PER_RUN > 25 )); then
+            echo "::error::max_updates_per_run must be between 1 and 25"
+            exit 1
+          fi
           JSONL_FILE="source-monitor-results/skill-source-monitor-${GITHUB_RUN_ID}.jsonl"
           SUMMARY_FILE="source-monitor-results/skill-source-monitor-${GITHUB_RUN_ID}.md"
           CLI_VERSION_OUTPUT="$("$GITHUB_WORKSPACE/skillstore-cli" --version 2>&1 || true)"
@@ -558,7 +564,7 @@ jobs:
           SLUGS: ${{ inputs.slugs || '' }}
           CONCURRENCY: ${{ inputs.concurrency || 8 }}
           WRITE_CONCURRENCY: ${{ inputs.write_concurrency || 2 }}
-          MAX_UPDATES_PER_RUN: ${{ inputs.max_updates_per_run || 100 }}
+          MAX_UPDATES_PER_RUN: ${{ inputs.max_updates_per_run || 25 }}
           CHECKOUT_CACHE_DIR: ${{ inputs.checkout_cache_dir || '/home/runner/_work/_cache/skill-source-monitor' }}
           ARCHIVE_MISSING: ${{ inputs.archive_missing || false }}
           DELETE_ARCHIVED: ${{ inputs.delete_archived || false }}
