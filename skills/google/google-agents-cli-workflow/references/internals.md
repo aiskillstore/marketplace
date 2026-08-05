@@ -15,7 +15,7 @@ by the CLI — for debugging, customization, or edge cases — use these directl
 | `agents-cli lint --fix` | `uv run ruff check . --fix && uv run ruff format .` |
 | `agents-cli lint --mypy` | the default checks plus `uv run mypy .` |
 | `agents-cli infra single-project` | `terraform init + apply in deployment/terraform/single-project/` |
-| `agents-cli deploy` | `agents-cli deploy` |
+| `agents-cli deploy` | Dispatches by target: `gcloud run deploy` (Cloud Run), `terraform` + `docker build` + `kubectl apply` (GKE), `vertexai` Agent Engines SDK in-process (Agent Runtime) |
 
 ## Rollback
 

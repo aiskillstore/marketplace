@@ -65,6 +65,87 @@ Throughout this document, the following variables are used:
 - `{skills_path}` → `{code_root}/{skills_repo}` (e.g., `~/Codes/skills`)
 - `{username}` → Value of `github_username` config
 
+## Plugin Marketplace
+
+share-skill automatically creates a Claude Code Plugin Marketplace structure, enabling users to install skills via the `/plugin` command.
+
+### Installation via Marketplace
+
+Once your skills repository is set up, users can install skills with:
+
+```bash
+# Add the marketplace (one-time setup)
+/plugin marketplace add {username}/{skills_repo}
+
+# Install individual skills
+/plugin install port-allocator@{username}-{skills_repo}
+/plugin install share-skill@{username}-{skills_repo}
+```
+
+### Marketplace Structure
+
+The repository requires two types of manifest files:
+
+**1. Root marketplace.json** (`{skills_path}/.claude-plugin/marketplace.json`):
+```json
+{
+  "name": "{username}-{skills_repo}",
+  "owner": {
+    "name": "{display-name}",
+    "email": "{username}@users.noreply.github.com"
+  },
+  "metadata": {
+    "description": "A collection of productivity skills for Claude Code",
+    "version": "1.0.0"
+  },
+  "plugins": [
+    {
+      "name": "skill-name",
+      "source": "./skill-name",
+      "description": "Skill description from SKILL.md frontmatter"
+    }
+  ]
+}
+```
+
+**2. Plugin manifest** (`{skills_path}/<skill-name>/.claude-plugin/plugin.json`):
+```json
+{
+  "name": "skill-name",
+  "description": "Skill description",
+  "version": "1.0.0"
+}
+```
+
+### Directory Structure with Plugin Support
+
+```
+{skills_path}/
+├── .claude-plugin/
+│   └── marketplace.json         # Root marketplace config
+├── port-allocator/
+│   ├── .claude-plugin/
+│   │   └── plugin.json          # Plugin manifest
+│   ├── SKILL.md
+│   └── ...
+├── share-skill/
+│   ├── .claude-plugin/
+│   │   └── plugin.json
+│   ├── SKILL.md
+│   └── ...
+└── docs/
+    └── ...
+```
+
+### Marketplace Commands Reference
+
+| Command | Description |
+|---------|-------------|
+| `/plugin marketplace add <repo>` | Add a marketplace (GitHub: `owner/repo`) |
+| `/plugin marketplace update` | Update all marketplace indexes |
+| `/plugin install <name>@<marketplace>` | Install a plugin from marketplace |
+| `/plugin validate .` | Validate marketplace structure |
+
 ### Auto-detection on First Run
 
 On first invocation of share-skill, it automatically detects settings:
@@ -463,10 +544,14 @@ Migrate specified skill from `~/.claude/` directory to `{skills_path}/`:
                    { icon: '🔥', title: '...', desc: '...' },
                    { icon: '🧠', title: '...', desc: '...' },
                    { icon: '💥', title: '...', desc: '...' }
+               ],
+               triggers: [
+                   '<natural language example 1>',
+                   '<natural language example 2>'
                ]
            },
-           'zh-CN': { /* Chinese translation */ },
-           ja: { /* Japanese translation */ }
+           'zh-CN': { /* Chinese translation including triggers */ },
+           ja: { /* Japanese translation including triggers */ }
        }
    };
    ```
@@ -538,11 +623,53 @@ Migrate specified skill from `~/.claude/` directory to `{skills_path}/`:
    sed -i '' "s/custom.css?v=[0-9]*/custom.css?v=$VERSION/" {skills_path}/docs/index.html
    ```
 
-   **8.7 Commit all changes**
+   **8.7 Create/Update Plugin Marketplace structure**
+
+   To enable installation via `/plugin marketplace`, create the plugin manifest files:
+
+   ```bash
+   # Create plugin.json for the new skill
+   mkdir -p {skills_path}/<skill-name>/.claude-plugin
+   cat > {skills_path}/<skill-name>/.claude-plugin/plugin.json << EOF
+   {
+     "name": "<skill-name>",
+     "description": "<extracted from SKILL.md frontmatter>",
+     "version": "1.0.0"
+   }
+   EOF
+   ```
+
+   Update the root marketplace.json to include the new skill:
+   ```bash
+   # Read existing marketplace.json and add new plugin entry
+   # File: {skills_path}/.claude-plugin/marketplace.json
+
+   # Add to plugins array:
+   {
+     "name": "<skill-name>",
+     "source": "./<skill-name>",
+     "description": "<extracted from SKILL.md frontmatter>"
+   }
+   ```
+
+   **Marketplace structure after migration:**
+   ```
+   {skills_path}/
+   ├── .claude-plugin/
+   │   └── marketplace.json          # Root marketplace config
+   ├── <skill-name>/
+   │   ├── .claude-plugin/
+   │   │   └── plugin.json           # Plugin manifest
+   │   ├── SKILL.md
+   │   └── ...
+   └── ...
+   ```
+
+   **8.8 Commit all changes**
    ```bash
    cd {skills_path}
    git add .
-   git commit -m "Add <skill-name>: update docs, README, and translations"
+   git commit -m "Add <skill-name>: update docs, README, translations, and plugin manifest"
    git push  # If remote is configured
    ```
 
@@ -553,10 +680,12 @@ Migrate specified skill from `~/.claude/` directory to `{skills_path}/`:
      ✓ Updated README.md, README.zh-CN.md, README.ja.md
      ✓ Generated SKILL.zh-CN.md, SKILL.ja.md
      ✓ Updated cache version in docs/index.html
+     ✓ Created .claude-plugin/plugin.json
+     ✓ Updated .claude-plugin/marketplace.json
      ✓ Committed and pushed changes
 
-   Note: Skill lists (navbar, mobile menu, sidebar) are dynamically
-   generated from SKILLS config - no HTML changes needed.
+   Note: Skill lists (navbar, mobile menu, sidebar, install commands) are
+   dynamically generated from SKILLS config - no HTML editing needed.
    ```
 
 ### Command: `/share-skill list`
@@ -1178,17 +1307,29 @@ const SKILL_MARKETING = {
                     title: 'Third Problem',
                     desc: 'Description of the third issue addressed.'
                 }
+            ],
+            triggers: [
+                'Example natural language prompt 1',
+                'Example natural language prompt 2'
             ]
         },
         'zh-CN': {
             headline: '中文标题',
             why: '中文说明...',
-            painPoints: [/* ... */]
+            painPoints: [/* ... */],
+            triggers: [
+                '自然语言触发示例 1',
+                '自然语言触发示例 2'
+            ]
         },
         ja: {
             headline: '日本語タイトル',
             why: '日本語説明...',
-            painPoints: [/* ... */]
+            painPoints: [/* ... */],
+            triggers: [
+                '自然言語トリガー例 1',
+                '自然言語トリガー例 2'
+            ]
         }
     }
 };
@@ -1212,6 +1353,56 @@ function renderMarketingSection(skillName) {
 - `.marketing-why` - Value proposition paragraph
 - `.pain-points-grid` - 3-column responsive grid
 - `.pain-point-card` - Glass card with icon, title, description
+
+**Triggers Section (Natural Language Examples):**
+
+Display 2-3 example phrases users can say to trigger this skill. Shown below pain points.
+
+```javascript
+// triggers field in SKILL_MARKETING
+triggers: [
+    'Help me allocate a port for my project',
+    'Start the dev server for me'
+]
+```
+
+**Render Function for Triggers:**
+
+```javascript
+function renderTriggersSection(skillName) {
+    const marketing = SKILL_MARKETING[skillName];
+    if (!marketing) return '';
+
+    const content = marketing[currentLang] || marketing['en'];
+    if (!content || !content.triggers || content.triggers.length === 0) return '';
+
+    const t = I18N[currentLang];
+
+    const triggersHtml = content.triggers.map(trigger => `
+        <div class="trigger-item">
+            <span class="trigger-quote">"${trigger}"</span>
+        </div>
+    `).join('');
+
+    return `
+        <div class="triggers-section">
+            <h3 class="triggers-title">💬 ${t.triggersTitle}</h3>
+            <p class="triggers-desc">${t.triggersDesc}</p>
+            <div class="triggers-list">
+                ${triggersHtml}
+            </div>
+        </div>
+    `;
+}
+```
+
+**CSS Classes for Triggers:**
+- `.triggers-section` - Container with subtle background
+- `.triggers-title` - Section heading with emoji
+- `.triggers-desc` - Instruction text
+- `.triggers-list` - Vertical list of examples
+- `.trigger-item` - Individual example with left border accent
+- `.trigger-quote` - Italic quoted text
 
 **Guidelines for Writing Marketing Content:**
 1. Write from the user's perspective ("You" not "This skill")
@@ -1271,8 +1462,15 @@ The right sidebar provides quick installation instructions:
 <aside class="sidebar-right glass">
     <div class="sidebar-content">
         <div class="sidebar-section">
-            <h4 class="sidebar-heading" data-i18n="installation">Installation</h4>
-            <p class="install-desc" data-i18n="installDesc">The easiest way to install:</p>
+            <!-- Natural language installation recommendation -->
+            <div class="install-natural">
+                <p class="install-natural-desc" data-i18n="installNaturalDesc">We recommend installing via natural language:</p>
+                <div class="install-natural-example">
+                    "<span data-i18n="installNaturalExample">Please help me install this skill:</span> https://github.com/{username}/{repo}"
+                </div>
+            </div>
+
+            <!-- Command line installation -->
             <div class="install-code">
                 <pre><code><span class="comment"># <span data-i18n="addMarketplace">Add marketplace</span></span>
 <span class="cmd">/plugin marketplace add {username}/{repo}</span>
@@ -1286,29 +1484,46 @@ The right sidebar provides quick installation instructions:
 </aside>
 ```
 
-**i18n Support for Installation:**
+**CSS Classes for Natural Language Installation:**
+- `.install-natural` - Container with bottom border separator
+- `.install-natural-desc` - Recommendation text
+- `.install-natural-example` - Quoted example with left border accent
+
+**i18n Support for Installation and Triggers:**
 ```javascript
 const I18N = {
     en: {
         installation: 'Installation',
+        installNaturalDesc: 'We recommend installing via natural language:',
+        installNaturalExample: 'Please help me install this skill:',
         installDesc: 'The easiest way to install:',
         addMarketplace: 'Add marketplace',
         installSkills: 'Install skills',
-        moreOptions: 'More installation options'
+        moreOptions: 'More installation options',
+        triggersTitle: 'How to Use',
+        triggersDesc: 'Trigger this skill with natural language:'
     },
     'zh-CN': {
         installation: '安装方法',
+        installNaturalDesc: '我们推荐使用自然语言安装：',
+        installNaturalExample: '请帮我安装这个 skill：',
         installDesc: '最简单的安装方式：',
         addMarketplace: '添加技能市场',
         installSkills: '安装技能',
-        moreOptions: '更多安装选项'
+        moreOptions: '更多安装选项',
+        triggersTitle: '如何调用',
+        triggersDesc: '使用自然语言即可触发此 skill：'
     },
     ja: {
         installation: 'インストール',
+        installNaturalDesc: '自然言語でのインストールをお勧めします：',
+        installNaturalExample: 'このスキルをインストールしてください：',
         installDesc: '最も簡単なインストール方法：',
         addMarketplace: 'マーケットプレイスを追加',
         installSkills: 'スキルをインストール',
-        moreOptions: 'その他のインストールオプション'
+        moreOptions: 'その他のインストールオプション',
+        triggersTitle: '使い方',
+        triggersDesc: '自然言語でこのスキルを呼び出せます：'
     }
 };
 ```
