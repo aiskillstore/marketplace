@@ -4,6 +4,8 @@ description: "Web search and content extraction with Tavily and Exa via inferenc
 allowed-tools: Bash(belt *)
 ---
 
+> **Install the belt CLI skill:** `npx skills add belt-sh/cli`
+
 # Web Search & Extraction
 
 Search the web and extract content via [inference.sh](https://inference.sh) CLI.
@@ -130,7 +132,7 @@ belt app run openrouter/claude-haiku-45 --input '{
 ## Related Skills
 
 ```bash
-# Full platform skill (all 250+ apps)
+# Full platform skill (all apps)
 npx skills add inference-sh/skills@infsh-cli
 
 # LLM models (combine with search for RAG)

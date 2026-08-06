@@ -4,6 +4,8 @@ description: "Browser automation for AI agents via inference.sh. Navigate web pa
 allowed-tools: Bash(belt *)
 ---
 
+> **Install the belt CLI skill:** `npx skills add belt-sh/cli`
+
 # Agentic Browser
 
 Browser automation for AI agents via [inference.sh](https://inference.sh). Uses Playwright under the hood with a simple `@e` ref system for element interaction.

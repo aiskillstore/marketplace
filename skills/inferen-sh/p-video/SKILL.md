@@ -1,8 +1,10 @@
 ---
 name: p-video
 description: "Generate videos with Pruna P-Video and WAN models via inference.sh CLI. Models: P-Video, WAN-T2V, WAN-I2V. Capabilities: text-to-video, image-to-video, audio support, 720p/1080p, fast inference. Pruna optimizes models for speed without quality loss. Triggers: pruna video, p-video, pruna ai video, fast video generation, optimized video, wan t2v, wan i2v, economic video generation, cheap video generation, pruna text to video, pruna image to video"
-allowed-tools: Bash(infsh *)
+allowed-tools: Bash(belt *)
 ---
+
+> **Install the belt CLI skill:** `npx skills add belt-sh/cli`
 
 # Pruna P-Video Generation
 
@@ -12,12 +14,12 @@ Generate videos with Pruna's optimized video models via [inference.sh](https://i
 
 ## Quick Start
 
-> Requires inference.sh CLI (`infsh`). Get installation instructions: `npx skills add inference-sh/skills@agent-tools`
+> Requires inference.sh CLI (`belt`). [Install instructions](https://raw.githubusercontent.com/inference-sh/skills/refs/heads/main/cli-install.md)
 
 ```bash
-infsh login
+belt login
 
-infsh app run pruna/p-video --input '{"prompt": "drone shot flying over a forest at sunset"}'
+belt app run pruna/p-video --input '{"prompt": "drone shot flying over a forest at sunset"}'
 ```
 
 
@@ -36,7 +38,7 @@ Pruna optimizes AI models for speed without sacrificing quality.
 ### Text-to-Video
 
 ```bash
-infsh app run pruna/p-video --input '{
+belt app run pruna/p-video --input '{
   "prompt": "waves crashing on a beach at sunset",
   "duration": 5,
   "resolution": "720p"
@@ -46,7 +48,7 @@ infsh app run pruna/p-video --input '{
 ### Image-to-Video
 
 ```bash
-infsh app run pruna/p-video --input '{
+belt app run pruna/p-video --input '{
   "prompt": "gentle camera movement, clouds drifting",
   "image": "https://your-image.jpg"
 }'
@@ -57,7 +59,7 @@ infsh app run pruna/p-video --input '{
 P-Video supports audio input that syncs with the video:
 
 ```bash
-infsh app run pruna/p-video --input '{
+belt app run pruna/p-video --input '{
   "prompt": "person talking in an interview setting",
   "audio": "https://your-audio.mp3"
 }'
@@ -68,7 +70,7 @@ infsh app run pruna/p-video --input '{
 Fast and economical text-to-video:
 
 ```bash
-infsh app run pruna/wan-t2v --input '{
+belt app run pruna/wan-t2v --input '{
   "prompt": "a cat playing with a ball of yarn",
   "resolution": "720p",
   "duration": 5
@@ -80,7 +82,7 @@ infsh app run pruna/wan-t2v --input '{
 Animate any still image:
 
 ```bash
-infsh app run pruna/wan-i2v --input '{
+belt app run pruna/wan-i2v --input '{
   "prompt": "gentle movement, natural motion, subtle breathing",
   "image": "https://portrait.jpg",
   "resolution": "720p"
@@ -90,7 +92,7 @@ infsh app run pruna/wan-i2v --input '{
 ### 1080p High Quality
 
 ```bash
-infsh app run pruna/p-video --input '{
+belt app run pruna/p-video --input '{
   "prompt": "cinematic landscape with dramatic clouds",
   "resolution": "1080p",
   "duration": 5
@@ -100,7 +102,7 @@ infsh app run pruna/p-video --input '{
 ### Draft Mode (Faster, Cheaper)
 
 ```bash
-infsh app run pruna/p-video --input '{
+belt app run pruna/p-video --input '{
   "prompt": "quick concept test video",
   "draft": true
 }'
@@ -117,14 +119,14 @@ infsh app run pruna/p-video --input '{
 ## Browse All Pruna Apps
 
 ```bash
-infsh app list --namespace pruna
+belt app list --namespace pruna
 ```
 
 ## Related Skills
 
 ```bash
-# Full platform skill (all 150+ apps)
-npx skills add inference-sh/skills@agent-tools
+# Full platform skill (all apps)
+npx skills add inference-sh/skills@infsh-cli
 
 # All video generation models
 npx skills add inference-sh/skills@ai-video-generation
@@ -139,7 +141,7 @@ npx skills add inference-sh/skills@p-image
 npx skills add inference-sh/skills@text-to-speech
 ```
 
-Browse all apps: `infsh app list`
+Browse all apps: `belt app list`
 
 ## Documentation
 

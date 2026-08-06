@@ -1,8 +1,10 @@
 ---
 name: javascript-sdk
-description: "JavaScript/TypeScript SDK for inference.sh - run AI apps, build agents, integrate 150+ models. Package: @inferencesh/sdk (npm install). Full TypeScript support, streaming, file uploads. Build agents with template or ad-hoc patterns, tool builder API, skills, human approval. Use for: JavaScript integration, TypeScript, Node.js, React, Next.js, frontend apps. Triggers: javascript sdk, typescript sdk, npm install, node.js api, js client, react ai, next.js ai, frontend sdk, @inferencesh/sdk, typescript agent, browser sdk, js integration"
+description: "JavaScript/TypeScript SDK for inference.sh - run AI apps, build agents, integrate with all models. Package: @inferencesh/sdk (npm install). Full TypeScript support, streaming, file uploads. Build agents with template or ad-hoc patterns, tool builder API, skills, human approval. Use for: JavaScript integration, TypeScript, Node.js, React, Next.js, frontend apps. Triggers: javascript sdk, typescript sdk, npm install, node.js api, js client, react ai, next.js ai, frontend sdk, @inferencesh/sdk, typescript agent, browser sdk, js integration"
 allowed-tools: Bash(npm *), Bash(npx *), Bash(node *), Bash(pnpm *), Bash(yarn *)
 ---
+
+> **Install the belt CLI skill:** `npx skills add belt-sh/cli`
 
 # JavaScript SDK
 
@@ -514,7 +516,7 @@ const result = await client.run({...});
 # Python SDK
 npx skills add inference-sh/skills@python-sdk
 
-# Full platform skill (all 150+ apps via CLI)
+# Full platform skill (all apps via CLI)
 npx skills add inference-sh/skills@infsh-cli
 
 # LLM models

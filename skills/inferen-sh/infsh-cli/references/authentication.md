@@ -9,7 +9,7 @@ curl -fsSL https://cli.inference.sh | sh
 ## Login
 
 ```bash
-infsh login
+belt login
 ```
 
 This opens a browser for authentication. After login, credentials are stored locally.
@@ -17,7 +17,7 @@ This opens a browser for authentication. After login, credentials are stored loc
 ## Check Authentication
 
 ```bash
-infsh me
+belt me
 ```
 
 Shows your user info if authenticated.
@@ -35,7 +35,7 @@ The environment variable overrides the config file.
 ## Update CLI
 
 ```bash
-infsh update
+belt update
 ```
 
 Or reinstall:
@@ -48,7 +48,7 @@ curl -fsSL https://cli.inference.sh | sh
 
 | Error | Solution |
 |-------|----------|
-| "not authenticated" | Run `infsh login` |
+| "not authenticated" | Run `belt login` |
 | "command not found" | Reinstall CLI or add to PATH |
 | "API key invalid" | Check `INFSH_API_KEY` or re-login |
 

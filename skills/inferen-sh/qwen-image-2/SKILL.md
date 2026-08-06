@@ -1,8 +1,10 @@
 ---
 name: qwen-image-2
 description: "Generate and edit images with Alibaba Qwen-Image-2.0 models via inference.sh CLI. Models: Qwen-Image-2.0 (fast), Qwen-Image-2.0-Pro (professional text rendering). Capabilities: text-to-image, multi-image editing, complex text rendering. Triggers: qwen image, qwen-image, alibaba image, dashscope image, qwen image 2, qwen image pro"
-allowed-tools: Bash(infsh *)
+allowed-tools: Bash(belt *)
 ---
+
+> **Install the belt CLI skill:** `npx skills add belt-sh/cli`
 
 # Qwen-Image - Alibaba Image Generation
 
@@ -12,12 +14,12 @@ Generate and edit images with Alibaba Qwen-Image-2.0 models via [inference.sh](h
 
 ## Quick Start
 
-> Requires inference.sh CLI (`infsh`). Get installation instructions: `npx skills add inference-sh/skills@agent-tools`
+> Requires inference.sh CLI (`belt`). [Install instructions](https://raw.githubusercontent.com/inference-sh/skills/refs/heads/main/cli-install.md)
 
 ```bash
-infsh login
+belt login
 
-infsh app run alibaba/qwen-image-2 --input '{"prompt": "A serene mountain landscape at sunset"}'
+belt app run alibaba/qwen-image-2 --input '{"prompt": "A serene mountain landscape at sunset"}'
 ```
 
 
@@ -31,7 +33,7 @@ infsh app run alibaba/qwen-image-2 --input '{"prompt": "A serene mountain landsc
 ## Search Qwen Image Apps
 
 ```bash
-infsh app list --search "qwen image"
+belt app search "qwen image"
 ```
 
 ## Examples
@@ -39,7 +41,7 @@ infsh app list --search "qwen image"
 ### Basic Text-to-Image
 
 ```bash
-infsh app run alibaba/qwen-image-2 --input '{
+belt app run alibaba/qwen-image-2 --input '{
   "prompt": "A futuristic cityscape at sunset with flying cars"
 }'
 ```
@@ -47,7 +49,7 @@ infsh app run alibaba/qwen-image-2 --input '{
 ### Multiple Images
 
 ```bash
-infsh app run alibaba/qwen-image-2 --input '{
+belt app run alibaba/qwen-image-2 --input '{
   "prompt": "Minimalist logo design for a coffee shop",
   "num_images": 4
 }'
@@ -56,7 +58,7 @@ infsh app run alibaba/qwen-image-2 --input '{
 ### Custom Resolution
 
 ```bash
-infsh app run alibaba/qwen-image-2-pro --input '{
+belt app run alibaba/qwen-image-2-pro --input '{
   "prompt": "Panoramic mountain landscape with northern lights",
   "width": 1536,
   "height": 1024
@@ -66,7 +68,7 @@ infsh app run alibaba/qwen-image-2-pro --input '{
 ### Text-Heavy Poster (Pro)
 
 ```bash
-infsh app run alibaba/qwen-image-2-pro --input '{
+belt app run alibaba/qwen-image-2-pro --input '{
   "prompt": "Poster with title \"Summer Sale!\" in bold red text at the top. Subtitle \"50% Off Everything\" in blue below. Beach background with palm trees.",
   "width": 1024,
   "height": 1536,
@@ -77,7 +79,7 @@ infsh app run alibaba/qwen-image-2-pro --input '{
 ### Image Editing (Multi-Reference)
 
 ```bash
-infsh app run alibaba/qwen-image-2 --input '{
+belt app run alibaba/qwen-image-2 --input '{
   "prompt": "Make the girl from Image 1 wear the dress from Image 2 in the pose from Image 3",
   "reference_images": [
     {"uri": "https://example.com/person.jpg"},
@@ -90,7 +92,7 @@ infsh app run alibaba/qwen-image-2 --input '{
 ### With Negative Prompt
 
 ```bash
-infsh app run alibaba/qwen-image-2-pro --input '{
+belt app run alibaba/qwen-image-2-pro --input '{
   "prompt": "Professional headshot portrait, studio lighting",
   "negative_prompt": "low resolution, blurry, deformed, oversaturated"
 }'
@@ -99,7 +101,7 @@ infsh app run alibaba/qwen-image-2-pro --input '{
 ### Reproducible with Seed
 
 ```bash
-infsh app run alibaba/qwen-image-2 --input '{
+belt app run alibaba/qwen-image-2 --input '{
   "prompt": "Abstract geometric art in blue and gold",
   "seed": 12345
 }'
@@ -145,11 +147,11 @@ infsh app run alibaba/qwen-image-2 --input '{
 
 ```bash
 # 1. Generate sample input to see all options
-infsh app sample alibaba/qwen-image-2-pro --save input.json
+belt app sample alibaba/qwen-image-2-pro --save input.json
 
 # 2. Edit the prompt
 # 3. Run
-infsh app run alibaba/qwen-image-2-pro --input input.json
+belt app run alibaba/qwen-image-2-pro --input input.json
 ```
 
 ## Model Comparison
@@ -164,8 +166,8 @@ infsh app run alibaba/qwen-image-2-pro --input input.json
 ## Related Skills
 
 ```bash
-# Full platform skill (all 150+ apps)
-npx skills add inference-sh/skills@agent-tools
+# Full platform skill (all apps)
+npx skills add inference-sh/skills@infsh-cli
 
 # All image generation models
 npx skills add inference-sh/skills@ai-image-generation
@@ -174,7 +176,7 @@ npx skills add inference-sh/skills@ai-image-generation
 npx skills add inference-sh/skills@ai-video-generation
 ```
 
-Browse all image apps: `infsh app list --category image`
+Browse all image apps: `belt app list --category image`
 
 ## Documentation
 

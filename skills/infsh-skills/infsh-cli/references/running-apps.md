@@ -161,7 +161,7 @@ Example output:
 | Error | Cause | Solution |
 |-------|-------|----------|
 | "invalid input" | Schema mismatch | Check `belt app get` for required fields |
-| "app not found" | Wrong app name | Check `belt app list --search` |
+| "app not found" | Wrong app name | Check `belt app search` |
 | "quota exceeded" | Out of credits | Check account balance |
 
 ## Documentation

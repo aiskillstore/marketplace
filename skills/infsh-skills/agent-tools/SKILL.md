@@ -1,12 +1,14 @@
 ---
 name: agent-tools
-description: "Run 250+ AI apps via inference.sh CLI - image generation, video creation, LLMs, search, 3D, Twitter automation. Models: FLUX, Veo, Gemini, Grok, Claude, Seedance, OmniHuman, Tavily, Exa, OpenRouter, and many more. Use when running AI apps, generating images/videos, calling LLMs, web search, or automating Twitter. Triggers: inference.sh, infsh, ai model, run ai, serverless ai, ai api, flux, veo, claude api, image generation, video generation, openrouter, tavily, exa search, twitter api, grok"
+description: "Run AI apps via inference.sh CLI - image generation, video creation, LLMs, search, 3D, Twitter automation. Models: FLUX, Veo, Gemini, Grok, Claude, Seedance, OmniHuman, Tavily, Exa, OpenRouter, and many more. Use when running AI apps, generating images/videos, calling LLMs, web search, or automating Twitter. Triggers: inference.sh, infsh, ai model, run ai, serverless ai, ai api, flux, veo, claude api, image generation, video generation, openrouter, tavily, exa search, twitter api, grok"
 allowed-tools: Bash(belt *)
 ---
 
+> **Install the belt CLI skill:** `npx skills add belt-sh/cli`
+
 # [inference.sh](https://inference.sh)
 
-Run 250+ AI apps in the cloud with a simple CLI. No GPU required.
+Run AI apps in the cloud with a simple CLI. No GPU required.
 
 ![[inference.sh](https://inference.sh)](https://cloud.inference.sh/app/files/u/4mg21r6ta37mpaz6ktzwtt8krr/01kgjw8atdxgkrsr8a2t5peq7b.jpeg)
 
@@ -75,8 +77,8 @@ belt app run x/post-create --input '{"text": "Check this out!", "media": "./scre
 
 | Task | Command |
 |------|---------|
-| List all apps | `belt app list` |
-| Search apps | `belt app list --search "flux"` |
+| Browse the app store | `belt app list` |
+| Search apps | `belt app search "flux"` |
 | Filter by category | `belt app list --category image` |
 | Get app details | `belt app get google/veo-3-1-fast` |
 | Generate sample input | `belt app sample google/veo-3-1-fast --save input.json` |
