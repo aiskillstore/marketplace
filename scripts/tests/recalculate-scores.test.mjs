@@ -463,13 +463,13 @@ test('every workflow that invokes the score wrapper is enumerated and holds the 
 		'free-form metric views input must enter shell only through the environment');
 	assert.doesNotMatch(scrapeRun.slice(scrapeRun.indexOf('run: |')), /\$\{\{\s*inputs\./,
 		'skills.sh shell must not directly interpolate workflow inputs');
-	assert.doesNotMatch(scrapeRun, /--summary/,
-		'skills.sh output must retain per-skill failures for incident diagnosis');
-	assert.match(scrapeRun, /jq -c '\[\.skills\[\] \| select\(\.status == "failed"\) \| \{slug, source, skillId, error\}\]\[:20\]' "\$OUTPUT_FILE"/,
+	assert.match(scrapeRun, /--output json --summary/,
+		'skills.sh output must omit successful rows while retaining bounded failures');
+	assert.match(scrapeRun, /jq -c '\.failures' "\$OUTPUT_FILE"/,
 		'failed runs must print a bounded exact failure identity list');
-	assert.match(scrape, /CLI_VERSION:\s*'2\.16\.2'/,
+	assert.match(scrape, /CLI_VERSION:\s*'2\.16\.3'/,
 		'skills.sh production writes must use an audited CLI version');
-	assert.match(scrape, /CLI_SHA256:\s*'537fca9a42ab691c266532f61afe95f8f29cc7fc42b7728740df94981d1f173c'/,
+	assert.match(scrape, /CLI_SHA256:\s*'77f9bb79304e7dfea6c792b6278b255840ab9b5d889ea621c89480275943794e'/,
 		'skills.sh production writes must bind the audited CLI binary digest');
 	assert.match(scrape, /minimum-version:\s*\$\{\{ env\.CLI_VERSION \}\}/);
 	assert.match(scrape, /require-checksum:\s*'true'/);
