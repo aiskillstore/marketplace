@@ -2,10 +2,12 @@ import fs from "node:fs";
 import path from "node:path";
 import readline from "node:readline";
 import process from "node:process";
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 
 import { fetchXArticle } from "./graphql.js";
 import { formatArticleMarkdown } from "./markdown.js";
+import { localizeMarkdownMedia, type LocalizeMarkdownMediaResult } from "./media-localizer.js";
+import { resolveReferencedTweetsFromArticle } from "./referenced-tweets.js";
 import { hasRequiredXCookies, loadXCookies, refreshXCookies } from "./cookies.js";
 import { resolveXToMarkdownConsentPath } from "./paths.js";
 import { tweetToMarkdown } from "./tweet-to-markdown.js";
@@ -15,6 +17,7 @@ type CliArgs = {
   output: string | null;
   json: boolean;
   login: boolean;
+  downloadMedia: boolean;
   help: boolean;
 };
 
@@ -27,8 +30,22 @@ type ConsentRecord = {
 
 const DISCLAIMER_VERSION = "1.0";
 
+function formatScriptCommand(fallback: string): string {
+  const raw = process.argv[1];
+  const displayPath = raw
+    ? (() => {
+        const relative = path.relative(process.cwd(), raw);
+        return relative && !relative.startsWith("..") ? relative : raw;
+      })()
+    : fallback;
+  const quotedPath = displayPath.includes(" ")
+    ? `"${displayPath.replace(/"/g, '\\"')}"`
+    : displayPath;
+  return `npx -y bun ${quotedPath}`;
+}
+
 function printUsage(exitCode: number): never {
-  const cmd = "npx -y bun skills/baoyu-danger-x-to-markdown/scripts/main.ts";
+  const cmd = formatScriptCommand("scripts/main.ts");
   console.log(`X (Twitter) to Markdown
 
 Usage:
@@ -38,6 +55,7 @@ Usage:
 Options:
   --output <path>, -o  Output path (file or dir). Default: ./x-to-markdown/<slug>/
   --json               Output as JSON
+  --download-media     Download images/videos to local ./imgs and ./videos next to markdown
   --login              Refresh cookies only, then exit
   --help, -h           Show help
 
@@ -45,6 +63,7 @@ Examples:
   ${cmd} https://x.com/username/status/1234567890
   ${cmd} https://x.com/i/article/1234567890 -o ./article.md
   ${cmd} https://x.com/username/status/1234567890 -o ./out/
+  ${cmd} https://x.com/username/status/1234567890 --download-media
   ${cmd} https://x.com/username/status/1234567890 --json | jq -r '.markdownPath'
   ${cmd} --login
 `);
@@ -57,6 +76,7 @@ function parseArgs(argv: string[]): CliArgs {
     output: null,
     json: false,
     login: false,
+    downloadMedia: false,
     help: false,
   };
 
@@ -77,6 +97,11 @@ function parseArgs(argv: string[]): CliArgs {
 
     if (a === "--login") {
       out.login = true;
+      continue;
+    }
+
+    if (a === "--download-media") {
+      out.downloadMedia = true;
       continue;
     }
 
@@ -172,36 +197,160 @@ function sanitizeSlug(input: string): string {
     .slice(0, 120);
 }
 
-function formatBackupTimestamp(date: Date = new Date()): string {
-  const pad2 = (n: number) => String(n).padStart(2, "0");
-  return `${date.getFullYear()}${pad2(date.getMonth() + 1)}${pad2(date.getDate())}-${pad2(date.getHours())}${pad2(
-    date.getMinutes()
-  )}${pad2(date.getSeconds())}`;
+function extractContentSlug(markdown: string): string {
+  const headingMatch = markdown.match(/^#\s+(.+)$/m);
+  if (headingMatch?.[1]) {
+    return sanitizeSlug(headingMatch[1].slice(0, 60)).toLowerCase();
+  }
+  const lines = markdown.split("\n");
+  let inFrontmatter = false;
+  for (const line of lines) {
+    if (line === "---") {
+      inFrontmatter = !inFrontmatter;
+      continue;
+    }
+    if (inFrontmatter) continue;
+    const trimmed = line.trim();
+    if (trimmed) {
+      return sanitizeSlug(trimmed.slice(0, 60)).toLowerCase();
+    }
+  }
+  return "untitled";
 }
 
-async function backupDirIfExists(dir: string, log: (message: string) => void): Promise<void> {
+function resolveSlugAndId(normalizedUrl: string, kind: "tweet" | "article"): { slug: string; idPart: string } {
+  const articleId = kind === "article" ? parseArticleId(normalizedUrl) : null;
+  const tweetId = kind === "tweet" ? parseTweetId(normalizedUrl) : null;
+  const username = kind === "tweet" ? parseTweetUsername(normalizedUrl) : null;
+
+  const idPart = articleId ?? tweetId ?? String(Date.now());
+  const userSlug = username ? sanitizeSlug(username) : null;
+  const slug = userSlug ?? idPart;
+  return { slug, idPart };
+}
+
+function extractFrontmatterUrls(markdown: string): string[] {
+  const match = markdown.match(/^---\n([\s\S]*?)\n---/);
+  if (!match?.[1]) return [];
+
+  const lines = match[1].split("\n");
+  const urls: string[] = [];
+  for (const line of lines) {
+    const m = line.match(/^(url|requestedUrl):\s*["']([^"']+)["']\s*$/);
+    if (m?.[2]) {
+      urls.push(m[2]);
+    }
+  }
+  return urls;
+}
+
+function frontmatterMatchesTarget(
+  markdown: string,
+  normalizedUrl: string,
+  kind: "tweet" | "article"
+): boolean {
+  const urls = extractFrontmatterUrls(markdown);
+  if (urls.length === 0) return false;
+
+  const targetId = kind === "article" ? parseArticleId(normalizedUrl) : parseTweetId(normalizedUrl);
+  if (!targetId) return false;
+
+  for (const url of urls) {
+    const candidateId = kind === "article" ? parseArticleId(url) : parseTweetId(url);
+    if (candidateId && candidateId === targetId) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function listMarkdownFiles(dirPath: string): string[] {
   try {
-    if (!fs.existsSync(dir)) return;
-    const stat = fs.statSync(dir);
-    if (!stat.isDirectory()) return;
-    const backup = `${dir}-backup-${formatBackupTimestamp()}`;
-    await rename(dir, backup);
-    log(`[x-to-markdown] Existing directory moved to: ${backup}`);
-  } catch (error) {
-    throw new Error(
-      `Failed to backup existing directory (${dir}): ${error instanceof Error ? error.message : String(error ?? "")}`
-    );
+    return fs
+      .readdirSync(dirPath)
+      .filter((name) => name.toLowerCase().endsWith(".md"))
+      .map((name) => path.join(dirPath, name))
+      .sort();
+  } catch {
+    return [];
   }
 }
 
-function resolveDefaultOutputDir(slug: string): string {
-  return path.resolve(process.cwd(), "x-to-markdown", slug);
+function resolveExistingMarkdownPath(
+  normalizedUrl: string,
+  kind: "tweet" | "article",
+  argsOutput: string | null
+): string | null {
+  const { slug, idPart } = resolveSlugAndId(normalizedUrl, kind);
+  const candidateDirs = new Set<string>();
+  const candidateFiles = new Set<string>();
+
+  if (argsOutput) {
+    const resolved = path.resolve(argsOutput);
+    const looksDir = argsOutput.endsWith("/") || argsOutput.endsWith("\\");
+    try {
+      if (fs.existsSync(resolved)) {
+        const stat = fs.statSync(resolved);
+        if (stat.isFile()) {
+          candidateFiles.add(resolved);
+        } else if (stat.isDirectory()) {
+          candidateDirs.add(path.join(resolved, slug, idPart));
+          candidateDirs.add(resolved);
+        }
+      } else if (looksDir) {
+        candidateDirs.add(path.join(resolved, slug, idPart));
+      }
+    } catch {
+      // ignore and continue
+    }
+  } else {
+    candidateDirs.add(path.resolve(process.cwd(), "x-to-markdown", slug, idPart));
+  }
+
+  for (const filePath of candidateFiles) {
+    if (!filePath.toLowerCase().endsWith(".md")) continue;
+    try {
+      const markdown = fs.readFileSync(filePath, "utf8");
+      if (frontmatterMatchesTarget(markdown, normalizedUrl, kind)) {
+        return filePath;
+      }
+    } catch {
+      // ignore and continue
+    }
+  }
+
+  for (const dirPath of candidateDirs) {
+    if (!fs.existsSync(dirPath)) continue;
+    let stat: fs.Stats;
+    try {
+      stat = fs.statSync(dirPath);
+    } catch {
+      continue;
+    }
+    if (!stat.isDirectory()) continue;
+
+    const markdownFiles = listMarkdownFiles(dirPath);
+    for (const filePath of markdownFiles) {
+      try {
+        const markdown = fs.readFileSync(filePath, "utf8");
+        if (frontmatterMatchesTarget(markdown, normalizedUrl, kind)) {
+          return filePath;
+        }
+      } catch {
+        // ignore and continue
+      }
+    }
+  }
+
+  return null;
 }
 
 async function resolveOutputPath(
   normalizedUrl: string,
   kind: "tweet" | "article",
   argsOutput: string | null,
+  contentSlug: string,
   log: (message: string) => void
 ): Promise<{ outputDir: string; markdownPath: string; slug: string }> {
   const articleId = kind === "article" ? parseArticleId(normalizedUrl) : null;
@@ -212,15 +361,14 @@ async function resolveOutputPath(
   const idPart = articleId ?? tweetId ?? String(Date.now());
   const slug = userSlug ?? idPart;
 
-  const defaultFileName = kind === "article" ? `${idPart}.md` : `${idPart}.md`;
+  const defaultFileName = `${contentSlug}.md`;
 
   if (argsOutput) {
     const wantsDir = argsOutput.endsWith("/") || argsOutput.endsWith("\\");
     const resolved = path.resolve(argsOutput);
     try {
       if (wantsDir || (fs.existsSync(resolved) && fs.statSync(resolved).isDirectory())) {
-        const outputDir = path.join(resolved, slug);
-        await backupDirIfExists(outputDir, log);
+        const outputDir = path.join(resolved, slug, idPart);
         await mkdir(outputDir, { recursive: true });
         return { outputDir, markdownPath: path.join(outputDir, defaultFileName), slug };
       }
@@ -233,8 +381,7 @@ async function resolveOutputPath(
     return { outputDir, markdownPath: resolved, slug };
   }
 
-  const outputDir = resolveDefaultOutputDir(slug);
-  await backupDirIfExists(outputDir, log);
+  const outputDir = path.resolve(process.cwd(), "x-to-markdown", slug, idPart);
   await mkdir(outputDir, { recursive: true });
   return { outputDir, markdownPath: path.join(outputDir, defaultFileName), slug };
 }
@@ -345,16 +492,18 @@ async function convertArticleToMarkdown(
 
   log(`[x-to-markdown] Fetching article ${articleId}...`);
   const article = await fetchXArticle(articleId, cookieMap, false);
-  const body = formatArticleMarkdown(article).trimEnd();
+  const referencedTweets = await resolveReferencedTweetsFromArticle(article, cookieMap, { log });
+  const { markdown: body, coverUrl } = formatArticleMarkdown(article, { referencedTweets });
 
   const title = typeof (article as any)?.title === "string" ? String((article as any).title).trim() : "";
   const meta = formatMetaMarkdown({
     url: `https://x.com/i/article/${articleId}`,
-    requested_url: inputUrl,
+    requestedUrl: inputUrl,
     title: title || null,
+    coverImage: coverUrl,
   });
 
-  return [meta, body].filter(Boolean).join("\n\n").trimEnd();
+  return [meta, body.trimEnd()].filter(Boolean).join("\n\n").trimEnd();
 }
 
 async function main(): Promise<void> {
@@ -383,12 +532,79 @@ async function main(): Promise<void> {
   }
 
   const kind = articleId ? ("article" as const) : ("tweet" as const);
-  const { outputDir, markdownPath, slug } = await resolveOutputPath(normalizedUrl, kind, args.output, log);
 
-  const markdown =
+  if (args.downloadMedia) {
+    const existingMarkdownPath = resolveExistingMarkdownPath(normalizedUrl, kind, args.output);
+    if (existingMarkdownPath) {
+      log(`[x-to-markdown] Reusing existing markdown: ${existingMarkdownPath}`);
+      const existingMarkdown = await readFile(existingMarkdownPath, "utf8");
+      const mediaResult = await localizeMarkdownMedia(existingMarkdown, {
+        markdownPath: existingMarkdownPath,
+        log,
+      });
+      const didLocalize =
+        mediaResult.downloadedImages > 0 ||
+        mediaResult.downloadedVideos > 0 ||
+        mediaResult.markdown !== existingMarkdown;
+
+      if (didLocalize) {
+        await writeFile(existingMarkdownPath, mediaResult.markdown, "utf8");
+        log(
+          `[x-to-markdown] Media localized: images=${mediaResult.downloadedImages}, videos=${mediaResult.downloadedVideos}`
+        );
+        log(`[x-to-markdown] Saved: ${existingMarkdownPath}`);
+
+        const { slug } = resolveSlugAndId(normalizedUrl, kind);
+        if (args.json) {
+          console.log(
+            JSON.stringify(
+              {
+                url: articleId ? `https://x.com/i/article/${articleId}` : normalizedUrl,
+                requestedUrl: normalizedUrl,
+                type: kind,
+                slug,
+                outputDir: path.dirname(existingMarkdownPath),
+                markdownPath: existingMarkdownPath,
+                downloadMedia: true,
+                downloadedImages: mediaResult.downloadedImages,
+                downloadedVideos: mediaResult.downloadedVideos,
+                imageDir: mediaResult.imageDir,
+                videoDir: mediaResult.videoDir,
+              },
+              null,
+              2
+            )
+          );
+        } else {
+          console.log(existingMarkdownPath);
+        }
+        return;
+      }
+
+      log("[x-to-markdown] Existing markdown already localized; rebuilding content to refresh placement.");
+    }
+  }
+
+  let markdown =
     kind === "article" && articleId
       ? await convertArticleToMarkdown(normalizedUrl, articleId, log)
       : await tweetToMarkdown(normalizedUrl, { log });
+
+  const contentSlug = extractContentSlug(markdown);
+  const { outputDir, markdownPath, slug } = await resolveOutputPath(normalizedUrl, kind, args.output, contentSlug, log);
+
+  let mediaResult: LocalizeMarkdownMediaResult | null = null;
+
+  if (args.downloadMedia) {
+    mediaResult = await localizeMarkdownMedia(markdown, {
+      markdownPath,
+      log,
+    });
+    markdown = mediaResult.markdown;
+    log(
+      `[x-to-markdown] Media localized: images=${mediaResult.downloadedImages}, videos=${mediaResult.downloadedVideos}`
+    );
+  }
 
   await writeFile(markdownPath, markdown, "utf8");
   log(`[x-to-markdown] Saved: ${markdownPath}`);
@@ -398,11 +614,16 @@ async function main(): Promise<void> {
       JSON.stringify(
         {
           url: articleId ? `https://x.com/i/article/${articleId}` : normalizedUrl,
-          requested_url: normalizedUrl,
+          requestedUrl: normalizedUrl,
           type: kind,
           slug,
           outputDir,
           markdownPath,
+          downloadMedia: args.downloadMedia,
+          downloadedImages: mediaResult?.downloadedImages ?? 0,
+          downloadedVideos: mediaResult?.downloadedVideos ?? 0,
+          imageDir: mediaResult?.imageDir ?? null,
+          videoDir: mediaResult?.videoDir ?? null,
         },
         null,
         2

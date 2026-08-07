@@ -38,8 +38,10 @@ export type ArticleEntityMapEntry = {
     mutability?: string;
     data?: {
       caption?: string;
+      markdown?: string;
       mediaItems?: ArticleEntityMapMediaItem[];
       url?: string;
+      tweetId?: string;
     };
   };
 };

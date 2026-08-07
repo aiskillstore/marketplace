@@ -1,3 +1,4 @@
+import { execSync } from "node:child_process";
 import os from "node:os";
 import path from "node:path";
 import process from "node:process";
@@ -30,10 +31,23 @@ export function resolveXToMarkdownCookiePath(): string {
   return path.join(resolveXToMarkdownDataDir(), COOKIE_FILE_NAME);
 }
 
+let _wslHome: string | null | undefined;
+function getWslWindowsHome(): string | null {
+  if (_wslHome !== undefined) return _wslHome;
+  if (!process.env.WSL_DISTRO_NAME) { _wslHome = null; return null; }
+  try {
+    const raw = execSync('cmd.exe /C "echo %USERPROFILE%"', { encoding: 'utf-8', timeout: 5000 }).trim().replace(/\r/g, '');
+    _wslHome = execSync(`wslpath -u "${raw}"`, { encoding: 'utf-8', timeout: 5000 }).trim() || null;
+  } catch { _wslHome = null; }
+  return _wslHome;
+}
+
 export function resolveXToMarkdownChromeProfileDir(): string {
-  const override = process.env.X_CHROME_PROFILE_DIR?.trim();
+  const override = process.env.BAOYU_CHROME_PROFILE_DIR?.trim() || process.env.X_CHROME_PROFILE_DIR?.trim();
   if (override) return path.resolve(override);
-  return path.join(resolveXToMarkdownDataDir(), PROFILE_DIR_NAME);
+  const wslHome = getWslWindowsHome();
+  if (wslHome) return path.join(wslHome, ".local", "share", APP_DATA_DIR, PROFILE_DIR_NAME);
+  return path.join(resolveUserDataRoot(), APP_DATA_DIR, PROFILE_DIR_NAME);
 }
 
 export function resolveXToMarkdownConsentPath(): string {

@@ -1,188 +1,81 @@
 ---
 name: baoyu-compress-image
-description: Cross-platform image compression skill. Converts images to WebP by default with PNG-to-PNG support. Uses system tools (sips, cwebp, ImageMagick) with Sharp fallback.
+description: Compresses images to WebP (default) or PNG with automatic tool selection. Use when user asks to "compress image", "optimize image", "convert to webp", or reduce image file size.
+version: 1.56.1
+metadata:
+  openclaw:
+    homepage: https://github.com/JimLiu/baoyu-skills#baoyu-compress-image
+    requires:
+      anyBins:
+        - bun
+        - npx
 ---
 
 # Image Compressor
 
-Cross-platform image compression with WebP default output, PNG-to-PNG support, preferring system tools with Sharp fallback.
+Compresses images using best available tool (sips → cwebp → ImageMagick → Sharp).
 
 ## Script Directory
 
-**Important**: All scripts are located in the `scripts/` subdirectory of this skill.
+Scripts in `scripts/` subdirectory. `{baseDir}` = this SKILL.md's directory path. Resolve `${BUN_X}` runtime: if `bun` installed → `bun`; if `npx` available → `npx -y bun`; else suggest installing bun. Replace `{baseDir}` and `${BUN_X}` with actual values.
 
-**Agent Execution Instructions**:
-1. Determine this SKILL.md file's directory path as `SKILL_DIR`
-2. Script path = `${SKILL_DIR}/scripts/<script-name>.ts`
-3. Replace all `${SKILL_DIR}` in this document with the actual path
-
-**Script Reference**:
 | Script | Purpose |
 |--------|---------|
-| `scripts/main.ts` | CLI entry point for image compression |
+| `scripts/main.ts` | Image compression CLI |
 
-## Quick Start
+## Preferences (EXTEND.md)
 
-```bash
-# Compress to WebP (default)
-npx -y bun ${SKILL_DIR}/scripts/main.ts image.png
+Check EXTEND.md in priority order — the first one found wins:
 
-# Keep original format (PNG → PNG)
-npx -y bun ${SKILL_DIR}/scripts/main.ts image.png --format png
+| Priority | Path | Scope |
+|----------|------|-------|
+| 1 | `.baoyu-skills/baoyu-compress-image/EXTEND.md` | Project |
+| 2 | `${XDG_CONFIG_HOME:-$HOME/.config}/baoyu-skills/baoyu-compress-image/EXTEND.md` | XDG |
+| 3 | `$HOME/.baoyu-skills/baoyu-compress-image/EXTEND.md` | User home |
 
-# Custom quality
-npx -y bun ${SKILL_DIR}/scripts/main.ts image.png -q 75
+If none found, use defaults.
 
-# Process directory
-npx -y bun ${SKILL_DIR}/scripts/main.ts ./images/ -r
-```
+**EXTEND.md supports**: Default format, default quality, keep-original preference.
 
-## Commands
-
-### Single File Compression
+## Usage
 
 ```bash
-# Basic (converts to WebP, replaces original)
-npx -y bun ${SKILL_DIR}/scripts/main.ts image.png
-
-# Custom output path
-npx -y bun ${SKILL_DIR}/scripts/main.ts image.png -o compressed.webp
-
-# Keep original file
-npx -y bun ${SKILL_DIR}/scripts/main.ts image.png --keep
-
-# Custom quality (0-100, default: 80)
-npx -y bun ${SKILL_DIR}/scripts/main.ts image.png -q 75
-
-# Keep original format
-npx -y bun ${SKILL_DIR}/scripts/main.ts image.png -f png
-```
-
-### Directory Processing
-
-```bash
-# Process all images in directory
-npx -y bun ${SKILL_DIR}/scripts/main.ts ./images/
-
-# Recursive processing
-npx -y bun ${SKILL_DIR}/scripts/main.ts ./images/ -r
-
-# With custom quality
-npx -y bun ${SKILL_DIR}/scripts/main.ts ./images/ -r -q 75
-```
-
-### Output Formats
-
-```bash
-# Plain text (default)
-npx -y bun ${SKILL_DIR}/scripts/main.ts image.png
-
-# JSON output
-npx -y bun ${SKILL_DIR}/scripts/main.ts image.png --json
+${BUN_X} {baseDir}/scripts/main.ts <input> [options]
 ```
 
 ## Options
 
 | Option | Short | Description | Default |
 |--------|-------|-------------|---------|
-| `<input>` | | Input file or directory | Required |
-| `--output <path>` | `-o` | Output path | Same path, new extension |
-| `--format <fmt>` | `-f` | webp, png, jpeg | webp |
-| `--quality <n>` | `-q` | Quality 0-100 | 80 |
-| `--keep` | `-k` | Keep original file | false |
-| `--recursive` | `-r` | Process directories recursively | false |
+| `<input>` | | File or directory | Required |
+| `--output` | `-o` | Output path | Same path, new ext |
+| `--format` | `-f` | webp, png, jpeg | webp |
+| `--quality` | `-q` | Quality 0-100 | 80 |
+| `--keep` | `-k` | Keep original | false |
+| `--recursive` | `-r` | Process subdirs | false |
 | `--json` | | JSON output | false |
-| `--help` | `-h` | Show help | |
 
-## Compressor Selection
+## Examples
 
-Priority order (auto-detected):
+```bash
+# Single file → WebP (replaces original)
+${BUN_X} {baseDir}/scripts/main.ts image.png
 
-1. **sips** (macOS built-in, WebP support since macOS 11)
-2. **cwebp** (Google's official WebP tool)
-3. **ImageMagick** (`convert` command)
-4. **Sharp** (npm package, auto-installed by Bun)
+# Keep PNG format
+${BUN_X} {baseDir}/scripts/main.ts image.png -f png --keep
 
-The skill automatically selects the best available compressor.
+# Directory recursive
+${BUN_X} {baseDir}/scripts/main.ts ./images/ -r -q 75
 
-## Output Format
+# JSON output
+${BUN_X} {baseDir}/scripts/main.ts image.png --json
+```
 
-### Text Mode (default)
-
+**Output**:
 ```
 image.png → image.webp (245KB → 89KB, 64% reduction)
 ```
 
-### JSON Mode
-
-```json
-{
-  "input": "image.png",
-  "output": "image.webp",
-  "inputSize": 250880,
-  "outputSize": 91136,
-  "ratio": 0.36,
-  "compressor": "sips"
-}
-```
-
-### Directory JSON Mode
-
-```json
-{
-  "files": [...],
-  "summary": {
-    "totalFiles": 10,
-    "totalInputSize": 2508800,
-    "totalOutputSize": 911360,
-    "ratio": 0.36,
-    "compressor": "sips"
-  }
-}
-```
-
-## Examples
-
-### Compress single image
-
-```bash
-npx -y bun ${SKILL_DIR}/scripts/main.ts photo.png
-# photo.png → photo.webp (1.2MB → 340KB, 72% reduction)
-```
-
-### Compress with custom quality
-
-```bash
-npx -y bun ${SKILL_DIR}/scripts/main.ts photo.png -q 60
-# photo.png → photo.webp (1.2MB → 280KB, 77% reduction)
-```
-
-### Keep original format
-
-```bash
-npx -y bun ${SKILL_DIR}/scripts/main.ts screenshot.png -f png --keep
-# screenshot.png → screenshot-compressed.png (500KB → 380KB, 24% reduction)
-```
-
-### Process entire directory
-
-```bash
-npx -y bun ${SKILL_DIR}/scripts/main.ts ./screenshots/ -r
-# Processed 15 files: 12.5MB → 4.2MB (66% reduction)
-```
-
-### Get JSON for scripting
-
-```bash
-npx -y bun ${SKILL_DIR}/scripts/main.ts image.png --json | jq '.ratio'
-```
-
 ## Extension Support
 
-Custom configurations via EXTEND.md.
-
-**Check paths** (priority order):
-1. `.baoyu-skills/baoyu-compress-image/EXTEND.md` (project)
-2. `~/.baoyu-skills/baoyu-compress-image/EXTEND.md` (user)
-
-If found, load before workflow. Extension content overrides defaults.
+Custom configurations via EXTEND.md. See **Preferences** section for paths and supported options.

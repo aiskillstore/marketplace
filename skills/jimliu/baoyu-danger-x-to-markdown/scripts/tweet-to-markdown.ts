@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { hasRequiredXCookies, loadXCookies } from "./cookies.js";
 import { fetchTweetThread } from "./thread.js";
 import { formatArticleMarkdown } from "./markdown.js";
+import { resolveReferencedTweetsFromArticle } from "./referenced-tweets.js";
 import { formatThreadTweetsMarkdown } from "./thread-markdown.js";
 import { resolveArticleEntityFromTweet } from "./tweet-article.js";
 
@@ -33,6 +34,20 @@ function normalizeInputUrl(input: string): string {
   } catch {
     return trimmed;
   }
+}
+
+function formatScriptCommand(fallback: string): string {
+  const raw = process.argv[1];
+  const displayPath = raw
+    ? (() => {
+        const relative = path.relative(process.cwd(), raw);
+        return relative && !relative.startsWith("..") ? relative : raw;
+      })()
+    : fallback;
+  const quotedPath = displayPath.includes(" ")
+    ? `"${displayPath.replace(/"/g, '\\"')}"`
+    : displayPath;
+  return `npx -y bun ${quotedPath}`;
 }
 
 function parseTweetId(input: string): string | null {
@@ -123,22 +138,16 @@ export async function tweetToMarkdown(
   const requestedUrl = normalizedUrl || buildTweetUrl(username, tweetId) || inputUrl.trim();
   const rootUrl = buildTweetUrl(username, thread.rootId ?? tweetId) ?? requestedUrl;
 
-  const meta = formatMetaMarkdown({
-    url: rootUrl,
-    requested_url: requestedUrl,
-    author,
-    author_name: name ?? null,
-    author_username: username ?? null,
-    author_url: authorUrl ?? null,
-    tweet_count: thread.totalTweets ?? tweets.length,
-  });
-
-  const parts: string[] = [meta];
-
   const articleEntity = await resolveArticleEntityFromTweet(firstTweet, cookieMap);
+  let coverImage: string | null = null;
   let remainingTweets = tweets;
+  const parts: string[] = [];
+
   if (articleEntity) {
-    const articleMarkdown = formatArticleMarkdown(articleEntity).trimEnd();
+    const referencedTweets = await resolveReferencedTweetsFromArticle(articleEntity, cookieMap, { log });
+    const articleResult = formatArticleMarkdown(articleEntity, { referencedTweets });
+    coverImage = articleResult.coverUrl;
+    const articleMarkdown = articleResult.markdown.trimEnd();
     if (articleMarkdown) {
       parts.push(articleMarkdown);
       const firstTweetText = extractTweetText(firstTweet);
@@ -147,6 +156,19 @@ export async function tweetToMarkdown(
       }
     }
   }
+
+  const meta = formatMetaMarkdown({
+    url: rootUrl,
+    requestedUrl: requestedUrl,
+    author,
+    authorName: name ?? null,
+    authorUsername: username ?? null,
+    authorUrl: authorUrl ?? null,
+    tweetCount: thread.totalTweets ?? tweets.length,
+    coverImage,
+  });
+
+  parts.unshift(meta);
 
   if (remainingTweets.length > 0) {
     const hasArticle = parts.length > 1;
@@ -171,7 +193,7 @@ async function main() {
   const { url } = parseArgs();
   if (!url) {
     console.error("Usage:");
-    console.error("  npx -y bun skills/baoyu-danger-x-to-markdown/scripts/tweet-to-markdown.ts <tweet url>");
+    console.error(`  ${formatScriptCommand("scripts/tweet-to-markdown.ts")} <tweet url>`);
     process.exit(1);
   }
 

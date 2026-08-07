@@ -20,4 +20,4 @@ Technical explanations, complex narratives, timelines
 
 ## Best Style Pairings
 
-tech, ohmsha, vibrant
+ohmsha, vibrant

@@ -37,6 +37,8 @@ type InitOptions = {
 
 type RequestKwargs = RequestInit & { timeout_ms?: number };
 
+const GENERATED_IMAGE_URL_PREFIX = 'https://lh3.googleusercontent.com/gg-dl/';
+
 function normalize_headers(h?: HeadersInit): Record<string, string> {
   if (!h) return {};
   if (Array.isArray(h)) return Object.fromEntries(h.map(([k, v]) => [k, v]));
@@ -76,6 +78,59 @@ function collect_strings(root: unknown, accept: (s: string) => boolean, limit: n
   }
 
   return out;
+}
+
+function collect_generated_image_urls(root: unknown, limit: number = 4): string[] {
+  return collect_strings(root, (s) => s.startsWith(GENERATED_IMAGE_URL_PREFIX), limit);
+}
+
+function parse_response_part_body(part: unknown): unknown[] | null {
+  if (!Array.isArray(part)) return null;
+  const part_body = get_nested_value<string | null>(part, [2], null);
+  if (!part_body) return null;
+  try {
+    const part_json = JSON.parse(part_body) as unknown;
+    return Array.isArray(part_json) ? part_json : null;
+  } catch {
+    return null;
+  }
+}
+
+function find_generated_image_part(
+  response_json: unknown[],
+  body_index: number,
+  candidate_index: number,
+  limit: number = 4,
+): { body: unknown[]; urls: string[] } | null {
+  for (let part_index = body_index; part_index < response_json.length; part_index++) {
+    const part_json = parse_response_part_body(response_json[part_index]);
+    if (!part_json) continue;
+    const cand = get_nested_value<unknown>(part_json, [4, candidate_index], null);
+    if (!cand) continue;
+    const urls = collect_generated_image_urls(cand, limit);
+    if (urls.length > 0) return { body: part_json, urls };
+  }
+  return null;
+}
+
+export function collect_generated_image_urls_from_response_parts(
+  response_json: unknown[],
+  body_index: number,
+  candidate_index: number,
+  limit: number = 4,
+): string[] {
+  return find_generated_image_part(response_json, body_index, candidate_index, limit)?.urls ?? [];
+}
+
+function push_generated_images(
+  generated_images: GeneratedImage[],
+  urls: string[],
+  proxy: string | null,
+  cookies: Record<string, string>,
+): void {
+  for (const url of urls) {
+    generated_images.push(new GeneratedImage(url, '[Generated Image]', '', proxy, cookies));
+  }
 }
 
 export class GeminiClient extends GemMixin {
@@ -401,35 +456,19 @@ export class GeminiClient extends GemMixin {
           const generated_images: GeneratedImage[] = [];
           const wants_generated =
             get_nested_value(candidate, [12, 7, 0], null) != null ||
-            /http:\/\/googleusercontent\.com\/image_generation_content\/\d+/.test(text);
+            /http:\/\/googleusercontent\.com\/image_generation_content\/\d+/.test(text) ||
+            // Gemini 3 no longer emits the legacy marker in the candidate text; the generated
+            // image arrives in a later response part. Detect it from the raw response instead.
+            /\/gg-dl\//.test(txt) ||
+            /image_generation_content\/\d+/.test(txt);
 
           if (wants_generated) {
-            let img_body: unknown[] | null = null;
-            for (let part_index = body_index; part_index < (response_json as unknown[]).length; part_index++) {
-              const part = (response_json as unknown[])[part_index];
-              if (!Array.isArray(part)) continue;
-              const part_body = get_nested_value<string | null>(part, [2], null);
-              if (!part_body) continue;
-              try {
-                const part_json = JSON.parse(part_body) as unknown[];
-                const cand = get_nested_value<unknown>(part_json, [4, candidate_index], null);
-                if (!cand) continue;
+            const image_part = find_generated_image_part(response_json as unknown[], body_index, candidate_index, 1);
+            const img_body = image_part?.body ?? null;
 
-                const urls = collect_strings(cand, (s) => s.startsWith('https://lh3.googleusercontent.com/gg-dl/'), 1);
-                if (urls.length > 0) {
-                  img_body = part_json;
-                  break;
-                }
-              } catch {}
-            }
-
-            if (!img_body) {
-              throw new ImageGenerationError(
-                'Failed to parse generated images. Please update gemini_webapi to the latest version. If the error persists and is caused by the package, please report it on GitHub.',
-              );
-            }
-
-            const img_candidate = get_nested_value<unknown[]>(img_body, [4, candidate_index], []);
+            // Not every candidate carries a generated image (e.g. multi-candidate responses).
+            // If this candidate has no image part, skip extraction instead of failing the whole call.
+            const img_candidate = img_body ? get_nested_value<unknown[]>(img_body, [4, candidate_index], []) : [];
             const finished = get_nested_value<string | null>(img_candidate, [1, 0], null);
             if (finished) {
               text = finished.replace(/http:\/\/googleusercontent\.com\/image_generation_content\/\d+/g, '').trimEnd();
@@ -452,11 +491,20 @@ export class GeminiClient extends GemMixin {
             }
 
             if (generated_images.length === 0) {
-              const urls = collect_strings(img_candidate, (s) => s.startsWith('https://lh3.googleusercontent.com/gg-dl/'), 4);
-              for (const url of urls) {
-                generated_images.push(new GeneratedImage(url, '[Generated Image]', '', this.proxy, this.cookies));
-              }
+              push_generated_images(generated_images, collect_generated_image_urls(img_candidate), this.proxy, this.cookies);
             }
+          }
+
+          // Fallback: unconditionally scan all response parts for generated image URLs.
+          // The `wants_generated` detection above relies on `candidate[12][7][0]` and an old
+          // `googleusercontent.com/image_generation_content/` URL pattern, both of which no
+          // longer appear in the current Gemini Web API response format.
+          // When Gemini does generate images, their URLs now start with
+          // `https://lh3.googleusercontent.com/gg-dl/` and are present somewhere in the
+          // response parts — this fallback finds them so images are not silently dropped.
+          if (generated_images.length === 0) {
+            const urls = collect_generated_image_urls_from_response_parts(response_json as unknown[], body_index, candidate_index);
+            push_generated_images(generated_images, urls, this.proxy, this.cookies);
           }
 
           out.push(new Candidate({ rcid, text, thoughts, web_images, generated_images }));
