@@ -131,13 +131,37 @@ Before creating a comic, thoroughly analyze the source material to:
 
 Analysis results should be saved to `analysis.md` with:
 
-1. **YAML Front Matter**: Metadata (title, topic, time_span, languages, aspect_ratio, page_count)
+1. **YAML Front Matter**: Metadata (title, topic, time_span, source_language, user_language, aspect_ratio, recommended_page_count, recommended_art, recommended_tone, recommended_layout)
 2. **Target Audience**: Primary, secondary, tertiary audiences with their needs
 3. **Value Proposition**: What readers will gain (knowledge, emotional, practical)
 4. **Core Themes**: Table with theme, narrative potential, visual opportunity
 5. **Key Figures & Story Arcs**: Character profiles with arcs, visual identity, key moments
 6. **Content Signals**: Style and layout recommendations based on content type
 7. **Recommended Approaches**: Narrative approaches ranked by suitability
+
+### YAML Front Matter Example
+
+```yaml
+---
+title: "Alan Turing: The Father of Computing"
+topic: alan-turing-biography
+time_span: 1912-1954
+source_language: en
+user_language: zh  # From EXTEND.md or detected
+aspect_ratio: "3:4"
+recommended_page_count: 16
+recommended_art: ligne-claire  # ligne-claire|manga|realistic|ink-brush|chalk
+recommended_tone: neutral      # neutral|warm|dramatic|romantic|energetic|vintage|action
+recommended_layout: mixed      # standard|cinematic|dense|splash|mixed|webtoon
+---
+```
+
+### Language Fields
+
+| Field | Description |
+|-------|-------------|
+| `source_language` | Detected language of source content |
+| `user_language` | Output language for comic (from EXTEND.md > --lang > source_language) |
 
 ## Analysis Checklist
 

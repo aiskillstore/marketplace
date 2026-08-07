@@ -47,17 +47,22 @@ export class Model {
   static readonly UNSPECIFIED = new Model('unspecified', {}, false);
   static readonly G_3_0_PRO = new Model(
     'gemini-3.0-pro',
-    { 'x-goog-ext-525001261-jspb': '[1,null,null,null,"9d8ca3786ebdfbea",null,null,0,[4]]' },
+    { 'x-goog-ext-525001261-jspb': '[1,null,null,null,"9d8ca3786ebdfbea",null,null,0,[4],null,null,1]' },
     false,
   );
-  static readonly G_2_5_PRO = new Model(
-    'gemini-2.5-pro',
-    { 'x-goog-ext-525001261-jspb': '[1,null,null,null,"4af6c7f5da75d65d",null,null,0,[4]]' },
+  static readonly G_3_0_FLASH = new Model(
+    'gemini-3.0-flash',
+    { 'x-goog-ext-525001261-jspb': '[1,null,null,null,"fbb127bbb056c959",null,null,0,[4],null,null,1]' },
     false,
   );
-  static readonly G_2_5_FLASH = new Model(
-    'gemini-2.5-flash',
-    { 'x-goog-ext-525001261-jspb': '[1,null,null,null,"9ec249fc9ad08861",null,null,0,[4]]' },
+  static readonly G_3_0_FLASH_THINKING = new Model(
+    'gemini-3.0-flash-thinking',
+    { 'x-goog-ext-525001261-jspb': '[1,null,null,null,"5bf011840784117a",null,null,0,[4],null,null,1]' },
+    false,
+  );
+  static readonly G_3_1_PRO_PREVIEW = new Model(
+    'gemini-3.1-pro-preview',
+    {},
     false,
   );
 
@@ -68,12 +73,12 @@ export class Model {
   ) {}
 
   static from_name(name: string): Model {
-    for (const model of [Model.UNSPECIFIED, Model.G_3_0_PRO, Model.G_2_5_PRO, Model.G_2_5_FLASH]) {
+    for (const model of [Model.UNSPECIFIED, Model.G_3_0_PRO, Model.G_3_0_FLASH, Model.G_3_0_FLASH_THINKING, Model.G_3_1_PRO_PREVIEW]) {
       if (model.model_name === name) return model;
     }
 
     throw new Error(
-      `Unknown model name: ${name}. Available models: ${[Model.UNSPECIFIED, Model.G_3_0_PRO, Model.G_2_5_PRO, Model.G_2_5_FLASH]
+      `Unknown model name: ${name}. Available models: ${[Model.UNSPECIFIED, Model.G_3_0_PRO, Model.G_3_0_FLASH, Model.G_3_0_FLASH_THINKING, Model.G_3_1_PRO_PREVIEW]
         .map((m) => m.model_name)
         .join(', ')}`,
     );

@@ -27,4 +27,4 @@ Ohmsha-style tutorials, mobile reading, step-by-step guides
 
 ## Best Style Pairings
 
-ohmsha, tech, vibrant
+ohmsha, vibrant
