@@ -1,8 +1,10 @@
 ---
 name: ai-avatar-video
-description: "Create AI avatar and talking head videos via inference.sh CLI. Recommended: P-Video-Avatar (fastest, cheapest, built-in TTS). Also: OmniHuman, Fabric, PixVerse. Capabilities: audio-driven avatars, text-to-avatar, lipsync videos, talking head generation, virtual presenters. Use for: AI presenters, explainer videos, virtual influencers, dubbing, marketing videos. Triggers: ai avatar, talking head, lipsync, avatar video, virtual presenter, ai spokesperson, audio driven video, heygen alternative, synthesia alternative, talking avatar, lip sync, video avatar, ai presenter, digital human"
+description: "Create AI avatar and talking head videos via inference.sh CLI. Recommended: P-Video-Avatar (fastest, cheapest, built-in TTS). Also: OmniHuman, Fabric, PixVerse. Audio: Inworld TTS-2 (100+ languages, emotion steering for characters), ElevenLabs, Kokoro. Capabilities: audio-driven avatars, text-to-avatar, lipsync videos, talking head generation, virtual presenters, UGC content. Use for: AI presenters, explainer videos, virtual influencers, dubbing, marketing videos, UGC ads, gaming avatars, NPC dialogue. Triggers: ai avatar, talking head, lipsync, avatar video, virtual presenter, ai spokesperson, audio driven video, heygen alternative, synthesia alternative, talking avatar, lip sync, video avatar, ai presenter, digital human, ugc, ugc video, ugc ad, avatar ugc"
 allowed-tools: Bash(belt *)
 ---
+
+> **Install the belt CLI skill:** `npx skills add belt-sh/cli`
 
 # AI Avatar & Talking Head Videos
 
@@ -132,12 +134,14 @@ belt app run falai/pixverse-lipsync --input '{
 
 ## Full Workflow: TTS + Avatar (Non-TTS Models)
 
-For models without built-in TTS, generate speech first:
+For models without built-in TTS (OmniHuman, PixVerse), generate speech first:
 
 ```bash
-# 1. Generate speech from text
-belt app run infsh/kokoro-tts --input '{
-  "prompt": "Welcome to our product demo. Today I will show you..."
+# 1. Generate speech — Inworld TTS-2 for expressive character voices
+belt app run inworld/text-to-speech-2 --input '{
+  "text": "[friendly] Welcome to our product demo! [excited] Let me show you three features that will change how you work.",
+  "voice_id": "Sarah",
+  "delivery_mode": "CREATIVE"
 }' > speech.json
 
 # 2. Create avatar video with the speech
@@ -146,6 +150,8 @@ belt app run bytedance/omnihuman-1-5 --input '{
   "audio_url": "<audio-url-from-step-1>"
 }'
 ```
+
+> **Tip**: For most use cases, P-Video-Avatar with built-in TTS is simpler — no separate audio step needed. Use this workflow only when you specifically need OmniHuman (multi-character) or PixVerse (realistic lipsync).
 
 ## Full Workflow: Dub Video in Another Language
 
@@ -165,12 +171,58 @@ belt app run infsh/latentsync-1-6 --input '{
 }'
 ```
 
+## Avatar UGC Generation
+
+Create UGC-style content with P-Video-Avatar — built-in TTS, no separate audio step needed:
+
+```bash
+# 1. Generate a relatable UGC-style portrait
+belt app run pruna/p-image --input '{
+  "prompt": "casual selfie-style photo of a young woman in a cozy room, natural lighting, looking at camera, warm smile, authentic feel",
+  "aspect_ratio": "9:16"
+}'
+
+# 2. Create UGC avatar video with built-in TTS
+belt app run pruna/p-video-avatar --input '{
+  "image": "<image-url-from-step-1>",
+  "voice_script": "Okay so I just tried this product and honestly? It is a game changer. I was not expecting to love it this much but here we are!",
+  "voice": "Zephyr (Female)",
+  "voice_prompt": "Excited, casual, authentic tone like talking to a friend",
+  "video_prompt": "The person is talking casually to camera in their room, natural gestures",
+  "resolution": "1080p"
+}'
+```
+
+### Why P-Video-Avatar for UGC
+
+- **All-in-one** — built-in TTS means no separate audio generation step
+- **30 voices, 10 languages** — match your target audience
+- **Voice + video prompts** — control tone, emotion, body language, and background independently
+- **18x faster, 6x cheaper** — produce UGC at scale vs. Fabric/OmniHuman/HeyGen
+- **1080p support** — platform-ready vertical video from a single portrait image
+
+### Batch UGC: Same Product, Multiple Presenters
+
+```bash
+# Generate 3 different presenters
+for voice in "Zephyr (Female)" "Puck (Male)" "Aoede (Female)"; do
+  belt app run pruna/p-video-avatar --input "{
+    \"image\": \"https://portrait.jpg\",
+    \"voice_script\": \"This changed my morning routine completely. Five minutes and I am done.\",
+    \"voice\": \"$voice\",
+    \"voice_prompt\": \"Casual, authentic, like a real testimonial\",
+    \"video_prompt\": \"Person talking to camera in a bright kitchen\",
+    \"resolution\": \"1080p\"
+  }"
+done
+```
+
 ## Use Cases
 
-- **Marketing**: Product demos with AI presenter
+- **UGC & Marketing**: Product demos, UGC-style ads with AI presenters
 - **Education**: Course videos, explainers
-- **Localization**: Dub content in multiple languages
-- **Social Media**: Consistent virtual influencer
+- **Localization**: Dub content across 10 languages from one image
+- **Social Media**: Consistent virtual influencer content
 - **Corporate**: Training videos, announcements
 - **Gaming**: Character avatars, NPC dialogue
 
@@ -190,7 +242,7 @@ belt app run infsh/latentsync-1-6 --input '{
 # Dedicated P-Video-Avatar skill
 npx skills add inference-sh/skills@p-video-avatar
 
-# Full platform skill (all 250+ apps)
+# Full platform skill (all apps)
 npx skills add inference-sh/skills@infsh-cli
 
 # Text-to-speech (generate audio for non-TTS avatar models)

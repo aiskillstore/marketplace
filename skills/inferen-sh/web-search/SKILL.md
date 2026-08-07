@@ -1,8 +1,10 @@
 ---
 name: web-search
 description: "Web search and content extraction with Tavily and Exa via inference.sh CLI. Apps: Tavily Search, Tavily Extract, Exa Search, Exa Answer, Exa Extract. Capabilities: AI-powered search, content extraction, direct answers, research. Use for: research, RAG pipelines, fact-checking, content aggregation, agents. Triggers: web search, tavily, exa, search api, content extraction, research, internet search, ai search, search assistant, web scraping, rag, perplexity alternative"
-allowed-tools: Bash(infsh *)
+allowed-tools: Bash(belt *)
 ---
+
+> **Install the belt CLI skill:** `npx skills add belt-sh/cli`
 
 # Web Search & Extraction
 
@@ -12,13 +14,13 @@ Search the web and extract content via [inference.sh](https://inference.sh) CLI.
 
 ## Quick Start
 
-> Requires inference.sh CLI (`infsh`). [Install instructions](https://raw.githubusercontent.com/inference-sh/skills/refs/heads/main/cli-install.md)
+> Requires inference.sh CLI (`belt`). [Install instructions](https://raw.githubusercontent.com/inference-sh/skills/refs/heads/main/cli-install.md)
 
 ```bash
-infsh login
+belt login
 
 # Search the web
-infsh app run tavily/search-assistant --input '{"query": "latest AI developments 2024"}'
+belt app run tavily/search-assistant --input '{"query": "latest AI developments 2024"}'
 ```
 
 
@@ -44,7 +46,7 @@ infsh app run tavily/search-assistant --input '{"query": "latest AI developments
 ### Tavily Search
 
 ```bash
-infsh app run tavily/search-assistant --input '{
+belt app run tavily/search-assistant --input '{
   "query": "What are the best practices for building AI agents?"
 }'
 ```
@@ -54,7 +56,7 @@ Returns AI-generated answers with sources and images.
 ### Tavily Extract
 
 ```bash
-infsh app run tavily/extract --input '{
+belt app run tavily/extract --input '{
   "urls": ["https://example.com/article1", "https://example.com/article2"]
 }'
 ```
@@ -64,7 +66,7 @@ Extracts clean text and images from multiple URLs.
 ### Exa Search
 
 ```bash
-infsh app run exa/search --input '{
+belt app run exa/search --input '{
   "query": "machine learning frameworks comparison"
 }'
 ```
@@ -74,7 +76,7 @@ Returns highly relevant links with context.
 ### Exa Answer
 
 ```bash
-infsh app run exa/answer --input '{
+belt app run exa/answer --input '{
   "question": "What is the population of Tokyo?"
 }'
 ```
@@ -84,7 +86,7 @@ Returns direct factual answers.
 ### Exa Extract
 
 ```bash
-infsh app run exa/extract --input '{
+belt app run exa/extract --input '{
   "url": "https://example.com/research-paper"
 }'
 ```
@@ -95,12 +97,12 @@ Extracts and analyzes web page content.
 
 ```bash
 # 1. Search for information
-infsh app run tavily/search-assistant --input '{
+belt app run tavily/search-assistant --input '{
   "query": "latest developments in quantum computing"
 }' > search_results.json
 
 # 2. Analyze with Claude
-infsh app run openrouter/claude-sonnet-45 --input '{
+belt app run openrouter/claude-sonnet-45 --input '{
   "prompt": "Based on this research, summarize the key trends: <search-results>"
 }'
 ```
@@ -109,12 +111,12 @@ infsh app run openrouter/claude-sonnet-45 --input '{
 
 ```bash
 # 1. Extract content from URL
-infsh app run tavily/extract --input '{
+belt app run tavily/extract --input '{
   "urls": ["https://example.com/long-article"]
 }' > content.json
 
 # 2. Summarize with LLM
-infsh app run openrouter/claude-haiku-45 --input '{
+belt app run openrouter/claude-haiku-45 --input '{
   "prompt": "Summarize this article in 3 bullet points: <content>"
 }'
 ```
@@ -130,7 +132,7 @@ infsh app run openrouter/claude-haiku-45 --input '{
 ## Related Skills
 
 ```bash
-# Full platform skill (all 150+ apps)
+# Full platform skill (all apps)
 npx skills add inference-sh/skills@infsh-cli
 
 # LLM models (combine with search for RAG)
@@ -140,7 +142,7 @@ npx skills add inference-sh/skills@llm-models
 npx skills add inference-sh/skills@ai-image-generation
 ```
 
-Browse all apps: `infsh app list`
+Browse all apps: `belt app list`
 
 ## Documentation
 

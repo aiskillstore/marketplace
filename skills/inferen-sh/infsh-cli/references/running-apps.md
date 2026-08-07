@@ -3,19 +3,19 @@
 ## Basic Run
 
 ```bash
-infsh app run user/app-name --input input.json
+belt app run user/app-name --input input.json
 ```
 
 ## Inline JSON
 
 ```bash
-infsh app run falai/flux-dev-lora --input '{"prompt": "a sunset over mountains"}'
+belt app run falai/flux-dev-lora --input '{"prompt": "a sunset over mountains"}'
 ```
 
 ## Version Pinning
 
 ```bash
-infsh app run user/app-name@1.0.0 --input input.json
+belt app run user/app-name@1.0.0 --input input.json
 ```
 
 ## Local File Uploads
@@ -24,16 +24,16 @@ The CLI automatically uploads local files when you provide a file path instead o
 
 ```bash
 # Upscale a local image
-infsh app run falai/topaz-image-upscaler --input '{"image": "/path/to/photo.jpg", "upscale_factor": 2}'
+belt app run falai/topaz-image-upscaler --input '{"image": "/path/to/photo.jpg", "upscale_factor": 2}'
 
 # Image-to-video from local file
-infsh app run falai/wan-2-5-i2v --input '{"image": "./my-image.png", "prompt": "make it move"}'
+belt app run falai/wan-2-5-i2v --input '{"image": "./my-image.png", "prompt": "make it move"}'
 
 # Avatar with local audio and image
-infsh app run bytedance/omnihuman-1-5 --input '{"audio": "/path/to/speech.mp3", "image": "/path/to/face.jpg"}'
+belt app run bytedance/omnihuman-1-5 --input '{"audio": "/path/to/speech.mp3", "image": "/path/to/face.jpg"}'
 
 # Post tweet with local media
-infsh app run x/post-create --input '{"text": "Check this out!", "media": "./screenshot.png"}'
+belt app run x/post-create --input '{"text": "Check this out!", "media": "./screenshot.png"}'
 ```
 
 Supported paths:
@@ -46,19 +46,19 @@ Supported paths:
 Before running, generate a sample input file:
 
 ```bash
-infsh app sample falai/flux-dev-lora
+belt app sample falai/flux-dev-lora
 ```
 
 Save to file:
 
 ```bash
-infsh app sample falai/flux-dev-lora --save input.json
+belt app sample falai/flux-dev-lora --save input.json
 ```
 
 Then edit `input.json` and run:
 
 ```bash
-infsh app run falai/flux-dev-lora --input input.json
+belt app run falai/flux-dev-lora --input input.json
 ```
 
 ## Workflow Example
@@ -67,10 +67,10 @@ infsh app run falai/flux-dev-lora --input input.json
 
 ```bash
 # 1. Get app details
-infsh app get falai/flux-dev-lora
+belt app get falai/flux-dev-lora
 
 # 2. Generate sample input
-infsh app sample falai/flux-dev-lora --save input.json
+belt app sample falai/flux-dev-lora --save input.json
 
 # 3. Edit input.json
 # {
@@ -80,14 +80,14 @@ infsh app sample falai/flux-dev-lora --save input.json
 # }
 
 # 4. Run
-infsh app run falai/flux-dev-lora --input input.json
+belt app run falai/flux-dev-lora --input input.json
 ```
 
 ### Video Generation with Veo
 
 ```bash
 # 1. Generate sample
-infsh app sample google/veo-3-1-fast --save input.json
+belt app sample google/veo-3-1-fast --save input.json
 
 # 2. Edit prompt
 # {
@@ -95,14 +95,14 @@ infsh app sample google/veo-3-1-fast --save input.json
 # }
 
 # 3. Run
-infsh app run google/veo-3-1-fast --input input.json
+belt app run google/veo-3-1-fast --input input.json
 ```
 
 ### Text-to-Speech
 
 ```bash
 # Quick inline run
-infsh app run infsh/kokoro-tts --input '{"text": "Hello, this is a test."}'
+belt app run infsh/kokoro-tts --input '{"text": "Hello, this is a test."}'
 ```
 
 ## Task Tracking
@@ -118,13 +118,13 @@ For long-running tasks, you can check status anytime:
 
 ```bash
 # Check task status
-infsh task get abc123def456
+belt task get abc123def456
 
 # Get result as JSON
-infsh task get abc123def456 --json
+belt task get abc123def456 --json
 
 # Save result to file
-infsh task get abc123def456 --save result.json
+belt task get abc123def456 --save result.json
 ```
 
 ### Run Without Waiting
@@ -133,10 +133,10 @@ For very long tasks, run in background:
 
 ```bash
 # Submit and return immediately
-infsh app run google/veo-3 --input input.json --no-wait
+belt app run google/veo-3 --input input.json --no-wait
 
 # Check later
-infsh task get <task-id>
+belt task get <task-id>
 ```
 
 ## Output
@@ -160,8 +160,8 @@ Example output:
 
 | Error | Cause | Solution |
 |-------|-------|----------|
-| "invalid input" | Schema mismatch | Check `infsh app get` for required fields |
-| "app not found" | Wrong app name | Check `infsh app list --search` |
+| "invalid input" | Schema mismatch | Check `belt app get` for required fields |
+| "app not found" | Wrong app name | Check `belt app search` |
 | "quota exceeded" | Out of credits | Check account balance |
 
 ## Documentation

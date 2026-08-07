@@ -1,8 +1,10 @@
 ---
 name: remotion-render
 description: "Render videos from React/Remotion component code via inference.sh. Pass TSX code, get MP4. Supports all Remotion APIs: useCurrentFrame, useVideoConfig, spring, interpolate, AbsoluteFill, Sequence. Configurable resolution, FPS, duration, codec. Use for: programmatic video generation, animated graphics, motion design, data-driven videos, React animations to video. Triggers: remotion, render video from code, tsx to video, react video, programmatic video, remotion render, code to video, animated video, motion graphics code, react animation video"
-allowed-tools: Bash(infsh *)
+allowed-tools: Bash(belt *)
 ---
+
+> **Install the belt CLI skill:** `npx skills add belt-sh/cli`
 
 # Remotion Render
 
@@ -12,13 +14,13 @@ Render videos from React/Remotion component code via [inference.sh](https://infe
 
 ## Quick Start
 
-> Requires inference.sh CLI (`infsh`). Get installation instructions: `npx skills add inference-sh/skills@agent-tools`
+> Requires inference.sh CLI (`belt`). [Install instructions](https://raw.githubusercontent.com/inference-sh/skills/refs/heads/main/cli-install.md)
 
 ```bash
-infsh login
+belt login
 
 # Render a simple animation
-infsh app run infsh/remotion-render --input '{
+belt app run infsh/remotion-render --input '{
   "code": "import { useCurrentFrame, AbsoluteFill } from \"remotion\"; export default function Main() { const frame = useCurrentFrame(); return <AbsoluteFill style={{backgroundColor: \"#000\", display: \"flex\", justifyContent: \"center\", alignItems: \"center\"}}><h1 style={{color: \"white\", fontSize: 100, opacity: frame / 30}}>Hello World</h1></AbsoluteFill>; }",
   "duration_seconds": 3,
   "fps": 30,
@@ -68,7 +70,7 @@ import React, { useState, useEffect } from "react";
 ### Fade-In Text
 
 ```bash
-infsh app run infsh/remotion-render --input '{
+belt app run infsh/remotion-render --input '{
   "code": "import { useCurrentFrame, AbsoluteFill, interpolate } from \"remotion\"; export default function Main() { const frame = useCurrentFrame(); const opacity = interpolate(frame, [0, 30], [0, 1]); return <AbsoluteFill style={{backgroundColor: \"#1a1a2e\", display: \"flex\", justifyContent: \"center\", alignItems: \"center\"}}><h1 style={{color: \"#eee\", fontSize: 80, opacity}}>Welcome</h1></AbsoluteFill>; }",
   "duration_seconds": 2,
   "fps": 30,
@@ -80,7 +82,7 @@ infsh app run infsh/remotion-render --input '{
 ### Animated Counter
 
 ```bash
-infsh app run infsh/remotion-render --input '{
+belt app run infsh/remotion-render --input '{
   "code": "import { useCurrentFrame, useVideoConfig, AbsoluteFill } from \"remotion\"; export default function Main() { const frame = useCurrentFrame(); const { fps, durationInFrames } = useVideoConfig(); const progress = Math.floor((frame / durationInFrames) * 100); return <AbsoluteFill style={{backgroundColor: \"#000\", display: \"flex\", justifyContent: \"center\", alignItems: \"center\", flexDirection: \"column\"}}><h1 style={{color: \"#fff\", fontSize: 200}}>{progress}%</h1><p style={{color: \"#666\", fontSize: 30}}>Loading...</p></AbsoluteFill>; }",
   "duration_seconds": 5,
   "fps": 60,
@@ -92,7 +94,7 @@ infsh app run infsh/remotion-render --input '{
 ### Spring Animation
 
 ```bash
-infsh app run infsh/remotion-render --input '{
+belt app run infsh/remotion-render --input '{
   "code": "import { useCurrentFrame, useVideoConfig, spring, AbsoluteFill } from \"remotion\"; export default function Main() { const frame = useCurrentFrame(); const { fps } = useVideoConfig(); const scale = spring({ frame, fps, config: { damping: 10, stiffness: 100 } }); return <AbsoluteFill style={{backgroundColor: \"#6366f1\", display: \"flex\", justifyContent: \"center\", alignItems: \"center\"}}><div style={{width: 200, height: 200, backgroundColor: \"white\", borderRadius: 20, transform: `scale(${scale})`}} /></AbsoluteFill>; }",
   "duration_seconds": 2,
   "fps": 60,
@@ -104,7 +106,7 @@ infsh app run infsh/remotion-render --input '{
 ### With Props
 
 ```bash
-infsh app run infsh/remotion-render --input '{
+belt app run infsh/remotion-render --input '{
   "code": "import { AbsoluteFill } from \"remotion\"; export default function Main({ title, subtitle }) { return <AbsoluteFill style={{backgroundColor: \"#000\", display: \"flex\", justifyContent: \"center\", alignItems: \"center\", flexDirection: \"column\"}}><h1 style={{color: \"#fff\", fontSize: 80}}>{title}</h1><p style={{color: \"#888\", fontSize: 40}}>{subtitle}</p></AbsoluteFill>; }",
   "props": {"title": "My Video", "subtitle": "Created with Remotion"},
   "duration_seconds": 3,
@@ -117,7 +119,7 @@ infsh app run infsh/remotion-render --input '{
 ### Sequence Animation
 
 ```bash
-infsh app run infsh/remotion-render --input '{
+belt app run infsh/remotion-render --input '{
   "code": "import { useCurrentFrame, AbsoluteFill, Sequence, interpolate } from \"remotion\"; function FadeIn({ children }) { const frame = useCurrentFrame(); const opacity = interpolate(frame, [0, 20], [0, 1]); return <div style={{ opacity }}>{children}</div>; } export default function Main() { return <AbsoluteFill style={{backgroundColor: \"#000\", display: \"flex\", justifyContent: \"center\", alignItems: \"center\", flexDirection: \"column\", gap: 20}}><Sequence from={0}><FadeIn><h1 style={{color: \"#fff\", fontSize: 60}}>First</h1></FadeIn></Sequence><Sequence from={30}><FadeIn><h1 style={{color: \"#fff\", fontSize: 60}}>Second</h1></FadeIn></Sequence><Sequence from={60}><FadeIn><h1 style={{color: \"#fff\", fontSize: 60}}>Third</h1></FadeIn></Sequence></AbsoluteFill>; }",
   "duration_seconds": 4,
   "fps": 30,
@@ -199,7 +201,7 @@ npx skills add inference-sh/skills@ai-image-generation
 npx skills add inference-sh/skills@python-sdk
 
 # Full platform skill
-npx skills add inference-sh/skills@agent-tools
+npx skills add inference-sh/skills@infsh-cli
 ```
 
 ## Documentation

@@ -1,8 +1,10 @@
 ---
 name: twitter-automation
 description: "Automate Twitter/X with posting, engagement, and user management via inference.sh CLI. Apps: x/post-tweet, x/post-create (with media), x/post-like, x/post-retweet, x/dm-send, x/user-follow. Capabilities: post tweets, schedule content, like posts, retweet, send DMs, follow users, get profiles. Use for: social media automation, content scheduling, engagement bots, audience growth, X API. Triggers: twitter api, x api, tweet automation, post to twitter, twitter bot, social media automation, x automation, tweet scheduler, twitter integration, post tweet, twitter post, x post, send tweet"
-allowed-tools: Bash(infsh *)
+allowed-tools: Bash(belt *)
 ---
+
+> **Install the belt CLI skill:** `npx skills add belt-sh/cli`
 
 # Twitter/X Automation
 
@@ -12,13 +14,13 @@ Automate Twitter/X via [inference.sh](https://inference.sh) CLI.
 
 ## Quick Start
 
-> Requires inference.sh CLI (`infsh`). Get installation instructions: `npx skills add inference-sh/skills@agent-tools`
+> Requires inference.sh CLI (`belt`). [Install instructions](https://raw.githubusercontent.com/inference-sh/skills/refs/heads/main/cli-install.md)
 
 ```bash
-infsh login
+belt login
 
 # Post a tweet
-infsh app run x/post-tweet --input '{"text": "Hello from inference.sh!"}'
+belt app run x/post-tweet --input '{"text": "Hello from inference.sh!"}'
 ```
 
 
@@ -41,13 +43,13 @@ infsh app run x/post-tweet --input '{"text": "Hello from inference.sh!"}'
 ### Post a Tweet
 
 ```bash
-infsh app run x/post-tweet --input '{"text": "Just shipped a new feature! 🚀"}'
+belt app run x/post-tweet --input '{"text": "Just shipped a new feature! 🚀"}'
 ```
 
 ### Post with Media
 
 ```bash
-infsh app sample x/post-create --save input.json
+belt app sample x/post-create --save input.json
 
 # Edit input.json:
 # {
@@ -55,25 +57,25 @@ infsh app sample x/post-create --save input.json
 #   "media_url": "https://your-image-url.jpg"
 # }
 
-infsh app run x/post-create --input input.json
+belt app run x/post-create --input input.json
 ```
 
 ### Like a Tweet
 
 ```bash
-infsh app run x/post-like --input '{"tweet_id": "1234567890"}'
+belt app run x/post-like --input '{"tweet_id": "1234567890"}'
 ```
 
 ### Retweet
 
 ```bash
-infsh app run x/post-retweet --input '{"tweet_id": "1234567890"}'
+belt app run x/post-retweet --input '{"tweet_id": "1234567890"}'
 ```
 
 ### Send a DM
 
 ```bash
-infsh app run x/dm-send --input '{
+belt app run x/dm-send --input '{
   "recipient_id": "user_id_here",
   "text": "Hey! Thanks for the follow."
 }'
@@ -82,35 +84,35 @@ infsh app run x/dm-send --input '{
 ### Follow a User
 
 ```bash
-infsh app run x/user-follow --input '{"username": "elonmusk"}'
+belt app run x/user-follow --input '{"username": "elonmusk"}'
 ```
 
 ### Get User Profile
 
 ```bash
-infsh app run x/user-get --input '{"username": "OpenAI"}'
+belt app run x/user-get --input '{"username": "OpenAI"}'
 ```
 
 ### Get Tweet Details
 
 ```bash
-infsh app run x/post-get --input '{"tweet_id": "1234567890"}'
+belt app run x/post-get --input '{"tweet_id": "1234567890"}'
 ```
 
 ### Delete a Tweet
 
 ```bash
-infsh app run x/post-delete --input '{"tweet_id": "1234567890"}'
+belt app run x/post-delete --input '{"tweet_id": "1234567890"}'
 ```
 
 ## Workflow: Generate AI Image and Post
 
 ```bash
 # 1. Generate image
-infsh app run falai/flux-dev-lora --input '{"prompt": "sunset over mountains"}' > image.json
+belt app run falai/flux-dev-lora --input '{"prompt": "sunset over mountains"}' > image.json
 
 # 2. Post to Twitter with the image URL
-infsh app run x/post-create --input '{
+belt app run x/post-create --input '{
   "text": "AI-generated art of a sunset 🌅",
   "media_url": "<image-url-from-step-1>"
 }'
@@ -120,10 +122,10 @@ infsh app run x/post-create --input '{
 
 ```bash
 # 1. Generate video
-infsh app run google/veo-3-1-fast --input '{"prompt": "waves on a beach"}' > video.json
+belt app run google/veo-3-1-fast --input '{"prompt": "waves on a beach"}' > video.json
 
 # 2. Post to Twitter
-infsh app run x/post-create --input '{
+belt app run x/post-create --input '{
   "text": "AI-generated video 🎬",
   "media_url": "<video-url-from-step-1>"
 }'
@@ -132,8 +134,8 @@ infsh app run x/post-create --input '{
 ## Related Skills
 
 ```bash
-# Full platform skill (all 150+ apps)
-npx skills add inference-sh/skills@agent-tools
+# Full platform skill (all apps)
+npx skills add inference-sh/skills@infsh-cli
 
 # Image generation (create images to post)
 npx skills add inference-sh/skills@ai-image-generation
@@ -145,7 +147,7 @@ npx skills add inference-sh/skills@ai-video-generation
 npx skills add inference-sh/skills@ai-avatar-video
 ```
 
-Browse all apps: `infsh app list`
+Browse all apps: `belt app list`
 
 ## Documentation
 

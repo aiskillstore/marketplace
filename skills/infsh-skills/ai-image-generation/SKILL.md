@@ -1,8 +1,10 @@
 ---
 name: ai-image-generation
-description: "Generate AI images with FLUX, Gemini, Grok, Seedream, Reve and 50+ models via inference.sh CLI. Models: FLUX Dev LoRA, FLUX.2 Klein LoRA, Gemini 3 Pro Image, Grok Imagine, Seedream 4.5, Reve, ImagineArt. Capabilities: text-to-image, image-to-image, inpainting, LoRA, image editing, upscaling, text rendering. Use for: AI art, product mockups, concept art, social media graphics, marketing visuals, illustrations. Triggers: flux, image generation, ai image, text to image, stable diffusion, generate image, ai art, midjourney alternative, dall-e alternative, text2img, t2i, image generator, ai picture, create image with ai, generative ai, ai illustration, grok image, gemini image"
+description: "Generate AI images with GPT-Image-2, FLUX, Gemini, Grok, Seedream, Reve and 50+ models via inference.sh CLI. Models: GPT-Image-2, FLUX Dev LoRA, FLUX.2 Klein LoRA, Gemini 3 Pro Image, Grok Imagine, Seedream 4.5, Reve, ImagineArt. Capabilities: text-to-image, image-to-image, inpainting, LoRA, image editing, upscaling, text rendering. Use for: AI art, product mockups, concept art, social media graphics, marketing visuals, illustrations. Triggers: flux, image generation, ai image, text to image, stable diffusion, generate image, ai art, midjourney alternative, dall-e alternative, text2img, t2i, image generator, ai picture, create image with ai, generative ai, ai illustration, grok image, gemini image, gpt image, openai image, chatgpt image"
 allowed-tools: Bash(belt *)
 ---
+
+> **Install the belt CLI skill:** `npx skills add belt-sh/cli`
 
 # AI Image Generation
 
@@ -26,6 +28,7 @@ belt app run falai/flux-dev-lora --input '{"prompt": "a cat astronaut in space"}
 
 | Model | App ID | Best For |
 |-------|--------|----------|
+| **GPT-Image-2** | `openai/gpt-image-2` | Text-to-image, editing, inpainting |
 | FLUX Dev LoRA | `falai/flux-dev-lora` | High quality with custom styles |
 | FLUX.2 Klein LoRA | `falai/flux-2-klein-lora` | Fast with LoRA support (4B/9B) |
 | **P-Image** | `pruna/p-image` | Fast, economical, multiple aspects |
@@ -49,6 +52,24 @@ belt app list --category image
 ```
 
 ## Examples
+
+### GPT-Image-2
+
+```bash
+belt app run openai/gpt-image-2 --input '{
+  "prompt": "professional product photo of sneakers, studio lighting",
+  "quality": "high"
+}'
+```
+
+### GPT-Image-2 Editing
+
+```bash
+belt app run openai/gpt-image-2 --input '{
+  "prompt": "change the background to a beach at sunset",
+  "images": ["https://your-image.jpg"]
+}'
+```
 
 ### Text-to-Image with FLUX
 
@@ -115,11 +136,14 @@ belt app run infsh/stitch-images --input '{
 ## Related Skills
 
 ```bash
-# Full platform skill (all 250+ apps)
+# Full platform skill (all apps)
 npx skills add inference-sh/skills@infsh-cli
 
 # Pruna P-Image (fast & economical)
 npx skills add inference-sh/skills@p-image
+
+# GPT-Image-2 (OpenAI)
+npx skills add inference-sh/skills@gpt-image
 
 # FLUX-specific skill
 npx skills add inference-sh/skills@flux-image

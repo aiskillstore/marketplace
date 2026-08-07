@@ -4,6 +4,8 @@ description: "Execute Python code in a safe sandboxed environment via [inference
 allowed-tools: Bash(belt *)
 ---
 
+> **Install the belt CLI skill:** `npx skills add belt-sh/cli`
+
 # Python Code Executor
 
 Execute Python code in a safe, sandboxed environment with 100+ pre-installed libraries.

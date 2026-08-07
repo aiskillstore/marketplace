@@ -4,6 +4,8 @@ description: "Automate Twitter/X with posting, engagement, and user management v
 allowed-tools: Bash(belt *)
 ---
 
+> **Install the belt CLI skill:** `npx skills add belt-sh/cli`
+
 # Twitter/X Automation
 
 Automate Twitter/X via [inference.sh](https://inference.sh) CLI.
@@ -132,7 +134,7 @@ belt app run x/post-create --input '{
 ## Related Skills
 
 ```bash
-# Full platform skill (all 250+ apps)
+# Full platform skill (all apps)
 npx skills add inference-sh/skills@infsh-cli
 
 # Image generation (create images to post)

@@ -1,8 +1,10 @@
 ---
 name: nano-banana-2
 description: "Generate images with Google Gemini 3.1 Flash Image Preview (Nano Banana 2) via inference.sh CLI. Capabilities: text-to-image, image editing, multi-image input (up to 14 images), Google Search grounding. Triggers: nano banana 2, nanobanana 2, gemini 3.1 flash image, gemini 3 1 flash image preview, google image generation"
-allowed-tools: Bash(infsh *)
+allowed-tools: Bash(belt *)
 ---
+
+> **Install the belt CLI skill:** `npx skills add belt-sh/cli`
 
 # Nano Banana 2 - Gemini 3.1 Flash Image Preview
 
@@ -10,12 +12,12 @@ Generate images with Google Gemini 3.1 Flash Image Preview via [inference.sh](ht
 
 ## Quick Start
 
-> Requires inference.sh CLI (`infsh`). Get installation instructions: `npx skills add inference-sh/skills@agent-tools`
+> Requires inference.sh CLI (`belt`). [Install instructions](https://raw.githubusercontent.com/inference-sh/skills/refs/heads/main/cli-install.md)
 
 ```bash
-infsh login
+belt login
 
-infsh app run google/gemini-3-1-flash-image-preview --input '{"prompt": "a banana in space, photorealistic"}'
+belt app run google/gemini-3-1-flash-image-preview --input '{"prompt": "a banana in space, photorealistic"}'
 ```
 
 
@@ -24,7 +26,7 @@ infsh app run google/gemini-3-1-flash-image-preview --input '{"prompt": "a banan
 ### Basic Text-to-Image
 
 ```bash
-infsh app run google/gemini-3-1-flash-image-preview --input '{
+belt app run google/gemini-3-1-flash-image-preview --input '{
   "prompt": "A futuristic cityscape at sunset with flying cars"
 }'
 ```
@@ -32,7 +34,7 @@ infsh app run google/gemini-3-1-flash-image-preview --input '{
 ### Multiple Images
 
 ```bash
-infsh app run google/gemini-3-1-flash-image-preview --input '{
+belt app run google/gemini-3-1-flash-image-preview --input '{
   "prompt": "Minimalist logo design for a coffee shop",
   "num_images": 4
 }'
@@ -41,7 +43,7 @@ infsh app run google/gemini-3-1-flash-image-preview --input '{
 ### Custom Aspect Ratio
 
 ```bash
-infsh app run google/gemini-3-1-flash-image-preview --input '{
+belt app run google/gemini-3-1-flash-image-preview --input '{
   "prompt": "Panoramic mountain landscape with northern lights",
   "aspect_ratio": "16:9"
 }'
@@ -50,7 +52,7 @@ infsh app run google/gemini-3-1-flash-image-preview --input '{
 ### Image Editing (with input images)
 
 ```bash
-infsh app run google/gemini-3-1-flash-image-preview --input '{
+belt app run google/gemini-3-1-flash-image-preview --input '{
   "prompt": "Add a rainbow in the sky",
   "images": ["https://example.com/landscape.jpg"]
 }'
@@ -59,7 +61,7 @@ infsh app run google/gemini-3-1-flash-image-preview --input '{
 ### High Resolution (4K)
 
 ```bash
-infsh app run google/gemini-3-1-flash-image-preview --input '{
+belt app run google/gemini-3-1-flash-image-preview --input '{
   "prompt": "Detailed illustration of a medieval castle",
   "resolution": "4K"
 }'
@@ -68,7 +70,7 @@ infsh app run google/gemini-3-1-flash-image-preview --input '{
 ### With Google Search Grounding
 
 ```bash
-infsh app run google/gemini-3-1-flash-image-preview --input '{
+belt app run google/gemini-3-1-flash-image-preview --input '{
   "prompt": "Current weather in Tokyo visualized as an artistic scene",
   "enable_google_search": true
 }'
@@ -108,11 +110,11 @@ infsh app run google/gemini-3-1-flash-image-preview --input '{
 
 ```bash
 # 1. Generate sample input to see all options
-infsh app sample google/gemini-3-1-flash-image-preview --save input.json
+belt app sample google/gemini-3-1-flash-image-preview --save input.json
 
 # 2. Edit the prompt
 # 3. Run
-infsh app run google/gemini-3-1-flash-image-preview --input input.json
+belt app run google/gemini-3-1-flash-image-preview --input input.json
 ```
 
 ## Python SDK
@@ -150,14 +152,14 @@ for update in client.run({
 # Original Nano Banana (Gemini 3 Pro Image, Gemini 2.5 Flash Image)
 npx skills add inference-sh/skills@nano-banana
 
-# Full platform skill (all 150+ apps)
-npx skills add inference-sh/skills@agent-tools
+# Full platform skill (all apps)
+npx skills add inference-sh/skills@infsh-cli
 
 # All image generation models
 npx skills add inference-sh/skills@ai-image-generation
 ```
 
-Browse all image apps: `infsh app list --category image`
+Browse all image apps: `belt app list --category image`
 
 ## Documentation
 

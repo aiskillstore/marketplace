@@ -1,60 +1,69 @@
 # Discovering Apps
 
-## List All Apps
+## Your Apps
 
 ```bash
-infsh app list
+belt app list
+belt app list --search "flux"
+belt app search "flux"
+belt app list -l  # detailed
+```
+
+## Browse the Public Store
+
+```bash
+belt app list
 ```
 
 ## Pagination
 
 ```bash
-infsh app list --page 2
+belt app list --page 2
 ```
 
 ## Filter by Category
 
 ```bash
-infsh app list --category image
-infsh app list --category video
-infsh app list --category audio
-infsh app list --category text
-infsh app list --category other
+belt app list --category image
+belt app list --category video
+belt app list --category audio
+belt app list --category text
+belt app list --category other
 ```
 
-## Search
+## Search the Store
 
 ```bash
-infsh app search "flux"
-infsh app search "video generation"
-infsh app search "tts" -l
-infsh app search "image" --category image
+belt app search "flux"
+belt app search "video generation"
+belt app search "tts" -l
+belt app search "image" --category image
 ```
 
 Or use the flag form:
 
 ```bash
-infsh app list --search "flux"
-infsh app list --search "video generation"
-infsh app list --search "tts"
+belt app list --search "flux"
+belt app list --search "video generation"
+belt app list --search "tts"
 ```
 
 ## Featured Apps
 
 ```bash
-infsh app list --featured
+belt app list --featured
 ```
 
 ## Newest First
 
 ```bash
-infsh app list --new
+belt app list --new
 ```
 
 ## Detailed View
 
 ```bash
-infsh app list -l
+belt app list -l
 ```
 
 Shows table with app name, category, description, and featured status.
@@ -62,23 +71,14 @@ Shows table with app name, category, description, and featured status.
 ## Save to File
 
 ```bash
-infsh app list --save apps.json
-```
-
-## Your Apps
-
-List apps you've deployed:
-
-```bash
-infsh app my
-infsh app my -l  # detailed
+belt app list --save apps.json
 ```
 
 ## Get App Details
 
 ```bash
-infsh app get falai/flux-dev-lora
-infsh app get falai/flux-dev-lora --json
+belt app get falai/flux-dev-lora
+belt app get falai/flux-dev-lora --json
 ```
 
 Shows full app info including input/output schema.
@@ -95,7 +95,8 @@ Shows full app info including input/output schema.
 ### Video Generation
 - `google/veo-3-1-fast` - Veo 3.1 Fast
 - `google/veo-3` - Veo 3
-- `bytedance/seedance-1-5-pro` - Seedance 1.5 Pro
+- `bytedance/seedance-2-0` - Seedance 2.0
+- `bytedance/seedance-2-0-fast` - Seedance 2.0 Fast
 - `infsh/ltx-video-2` - LTX Video 2 (with audio)
 - `bytedance/omnihuman-1-5` - OmniHuman avatar
 

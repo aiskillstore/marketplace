@@ -3,6 +3,8 @@ name: widgets-ui
 description: "Declarative UI widgets from JSON for React/Next.js from ui.inference.sh. Render rich interactive UIs from structured agent responses. Capabilities: forms, buttons, cards, layouts, inputs, selects, checkboxes. Use for: agent-generated UIs, dynamic forms, data display, interactive cards. Triggers: widgets, declarative ui, json ui, widget renderer, agent widgets, dynamic ui, form widgets, card widgets, shadcn widgets, structured output ui"
 ---
 
+> **Install the belt CLI skill:** `npx skills add belt-sh/cli`
+
 # Widget Renderer
 
 Declarative UI from JSON via [ui.inference.sh](https://ui.inference.sh).

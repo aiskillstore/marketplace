@@ -1,12 +1,14 @@
 ---
 name: infsh-cli
-description: "Run 250+ AI apps via inference.sh CLI - image generation, video creation, LLMs, search, 3D, Twitter automation. Models: FLUX, Veo, Gemini, Grok, Claude, Seedance, OmniHuman, Tavily, Exa, OpenRouter, and many more. Use when running AI apps, generating images/videos, calling LLMs, web search, or automating Twitter. Triggers: inference.sh, infsh, ai model, run ai, serverless ai, ai api, flux, veo, claude api, image generation, video generation, openrouter, tavily, exa search, twitter api, grok"
+description: "Run AI apps via inference.sh CLI - image generation, video creation, LLMs, search, 3D, Twitter automation. Models: FLUX, Veo, Gemini, Grok, Claude, Seedance, OmniHuman, Tavily, Exa, OpenRouter, and many more. Use when running AI apps, generating images/videos, calling LLMs, web search, or automating Twitter. Triggers: inference.sh, infsh, ai model, run ai, serverless ai, ai api, flux, veo, claude api, image generation, video generation, openrouter, tavily, exa search, twitter api, grok"
 allowed-tools: Bash(belt *)
 ---
 
+> **Install the belt CLI skill:** `npx skills add belt-sh/cli`
+
 # [inference.sh](https://inference.sh)
 
-Run 250+ AI apps in the cloud with a simple CLI. No GPU required.
+Run AI apps in the cloud with a simple CLI. No GPU required.
 
 ![[inference.sh](https://inference.sh)](https://cloud.inference.sh/app/files/u/4mg21r6ta37mpaz6ktzwtt8krr/01kgjw8atdxgkrsr8a2t5peq7b.jpeg)
 
@@ -75,9 +77,10 @@ belt app run x/post-create --input '{"text": "Check this out!", "media": "./scre
 
 | Task | Command |
 |------|---------|
-| List all apps | `belt app list` |
-| Search apps | `belt app list --search "flux"` |
+| Browse the app store | `belt app list` |
+| Search the store | `belt app search "flux"` |
 | Filter by category | `belt app list --category image` |
+| List your apps | `belt app list` |
 | Get app details | `belt app get google/veo-3-1-fast` |
 | Generate sample input | `belt app sample google/veo-3-1-fast --save input.json` |
 | Run app | `belt app run google/veo-3-1-fast --input input.json` |
@@ -89,7 +92,7 @@ belt app run x/post-create --input '{"text": "Check this out!", "media": "./scre
 | Category | Examples |
 |----------|----------|
 | **Image** | FLUX, Gemini 3 Pro, Grok Imagine, Seedream 4.5, Reve, Topaz Upscaler |
-| **Video** | Veo 3.1, Seedance 1.5, Wan 2.5, OmniHuman, Fabric, HunyuanVideo Foley |
+| **Video** | Veo 3.1, Seedance 2.0, Wan 2.5, OmniHuman, Fabric, HunyuanVideo Foley |
 | **LLMs** | Claude Opus/Sonnet/Haiku, Gemini 3 Pro, Kimi K2, GLM-4, any OpenRouter model |
 | **Search** | Tavily Search, Tavily Extract, Exa Search, Exa Answer, Exa Extract |
 | **3D** | Rodin 3D Generator |

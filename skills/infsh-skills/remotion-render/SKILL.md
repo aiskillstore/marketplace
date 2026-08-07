@@ -4,6 +4,8 @@ description: "Render videos from React/Remotion component code via inference.sh.
 allowed-tools: Bash(belt *)
 ---
 
+> **Install the belt CLI skill:** `npx skills add belt-sh/cli`
+
 # Remotion Render
 
 Render videos from React/Remotion component code via [inference.sh](https://inference.sh) CLI.

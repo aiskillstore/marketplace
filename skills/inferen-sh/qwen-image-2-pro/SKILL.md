@@ -1,8 +1,10 @@
 ---
 name: qwen-image-2-pro
 description: "Generate images with Alibaba Qwen-Image-2.0-Pro via inference.sh CLI. Professional text rendering, fine-grained realism, enhanced semantic adherence. Ideal for posters, banners, and text-heavy designs. Triggers: qwen image pro, qwen-image-pro, qwen 2 pro, alibaba image pro, dashscope pro, professional text rendering"
-allowed-tools: Bash(infsh *)
+allowed-tools: Bash(belt *)
 ---
+
+> **Install the belt CLI skill:** `npx skills add belt-sh/cli`
 
 # Qwen-Image Pro - Professional Image Generation
 
@@ -12,12 +14,12 @@ Generate images with Alibaba Qwen-Image-2.0-Pro via [inference.sh](https://infer
 
 ## Quick Start
 
-> Requires inference.sh CLI (`infsh`). Get installation instructions: `npx skills add inference-sh/skills@agent-tools`
+> Requires inference.sh CLI (`belt`). [Install instructions](https://raw.githubusercontent.com/inference-sh/skills/refs/heads/main/cli-install.md)
 
 ```bash
-infsh login
+belt login
 
-infsh app run alibaba/qwen-image-2-pro --input '{"prompt": "Poster with title \"Welcome!\" in bold blue text"}'
+belt app run alibaba/qwen-image-2-pro --input '{"prompt": "Poster with title \"Welcome!\" in bold blue text"}'
 ```
 
 
@@ -33,7 +35,7 @@ infsh app run alibaba/qwen-image-2-pro --input '{"prompt": "Poster with title \"
 ### Basic Text-to-Image
 
 ```bash
-infsh app run alibaba/qwen-image-2-pro --input '{
+belt app run alibaba/qwen-image-2-pro --input '{
   "prompt": "A futuristic cityscape at sunset with flying cars"
 }'
 ```
@@ -41,7 +43,7 @@ infsh app run alibaba/qwen-image-2-pro --input '{
 ### Text-Heavy Poster
 
 ```bash
-infsh app run alibaba/qwen-image-2-pro --input '{
+belt app run alibaba/qwen-image-2-pro --input '{
   "prompt": "Healing-style hand-drawn poster featuring three puppies playing with a ball. The main title \"Come Play Ball!\" is prominently displayed at the top in bold, blue cartoon font. Below, the subtitle \"Join the Fun!\" appears in green font.",
   "width": 1024,
   "height": 1536,
@@ -52,7 +54,7 @@ infsh app run alibaba/qwen-image-2-pro --input '{
 ### Marketing Banner
 
 ```bash
-infsh app run alibaba/qwen-image-2-pro --input '{
+belt app run alibaba/qwen-image-2-pro --input '{
   "prompt": "Professional marketing banner for summer sale. Large text \"SUMMER SALE\" in white on gradient sunset background. \"50% OFF\" in yellow below. Clean, modern design.",
   "width": 1920,
   "height": 1080,
@@ -64,7 +66,7 @@ infsh app run alibaba/qwen-image-2-pro --input '{
 ### Multiple Variations
 
 ```bash
-infsh app run alibaba/qwen-image-2-pro --input '{
+belt app run alibaba/qwen-image-2-pro --input '{
   "prompt": "Minimalist logo design for a coffee shop called \"Bean & Brew\"",
   "num_images": 4
 }'
@@ -73,7 +75,7 @@ infsh app run alibaba/qwen-image-2-pro --input '{
 ### Image Editing (Style Transfer)
 
 ```bash
-infsh app run alibaba/qwen-image-2-pro --input '{
+belt app run alibaba/qwen-image-2-pro --input '{
   "prompt": "Make the person from Image 1 wear the outfit from Image 2",
   "reference_images": [
     {"uri": "https://example.com/person.jpg"},
@@ -86,7 +88,7 @@ infsh app run alibaba/qwen-image-2-pro --input '{
 ### Reproducible Generation
 
 ```bash
-infsh app run alibaba/qwen-image-2-pro --input '{
+belt app run alibaba/qwen-image-2-pro --input '{
   "prompt": "Abstract geometric art in blue and gold",
   "seed": 12345
 }'
@@ -144,11 +146,11 @@ Style: professional, clean, modern.
 
 ```bash
 # 1. Generate sample input to see all options
-infsh app sample alibaba/qwen-image-2-pro --save input.json
+belt app sample alibaba/qwen-image-2-pro --save input.json
 
 # 2. Edit the prompt
 # 3. Run
-infsh app run alibaba/qwen-image-2-pro --input input.json
+belt app run alibaba/qwen-image-2-pro --input input.json
 ```
 
 ## Python SDK
@@ -189,14 +191,14 @@ for update in client.run({
 # Standard Qwen-Image (faster, general use)
 npx skills add inference-sh/skills@qwen-image
 
-# Full platform skill (all 150+ apps)
-npx skills add inference-sh/skills@agent-tools
+# Full platform skill (all apps)
+npx skills add inference-sh/skills@infsh-cli
 
 # All image generation models
 npx skills add inference-sh/skills@ai-image-generation
 ```
 
-Browse all image apps: `infsh app list --category image`
+Browse all image apps: `belt app list --category image`
 
 ## Documentation
 

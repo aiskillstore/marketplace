@@ -18,20 +18,27 @@ curl -fsSL https://cli.inference.sh | sh
 
 ## App Commands
 
-### Discovery
+### Your Apps
 
 | Command | Description |
 |---------|-------------|
-| `belt app list` | List available apps |
+| `belt app list` | List your deployed apps |
+| `belt app list --search <query>` | Search your apps |
+| `belt app search <query>` | Search your apps (shortcut) |
+| `belt app list -l` | Detailed table view |
+
+### Store (Public Apps)
+
+| Command | Description |
+|---------|-------------|
+| `belt app list` | Browse the public app store |
 | `belt app list --category <cat>` | Filter by category (image, video, audio, text, other) |
-| `belt app search <query>` | Search apps |
-| `belt app list --search <query>` | Search apps (flag form) |
+| `belt app search <query>` | Search the store |
 | `belt app list --featured` | Show featured apps |
 | `belt app list --new` | Sort by newest |
 | `belt app list --page <n>` | Pagination |
 | `belt app list -l` | Detailed table view |
 | `belt app list --save <file>` | Save to JSON file |
-| `belt app my` | List your deployed apps |
 | `belt app get <app>` | Get app details |
 | `belt app get <app> --json` | Get app details as JSON |
 
@@ -91,7 +98,8 @@ Apps use the format `namespace/app-name`:
 - `falai/flux-dev-lora` - fal.ai's FLUX 2 Dev
 - `google/veo-3` - Google's Veo 3
 - `infsh/sdxl` - inference.sh's SDXL
-- `bytedance/seedance-1-5-pro` - ByteDance's Seedance
+- `bytedance/seedance-2-0` - ByteDance's Seedance 2.0
+- `bytedance/seedance-2-0-fast` - ByteDance's Seedance 2.0 Fast
 - `xai/grok-imagine-image` - xAI's Grok
 
 Version pinning: `namespace/app-name@version`
