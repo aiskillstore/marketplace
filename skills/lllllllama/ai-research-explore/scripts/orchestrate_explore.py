@@ -277,9 +277,15 @@ def normalize_variant_spec(spec: Dict[str, Any], current_research: str) -> Dict[
         )
     normalized["current_research"] = current_research
     normalized.setdefault("baseline_ref", current_research)
-    normalized.setdefault("variant_axes", {})
-    normalized.setdefault("subset_sizes", [None])
-    normalized.setdefault("short_run_steps", [None])
+    # Explicit nulls, empty lists, and scalar axis values are all valid-looking
+    # campaign inputs; coerce them so downstream passes never see a non-list.
+    raw_axes = normalized.get("variant_axes") or {}
+    normalized["variant_axes"] = {
+        key: list(value) if isinstance(value, (list, tuple)) else [value]
+        for key, value in raw_axes.items()
+    }
+    normalized["subset_sizes"] = list(normalized.get("subset_sizes") or [None])
+    normalized["short_run_steps"] = list(normalized.get("short_run_steps") or [None])
     return normalized
 
 
@@ -492,6 +498,10 @@ def normalize_candidate_ideas(
                 "campaign_idea_id": str(item.get("id") or f"idea-{index:03d}"),
                 "source_support_hint": str(item.get("source_support_hint") or ""),
                 "feasibility_hint": str(item.get("feasibility_hint") or ""),
+                "source": str(item.get("source") or ""),
+                "source_repo": str(item.get("source_repo") or ""),
+                "source_file": str(item.get("source_file") or ""),
+                "source_symbol": str(item.get("source_symbol") or ""),
                 "selection_origin": "campaign",
                 "context_anchor": str(item.get("context_anchor") or current_research),
                 "task_family_binding": str(item.get("task_family_binding") or task_binding),
@@ -603,7 +613,7 @@ def maybe_append_cli_arg(command: str, flag: Any, value: Any) -> str:
 
 def compose_variant_command(base_command: str, variant: Dict[str, Any], spec: Dict[str, Any]) -> str:
     command = base_command.strip()
-    axis_flag_map = spec.get("axis_flag_map", {})
+    axis_flag_map = spec.get("axis_flag_map") or {}
     for key, value in sorted(variant.get("axes", {}).items()):
         flag = axis_flag_map.get(key) or normalize_flag_name(key)
         command = maybe_append_cli_arg(command, flag, value)
@@ -763,6 +773,7 @@ def execute_variant_candidates(
     current_research: str,
     timeout: int,
     max_executed_variants: int,
+    campaign: Optional[Dict[str, Any]] = None,
 ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
     base_command = variant_matrix.get("base_command")
     variants = variant_matrix.get("variants", [])
@@ -770,7 +781,7 @@ def execute_variant_candidates(
         return [], []
 
     execution_kind = infer_execution_kind(base_command, variant_spec)
-    metric_policy = extract_metric_policy(variant_matrix, variant_spec, {"evaluation_source": {}})
+    metric_policy = extract_metric_policy(variant_matrix, variant_spec, campaign or {"evaluation_source": {}})
     executed_runs: List[Dict[str, Any]] = []
     stage_trace: List[Dict[str, Any]] = []
     for variant in variants[:max_executed_variants]:
@@ -1346,12 +1357,21 @@ def build_experiment_ledger(
     }
     metric_goal = normalize_metric_goal(metric_policy.get("metric_goal"))
     per_run_runtime = round(short_run_runtime_seconds / len(executed_runs), 3) if executed_runs else 0.0
+    best_run_id = None
     for item in executed_runs:
         ranking_metric = item.get("ranking_metric") if isinstance(item.get("ranking_metric"), dict) else {}
         ranking_value = safe_float(ranking_metric.get("value"))
+        # AIDE journal semantics: a run with no parsed ranking metric is buggy
+        # and can never be best — only debugged or abandoned.
+        is_buggy = ranking_metric.get("value") is None or item.get("status") not in {"success", "partial"}
+        if best_run_id is None and not is_buggy:
+            best_run_id = item.get("id")
         ledger["candidate_runs"].append(
             {
                 "id": item.get("id"),
+                "parent_run_id": "baseline",
+                "node_state": "debug-needed" if is_buggy else "improve",
+                "is_buggy": is_buggy,
                 "phase": "short-run",
                 "baseline_metric_diff": metric_delta_text(ranking_value, baseline_value, metric_goal),
                 "runtime_seconds": per_run_runtime,
@@ -1361,6 +1381,7 @@ def build_experiment_ledger(
                 "config_diff_summary": item.get("axes", {}),
             }
         )
+    ledger["best_run_id"] = best_run_id
     return ledger
 
 
@@ -1371,10 +1392,25 @@ def short_run_gate(executed_runs: List[Dict[str, Any]], eval_contract_complete: 
         return {"status": "failed", "reason": "Selected idea does not satisfy the single-variable requirement."}
     if not executed_runs:
         return {"status": "not-run", "reason": "No short-run candidates were executed."}
-    best = executed_runs[0]
-    if best.get("status") not in {"success", "partial"}:
-        return {"status": "failed", "reason": f"Best short-run candidate ended in `{best.get('status', 'unknown')}`."}
-    return {"status": "passed", "reason": f"Short-run gate passed with `{best.get('id', 'unknown')}`."}
+    # A run without a parsed ranking metric is buggy and can never pass the
+    # gate as "best" — comparability requires an observed number.
+    metric_backed = [
+        item
+        for item in executed_runs
+        if item.get("status") in {"success", "partial"}
+        and isinstance(item.get("ranking_metric"), dict)
+        and item["ranking_metric"].get("value") is not None
+    ]
+    if not metric_backed:
+        best = executed_runs[0]
+        return {
+            "status": "failed",
+            "reason": (
+                f"No executed run produced a parsed primary metric "
+                f"(best candidate `{best.get('id', 'unknown')}` ended in `{best.get('status', 'unknown')}`)."
+            ),
+        }
+    return {"status": "passed", "reason": f"Short-run gate passed with `{metric_backed[0].get('id', 'unknown')}`."}
 
 
 def eval_contract_complete(eval_contract: Dict[str, Any]) -> bool:
@@ -2225,6 +2261,7 @@ def main() -> int:
             current_research=current_research,
             timeout=campaign["execution_policy"]["variant_timeout"],
             max_executed_variants=campaign["execution_policy"]["max_executed_variants"],
+            campaign=campaign,
         )
         short_run_runtime_seconds = round(time.perf_counter() - started, 3)
         helper_stage_trace.extend(execution_trace)

@@ -11,7 +11,64 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
+
+from annotate_readme import write_annotated_readme
+
+
+def load_lessons_store():
+    """Load the shared lesson store; return None when unavailable (optional feature)."""
+    import importlib.util
+
+    module_path = Path(__file__).resolve().parents[3] / "shared" / "scripts" / "lessons_store.py"
+    if not module_path.exists():
+        return None
+    spec = importlib.util.spec_from_file_location("lessons_store", module_path)
+    if spec is None or spec.loader is None:
+        return None
+    module = importlib.util.module_from_spec(spec)
+    try:
+        spec.loader.exec_module(module)
+    except Exception:
+        return None
+    return module
+
+
+def maybe_record_lesson(repo_path: Path, context: Dict[str, Any]) -> Optional[str]:
+    """Record failure blockers and later resolutions per the continuous-learning policy."""
+    store = load_lessons_store()
+    if store is None or not store.lessons_enabled():
+        return None
+    fingerprint = store.repo_fingerprint(repo_path)
+    status = context.get("status")
+    try:
+        if status in {"partial", "blocked"}:
+            path = store.record_lesson(
+                kind="failure-fix",
+                skill="ai-research-reproduction",
+                summary=f"[{status}] {context.get('main_blocker', 'unrecorded blocker')}",
+                detail=str(context.get("documented_command") or ""),
+                fingerprint=fingerprint,
+            )
+            return str(path) if path else None
+        if status == "success":
+            prior_failures = [
+                item
+                for item in store.load_lessons()
+                if item.get("fingerprint") == fingerprint and str(item.get("summary", "")).startswith("[")
+            ]
+            if prior_failures:
+                path = store.record_lesson(
+                    kind="failure-fix",
+                    skill="ai-research-reproduction",
+                    summary=f"[resolved] {context.get('documented_command')} now succeeds",
+                    detail=f"previous blocker: {prior_failures[-1].get('summary', '')}",
+                    fingerprint=fingerprint,
+                )
+                return str(path) if path else None
+    except Exception:
+        return None
+    return None
 
 
 def locale(user_language: str) -> str:
@@ -90,7 +147,7 @@ def derive_checkpoint_hint(asset_data: Dict[str, Any]) -> str:
 
 
 def extract_config_path(command: str) -> str | None:
-    tokens = shlex.split(command, posix=False)
+    tokens = shlex.split(command, posix=True)
     for index, token in enumerate(tokens):
         if token in {"--config", "--cfg"} and index + 1 < len(tokens):
             return tokens[index + 1]
@@ -139,7 +196,10 @@ def estimate_training_duration(repo_path: Path, command: str, max_train_steps: i
     return "unknown; likely hours to multi-day on the full dataset until a bounded schedule is confirmed"
 
 
-def command_score(command: Dict[str, Any]) -> int:
+OUT_DIR_RE = re.compile(r"--out[_-]?dir[= ]([\w./-]+)")
+
+
+def command_score(command: Dict[str, Any], produced_out_dirs: frozenset = frozenset()) -> int:
     text_value = str(command.get("command", "")).lower()
     kind = command.get("kind", "run")
     score = {"run": 40, "smoke": 30, "asset": 10, "setup": 0}.get(kind, 0)
@@ -148,6 +208,13 @@ def command_score(command: Dict[str, Any]) -> int:
         score += 8
     if any(token in text_value for token in ["txt2img", "img2img", "amg.py", "transcribe", "infer", "eval"]):
         score += 8
+    # Self-contained commands (pretrained init, downloadable weights) beat
+    # commands that consume another documented command's training output.
+    if re.search(r"--init_from=|--pretrained|https?://", text_value):
+        score += 6
+    out_match = OUT_DIR_RE.search(text_value)
+    if out_match and out_match.group(1) in produced_out_dirs and command.get("category") != "training":
+        score -= 8
     if "<" in text_value and ">" in text_value:
         score -= 10
     if text_value.startswith(("pip install", "conda install", "conda env create", "conda activate", "git clone", "cd ")):
@@ -156,11 +223,30 @@ def command_score(command: Dict[str, Any]) -> int:
 
 
 def choose_goal(commands: List[Dict[str, Any]]) -> Dict[str, Any]:
+    produced_out_dirs = frozenset(
+        match.group(1)
+        for item in commands
+        if item.get("category") == "training"
+        for match in [OUT_DIR_RE.search(str(item.get("command", "")).lower())]
+        if match
+    )
+    ranked = sorted(commands, key=lambda item: -command_score(item, produced_out_dirs))
+    goal_candidates = [
+        {
+            "command": item.get("command", ""),
+            "category": item.get("category"),
+            "score": command_score(item, produced_out_dirs),
+            "needs_substitution": bool(item.get("needs_substitution")),
+        }
+        for item in ranked[:3]
+    ]
+
     for category in ["inference", "evaluation", "training", "other"]:
         candidates = [item for item in commands if item.get("category") == category]
         if not candidates:
             continue
-        best = max(candidates, key=command_score)
+        runnable = [item for item in candidates if not item.get("needs_substitution")]
+        best = max(runnable or candidates, key=lambda item: command_score(item, produced_out_dirs))
         return {
             "selected_goal": category,
             "goal_priority": category,
@@ -168,6 +254,9 @@ def choose_goal(commands: List[Dict[str, Any]]) -> Dict[str, Any]:
             "command_source": best.get("source", "readme"),
             "documented_command_kind": best.get("kind", "run"),
             "documented_command_section": best.get("section"),
+            "documented_command_source_file": best.get("source_file"),
+            "requires_substitution": bool(best.get("needs_substitution")),
+            "goal_candidates": goal_candidates,
         }
 
     return {
@@ -177,7 +266,47 @@ def choose_goal(commands: List[Dict[str, Any]]) -> Dict[str, Any]:
         "command_source": "none",
         "documented_command_kind": "none",
         "documented_command_section": None,
+        "documented_command_source_file": None,
+        "requires_substitution": False,
+        "goal_candidates": goal_candidates,
     }
+
+
+DOC_LINK_RE = re.compile(r"\]\(([^)#\s]+\.md)\)")
+DOC_PRIORITY_TOKENS = ("get_started", "getting_started", "install", "quick", "usage", "user_guide", "docs/")
+
+
+def delegate_to_docs(readme_path: str, extract_script: Path, command_data: Dict[str, Any]) -> Dict[str, Any]:
+    """When the README itself yields no runnable command, follow its local doc links.
+
+    Real repos (e.g. mmsegmentation) keep all commands in docs/get_started
+    files; without this the run degrades to repo-intake-only.
+    """
+    if any(item.get("kind") in {"run", "smoke"} for item in command_data.get("commands", [])):
+        return command_data
+    readme_file = Path(readme_path)
+    readme_text = readme_file.read_text(encoding="utf-8-sig", errors="replace")
+    links: List[tuple] = []
+    for match in DOC_LINK_RE.finditer(readme_text):
+        rel = match.group(1)
+        if rel.startswith(("http://", "https://")):
+            continue
+        target = (readme_file.parent / rel).resolve()
+        if target.exists() and target.suffix.lower() == ".md":
+            links.append((rel, target))
+    links.sort(key=lambda item: (0 if any(token in item[0].lower() for token in DOC_PRIORITY_TOKENS) else 1, len(item[0])))
+    for rel, target in links[:3]:
+        doc_data = run_json(extract_script, ["--readme", str(target), "--json"])
+        doc_commands = doc_data.get("commands", [])
+        for item in doc_commands:
+            item["source_file"] = rel
+        command_data["commands"].extend(doc_commands)
+        if any(item.get("kind") in {"run", "smoke"} for item in doc_commands):
+            command_data.setdefault("warnings", []).append(
+                f"README had no runnable commands; delegated extraction to linked doc `{rel}`."
+            )
+            break
+    return command_data
 
 
 def plan_skill_chain(selected_goal: str, include_analysis_pass: bool, include_paper_gap: bool) -> List[str]:
@@ -191,6 +320,24 @@ def plan_skill_chain(selected_goal: str, include_analysis_pass: bool, include_pa
     if include_paper_gap:
         chain.append("paper-context-resolver")
     return chain
+
+
+METRIC_RE = re.compile(
+    r"\b([A-Za-z][A-Za-z0-9_.-]{1,31})\s*[:=]\s*(-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)"
+)
+METRIC_NOISE_TOKENS = {"loss", "lr", "time", "mem", "epoch", "step", "iter", "iteration"}
+
+
+def parse_observed_metrics(output_text: str) -> Dict[str, Any]:
+    observed: Dict[str, float] = {}
+    for match in METRIC_RE.finditer(output_text):
+        observed[match.group(1)] = float(match.group(2))
+    priority = [name for name in observed if not any(token in name.lower() for token in METRIC_NOISE_TOKENS)]
+    chosen = priority[-1] if priority else (list(observed)[-1] if observed else None)
+    return {
+        "observed_metrics": observed,
+        "best_metric": {"name": chosen, "value": observed[chosen]} if chosen else None,
+    }
 
 
 def maybe_run_command(repo_path: Path, command: str, timeout: int, user_language: str) -> Dict[str, Any]:
@@ -208,7 +355,7 @@ def maybe_run_command(repo_path: Path, command: str, timeout: int, user_language
 
     try:
         result = subprocess.run(
-            shlex.split(command, posix=False),
+            shlex.split(command, posix=True),
             cwd=repo_path,
             capture_output=True,
             text=True,
@@ -244,18 +391,22 @@ def maybe_run_command(repo_path: Path, command: str, timeout: int, user_language
     if result.stderr.strip():
         combined.append("STDERR:\n" + result.stderr.strip())
 
+    metric_data = parse_observed_metrics("\n".join([result.stdout or "", result.stderr or ""]))
+
     if result.returncode == 0:
         return {
             "status": "success",
             "documented_command_status": "success",
             "execution_log": combined,
             "main_blocker": text(user_language, "None.", "无。"),
+            **metric_data,
         }
 
     return {
         "status": "partial",
         "documented_command_status": "partial",
         "execution_log": combined,
+        **metric_data,
         "main_blocker": text(
             user_language,
             f"Selected documented command exited with code {result.returncode}.",
@@ -465,6 +616,10 @@ def build_context(
 
     if setup_plan.get("unresolved_setup_risks"):
         human_decisions_required.extend(setup_plan["unresolved_setup_risks"])
+    if chosen.get("requires_substitution"):
+        human_decisions_required.append(
+            "Substitute the placeholder values (<...>) in the selected documented command before execution."
+        )
     if not chosen["documented_command"]:
         human_decisions_required.append("Select or confirm a documented runnable command before treating this as a reproduction run.")
     if chosen["selected_goal"] == "training" and lane == "trusted" and not full_training_authorized:
@@ -574,6 +729,9 @@ def build_context(
         "documented_command_kind": chosen.get("documented_command_kind", "none"),
         "documented_command_source": chosen.get("command_source", "none"),
         "documented_command_section": chosen.get("documented_command_section"),
+        "documented_command_source_file": chosen.get("documented_command_source_file"),
+        "requires_substitution": bool(chosen.get("requires_substitution")),
+        "goal_candidates": chosen.get("goal_candidates", []),
         "evidence_level": "direct" if chosen["documented_command"] else "mixed",
         "result_summary": result_summary,
         "main_blocker": run_data.get("main_blocker", text(user_language, "No blocker recorded.", "未记录阻塞项。")),
@@ -653,6 +811,7 @@ def main() -> int:
     command_data: Dict[str, Any] = {"commands": [], "counts": {}, "warnings": []}
     if readme_path:
         command_data = run_json(extract_script, ["--readme", readme_path, "--json"])
+        command_data = delegate_to_docs(readme_path, extract_script, command_data)
 
     output_dir = Path(args.output_dir).resolve()
     train_output_dir = Path(args.train_output_dir).resolve() if args.train_output_dir else output_dir.parent / "train_outputs"
@@ -696,7 +855,15 @@ def main() -> int:
         "checkpoint_candidates": [],
         "monitoring_scope": "not_run",
     }
-    if args.run_selected:
+    if args.run_selected and chosen.get("requires_substitution"):
+        run_data["status"] = "not_run"
+        run_data["documented_command_status"] = "not_run"
+        run_data["main_blocker"] = text(
+            args.user_language,
+            "Documented command contains placeholder values (<...>); substitute them before execution.",
+            "文档命令包含占位符（<...>），需要先替换为真实值再执行。",
+        )
+    elif args.run_selected:
         if chosen["selected_goal"] == "training":
             run_data = maybe_run_training(
                 repo_path=repo_path,
@@ -729,9 +896,30 @@ def main() -> int:
         full_training_authorized=args.full_training_authorized,
     )
 
+    context["annotated_readme"] = None
+    context["readme_section_coverage"] = {}
+    if readme_path and Path(readme_path).exists():
+        annotated_path, coverage = write_annotated_readme(
+            readme_path=Path(readme_path),
+            context={
+                **context,
+                "readme_commands": command_data.get("commands", []),
+                "execution_log": run_data.get("execution_log", []),
+                "local_dataset_present": any(
+                    item.get("asset_group") in {"datasets", "data"} and item.get("status") == "present"
+                    for item in asset_data.get("manifest", [])
+                ),
+            },
+            output_path=output_dir / "ANNOTATED_README.md",
+        )
+        context["annotated_readme"] = str(annotated_path)
+        context["readme_section_coverage"] = coverage
+
     write_bundle(repro_write_script, output_dir, context)
     if context["selected_goal"] == "training":
         write_bundle(train_write_script, train_output_dir, context)
+
+    context["lesson_recorded"] = maybe_record_lesson(repo_path, context) if args.run_selected else None
 
     print(json.dumps(context, indent=2, ensure_ascii=False))
     return 0

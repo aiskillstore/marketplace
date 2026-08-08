@@ -74,6 +74,44 @@ Initialize a new project with `localhero.json` configuration.
 npx @localheroai/cli init  # Interactive project setup
 ```
 
+**Non-interactive mode (for agents and CI):** Pass `--yes` together with the required flags to create a project without any prompts.
+
+```bash
+# New project (requires --source-locale, --target-locales, --path)
+npx @localheroai/cli init --yes \
+  --source-locale en \
+  --target-locales sv,de \
+  --path config/locales/
+
+# Reuse an existing project (requires --project-id and --path)
+# Project IDs are slugs like "my-app", visible in the web UI URL
+npx @localheroai/cli init --yes \
+  --project-id my-app \
+  --path config/locales/
+```
+
+Flags:
+
+| Flag | Description |
+|---|---|
+| `-y, --yes` | Activate non-interactive mode (required) |
+| `--project-id <id>` | Use an existing project (a slug, e.g. `my-app`); locales are read from the project |
+| `--project-name <name>` | Name for a new project (defaults to the current directory name) |
+| `--source-locale <code>` | Source locale, e.g. `en`. Required without `--project-id` |
+| `--target-locales <codes>` | Comma-separated targets, e.g. `sv,de,fr`. Required without `--project-id` |
+| `--path <dir>` | Translation files directory. Always required |
+| `--pattern <glob>` | Override the detected file pattern |
+| `--ignore <paths>` | Comma-separated ignore paths |
+| `--api-key <key>` | API key used only when no existing auth is found (see below) |
+| `--skip-import` | Do not import existing translation files |
+| `--github-action` | Opt in to creating a GitHub Actions workflow (only applies in `--yes` mode; off by default) |
+
+**Auth resolution order:** the CLI first checks `LOCALHERO_API_KEY` env var, then the `.localhero_key` file in the working directory. If either contains a valid key, that key is used and `--api-key` is ignored. Only if neither is present does `--api-key` kick in as a fallback. If none of the three are available, `init --yes` fails with an actionable error.
+
+To force a specific key in an agent workflow, either set `LOCALHERO_API_KEY` in the environment or remove any stale `.localhero_key` before running `init`.
+
+**Re-running `init --yes`:** if `localhero.json` already exists, the command verifies the config against the server and exits 0 without changing it. It runs an initial import only if the project hasn't been synced yet (`lastSyncedAt` is null in the config). Safe to re-run idempotently.
+
 ### `npx @localheroai/cli clone`
 
 Download all translation files from Localhero.ai, useful for initial setup or CI/CD builds.
@@ -112,6 +150,21 @@ Project configuration file created by `npx @localheroai/cli init`:
   }
 }
 ```
+
+Multiple translation directories (e.g. monorepos with multiple apps):
+
+```json
+{
+  "translationFiles": {
+    "paths": [
+      "apps/web/public/locales/",
+      "apps/admin/src/locales/"
+    ]
+  }
+}
+```
+
+All paths share the same project settings, glossary, and target languages. The CLI processes all paths when running `translate`, `push`, or `pull`.
 
 ### Environment Variables
 
