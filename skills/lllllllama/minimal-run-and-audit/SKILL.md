@@ -1,9 +1,16 @@
 ---
 name: minimal-run-and-audit
-description: Trusted-lane execution and reporting skill for README-first AI repo reproduction. Use when the task is specifically to capture or normalize evidence from the selected smoke test or documented inference or evaluation command and write standardized `repro_outputs/` files, including patch notes when repository files changed. Do not use for training execution, initial repo intake, generic environment setup, paper lookup, target selection, or end-to-end orchestration by itself.
+description: Rigor Run skill for README-first deep learning repo reproduction. Use when the task is specifically to capture or normalize evidence from the selected smoke test or documented inference or evaluation command and write standardized `repro_outputs/` files, including patch notes when repository files changed. Do not use for training execution, initial repo intake, generic environment setup, paper lookup, target selection, hidden scientific-meaning changes, or end-to-end orchestration by itself.
 ---
 
 # minimal-run-and-audit
+
+Use this as the Rigor Run skill. The installed slug remains
+`minimal-run-and-audit` for compatibility.
+
+Use the shared operating principles in
+`../../references/agent-operating-principles.md`; this skill should make run
+evidence auditable without turning every command into a rigid protocol.
 
 ## When to apply
 
@@ -27,6 +34,8 @@ description: Trusted-lane execution and reporting skill for README-first AI repo
 - It does not perform broad paper analysis.
 - It does not own training startup, resume, or long-running training state.
 - It should not normalize risky code edits into acceptable practice.
+- It must not hide changes that alter evaluation, preprocessing, checkpoints,
+  metrics, or other scientific meaning.
 
 ## Input expectations
 
@@ -39,9 +48,11 @@ description: Trusted-lane execution and reporting skill for README-first AI repo
 
 - execution result summary
 - standardized `repro_outputs/` files
+- `SCIENTIFIC_CHANGELOG.md` for changed scientific meaning and evidence status
+- `COMPARABILITY_REPORT.md` for README/paper/baseline comparability
 - clear distinction between verified, partial, and blocked states
 - `PATCHES.md` when repo files changed
 
 ## Notes
 
-Use `references/reporting-policy.md`, `scripts/run_command.py`, and `scripts/write_outputs.py`.
+Use `references/reporting-policy.md`, `../../references/research-rigor-principles.md`, `scripts/run_command.py`, and `scripts/write_outputs.py`.

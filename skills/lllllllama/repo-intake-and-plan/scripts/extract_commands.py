@@ -11,7 +11,12 @@ from typing import Dict, List, Optional
 
 
 CODE_BLOCK_RE = re.compile(r"```(?P<lang>[^\n`]*)\n(?P<body>.*?)```", re.DOTALL | re.IGNORECASE)
-INLINE_CMD_RE = re.compile(r"^\s*(?:\$|>|PS> )\s*(.+)$")
+# Bare ">" is deliberately excluded: it marks markdown blockquotes (prose),
+# not shell prompts, and matching it turns README notes into commands.
+INLINE_CMD_RE = re.compile(r"^\s*(?:\$|PS> )\s*(.+)$")
+# Angle-bracket placeholders (<PATH/TO/DATASET>, <NUM_NODES>) mean the command
+# cannot run verbatim: it needs researcher-supplied values first.
+PLACEHOLDER_RE = re.compile(r"<[A-Za-z][A-Za-z0-9 _./:-]*>")
 HEADING_RE = re.compile(r"^(?P<marks>#{1,6})\s+(?P<title>.+?)\s*$")
 COMMAND_PREFIXES = (
     "python ",
@@ -37,7 +42,16 @@ COMMAND_PREFIXES = (
 def collect_headings(readme_text: str) -> List[Dict[str, object]]:
     headings: List[Dict[str, object]] = []
     offset = 0
+    inside_fence = False
     for line in readme_text.splitlines(keepends=True):
+        if line.lstrip().startswith("```"):
+            inside_fence = not inside_fence
+            offset += len(line)
+            continue
+        if inside_fence:
+            # "# comment" lines inside fenced code blocks are not headings.
+            offset += len(line)
+            continue
         matched = HEADING_RE.match(line.strip())
         if matched:
             headings.append(
@@ -81,9 +95,19 @@ def infer_section_kind(section: Optional[str]) -> Optional[str]:
         return "setup"
     if any(word in lowered for word in ["download", "checkpoint", "weights", "dataset", "data preparation"]):
         return "asset"
-    if any(word in lowered for word in ["usage", "demo", "example", "inference", "evaluation", "training", "text-to-image", "image-to-image"]):
+    if any(word in lowered for word in ["usage", "demo", "example", "inference", "evaluation", "training", "text-to-image", "image-to-image", "quick start", "quickstart", "getting started"]):
         return "run"
     return None
+
+
+# The entrypoint script name is the strongest category signal: flags like
+# --eval_iters on a train.py command must not flip training into evaluation
+# (that would bypass the training-authorization gate downstream).
+SCRIPT_CATEGORY_HINTS = [
+    (re.compile(r"\b(?:pre)?train\w*\.py\b"), "training"),
+    (re.compile(r"\b(?:eval\w*|benchmark\w*|validate|test)\.py\b"), "evaluation"),
+    (re.compile(r"\b(?:sample|generate|infer\w*|predict|demo)\w*\.py\b"), "inference"),
+]
 
 
 def classify(command: str, section: Optional[str] = None) -> str:
@@ -92,26 +116,22 @@ def classify(command: str, section: Optional[str] = None) -> str:
         return section_category
 
     lowered = command.lower()
-    if any(
-        word in lowered
-        for word in [
-            "infer",
-            "inference",
-            "predict",
-            "generate",
-            "sample",
-            "demo",
-            "txt2img",
-            "img2img",
-            "transcribe",
-            "whisper ",
-            "amg.py",
-        ]
+    for pattern, category in SCRIPT_CATEGORY_HINTS:
+        if pattern.search(lowered):
+            return category
+
+    def any_word(words: List[str]) -> bool:
+        return any(re.search(rf"\b{re.escape(word)}\b", lowered) for word in words)
+
+    if any_word(["infer", "inference", "predict", "generate", "sample", "demo", "transcribe"]) or any(
+        token in lowered for token in ["txt2img", "img2img", "whisper ", "amg.py"]
     ):
         return "inference"
-    if any(word in lowered for word in ["eval", "evaluate", "validation", "validate", "benchmark", "score"]):
+    if any_word(["eval", "evaluate", "evaluation", "validation", "validate", "benchmark", "score"]):
         return "evaluation"
-    if any(word in lowered for word in ["train", "training", "finetune", "fine-tune", "pretrain", "pre-train"]):
+    if any_word(["train", "training", "finetune", "pretrain"]) or any(
+        token in lowered for token in ["fine-tune", "pre-train"]
+    ):
         return "training"
     return "other"
 
@@ -162,10 +182,26 @@ def looks_like_command(line: str) -> bool:
     return False
 
 
-def clean_lines(block: str) -> List[str]:
-    commands: List[str] = []
+def join_continuations(block: str) -> List[str]:
+    """Join backslash-continued shell lines into single logical commands."""
+    joined: List[str] = []
+    buffer = ""
     for raw_line in block.splitlines():
         line = raw_line.strip()
+        buffer = f"{buffer} {line}".strip() if buffer else line
+        if buffer.endswith("\\"):
+            buffer = buffer[:-1].rstrip()
+            continue
+        joined.append(buffer)
+        buffer = ""
+    if buffer:
+        joined.append(buffer)
+    return joined
+
+
+def clean_lines(block: str) -> List[str]:
+    commands: List[str] = []
+    for line in join_continuations(block):
         if not line or line.startswith("#"):
             continue
         if not looks_like_command(line):
@@ -200,6 +236,7 @@ def extract_commands(readme_text: str) -> Dict[str, object]:
                         "kind": command_kind(line, section),
                         "section": section,
                         "source": "code_block",
+                        "needs_substitution": bool(PLACEHOLDER_RE.search(line)),
                     }
                 )
                 seen.add(line)
@@ -223,6 +260,7 @@ def extract_commands(readme_text: str) -> Dict[str, object]:
                     "kind": command_kind(command, section),
                     "section": section,
                     "source": "inline",
+                    "needs_substitution": bool(PLACEHOLDER_RE.search(command)),
                 }
             )
             seen.add(command)

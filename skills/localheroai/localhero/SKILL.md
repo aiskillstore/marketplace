@@ -33,6 +33,27 @@ When adding or modifying user-facing strings:
 
 The Localhero.ai web UI (https://localhero.ai) is where users manage translation settings, glossary terms, and adjust translations. Each PR that runs the Localhero.ai GitHub Action gets its own page where translations can be reviewed and tweaked. Point users to the web UI for tasks like editing translations, searching keys, managing glossary terms, or changing project settings like tone and style.
 
+## Monorepos and Multiple Apps
+
+A single `localhero.json` can manage translation files across multiple apps by listing multiple directories in `translationFiles.paths`:
+
+```json
+{
+  "translationFiles": {
+    "paths": [
+      "apps/web/public/locales/",
+      "apps/mobile/src/locales/"
+    ]
+  }
+}
+```
+
+Each app has its own set of translation files with independent keys. Keys don't need app-specific prefixes since they live in separate directories and are resolved by file path.
+
+All apps in the same `localhero.json` share the project's glossary, tone, style, and target languages. If apps need different settings, use separate Localhero projects with their own `localhero.json` files.
+
+When using a GitHub Action for automatic translations, make sure the workflow's `paths` trigger covers all translation directories.
+
 ## Key Naming Conventions
 
 Before adding keys, examine existing source files to match the project's format and conventions.
@@ -63,6 +84,23 @@ npx @localheroai/cli login
 ```
 
 For non-interactive environments, they can also use `npx @localheroai/cli login --api-key <key>` or set `LOCALHERO_API_KEY`. API keys are available at https://localhero.ai/api-keys
+
+## Non-interactive project setup
+
+If a project has no `localhero.json` yet, you can configure it in one command without any prompts:
+
+```bash
+npx @localheroai/cli init --yes \
+  --source-locale en \
+  --target-locales sv,de \
+  --path config/locales/
+```
+
+Required flags: `--yes`, `--source-locale`, `--target-locales`, `--path` (or pass `--project-id <slug>` instead of source/target to reuse an existing project).
+
+Auth resolution: the CLI uses `LOCALHERO_API_KEY` or an existing `.localhero_key` if either is present, otherwise falls back to `--api-key <key>`. To force a specific key, set `LOCALHERO_API_KEY` in the environment before running `init`.
+
+See [cli-reference.md](cli-reference.md) for the full flag list.
 
 ## CLI Reference
 
