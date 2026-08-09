@@ -1,8 +1,9 @@
 ---
 name: universal-audit
-description: 'Formal, evidence-based software engineering audit producing a scored, gated release verdict. Use when asked for a "full audit", "production audit", "release audit", "formal audit", "audit report with a verdict", "is this safe to ship", customer-assurance review, or a re-audit against a prior report. Runs the Universal Software Engineering Audit Specification v2.2 end to end: intake, control selection, evidence ledger, deterministic scoring, release gates, machine-readable artifacts. NOT for quick cleanup passes or refactoring - use a lighter review flow for those.'
+description: 'Audit software releases with unforgiving standards. Use when soft approvals or incomplete scope could create deployment risk. Execute a full-lifecycle audit across fifteen core domains, including security, architecture, UX, and privacy. Apply deterministic scoring, evaluate hard evidence, and enforce release gates with hard-stop rules regardless of the overall score.'
+license: MIT
 metadata:
-  version: 1.0.0
+  version: 1.0.3
 ---
 
 # Universal Audit - Formal Production Assurance
@@ -35,7 +36,7 @@ Core discipline, non-negotiable:
 
 ## Phase 2 - Evidence Collection
 
-Work the spec Section 12 order. For each selected control, gather the minimum PASS evidence listed in the catalog or stronger. Practical guidance per family is in `references/control-procedures.md`.
+Work the spec Section 12 order. For each selected control, gather the minimum PASS evidence listed in the catalog or stronger. Practical guidance per family is in `references/control-procedures.md`. Read `references/release-evidence-catalog.md` when choosing evidence for a release gate. Read `docs/evidence-ledger-guide.md` before recording evidence for the first time.
 
 - Record every material observation in `evidence-ledger.json`: ID, class, timestamp, location (file:line, endpoint, config key), method, sanitized excerpt, limitations.
 - Repository unavailable: source-dependent claims are `UNVERIFIED - Runtime inference only`.
