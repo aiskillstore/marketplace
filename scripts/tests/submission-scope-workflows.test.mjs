@@ -738,6 +738,8 @@ test('merged approval scope comes only from immutable PR changed files', () => {
   assert.match(approval, /symlink or non-directory path component/);
   assert.match(approval, /node scripts\/resolve-approved-submission\.mjs/);
   assert.match(approval, /mapfile -t SKILL_PATHS/);
+  assert.match(approval, /diff -qr --exclude=skill-report\.json "\$PENDING_DIR" "\$TARGET_DIR"/);
+  assert.match(approval, /rm -rf -- "\$PENDING_DIR"/);
   assert.match(approval, /Refusing to overwrite existing published target/);
   assert.match(approval, /git diff --quiet "\$MERGE_COMMIT_SHA" HEAD -- "\$PENDING_DIR"/);
   assert.match(approval, /git add -A -f -- "\$\{SKILL_PATHS\[@\]\}" "\$\{TARGET_PATHS\[@\]\}"/);
