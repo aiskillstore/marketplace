@@ -41,6 +41,8 @@ input.focus()
 ```tsx
 <input
   width={30}
+  maxLength={100}                // Maximum characters
+  minLength={3}                  // Minimum length for submit() to succeed
   backgroundColor="#1a1a1a"
   textColor="#FFFFFF"
   cursorColor="#00FF00"
@@ -48,6 +50,10 @@ input.focus()
   placeholderColor="#666666"
 />
 ```
+
+> **`minLength`** (default `0`) does not block typing — it only makes `submit()`
+> (Enter) fail silently while the value is shorter than `minLength`. Setting
+> `minLength > maxLength` throws.
 
 ### Events
 
@@ -215,11 +221,16 @@ interface SelectOption {
   height={8}                    // Visible height
   selectedIndex={0}             // Initially selected
   showScrollIndicator           // Show scroll arrows
+  showSelectionIndicator={true} // Show "▶ " marker + gutter (default true)
   selectedBackgroundColor="#333"
   selectedTextColor="#fff"
   highlightBackgroundColor="#444"
 />
 ```
+
+> **`showSelectionIndicator`** (default `true`): when `false`, the `▶ ` marker is
+> hidden AND its 2-column gutter is reclaimed, so option text shifts left by 2.
+> In Core, toggle at runtime with `select.showSelectionIndicator = false`.
 
 ### Navigation
 
@@ -344,6 +355,40 @@ Default keybindings:
 - `Left` / `[` - Previous tab
 - `Right` / `]` - Next tab
 - `Enter` - Select tab
+
+## Slider Component
+
+A draggable value slider (`SliderRenderable`, exported from `@opentui/core`).
+
+```typescript
+// Core
+import { SliderRenderable, createCliRenderer } from "@opentui/core"
+
+const slider = new SliderRenderable(renderer, {
+  id: "volume",
+  orientation: "horizontal",   // "horizontal" | "vertical"
+  width: 30,
+  height: 1,
+  min: 0,
+  max: 100,
+  value: 25,
+  onChange: (value) => console.log("Value:", value),
+})
+renderer.root.add(slider)
+```
+
+| Prop | Type | Default | Description |
+|------|------|---------|-------------|
+| `orientation` | `"vertical" \| "horizontal"` | – | Required direction |
+| `value` | `number` | `min` | Current value |
+| `min` | `number` | `0` | Minimum |
+| `max` | `number` | `100` | Maximum |
+| `viewPortSize` | `number` | range × 0.1 | Thumb size relative to content |
+| `backgroundColor` | `string \| RGBA` | – | Track color |
+| `foregroundColor` | `string \| RGBA` | – | Thumb color |
+| `onChange` | `(value: number) => void` | – | Fired on change |
+
+Vertical example: `{ orientation: "vertical", width: 2, height: 10, min: 0, max: 1, value: 0.5 }`.
 
 ## Focus Management
 

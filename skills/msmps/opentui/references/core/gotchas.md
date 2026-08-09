@@ -2,21 +2,28 @@
 
 ## Runtime Environment
 
-### Use Bun, Not Node.js
+### Bun (reference runtime) or Node.js 26.3.0
 
-OpenTUI is built for Bun. Always use Bun commands:
+Bun is the reference runtime and the smoothest path — prefer it for new projects:
 
 ```bash
-# CORRECT
+# Recommended
 bun install @opentui/core
 bun run src/index.ts
 bun test
-
-# WRONG
-npm install @opentui/core
-node src/index.ts
-npx jest
 ```
+
+**Node.js is now also supported**, with caveats:
+
+- Importing `@opentui/core` (and `@opentui/keymap`) works in Node.js **without
+  FFI** as long as you don't create a native renderer.
+- Creating a **native renderer** (`createCliRenderer()`) requires FFI: **Node.js
+  26.3.0** launched with `--experimental-ffi` (and, under Node's permission
+  model, `--allow-ffi` plus filesystem permissions). OpenTUI does not install
+  Node for you.
+- The Node path is lower-level than Bun; the `packages/*/package.json` `engines`
+  fields and root README still list Bun only, but the docs site
+  (getting-started, keymap, solid pages) is the source of truth for Node support.
 
 ### Bun APIs to Use
 

@@ -10,18 +10,18 @@ Use this reference when you need to find the right component category or compare
 
 | Category | Components | File |
 |----------|------------|------|
-| Text & Display | text, ascii-font, styled text | [text-display.md](./text-display.md) |
-| Containers | box, scrollbox, borders | [containers.md](./containers.md) |
-| Inputs | input, textarea, select, tab-select | [inputs.md](./inputs.md) |
+| Text & Display | text, ascii-font, styled text, qr-code | [text-display.md](./text-display.md) |
+| Containers | box, scrollbox, scrollbar, borders | [containers.md](./containers.md) |
+| Inputs | input, textarea, select, tab-select, slider | [inputs.md](./inputs.md) |
 | Code & Diff | code, line-number, diff, markdown, text-table | [code-diff.md](./code-diff.md) |
 
 ## Component Chooser
 
 ```
 Need a component?
-├─ Styled text or ASCII art -> text-display.md
-├─ Containers, borders, scrolling -> containers.md
-├─ Forms or input controls -> inputs.md
+├─ Styled text, ASCII art, or QR code -> text-display.md
+├─ Containers, borders, scrolling, scrollbar -> containers.md
+├─ Forms, input controls, sliders -> inputs.md
 └─ Code blocks, diffs, line numbers, markdown -> code-diff.md
 ```
 
@@ -44,8 +44,12 @@ Components have different names across frameworks:
 | Diff | `DiffRenderable` | `<diff>` | `<diff>` |
 | Markdown | `MarkdownRenderable` | `<markdown>` | `<markdown>` |
 | TextTable | `TextTableRenderable` | N/A (Core only) | N/A (Core only) |
+| Slider | `SliderRenderable` | N/A (Core only) | N/A (Core only) |
+| ScrollBar | `ScrollBarRenderable` | N/A (Core only) | N/A (Core only) |
+| FrameBuffer | `FrameBufferRenderable` | N/A (Core + construct) | N/A (Core + construct) |
+| QR Code | `QRCodeRenderable` | `<qr-code>` * | `<qr_code>` * |
 
-**Note**: Solid uses underscores (`tab_select`) while React uses hyphens (`tab-select`). `TextTableRenderable` is used internally by `MarkdownRenderable` for table rendering and is also available as a standalone Core component.
+**Note**: Solid uses underscores (`tab_select`) while React uses hyphens (`tab-select`). `TextTableRenderable` is used internally by `MarkdownRenderable` for table rendering and is also available as a standalone Core component. `SliderRenderable` and `ScrollBarRenderable` do not yet expose a construct/JSX API — use the Core class. `FrameBufferRenderable` is Core-only with a `FrameBuffer({...})` construct wrapper (no reconciler JSX element). `* QRCodeRenderable` ships in the separate `@opentui/qrcode` package and requires `registerQRCode()` before the JSX element is available (see [text-display.md](./text-display.md)).
 
 ## Common Properties
 
