@@ -743,6 +743,8 @@ test('merged approval scope comes only from immutable PR changed files', () => {
   assert.match(approval, /git add -A -f -- "\$\{SKILL_PATHS\[@\]\}" "\$\{TARGET_PATHS\[@\]\}"/);
   assert.match(approval, /PUSHED=false/);
   assert.match(approval, /test "\$PUSHED" = true/);
+  assert.match(approval, /for i in \{1\.\.12\}; do/);
+  assert.match(approval, /RANDOM % 3/);
   assert.doesNotMatch(approval, /cherry-pick HEAD@\{1\} \|\| true/);
   assert.doesNotMatch(approval, /find pending/);
   assert.doesNotMatch(approval, /rm -rf "\$TARGET_DIR"/);

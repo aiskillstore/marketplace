@@ -221,10 +221,13 @@ jobs:
             git remote set-url origin "https://x-access-token:${APP_TOKEN}@github.com/${REPOSITORY}.git"
 
             # Push with bounded, lossless retry for main-branch races. A rebase
-            # conflict or three rejected pushes is a hard failure; never report
+            # conflict or an exhausted retry window is a hard failure; never report
             # a merged callback after dropping the publication commit.
             PUSHED=false
-            for i in 1 2 3; do
+            # Keep every merged approval lossless under bursty main-branch writes.
+            # ponytail: optimistic remote serialization; add a durable queue only if
+            # contention still exceeds this bounded retry window.
+            for i in {1..12}; do
               git fetch origin main
               git rebase origin/main
               if git push origin HEAD:main; then
@@ -232,11 +235,11 @@ jobs:
                 PUSHED=true
                 break
               fi
-              echo "Push failed after a clean rebase; retrying ($i/3)..."
-              sleep 2
+              echo "Push failed after a clean rebase; retrying ($i/12)..."
+              sleep "$((i * 2 + RANDOM % 3))"
             done
             test "$PUSHED" = true || {
-              echo "::error::Failed to publish approved skills after 3 attempts"
+              echo "::error::Failed to publish approved skills after 12 attempts"
               exit 1
             }
           fi
