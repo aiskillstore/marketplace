@@ -11,6 +11,26 @@ jobs:
     runs-on: self-hosted
     timeout-minutes: 30
     steps:
+      - name: Verify trusted submission PR provenance
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          PR=$(gh api "repos/$REPOSITORY/pulls/$PR_NUMBER")
+          jq -e --arg repository "$REPOSITORY" '
+            .merged == true and
+            .user.id == 254047988 and
+            .user.login == "ai-skill-store[bot]" and
+            .head.repo.full_name == $repository and
+            (.head.ref | startswith("submission/")) and
+            any(.labels[]; .name == "pending-review")
+          ' <<< "$PR" >/dev/null || {
+            echo "::error::Merged pending-review PR does not have trusted submission provenance"
+            exit 1
+          }
+
       - name: Generate GitHub App Token
         id: app-token
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
@@ -187,6 +207,13 @@ jobs:
               exit 1
             }
           done
+          while IFS= read -r TARGET_DIR; do
+            [ -n "$TARGET_DIR" ] || continue
+            git diff --quiet "$MERGE_COMMIT_SHA" HEAD -- "$TARGET_DIR" || {
+              echo "::error::Published update target changed after the reviewed merge: $TARGET_DIR"
+              exit 1
+            }
+          done < <(jq -r '.skills[] | select(.update == true) | .targetDir' "$APPROVAL_PLAN")
 
           echo "=== Moving skills from pending to skills ==="
           for PENDING_DIR in "${SKILL_PATHS[@]}"; do
@@ -194,6 +221,18 @@ jobs:
               '.skills[] | select(.pendingDir == $pendingDir) | .targetDir' "$APPROVAL_PLAN")
 
             echo "Moving $PENDING_DIR to $TARGET_DIR"
+
+            IS_UPDATE=$(jq -r --arg pendingDir "$PENDING_DIR" \
+              '.skills[] | select(.pendingDir == $pendingDir) | .update' "$APPROVAL_PLAN")
+            if [ "$IS_UPDATE" = "true" ]; then
+              test -d "$TARGET_DIR" && test ! -L "$TARGET_DIR" || {
+                echo "::error::Reviewed update target is missing or unsafe: $TARGET_DIR"
+                exit 1
+              }
+              rm -rf -- "$TARGET_DIR"
+              mv "$PENDING_DIR" "$TARGET_DIR"
+              continue
+            fi
 
             mkdir -p "$(dirname "$TARGET_DIR")"
             if [ -d "$TARGET_DIR" ] && [ ! -L "$TARGET_DIR" ] \
@@ -230,12 +269,33 @@ jobs:
             # conflict or an exhausted retry window is a hard failure; never report
             # a merged callback after dropping the publication commit.
             PUSHED=false
+            verify_update_parent() {
+              local target_dir expected_tree expected_ref parent_report parent_tree
+              while IFS= read -r target_dir; do
+                [ -n "$target_dir" ] || continue
+                expected_tree=$(jq -er '.meta.previous_tree_hash' "$target_dir/skill-report.json")
+                expected_ref=$(jq -er '.meta.previous_source_ref' "$target_dir/skill-report.json")
+                parent_report=$(git show "HEAD^:$target_dir/skill-report.json")
+                parent_tree=$(node scripts/resolve-approved-submission.mjs \
+                  --tree-hash-at-commit \
+                  --repo-root "$PWD" \
+                  --commit HEAD^ \
+                  --skill-dir "$target_dir")
+                jq -e --arg treeHash "$expected_tree" --arg sourceRef "$expected_ref" \
+                  '.meta.tree_hash == $treeHash and .meta.source_ref == $sourceRef' \
+                  <<< "$parent_report" >/dev/null && [ "$parent_tree" = "$expected_tree" ] || {
+                    echo "::error::Published update target changed before push: $target_dir"
+                    exit 1
+                  }
+              done < <(jq -r '.skills[] | select(.update == true) | .targetDir' "$APPROVAL_PLAN")
+            }
             # Keep every merged approval lossless under bursty main-branch writes.
             # ponytail: optimistic remote serialization; add a durable queue only if
             # contention still exceeds this bounded retry window.
             for i in {1..12}; do
               git fetch origin main
               git rebase origin/main
+              verify_update_parent
               if git push origin HEAD:main; then
                 echo "✅ Successfully pushed to main"
                 PUSHED=true

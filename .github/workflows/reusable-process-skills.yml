@@ -149,6 +149,7 @@ jobs:
       target_reason: ${{ steps.targets.outputs.reason_code }}
       existing_count: ${{ steps.targets.outputs.existing_count }}
       existing_targets: ${{ steps.targets.outputs.existing_targets }}
+      update_snapshots: ${{ steps.targets.outputs.update_snapshots }}
     steps:
       - name: Clear inherited discovery checkout
         run: |
@@ -270,6 +271,7 @@ jobs:
           OWNER=$(jq -er '.owner' <<< "$RESOLVED")
           REPO=$(jq -er '.repo' <<< "$RESOLVED")
           REF=$(jq -er '.ref' <<< "$RESOLVED")
+          REF_TYPE=$(jq -er '.refType' <<< "$RESOLVED")
           REF_SHA=$(jq -er '.refSha' <<< "$RESOLVED")
           SKILL_PATH=$(jq -er '.skillPath' <<< "$RESOLVED")
           EXPLICIT_PATH=$(jq -r '
@@ -280,11 +282,19 @@ jobs:
             end
           ' <<< "$RESOLVED")
           NORMALIZED_URL=$(jq -er '.normalizedUrl' <<< "$RESOLVED")
+          VERIFIED_SHA=$(gh api "repos/$OWNER_REPO/commits/$REF_SHA" --jq '.sha')
+          test "$VERIFIED_SHA" = "$REF_SHA" || {
+            echo "::error::Source commit could not be verified exactly: $REF_SHA"
+            exit 1
+          }
           SOURCE_DIR="${RUNNER_TEMP:?}/submission-source-${{ github.run_id }}-${{ github.run_attempt }}"
           rm -rf "$SOURCE_DIR"
-          git clone --depth 1 --branch "$REF" "https://github.com/$OWNER/$REPO.git" "$SOURCE_DIR"
+          git init "$SOURCE_DIR"
+          git -C "$SOURCE_DIR" remote add origin "https://github.com/$OWNER/$REPO.git"
+          git -C "$SOURCE_DIR" fetch --no-tags --depth 1 origin "$REF_SHA"
+          git -C "$SOURCE_DIR" checkout --detach FETCH_HEAD
           test "$(git -C "$SOURCE_DIR" rev-parse HEAD)" = "$REF_SHA" || {
-            echo "::error::Resolved source ref moved during clone: $REF"
+            echo "::error::Resolved source checkout does not match $REF_TYPE $REF"
             exit 1
           }
 
@@ -443,10 +453,12 @@ jobs:
           SELECTED_COUNT=$(jq -er '.selectedCount' <<< "$CLASSIFICATION")
           EXISTING_COUNT=$(jq -er '.existingCount' <<< "$CLASSIFICATION")
           EXISTING_TARGETS=$(jq -er '.existingTargets | join(",")' <<< "$CLASSIFICATION")
+          UPDATE_SNAPSHOTS=$(jq -cer '.updateSnapshots // []' <<< "$CLASSIFICATION")
           echo "disposition=$DISPOSITION" >> "$GITHUB_OUTPUT"
           echo "reason_code=$REASON_CODE" >> "$GITHUB_OUTPUT"
           echo "existing_count=$EXISTING_COUNT" >> "$GITHUB_OUTPUT"
           echo "existing_targets=$EXISTING_TARGETS" >> "$GITHUB_OUTPUT"
+          echo "update_snapshots=$UPDATE_SNAPSHOTS" >> "$GITHUB_OUTPUT"
           if [ "$DISPOSITION" = "all_existing" ]; then
             echo "::notice title=SUBMISSION_ALREADY_PUBLISHED::All $EXISTING_COUNT selected targets already exist; skipping CLI, AI, shards, artifacts, branch, and PR"
           fi
@@ -884,6 +896,8 @@ jobs:
           APP_TOKEN: ${{ steps.app-token.outputs.token }}
           REPOSITORY: ${{ github.repository }}
           SHARD_MATRIX: ${{ needs.discover-and-plan.outputs.matrix }}
+          UPDATE_TARGETS: ${{ needs.discover-and-plan.outputs.existing_targets }}
+          UPDATE_SNAPSHOTS: ${{ needs.discover-and-plan.outputs.update_snapshots }}
         run: |
           set -euo pipefail
 
@@ -996,6 +1010,12 @@ jobs:
           cd "$WORK_DIR"
 
           echo "=== Copying only frozen submission results ==="
+          is_update_target() {
+            case ",$UPDATE_TARGETS," in
+              *",$1,"*) return 0 ;;
+              *) return 1 ;;
+            esac
+          }
           for pending_dir in "${SUBMISSION_PATHS[@]}"; do
             test ! -e "$WORK_DIR/$pending_dir" || {
               echo "::error::Pending path already exists on main: $pending_dir"
@@ -1003,12 +1023,39 @@ jobs:
             }
             target_dir=$(jq -r --arg pendingDir "$pending_dir" \
               '.skills[] | select(.pendingDir == $pendingDir) | .targetDir' "$APPROVAL_PLAN")
-            test ! -e "$WORK_DIR/$target_dir" || {
-              echo "::error::Published target already exists; use the explicit update workflow: $target_dir"
-              exit 1
-            }
+            if is_update_target "$target_dir"; then
+              test -d "$WORK_DIR/$target_dir" && test ! -L "$WORK_DIR/$target_dir" || {
+                echo "::error::Frozen update target is missing or unsafe: $target_dir"
+                exit 1
+              }
+              SNAPSHOT=$(jq -cer --arg targetDir "$target_dir" \
+                '[.[] | select(.targetDir == $targetDir)] | if length == 1 then .[0] else error("missing update snapshot") end' \
+                <<< "$UPDATE_SNAPSHOTS")
+              EXPECTED_TREE_HASH=$(jq -er '.treeHash' <<< "$SNAPSHOT")
+              EXPECTED_SOURCE_REF=$(jq -er '.sourceRef' <<< "$SNAPSHOT")
+              CURRENT_REPORT="$WORK_DIR/$target_dir/skill-report.json"
+              jq -e --arg treeHash "$EXPECTED_TREE_HASH" --arg sourceRef "$EXPECTED_SOURCE_REF" \
+                '.meta.tree_hash == $treeHash and .meta.source_ref == $sourceRef' \
+                "$CURRENT_REPORT" >/dev/null || {
+                  echo "::error::Published update target changed after classification: $target_dir"
+                  exit 1
+                }
+            else
+              test ! -e "$WORK_DIR/$target_dir" && test ! -L "$WORK_DIR/$target_dir" || {
+                echo "::error::Unexpected published target collision: $target_dir"
+                exit 1
+              }
+            fi
             mkdir -p "$WORK_DIR/$(dirname "$pending_dir")"
             cp -R "$MERGED_RESULTS/$pending_dir" "$WORK_DIR/$pending_dir"
+            if is_update_target "$target_dir"; then
+              REPORT="$WORK_DIR/$pending_dir/skill-report.json"
+              TEMP_REPORT="${REPORT}.tmp"
+              jq --arg treeHash "$EXPECTED_TREE_HASH" --arg sourceRef "$EXPECTED_SOURCE_REF" \
+                '.meta.previous_tree_hash = $treeHash | .meta.previous_source_ref = $sourceRef' \
+                "$REPORT" > "$TEMP_REPORT"
+              mv "$TEMP_REPORT" "$REPORT"
+            fi
           done
 
           PROCESSED_COUNT=0
@@ -1076,13 +1123,13 @@ jobs:
           if [ "$PROCESSED_COUNT" -eq 1 ]; then
             FIRST_SKILL=$(echo "$PROCESSED_SKILLS" | cut -d',' -f1)
             git commit -m "Add pending skill: $FIRST_SKILL [submission: ${{ inputs.submission_id }}] $APPROVAL_INFO"
-            PR_TITLE="$([ "${{ inputs.is_manual_approval }}" = "true" ] && echo "[APPROVED] " || echo "")New skill: $FIRST_SKILL ($HIGHEST_RISK risk)"
+            PR_TITLE="$([ "${{ inputs.is_manual_approval }}" = "true" ] && echo "[APPROVED] " || echo "")$([ -n "$UPDATE_TARGETS" ] && echo "Update" || echo "New") skill: $FIRST_SKILL ($HIGHEST_RISK risk)"
           else
             git commit -m "Add $PROCESSED_COUNT pending skills from $REPO_NAME [submission: ${{ inputs.submission_id }}] $APPROVAL_INFO"
             if [ "$IS_SHARDED" = "true" ]; then
-              PR_TITLE="$([ "${{ inputs.is_manual_approval }}" = "true" ] && echo "[APPROVED] " || echo "")New skills: $PROCESSED_COUNT skills from $REPO_NAME ($HIGHEST_RISK) [parallel: ${SHARD_COUNT} shards]"
+              PR_TITLE="$([ "${{ inputs.is_manual_approval }}" = "true" ] && echo "[APPROVED] " || echo "")$([ -n "$UPDATE_TARGETS" ] && echo "Update" || echo "New") skills: $PROCESSED_COUNT skills from $REPO_NAME ($HIGHEST_RISK) [parallel: ${SHARD_COUNT} shards]"
             else
-              PR_TITLE="$([ "${{ inputs.is_manual_approval }}" = "true" ] && echo "[APPROVED] " || echo "")New skills: $PROCESSED_COUNT skills from $REPO_NAME ($HIGHEST_RISK risk)"
+              PR_TITLE="$([ "${{ inputs.is_manual_approval }}" = "true" ] && echo "[APPROVED] " || echo "")$([ -n "$UPDATE_TARGETS" ] && echo "Update" || echo "New") skills: $PROCESSED_COUNT skills from $REPO_NAME ($HIGHEST_RISK risk)"
             fi
           fi
 

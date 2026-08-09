@@ -224,7 +224,8 @@ test('submission processing isolates every shard and stages only its frozen plan
   assert.doesNotMatch(reusable, /continue-on-error:\s*true/);
   assert.doesNotMatch(reusable, /skill process[\s\S]{0,500}\|\| true/);
   assert.match(reusable, /Enforce shard terminal status/);
-  assert.match(reusable, /Published target already exists; use the explicit update workflow/);
+  assert.match(reusable, /Frozen update target is missing or unsafe/);
+  assert.match(reusable, /Unexpected published target collision/);
 });
 
 test('submission staging preserves frozen tracked files hidden by a copied .gitignore', () => withTempDirectory((root) => {
@@ -730,6 +731,11 @@ test('submission callers emit distinct terminal callbacks for legal no-op, rejec
 });
 
 test('merged approval scope comes only from immutable PR changed files', () => {
+  assert.match(approval, /Verify trusted submission PR provenance/);
+  assert.match(approval, /\.user\.id == 254047988/);
+  assert.match(approval, /\.user\.login == "ai-skill-store\[bot\]"/);
+  assert.match(approval, /\.head\.repo\.full_name == \$repository/);
+  assert.match(approval, /\.head\.ref \| startswith\("submission\/"\)/);
   assert.match(approval, /pulls\/\$PR_NUMBER\/files\?per_page=100/);
   assert.match(approval, /for CLONE_ATTEMPT in 1 2 3/);
   assert.match(approval, /git clone --depth 1 --filter=blob:none --no-checkout/);
@@ -740,8 +746,13 @@ test('merged approval scope comes only from immutable PR changed files', () => {
   assert.match(approval, /mapfile -t SKILL_PATHS/);
   assert.match(approval, /diff -qr --exclude=skill-report\.json "\$PENDING_DIR" "\$TARGET_DIR"/);
   assert.match(approval, /rm -rf -- "\$PENDING_DIR"/);
-  assert.match(approval, /Refusing to overwrite existing published target/);
+  assert.match(approval, /Reviewed update target is missing or unsafe/);
   assert.match(approval, /git diff --quiet "\$MERGE_COMMIT_SHA" HEAD -- "\$PENDING_DIR"/);
+  assert.match(approval, /Published update target changed after the reviewed merge/);
+  assert.match(approval, /verify_update_parent/);
+  assert.match(approval, /--tree-hash-at-commit/);
+  assert.match(approval, /\[ "\$parent_tree" = "\$expected_tree" \]/);
+  assert.match(approval, /Published update target changed before push/);
   assert.match(approval, /git add -A -f -- "\$\{SKILL_PATHS\[@\]\}" "\$\{TARGET_PATHS\[@\]\}"/);
   assert.match(approval, /PUSHED=false/);
   assert.match(approval, /test "\$PUSHED" = true/);
@@ -749,5 +760,5 @@ test('merged approval scope comes only from immutable PR changed files', () => {
   assert.match(approval, /RANDOM % 3/);
   assert.doesNotMatch(approval, /cherry-pick HEAD@\{1\} \|\| true/);
   assert.doesNotMatch(approval, /find pending/);
-  assert.doesNotMatch(approval, /rm -rf "\$TARGET_DIR"/);
+  assert.match(approval, /rm -rf -- "\$TARGET_DIR"/);
 });

@@ -1,0 +1,71 @@
+name: Publication Provenance
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  publication-admission:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Admit only trusted publication branches
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          AUTHOR_ID: ${{ github.event.pull_request.user.id }}
+          AUTHOR_LOGIN: ${{ github.event.pull_request.user.login }}
+          HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+        run: |
+          set -euo pipefail
+          FILES="${RUNNER_TEMP:?}/publication-files-${GITHUB_RUN_ID:?}.bin"
+          trap 'rm -f "$FILES"' EXIT
+          gh api --paginate "repos/$REPOSITORY/pulls/$PR_NUMBER/files?per_page=100" --slurp \
+            | jq -j '.[][].filename, "\u0000"' > "$FILES"
+
+          publication_kind=''
+          while IFS= read -r -d '' path; do
+            [[ "$path" != *$'\n'* && "$path" != *$'\r'* && "$path" != *'\\'* ]] || {
+              echo "::error::Unsafe changed path"
+              exit 1
+            }
+            case "$path" in
+              pending/*)
+                [ -z "$publication_kind" ] || [ "$publication_kind" = pending ] || {
+                  echo "::error::A PR cannot mix pending and published Skill changes"
+                  exit 1
+                }
+                publication_kind=pending
+                ;;
+              skills/*)
+                [ -z "$publication_kind" ] || [ "$publication_kind" = skills ] || {
+                  echo "::error::A PR cannot mix pending and published Skill changes"
+                  exit 1
+                }
+                publication_kind=skills
+                ;;
+            esac
+          done < "$FILES"
+
+          [ -n "$publication_kind" ] || exit 0
+          [ "$AUTHOR_ID" = 254047988 ] \
+            && [ "$AUTHOR_LOGIN" = 'ai-skill-store[bot]' ] \
+            && [ "$HEAD_REPOSITORY" = "$REPOSITORY" ] || {
+              echo "::error::Publication files must come from the trusted Skillstore App"
+              exit 1
+            }
+
+          while IFS= read -r -d '' path; do
+            case "$publication_kind:$HEAD_REF:$path" in
+              pending:submission/*:pending/*|skills:skill-source-monitor/*:skills/*) ;;
+              *)
+                echo "::error::Publication PR contains an unauthorized branch or path: $path"
+                exit 1
+                ;;
+            esac
+          done < "$FILES"

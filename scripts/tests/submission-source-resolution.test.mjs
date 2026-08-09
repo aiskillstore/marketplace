@@ -52,6 +52,26 @@ test('tree URLs resolve the exact non-default ref before percent-decoding the sk
   });
 });
 
+test('tree URLs accept an immutable commit without treating it as an advertised ref', () => {
+  const commit = '3'.repeat(40);
+  const result = resolveSubmissionSource({
+    githubUrl: `https://github.com/example/repo/tree/${commit}/skills/demo`,
+    defaultRef: 'main',
+    refsText: refs([MAIN_SHA, 'refs/heads/main']),
+  });
+  assert.deepEqual(result, {
+    schemaVersion: 1,
+    owner: 'example',
+    repo: 'repo',
+    ref: commit,
+    refType: 'commit',
+    refSha: commit,
+    skillPath: 'skills/demo',
+    explicitPath: true,
+    normalizedUrl: `https://github.com/example/repo/tree/${commit}/skills/demo`,
+  });
+});
+
 test('slash refs are encoded for the CLI and ambiguous ref/path splits fail closed', () => {
   const slash = resolveSubmissionSource({
     githubUrl: 'https://github.com/example/repo/tree/feature/ready/skills/demo',
