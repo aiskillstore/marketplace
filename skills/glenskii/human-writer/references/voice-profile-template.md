@@ -10,7 +10,7 @@ Use this optional file to preserve a named writer or brand voice. Keep it short 
 
 ## Non-negotiables
 
-- Punctuation rules, including whether em dashes are allowed.
+- Punctuation rules, including whether long dashes are allowed.
 - Approved spelling, capitalization, and product names.
 - Terms to avoid in public copy.
 - Required accessibility, legal, or brand language.

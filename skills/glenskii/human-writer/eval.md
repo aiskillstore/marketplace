@@ -16,7 +16,7 @@ For Detect requests: skip this file entirely. The eval below applies only to Edi
 
 6. Did any banned-vocabulary swap (#1) introduce a different banned word, or a synonym just as inflated as the one it replaced?
 7. Does any repaired sentence now end in a superficial -ing tail clause (#4) that wasn't there before?
-8. Is the em dash count zero? Check the whole draft again, not just the lines that were flagged, a fix elsewhere can introduce one reflexively (#8).
+8. Is the long-dash count zero? Check the whole draft again, not just the lines that were flagged, a fix elsewhere can introduce one reflexively (#8).
 9. Did a copulative fix (#5) accidentally weaken a real technical claim, especially in documentation register?
 10. Are colon-reveal (#21) or fake-profound-kicker (#23) fixes deletions, not rewrites into a different metaphor or a different dramatic device?
 
@@ -28,8 +28,8 @@ For Detect requests: skip this file entirely. The eval below applies only to Edi
 
 ## Register match
 
-14. Does the register-calibration match what was applied: lightest touch for social/chat, full checklist for documentation and correspondence, full checklist plus the "AI" wording flag for public-facing copy?
-15. For public-facing copy specifically: was every use of "AI" flagged with a suggested substitute (Intelligent, Analysis Engine, automated, smart), not silently swapped?
+14. Does the register-calibration match what was applied: lightest touch for social/chat, full checklist for documentation and correspondence, full checklist plus the prohibited-term check for public-facing copy?
+15. For public-facing copy specifically: was every prohibited term flagged with a suggested substitute, not silently swapped?
 
 ## Final read
 

@@ -1,6 +1,9 @@
 ---
 name: human-writer
-description: Edit or assess a draft that should sound natural, direct, and authored by a person. Use for social posts, replies, documentation, emails, and public copy when removing AI writing tells without changing the writer's meaning. Edit minimally by default. Use Detect mode when the user asks for an assessment rather than a rewrite.
+description: Your drafts often feel flat, repetitive, and overly polished, frequently drifting from the writer's original intent. This skill cleans up robotic phrasing, removes machine-written tropes, and sharpens flow while keeping your natural voice and message completely intact.
+license: MIT
+metadata:
+  version: 1.2.0
 ---
 
 # Human Writer: Natural Voice Editing
@@ -29,9 +32,11 @@ Every checklist item below carries one of three actions. Never escalate a FLAG i
 
 The target is never "generic human." Preserve the supplied writer’s voice. If a project voice profile is available, read and follow it before editing. Use `references/voice-profile-template.md` when creating one. If no profile exists, infer only the draft's visible traits and take the lightest possible touch.
 
-- **Punctuation:** follow any project rule. If none exists, do not add em dashes. Prefer punctuation that preserves the writer's rhythm.
+- **Punctuation:** follow any project rule. If none exists, do not add long dashes. Prefer punctuation that preserves the writer's rhythm.
 - **Directness:** if a fix could go plainer or fancier, go plainer.
 - **Terms and names:** preserve approved product names, spelling, capitalization, and public-language rules from the project profile.
+
+Read `references/editing-decision-guide.md` when the requested register, editing depth, or reporting format is unclear. Read `references/voice-preservation-checklist.md` before a substantial edit or when a draft has a distinctive personal voice. For public-facing file edits, run `scripts/check_editorial_rules.py` against the completed file before returning it. Use `assets/revision-note-template.md` only when the writer asks for a formal revision note with a long edit.
 
 ## Two jobs
 
@@ -47,7 +52,7 @@ This is an editorial tool for drafts the user has authority to edit. It is not a
 2. **Note the voice before editing it.** Identify three to five traits that make the piece distinct: word choices, bluntness, sentence length, humour, asides, or level of polish. Keep this as an internal check. If a fix would sand off one of these traits, it is a rewrite. Do not make it.
 3. For a Detect request: run the checklist read-only, produce the findings report described in Two jobs, and stop there.
 4. For an Edit request: pass over the piece against the checklist. For each hit, apply the minimal FIX or record the FLAG. Never rewrite a whole sentence when a word swap does it.
-5. **Self-check against `eval.md`.** Before returning the edited draft, run it through every question in `eval.md` in this skill's folder. If any check fails, fix the draft and check again. This catches what step 4 misses: a replacement word that's itself on the banned list, a repaired sentence that now ends in an -ing tail, an em dash typed reflexively, a voice trait from step 2 that got flattened.
+5. **Self-check against `eval.md`.** Before returning the edited draft, run it through every question in `eval.md` in this skill's folder. Read `docs/revision-acceptance-guide.md` when deciding whether a substantial revision is ready to return. If any check fails, fix the draft and check again. This catches what step 4 misses: a replacement word that's itself on the banned list, a repaired sentence that now ends in an -ing tail, a long dash typed reflexively, or a voice trait from step 2 that got flattened.
 6. Return the corrected text as the primary output. Keep the writer's formatting, including line breaks and casing, except where the format itself is the pattern. For long pieces delivered as files, edit the file directly rather than pasting a wall of text into chat.
 7. Reporting:
 - Short piece (post, reply, few sentences): just the corrected version.
@@ -89,9 +94,9 @@ LLMs replace plain "is/are/has" with "serves as," "stands as," "functions as," "
 
 Reflexive three-item lists used to sound comprehensive ("faster, cleaner, and more reliable") where two items say the same thing or one word would do. Trim to what's actually true, not what completes the pattern. Same for stacked paired adjectives ("clear and concise," "simple and effective") where one adjective carries it.
 
-### 8. Em dashes: follow the voice profile
+### 8. Long dashes: follow the voice profile
 
-If the project voice profile bans em dashes, remove every one. Replace them with a comma, colon, period, or parentheses based on the sentence's rhythm. Also convert double hyphens (`--`) used as dashes. If the profile does not ban them, do not add new em dashes.
+If the project voice profile bans long dashes, remove every one. Replace them with a comma, colon, period, or parentheses based on the sentence's rhythm. Also convert double hyphens (`--`) used as dashes. If the profile does not ban them, do not add new long dashes.
 
 ### 9. Transition-word stacking: FIX
 
@@ -162,7 +167,7 @@ Distinct from paragraph-length uniformity (#18): this is the same *shape* on rep
 - **Social / chat**: lightest touch. Preserve the writer's casual rhythm, contractions, sentence fragments, and directness. Fix only hard patterns: banned vocabulary, forbidden punctuation, negative parallelisms, assistant phrasing, and typographic artifacts. Do not formalize anything.
 - **Documentation**: apply the full checklist. Precision matters here, so after fixing, verify copulative and vocabulary swaps didn't soften a technical claim ("robust error handling" cut to "error handling" is fine; "handles all EXIF variants" weakened to "handles EXIF" is not).
 - **Correspondence**: apply the full checklist while preserving the writer's professional register. Do not turn a direct email into a stiffer one while removing patterns.
-- **Public-facing copy** (site copy, marketing, app store text, social for the brands): full checklist plus the "AI" word flag from the voice anchors. This is the register where a surviving tell costs the most.
+- **Public-facing copy** (site copy, marketing, app store text, social for the brands): full checklist plus the prohibited-term check from the voice anchors. This is the register where a surviving tell costs the most.
 
 ## What this skill is never used for
 
@@ -170,4 +175,4 @@ Distinct from paragraph-length uniformity (#18): this is the same *shape* on rep
 - Lengthening or "improving" arguments, tone, or persuasiveness.
 - Fact-checking beyond flagging an obvious, confident error. This is not a research pass.
 - Second-guessing the writer's opinions, claims, or word choices that are not on the pattern list above.
-- Detecting whether a third party's text was AI-written, or scoring "is this AI" as a percentage or verdict. Detect mode names patterns present in an authorized draft. It never claims authorship or produces a confidence score.
+- Detecting whether a third party's text was machine-written, or assigning an authorship percentage or verdict. Detect mode names patterns present in an authorized draft. It never claims authorship or produces a confidence score.
