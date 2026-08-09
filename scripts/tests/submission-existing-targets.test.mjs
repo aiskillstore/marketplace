@@ -10,6 +10,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { test } from 'node:test';
 import { classifySubmissionTargets } from '../classify-submission-targets.mjs';
+import { calculateCanonicalTreeHash } from '../resolve-approved-submission.mjs';
 
 const SOURCE_COMMIT = '1'.repeat(40);
 
@@ -68,6 +69,7 @@ function writeTarget(root, slug, {
         model: 'fixture',
         analysis_version: '3.0.0',
         source_type: layout === 'community' ? 'community' : 'official',
+        tree_hash: calculateCanonicalTreeHash(root, relative),
       },
       skill: {
         name: skillName,
@@ -133,6 +135,48 @@ test('all exact community targets become a handled rejection', () => withMarketp
   });
 }));
 
+test('same source identity at a new immutable commit is processed as an update', () => withMarketplace((root) => {
+  writeTarget(root, 'alpha', { sourceRef: '2'.repeat(40) });
+  const result = classify(root, selectionPlan([{ slug: 'alpha', path: 'skills/alpha' }]), SOURCE_COMMIT);
+  assert.deepEqual(result, {
+    schemaVersion: 1,
+    disposition: 'processable',
+    reasonCode: 'all_selected_targets_are_updates',
+    selectedCount: 1,
+    existingCount: 1,
+    existingTargets: ['skills/example/alpha'],
+    updateSnapshots: [{
+      targetDir: 'skills/example/alpha',
+      treeHash: calculateCanonicalTreeHash(root, 'skills/example/alpha'),
+      sourceRef: '2'.repeat(40),
+    }],
+  });
+}));
+
+test('the same immutable source commit remains a handled no-op', () => withMarketplace((root) => {
+  writeTarget(root, 'alpha', { sourceRef: SOURCE_COMMIT });
+  const result = classify(root, selectionPlan([{ slug: 'alpha', path: 'skills/alpha' }]), SOURCE_COMMIT);
+  assert.equal(result.disposition, 'all_existing');
+  assert.equal(result.reasonCode, 'all_selected_targets_already_published');
+}));
+
+test('an existing source can only be updated from an immutable commit URL', () => withMarketplace((root) => {
+  writeTarget(root, 'alpha', { sourceRef: '2'.repeat(40) });
+  assert.throws(
+    () => classify(root, selectionPlan([{ slug: 'alpha', path: 'skills/alpha' }]), 'main'),
+    /existing targets must be updated with an immutable commit URL/,
+  );
+}));
+
+test('an update refuses a published target whose recorded tree hash is stale', () => withMarketplace((root) => {
+  writeTarget(root, 'alpha', { sourceRef: '2'.repeat(40) });
+  writeFileSync(join(root, 'skills/example/alpha/SKILL.md'), '---\nname: alpha\n---\nchanged\n');
+  assert.throws(
+    () => classify(root, selectionPlan([{ slug: 'alpha', path: 'skills/alpha' }]), SOURCE_COMMIT),
+    /tree_hash is missing or stale/,
+  );
+}));
+
 test('an exact repository-bound alias validates the published display name', () => withMarketplace((root) => {
   const path = '装修水电避坑指南';
   const slug = 'zhuangxiu-shuidian-bikeng';
@@ -174,7 +218,7 @@ test('mixed existing and new targets fail closed instead of processing a subset'
 
 for (const mismatch of [
   { name: 'repository', options: { repository: 'other/source' }, pattern: /source (?:repository mismatch|URL is not canonical)|source_url is not canonical/ },
-  { name: 'ref', options: { sourceRef: 'release' }, pattern: /source ref mismatch/ },
+  { name: 'ref', options: { sourceRef: 'release' }, pattern: /immutable commit URL/ },
   { name: 'path', options: { skillPath: 'skills/other' }, pattern: /source (?:path mismatch|URL is not canonical)|source_url is not canonical/ },
 ]) {
   test(`a published target with a ${mismatch.name} mismatch fails closed`, () => withMarketplace((root) => {

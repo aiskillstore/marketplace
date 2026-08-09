@@ -8,6 +8,7 @@ import {
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { validateSlugAliasRegistry } from './discover-submission-skills.mjs';
+import { calculateCanonicalTreeHash } from './resolve-approved-submission.mjs';
 import { parseSelectionPlan, validateSelectionPlan } from './submission-selection-plan.mjs';
 
 const SOURCE_TYPES = new Set(['community', 'official']);
@@ -183,18 +184,15 @@ function sourceMismatch(message) {
   throw new SourceIdentityMismatchError(message);
 }
 
-function assertSourceIdentity(report, { repository, sourceRef, skillPath }, reportPath) {
+function assertSourceIdentity(report, { repository, skillPath }, reportPath) {
   const sourceUrl = report?.meta?.source_url;
   const reportRef = report?.meta?.source_ref;
   if (typeof sourceUrl !== 'string' || typeof reportRef !== 'string' || reportRef === '') {
     fail(`published skill report is missing source_url or source_ref: ${reportPath}`);
   }
-  if (reportRef !== sourceRef) {
-    sourceMismatch(`published target source ref mismatch at ${reportPath}: expected ${sourceRef}, got ${reportRef}`);
-  }
 
   const segments = decodedSegments(sourceUrl);
-  const canonicalPath = `/${repository}/tree/${encodeURIComponent(sourceRef)}${skillPath === '.'
+  const canonicalPath = `/${repository}/tree/${encodeURIComponent(reportRef)}${skillPath === '.'
     ? ''
     : `/${skillPath.split('/').map((segment) => encodeURIComponent(segment)).join('/')}`}`;
   const parsedPath = new URL(sourceUrl).pathname;
@@ -216,9 +214,10 @@ function assertSourceIdentity(report, { repository, sourceRef, skillPath }, repo
   }
   const actualPath = actualPathSegments.join('/');
   const actualRef = remainder.slice(0, remainder.length - pathSegments.length).join('/');
-  if (actualRef !== sourceRef || actualPath !== (skillPath === '.' ? '' : skillPath)) {
+  if (actualRef !== reportRef || actualPath !== (skillPath === '.' ? '' : skillPath)) {
     sourceMismatch(`published target source path mismatch at ${reportPath}: expected ${skillPath}`);
   }
+  return reportRef;
 }
 
 function validateCandidate(candidate, identity) {
@@ -249,8 +248,13 @@ function validateCandidate(candidate, identity) {
     fail(`flat published target must be official at ${reportPath}`);
   }
 
-  assertSourceIdentity(report, identity, reportPath);
-  return candidate.relativePath;
+  const sourceRef = assertSourceIdentity(report, identity, reportPath);
+  return {
+    directory: candidate.directory,
+    relativePath: candidate.relativePath,
+    sourceRef,
+    treeHash: report.meta.tree_hash,
+  };
 }
 
 function assertNoPendingCollision(root, owner, slug) {
@@ -280,6 +284,9 @@ export function classifySubmissionTargets({
     .map((alias) => [alias.path, alias]));
   const expectedLayout = OFFICIAL_REPOSITORIES.has(plan.repository) ? 'official' : 'community';
   const existingTargets = [];
+  const sameRevisionTargets = [];
+  const updateTargets = [];
+  const updateSnapshots = [];
   const newTargets = [];
 
   for (const skill of plan.skills) {
@@ -334,13 +341,30 @@ export function classifySubmissionTargets({
     }
 
     if (expectedTarget !== null && alternateExact !== null) {
-      fail(`ambiguous published target identity for ${skill.slug}: ${expectedTarget}, ${alternateExact}`);
+      fail(`ambiguous published target identity for ${skill.slug}: ${expectedTarget.relativePath}, ${alternateExact.relativePath}`);
     }
     if (expectedTarget === null && alternateExact !== null) {
-      fail(`published target identity for ${skill.slug} exists at unexpected path: ${alternateExact}`);
+      fail(`published target identity for ${skill.slug} exists at unexpected path: ${alternateExact.relativePath}`);
     }
     if (expectedTarget !== null) {
-      existingTargets.push(expectedTarget);
+      existingTargets.push(expectedTarget.relativePath);
+      if (expectedTarget.sourceRef === sourceRef) {
+        sameRevisionTargets.push(expectedTarget.relativePath);
+      } else {
+        if (sourceRef !== plan.sourceCommit || !/^[0-9a-f]{40}$/.test(sourceRef)) {
+          fail('existing targets must be updated with an immutable commit URL');
+        }
+        if (!HASH.test(expectedTarget.treeHash ?? '')
+          || calculateCanonicalTreeHash(root, expectedTarget.relativePath) !== expectedTarget.treeHash) {
+          fail(`published update target tree_hash is missing or stale: ${expectedTarget.relativePath}`);
+        }
+        updateTargets.push(expectedTarget.relativePath);
+        updateSnapshots.push({
+          targetDir: expectedTarget.relativePath,
+          treeHash: expectedTarget.treeHash,
+          sourceRef: expectedTarget.sourceRef,
+        });
+      }
       continue;
     }
     newTargets.push(expectedCandidate.relativePath);
@@ -349,20 +373,27 @@ export function classifySubmissionTargets({
   if (existingTargets.length > 0 && newTargets.length > 0) {
     fail(`partial published-target collision: ${existingTargets.length} existing, ${newTargets.length} new`);
   }
+  if (sameRevisionTargets.length > 0 && updateTargets.length > 0) {
+    fail(`mixed current and updated targets: ${sameRevisionTargets.length} current, ${updateTargets.length} updates`);
+  }
 
-  const disposition = existingTargets.length === plan.skills.length && plan.skills.length > 0
+  const disposition = sameRevisionTargets.length === plan.skills.length && plan.skills.length > 0
     ? 'all_existing'
     : 'processable';
-  return {
+  const result = {
     schemaVersion: 1,
     disposition,
     reasonCode: disposition === 'all_existing'
       ? 'all_selected_targets_already_published'
-      : 'no_selected_targets_already_published',
+      : updateTargets.length > 0
+        ? 'all_selected_targets_are_updates'
+        : 'no_selected_targets_already_published',
     selectedCount: plan.skills.length,
     existingCount: existingTargets.length,
     existingTargets: existingTargets.sort((left, right) => left.localeCompare(right, 'en')),
   };
+  if (updateSnapshots.length > 0) result.updateSnapshots = updateSnapshots;
+  return result;
 }
 
 function main() {

@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { createHash } from 'node:crypto';
+import { spawnSync } from 'node:child_process';
 import { existsSync, lstatSync, readFileSync, readdirSync, realpathSync, writeFileSync } from 'node:fs';
 import { posix, relative, resolve, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -50,6 +51,47 @@ function readJson(path, label) {
   }
 }
 
+function sourceIdentity(report, label) {
+  const sourceUrl = report?.meta?.source_url;
+  const sourceRef = report?.meta?.source_ref;
+  if (typeof sourceUrl !== 'string' || typeof sourceRef !== 'string' || sourceRef === '') {
+    fail(`${label} is missing source_url or source_ref`);
+  }
+  let url;
+  try {
+    url = new URL(sourceUrl);
+  } catch {
+    fail(`${label} has an invalid source_url`);
+  }
+  if (url.protocol !== 'https:' || url.hostname !== 'github.com' || url.search || url.hash
+    || url.username || url.password || url.port) {
+    fail(`${label} source_url must be a plain HTTPS GitHub URL`);
+  }
+  let segments;
+  try {
+    segments = url.pathname.split('/').filter(Boolean).map(decodeURIComponent);
+  } catch {
+    fail(`${label} source_url contains invalid percent encoding`);
+  }
+  const [owner, repo, kind, encodedRef, ...skillPath] = segments;
+  if (!owner || !repo || kind !== 'tree' || encodedRef !== sourceRef
+    || skillPath.some((segment) => segment.includes('/'))
+    || segments.some((segment) => segment === '.' || segment === '..' || segment.includes('\\') || /[\u0000-\u001f\u007f]/u.test(segment))) {
+    fail(`${label} source_url does not match source_ref`);
+  }
+  const canonicalPath = `/${owner}/${repo}/tree/${encodeURIComponent(sourceRef)}${skillPath.length > 0
+    ? `/${skillPath.map(encodeURIComponent).join('/')}`
+    : ''}`;
+  if (url.pathname !== canonicalPath && url.pathname !== `${canonicalPath}/`) {
+    fail(`${label} source_url is not canonical`);
+  }
+  return {
+    repository: `${owner}/${repo}`.toLowerCase(),
+    path: skillPath.join('/'),
+    ref: sourceRef,
+  };
+}
+
 function sha256(path) {
   return createHash('sha256').update(readFileSync(path)).digest('hex');
 }
@@ -91,6 +133,59 @@ function collectCanonicalEntries(repositoryRoot, directory, baseDirectory) {
 export function calculateCanonicalTreeHash(repositoryRoot, skillDirectory) {
   const entries = collectCanonicalEntries(repositoryRoot, skillDirectory, skillDirectory)
     .sort((a, b) => a.path.localeCompare(b.path, 'en', { sensitivity: 'variant' }));
+  return createHash('sha256').update(entries.map((entry) => JSON.stringify(entry)).join('\n')).digest('hex');
+}
+
+function gitBuffer(repositoryRoot, args) {
+  const result = spawnSync('git', ['-C', repositoryRoot, ...args], {
+    encoding: 'buffer',
+    maxBuffer: 100 * 1024 * 1024,
+  });
+  if (result.status !== 0) {
+    fail(`git ${args.join(' ')} failed: ${result.stderr.toString('utf8').trim()}`);
+  }
+  return result.stdout;
+}
+
+export function calculateCanonicalTreeHashAtCommit(repositoryRoot, commit, skillDirectory) {
+  const normalizedDirectory = normalizeFrozenPath(skillDirectory);
+  if (!normalizedDirectory?.startsWith('skills/')) fail('committed skill directory must be under skills/');
+  const resolvedCommit = gitBuffer(repositoryRoot, ['rev-parse', '--verify', `${commit}^{commit}`])
+    .toString('utf8').trim();
+  if (!/^[0-9a-f]{40}$/.test(resolvedCommit)) fail(`invalid resolved commit: ${resolvedCommit}`);
+  const listing = gitBuffer(repositoryRoot, [
+    'ls-tree', '-rz', '--full-tree', resolvedCommit, '--', normalizedDirectory,
+  ]);
+  let listingText;
+  try {
+    listingText = new TextDecoder('utf-8', { fatal: true }).decode(listing);
+  } catch {
+    fail(`committed skill tree contains a non-UTF-8 path: ${normalizedDirectory}`);
+  }
+  const entries = [];
+  for (const record of listingText.split('\0').filter(Boolean)) {
+    const tab = record.indexOf('\t');
+    const header = record.slice(0, tab).split(' ');
+    const path = record.slice(tab + 1);
+    if (tab < 0 || header.length !== 3 || !path.startsWith(`${normalizedDirectory}/`)) {
+      fail(`invalid committed tree entry for ${normalizedDirectory}`);
+    }
+    const [mode, type, object] = header;
+    const treePath = path.slice(normalizedDirectory.length + 1);
+    if (treePath === 'skill-report.json' || treePath.split('/').some(isSystemTempFile)
+      || treePath.split('/').includes('.git')) continue;
+    if (type !== 'blob' || !['100644', '100755'].includes(mode) || !/^[0-9a-f]{40,64}$/.test(object)) {
+      fail(`committed skill tree contains an unsupported entry: ${path}`);
+    }
+    const bytes = gitBuffer(repositoryRoot, ['cat-file', 'blob', object]);
+    entries.push({
+      path: treePath,
+      mode,
+      sha256: createHash('sha256').update(bytes).digest('hex'),
+      size: bytes.byteLength,
+    });
+  }
+  entries.sort((a, b) => a.path.localeCompare(b.path, 'en', { sensitivity: 'variant' }));
   return createHash('sha256').update(entries.map((entry) => JSON.stringify(entry)).join('\n')).digest('hex');
 }
 
@@ -200,6 +295,45 @@ export function resolveApprovedSubmission({ repositoryRoot, changedFiles }) {
     }
 
     const targetDir = `skills/${segments.slice(1).join('/')}`;
+    const targetPath = resolve(root, targetDir);
+    const update = existsSync(targetPath);
+    let previousSourceRef = null;
+    if (update) {
+      const targetStat = lstatSync(targetPath);
+      if (targetStat.isSymbolicLink() || !targetStat.isDirectory()) {
+        fail(`${targetDir} must be a non-symlink directory`);
+      }
+      const publishedReportPath = resolve(targetPath, 'skill-report.json');
+      if (!existsSync(publishedReportPath) || lstatSync(publishedReportPath).isSymbolicLink()
+        || !lstatSync(publishedReportPath).isFile()) {
+        fail(`${targetDir}/skill-report.json is missing or unsafe`);
+      }
+      const publishedReport = readJson(publishedReportPath, `${targetDir}/skill-report.json`);
+      const publishedTreeHash = calculateCanonicalTreeHash(root, targetDir);
+      if (publishedReport?.meta?.tree_hash !== publishedTreeHash) {
+        fail(`${targetDir} published tree_hash does not match the canonical skill tree`);
+      }
+      const nextIdentity = sourceIdentity(report, `${pendingDir}/skill-report.json`);
+      const previousIdentity = sourceIdentity(publishedReport, `${targetDir}/skill-report.json`);
+      const expectedPreviousTreeHash = report?.meta?.previous_tree_hash;
+      const expectedPreviousSourceRef = report?.meta?.previous_source_ref;
+      if (!/^[0-9a-f]{64}$/.test(expectedPreviousTreeHash ?? '')
+        || typeof expectedPreviousSourceRef !== 'string' || expectedPreviousSourceRef === ''
+        || publishedTreeHash !== expectedPreviousTreeHash
+        || previousIdentity.ref !== expectedPreviousSourceRef) {
+        fail(`${pendingDir} reviewed update snapshot does not match the published target`);
+      }
+      if (report.meta.source_type !== publishedReport?.meta?.source_type
+        || report.meta.slug !== publishedReport?.meta?.slug
+        || nextIdentity.repository !== previousIdentity.repository
+        || nextIdentity.path !== previousIdentity.path) {
+        fail(`${pendingDir} source identity does not match the published target`);
+      }
+      if (!/^[0-9a-f]{40}$/.test(nextIdentity.ref) || nextIdentity.ref === previousIdentity.ref) {
+        fail(`${pendingDir} update must use a new immutable source commit`);
+      }
+      previousSourceRef = expectedPreviousSourceRef;
+    }
     return {
       contentHash: actualContentHash,
       treeHash: actualTreeHash,
@@ -207,6 +341,8 @@ export function resolveApprovedSubmission({ repositoryRoot, changedFiles }) {
       reportSlug: report.meta.slug,
       sourceType,
       targetDir,
+      update,
+      previousSourceRef,
     };
   });
 
@@ -224,6 +360,14 @@ export function resolveApprovedSubmission({ repositoryRoot, changedFiles }) {
 
 function main() {
   const args = process.argv.slice(2);
+  if (args.includes('--tree-hash-at-commit')) {
+    process.stdout.write(`${calculateCanonicalTreeHashAtCommit(
+      readOption(args, '--repo-root'),
+      readOption(args, '--commit'),
+      readOption(args, '--skill-dir'),
+    )}\n`);
+    return;
+  }
   const repositoryRoot = readOption(args, '--repo-root');
   const filesPath = readOption(args, '--files');
   const outputPath = readOption(args, '--output');

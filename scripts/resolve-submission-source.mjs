@@ -122,6 +122,26 @@ export function resolveSubmissionSource({ githubUrl, defaultRef, refsText }) {
 
   const tail = segments.slice(3);
   if (tail.length === 0) fail(`GitHub ${mode} URL is missing a ref: ${githubUrl}`);
+  if (/^[0-9a-f]{40}$/.test(tail[0])) {
+    let skillPath = tail.slice(1);
+    if (mode === 'blob') {
+      if (skillPath.length === 0) fail('GitHub blob URL is missing a file path');
+      const file = skillPath.at(-1);
+      if (file.toLowerCase() !== 'skill.md') fail(`submission blob URL must point to SKILL.md, got ${file}`);
+      skillPath = skillPath.slice(0, -1);
+    }
+    return {
+      schemaVersion: 1,
+      owner,
+      repo,
+      ref: tail[0],
+      refType: 'commit',
+      refSha: tail[0],
+      skillPath: mode === 'blob' && skillPath.length === 0 ? '.' : skillPath.join('/'),
+      explicitPath: mode === 'blob' || skillPath.length > 0,
+      normalizedUrl: normalizedTreeUrl(owner, repo, tail[0], skillPath),
+    };
+  }
   const candidates = [];
   for (let split = 1; split <= tail.length; split += 1) {
     const candidate = tail.slice(0, split).join('/');

@@ -17,6 +17,7 @@ import { test } from 'node:test';
 const reusable = readFileSync('.github/workflows/reusable-process-skills.yml', 'utf8');
 const caller = readFileSync('.github/workflows/process-submission.yml', 'utf8');
 const approvalCaller = readFileSync('.github/workflows/approve-submission.yml', 'utf8');
+const publicationProvenance = readFileSync('.github/workflows/publication-provenance.yml', 'utf8');
 const cliCompatibilityDescription =
   'Reserved compatibility input; submission processing is pinned to CLI 2.15.12';
 const runtimeFiles = [
@@ -404,6 +405,25 @@ test('submission source metadata lookup retries transient GitHub failures', () =
   assert.match(clone, /test -s "\$REFS_FILE"/);
 });
 
+test('submission checkout verifies and fetches the exact resolved commit', () => {
+  const clone = extractRunBlock(reusable, 'Clone source repository');
+  assert.match(clone, /REF_TYPE=\$\(jq -er '\.refType'/);
+  assert.match(clone, /gh api "repos\/\$OWNER_REPO\/commits\/\$REF_SHA" --jq '\.sha'/);
+  assert.match(clone, /git -C "\$SOURCE_DIR" fetch --no-tags --depth 1 origin "\$REF_SHA"/);
+  assert.match(clone, /git -C "\$SOURCE_DIR" checkout --detach FETCH_HEAD/);
+  assert.doesNotMatch(clone, /git clone --depth 1 --branch/);
+});
+
+test('publication PR admission accepts only trusted bot-owned publication branches', () => {
+  assert.match(publicationProvenance, /publication-admission:/);
+  assert.match(publicationProvenance, /AUTHOR_ID.*github\.event\.pull_request\.user\.id/);
+  assert.match(publicationProvenance, /AUTHOR_LOGIN.*github\.event\.pull_request\.user\.login/);
+  assert.match(publicationProvenance, /HEAD_REPOSITORY.*github\.event\.pull_request\.head\.repo\.full_name/);
+  assert.match(publicationProvenance, /pending:submission\/\*:pending\/\*/);
+  assert.match(publicationProvenance, /skills:skill-source-monitor\/\*:skills\/\*/);
+  assert.match(publicationProvenance, /A PR cannot mix pending and published Skill changes/);
+});
+
 test('repository dispatch caller preserves reusable failure and callback status contracts', () => {
   assert.match(caller, /notify:\n\s+needs: process-skills\n\s+if: always\(\) && github\.event_name == 'repository_dispatch'/);
   assert.match(caller, /name: Notify skillstore - PR created\n\s+if: needs\.process-skills\.outputs\.pr_url/);
@@ -443,9 +463,12 @@ test('existing-target classification is a pre-CLI gate with a handled rejection 
   );
   assert.match(reusable, /existing_targets:/);
   const latePendingGuard = reusable.indexOf('Pending path already exists on main');
-  const latePublishedGuard = reusable.indexOf('Published target already exists; use the explicit update workflow');
+  const latePublishedGuard = reusable.indexOf('Frozen update target is missing or unsafe');
   const lateCopy = reusable.indexOf('cp -R "$MERGED_RESULTS/$pending_dir"');
   assert.ok(latePendingGuard > 0 && latePendingGuard < lateCopy);
   assert.ok(latePublishedGuard > latePendingGuard && latePublishedGuard < lateCopy);
-  assert.match(reusable, /Published target already exists; use the explicit update workflow/);
+  assert.match(reusable, /Unexpected published target collision/);
+  assert.match(reusable, /UPDATE_TARGETS: \$\{\{ needs\.discover-and-plan\.outputs\.existing_targets \}\}/);
+  assert.match(reusable, /previous_tree_hash = \$treeHash/);
+  assert.match(reusable, /previous_source_ref = \$sourceRef/);
 });
