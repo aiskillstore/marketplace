@@ -112,7 +112,10 @@ bun test                      # Run tests
 
 ## Runtime Requirements
 
-OpenTUI runs on Bun and uses Zig for native builds.
+OpenTUI runs on **Bun (reference runtime)** and uses Zig for native builds.
+**Node.js 26.3.0** is also supported for the native renderer when launched with
+`--experimental-ffi`; importing core/keymap without a native renderer works on
+Node without FFI. See [Gotchas](./gotchas.md) for the full Node.js notes.
 
 ```bash
 # Package management
@@ -127,6 +130,32 @@ bun run build
 ```
 
 **Zig** is required for building native components.
+
+## Additional Capabilities
+
+- **Audio** — native audio engine via `Audio` from `@opentui/core`. See [API](./api.md#audio).
+- **Notifications** — `renderer.triggerNotification(message, title?)` (OSC 9/777/99). See [API](./api.md).
+- **SSH** — serve a TUI over SSH with the `@opentui/ssh` package:
+
+  ```typescript
+  import { createServer } from "@opentui/ssh"
+  import { BoxRenderable, TextRenderable } from "@opentui/core"
+
+  const server = createServer({
+    hostKey: { path: "./host_key" },  // auto-generated on first run
+    auth: { publicKey: "any" },
+  }).serve((session) => {
+    const { renderer, identity } = session   // renderer is bound to the SSH channel
+    const box = new BoxRenderable(renderer, { width: "100%", height: "100%", border: true })
+    box.add(new TextRenderable(renderer, { content: `Hello, ${identity.username}!` }))
+    renderer.root.add(box)
+  })
+
+  await server.listen(2222)  // ssh -p 2222 localhost
+  ```
+
+  `@opentui/core` is a peer dependency; works with core, React (`createRoot`),
+  and Solid (`render`).
 
 ## In This Reference
 

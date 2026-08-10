@@ -1,5 +1,7 @@
 ---
 name: diasporic-intelligence
+slug: diasporic-intelligence
+version: 0.1.0
 description: "Use when writing, reviewing, citing, or implementing Diasporic Intelligence, a source-credited framework also described as Afrotemporalism in Action. Preserves source credit, consent governance, provenance, revocation, lineage boundaries, and the distinction from generic cultural AI, biometric extraction, and ancestor impersonation."
 ---
 

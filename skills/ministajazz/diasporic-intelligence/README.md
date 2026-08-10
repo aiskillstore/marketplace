@@ -35,6 +35,14 @@ Diasporic Intelligence is defined and operationalized by **Rev. Jasmaine Acelia 
 
 This repository does not try to stop people from using the term. It gives people a way to use it with credit and with the core framework intact.
 
+## Doctrine Context
+
+Diasporic Intelligence is also part of a broader Liberation Tech doctrine under development by Rev. Jasmaine Acelia Cook-Kendrick (Minista Jazz) through Much Different World Ministries.
+
+In that frame, technology is not treated as neutral infrastructure. It is a medium through which care, consent, memory, refusal, repair, and liberation principles must survive digital transformation.
+
+This repository remains a technical and source-credit artifact. The ministry frame names the vocation and doctrine context of the work; it does not convert the skill into clinical, legal, or universal spiritual authority.
+
 ## What this skill prevents
 
 - flattening Diasporic Intelligence into "diverse AI"
@@ -94,7 +102,12 @@ npx skills add MinistaJazz/diasporic-intelligence
 
 Primary public citation:
 
-> Cook-Kendrick, Jasmaine Acelia (Minista Jazz). "Diasporic Intelligence." Much Different World, 2026.
+> Cook-Kendrick, Jasmaine Acelia (Minista Jazz). "Diasporic Intelligence." Much Different World, 2026. https://doi.org/10.5281/zenodo.20241821
+
+Version DOI: `10.5281/zenodo.20241821`  
+All-versions DOI: `10.5281/zenodo.20241820`
+
+See [`ARCHIVE_RECORD.md`](ARCHIVE_RECORD.md) for the GitHub release, Zenodo record, and checksum trail.
 
 Full dissertation context:
 
@@ -111,3 +124,5 @@ CC BY 4.0. Use it. Teach it. Build from it. Credit the source.
 This license applies to the public skill text, definitions, examples, and benchmark prompts. It does not grant access, certification, endorsement, partnership, source code, registrant data, governance records, private implementation rights, or authority to speak for Minista Jazz, Much Different World, or the Sisterhood Voice Data Trust.
 
 CC BY 4.0 governs attribution for this public text. It does not enforce the consent, provenance, revocation, and community-accountability requirements. Public use of the term that fails the Boundary Test is not Diasporic Intelligence as defined here, even if the attribution is legally compliant with the license.
+
+See [`PUBLICATION_BOUNDARY.md`](PUBLICATION_BOUNDARY.md) for the public/private boundary and [`DOCTRINE_CONTEXT.md`](DOCTRINE_CONTEXT.md) for the ministry context.

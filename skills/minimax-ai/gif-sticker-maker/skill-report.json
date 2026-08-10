@@ -1,43 +1,45 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-07-05T23:40:50.795Z",
+    "generated_at": "2026-08-09T08:43:46.593Z",
     "slug": "minimax-ai-gif-sticker-maker",
     "source_url": "https://github.com/MiniMax-AI/skills/tree/main/skills/gif-sticker-maker",
     "source_ref": "main",
     "model": "codex",
     "analysis_version": "3.0.0",
     "source_type": "community",
-    "content_hash": "0431a717188ec7996708bbe66275b3f39538409db91e471e7cfd1948cd41b882",
-    "tree_hash": "72f7ad6a7f10af0b7e4020416887de69c2dcbe88dd35b7312cbd87ca4c29fffa",
+    "content_hash": "57002b47b7aaffb784acedae2750e14a75dc18ba58edb003f846755d7eb0c447",
+    "tree_hash": "37c300e7b8a7e9b9d06851161046f865f42dc75c671b103462dca6a692f41c8b",
     "provenance": {
-      "model_requested": "gpt-5.5:high",
-      "model_effective": "codex:gpt-5.5:high",
+      "model_effective": "codex",
       "fallback_chain": [
         {
           "agent": "codex",
-          "model": "gpt-5.5",
-          "effort": "high",
           "outcome": "success"
         }
       ],
       "analysis_version": "3.0.0"
-    }
+    },
+    "upstream_version_raw": "1.2",
+    "upstream_version_normalized": null,
+    "upstream_version_source": "metadata.version",
+    "upstream_version_status": "invalid",
+    "upstream_commit_sha": "60aaae52bb2af8162732751a4332f62a5fef518b"
   },
   "skill": {
     "name": "gif-sticker-maker",
-    "description": "Create four captioned animated GIF stickers from photos, logos, objects, or pets using MiniMax image and video generation.",
-    "summary": "Turns photos or logos into a four-sticker animated GIF pack.",
+    "description": "Creates four animated GIF stickers from a photo, with localized captions, MiniMax image and video generation, and FFmpeg conversion.",
+    "summary": "Turn a photo into four captioned, animated character stickers.",
     "icon": "📦",
-    "version": "1.0.0",
+    "version": "1.2",
     "author": "MiniMax-AI",
     "license": "MIT",
     "tags": [
       "gif-stickers",
-      "animation",
       "image-generation",
-      "minimax",
-      "captions"
+      "video-generation",
+      "animation",
+      "minimax"
     ],
     "supported_tools": [
       "claude",
@@ -53,26 +55,26 @@
     "category": "design"
   },
   "security_audit": {
-    "risk_level": "high",
+    "risk_level": "medium",
     "is_blocked": false,
-    "safe_to_publish": false,
+    "safe_to_publish": true,
     "analysis_status": "ok",
-    "summary": "Review found intended MiniMax API calls, environment variable use, file output, and ffmpeg execution. Most static hits are safe implementation patterns, but unrestricted MINIMAX_API_BASE can redirect authorization headers and media to any endpoint if misconfigured. No prompt injection text was found.",
+    "summary": "Most static findings are false positives caused by documented credential handling, expected output writes, Markdown formatting, and shell-safe FFmpeg calls. Confirmed risks involve external transmission of prompts and photos, unrestricted endpoint configuration, and unvalidated remote downloads. No prompt injection or malicious system-reconnaissance intent was found.",
     "remediation": [
       {
-        "issue": "Unrestricted MiniMax API base can receive authorization headers and media.",
-        "suggestion": "Allowlist official MiniMax domains or require explicit confirmation before custom API_BASE values are used.",
-        "severity": "high"
-      },
-      {
-        "issue": "Output paths are accepted directly by image, video, and GIF scripts.",
-        "suggestion": "Restrict outputs to a workspace directory and reject absolute paths or parent directory traversal.",
+        "issue": "Bearer credentials and user media can be sent to any MINIMAX_API_BASE value.",
+        "suggestion": "Require HTTPS and allowlist official MiniMax API hosts, or require explicit confirmation before using a custom host.",
         "severity": "medium"
       },
       {
-        "issue": "The workflow sends prompts, images, and generated media to third-party services.",
-        "suggestion": "Document data handling clearly and ask users before processing private or sensitive images.",
-        "severity": "low"
+        "issue": "API-provided media URLs are downloaded without destination or size validation.",
+        "suggestion": "Validate HTTPS hosts and redirects, stream downloads, set byte limits, and reject private or loopback destinations.",
+        "severity": "medium"
+      },
+      {
+        "issue": "The workflow sends personal photos to an external generation provider.",
+        "suggestion": "Obtain explicit user consent and disclose the provider, purpose, and applicable retention policy before uploading images.",
+        "severity": "medium"
       }
     ],
     "risk_factor_evidence": [
@@ -1043,435 +1045,415 @@
       {
         "id": "external_commands:scripts/convert_mp4_to_gif.py:36:python-subprocess-run",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "subprocess.run invokes the fixed ffmpeg binary with an argument list and shell=False by default, so shell metacharacters in paths are not executed. The command is the intended MP4-to-GIF conversion step."
+        "confidence": 0.97,
+        "reason": "The script invokes a fixed ffmpeg executable with a list of arguments and shell execution is disabled, so user paths cannot become shell commands."
       },
       {
         "id": "external_commands:scripts/convert_mp4_to_gif.py:42:python-subprocess-run",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "subprocess.run invokes the fixed ffmpeg binary with an argument list and shell=False by default, so shell metacharacters in paths are not executed. The command is the intended MP4-to-GIF conversion step."
+        "confidence": 0.97,
+        "reason": "The second ffmpeg pass also uses a fixed argument array without a shell, which prevents shell metacharacters in file paths from causing command injection."
       },
       {
         "id": "filesystem:scripts/convert_mp4_to_gif.py:53:python-os-file-operations",
-        "verdict": "confirmed",
-        "confidence": 0.74,
-        "severity": "medium",
-        "reason": "The palette path is derived from user-selected output_path and removed if it exists. A malicious or mistaken output path could delete an unintended .palette.png file in writable locations."
+        "verdict": "false_positive",
+        "confidence": 0.97,
+        "reason": "This removes only the deterministic temporary palette created for the requested output and checks that it exists first."
       },
       {
         "id": "network:scripts/minimax_image.py:74:python-http-libraries",
         "verdict": "confirmed",
-        "confidence": 0.82,
-        "severity": "low",
-        "reason": "This sends prompts and optional reference image data to API_BASE/image_generation. Network egress is core functionality but still exposes user content to an external service."
+        "confidence": 0.96,
+        "reason": "This request sends prompts, optional reference-image data, and a bearer credential to the configured API endpoint, creating an intentional external data-disclosure boundary.",
+        "severity": "medium"
       },
       {
         "id": "network:scripts/minimax_image.py:92:python-http-libraries",
         "verdict": "confirmed",
-        "confidence": 0.78,
-        "severity": "low",
-        "reason": "The script downloads an API-returned URL and writes the response as an output image. This is intended, but it fetches remote content without domain validation."
+        "confidence": 0.88,
+        "reason": "The script downloads an API-provided URL without validating its scheme or host, so a compromised or nonstandard endpoint can direct requests to unintended locations.",
+        "severity": "medium"
       },
       {
         "id": "network:scripts/minimax_image.py:22:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The URL appears only in a comment documenting official MiniMax endpoints, not as an active request target. Runtime requests use MINIMAX_API_BASE from the environment."
+        "confidence": 0.97,
+        "reason": "This line is a comment documenting an official regional API URL and does not initiate a request."
       },
       {
         "id": "network:scripts/minimax_image.py:23:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The URL appears only in a comment documenting official MiniMax endpoints, not as an active request target. Runtime requests use MINIMAX_API_BASE from the environment."
+        "confidence": 0.97,
+        "reason": "This line is a comment documenting an official regional API URL and does not initiate a request."
       },
       {
         "id": "filesystem:scripts/minimax_image.py:102:hidden-file-access",
-        "verdict": "confirmed",
-        "confidence": 0.76,
-        "severity": "medium",
-        "reason": "The CLI accepts an arbitrary output path and creates directories before writing generated media. Without path restrictions, files can be created outside a project output folder."
+        "verdict": "false_positive",
+        "confidence": 0.97,
+        "reason": "The line only declares a required output-path argument; it neither targets hidden files nor accesses a file."
       },
       {
         "id": "filesystem:scripts/minimax_image.py:94:python-file-write-append",
-        "verdict": "confirmed",
-        "confidence": 0.8,
-        "severity": "medium",
-        "reason": "Generated media bytes are written directly to the caller-provided output path. There is no allowlist or traversal check limiting where files are created."
+        "verdict": "false_positive",
+        "confidence": 0.97,
+        "reason": "The write saves the generated image to the output path explicitly supplied by the user, which is the documented purpose of the tool."
       },
       {
         "id": "filesystem:scripts/minimax_image.py:144:python-file-write-append",
-        "verdict": "confirmed",
-        "confidence": 0.8,
-        "severity": "medium",
-        "reason": "Generated media bytes are written directly to the caller-provided output path. There is no allowlist or traversal check limiting where files are created."
+        "verdict": "false_positive",
+        "confidence": 0.97,
+        "reason": "The write saves a decoded API image to the user-selected output path and does not append to or modify unrelated files."
       },
       {
         "id": "filesystem:scripts/minimax_image.py:115:python-os-file-operations",
-        "verdict": "confirmed",
-        "confidence": 0.76,
-        "severity": "medium",
-        "reason": "The CLI accepts an arbitrary output path and creates directories before writing generated media. Without path restrictions, files can be created outside a project output folder."
+        "verdict": "false_positive",
+        "confidence": 0.97,
+        "reason": "The directory creation is limited to the parent of the user-selected output file and is necessary to save the requested image."
       },
       {
         "id": "env_access:scripts/minimax_image.py:21:python-getenv-function",
-        "verdict": "confirmed",
-        "confidence": 0.78,
-        "severity": "low",
-        "reason": "The script reads MINIMAX_API_KEY from the environment, which is sensitive runtime configuration. This is intended for API auth but still gives the skill access to a secret."
+        "verdict": "false_positive",
+        "confidence": 0.97,
+        "reason": "Reading MINIMAX_API_KEY from the environment is the documented credential-loading mechanism and does not expose the value."
       },
       {
         "id": "env_access:scripts/minimax_image.py:24:python-getenv-function",
-        "verdict": "confirmed",
-        "confidence": 0.76,
-        "severity": "low",
-        "reason": "The script reads MINIMAX_API_BASE from the environment to choose the remote service endpoint. The lack of endpoint validation is addressed as a semantic finding."
+        "verdict": "false_positive",
+        "confidence": 0.97,
+        "reason": "Reading MINIMAX_API_BASE is expected endpoint configuration and does not inspect unrelated environment data."
       },
       {
         "id": "env_access:scripts/minimax_image.py:21:getenv-function-call",
-        "verdict": "confirmed",
-        "confidence": 0.78,
-        "severity": "low",
-        "reason": "The script reads MINIMAX_API_KEY from the environment, which is sensitive runtime configuration. This is intended for API auth but still gives the skill access to a secret."
+        "verdict": "false_positive",
+        "confidence": 0.97,
+        "reason": "This is the same documented MINIMAX_API_KEY lookup and does not enumerate or disclose environment variables."
       },
       {
         "id": "env_access:scripts/minimax_image.py:24:getenv-function-call",
-        "verdict": "confirmed",
-        "confidence": 0.76,
-        "severity": "low",
-        "reason": "The script reads MINIMAX_API_BASE from the environment to choose the remote service endpoint. The lack of endpoint validation is addressed as a semantic finding."
+        "verdict": "false_positive",
+        "confidence": 0.97,
+        "reason": "This is the same documented MINIMAX_API_BASE lookup and does not enumerate or disclose environment variables."
       },
       {
         "id": "env_access:scripts/minimax_image.py:11:generic-api-secret-keys",
         "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "The snippet references an environment variable name or builds an Authorization header from it; it does not contain a hardcoded credential. API-base redirection risk is covered separately."
+        "confidence": 0.97,
+        "reason": "The line is documentation naming the required environment variable and contains no credential value."
       },
       {
         "id": "env_access:scripts/minimax_image.py:21:generic-api-secret-keys",
         "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "The snippet references an environment variable name or builds an Authorization header from it; it does not contain a hardcoded credential. API-base redirection risk is covered separately."
+        "confidence": 0.97,
+        "reason": "The code loads the API key from the environment rather than embedding or printing it, which is standard credential handling."
       },
       {
         "id": "env_access:scripts/minimax_image.py:32:generic-api-secret-keys",
         "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "The snippet references an environment variable name or builds an Authorization header from it; it does not contain a hardcoded credential. API-base redirection risk is covered separately."
+        "confidence": 0.97,
+        "reason": "This line only checks whether the required key is absent and does not reveal or transmit it."
       },
       {
         "id": "env_access:scripts/minimax_image.py:33:generic-api-secret-keys",
         "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "The snippet references an environment variable name or builds an Authorization header from it; it does not contain a hardcoded credential. API-base redirection risk is covered separately."
+        "confidence": 0.97,
+        "reason": "The error contains a placeholder value, not a real secret, and only explains how to configure the environment variable."
       },
       {
         "id": "env_access:scripts/minimax_image.py:35:generic-api-secret-keys",
         "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "The snippet references an environment variable name or builds an Authorization header from it; it does not contain a hardcoded credential. API-base redirection risk is covered separately."
+        "confidence": 0.97,
+        "reason": "Using the key in a bearer Authorization header is required API authentication; the separate endpoint-control risk is covered by a semantic finding."
       },
       {
         "id": "obfuscation:scripts/minimax_image.py:143:python-base64-decode",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "This decodes API-returned image_base64 into image bytes when base64 output is selected. It is image data handling, not hidden code or payload execution."
+        "confidence": 0.97,
+        "reason": "The decoded value is an image returned by the API when base64 output is requested, not concealed code or an executable payload."
       },
       {
         "id": "network:scripts/minimax_video.py:98:python-http-libraries",
         "verdict": "confirmed",
-        "confidence": 0.82,
-        "severity": "low",
-        "reason": "This sends prompts and optional encoded first-frame image data to API_BASE/video_generation. Network egress is intended but exposes user content externally."
+        "confidence": 0.97,
+        "reason": "This request sends the animation prompt, optional base64 source image, and bearer credential to the configured API endpoint.",
+        "severity": "medium"
       },
       {
         "id": "network:scripts/minimax_video.py:118:python-http-libraries",
         "verdict": "confirmed",
-        "confidence": 0.75,
-        "severity": "low",
-        "reason": "This polls API_BASE for task status using the task ID. It is expected workflow traffic, but it still depends on the configured remote endpoint."
+        "confidence": 0.94,
+        "reason": "This is an intentional authenticated network request that repeatedly sends the task identifier to the configured external API.",
+        "severity": "low"
       },
       {
         "id": "network:scripts/minimax_video.py:148:python-http-libraries",
         "verdict": "confirmed",
-        "confidence": 0.75,
-        "severity": "low",
-        "reason": "This asks API_BASE to retrieve a generated file URL. It is expected MiniMax workflow traffic and depends on the configured endpoint."
+        "confidence": 0.94,
+        "reason": "This authenticated request sends a generated file identifier to the configured external API to obtain a download location.",
+        "severity": "low"
       },
       {
         "id": "network:scripts/minimax_video.py:163:python-http-libraries",
         "verdict": "confirmed",
-        "confidence": 0.78,
-        "severity": "low",
-        "reason": "The script downloads a URL returned by the API and saves it as a video. The download host is not validated before fetching content."
+        "confidence": 0.91,
+        "reason": "The script fetches an API-provided download URL without scheme, host, redirect, or response-size validation, permitting unintended network access or resource exhaustion.",
+        "severity": "medium"
       },
       {
         "id": "network:scripts/minimax_video.py:26:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The URL appears only in a comment documenting official MiniMax endpoints, not as an active request target. Runtime requests use MINIMAX_API_BASE from the environment."
+        "confidence": 0.97,
+        "reason": "This line is a comment documenting an official regional API URL and does not initiate a request."
       },
       {
         "id": "network:scripts/minimax_video.py:27:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The URL appears only in a comment documenting official MiniMax endpoints, not as an active request target. Runtime requests use MINIMAX_API_BASE from the environment."
+        "confidence": 0.97,
+        "reason": "This line is a comment documenting an official regional API URL and does not initiate a request."
       },
       {
         "id": "filesystem:scripts/minimax_video.py:167:python-file-write-append",
-        "verdict": "confirmed",
-        "confidence": 0.8,
-        "severity": "medium",
-        "reason": "Generated media bytes are written directly to the caller-provided output path. There is no allowlist or traversal check limiting where files are created."
+        "verdict": "false_positive",
+        "confidence": 0.97,
+        "reason": "The write stores the generated video at the output path explicitly selected by the user, matching the tool's documented behavior."
       },
       {
         "id": "filesystem:scripts/minimax_video.py:166:python-os-file-operations",
-        "verdict": "confirmed",
-        "confidence": 0.76,
-        "severity": "medium",
-        "reason": "The CLI accepts an arbitrary output path and creates directories before writing generated media. Without path restrictions, files can be created outside a project output folder."
+        "verdict": "false_positive",
+        "confidence": 0.97,
+        "reason": "The directory creation is limited to the parent of the user-selected video output and is needed to save that video."
       },
       {
         "id": "env_access:scripts/minimax_video.py:25:python-getenv-function",
-        "verdict": "confirmed",
-        "confidence": 0.78,
-        "severity": "low",
-        "reason": "The script reads MINIMAX_API_KEY from the environment, which is sensitive runtime configuration. This is intended for API auth but still gives the skill access to a secret."
+        "verdict": "false_positive",
+        "confidence": 0.97,
+        "reason": "Reading MINIMAX_API_KEY from the environment is the documented credential-loading mechanism and does not expose the value."
       },
       {
         "id": "env_access:scripts/minimax_video.py:28:python-getenv-function",
-        "verdict": "confirmed",
-        "confidence": 0.76,
-        "severity": "low",
-        "reason": "The script reads MINIMAX_API_BASE from the environment to choose the remote service endpoint. The lack of endpoint validation is addressed as a semantic finding."
+        "verdict": "false_positive",
+        "confidence": 0.97,
+        "reason": "Reading MINIMAX_API_BASE is expected endpoint configuration and does not inspect unrelated environment data."
       },
       {
         "id": "env_access:scripts/minimax_video.py:25:getenv-function-call",
-        "verdict": "confirmed",
-        "confidence": 0.78,
-        "severity": "low",
-        "reason": "The script reads MINIMAX_API_KEY from the environment, which is sensitive runtime configuration. This is intended for API auth but still gives the skill access to a secret."
+        "verdict": "false_positive",
+        "confidence": 0.97,
+        "reason": "This is the same documented MINIMAX_API_KEY lookup and does not enumerate or disclose environment variables."
       },
       {
         "id": "env_access:scripts/minimax_video.py:28:getenv-function-call",
-        "verdict": "confirmed",
-        "confidence": 0.76,
-        "severity": "low",
-        "reason": "The script reads MINIMAX_API_BASE from the environment to choose the remote service endpoint. The lack of endpoint validation is addressed as a semantic finding."
+        "verdict": "false_positive",
+        "confidence": 0.97,
+        "reason": "This is the same documented MINIMAX_API_BASE lookup and does not enumerate or disclose environment variables."
       },
       {
         "id": "env_access:scripts/minimax_video.py:14:generic-api-secret-keys",
         "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "The snippet references an environment variable name or builds an Authorization header from it; it does not contain a hardcoded credential. API-base redirection risk is covered separately."
+        "confidence": 0.97,
+        "reason": "The line is documentation naming the required environment variable and contains no credential value."
       },
       {
         "id": "env_access:scripts/minimax_video.py:25:generic-api-secret-keys",
         "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "The snippet references an environment variable name or builds an Authorization header from it; it does not contain a hardcoded credential. API-base redirection risk is covered separately."
+        "confidence": 0.97,
+        "reason": "The code loads the API key from the environment rather than embedding or printing it, which is standard credential handling."
       },
       {
         "id": "env_access:scripts/minimax_video.py:50:generic-api-secret-keys",
         "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "The snippet references an environment variable name or builds an Authorization header from it; it does not contain a hardcoded credential. API-base redirection risk is covered separately."
+        "confidence": 0.97,
+        "reason": "This line only checks whether the required key is absent and does not reveal or transmit it."
       },
       {
         "id": "env_access:scripts/minimax_video.py:51:generic-api-secret-keys",
         "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "The snippet references an environment variable name or builds an Authorization header from it; it does not contain a hardcoded credential. API-base redirection risk is covered separately."
+        "confidence": 0.97,
+        "reason": "The error contains a placeholder value, not a real secret, and only explains how to configure the environment variable."
       },
       {
         "id": "env_access:scripts/minimax_video.py:53:generic-api-secret-keys",
         "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "The snippet references an environment variable name or builds an Authorization header from it; it does not contain a hardcoded credential. API-base redirection risk is covered separately."
+        "confidence": 0.97,
+        "reason": "Using the key in a bearer Authorization header is required API authentication; the separate endpoint-control risk is covered by a semantic finding."
       },
       {
         "id": "blocker:scripts/minimax_video.py:108:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "The code reads MiniMax API task_id and file_id values from API responses. It does not inspect the local system or enumerate host resources."
+        "confidence": 0.97,
+        "reason": "This reads a task identifier from the MiniMax API response and does not inspect the local system."
       },
       {
         "id": "blocker:scripts/minimax_video.py:110:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "The code reads MiniMax API task_id and file_id values from API responses. It does not inspect the local system or enumerate host resources."
+        "confidence": 0.97,
+        "reason": "This formats an API error response when a task identifier is missing and performs no system reconnaissance."
       },
       {
         "id": "blocker:scripts/minimax_video.py:111:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "The code reads MiniMax API task_id and file_id values from API responses. It does not inspect the local system or enumerate host resources."
+        "confidence": 0.97,
+        "reason": "Returning the remote generation task identifier is ordinary API workflow logic, not reconnaissance."
       },
       {
         "id": "blocker:scripts/minimax_video.py:129:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "The code reads MiniMax API task_id and file_id values from API responses. It does not inspect the local system or enumerate host resources."
+        "confidence": 0.97,
+        "reason": "This reads a generated file identifier from the API response and does not inspect local files or system state."
       },
       {
         "id": "blocker:scripts/minimax_video.py:133:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "The code reads MiniMax API task_id and file_id values from API responses. It does not inspect the local system or enumerate host resources."
+        "confidence": 0.97,
+        "reason": "This is an error check for a missing API file identifier and contains no reconnaissance behavior."
       },
       {
         "id": "blocker:scripts/minimax_video.py:135:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "The code reads MiniMax API task_id and file_id values from API responses. It does not inspect the local system or enumerate host resources."
+        "confidence": 0.97,
+        "reason": "Returning the API file identifier is ordinary generation workflow logic, not system discovery."
       },
       {
         "id": "blocker:scripts/minimax_video.py:147:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "The code reads MiniMax API task_id and file_id values from API responses. It does not inspect the local system or enumerate host resources."
+        "confidence": 0.97,
+        "reason": "The line is a function description for retrieving generated media and does not perform reconnaissance."
       },
       {
         "id": "blocker:scripts/minimax_video.py:193:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "The code reads MiniMax API task_id and file_id values from API responses. It does not inspect the local system or enumerate host resources."
+        "confidence": 0.97,
+        "reason": "This submits a documented video-generation task and does not gather local system information."
       },
       {
         "id": "blocker:scripts/minimax_video.py:197:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "The code reads MiniMax API task_id and file_id values from API responses. It does not inspect the local system or enumerate host resources."
+        "confidence": 0.97,
+        "reason": "This polls a known generation task for completion and does not gather local system information."
       },
       {
         "id": "external_commands:SKILL.md:36:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This is Markdown inline code or a fenced example describing workflow commands, not executable Ruby or shell backtick evaluation. The skill text itself does not execute these snippets."
+        "confidence": 0.99,
+        "reason": "The scanner matched Markdown inline-code or fenced-code delimiters in documentation; this text does not execute Ruby or shell commands."
       },
       {
         "id": "external_commands:SKILL.md:37:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This is Markdown inline code or a fenced example describing workflow commands, not executable Ruby or shell backtick evaluation. The skill text itself does not execute these snippets."
+        "confidence": 0.99,
+        "reason": "The scanner matched Markdown inline-code or fenced-code delimiters in documentation; this text does not execute Ruby or shell commands."
       },
       {
         "id": "external_commands:SKILL.md:53:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This is Markdown inline code or a fenced example describing workflow commands, not executable Ruby or shell backtick evaluation. The skill text itself does not execute these snippets."
+        "confidence": 0.99,
+        "reason": "The scanner matched Markdown inline-code or fenced-code delimiters in documentation; this text does not execute Ruby or shell commands."
       },
       {
         "id": "external_commands:SKILL.md:56:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This is Markdown inline code or a fenced example describing workflow commands, not executable Ruby or shell backtick evaluation. The skill text itself does not execute these snippets."
+        "confidence": 0.99,
+        "reason": "The scanner matched Markdown inline-code or fenced-code delimiters in documentation; this text does not execute Ruby or shell commands."
       },
       {
         "id": "external_commands:SKILL.md:57:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This is Markdown inline code or a fenced example describing workflow commands, not executable Ruby or shell backtick evaluation. The skill text itself does not execute these snippets."
+        "confidence": 0.99,
+        "reason": "The scanner matched Markdown inline-code or fenced-code delimiters in documentation; this text does not execute Ruby or shell commands."
       },
       {
         "id": "external_commands:SKILL.md:60:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This is Markdown inline code or a fenced example describing workflow commands, not executable Ruby or shell backtick evaluation. The skill text itself does not execute these snippets."
+        "confidence": 0.99,
+        "reason": "The scanner matched Markdown inline-code or fenced-code delimiters in documentation; this text does not execute Ruby or shell commands."
       },
       {
         "id": "external_commands:SKILL.md:65:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This is Markdown inline code or a fenced example describing workflow commands, not executable Ruby or shell backtick evaluation. The skill text itself does not execute these snippets."
+        "confidence": 0.99,
+        "reason": "The scanner matched Markdown inline-code or fenced-code delimiters in documentation; this text does not execute Ruby or shell commands."
       },
       {
         "id": "external_commands:SKILL.md:67:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This is Markdown inline code or a fenced example describing workflow commands, not executable Ruby or shell backtick evaluation. The skill text itself does not execute these snippets."
+        "confidence": 0.99,
+        "reason": "The scanner matched Markdown inline-code or fenced-code delimiters in documentation; this text does not execute Ruby or shell commands."
       },
       {
         "id": "external_commands:SKILL.md:72:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This is Markdown inline code or a fenced example describing workflow commands, not executable Ruby or shell backtick evaluation. The skill text itself does not execute these snippets."
+        "confidence": 0.99,
+        "reason": "The scanner matched Markdown inline-code or fenced-code delimiters in documentation; this text does not execute Ruby or shell commands."
       },
       {
         "id": "external_commands:SKILL.md:76:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This is Markdown inline code or a fenced example describing workflow commands, not executable Ruby or shell backtick evaluation. The skill text itself does not execute these snippets."
+        "confidence": 0.99,
+        "reason": "The scanner matched Markdown inline-code or fenced-code delimiters in documentation; this text does not execute Ruby or shell commands."
       },
       {
         "id": "external_commands:SKILL.md:81:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This is Markdown inline code or a fenced example describing workflow commands, not executable Ruby or shell backtick evaluation. The skill text itself does not execute these snippets."
+        "confidence": 0.99,
+        "reason": "The scanner matched Markdown inline-code or fenced-code delimiters in documentation; this text does not execute Ruby or shell commands."
       },
       {
         "id": "external_commands:SKILL.md:87:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This is Markdown inline code or a fenced example describing workflow commands, not executable Ruby or shell backtick evaluation. The skill text itself does not execute these snippets."
+        "confidence": 0.99,
+        "reason": "The scanner matched Markdown inline-code or fenced-code delimiters in documentation; this text does not execute Ruby or shell commands."
       },
       {
         "id": "external_commands:SKILL.md:89:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This is Markdown inline code or a fenced example describing workflow commands, not executable Ruby or shell backtick evaluation. The skill text itself does not execute these snippets."
+        "confidence": 0.99,
+        "reason": "The scanner matched Markdown inline-code or fenced-code delimiters in documentation; this text does not execute Ruby or shell commands."
       },
       {
         "id": "external_commands:SKILL.md:91:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This is Markdown inline code or a fenced example describing workflow commands, not executable Ruby or shell backtick evaluation. The skill text itself does not execute these snippets."
+        "confidence": 0.99,
+        "reason": "The scanner matched Markdown inline-code or fenced-code delimiters in documentation; this text does not execute Ruby or shell commands."
       },
       {
         "id": "external_commands:SKILL.md:93:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This is Markdown inline code or a fenced example describing workflow commands, not executable Ruby or shell backtick evaluation. The skill text itself does not execute these snippets."
+        "confidence": 0.99,
+        "reason": "The scanner matched Markdown inline-code or fenced-code delimiters in documentation; this text does not execute Ruby or shell commands."
       },
       {
         "id": "external_commands:SKILL.md:99:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This is Markdown inline code or a fenced example describing workflow commands, not executable Ruby or shell backtick evaluation. The skill text itself does not execute these snippets."
+        "confidence": 0.99,
+        "reason": "The scanner matched Markdown inline-code or fenced-code delimiters in documentation; this text does not execute Ruby or shell commands."
       },
       {
         "id": "external_commands:SKILL.md:102:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This is Markdown inline code or a fenced example describing workflow commands, not executable Ruby or shell backtick evaluation. The skill text itself does not execute these snippets."
+        "confidence": 0.99,
+        "reason": "The scanner matched Markdown inline-code or fenced-code delimiters in documentation; this text does not execute Ruby or shell commands."
       },
       {
         "id": "external_commands:SKILL.md:109:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This is Markdown inline code or a fenced example describing workflow commands, not executable Ruby or shell backtick evaluation. The skill text itself does not execute these snippets."
+        "confidence": 0.99,
+        "reason": "The scanner matched Markdown inline-code or fenced-code delimiters in documentation; this text does not execute Ruby or shell commands."
       },
       {
         "id": "env_access:SKILL.md:36:generic-api-secret-keys",
         "verdict": "false_positive",
-        "confidence": 0.93,
-        "reason": "The line shows an example environment variable export with the placeholder value your-key. It does not include a real secret value."
+        "confidence": 0.97,
+        "reason": "The documentation names MINIMAX_API_KEY and uses the literal placeholder 'your-key'; it contains no embedded secret."
       }
     ],
     "semantic_findings": [
       {
-        "title": "Unrestricted API Base Can Redirect Credentials",
-        "description": "MINIMAX_API_BASE is accepted from the environment and used directly in API URLs while authorization headers include MINIMAX_API_KEY. A malicious or mistaken base URL could receive bearer tokens, prompts, and uploaded media.",
-        "severity": "high",
+        "title": "Configurable API Endpoint Receives Credentials and User Media",
+        "description": "MINIMAX_API_BASE accepts any configured destination. The scripts send the bearer key, prompts, and reference images to that destination without enforcing official HTTPS hosts.",
+        "severity": "medium",
         "locations": [
           {
             "file": "scripts/minimax_image.py",
-            "line_start": 21,
-            "line_end": 24
-          },
-          {
-            "file": "scripts/minimax_image.py",
-            "line_start": 35,
+            "line_start": 24,
             "line_end": 35
           },
           {
@@ -1481,183 +1463,65 @@
           },
           {
             "file": "scripts/minimax_video.py",
-            "line_start": 25,
-            "line_end": 28
-          },
-          {
-            "file": "scripts/minimax_video.py",
-            "line_start": 53,
+            "line_start": 28,
             "line_end": 53
           },
           {
             "file": "scripts/minimax_video.py",
             "line_start": 98,
-            "line_end": 102
+            "line_end": 103
           }
         ],
-        "confidence": 0.82,
-        "confidence_reasoning": "Both API clients read API_BASE from the environment, build Authorization headers from MINIMAX_API_KEY, and send requests to the configured base. No allowlist or endpoint validation is visible."
+        "confidence": 0.96,
+        "confidence_reasoning": "The endpoint is taken directly from the environment and the same endpoint receives authenticated requests containing generation inputs."
+      },
+      {
+        "title": "Unrestricted Remote Media Downloads",
+        "description": "Download URLs from API responses are fetched without host validation, streaming, or size limits. A malicious endpoint can trigger internal requests or excessive memory use.",
+        "severity": "medium",
+        "locations": [
+          {
+            "file": "scripts/minimax_image.py",
+            "line_start": 90,
+            "line_end": 96
+          },
+          {
+            "file": "scripts/minimax_video.py",
+            "line_start": 158,
+            "line_end": 168
+          }
+        ],
+        "confidence": 0.93,
+        "confidence_reasoning": "Both download paths accept remote URLs and buffer complete response bodies without validating destinations or enforcing byte limits."
+      },
+      {
+        "title": "Personal Photos Are Disclosed to an External Generation Service",
+        "description": "The workflow preserves facial likeness by encoding user photos into generation requests. Users need clear consent and retention guidance before processing personal images.",
+        "severity": "medium",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 55,
+            "line_end": 57
+          },
+          {
+            "file": "scripts/minimax_image.py",
+            "line_start": 119,
+            "line_end": 133
+          },
+          {
+            "file": "scripts/minimax_video.py",
+            "line_start": 188,
+            "line_end": 193
+          }
+        ],
+        "confidence": 0.98,
+        "confidence_reasoning": "The documented workflow explicitly preserves facial likeness, and both scripts encode local images for submission to the configured service."
       }
     ],
     "critical_findings": [],
-    "high_findings": [
-      {
-        "title": "Unrestricted API Base Can Redirect Credentials",
-        "description": "MINIMAX_API_BASE is accepted from the environment and used directly in API URLs while authorization headers include MINIMAX_API_KEY. A malicious or mistaken base URL could receive bearer tokens, prompts, and uploaded media.",
-        "locations": [
-          {
-            "file": "scripts/minimax_image.py",
-            "line_start": 21,
-            "line_end": 24
-          },
-          {
-            "file": "scripts/minimax_image.py",
-            "line_start": 35,
-            "line_end": 35
-          },
-          {
-            "file": "scripts/minimax_image.py",
-            "line_start": 74,
-            "line_end": 78
-          },
-          {
-            "file": "scripts/minimax_video.py",
-            "line_start": 25,
-            "line_end": 28
-          },
-          {
-            "file": "scripts/minimax_video.py",
-            "line_start": 53,
-            "line_end": 53
-          },
-          {
-            "file": "scripts/minimax_video.py",
-            "line_start": 98,
-            "line_end": 102
-          }
-        ],
-        "review_kind": "security",
-        "source_category": "semantic",
-        "source_severity": "high",
-        "confidence": 0.82,
-        "confidence_reasoning": "Both API clients read API_BASE from the environment, build Authorization headers from MINIMAX_API_KEY, and send requests to the configured base. No allowlist or endpoint validation is visible."
-      }
-    ],
+    "high_findings": [],
     "medium_findings": [
-      {
-        "title": "Python os file operations",
-        "description": "os.remove(palette)",
-        "locations": [
-          {
-            "file": "scripts/convert_mp4_to_gif.py",
-            "line_start": 53,
-            "line_end": 53
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "filesystem",
-        "source_severity": "medium",
-        "confidence": 0.74,
-        "confidence_reasoning": "The palette path is derived from user-selected output_path and removed if it exists. A malicious or mistaken output path could delete an unintended .palette.png file in writable locations."
-      },
-      {
-        "title": "Hidden file access",
-        "description": "p.add_argument(\"-o\", \"--output\", required=True, help=\"Output file path (.png/.jpg)\")",
-        "locations": [
-          {
-            "file": "scripts/minimax_image.py",
-            "line_start": 102,
-            "line_end": 102
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "filesystem",
-        "source_severity": "medium",
-        "confidence": 0.76,
-        "confidence_reasoning": "The CLI accepts an arbitrary output path and creates directories before writing generated media. Without path restrictions, files can be created outside a project output folder."
-      },
-      {
-        "title": "Python file write/append",
-        "description": "with open(output_path, \"wb\") as f:",
-        "locations": [
-          {
-            "file": "scripts/minimax_image.py",
-            "line_start": 94,
-            "line_end": 94
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "filesystem",
-        "source_severity": "medium",
-        "confidence": 0.8,
-        "confidence_reasoning": "Generated media bytes are written directly to the caller-provided output path. There is no allowlist or traversal check limiting where files are created."
-      },
-      {
-        "title": "Python file write/append",
-        "description": "with open(path, \"wb\") as f:",
-        "locations": [
-          {
-            "file": "scripts/minimax_image.py",
-            "line_start": 144,
-            "line_end": 144
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "filesystem",
-        "source_severity": "medium",
-        "confidence": 0.8,
-        "confidence_reasoning": "Generated media bytes are written directly to the caller-provided output path. There is no allowlist or traversal check limiting where files are created."
-      },
-      {
-        "title": "Python os file operations",
-        "description": "os.makedirs(os.path.dirname(args.output) or \".\", exist_ok=True)",
-        "locations": [
-          {
-            "file": "scripts/minimax_image.py",
-            "line_start": 115,
-            "line_end": 115
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "filesystem",
-        "source_severity": "medium",
-        "confidence": 0.76,
-        "confidence_reasoning": "The CLI accepts an arbitrary output path and creates directories before writing generated media. Without path restrictions, files can be created outside a project output folder."
-      },
-      {
-        "title": "Python file write/append",
-        "description": "with open(output_path, \"wb\") as f:",
-        "locations": [
-          {
-            "file": "scripts/minimax_video.py",
-            "line_start": 167,
-            "line_end": 167
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "filesystem",
-        "source_severity": "medium",
-        "confidence": 0.8,
-        "confidence_reasoning": "Generated media bytes are written directly to the caller-provided output path. There is no allowlist or traversal check limiting where files are created."
-      },
-      {
-        "title": "Python os file operations",
-        "description": "os.makedirs(os.path.dirname(output_path) or \".\", exist_ok=True)",
-        "locations": [
-          {
-            "file": "scripts/minimax_video.py",
-            "line_start": 166,
-            "line_end": 166
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "filesystem",
-        "source_severity": "medium",
-        "confidence": 0.76,
-        "confidence_reasoning": "The CLI accepts an arbitrary output path and creates directories before writing generated media. Without path restrictions, files can be created outside a project output folder."
-      }
-    ],
-    "low_findings": [
       {
         "title": "Python HTTP libraries",
         "description": "resp = requests.post(",
@@ -1671,8 +1535,8 @@
         "review_kind": "capability",
         "source_category": "network",
         "source_severity": "low",
-        "confidence": 0.82,
-        "confidence_reasoning": "This sends prompts and optional reference image data to API_BASE/image_generation. Network egress is core functionality but still exposes user content to an external service."
+        "confidence": 0.96,
+        "confidence_reasoning": "This request sends prompts, optional reference-image data, and a bearer credential to the configured API endpoint, creating an intentional external data-disclosure boundary."
       },
       {
         "title": "Python HTTP libraries",
@@ -1687,72 +1551,8 @@
         "review_kind": "capability",
         "source_category": "network",
         "source_severity": "low",
-        "confidence": 0.78,
-        "confidence_reasoning": "The script downloads an API-returned URL and writes the response as an output image. This is intended, but it fetches remote content without domain validation."
-      },
-      {
-        "title": "Python getenv function",
-        "description": "API_KEY = os.getenv(\"MINIMAX_API_KEY\")",
-        "locations": [
-          {
-            "file": "scripts/minimax_image.py",
-            "line_start": 21,
-            "line_end": 21
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "env_access",
-        "source_severity": "low",
-        "confidence": 0.78,
-        "confidence_reasoning": "The script reads MINIMAX_API_KEY from the environment, which is sensitive runtime configuration. This is intended for API auth but still gives the skill access to a secret."
-      },
-      {
-        "title": "Python getenv function",
-        "description": "API_BASE = os.getenv(\"MINIMAX_API_BASE\")",
-        "locations": [
-          {
-            "file": "scripts/minimax_image.py",
-            "line_start": 24,
-            "line_end": 24
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "env_access",
-        "source_severity": "low",
-        "confidence": 0.76,
-        "confidence_reasoning": "The script reads MINIMAX_API_BASE from the environment to choose the remote service endpoint. The lack of endpoint validation is addressed as a semantic finding."
-      },
-      {
-        "title": "getenv function call",
-        "description": "API_KEY = os.getenv(\"MINIMAX_API_KEY\")",
-        "locations": [
-          {
-            "file": "scripts/minimax_image.py",
-            "line_start": 21,
-            "line_end": 21
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "env_access",
-        "source_severity": "low",
-        "confidence": 0.78,
-        "confidence_reasoning": "The script reads MINIMAX_API_KEY from the environment, which is sensitive runtime configuration. This is intended for API auth but still gives the skill access to a secret."
-      },
-      {
-        "title": "getenv function call",
-        "description": "API_BASE = os.getenv(\"MINIMAX_API_BASE\")",
-        "locations": [
-          {
-            "file": "scripts/minimax_image.py",
-            "line_start": 24,
-            "line_end": 24
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "env_access",
-        "source_severity": "low",
-        "confidence": 0.76,
-        "confidence_reasoning": "The script reads MINIMAX_API_BASE from the environment to choose the remote service endpoint. The lack of endpoint validation is addressed as a semantic finding."
+        "confidence": 0.88,
+        "confidence_reasoning": "The script downloads an API-provided URL without validating its scheme or host, so a compromised or nonstandard endpoint can direct requests to unintended locations."
       },
       {
         "title": "Python HTTP libraries",
@@ -1767,40 +1567,8 @@
         "review_kind": "capability",
         "source_category": "network",
         "source_severity": "low",
-        "confidence": 0.82,
-        "confidence_reasoning": "This sends prompts and optional encoded first-frame image data to API_BASE/video_generation. Network egress is intended but exposes user content externally."
-      },
-      {
-        "title": "Python HTTP libraries",
-        "description": "resp = requests.get(",
-        "locations": [
-          {
-            "file": "scripts/minimax_video.py",
-            "line_start": 118,
-            "line_end": 118
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "network",
-        "source_severity": "low",
-        "confidence": 0.75,
-        "confidence_reasoning": "This polls API_BASE for task status using the task ID. It is expected workflow traffic, but it still depends on the configured remote endpoint."
-      },
-      {
-        "title": "Python HTTP libraries",
-        "description": "resp = requests.get(",
-        "locations": [
-          {
-            "file": "scripts/minimax_video.py",
-            "line_start": 148,
-            "line_end": 148
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "network",
-        "source_severity": "low",
-        "confidence": 0.75,
-        "confidence_reasoning": "This asks API_BASE to retrieve a generated file URL. It is expected MiniMax workflow traffic and depends on the configured endpoint."
+        "confidence": 0.97,
+        "confidence_reasoning": "This request sends the animation prompt, optional base64 source image, and bearer credential to the configured API endpoint."
       },
       {
         "title": "Python HTTP libraries",
@@ -1815,200 +1583,246 @@
         "review_kind": "capability",
         "source_category": "network",
         "source_severity": "low",
-        "confidence": 0.78,
-        "confidence_reasoning": "The script downloads a URL returned by the API and saves it as a video. The download host is not validated before fetching content."
+        "confidence": 0.91,
+        "confidence_reasoning": "The script fetches an API-provided download URL without scheme, host, redirect, or response-size validation, permitting unintended network access or resource exhaustion."
       },
       {
-        "title": "Python getenv function",
-        "description": "API_KEY = os.getenv(\"MINIMAX_API_KEY\")",
+        "title": "Configurable API Endpoint Receives Credentials and User Media",
+        "description": "MINIMAX_API_BASE accepts any configured destination. The scripts send the bearer key, prompts, and reference images to that destination without enforcing official HTTPS hosts.",
         "locations": [
           {
-            "file": "scripts/minimax_video.py",
-            "line_start": 25,
-            "line_end": 25
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "env_access",
-        "source_severity": "low",
-        "confidence": 0.78,
-        "confidence_reasoning": "The script reads MINIMAX_API_KEY from the environment, which is sensitive runtime configuration. This is intended for API auth but still gives the skill access to a secret."
-      },
-      {
-        "title": "Python getenv function",
-        "description": "API_BASE = os.getenv(\"MINIMAX_API_BASE\")",
-        "locations": [
+            "file": "scripts/minimax_image.py",
+            "line_start": 24,
+            "line_end": 35
+          },
+          {
+            "file": "scripts/minimax_image.py",
+            "line_start": 74,
+            "line_end": 78
+          },
           {
             "file": "scripts/minimax_video.py",
             "line_start": 28,
-            "line_end": 28
+            "line_end": 53
+          },
+          {
+            "file": "scripts/minimax_video.py",
+            "line_start": 98,
+            "line_end": 103
           }
         ],
-        "review_kind": "capability",
-        "source_category": "env_access",
-        "source_severity": "low",
-        "confidence": 0.76,
-        "confidence_reasoning": "The script reads MINIMAX_API_BASE from the environment to choose the remote service endpoint. The lack of endpoint validation is addressed as a semantic finding."
+        "review_kind": "security",
+        "source_category": "semantic",
+        "source_severity": "medium",
+        "confidence": 0.96,
+        "confidence_reasoning": "The endpoint is taken directly from the environment and the same endpoint receives authenticated requests containing generation inputs."
       },
       {
-        "title": "getenv function call",
-        "description": "API_KEY = os.getenv(\"MINIMAX_API_KEY\")",
+        "title": "Unrestricted Remote Media Downloads",
+        "description": "Download URLs from API responses are fetched without host validation, streaming, or size limits. A malicious endpoint can trigger internal requests or excessive memory use.",
+        "locations": [
+          {
+            "file": "scripts/minimax_image.py",
+            "line_start": 90,
+            "line_end": 96
+          },
+          {
+            "file": "scripts/minimax_video.py",
+            "line_start": 158,
+            "line_end": 168
+          }
+        ],
+        "review_kind": "security",
+        "source_category": "semantic",
+        "source_severity": "medium",
+        "confidence": 0.93,
+        "confidence_reasoning": "Both download paths accept remote URLs and buffer complete response bodies without validating destinations or enforcing byte limits."
+      },
+      {
+        "title": "Personal Photos Are Disclosed to an External Generation Service",
+        "description": "The workflow preserves facial likeness by encoding user photos into generation requests. Users need clear consent and retention guidance before processing personal images.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 55,
+            "line_end": 57
+          },
+          {
+            "file": "scripts/minimax_image.py",
+            "line_start": 119,
+            "line_end": 133
+          },
+          {
+            "file": "scripts/minimax_video.py",
+            "line_start": 188,
+            "line_end": 193
+          }
+        ],
+        "review_kind": "security",
+        "source_category": "semantic",
+        "source_severity": "medium",
+        "confidence": 0.98,
+        "confidence_reasoning": "The documented workflow explicitly preserves facial likeness, and both scripts encode local images for submission to the configured service."
+      }
+    ],
+    "low_findings": [
+      {
+        "title": "Python HTTP libraries",
+        "description": "resp = requests.get(",
         "locations": [
           {
             "file": "scripts/minimax_video.py",
-            "line_start": 25,
-            "line_end": 25
+            "line_start": 118,
+            "line_end": 118
           }
         ],
         "review_kind": "capability",
-        "source_category": "env_access",
+        "source_category": "network",
         "source_severity": "low",
-        "confidence": 0.78,
-        "confidence_reasoning": "The script reads MINIMAX_API_KEY from the environment, which is sensitive runtime configuration. This is intended for API auth but still gives the skill access to a secret."
+        "confidence": 0.94,
+        "confidence_reasoning": "This is an intentional authenticated network request that repeatedly sends the task identifier to the configured external API."
       },
       {
-        "title": "getenv function call",
-        "description": "API_BASE = os.getenv(\"MINIMAX_API_BASE\")",
+        "title": "Python HTTP libraries",
+        "description": "resp = requests.get(",
         "locations": [
           {
             "file": "scripts/minimax_video.py",
-            "line_start": 28,
-            "line_end": 28
+            "line_start": 148,
+            "line_end": 148
           }
         ],
         "review_kind": "capability",
-        "source_category": "env_access",
+        "source_category": "network",
         "source_severity": "low",
-        "confidence": 0.76,
-        "confidence_reasoning": "The script reads MINIMAX_API_BASE from the environment to choose the remote service endpoint. The lack of endpoint validation is addressed as a semantic finding."
+        "confidence": 0.94,
+        "confidence_reasoning": "This authenticated request sends a generated file identifier to the configured external API to obtain a download location."
       }
     ],
     "dangerous_patterns": [],
     "files_scanned": 8,
     "total_lines": 683,
     "audit_model": "codex",
-    "audited_at": "2026-07-05T23:40:50.795Z",
-    "agent_auto_install_policy": "confirmation_required",
+    "audited_at": "2026-08-09T08:43:46.593Z",
+    "agent_auto_install_policy": "allowed",
     "manual_install_policy": "allowed"
   },
   "content": {
-    "user_title": "Create Captioned GIF Sticker Packs",
-    "value_statement": "Custom sticker packs can take many manual image and video steps. This skill guides MiniMax image, video, caption, and GIF conversion into one workflow.",
+    "user_title": "Create Animated GIF Stickers from Photos",
+    "value_statement": "Turning photos into consistent animated stickers requires several generation and conversion steps. This skill coordinates MiniMax and FFmpeg to produce four captioned GIFs.",
     "seo_keywords": [
       "Claude",
       "Codex",
       "Claude Code",
-      "GIF sticker maker",
-      "animated stickers",
-      "MiniMax API",
-      "AI avatar animation",
-      "captioned GIFs",
-      "Funko Pop style",
-      "emoji pack creator"
+      "AI GIF sticker maker",
+      "animated sticker generator",
+      "photo to GIF",
+      "MiniMax image generation",
+      "MiniMax video generation",
+      "custom emoji pack",
+      "animated avatar"
     ],
     "actual_capabilities": [
-      "Generates four static sticker images from a photo or described subject.",
-      "Uses MiniMax image generation with optional person reference images.",
-      "Animates each sticker through MiniMax image-to-video generation.",
-      "Converts MP4 outputs into GIF files with ffmpeg.",
-      "Applies short localized captions from the included caption table."
+      "Creates four square sticker images from a person, pet, object, or logo description.",
+      "Uses a person photo as a character reference for facial likeness.",
+      "Generates short image-to-video animations through the MiniMax API.",
+      "Converts generated MP4 files into palette-optimized GIF files with FFmpeg.",
+      "Supports custom captions or default captions in seven languages.",
+      "Runs independent image and video generation jobs concurrently when the agent supports parallel execution."
     ],
     "limitations": [
-      "Requires a MiniMax API key and a configured API base URL.",
-      "Requires ffmpeg on the local PATH for GIF conversion.",
-      "Subject reference images only support person subjects through the API.",
-      "Generated likeness, caption quality, and motion consistency depend on model output."
+      "Requires a MiniMax API key, a configured API base URL, Python dependencies, and FFmpeg.",
+      "Reference-image likeness is supported only for person subjects.",
+      "Generated media quality, text stability, latency, and cost depend on MiniMax services.",
+      "The workflow produces four GIFs and does not provide an interactive sticker editor."
     ],
     "use_cases": [
       {
-        "title": "Build reaction stickers",
-        "description": "Create a four GIF reaction set from a selfie, product mascot, or logo.",
-        "target_user": "Social media creator"
+        "title": "Build Personal Reaction Stickers",
+        "description": "Convert a portrait into four animated reactions with short captions for everyday messaging.",
+        "target_user": "Social media users"
       },
       {
-        "title": "Localize chat stickers",
-        "description": "Use the caption table to produce stickers in one selected conversation language.",
-        "target_user": "Community manager"
+        "title": "Create Branded Animated Assets",
+        "description": "Turn a logo or product mascot into a consistent set of animated promotional stickers.",
+        "target_user": "Brand designers"
       },
       {
-        "title": "Prototype mascot animations",
-        "description": "Turn a character concept into quick animated sticker drafts for review.",
-        "target_user": "Designer"
+        "title": "Produce Multilingual Emoji Packs",
+        "description": "Generate captioned sticker sets that match the audience language across supported caption presets.",
+        "target_user": "Community managers"
       }
     ],
     "prompt_templates": [
       {
-        "title": "Use default captions",
-        "scenario": "Beginner sticker generation from one image.",
-        "prompt": "Create four animated GIF stickers from this photo. Use the default captions for my conversation language."
+        "title": "Create a Default Sticker Pack",
+        "prompt": "Create four animated GIF stickers from this photo. Use the default captions for my language.",
+        "scenario": "A beginner wants the standard four reactions."
       },
       {
-        "title": "Provide custom captions",
-        "scenario": "User has exact caption text ready.",
-        "prompt": "Create a sticker pack from this image with these captions: Hi, LOL, Boo-hoo, Love ya."
+        "title": "Use Custom Captions",
+        "prompt": "Create four animated stickers from this pet photo. Use these captions: {caption_1}, {caption_2}, {caption_3}, and {caption_4}.",
+        "scenario": "A user wants personalized sticker text."
       },
       {
-        "title": "Match a brand mascot",
-        "scenario": "Logo or mascot source image needs a sticker set.",
-        "prompt": "Use this logo as the subject. Create four GIF stickers that preserve its colors and simple shape."
+        "title": "Animate a Brand Mascot",
+        "prompt": "Transform this logo into four animated mascot stickers. Preserve its colors and shape. Use these actions: {actions}.",
+        "scenario": "A designer needs branded messaging assets."
       },
       {
-        "title": "Control action and output size",
-        "scenario": "Advanced user wants custom motion and GIF conversion settings.",
-        "prompt": "Create four stickers with custom captions and matching actions. Convert the MP4 files to GIF at 12 fps and 320 px wide."
+        "title": "Control the Full Sticker Set",
+        "prompt": "Create a four-sticker pack from {subject}. Use {language}, captions {captions}, actions {actions}, and filenames {filenames}. Keep every caption readable.",
+        "scenario": "An advanced user specifies localization, motion, and delivery details."
       }
     ],
     "output_examples": [
       {
-        "input": "A user uploads a selfie and asks for default English captions.",
-        "output": [
-          "Four GIF stickers are produced: waving, laughing, crying, and heart gesture.",
-          "Each sticker uses a short English caption with readable outlined text."
-        ]
+        "input": "Create the default English reaction stickers from my portrait.",
+        "output": "Four animated GIFs: a waving Hi sticker, laughing LOL sticker, crying Boo-hoo sticker, and heart-gesture Love ya sticker."
       },
       {
-        "input": "A team shares a logo and asks for chat stickers in Spanish.",
-        "output": "The skill creates a mascot-style GIF set with Spanish captions and a clean white background."
+        "input": "Make a Spanish sticker pack from my pet photo.",
+        "output": "Four animated pet stickers with Spanish captions: Hola, Jajaja, Buaaa, and Te quiero."
       },
       {
-        "input": "A designer provides a pet photo and four custom phrases.",
-        "output": "The workflow creates four toy-like pet GIFs with the requested phrases matched to actions."
+        "input": "Animate our logo as a mascot with custom captions.",
+        "output": "Four square GIF stickers that preserve the logo colors and pair each supplied caption with a matching motion."
       }
     ],
     "best_practices": [
-      "Use clear front-facing photos when preserving a person's likeness.",
-      "Keep custom captions to one to three short words.",
-      "Review generated images before animation to avoid wasting video credits."
+      "Use a clear, well-lit reference photo with one visible subject.",
+      "Keep captions between one and three words for reliable rendering.",
+      "Confirm the target language, API endpoint, output paths, and estimated service cost before generation."
     ],
     "anti_patterns": [
-      "Do not include private images unless third-party API processing is acceptable.",
-      "Do not mix languages across captions in the same sticker pack.",
-      "Do not use absolute output paths for normal sticker creation."
+      "Do not upload personal photos without the subject's consent.",
+      "Do not mix caption languages within one sticker pack.",
+      "Do not use untrusted API base URLs or unverified media download hosts."
     ],
     "faq": [
       {
-        "question": "Does this skill need an API key?",
-        "answer": "Yes. It uses MINIMAX_API_KEY and MINIMAX_API_BASE to call MiniMax services."
+        "question": "How many stickers does the skill create?",
+        "answer": "It creates four animated GIF stickers per workflow."
       },
       {
-        "question": "Can it work without ffmpeg?",
-        "answer": "No. ffmpeg is required to convert MP4 videos into GIF files."
+        "question": "Which subjects are supported?",
+        "answer": "It supports people, pets, objects, logos, and icons. Facial reference matching is limited to people."
       },
       {
-        "question": "How many stickers does it create?",
-        "answer": "The workflow creates four GIF stickers by default."
+        "question": "Can I provide my own captions?",
+        "answer": "Yes. Provide four short captions, preferably one to three words each."
       },
       {
-        "question": "Can I use my own captions?",
-        "answer": "Yes. Provide four short captions, and the skill matches actions to their meaning."
+        "question": "Which languages have default captions?",
+        "answer": "Defaults are included for English, Spanish, French, German, Chinese, Japanese, and Korean."
       },
       {
-        "question": "Does it preserve a person's face?",
-        "answer": "It can use a subject reference for person photos, but model output may vary."
+        "question": "What software and credentials are required?",
+        "answer": "You need Python, the requests package, FFmpeg, MINIMAX_API_KEY, and MINIMAX_API_BASE."
       },
       {
-        "question": "Can it create stickers from logos?",
-        "answer": "Yes. It can stylize logos into 3D toy-like mascot stickers."
+        "question": "Are my photos processed locally?",
+        "answer": "No. Reference images are encoded and sent to the configured MiniMax-compatible API for generation."
       }
     ]
   },

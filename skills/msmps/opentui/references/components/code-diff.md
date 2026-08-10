@@ -439,7 +439,27 @@ The `LineNumberRenderable` also supports programmatic highlighting:
 lineNumberView.highlightLines(5, 10, "#2d4f2d")
 lineNumberView.clearHighlightLines(5, 10)
 ```
+
+### Hunk Navigation (Core)
+
+`getHunkRowOffsets()` returns the visual row offset (0-based, accounting for
+wrapping and concealed lines) where each diff hunk begins, in hunk order. Works
+in both `"unified"` and `"split"` views.
+
+```typescript
+const offsets = diffView.getHunkRowOffsets()  // number[]
+
+// Jump to the next hunk below the current scroll position
+const next = offsets.find((row) => row > diffView.scrollTop)
+if (next !== undefined) diffView.scrollTop = next
+
+// Jump to the previous hunk
+const prev = [...offsets].reverse().find((row) => row < diffView.scrollTop)
+if (prev !== undefined) diffView.scrollTop = prev
 ```
+
+The result is cached and invalidated when the view rebuilds, `wrapMode` changes,
+or line info changes.
 
 ## Markdown Component
 
@@ -475,22 +495,32 @@ const md = new MarkdownRenderable(renderer, {
 ```tsx
 <markdown
   content={markdownText}
-  syntaxStyle={syntaxStyle}
-  treeSitterClient={client}  // Optional: custom tree-sitter client
-  conceal={true}             // Hide markdown syntax characters
-  streaming={true}           // Enable streaming mode for incremental updates
-  tableOptions={{            // Customize markdown table rendering
-    widthMode: "full",       // "content" | "full"
-    wrapMode: "word",        // "none" | "char" | "word"
+  syntaxStyle={syntaxStyle}    // Required
+  treeSitterClient={client}    // Optional: custom tree-sitter client
+  conceal={true}               // Hide markdown syntax characters (default true)
+  concealCode={false}          // Conceal code fences too (default false)
+  streaming={true}             // Enable streaming mode for incremental updates
+  internalBlockMode="coalesced" // "coalesced" (default) | "top-level"
+  tableOptions={{              // Customize markdown table rendering
+    style: "columns",          // "grid" | "columns"
+    widthMode: "full",         // "content" | "full"
+    wrapMode: "word",          // "none" | "char" | "word"
     cellPadding: 0,
     borders: true,
     outerBorder: true,
     borderStyle: "single",
     borderColor: "#555",
-    selectable: true,        // Tables are selectable by default
+    selectable: true,          // Tables are selectable by default
   }}
 />
 ```
+
+**`internalBlockMode`**: `"top-level"` keeps each top-level block (heading,
+paragraph, list, table, fenced code) as its own child renderable — required for
+row-by-row committing of streamed output and for stable-block tracking. The
+default `"coalesced"` folds siblings together (historical layout). When set to
+`"top-level"`, `markdown._stableBlockCount` reports how many head-of-stream
+blocks are currently stable.
 
 ### Custom Node Rendering
 
@@ -512,6 +542,31 @@ const md = new MarkdownRenderable(renderer, {
 })
 ```
 
+### Custom Code Block Renderers
+
+`createMarkdownCodeBlockRenderer` builds a `renderNode` that only overrides
+fenced code blocks, keyed by the **normalized** fence info string (e.g. `tsx` →
+`typescriptreact`; custom names like `taskflow` match directly):
+
+```typescript
+import { createMarkdownCodeBlockRenderer, MarkdownRenderable } from "@opentui/core"
+
+const renderNode = createMarkdownCodeBlockRenderer({
+  mermaid: (token, ctx) => renderMermaidDiagram(ctx, token.text),
+  taskflow: (token, ctx) => renderTaskflow(ctx, token.text),
+})
+
+const md = new MarkdownRenderable(renderer, {
+  id: "markdown",
+  content,
+  syntaxStyle,
+  renderNode,  // Only the matched fences are replaced; others render normally
+})
+```
+
+Each renderer receives `(token: Tokens.Code, context: RenderNodeContext)` and
+returns a `Renderable`, or `undefined`/`null` to fall back to default rendering.
+
 ### Streaming Mode
 
 For real-time content like LLM output:
@@ -532,6 +587,12 @@ useEffect(() => {
   streaming={true}  // Optimizes for incremental updates
 />
 ```
+
+In Core, set `markdown.streaming = true` while appending chunks (assign or `+=`
+to `markdown.content`; each change reparses incrementally). Set
+`markdown.streaming = false` when the stream completes to finalize trailing
+block parsing. Use `internalBlockMode: "top-level"` if you need per-block commit
+boundaries (`markdown._stableBlockCount`).
 
 ## Use Cases
 

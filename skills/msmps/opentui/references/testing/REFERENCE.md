@@ -101,6 +101,49 @@ test("component matches snapshot", async () => {
 })
 ```
 
+### Test Renderer Setup Object
+
+`createTestRenderer()` returns an expanded `TestRendererSetup` with helpers for
+driving frames, input, and asserting on output:
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `renderer` | `TestRenderer` | Headless renderer instance |
+| `mockInput` | `MockInput` | Simulate keyboard input |
+| `mockMouse` | `MockMouse` | Simulate mouse events |
+| `renderOnce()` | `() => Promise<void>` | Trigger a single render cycle |
+| `flush(options?)` | `(o?: { maxPasses? }) => Promise<void>` | Drain scheduled render work (default 20 passes) |
+| `waitFor(predicate, options?)` | `Promise<void>` | Advance frames until a boolean/async predicate passes |
+| `waitForFrame(predicate, options?)` | `Promise<string>` | Like `waitFor`, predicate receives the frame string; resolves to it |
+| `waitForVisualIdle(options?)` | `(o?: { quietFrames?, maxFrames? }) => Promise<void>` | Wait until rendering settles (defaults 1 / 20) |
+| `captureCharFrame()` | `() => string` | Capture output as text |
+| `captureSpans()` | `() => CapturedFrame` | Capture styled spans |
+| `externalOutput` | `TestExternalOutput` | Capture scrollback / external output (`take()`, `takeText()`, `clear()`) |
+| `getNativeStats()` | `() => NativeRenderStats` | Native render statistics |
+| `resize(width, height)` | `(w, h) => void` | Resize the virtual terminal |
+
+```typescript
+import { createTestRenderer } from "@opentui/core/testing"
+
+const t = await createTestRenderer({ width: 40, height: 10 })
+
+// Wait for async content instead of guessing at renderOnce() timing
+await t.waitForFrame((frame) => frame.includes("Loaded"))
+
+// Or wait until the UI stops changing
+await t.waitForVisualIdle()
+
+// Assert on scrollback written above the viewport
+const commits = t.externalOutput.take()
+```
+
+`TestRendererOptions` extends `CliRendererConfig` with `width`, `height`,
+`kittyKeyboard`, and `otherModifiersMode`. Other exports from
+`@opentui/core/testing`: `createMockKeys`, `KeyCodes`, `createMockMouse`,
+`MouseButtons`, `createSpy`, `TestRecorder`, `ManualClock`,
+`createTerminalCapabilities`, `setRendererCapabilities`,
+`createMockTreeSitterClient`.
+
 ## React Testing
 
 ### Test Utilities

@@ -1,5 +1,8 @@
 # React API Reference
 
+> **Requirements**: `@opentui/react` uses `react-reconciler` 0.33 and requires
+> **React ≥ 19.2**. Run `bun add react@latest react-dom@latest` before upgrading.
+
 ## Rendering
 
 ### createRoot(renderer)
@@ -210,212 +213,102 @@ function AnimatedBox() {
 - `pause()` - Pause playback
 - `restart()` - Restart from beginning
 
-## Components
+### usePaste(handler)
 
-### Text Component
+Subscribe to bracketed-paste events. `handler` receives a `PasteEvent` with raw
+`bytes` (decode with `decodePasteBytes`). The callback is kept stable across
+renders.
 
 ```tsx
-<text
-  content="Hello"           // Or use children
-  fg="#FFFFFF"              // Foreground color
-  bg="#000000"              // Background color
-  selectable={true}         // Allow text selection
->
-  {/* Use nested modifier tags for styling */}
-  <span fg="red">Red</span>
-  <strong>Bold</strong>
-  <em>Italic</em>
-  <u>Underline</u>
+import { usePaste } from "@opentui/react"
+import { decodePasteBytes } from "@opentui/core"
+
+function Editor() {
+  usePaste((event) => {
+    console.log("Pasted:", decodePasteBytes(event.bytes))
+  })
+  return <textarea focused />
+}
+```
+
+### useFocus(handler) / useBlur(handler)
+
+Fire when the terminal window gains or loses OS focus.
+
+```tsx
+import { useFocus, useBlur } from "@opentui/react"
+
+useFocus(() => console.log("Terminal gained focus"))
+useBlur(() => console.log("Terminal lost focus"))
+```
+
+### useSelectionHandler(handler)
+
+Fire when the user finishes a text selection (mouse-up). `handler` receives a
+`Selection` (from `@opentui/core`); use `selection.getSelectedText()`.
+
+```tsx
+import { useSelectionHandler } from "@opentui/react"
+
+useSelectionHandler((selection) => {
+  console.log("Selected:", selection.getSelectedText())
+})
+```
+
+> These four hooks (`usePaste`, `useFocus`, `useBlur`, `useSelectionHandler`)
+> mirror the Solid hooks and are available from `@opentui/react`.
+
+## Components
+
+Full props for every component live in the shared **[components](../components/REFERENCE.md)**
+references. This section only covers what is **React-specific**; read the linked
+category file for the complete prop list.
+
+### JSX Element Names
+
+React uses **hyphenated** tag names. Full props are in the linked file:
+
+| Element | Full props |
+|---------|-----------|
+| `<text>`, `<span>`, `<strong>`, `<em>`, `<u>`, `<a>`, `<br>` | [text-display.md](../components/text-display.md) |
+| `<box>`, `<scrollbox>` | [containers.md](../components/containers.md) |
+| `<input>`, `<textarea>`, `<select>`, `<tab-select>` | [inputs.md](../components/inputs.md) |
+| `<code>`, `<line-number>`, `<diff>`, `<markdown>` | [code-diff.md](../components/code-diff.md) |
+| `<ascii-font>` | [text-display.md](../components/text-display.md) |
+
+### Text Styling Uses Nested Tags (React-specific)
+
+Style text with **nested modifier elements**, not props:
+
+```tsx
+<text fg="#FFFFFF" bg="#000000" selectable>
+  <span fg="red">Red</span> <strong>Bold</strong> <em>Italic</em> <u>Underline</u>
   <br />
   <a href="https://...">Link</a>
 </text>
 ```
 
-> **Note**: Do NOT use `bold`, `italic`, `underline` as props on `<text>`. Use nested modifier tags like `<strong>`, `<em>`, `<u>` instead.
+> **Note**: Do NOT use `bold`, `italic`, `underline` as props on `<text>`. Use
+> nested modifier tags like `<strong>`, `<em>`, `<u>` instead.
 
-### Box Component
+### Controlled Inputs (React-specific)
 
-```tsx
-<box
-  // Borders
-  border                    // Enable border
-  borderStyle="single"      // single | double | rounded | bold
-  borderColor="#FFFFFF"
-  title="Title"
-  titleAlignment="center"   // left | center | right
-  
-  // Colors
-  backgroundColor="#1a1a2e"
-  
-  // Layout (see layout/REFERENCE.md)
-  flexDirection="row"
-  justifyContent="center"
-  alignItems="center"
-  gap={2}
-  
-  // Spacing
-  padding={2}
-  paddingTop={1}
-  paddingX={2}              // Horizontal (left + right)
-  paddingY={1}              // Vertical (top + bottom)
-  margin={1}
-  marginX={2}               // Horizontal (left + right)
-  marginY={1}               // Vertical (top + bottom)
-  
-  // Dimensions
-  width={40}
-  height={10}
-  flexGrow={1}
-  
-  // Focus
-  focusable                 // Allow box to receive focus
-  focused={isFocused}       // Controlled focus state
-  
-  // Events
-  onMouseDown={(e) => {}}
-  onMouseUp={(e) => {}}
-  onMouseMove={(e) => {}}
->
-  {children}
-</box>
-```
-
-### Scrollbox Component
+Inputs are controlled with `value` + `onChange` (single value), and use the
+`focused` prop to receive keyboard input:
 
 ```tsx
-<scrollbox
-  focused                   // Enable keyboard scrolling
-  style={{
-    rootOptions: { backgroundColor: "#24283b" },
-    wrapperOptions: { backgroundColor: "#1f2335" },
-    viewportOptions: { backgroundColor: "#1a1b26" },
-    contentOptions: { backgroundColor: "#16161e" },
-    scrollbarOptions: {
-      showArrows: true,
-      trackOptions: {
-        foregroundColor: "#7aa2f7",
-        backgroundColor: "#414868",
-      },
-    },
-  }}
->
-  {/* Scrollable content */}
-  {items.map((item, i) => (
-    <box key={i}>
-      <text>{item}</text>
-    </box>
-  ))}
-</scrollbox>
+<input value={value} onChange={setValue} focused />
+<textarea value={text} onChange={setText} focused width={40} height={10} />
+
+// Select/tab-select: onChange fires on navigation, onSelect on Enter
+<select options={opts} onChange={(i, opt) => setSel(opt)} focused />
 ```
 
-### Input Component
+### Scrollbox `style` Nesting (React-specific)
 
-```tsx
-<input
-  value={value}
-  onChange={(newValue) => setValue(newValue)}
-  placeholder="Enter text..."
-  focused                   // Start focused
-  width={30}
-  backgroundColor="#1a1a1a"
-  textColor="#FFFFFF"
-  cursorColor="#00FF00"
-  focusedBackgroundColor="#2a2a2a"
-/>
-```
-
-### Textarea Component
-
-```tsx
-<textarea
-  value={text}
-  onChange={(newValue) => setText(newValue)}
-  placeholder="Enter multiple lines..."
-  focused
-  width={40}
-  height={10}
-  showLineNumbers
-  wrapText
-/>
-```
-
-### Select Component
-
-```tsx
-<select
-  options={[
-    { name: "Option 1", description: "First option", value: "1" },
-    { name: "Option 2", description: "Second option", value: "2" },
-  ]}
-  onChange={(index, option) => setSelected(option)}
-  selectedIndex={0}
-  focused
-  showScrollIndicator
-  height={8}
-/>
-```
-
-### Tab Select Component
-
-```tsx
-<tab-select
-  options={[
-    { name: "Home", description: "Dashboard" },
-    { name: "Settings", description: "Configuration" },
-  ]}
-  onChange={(index, option) => setTab(option)}
-  tabWidth={20}
-  focused
-/>
-```
-
-### ASCII Font Component
-
-```tsx
-<ascii-font
-  text="TITLE"
-  font="tiny"               // tiny | block | slick | shade
-  color="#FFFFFF"
-/>
-```
-
-### Code Component
-
-```tsx
-<code
-  code={sourceCode}
-  language="typescript"
-  showLineNumbers
-  highlightLines={[1, 5, 10]}
-/>
-```
-
-### Line Number Component
-
-```tsx
-<line-number
-  code={sourceCode}
-  language="typescript"
-  startLine={1}
-  highlightedLines={[5]}
-  diagnostics={[
-    { line: 3, severity: "error", message: "Syntax error" }
-  ]}
-/>
-```
-
-### Diff Component
-
-```tsx
-<diff
-  oldCode={originalCode}
-  newCode={modifiedCode}
-  language="typescript"
-  mode="unified"            // unified | split
-  syncScroll                // Sync scroll between split view panes
-  showLineNumbers
-/>
-```
+`<scrollbox>` takes a nested `style` object (`rootOptions`, `wrapperOptions`,
+`viewportOptions`, `contentOptions`, `scrollbarOptions`). See
+[containers.md](../components/containers.md) for the full structure.
 
 ## Type Exports
 
