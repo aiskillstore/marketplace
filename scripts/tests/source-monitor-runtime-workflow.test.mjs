@@ -25,6 +25,7 @@ const runtimeFiles = [
   'scripts/rebind-skill-report-hashes.mjs',
   'scripts/resolve-approved-submission.mjs',
   'scripts/verify-source-monitor-selection.mjs',
+  'scripts/verify-source-monitor-update.mjs',
 ];
 
 test('source monitor shares the production governance writer mutex', () => {
@@ -86,6 +87,7 @@ function createFixture() {
     'scripts/rebind-skill-report-hashes.mjs': 'export const fixture = true;\n',
     'scripts/resolve-approved-submission.mjs': 'export const fixture = true;\n',
     'scripts/verify-source-monitor-selection.mjs': 'export const fixture = true;\n',
+    'scripts/verify-source-monitor-update.mjs': 'export const fixture = true;\n',
     'skills/owner/demo/SKILL.md': '# Demo\n',
     'skills/owner/demo/skill-report.json': '{"meta":{"slug":"owner-demo"}}\n',
     'skills/owner/demo/references/large.txt': 'not needed by the monitor runtime checkout\n',
@@ -258,21 +260,76 @@ test('source monitor verifies every explicit requested slug before later workflo
   );
 });
 
-test('source monitor binds every changed report to its packaged tree before creating a PR', () => {
+test('source monitor binds every changed report and verifies update safety before creating a PR', () => {
   const binding = extractRunBlock('Bind source monitor reports to packaged trees');
-  assert.match(binding, /git diff --no-renames --name-only -z --diff-filter=ACMRT HEAD/);
-  assert.match(binding, /skills\/\*\*\/SKILL\.md/);
-  assert.match(binding, /skills\/\*\*\/skill-report\.json/);
+  assert.match(binding, /git diff --no-renames --name-only -z --diff-filter=ACDMRT HEAD -- skills/);
+  assert.match(binding, /git ls-files --others --exclude-standard -z -- skills/);
+  assert.match(binding, /skills\/\$first\/\$second\/skill-report\.json/);
+  assert.match(binding, /skills\/\$first\/skill-report\.json/);
+  assert.match(binding, /printf '%s\/SKILL\.md\\0'/);
   assert.match(binding, /scripts\/rebind-skill-report-hashes\.mjs/);
   assert.match(binding, /--skill-paths-file/);
   assert.match(binding, /--diff-filter=D/);
   assert.match(binding, /update-index -z --no-skip-worktree --stdin/);
   assert.match(binding, /git add --sparse -A -f/);
+  const safety = extractRunBlock('Verify source monitor update safety');
+  assert.match(safety, /node scripts\/verify-source-monitor-update\.mjs --repo-root "\$GITHUB_WORKSPACE"/);
   assert.ok(
     workflow.indexOf('name: Bind source monitor reports to packaged trees')
-      < workflow.indexOf('name: Create source monitor PR'),
-    'packaged report hashes must be rebound before the source monitor PR is created',
+      < workflow.indexOf('name: Verify source monitor update safety'),
+    'packaged report hashes must be rebound before source monitor update safety is checked',
   );
+  assert.ok(
+    workflow.indexOf('name: Verify source monitor update safety')
+      < workflow.indexOf('name: Create source monitor PR'),
+    'source monitor update safety must pass before the PR is created',
+  );
+});
+
+function assertPayloadOnlyBinding(skillDirectory) {
+  const root = mkdtempSync(join(tmpdir(), 'source-monitor-payload-only-'));
+  const workspace = join(root, 'workspace');
+  const absoluteSkillDirectory = join(workspace, skillDirectory);
+  try {
+    mkdirSync(join(workspace, 'scripts'), { recursive: true });
+    mkdirSync(join(absoluteSkillDirectory, 'references'), { recursive: true });
+    copyFileSync('scripts/rebind-skill-report-hashes.mjs', join(workspace, 'scripts/rebind-skill-report-hashes.mjs'));
+    copyFileSync('scripts/resolve-approved-submission.mjs', join(workspace, 'scripts/resolve-approved-submission.mjs'));
+    writeFileSync(join(absoluteSkillDirectory, 'SKILL.md'), '# Payload only\n');
+    writeFileSync(join(absoluteSkillDirectory, 'references', 'guide.md'), '# Old\n');
+    writeFileSync(join(absoluteSkillDirectory, 'skill-report.json'), `${JSON.stringify({
+      meta: {
+        source_url: 'https://github.com/owner/repository',
+        source_ref: 'main',
+        content_hash: 'old',
+        tree_hash: 'old',
+      },
+    })}\n`);
+    run('git', ['init', '-q', workspace]);
+    run('git', ['-C', workspace, 'config', 'user.name', 'Fixture']);
+    run('git', ['-C', workspace, 'config', 'user.email', 'fixture@example.com']);
+    run('git', ['-C', workspace, 'add', '.']);
+    run('git', ['-C', workspace, 'commit', '-qm', 'fixture']);
+
+    writeFileSync(join(absoluteSkillDirectory, 'references', 'guide.md'), '# New\n');
+    run('bash', ['-c', extractRunBlock('Bind source monitor reports to packaged trees')], {
+      cwd: workspace,
+      env: { ...process.env, RUNNER_TEMP: root, GITHUB_RUN_ID: '1234', DRY_RUN: 'false', CREATE_PR: 'true' },
+    });
+
+    const staged = run('git', ['-C', workspace, 'diff', '--cached', '--name-only']).stdout.trim().split('\n');
+    assert.ok(staged.includes(`${skillDirectory}/references/guide.md`));
+    assert.ok(staged.includes(`${skillDirectory}/skill-report.json`));
+    const report = JSON.parse(readFileSync(join(absoluteSkillDirectory, 'skill-report.json'), 'utf8'));
+    assert.equal(report.meta.tree_hash, calculateCanonicalTreeHash(workspace, skillDirectory));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+}
+
+test('source monitor rebinds namespaced and flat payload-only updates', () => {
+  assertPayloadOnlyBinding('skills/owner/payload-only');
+  assertPayloadOnlyBinding('skills/payload-only-flat');
 });
 
 test('source monitor commits upstream files hidden by a copied skill .gitignore', () => {
