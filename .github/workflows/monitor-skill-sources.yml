@@ -158,6 +158,7 @@ jobs:
           /scripts/rebind-skill-report-hashes.mjs
           /scripts/resolve-approved-submission.mjs
           /scripts/verify-source-monitor-selection.mjs
+          /scripts/verify-source-monitor-update.mjs
           /skills/**/skill-report.json
           EOF
 
@@ -203,6 +204,7 @@ jobs:
             "scripts/rebind-skill-report-hashes.mjs"
             "scripts/resolve-approved-submission.mjs"
             "scripts/verify-source-monitor-selection.mjs"
+            "scripts/verify-source-monitor-update.mjs"
           )
           {
             echo "expected_workflow_sha=$EXPECTED_WORKFLOW_SHA"
@@ -420,16 +422,27 @@ jobs:
             exit 1
           fi
 
-          git diff --no-renames --name-only -z --diff-filter=ACMRT HEAD -- \
-            'skills/**/SKILL.md' 'skills/**/skill-report.json' > "$CHANGED_ARTIFACTS"
+          {
+            git diff --no-renames --name-only -z --diff-filter=ACDMRT HEAD -- skills
+            git ls-files --others --exclude-standard -z -- skills
+          } > "$CHANGED_ARTIFACTS"
           : > "$CHANGED_SKILLS"
           while IFS= read -r -d '' artifact_path; do
             case "$artifact_path" in
-              skills/*/skill-report.json)
-                printf '%s\0' "${artifact_path%/skill-report.json}/SKILL.md" >> "$CHANGED_SKILLS"
-                ;;
-              skills/*/SKILL.md)
-                printf '%s\0' "$artifact_path" >> "$CHANGED_SKILLS"
+              skills/*/*)
+                relative_path="${artifact_path#skills/}"
+                first="${relative_path%%/*}"
+                remaining="${relative_path#*/}"
+                second="${remaining%%/*}"
+                if [ -f "skills/$first/$second/skill-report.json" ]; then
+                  skill_dir="skills/$first/$second"
+                elif [ -f "skills/$first/skill-report.json" ]; then
+                  skill_dir="skills/$first"
+                else
+                  echo "::error::Changed path is not inside a published skill: $artifact_path"
+                  exit 1
+                fi
+                printf '%s/SKILL.md\0' "$skill_dir" >> "$CHANGED_SKILLS"
                 ;;
               *)
                 echo "::error::Unexpected source monitor artifact path: $artifact_path"
@@ -456,6 +469,18 @@ jobs:
             git add --sparse -f -- "${skill_path%/SKILL.md}/skill-report.json"
           done < "$CHANGED_SKILLS"
           echo "::notice::Bound source monitor report hashes to the exact packaged Marketplace trees"
+
+      - name: Verify source monitor update safety
+        env:
+          DRY_RUN: ${{ github.event_name == 'schedule' && 'false' || inputs.dry_run }}
+          CREATE_PR: ${{ github.event_name == 'schedule' && 'true' || inputs.create_pr }}
+        run: |
+          set -euo pipefail
+          if [ "$DRY_RUN" = "true" ] || [ "$CREATE_PR" != "true" ]; then
+            echo "Source monitor update safety verification skipped because no update PR will be created."
+            exit 0
+          fi
+          node scripts/verify-source-monitor-update.mjs --repo-root "$GITHUB_WORKSPACE"
 
       - name: Generate Fresh GitHub App Token for PR
         id: pr-app-token
