@@ -1,0 +1,63 @@
+# Arming the {DOMAIN}-janitor (pick one — enabling is one step)
+
+The never-stale safety net is only real once the janitor runs on a schedule. If no scheduler exists at
+build time, record the cadence in `operations/routines.md` AND drop one of the snippets below so the
+user can enable it with a single copy. Default cadence: **weekly, Monday 09:00**. After enabling, note
+it in `operations/routines.md` so the doctor's "schedule armed" check passes.
+
+## Option A — GitHub Actions (if the workspace is a GitHub repo)
+Save as `.github/workflows/{DOMAIN_SLUG}-janitor.yml`. Needs an agent CLI + API key available to CI.
+
+```yaml
+name: {DOMAIN_SLUG}-janitor
+on:
+  schedule:
+    - cron: "0 9 * * 1"        # Mondays 09:00 UTC
+  workflow_dispatch: {}
+jobs:
+  janitor:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run the {DOMAIN}-janitor skill
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          # wire your agent runner here, e.g.:
+          # npx @anthropic-ai/claude-code -p "Run the {DOMAIN}-janitor skill" --permission-mode acceptEdits
+          echo "invoke the {DOMAIN}-janitor via your agent runner"
+      - name: Commit any reconciliation
+        run: |
+          git config user.name  "{DOMAIN}-janitor"
+          git config user.email "janitor@users.noreply.github.com"
+          git add -A && git commit -m "chore: scheduled {DOMAIN}-janitor reconcile" || echo "nothing to reconcile"
+          git push || true
+```
+
+## Option B — cron (Linux / macOS)
+`crontab -e`, then (adjust the path + your agent CLI):
+
+```cron
+0 9 * * 1 cd {workspace} && <agent-cli> -p "Run the {DOMAIN}-janitor skill" >> operations/janitor.log 2>&1
+```
+
+## Option C — launchd (macOS, survives reboots)
+Save as `~/Library/LaunchAgents/local.{DOMAIN_SLUG}.janitor.plist`, then `launchctl load` it:
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>Label</key><string>local.{DOMAIN_SLUG}.janitor</string>
+  <key>ProgramArguments</key>
+  <array><string>/bin/sh</string><string>-c</string>
+    <string>cd {workspace} &amp;&amp; &lt;agent-cli&gt; -p "Run the {DOMAIN}-janitor skill"</string>
+  </array>
+  <key>StartCalendarInterval</key><dict>
+    <key>Weekday</key><integer>1</integer><key>Hour</key><integer>9</integer><key>Minute</key><integer>0</integer>
+  </dict>
+</dict></plist>
+```
+
+## Option D — agent-runner scheduled task
+If your agent runner has native scheduled tasks, create one that runs the `{DOMAIN}-janitor` weekly.
