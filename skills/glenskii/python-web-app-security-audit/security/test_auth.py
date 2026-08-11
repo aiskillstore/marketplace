@@ -14,6 +14,8 @@ REGISTER = route("TEST_AUTH_REGISTER_ROUTE", "/auth/register")
 PROTECTED = route("TEST_PROTECTED_ROUTE", "/api/me")
 ADMIN = route("TEST_ADMIN_ROUTE", "/api/admin")
 
+pytestmark = pytest.mark.active_probe
+
 
 # ── Unauthenticated access rejection ─────────────────────────────────────────
 

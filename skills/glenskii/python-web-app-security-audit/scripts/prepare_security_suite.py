@@ -40,6 +40,7 @@ def main() -> int:
     shutil.copytree(source_suite, target_suite, ignore=shutil.ignore_patterns("__pycache__"))
     print(f"Copied: {target_suite}")
     copy_file(source_root / "pytest.ini", project / "pytest.ini")
+    copy_file(source_root / "requirements.txt", project / "requirements-security-audit.txt")
     print("Next: copy security/.env.test.template to security/.env.test and configure it.")
     return 0
 

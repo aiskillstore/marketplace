@@ -15,6 +15,8 @@ from conftest import route
 LOGIN = route("TEST_AUTH_LOGIN_ROUTE", "/auth/login")
 REGISTER = route("TEST_AUTH_REGISTER_ROUTE", "/auth/register")
 
+pytestmark = pytest.mark.active_probe
+
 
 # ── XSS payload rejection ─────────────────────────────────────────────────────
 
@@ -35,7 +37,7 @@ XSS_PAYLOADS = [
 async def test_xss_payload_rejected_in_login(client, payload):
     """
     XSS payloads in login fields must not return 200.
-    Reflected XSS via login error messages is a common vibe-code vulnerability.
+    Reflected XSS via login error messages is a common application failure.
     """
     res = await client.post(LOGIN, json={
         "username": payload,
@@ -53,7 +55,7 @@ SQLI_PAYLOADS = [
     "' OR 1=1--",
     "admin'--",
     "' UNION SELECT 1,2,3--",
-    "'; DROP TABLE users;--",
+    "' OR EXISTS(SELECT 1)--",
     "1; SELECT * FROM users",
     "' AND SLEEP(5)--",
 ]

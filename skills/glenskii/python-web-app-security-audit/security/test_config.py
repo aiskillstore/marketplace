@@ -109,7 +109,7 @@ SECRET_PATTERNS = [
 async def test_no_secrets_in_public_response(client):
     """
     API responses must not contain secrets, connection strings,
-    or environment variable values. Vibe-coded apps sometimes
+    or environment variable values. Default application scaffolds sometimes
     return full config objects in debug responses.
     """
     res = await client.get(PUBLIC)

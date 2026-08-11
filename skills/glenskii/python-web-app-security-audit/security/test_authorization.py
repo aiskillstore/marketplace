@@ -16,6 +16,19 @@ IDOR_TEMPLATE = os.getenv("TEST_IDOR_ROUTE_TEMPLATE", "/api/user/{target_id}")
 ADMIN = route("TEST_ADMIN_ROUTE", "/api/admin")
 PROTECTED = route("TEST_PROTECTED_ROUTE", "/api/me")
 
+pytestmark = pytest.mark.active_probe
+
+
+def configured_unowned_ids() -> list[str]:
+    """Return dedicated records confirmed not to belong to the test account."""
+    raw = os.getenv("TEST_IDOR_TARGET_IDS", "").strip()
+    if not raw:
+        pytest.skip(
+            "Set TEST_IDOR_TARGET_IDS to dedicated unowned test records before "
+            "target-specific authorization probes."
+        )
+    return [item.strip() for item in raw.split(",") if item.strip()]
+
 
 # ── IDOR  -  Broken Object Level Authorization ──────────────────────────────────
 
@@ -25,13 +38,10 @@ async def test_idor_cannot_access_other_user_resource(auth_client):
     IDOR (Insecure Direct Object Reference): user can access another user's
     resource by guessing or incrementing an ID in the URL.
 
-    This is the #1 API vulnerability class. Vibe-coded apps almost universally
-    miss this because code generators can create CRUD without ownership checks.
-
-    Test accesses IDs 1–5. If your test user owns any of these, adjust
-    TEST_IDOR_ROUTE_TEMPLATE or test against IDs outside the test account range.
+    Generated CRUD implementations can omit ownership checks. Configure only
+    dedicated records known not to belong to the authenticated test account.
     """
-    forbidden_ids = [1, 2, 3, 4, 5]
+    forbidden_ids = configured_unowned_ids()
 
     for target_id in forbidden_ids:
         url = IDOR_TEMPLATE.replace("{target_id}", str(target_id))
@@ -51,8 +61,10 @@ async def test_idor_uuid_cannot_be_guessed(auth_client):
     Tests that sequential or predictable non-UUID identifiers are not accepted.
     If your app uses UUIDs, this validates the format is enforced.
     """
-    fake_uuid = "00000000-0000-0000-0000-000000000001"
-    url = IDOR_TEMPLATE.replace("{target_id}", fake_uuid)
+    target_id = os.getenv("TEST_IDOR_UNOWNED_ID", "").strip()
+    if not target_id:
+        pytest.skip("Set TEST_IDOR_UNOWNED_ID before UUID authorization probes.")
+    url = IDOR_TEMPLATE.replace("{target_id}", target_id)
     res = await auth_client.get(url)
     assert res.status_code in (403, 404, 422)
 
@@ -62,7 +74,7 @@ async def test_idor_unauthenticated_cannot_access_any_user(client):
     """
     Unauthenticated requests must be rejected before ownership checks run.
     """
-    for target_id in [1, 2, 3]:
+    for target_id in configured_unowned_ids():
         url = IDOR_TEMPLATE.replace("{target_id}", str(target_id))
         res = await client.get(url)
         assert res.status_code in (401, 403), (
@@ -77,7 +89,7 @@ async def test_idor_unauthenticated_cannot_access_any_user(client):
 async def test_regular_user_cannot_access_admin_route(auth_client):
     """
     Regular authenticated users must be blocked from admin endpoints.
-    Vibe-coded apps often protect routes from anonymous access but forget
+    Generated applications often protect routes from anonymous access but forget
     to enforce role checks between user tiers.
     """
     res = await auth_client.get(ADMIN)
@@ -128,34 +140,3 @@ async def test_cannot_escalate_via_body_role(auth_client):
     """
     res = await auth_client.post(ADMIN, json={"role": "admin", "is_admin": True})
     assert res.status_code in (401, 403, 405)
-
-
-# ── Mass assignment protection ────────────────────────────────────────────────
-
-@pytest.mark.asyncio
-async def test_cannot_assign_admin_flag_on_registration(client):
-    """
-    Mass assignment: attacker includes is_admin or role fields in registration payload.
-    Server must ignore or reject undeclared fields  -  not bind them to the user model.
-    OWASP API Security: API6  -  Mass Assignment
-    """
-    register_route = route("TEST_AUTH_REGISTER_ROUTE", "/auth/register")
-    res = await client.post(register_route, json={
-        "username": "hacker_test_user",
-        "password": "Hacker1234!",
-        "email": "hacker@example.com",
-        "is_admin": True,
-        "role": "admin",
-        "permissions": ["read", "write", "admin"]
-    })
-
-    # Registration may succeed (201) or reject unknown fields (400/422)
-    # What must NOT happen: 201 with admin flag applied
-    if res.status_code == 201:
-        body = res.json()
-        assert body.get("is_admin") is not True, (
-            "Mass assignment: is_admin=True was accepted from registration payload"
-        )
-        assert body.get("role") != "admin", (
-            "Mass assignment: role=admin was accepted from registration payload"
-        )

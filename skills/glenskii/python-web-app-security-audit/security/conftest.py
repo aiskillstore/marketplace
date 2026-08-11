@@ -13,6 +13,28 @@ from dotenv import load_dotenv
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), ".env.test"))
 
 
+def active_probes_enabled() -> bool:
+    """Return whether the application owner authorized active probes."""
+    return os.getenv("TEST_ALLOW_ACTIVE_PROBES", "false").strip().lower() == "true"
+
+
+def pytest_configure(config):
+    config.addinivalue_line(
+        "markers",
+        "active_probe: sends repeated, malformed, or target-specific requests",
+    )
+
+
+@pytest.fixture(autouse=True)
+def require_active_probe_authorization(request):
+    """Skip active probes unless an isolated target was explicitly authorized."""
+    if request.node.get_closest_marker("active_probe") and not active_probes_enabled():
+        pytest.skip(
+            "Active probe disabled. Set TEST_ALLOW_ACTIVE_PROBES=true only for an "
+            "authorized isolated test environment."
+        )
+
+
 def load_app():
     """
     Dynamically import the ASGI app from APP_IMPORT_PATH.
