@@ -1,0 +1,62 @@
+---
+name: {DOMAIN}-doctor
+description: Read-only health check for the {DOMAIN} workspace. Use on "audit the system", "health check", "is everything consistent", "is anything stale", before a release, or as the verification surface the janitor and the build report are gated on. Reports a score and a punch list; fixes nothing.
+---
+
+# {DOMAIN} Doctor
+
+The workspace's **verification surface**: answer "is this OS consistent?" with checkable evidence, not
+a feeling. Read-only — find and report problems, never fix them (the `{DOMAIN}-janitor` fixes). A
+doctor that edits the workspace is a cage, not a gauge.
+
+## Run
+Walk the checks below against the actual filesystem, then write `operations/health.md` with the date,
+a score (0-100), and a prioritized punch list (each item: what, where, severity, who-fixes). The
+report scales with the system — a few lines for a small workspace, longer as it grows.
+
+**Fast path.** Run `operations/doctor.py` first (generated from `assets/doctor.py.tmpl`) — it
+recomputes counts and flags the mechanical drift (board/dashboard truth, manifest parity, dark skills,
+package freshness, root hygiene, draft-confirm debt) deterministically and exits non-zero on findings.
+The checklist below is still the contract; the script just makes the mechanical subset cheap so you
+spend judgment on the rest.
+
+## Checks
+1. **Dashboard truth.** `artifacts/dashboard.html` counts/KPIs match the actual folders.
+2. **Entity freshness.** No `{ENTITY}/*/README.md` whose "next action" date is in the past, or whose
+   status contradicts recent activity.
+3. **Stage + board truth.** Every flowing item sits in a valid `{PIPELINE}/` stage; `_board.md`
+   matches the folders; the external system of record (if any) agrees.
+4. **Inbox.** No un-ingested files sitting in raw/inbox.
+5. **Root hygiene.** No one-off work stranded at the root that belongs in `work/`; no stray top-level
+   folder outside the taxonomy.
+6. **Skill reachability (no dark skills).** Every `plugin/skills/*/` has a trigger and is reachable —
+   a clear, non-overlapping `description` (or a `plugin/skills/RESOLVER.md` row once the pack is
+   large). A built-but-unreachable skill is a finding: "a surgeon the hospital can't find."
+7. **Manifest parity.** `plugin/.claude-plugin/plugin.json` and `plugin/.codex-plugin/plugin.json`
+   share the same kebab `name` and `version`; the Codex manifest points at `./skills/`;
+   `.agents/skills` resolves to `plugin/skills`.
+8. **Knowledge gaps.** Answers given 2+ times not yet in `knowledge/faqs/`; outcomes missing from
+   `proof/`; tasks done 2+ times not yet skillified.
+9. **Brain currency.** The `CLAUDE.md` / `AGENTS.md` filing tree still matches the real folders.
+10. **Package freshness.** The packaged plugin reflects the current `plugin/skills/` + manifest
+    version. The package is a transient release artifact, not a workspace folder — its version is
+    stamped in `operations/.packaged-version`. If skills/manifests changed since that stamp, flag
+    "re-zip plugin/" (the janitor or skillify does it).
+11. **Schedule armed.** The `{DOMAIN}-janitor` is actually wired to a scheduler. If not (no scheduler
+    at build time), keep this as a standing low finding — "self-reconciles when no one is looking" is
+    only true once it's armed — with the one-step enable from `operations/routines.md`.
+12. **Draft debt.** Count items still marked "draft — confirm" and surface them so the user confirms or
+    corrects predictions over time (informational; matters most after a sparse-input build).
+
+## Score + report
+- Start at 100; subtract per finding by severity (broken or contradictory state hurts most; a missing
+  nice-to-have least). Record the number and the punch list in `operations/health.md`.
+- "Consistent" is what this report says — not what a turn *felt* like. The never-stale contract and
+  the build's done-report are gated on a clean (or explicitly explained) doctor run.
+- Technical workspaces MAY back these checks with a script (e.g. `operations/doctor.py`) for speed and
+  reliability; the checklist is the contract either way.
+
+## Terminal states
+- **Clean** — a genuine pass is a success, not a non-event.
+- **Findings** — report them in `operations/health.md`; the janitor acts on the list.
+- **Blocked** — a check can't run (missing tool/data): say so, don't guess a pass.

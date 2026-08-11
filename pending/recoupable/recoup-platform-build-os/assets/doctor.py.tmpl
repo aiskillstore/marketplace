@@ -1,0 +1,242 @@
+#!/usr/bin/env python3
+"""Fast mechanical checks for the {DOMAIN} workspace — the {DOMAIN}-doctor's deterministic path.
+
+Read-only. It recomputes counts from the folders and flags drift the {DOMAIN}-doctor would otherwise
+hunt by hand (board/dashboard truth, manifest parity, dark skills, package freshness, root hygiene,
+draft-confirm debt). The SKILL.md checklist is still the contract — this just makes the mechanical
+subset cheap and repeatable. Exits non-zero when there is a FINDING, so it is cron/CI ready.
+
+Usage:
+    python3 operations/doctor.py            # run from the workspace root
+    python3 operations/doctor.py /path/to/workspace
+"""
+from __future__ import annotations
+
+import glob
+import json
+import os
+import re
+import sys
+
+# --- builder fills these from the taxonomy (single lowercase words) ---
+PIPELINE_DIR = "{PIPELINE}"          # the flowing staged folder, e.g. "pipeline" / "experiments"
+ENTITY_DIR = "{ENTITY}"              # the core-unit records folder, e.g. "clients" / "questions"
+PLUGIN_SLUG = "{DOMAIN_SLUG}-os"     # plugin name, used for the package stamp
+# Top-level folders allowed by this workspace's taxonomy (lean core + any justified optionals):
+TAXONOMY = ["reference", "library", "knowledge", PIPELINE_DIR, ENTITY_DIR, "work",
+            "artifacts", "proof", "content", "business", "plugin", "operations"]
+ROOT_FILES_OK = {"README.md", "CLAUDE.md", "AGENTS.md", ".gitignore", ".DS_Store"}
+
+findings: list[str] = []   # things that should be fixed (non-zero exit)
+infos: list[str] = []      # informational (no exit penalty)
+passes: list[str] = []
+
+
+def ok(msg: str) -> None:
+    passes.append(msg)
+
+
+def find(msg: str) -> None:
+    findings.append(msg)
+
+
+def info(msg: str) -> None:
+    infos.append(msg)
+
+
+def read(path: str) -> str:
+    try:
+        with open(path, encoding="utf-8") as fh:
+            return fh.read()
+    except OSError:
+        return ""
+
+
+def count_stages(ws: str) -> dict[str, int]:
+    """Count items per numbered pipeline stage (folders named NN-...)."""
+    out: dict[str, int] = {}
+    for stage in sorted(glob.glob(os.path.join(ws, PIPELINE_DIR, "[0-9][0-9]-*"))):
+        if not os.path.isdir(stage):
+            continue
+        items = [
+            f for f in os.listdir(stage)
+            if not f.startswith("_") and f != "README.md"
+        ]
+        out[os.path.basename(stage)] = len(items)
+    return out
+
+
+def check_pipeline(ws: str) -> None:
+    if not os.path.isdir(os.path.join(ws, PIPELINE_DIR)):
+        info(f"no pipeline dir '{PIPELINE_DIR}/' (ok if this domain has none)")
+        return
+    stages = count_stages(ws)
+    total = sum(stages.values())
+    board = os.path.join(ws, PIPELINE_DIR, "_board.md")
+    if not os.path.isfile(board):
+        find(f"{PIPELINE_DIR}/_board.md missing — the funnel snapshot has no home")
+    else:
+        ok(f"pipeline: {total} item(s) across {len(stages)} stages " +
+           ", ".join(f"{k.split('-')[0]}={v}" for k, v in stages.items()))
+
+
+def check_entities(ws: str) -> None:
+    base = os.path.join(ws, ENTITY_DIR)
+    if not os.path.isdir(base):
+        info(f"no entity dir '{ENTITY_DIR}/' (ok if this domain has none)")
+        return
+    recs = [d for d in glob.glob(os.path.join(base, "*"))
+            if os.path.isdir(d) and not os.path.basename(d).startswith("_")]
+    stale = []
+    for d in recs:
+        readme = read(os.path.join(d, "README.md"))
+        for m in re.finditer(r"(\d{4}-\d{2}-\d{2})", readme):
+            # a "next action" date in the past is a freshness smell, but dates are also history;
+            # only flag when the line mentions a next/due action.
+            line = readme[readme.rfind("\n", 0, m.start()) + 1: readme.find("\n", m.end())]
+            # require an explicit pending-action cue, not just "follow" (which trips on a filed
+            # "follow-up" note that is history, not a future action).
+            if re.search(r"next action|\bdue\b|overdue", line, re.I) and m.group(1) < TODAY:
+                stale.append(f"{os.path.basename(d)} (past-due: {line.strip()[:60]})")
+                break
+    ok(f"entities: {len(recs)} record(s) in {ENTITY_DIR}/")
+    for s in stale:
+        find(f"entity freshness: {s}")
+
+
+def check_dashboard(ws: str) -> None:
+    dash = read(os.path.join(ws, "artifacts", "dashboard.html"))
+    if "<html" not in dash.lower():
+        find("artifacts/dashboard.html missing or not HTML")
+    elif "{DOMAIN}" in dash or "{PIPELINE}" in dash or "{ENTITY}" in dash:
+        find("artifacts/dashboard.html still has unfilled placeholders")
+    else:
+        ok("dashboard.html present and customized")
+
+
+def load_manifest(path: str) -> dict:
+    try:
+        return json.loads(read(path))
+    except (json.JSONDecodeError, ValueError):
+        return {}
+
+
+def check_manifests(ws: str) -> str:
+    claude = load_manifest(os.path.join(ws, "plugin", ".claude-plugin", "plugin.json"))
+    codex = load_manifest(os.path.join(ws, "plugin", ".codex-plugin", "plugin.json"))
+    if not claude or not codex:
+        find("a plugin manifest is missing or invalid JSON")
+        return ""
+    if claude.get("name") != codex.get("name"):
+        find(f"manifest name mismatch: {claude.get('name')!r} vs {codex.get('name')!r}")
+    if claude.get("version") != codex.get("version"):
+        find(f"manifest version mismatch: {claude.get('version')!r} vs {codex.get('version')!r}")
+    if codex.get("skills") != "./skills/":
+        find(f"codex manifest skills path is {codex.get('skills')!r}, want './skills/'")
+    if not findings:
+        ok(f"manifests parity: {claude.get('name')} v{claude.get('version')}")
+    return str(claude.get("version", ""))
+
+
+def check_skills(ws: str) -> None:
+    dirs = [d for d in glob.glob(os.path.join(ws, "plugin", "skills", "*")) if os.path.isdir(d)]
+    dark = []
+    for d in dirs:
+        text = read(os.path.join(d, "SKILL.md"))
+        desc = re.search(r"^description:\s*(.+)$", text, re.M)
+        if not text or not desc:
+            dark.append(os.path.basename(d) + " (no SKILL.md/description)")
+        elif "<" in desc.group(1) or ">" in desc.group(1):
+            dark.append(os.path.basename(d) + " (angle bracket in description)")
+    if dark:
+        for s in dark:
+            find(f"dark/invalid skill: {s}")
+    else:
+        ok(f"skills: {len(dirs)} reachable (each has a SKILL.md + clean description)")
+
+
+def check_package_freshness(ws: str, version: str) -> None:
+    """The packaged .plugin is a transient release artifact (not a workspace folder); we track its
+    version via operations/.packaged-version, written by the janitor/skillify after a re-zip."""
+    stamp = read(os.path.join(ws, "operations", ".packaged-version")).strip()
+    if not version:
+        return
+    if not stamp:
+        info("no package stamp yet — re-zip plugin/ and record operations/.packaged-version")
+    elif stamp != version:
+        find(f"package stale: manifests at v{version} but last package was v{stamp} — re-zip plugin/")
+    else:
+        ok(f"package fresh: last package matches manifests (v{version})")
+
+
+def check_schedule(ws: str) -> None:
+    routines = read(os.path.join(ws, "operations", "routines.md")).lower()
+    if ("wired" in routines and "not wired" not in routines) or (
+        "scheduled task" in routines and "enable" not in routines
+    ):
+        ok("janitor schedule appears wired")
+    else:
+        find("janitor schedule not armed — wire the scheduling asset (one step) so drift is caught "
+             "when no one is looking")
+
+
+def check_root_hygiene(ws: str) -> None:
+    for entry in sorted(os.listdir(ws)):
+        full = os.path.join(ws, entry)
+        if entry.startswith(".") and entry not in ("",):
+            continue
+        if os.path.isdir(full):
+            if not re.fullmatch(r"[a-z]+", entry):
+                find(f"root hygiene: top-level folder '{entry}' is not a single lowercase word")
+            elif entry not in TAXONOMY:
+                find(f"root hygiene: unexpected top-level folder '{entry}/' (one-off work belongs in work/)")
+        elif entry not in ROOT_FILES_OK:
+            find(f"root hygiene: stray file '{entry}' at root — file it (it looks un-ingested)")
+    ok("root hygiene checked")
+
+
+def check_draft_debt(ws: str) -> None:
+    n = 0
+    for path in glob.glob(os.path.join(ws, "**", "*.md"), recursive=True):
+        if os.sep + ".git" + os.sep in path:
+            continue
+        n += read(path).count("draft — confirm")
+    if n:
+        info(f"{n} 'draft — confirm' marker(s) await confirmation — burn these down during normal use")
+
+
+TODAY = ""
+
+
+def main() -> int:
+    global TODAY
+    import datetime
+    TODAY = datetime.date.today().isoformat()
+    ws = os.path.abspath(sys.argv[1]) if len(sys.argv) > 1 else os.getcwd()
+
+    print(f"{PLUGIN_SLUG} doctor (mechanical checks) · root={ws}")
+    print("-" * 60)
+    check_pipeline(ws)
+    check_entities(ws)
+    check_dashboard(ws)
+    version = check_manifests(ws)
+    check_skills(ws)
+    check_package_freshness(ws, version)
+    check_schedule(ws)
+    check_root_hygiene(ws)
+    check_draft_debt(ws)
+
+    for p in passes:
+        print(f"[PASS] {p}")
+    for i in infos:
+        print(f"[INFO] {i}")
+    for f in findings:
+        print(f"[FINDING] {f}")
+    print("-" * 60)
+    print(f"SUMMARY: {len(findings)} finding(s), {len(passes)} pass, {len(infos)} info.")
+    print("Mechanical checks only — the {DOMAIN}-doctor SKILL adds judgment items and the final score.")
+    return 1 if findings else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
