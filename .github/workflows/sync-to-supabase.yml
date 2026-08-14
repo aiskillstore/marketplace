@@ -264,7 +264,11 @@ jobs:
             echo "Diff range: $BASE_SHA..$HEAD_SHA"
           fi
           
-          echo "changed_skills=$CHANGED" >> $GITHUB_OUTPUT
+          TARGET_COUNT=$(printf '%s\n' "$CHANGED" | tr ' ' '\n' | sed '/^$/d' | sort -u | wc -l | tr -d ' ')
+          echo "target_count=$TARGET_COUNT" >> $GITHUB_OUTPUT
+          if [ "$TARGET_COUNT" -le 25 ]; then
+            echo "changed_skills=$CHANGED" >> $GITHUB_OUTPUT
+          fi
           
           if [ -z "$CHANGED" ]; then
             echo "No skills to sync"
@@ -277,11 +281,10 @@ jobs:
       - name: Validate bounded sync admission
         if: steps.changes.outputs.skip_sync != 'true'
         env:
-          CHANGED_SKILLS: ${{ steps.changes.outputs.changed_skills }}
+          TARGET_COUNT: ${{ steps.changes.outputs.target_count }}
         run: |
           set -euo pipefail
           MAX_SYNC_SKILLS=25
-          TARGET_COUNT=$(printf '%s\n' "$CHANGED_SKILLS" | tr ' ' '\n' | sed '/^$/d' | sort -u | wc -l | tr -d ' ')
           if [ "$TARGET_COUNT" -gt "$MAX_SYNC_SKILLS" ]; then
             echo "::error::Sync target count $TARGET_COUNT exceeds the production limit $MAX_SYNC_SKILLS; split the sync before any Supabase write"
             exit 1
