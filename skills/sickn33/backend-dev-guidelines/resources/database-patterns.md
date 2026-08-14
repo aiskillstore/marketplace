@@ -219,6 +219,6 @@ try {
 ---
 
 **Related Files:**
-- [SKILL.md](SKILL.md)
+- SKILL.md
 - [services-and-repositories.md](services-and-repositories.md)
 - [async-and-errors.md](async-and-errors.md)

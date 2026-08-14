@@ -1,10 +1,9 @@
 ---
 name: backend-security-coder
-description: Expert in secure backend coding practices specializing in input
-  validation, authentication, and API security. Use PROACTIVELY for backend
-  security implementations or security code reviews.
-metadata:
-  model: sonnet
+description: Expert in secure backend coding practices specializing in input validation, authentication, and API security. Use PROACTIVELY for backend security implementations or security code reviews.
+risk: critical
+source: community
+date_added: '2026-02-27'
 ---
 
 ## Use this skill when
@@ -154,3 +153,8 @@ Expert backend security developer with comprehensive knowledge of secure coding 
 - "Create secure error handling that doesn't leak sensitive information"
 - "Implement rate limiting and DDoS protection for public API endpoints"
 - "Design secure external service integration with allowlist validation"
+
+## Limitations
+- Use this skill only when the task clearly matches the scope described above.
+- Do not treat the output as a substitute for environment-specific validation, testing, or expert review.
+- Stop and ask for clarification if required inputs, permissions, safety boundaries, or success criteria are missing.

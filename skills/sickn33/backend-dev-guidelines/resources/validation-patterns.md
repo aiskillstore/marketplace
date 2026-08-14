@@ -748,7 +748,7 @@ router.post('/users',
 ---
 
 **Related Files:**
-- [SKILL.md](SKILL.md) - Main guide
+- SKILL.md - Main guide
 - [routing-and-controllers.md](routing-and-controllers.md) - Using validation in controllers
 - [services-and-repositories.md](services-and-repositories.md) - Using DTOs in services
 - [async-and-errors.md](async-and-errors.md) - Error handling patterns

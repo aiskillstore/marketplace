@@ -1,8 +1,9 @@
 ---
 name: bamboohr-automation
 description: "Automate BambooHR tasks via Rube MCP (Composio): employees, time-off, benefits, dependents, employee updates. Always search tools first for current schemas."
-requires:
-  mcp: [rube]
+risk: critical
+source: community
+date_added: "2026-02-27"
 ---
 
 # BambooHR Automation via Rube MCP
@@ -218,3 +219,11 @@ For keeping external systems in sync with BambooHR:
 | Update employee | BAMBOOHR_UPDATE_EMPLOYEE | id, (field updates) |
 | List dependents | BAMBOOHR_DEPENDENTS_GET_ALL | employeeId |
 | Benefit coverages | BAMBOOHR_BENEFIT_GET_COVERAGES | (check schema) |
+
+## When to Use
+This skill is applicable to execute the workflow or actions described in the overview.
+
+## Limitations
+- Use this skill only when the task clearly matches the scope described above.
+- Do not treat the output as a substitute for environment-specific validation, testing, or expert review.
+- Stop and ask for clarification if required inputs, permissions, safety boundaries, or success criteria are missing.

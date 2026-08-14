@@ -446,6 +446,6 @@ async findByEmail(email: string): Promise<User | null> {
 ---
 
 **Related Files:**
-- [SKILL.md](SKILL.md) - Main guide
+- SKILL.md - Main guide
 - [routing-and-controllers.md](routing-and-controllers.md) - Routes and controllers details
 - [services-and-repositories.md](services-and-repositories.md) - Service and repository patterns
