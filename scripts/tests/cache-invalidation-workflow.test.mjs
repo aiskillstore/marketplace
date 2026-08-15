@@ -142,6 +142,10 @@ test('incremental detection subtracts only verified successful manual recovery a
 
   assert.match(lastSync, /status=success&event=push/);
   assert.doesNotMatch(lastSync, /status=success&event=workflow_dispatch/);
+  assert.match(lastSync, /set -euo pipefail/);
+  assert.match(lastSync, /git merge-base --is-ancestor "\$LAST_SHA"/);
+  assert.match(lastSync, /refusing an incomplete fallback/);
+  assert.doesNotMatch(lastSync, /HEAD~1|2>\/dev\/null \|\| echo/);
   assert.match(detect, /status=success&event=workflow_dispatch/);
   assert.match(detect, /synced-slugs/);
   assert.match(detect, /sha256sum/);
