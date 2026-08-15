@@ -1,8 +1,9 @@
 ---
 name: bevy-ecs-expert
-description: Master Bevy's Entity Component System (ECS) in Rust, covering Systems, Queries, Resources, and parallel scheduling.
+description: "Master Bevy's Entity Component System (ECS) in Rust, covering Systems, Queries, Resources, and parallel scheduling."
 risk: safe
 source: community
+date_added: "2026-02-27"
 ---
 
 # Bevy ECS Expert
@@ -83,25 +84,27 @@ fn main() {
 
 ## Examples
 
-### Example 1: Spawning Entities with Bundles
+### Example 1: Spawning Entities with Require Component
 
 ```rust
-#[derive(Bundle)]
-struct PlayerBundle {
-    player: Player,
-    velocity: Velocity,
-    sprite: SpriteBundle,
+use bevy::prelude::*;
+
+#[derive(Component, Reflect, Default)]
+#[require(Velocity, Sprite)]
+struct Player;
+
+#[derive(Component, Default)]
+struct Velocity {
+    x: f32,
+    y: f32,
 }
 
 fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
-    commands.spawn(PlayerBundle {
-        player: Player,
-        velocity: Velocity { x: 10.0, y: 0.0 },
-        sprite: SpriteBundle {
-            texture: asset_server.load("player.png"),
-            ..default()
-        },
-    });
+    commands.spawn((
+        Player,
+        Velocity { x: 10.0, y: 0.0 },
+        Sprite::from_image(asset_server.load("player.png")), 
+    ));
 }
 ```
 
@@ -131,3 +134,8 @@ fn enemy_behavior(
 
 **Problem:** System panic with "Conflict" error.
 **Solution:** You are likely trying to access the same component mutably in two systems running in parallel. Use `.chain()` to order them or split the logic.
+
+## Limitations
+- Use this skill only when the task clearly matches the scope described above.
+- Do not treat the output as a substitute for environment-specific validation, testing, or expert review.
+- Stop and ask for clarification if required inputs, permissions, safety boundaries, or success criteria are missing.

@@ -1,7 +1,9 @@
 ---
 name: azure-web-pubsub-ts
-description: Build real-time messaging applications using Azure Web PubSub SDKs for JavaScript (@azure/web-pubsub, @azure/web-pubsub-client). Use when implementing WebSocket-based real-time features, pub/sub messaging, group chat, or live notifications.
-package: "@azure/web-pubsub, @azure/web-pubsub-client"
+description: "Real-time messaging with WebSocket connections and pub/sub patterns."
+risk: critical
+source: community
+date_added: "2026-02-27"
 ---
 
 # Azure Web PubSub SDKs for TypeScript
@@ -308,3 +310,11 @@ import {
 4. **Handle reconnection** - Client auto-reconnects by default
 5. **Validate in handleConnect** - Reject unauthorized connections early
 6. **Use noEcho** - Prevent message echo back to sender when needed
+
+## When to Use
+This skill is applicable to execute the workflow or actions described in the overview.
+
+## Limitations
+- Use this skill only when the task clearly matches the scope described above.
+- Do not treat the output as a substitute for environment-specific validation, testing, or expert review.
+- Stop and ask for clarification if required inputs, permissions, safety boundaries, or success criteria are missing.

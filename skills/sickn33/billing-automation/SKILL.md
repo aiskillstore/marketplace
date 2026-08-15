@@ -1,6 +1,9 @@
 ---
 name: billing-automation
-description: Build automated billing systems for recurring payments, invoicing, subscription lifecycle, and dunning management. Use when implementing subscription billing, automating invoicing, or managing recurring payment systems.
+description: "Master automated billing systems including recurring billing, invoice generation, dunning management, proration, and tax calculation."
+risk: safe
+source: community
+date_added: "2026-02-27"
 ---
 
 # Billing Automation
@@ -40,3 +43,8 @@ Master automated billing systems including recurring billing, invoice generation
 ## Resources
 
 - `resources/implementation-playbook.md` for detailed patterns, checklists, and examples.
+
+## Limitations
+- Use this skill only when the task clearly matches the scope described above.
+- Do not treat the output as a substitute for environment-specific validation, testing, or expert review.
+- Stop and ask for clarification if required inputs, permissions, safety boundaries, or success criteria are missing.

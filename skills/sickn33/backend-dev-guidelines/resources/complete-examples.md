@@ -632,7 +632,7 @@ Controller formats response
 ---
 
 **Related Files:**
-- [SKILL.md](SKILL.md)
+- SKILL.md
 - [routing-and-controllers.md](routing-and-controllers.md)
 - [services-and-repositories.md](services-and-repositories.md)
 - [validation-patterns.md](validation-patterns.md)

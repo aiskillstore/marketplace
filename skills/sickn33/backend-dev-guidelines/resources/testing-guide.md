@@ -230,6 +230,6 @@ npm test -- --coverage
 ---
 
 **Related Files:**
-- [SKILL.md](SKILL.md)
+- SKILL.md
 - [services-and-repositories.md](services-and-repositories.md)
 - [complete-examples.md](complete-examples.md)
