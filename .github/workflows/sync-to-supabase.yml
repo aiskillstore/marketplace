@@ -137,27 +137,27 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          set -euo pipefail
           # Find the commit SHA of the last successful sync workflow run
           # This ensures we catch ALL changes since the last sync, even if multiple PRs merged
           LAST_RUN=$(gh api "repos/${{ github.repository }}/actions/workflows/sync-to-supabase.yml/runs?status=success&event=push&per_page=5" \
-            --jq '.workflow_runs[0] // {}' 2>/dev/null || echo '{}')
+            --jq '.workflow_runs[0] // {}')
           LAST_SHA=$(jq -r '.head_sha // ""' <<< "$LAST_RUN")
           LAST_CREATED_AT=$(jq -r '.created_at // ""' <<< "$LAST_RUN")
-          echo "base_run_created_at=$LAST_CREATED_AT" >> "$GITHUB_OUTPUT"
-          
-          if [ -n "$LAST_SHA" ] && [ "$LAST_SHA" != "null" ] && [ "$LAST_SHA" != "${{ github.sha }}" ]; then
-            # Verify the commit exists in our history
-            if git cat-file -e "$LAST_SHA" 2>/dev/null; then
-              echo "Last successful sync at: $LAST_SHA"
-              echo "base_sha=$LAST_SHA" >> $GITHUB_OUTPUT
-            else
-              echo "Last sync commit $LAST_SHA not in history, falling back to HEAD~1"
-              echo "base_sha=HEAD~1" >> $GITHUB_OUTPUT
-            fi
-          else
-            echo "No previous successful sync found, falling back to HEAD~1"
-            echo "base_sha=HEAD~1" >> $GITHUB_OUTPUT
+
+          if [ -z "$LAST_SHA" ] || [ -z "$LAST_CREATED_AT" ]; then
+            echo "::error::No successful push sync baseline found; refusing an incomplete fallback"
+            exit 1
           fi
+          if ! git cat-file -e "$LAST_SHA^{commit}" 2>/dev/null \
+            || ! git merge-base --is-ancestor "$LAST_SHA" "${{ github.sha }}"; then
+            echo "::error::Last successful sync $LAST_SHA is not an ancestor of ${{ github.sha }}"
+            exit 1
+          fi
+
+          echo "Last successful sync at: $LAST_SHA"
+          echo "base_sha=$LAST_SHA" >> "$GITHUB_OUTPUT"
+          echo "base_run_created_at=$LAST_CREATED_AT" >> "$GITHUB_OUTPUT"
 
       - name: Detect changed skills
         id: changes
