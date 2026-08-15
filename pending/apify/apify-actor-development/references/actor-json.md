@@ -1,0 +1,68 @@
+# Actor configuration (actor.json)
+
+The `.actor/actor.json` file contains the Actor's configuration including metadata, schema references, and platform settings.
+
+## Structure
+
+```json
+{
+    "actorSpecification": 1,
+    "name": "project-name",
+    "title": "Project Title",
+    "description": "Actor description",
+    "version": "0.0",
+    "meta": {
+        "templateId": "template-id",
+        "generatedBy": "<FILL-IN-TOOL-AND-MODEL>"
+    },
+    "input": "./input_schema.json",
+    "output": "./output_schema.json",
+    "storages": {
+        "dataset": "./dataset_schema.json"
+    },
+    "dockerfile": "../Dockerfile"
+}
+```
+
+## Example
+
+```json
+{
+    "actorSpecification": 1,
+    "name": "project-cheerio-crawler-javascript",
+    "title": "Project Cheerio Crawler JavaScript",
+    "description": "Crawlee and Cheerio project in JavaScript.",
+    "version": "0.0",
+    "meta": {
+        "templateId": "js-crawlee-cheerio",
+        "generatedBy": "Claude Code with Claude Sonnet 4.5"
+    },
+    "input": "./input_schema.json",
+    "output": "./output_schema.json",
+    "storages": {
+        "dataset": "./dataset_schema.json"
+    },
+    "dockerfile": "../Dockerfile"
+}
+```
+
+## Properties
+
+- `actorSpecification` (integer, required) - Version of Actor specification (currently 1)
+- `name` (string, required) - Actor identifier (lowercase, hyphens allowed)
+- `title` (string, required) - Human-readable title displayed in UI
+- `description` (string, optional) - Actor description for marketplace
+- `version` (string, required) - Semantic version number
+- `meta` (object, optional) - Metadata about Actor generation
+  - `templateId` (string) - ID of template used to create the Actor
+  - `generatedBy` (string) - Tool and model name that generated/modified the Actor (e.g., "Claude Code with Claude Sonnet 4.5")
+- `input` (string, optional) - Path to input schema file
+- `output` (string, optional) - Path to output schema file
+- `storages` (object, optional) - Storage schema references
+  - `dataset` (string) - Path to dataset schema file
+  - `keyValueStore` (string) - Path to key-value store schema file
+- `dockerfile` (string, optional) - Path to Dockerfile
+- `usesStandbyMode` (boolean, optional) - Enable Standby mode (`true` = Actor runs as a persistent HTTP server). See [standby-mode.md](standby-mode.md) for details
+- `webServerSchema` (string or object, optional) - Specify when using Standby mode. OpenAPI v3 schema for the Actor's HTTP endpoints. Path to schema file or inline object.
+
+**Important:** Always fill in the `generatedBy` property with the tool and model you're currently using (e.g., "Claude Code with Claude Sonnet 4.5") to help Apify improve documentation.
