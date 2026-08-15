@@ -155,6 +155,21 @@ test('incremental detection subtracts only verified successful manual recovery a
   assert.match(workflow, /retention-days: 30/);
 });
 
+test('manual recovery resolves its original submission and fails closed on callback errors', () => {
+  const workflow = readFileSync(WORKFLOW, 'utf8');
+  const resolvePublished = section(workflow, '      - name: Resolve published submissions', '      - name: Notify skillstore - Published submissions');
+  const notifyPublished = section(workflow, '      - name: Notify skillstore - Published submissions', '      - name: Upload synced slugs artifact');
+
+  assert.match(resolvePublished, /SYNC_MODE: \$\{\{ steps\.changes\.outputs\.mode \}\}/);
+  assert.match(resolvePublished, /CHANGED_SKILLS: \$\{\{ steps\.changes\.outputs\.changed_skills \}\}/);
+  assert.match(resolvePublished, /syncMode === 'manual-slugs'/);
+  assert.match(resolvePublished, /--grep=\\\\\[submission:/);
+  assert.doesNotMatch(resolvePublished, /BASE_SHA \|\| 'HEAD~1'/);
+  assert.match(notifyPublished, /curl --fail-with-body -sS/);
+  assert.match(notifyPublished, /callback secrets are not configured[\s\S]*exit 1/);
+  assert.doesNotMatch(notifyPublished, /Failed to notify skillstore|\|\| echo/);
+});
+
 test('sync uses a blobless sparse checkout before invoking pinned-tree resolvers', () => {
   const workflow = readFileSync(WORKFLOW, 'utf8');
   const checkout = section(workflow, '      - name: Clear inherited sync checkout', '      - name: Normalize pinned sync runtime checkout');

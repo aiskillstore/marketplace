@@ -660,12 +660,16 @@ jobs:
         if: steps.changes.outputs.skip_sync != 'true' && steps.sync.outputs.synced_count != '0'
         env:
           BASE_SHA: ${{ steps.last_sync.outputs.base_sha }}
+          SYNC_MODE: ${{ steps.changes.outputs.mode }}
+          CHANGED_SKILLS: ${{ steps.changes.outputs.changed_skills }}
         run: |
           node <<'NODE'
           const fs = require('fs');
           const { execFileSync } = require('child_process');
 
-          const baseSha = process.env.BASE_SHA || 'HEAD~1';
+          const baseSha = process.env.BASE_SHA;
+          const syncMode = process.env.SYNC_MODE;
+          const changedSkills = (process.env.CHANGED_SKILLS || '').split(/\s+/).filter(Boolean);
           const syncedSlugs = new Set(
             fs.readFileSync('synced-slugs.txt', 'utf8')
               .split(/\r?\n/)
@@ -716,10 +720,14 @@ jobs:
             return skillPath.replace(/\//g, '-');
           }
 
-          const commits = safeGit(['rev-list', '--reverse', `${baseSha}..HEAD`])
-            .split('\n')
-            .map((commit) => commit.trim())
-            .filter(Boolean);
+          const commits = syncMode === 'manual-slugs'
+            ? [...new Set(changedSkills
+                .map((skillPath) => safeGit(['log', '-1', '--format=%H', '--grep=\\[submission:', '--', `skills/${skillPath}`]))
+                .filter(Boolean))]
+            : safeGit(['rev-list', '--reverse', `${baseSha}..HEAD`])
+                .split('\n')
+                .map((commit) => commit.trim())
+                .filter(Boolean);
 
           const bySubmission = new Map();
 
@@ -771,8 +779,8 @@ jobs:
           set -euo pipefail
 
           if [ -z "$SKILLSTORE_API_URL" ] || [ -z "$SKILLSTORE_CALLBACK_TOKEN" ]; then
-            echo "::warning::Skillstore callback secrets are not configured; skipping published notifications"
-            exit 0
+            echo "::error::Skillstore callback secrets are not configured"
+            exit 1
           fi
 
           jq -c '.[]' published-submissions.json | while read -r row; do
@@ -794,12 +802,12 @@ jobs:
               }')
 
             echo "📤 Notifying skillstore: submission $SUBMISSION_ID published ($SKILL_SLUGS)"
-            curl -sS -X POST "$SKILLSTORE_API_URL/api/submit/callback" \
+            curl --fail-with-body -sS -X POST "$SKILLSTORE_API_URL/api/submit/callback" \
               -H "Authorization: Bearer $SKILLSTORE_CALLBACK_TOKEN" \
               -H "Content-Type: application/json" \
               -H "User-Agent: GitHub-Actions/SkillstoreBot" \
               -H "X-Skillstore-Callback: true" \
-              -d "$PAYLOAD" || echo "::warning::Failed to notify skillstore for $SUBMISSION_ID"
+              -d "$PAYLOAD"
           done
 
       - name: Upload synced slugs artifact
