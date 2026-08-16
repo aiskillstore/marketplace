@@ -58,10 +58,14 @@ function hasTagTrigger(config) {
   );
 }
 
-function trustedClosedMergeMetadataJob(pullRequest, job) {
+function trustedClosedMergeMetadataJob(pullRequest, workflowDispatch, job) {
   const types = pullRequestTypes(pullRequest);
   if (types.length !== 1 || types[0] !== 'closed') return false;
-  const condition = expressionText(job.if);
+  let condition = expressionText(job.if);
+  const manualMainRecovery = /^\(\s*github\.event_name\s*==\s*'workflow_dispatch'\s*&&\s*github\.ref\s*==\s*'refs\/heads\/main'\s*\)\s*\|\|\s*/;
+  if (workflowDispatch !== null && manualMainRecovery.test(condition)) {
+    condition = condition.replace(manualMainRecovery, '').replace(/^\(\s*/, '').replace(/\s*\)$/, '');
+  }
   if (/\|\||(^|[^=!])!(?!=)/.test(condition)) return false;
   const requiresMerged = condition.split('&&').some((term) => (
     /^\s*github\.event\.pull_request\.merged\s*==\s*true\s*$/.test(term)
@@ -118,6 +122,7 @@ function inspectWorkflow(root, path) {
 
   const workflow = document.toJS({ maxAliasCount: 100 });
   const pullRequest = eventConfig(workflow.on, 'pull_request');
+  const workflowDispatch = eventConfig(workflow.on, 'workflow_dispatch');
   const pullRequestTarget = eventConfig(workflow.on, 'pull_request_target');
   const push = eventConfig(workflow.on, 'push');
   const tagOrRelease = hasTagTrigger(push) || eventConfig(workflow.on, 'release') !== null;
@@ -146,7 +151,7 @@ function inspectWorkflow(root, path) {
     }
 
     if (pullRequest !== null) {
-      const trustedMetadata = trustedClosedMergeMetadataJob(pullRequest, job);
+      const trustedMetadata = trustedClosedMergeMetadataJob(pullRequest, workflowDispatch, job);
       if (isSelfHosted(job['runs-on']) && !trustedMetadata) {
         add(
           violations,

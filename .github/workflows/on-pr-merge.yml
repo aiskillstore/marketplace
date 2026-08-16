@@ -4,23 +4,37 @@ on:
   pull_request:
     types: [closed]
     branches: [main]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: Exact merged submission PR to recover
+        required: true
+        type: string
 
 jobs:
   approve-skill:
-    if: github.event.pull_request.merged == true && contains(github.event.pull_request.labels.*.name, 'pending-review')
+    if: >-
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
+      (github.event.pull_request.merged == true && contains(github.event.pull_request.labels.*.name, 'pending-review'))
     runs-on: self-hosted
     timeout-minutes: 30
     steps:
       - name: Verify trusted submission PR provenance
+        id: freeze_pr
         env:
           GH_TOKEN: ${{ github.token }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_NUMBER: ${{ github.event_name == 'workflow_dispatch' && inputs.pr_number || github.event.pull_request.number }}
           REPOSITORY: ${{ github.repository }}
         run: |
           set -euo pipefail
+          [[ "$PR_NUMBER" =~ ^[1-9][0-9]*$ ]] || {
+            echo "::error::Recovery requires one exact positive PR number"
+            exit 1
+          }
           PR=$(gh api "repos/$REPOSITORY/pulls/$PR_NUMBER")
           jq -e --arg repository "$REPOSITORY" '
             .merged == true and
+            .base.ref == "main" and
             .user.id == 254047988 and
             .user.login == "ai-skill-store[bot]" and
             .head.repo.full_name == $repository and
@@ -30,6 +44,23 @@ jobs:
             echo "::error::Merged pending-review PR does not have trusted submission provenance"
             exit 1
           }
+
+          MERGE_COMMIT_SHA=$(jq -er '.merge_commit_sha' <<< "$PR")
+          PR_URL=$(jq -er '.html_url' <<< "$PR")
+          MERGED_BY=$(jq -er '.merged_by.login' <<< "$PR")
+          SUBMISSION_ID=$(jq -r '.body // ""' <<< "$PR" \
+            | grep -oE 'Submission ID.*`[0-9a-f-]{36}`' \
+            | grep -oE '[0-9a-f-]{36}' || true)
+          [[ "$MERGE_COMMIT_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [ "$PR_URL" = "https://github.com/$REPOSITORY/pull/$PR_NUMBER" ]
+          [[ "$MERGED_BY" =~ ^[A-Za-z0-9-]+$ ]]
+          {
+            echo "pr_number=$PR_NUMBER"
+            echo "merge_commit_sha=$MERGE_COMMIT_SHA"
+            echo "submission_id=$SUBMISSION_ID"
+            echo "pr_url=$PR_URL"
+            echo "merged_by=$MERGED_BY"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Generate GitHub App Token
         id: app-token
@@ -43,28 +74,14 @@ jobs:
         with:
           node-version: '24'
 
-      - name: Extract submission ID from PR body
-        id: extract_submission
-        env:
-          PR_BODY: ${{ github.event.pull_request.body }}
-        run: |
-          # Extract submission ID from PR body: **Submission ID**: `UUID`
-          SUBMISSION_ID=$(echo "$PR_BODY" | grep -oE 'Submission ID.*`[0-9a-f-]{36}`' | grep -oE '[0-9a-f-]{36}' || echo "")
-          echo "submission_id=$SUBMISSION_ID" >> $GITHUB_OUTPUT
-          if [ -n "$SUBMISSION_ID" ]; then
-            echo "📋 Found submission ID: $SUBMISSION_ID"
-          else
-            echo "⚠️ No submission ID found in PR body"
-          fi
-
       - name: Find pending skills and commit to skills directory
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           APP_TOKEN: ${{ steps.app-token.outputs.token }}
-          MERGE_COMMIT_SHA: ${{ github.event.pull_request.merge_commit_sha }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
+          MERGE_COMMIT_SHA: ${{ steps.freeze_pr.outputs.merge_commit_sha }}
+          PR_NUMBER: ${{ steps.freeze_pr.outputs.pr_number }}
           REPOSITORY: ${{ github.repository }}
-          SUBMISSION_ID: ${{ steps.extract_submission.outputs.submission_id }}
+          SUBMISSION_ID: ${{ steps.freeze_pr.outputs.submission_id }}
         run: |
           set -euo pipefail
 
@@ -311,27 +328,43 @@ jobs:
           fi
 
       - name: Notify skillstore - Merged
-        if: steps.extract_submission.outputs.submission_id != ''
+        if: steps.freeze_pr.outputs.submission_id != ''
         env:
-          SUBMISSION_ID: ${{ steps.extract_submission.outputs.submission_id }}
+          SUBMISSION_ID: ${{ steps.freeze_pr.outputs.submission_id }}
           SKILLSTORE_API_URL: ${{ secrets.SKILLSTORE_API_URL }}
           SKILLSTORE_CALLBACK_TOKEN: ${{ secrets.SKILLSTORE_CALLBACK_TOKEN }}
-          PR_URL: ${{ github.event.pull_request.html_url }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-          MERGED_BY: ${{ github.event.pull_request.merged_by.login }}
+          PR_URL: ${{ steps.freeze_pr.outputs.pr_url }}
+          PR_NUMBER: ${{ steps.freeze_pr.outputs.pr_number }}
+          MERGED_BY: ${{ steps.freeze_pr.outputs.merged_by }}
         run: |
+          set -euo pipefail
+          if [ -z "$SKILLSTORE_API_URL" ] || [ -z "$SKILLSTORE_CALLBACK_TOKEN" ]; then
+            echo "::error::Skillstore callback secrets are not configured"
+            exit 1
+          fi
+          PAYLOAD=$(jq -n \
+            --arg submission_id "$SUBMISSION_ID" \
+            --arg pr_url "$PR_URL" \
+            --arg pr_number "$PR_NUMBER" \
+            --arg merged_by "$MERGED_BY" \
+            --arg workflow_run_id "${{ github.run_id }}" \
+            --arg workflow_run_url "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            '{
+              submission_id: $submission_id,
+              event: "merged",
+              pr_url: $pr_url,
+              pr_number: ($pr_number | tonumber),
+              merged_by: $merged_by,
+              workflow_run_id: ($workflow_run_id | tonumber),
+              workflow_run_url: $workflow_run_url
+            }')
           echo "📤 Notifying skillstore: submission $SUBMISSION_ID merged"
-          curl -sS -X POST "$SKILLSTORE_API_URL/api/submit/callback" \
+          curl --fail-with-body --silent --show-error \
+            --retry 3 --retry-delay 2 --retry-max-time 120 --retry-connrefused \
+            --connect-timeout 10 --max-time 30 \
+            -X POST "$SKILLSTORE_API_URL/api/submit/callback" \
             -H "Authorization: Bearer $SKILLSTORE_CALLBACK_TOKEN" \
             -H "Content-Type: application/json" \
             -H "User-Agent: GitHub-Actions/SkillstoreBot" \
             -H "X-Skillstore-Callback: true" \
-            -d '{
-              "submission_id": "'"$SUBMISSION_ID"'",
-              "event": "merged",
-              "pr_url": "'"$PR_URL"'",
-              "pr_number": '"$PR_NUMBER"',
-              "merged_by": "'"$MERGED_BY"'",
-              "workflow_run_id": ${{ github.run_id }},
-              "workflow_run_url": "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-            }' || echo "::warning::Failed to notify skillstore"
+            -d "$PAYLOAD"

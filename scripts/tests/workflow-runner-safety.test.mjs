@@ -86,6 +86,31 @@ test('job conditions cannot make self-hosted safe for a pull_request workflow', 
   );
 });
 
+test('trusted closed merge may share a self-hosted job with exact main recovery', () => {
+  withWorkflow(
+    [
+      'name: merged approval recovery',
+      'on:',
+      '  pull_request:',
+      '    types: [closed]',
+      '  workflow_dispatch:',
+      '    inputs:',
+      '      pr_number:',
+      '        required: true',
+      'jobs:',
+      '  approve:',
+      "    if: (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') || (github.event.pull_request.merged == true && contains(github.event.pull_request.labels.*.name, 'pending-review'))",
+      '    runs-on: self-hosted',
+      '    steps:',
+      '      - run: echo trusted-merged-pr-metadata',
+    ].join('\n'),
+    (root) => {
+      const result = runChecker(root);
+      assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
+    },
+  );
+});
+
 test('GitHub-hosted read-only exact-head pull_request job passes', () => {
   withWorkflow(
     [

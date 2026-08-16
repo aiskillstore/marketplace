@@ -731,12 +731,19 @@ test('submission callers emit distinct terminal callbacks for legal no-op, rejec
 });
 
 test('merged approval scope comes only from immutable PR changed files', () => {
+  assert.match(approval, /workflow_dispatch:[\s\S]*pr_number:/);
+  assert.match(approval, /github\.event_name == 'workflow_dispatch' && github\.ref == 'refs\/heads\/main'/);
   assert.match(approval, /Verify trusted submission PR provenance/);
+  assert.match(approval, /id: freeze_pr/);
+  assert.match(approval, /Recovery requires one exact positive PR number/);
+  assert.match(approval, /\.base\.ref == "main"/);
   assert.match(approval, /\.user\.id == 254047988/);
   assert.match(approval, /\.user\.login == "ai-skill-store\[bot\]"/);
   assert.match(approval, /\.head\.repo\.full_name == \$repository/);
   assert.match(approval, /\.head\.ref \| startswith\("submission\/"\)/);
   assert.match(approval, /pulls\/\$PR_NUMBER\/files\?per_page=100/);
+  assert.match(approval, /steps\.freeze_pr\.outputs\.merge_commit_sha/);
+  assert.match(approval, /steps\.freeze_pr\.outputs\.submission_id/);
   assert.match(approval, /for CLONE_ATTEMPT in 1 2 3/);
   assert.match(approval, /git clone --depth 1 --filter=blob:none --no-checkout/);
   assert.match(approval, /sparse-checkout set --no-cone --stdin/);
@@ -761,4 +768,7 @@ test('merged approval scope comes only from immutable PR changed files', () => {
   assert.doesNotMatch(approval, /cherry-pick HEAD@\{1\} \|\| true/);
   assert.doesNotMatch(approval, /find pending/);
   assert.match(approval, /rm -rf -- "\$TARGET_DIR"/);
+  assert.match(approval, /curl --fail-with-body --silent --show-error/);
+  assert.match(approval, /--retry 3/);
+  assert.doesNotMatch(approval, /Failed to notify skillstore/);
 });
