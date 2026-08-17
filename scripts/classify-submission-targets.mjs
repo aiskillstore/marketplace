@@ -184,7 +184,7 @@ function sourceMismatch(message) {
   throw new SourceIdentityMismatchError(message);
 }
 
-function assertSourceIdentity(report, { repository, skillPath }, reportPath) {
+function assertSourceIdentity(report, { repository }, reportPath) {
   const sourceUrl = report?.meta?.source_url;
   const reportRef = report?.meta?.source_ref;
   if (typeof sourceUrl !== 'string' || typeof reportRef !== 'string' || reportRef === '') {
@@ -192,32 +192,28 @@ function assertSourceIdentity(report, { repository, skillPath }, reportPath) {
   }
 
   const segments = decodedSegments(sourceUrl);
-  const canonicalPath = `/${repository}/tree/${encodeURIComponent(reportRef)}${skillPath === '.'
-    ? ''
-    : `/${skillPath.split('/').map((segment) => encodeURIComponent(segment)).join('/')}`}`;
-  const parsedPath = new URL(sourceUrl).pathname;
-  if (parsedPath !== canonicalPath && parsedPath !== `${canonicalPath}/`) {
-    sourceMismatch(`published target source_url is not canonical at ${reportPath}: expected ${canonicalPath}`);
-  }
-  const [owner, repo, kind, ...remainder] = segments;
+  const [owner, repo, kind, actualRef, ...actualPathSegments] = segments;
   if (`${owner ?? ''}/${repo ?? ''}` !== repository || kind !== 'tree') {
     sourceMismatch(`published target source repository mismatch at ${reportPath}: expected ${repository}`);
   }
-
-  const pathSegments = skillPath === '.' ? [] : skillPath.split('/');
-  if (remainder.length <= pathSegments.length) {
+  if (actualRef === undefined) {
     fail(`published target source_url has no source ref at ${reportPath}`);
   }
-  const actualPathSegments = pathSegments.length === 0 ? [] : remainder.slice(-pathSegments.length);
   if (actualPathSegments.some((segment) => segment.includes('/'))) {
     fail(`published target source_url encodes a path separator inside a path segment at ${reportPath}`);
   }
-  const actualPath = actualPathSegments.join('/');
-  const actualRef = remainder.slice(0, remainder.length - pathSegments.length).join('/');
-  if (actualRef !== reportRef || actualPath !== (skillPath === '.' ? '' : skillPath)) {
-    sourceMismatch(`published target source path mismatch at ${reportPath}: expected ${skillPath}`);
+  if (actualRef !== reportRef) {
+    fail(`published target source_url does not match source_ref at ${reportPath}`);
   }
-  return reportRef;
+  const sourcePath = actualPathSegments.join('/');
+  const canonicalPath = `/${repository}/tree/${encodeURIComponent(reportRef)}${sourcePath === ''
+    ? ''
+    : `/${actualPathSegments.map((segment) => encodeURIComponent(segment)).join('/')}`}`;
+  const parsedPath = new URL(sourceUrl).pathname;
+  if (parsedPath !== canonicalPath && parsedPath !== `${canonicalPath}/`) {
+    fail(`published target source_url is not canonical at ${reportPath}`);
+  }
+  return { sourcePath, sourceRef: reportRef };
 }
 
 function validateCandidate(candidate, identity) {
@@ -248,12 +244,11 @@ function validateCandidate(candidate, identity) {
     fail(`flat published target must be official at ${reportPath}`);
   }
 
-  const sourceRef = assertSourceIdentity(report, identity, reportPath);
+  const sourceIdentity = assertSourceIdentity(report, identity, reportPath);
   return {
     directory: candidate.directory,
     relativePath: candidate.relativePath,
-    sourceRef,
-    treeHash: report.meta.tree_hash,
+    ...sourceIdentity,
   };
 }
 
@@ -268,7 +263,6 @@ function assertNoPendingCollision(root, owner, slug) {
 export function classifySubmissionTargets({
   marketplaceRoot,
   selectionPlan,
-  sourceRef,
   slugAliasRegistry = { schemaVersion: 1, aliases: [] },
 }) {
   const plan = typeof selectionPlan === 'string'
@@ -276,7 +270,7 @@ export function classifySubmissionTargets({
     : validateSelectionPlan(selectionPlan);
   assertDirectory(marketplaceRoot, 'marketplace root');
   const root = resolve(marketplaceRoot);
-  if (typeof sourceRef !== 'string' || sourceRef === '') fail('source ref must be a non-empty string');
+  const sourceRef = plan.sourceCommit;
 
   const [owner] = plan.repository.split('/');
   const aliases = new Map(validateSlugAliasRegistry(slugAliasRegistry)
@@ -287,6 +281,7 @@ export function classifySubmissionTargets({
   const sameRevisionTargets = [];
   const updateTargets = [];
   const updateSnapshots = [];
+  const processingSkills = [];
   const newTargets = [];
 
   for (const skill of plan.skills) {
@@ -348,49 +343,42 @@ export function classifySubmissionTargets({
     }
     if (expectedTarget !== null) {
       existingTargets.push(expectedTarget.relativePath);
-      if (expectedTarget.sourceRef === sourceRef) {
+      if (expectedTarget.sourceRef === sourceRef && expectedTarget.sourcePath === skill.path) {
         sameRevisionTargets.push(expectedTarget.relativePath);
       } else {
-        if (sourceRef !== plan.sourceCommit || !/^[0-9a-f]{40}$/.test(sourceRef)) {
-          fail('existing targets must be updated with an immutable commit URL');
-        }
-        if (!HASH.test(expectedTarget.treeHash ?? '')
-          || calculateCanonicalTreeHash(root, expectedTarget.relativePath) !== expectedTarget.treeHash) {
-          fail(`published update target tree_hash is missing or stale: ${expectedTarget.relativePath}`);
-        }
+        const treeHash = calculateCanonicalTreeHash(root, expectedTarget.relativePath);
         updateTargets.push(expectedTarget.relativePath);
+        processingSkills.push(skill);
         updateSnapshots.push({
           targetDir: expectedTarget.relativePath,
-          treeHash: expectedTarget.treeHash,
+          treeHash,
           sourceRef: expectedTarget.sourceRef,
         });
       }
       continue;
     }
     newTargets.push(expectedCandidate.relativePath);
-  }
-
-  if (existingTargets.length > 0 && newTargets.length > 0) {
-    fail(`partial published-target collision: ${existingTargets.length} existing, ${newTargets.length} new`);
-  }
-  if (sameRevisionTargets.length > 0 && updateTargets.length > 0) {
-    fail(`mixed current and updated targets: ${sameRevisionTargets.length} current, ${updateTargets.length} updates`);
+    processingSkills.push(skill);
   }
 
   const disposition = sameRevisionTargets.length === plan.skills.length && plan.skills.length > 0
     ? 'all_existing'
     : 'processable';
+  let reasonCode = 'no_selected_targets_already_published';
+  if (disposition === 'all_existing') reasonCode = 'all_selected_targets_already_published';
+  else if (updateTargets.length === plan.skills.length) reasonCode = 'all_selected_targets_are_updates';
+  else if (updateTargets.length > 0 && newTargets.length > 0) reasonCode = 'selected_targets_include_new_and_updates';
+  else if (updateTargets.length > 0) reasonCode = 'selected_targets_include_updates';
+  else if (newTargets.length < plan.skills.length) reasonCode = 'selected_targets_include_new';
   const result = {
     schemaVersion: 1,
     disposition,
-    reasonCode: disposition === 'all_existing'
-      ? 'all_selected_targets_already_published'
-      : updateTargets.length > 0
-        ? 'all_selected_targets_are_updates'
-        : 'no_selected_targets_already_published',
+    reasonCode,
     selectedCount: plan.skills.length,
+    processingPlan: { ...plan, skills: processingSkills },
     existingCount: existingTargets.length,
     existingTargets: existingTargets.sort((left, right) => left.localeCompare(right, 'en')),
+    updateTargets: updateTargets.sort((left, right) => left.localeCompare(right, 'en')),
   };
   if (updateSnapshots.length > 0) result.updateSnapshots = updateSnapshots;
   return result;
@@ -403,7 +391,6 @@ function main() {
   const result = classifySubmissionTargets({
     marketplaceRoot: option(args, '--marketplace-root'),
     selectionPlan: readFileSync(selectionPlanPath, 'utf8'),
-    sourceRef: option(args, '--source-ref'),
     slugAliasRegistry: JSON.parse(readFileSync(slugAliasesPath, 'utf8')),
   });
   process.stdout.write(`${JSON.stringify(result)}\n`);

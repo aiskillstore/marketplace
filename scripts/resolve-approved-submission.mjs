@@ -311,9 +311,6 @@ export function resolveApprovedSubmission({ repositoryRoot, changedFiles }) {
       }
       const publishedReport = readJson(publishedReportPath, `${targetDir}/skill-report.json`);
       const publishedTreeHash = calculateCanonicalTreeHash(root, targetDir);
-      if (publishedReport?.meta?.tree_hash !== publishedTreeHash) {
-        fail(`${targetDir} published tree_hash does not match the canonical skill tree`);
-      }
       const nextIdentity = sourceIdentity(report, `${pendingDir}/skill-report.json`);
       const previousIdentity = sourceIdentity(publishedReport, `${targetDir}/skill-report.json`);
       duplicate = publishedTreeHash === actualTreeHash
@@ -336,12 +333,12 @@ export function resolveApprovedSubmission({ repositoryRoot, changedFiles }) {
         }
         if (report.meta.source_type !== publishedReport?.meta?.source_type
           || report.meta.slug !== publishedReport?.meta?.slug
-          || nextIdentity.repository !== previousIdentity.repository
-          || nextIdentity.path !== previousIdentity.path) {
+          || nextIdentity.repository !== previousIdentity.repository) {
           fail(`${pendingDir} source identity does not match the published target`);
         }
-        if (!/^[0-9a-f]{40}$/.test(nextIdentity.ref) || nextIdentity.ref === previousIdentity.ref) {
-          fail(`${pendingDir} update must use a new immutable source commit`);
+        if (!/^[0-9a-f]{40}$/.test(nextIdentity.ref)
+          || (nextIdentity.ref === previousIdentity.ref && nextIdentity.path === previousIdentity.path)) {
+          fail(`${pendingDir} update must use an immutable source commit or a new source path`);
         }
         previousSourceRef = expectedPreviousSourceRef;
       }

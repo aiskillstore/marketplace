@@ -226,6 +226,10 @@ test('submission processing isolates every shard and stages only its frozen plan
   assert.match(reusable, /Enforce shard terminal status/);
   assert.match(reusable, /Frozen update target is missing or unsafe/);
   assert.match(reusable, /Unexpected published target collision/);
+  assert.match(reusable, /UPDATE_TARGETS: \$\{\{ needs\.discover-and-plan\.outputs\.update_targets \}\}/);
+  assert.match(reusable, /Update target and snapshot sets do not match/);
+  assert.match(reusable, /FULL_SELECTION_PLAN: \$\{\{ steps\.targets\.outputs\.processing_plan \}\}/);
+  assert.match(reusable, /CURRENT_TREE_HASH=\$\(node "\$GITHUB_WORKSPACE\/scripts\/resolve-approved-submission\.mjs"/);
 });
 
 test('submission staging preserves frozen tracked files hidden by a copied .gitignore', () => withTempDirectory((root) => {
@@ -763,6 +767,8 @@ test('merged approval scope comes only from immutable PR changed files', () => {
   assert.match(approval, /verify_update_parent/);
   assert.match(approval, /--tree-hash-at-commit/);
   assert.match(approval, /\[ "\$parent_tree" = "\$expected_tree" \]/);
+  assert.match(approval, /\.meta\.source_ref == \$sourceRef/);
+  assert.doesNotMatch(approval, /\.meta\.tree_hash == \$treeHash and \.meta\.source_ref == \$sourceRef/);
   assert.match(approval, /Published update target changed before push/);
   assert.match(approval, /git add -A -f -- "\$\{SKILL_PATHS\[@\]\}" "\$\{TARGET_PATHS\[@\]\}"/);
   assert.match(approval, /PUSHED=false/);
