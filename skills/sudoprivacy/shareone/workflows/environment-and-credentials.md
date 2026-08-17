@@ -1,129 +1,52 @@
 # 环境判断与 API Key 凭据流程
 
-只在需要 ShareOne API 的操作前读取本文件。不要把 Sudowork 和普通 AI Agent 的凭据流程混用。
+只在需要 ShareOne API 的操作前读取本文件。凭据状态机（检查 → 保存 → 复查 → 核对）全部由 `ensure_credentials.js` 脚本执行；你只需要按输出 token 行动，并把脚本在分隔线 `--- 请将以下内容原样发给用户 ---` 之后输出的话术**原样转发给用户**。不要凭 `SUDOWORK_AUTH_PROXY_URL` 等环境变量自行推断环境。
 
-## 1. 检查环境和 API Key
-
-执行：
+## 1. 检查凭据
 
 ```bash
-node scripts/check_api_key.js
+node scripts/ensure_credentials.js
 ```
 
-根据输出处理：
+按输出处理：
 
-- `SUDOWORK_KEY_FOUND`：当前在 Sudowork 中，且 Sudowork 已配置 ShareOne API Key。后续发布命令不要传 `--api-key`。
-- `SUDOWORK_KEY_NOT_FOUND`：当前在 Sudowork 中，但还没有设置 ShareOne API Key。
-- `KEY_FOUND:<api_key>`：当前是普通 AI Agent 环境。将该 API Key 用于后续 direct 模式发布请求。
-- `KEY_NOT_FOUND`：当前是普通 AI Agent 环境，且没有找到 API Key。
+- `READY`：凭据就绪，直接继续原操作。同时输出的 `MODE:` 行说明当前环境（见第 3 节后续命令规则）。
+- `NEED_USER_INPUT`：凭据缺失。把分隔线之后的提问话术原样转发给用户，**暂停当前操作**，等待用户回复。
+- `ERROR:...`：见第 4 节。
 
-## 2. Sudowork 无 Key
+## 2. 用户回复后
 
-如果输出 `SUDOWORK_KEY_NOT_FOUND`，暂停当前操作，询问用户是否已有 ShareOne API Key：
-
-> 我检测到当前运行在 Sudowork 中，但还没有设置 ShareOne API Key。
-> 请问您是否已经拥有 API Key？
->
-> - 如果有，请直接回复您的 API Key（例如 `sk-xxx`），我会通过 Sudowork 安全保存并继续。
-> - 如果没有，请回复“没有”或“创建”，我会自动为您创建一个临时 API Key，并保存到 Sudowork。
-
-### 用户已有 Key
-
-执行：
+- 用户提供了 API Key（例如 `sk-xxx`）：
 
 ```bash
-node scripts/save_api_key.js <用户提供的KEY>
+node scripts/ensure_credentials.js --key <用户提供的KEY>
 ```
 
-如果输出 `SUDOWORK_KEY_SAVED`，重新执行：
+- 用户回复“没有”或“创建”：
 
 ```bash
-node scripts/check_api_key.js
+node scripts/ensure_credentials.js --create-guest
 ```
 
-确认输出 `SUDOWORK_KEY_FOUND` 后继续原操作。
+两个命令都会自动完成保存、复查和核对，按输出处理：
 
-如果输出 `ERROR:SUDOWORK_AUTH_PROXY_SAVE_FAILED`，暂停操作并提示：
+- `READY`：继续原操作。
+- `GUEST_KEY_CREATED:<api_key>`：**阻塞性用户通知**。分隔线之后是需要原样转发给用户的完整通知文本（含临时 API Key、绑定账号链接和保存提醒）。必须先把该通知发给用户，才能继续原任务的任何上传、下载、评论处理命令；即使 key 已自动保存也不能省略。
+- `NOTE:SUDOWORK_FALLBACK_KEY_SAVED`：附加信息，表示 key 保存到了 skill 安装目录下的本地 fallback 凭证（`.shareone_credentials`），不是 Sudowork Secret Store。脚本输出的说明文字一并转发给用户即可。
 
-> 我检测到当前运行在 Sudowork 中，但通过 Auth Proxy 设置 ShareOne API Key 失败。
-> 请前往 Sudowork 的密钥管理手动添加 API Key，操作路径：【远程连接】-【密钥管理】。
-> 添加完成后请回复“已添加”，我会重新检查并继续。
+## 3. 后续命令规则
 
-### 用户没有 Key 或要求创建
+- `MODE:sudowork`：后续所有命令**不要传 `--api-key`**，凭证由 Auth Proxy 自动注入。
+- `MODE:sudowork_fallback` / `MODE:direct`：脚本会自动读取环境变量 `SHAREONE_API_KEY` 或本地凭证文件，**无需显式传 `--api-key`**；仅当用户临时指定其他 key 时才传。
+- 所有非 Sudowork secrets 的本地凭据都只读写 ShareOne skill 安装目录下的 `.shareone_credentials`，不读写用户 home。
+- 如果后续操作中服务返回 401（脚本输出 `ERROR:AUTH_FAILED`），提示用户“API Key 无效或权限不足”。
 
-执行：
+## 4. 错误处理
 
-```bash
-node scripts/create_guest_key.js
-```
+- `ERROR:RATE_LIMIT_EXCEEDED`：创建临时 API Key 触发频率限制（每小时 20 次、每天 200 次）。把分隔线之后的提示转发给用户，暂停操作。
+- `ERROR:SUDOWORK_WRITE_BROKEN`：Sudowork 凭证环境可读但写入失败。**不要循环重试保存**；把分隔线之后的说明转发给用户并停止当前操作。
+- 其他 `ERROR:<message>`：把错误信息告知用户，暂停操作。
 
-如果输出 `GUEST_KEY_CREATED:<api_key>`，这是阻塞性用户通知。必须先回复用户以下内容，然后才能继续原操作：
+## 5. 底层脚本（一般不需要直接使用）
 
-> 已为您自动分配临时 API Key：`<api_key>`
-> 绑定账号链接：https://shareone.app/?key=<api_key>
-> 请妥善保存此 API Key。为了方便您后续管理分享的链接，请尽快打开上面的链接绑定您的永久账号。
-
-Sudowork 环境会把临时 API Key 保存到 Auth Proxy secrets。即使保存成功，也不能省略上面的用户通知。
-
-如果输出 `ERROR:SUDOWORK_AUTH_PROXY_SAVE_FAILED:<api_key>`，暂停操作并提示：
-
-> 已为您自动分配临时 API Key：`<api_key>`
-> 但我检测到当前运行在 Sudowork 中，通过 Auth Proxy 自动保存 API Key 失败。
-> 请前往 Sudowork 的密钥管理手动添加该 API Key，操作路径：【远程连接】-【密钥管理】。
-> 添加完成后请回复“已添加”，我会重新检查并继续。
-
-如果输出 `ERROR:RATE_LIMIT_EXCEEDED`，暂停操作并提示：
-
-> 获取临时凭证失败：您今天自动创建临时 API Key 的次数已达上限（每天最多 5 次）。请前往 https://shareone.app 手动注册并获取 API Key。
-
-## 3. 普通 AI Agent 无 Key
-
-如果输出 `KEY_NOT_FOUND`，暂停当前操作，询问用户是否已有 ShareOne API Key：
-
-> 我没有找到您的 ShareOne API Key。
-> 请问您是否已经拥有 API Key？
->
-> - 如果有，请直接回复您的 API Key（例如 `sk-xxx`），我将为您保存并继续。
-> - 如果没有，请回复“没有”或“创建”，我可以为您创建一个临时 API Key。
-
-### 用户已有 Key
-
-执行：
-
-```bash
-node scripts/save_api_key.js <用户提供的KEY>
-```
-
-如果输出 `KEY_SAVED`，重新执行：
-
-```bash
-node scripts/check_api_key.js
-```
-
-确认输出 `KEY_FOUND:<api_key>` 后继续原操作。
-
-### 用户没有 Key 或要求创建
-
-执行：
-
-```bash
-node scripts/create_guest_key.js
-```
-
-如果输出 `GUEST_KEY_CREATED:<api_key>`，这是阻塞性用户通知。必须先回复用户以下内容，然后才能继续原操作：
-
-> 已为您自动分配临时 API Key：`<api_key>`
-> 绑定账号链接：https://shareone.app/?key=<api_key>
-> 请妥善保存此 API Key。为了方便您后续管理分享的链接，请尽快打开上面的链接绑定您的永久账号。
-
-普通 AI Agent 环境会把临时 API Key 保存到本地凭证文件。即使保存成功，也不能省略上面的用户通知。后续也可以使用环境变量 `SHAREONE_API_KEY` 或命令参数 `--api-key`。
-
-如果输出 `ERROR:RATE_LIMIT_EXCEEDED`，暂停操作并提示：
-
-> 获取临时凭证失败：您今天自动创建临时 API Key 的次数已达上限（每天最多 5 次）。请前往 https://shareone.app 手动注册并获取 API Key。
-
-## 4. 后续命令规则
-
-- Sudowork：不要传 `--api-key`。
-- 普通 AI Agent：可以传 `--api-key`，也可以依赖 `SHAREONE_API_KEY` 或本地凭证。
-- 如果凭据无效或服务返回 401，在结果处理 workflow 中提示 “API Key 无效或权限不足”。
+`check_api_key.js`、`save_api_key.js`、`create_guest_key.js` 是 `ensure_credentials.js` 的底层组件，仍然可用（输出 `SUDOWORK_ENV_OK_KEY_FOUND` / `KEY_FOUND:<key>` / `SUDOWORK_KEY_SAVED` / `KEY_SAVED` 等细粒度 token），仅用于调试或用户明确指定时；正常流程一律使用 `ensure_credentials.js`。删除凭据见 `delete-api-key.md`。

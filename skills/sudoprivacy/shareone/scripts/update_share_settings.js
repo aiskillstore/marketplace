@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 
 const {
+    CREDENTIAL_MODE_SUDOWORK_PROXY,
+    detectCredentialMode,
     getBaseUrl,
-    isSudowork,
     printShareOneScriptError,
     requestShareOneBuffer,
     resolveDirectApiKey,
@@ -16,7 +17,7 @@ let explicitBaseUrl = null;
 const payload = {};
 
 function usage() {
-    console.error('Usage: node update_share_settings.js <share_link_or_id> [--api-key <key>] [--base-url <url>] [--watermark <text>] [--password <pwd>] [--slug <slug>] [--allow-comments <true|false>] [--dry-run]');
+    console.error('Usage: node update_share_settings.js <share_link_or_id> [--api-key <key>] [--base-url <url>] [--watermark <text>] [--password <pwd>] [--slug <slug>] [--allow-comments <true|false>] [--allow-data <true|false>] [--dry-run]');
 }
 
 function nextValue(index, flag) {
@@ -58,6 +59,9 @@ for (let i = 0; i < args.length; i++) {
     } else if (arg === '--allow-comments') {
         payload.allow_comments = parseBoolean(nextValue(i, arg), arg);
         i += 1;
+    } else if (arg === '--allow-data') {
+        payload.allow_data = parseBoolean(nextValue(i, arg), arg);
+        i += 1;
     } else if (arg === '--dry-run') {
         dryRun = true;
     } else if (!arg.startsWith('--') && !ref) {
@@ -76,18 +80,7 @@ if (!ref) {
 
 if (Object.keys(payload).length === 0) {
     console.error('ERROR:NO_SETTINGS_PROVIDED');
-    console.error('Provide at least one of --watermark, --password, --slug, or --allow-comments.');
-    process.exit(1);
-}
-
-if (isSudowork() && apiKey && !dryRun) {
-    console.error('ERROR:SUDOWORK_MANAGED_KEY');
-    console.error('Sudowork 模式下不要传 --api-key；请通过本 skill 的 save_api_key.js 或 create_guest_key.js 设置 ShareOne API Key。');
-    process.exit(1);
-}
-
-if (!dryRun && !isSudowork() && !resolveDirectApiKey(apiKey)) {
-    console.error('ERROR:KEY_NOT_FOUND');
+    console.error('Provide at least one of --watermark, --password, --slug, --allow-comments, or --allow-data.');
     process.exit(1);
 }
 
@@ -99,7 +92,10 @@ function parseRef(input) {
         if (raw.includes('://')) {
             const parsed = new URL(raw);
             if (!explicitBaseUrl) {
-                process.env.SHAREONE_BASE_URL = `${parsed.protocol}//${parsed.host}`;
+                const host = parsed.hostname.toLowerCase();
+                process.env.SHAREONE_BASE_URL = host === 'shareone.vip' || host.endsWith('.shareone.vip')
+                    ? 'https://shareone.app'
+                    : `${parsed.protocol}//${parsed.host}`;
             }
             path = parsed.pathname;
         }
@@ -154,6 +150,18 @@ async function putSettings(apiPath) {
 }
 
 (async () => {
+    const credentialMode = await detectCredentialMode();
+    if (credentialMode.mode === CREDENTIAL_MODE_SUDOWORK_PROXY && apiKey && !dryRun) {
+        console.error('ERROR:SUDOWORK_MANAGED_KEY');
+        console.error('Sudowork 模式下不要传 --api-key；请通过本 skill 的 save_api_key.js 或 create_guest_key.js 设置 ShareOne API Key。');
+        process.exit(1);
+    }
+
+    if (!dryRun && credentialMode.mode !== CREDENTIAL_MODE_SUDOWORK_PROXY && !resolveDirectApiKey(apiKey)) {
+        console.error('ERROR:KEY_NOT_FOUND');
+        process.exit(1);
+    }
+
     const parsed = parseRef(ref);
     const explicitApiPath = endpointForPrefix(parsed.prefix, parsed.shareRef);
     const pageApiPath = `/api/v1/pages/${encodeURIComponent(parsed.shareRef)}`;
@@ -190,6 +198,5 @@ async function putSettings(apiPath) {
         process.stdout.write(res.data);
     }
 })().catch((error) => {
-    printShareOneScriptError(error);
-    process.exit(1);
+    process.exit(printShareOneScriptError(error));
 });

@@ -12,9 +12,11 @@ node scripts/delete_api_key.js
 
 ## 2. 根据输出回复
 
-- `SUDOWORK_KEY_DELETED`：告诉用户 Sudowork 中保存的 ShareOne API Key 已删除。
+- `SUDOWORK_KEY_DELETED`：告诉用户 Sudowork 中保存的 ShareOne API Key 已删除（如有本地 fallback 凭证也已一并清理）。
+- `SUDOWORK_FALLBACK_KEY_DELETED`：告诉用户 Sudowork 当前凭证环境不可用，已删除 ShareOne fallback 本地凭证。
 - `KEY_DELETED`：告诉用户本地保存的 ShareOne API Key 已删除。
-- `KEY_NOT_FOUND`：告诉用户当前没有找到本地保存的 ShareOne API Key。
+- `KEY_NOT_FOUND`：告诉用户当前没有找到已保存的 ShareOne API Key，无需删除。
+- `ERROR:<message>`：删除 Sudowork secret 时出现异常（例如 Auth Proxy 故障）。把错误信息告知用户，建议稍后重试或在 Sudowork 密钥管理中手动删除。
 
 ## 3. 删除后的规则
 

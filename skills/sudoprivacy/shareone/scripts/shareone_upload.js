@@ -4,7 +4,8 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const {
-    isSudowork,
+    CREDENTIAL_MODE_SUDOWORK_PROXY,
+    detectCredentialMode,
     printShareOneScriptError,
     requestBuffer,
     requestShareOneBuffer,
@@ -106,13 +107,15 @@ async function uploadFile(filePath, options) {
         process.exit(1);
     }
 
-    if (isSudowork() && options.apiKey) {
+    const credentialMode = await detectCredentialMode();
+
+    if (credentialMode.mode === CREDENTIAL_MODE_SUDOWORK_PROXY && options.apiKey) {
         console.error("ERROR:SUDOWORK_MANAGED_KEY");
         console.error("Sudowork 模式下不要传 --api-key；请通过本 skill 的 save_api_key.js 或 create_guest_key.js 设置 ShareOne API Key。");
         process.exit(1);
     }
 
-    if (!isSudowork() && !resolveDirectApiKey(options.apiKey)) {
+    if (credentialMode.mode !== CREDENTIAL_MODE_SUDOWORK_PROXY && !resolveDirectApiKey(options.apiKey)) {
         console.error("ERROR:KEY_NOT_FOUND");
         process.exit(1);
     }
@@ -173,32 +176,56 @@ const options = {
     slug: null,
 };
 
+function usage() {
+    console.error("Usage: node shareone_upload.js <file_path> [--api-key <api_key>] [--base-url <base_url>] [--filename <name>] [--content-type <mime>] [--password <password>] [--watermark <watermark>] [--slug <slug>]");
+}
+
+function nextValue(index, flag) {
+    const value = args[index + 1];
+    if (value === undefined || value.startsWith('--')) {
+        console.error(`ERROR:MISSING_VALUE:${flag}`);
+        usage();
+        process.exit(1);
+    }
+    return value;
+}
+
 for (let i = 0; i < args.length; i++) {
     if (args[i] === '--api-key') {
-        options.apiKey = args[++i];
+        options.apiKey = nextValue(i, args[i]);
+        i += 1;
     } else if (args[i] === '--base-url') {
-        process.env.SHAREONE_BASE_URL = args[++i];
+        process.env.SHAREONE_BASE_URL = nextValue(i, args[i]);
+        i += 1;
     } else if (args[i] === '--filename') {
-        options.filename = args[++i];
+        options.filename = nextValue(i, args[i]);
+        i += 1;
     } else if (args[i] === '--content-type') {
-        options.contentType = args[++i];
+        options.contentType = nextValue(i, args[i]);
+        i += 1;
     } else if (args[i] === '--password') {
-        options.password = args[++i];
+        options.password = nextValue(i, args[i]);
+        i += 1;
     } else if (args[i] === '--watermark') {
-        options.watermark = args[++i];
+        options.watermark = nextValue(i, args[i]);
+        i += 1;
     } else if (args[i] === '--slug') {
-        options.slug = args[++i];
-    } else if (!args[i].startsWith('--')) {
+        options.slug = nextValue(i, args[i]);
+        i += 1;
+    } else if (!args[i].startsWith('--') && !filePath) {
         filePath = args[i];
+    } else {
+        console.error(`ERROR:UNKNOWN_ARGUMENT:${args[i]}`);
+        usage();
+        process.exit(1);
     }
 }
 
 if (!filePath) {
-    console.error("Usage: node shareone_upload.js <file_path> [--api-key <api_key>] [--base-url <base_url>] [--filename <name>] [--content-type <mime>] [--password <password>] [--watermark <watermark>] [--slug <slug>]");
+    usage();
     process.exit(1);
 }
 
 uploadFile(filePath, options).catch((error) => {
-    printShareOneScriptError(error);
-    process.exit(1);
+    process.exit(printShareOneScriptError(error));
 });
