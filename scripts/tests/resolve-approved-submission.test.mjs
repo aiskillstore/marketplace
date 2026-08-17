@@ -108,21 +108,26 @@ test('supports an official flat pending skill', () => withRepository((root) => {
   assert.equal(plan.skills[0].targetDir, 'skills/official-skill');
 }));
 
-test('authorizes a reviewed update only when repository and source path stay stable', () => withRepository((root) => {
+test('authorizes a reviewed same-repository update when the source path moves', () => withRepository((root) => {
   const oldCommit = '1'.repeat(40);
   const newCommit = '2'.repeat(40);
   addSkill(root, 'skills/owner/skill', {
     slug: 'owner-skill',
     sourceRef: oldCommit,
-    sourceUrl: `https://github.com/owner/repo/tree/${oldCommit}/skills/skill`,
+    sourceUrl: `https://github.com/owner/repo/tree/${oldCommit}/legacy/skill`,
   });
+  const previousTreeHash = calculateCanonicalTreeHash(root, 'skills/owner/skill');
+  const publishedReportPath = join(root, 'skills/owner/skill/skill-report.json');
+  const publishedReport = JSON.parse(readFileSync(publishedReportPath, 'utf8'));
+  publishedReport.meta.tree_hash = '0'.repeat(64);
+  writeFileSync(publishedReportPath, `${JSON.stringify(publishedReport)}\n`);
   addSkill(root, 'pending/owner/skill', {
     slug: 'owner-skill',
     content: '# Updated\n',
     sourceRef: newCommit,
-    sourceUrl: `https://github.com/owner/repo/tree/${newCommit}/skills/skill`,
+    sourceUrl: `https://github.com/owner/repo/tree/${newCommit}/skills/new-skill`,
     previousSourceRef: oldCommit,
-    previousTreeHash: calculateCanonicalTreeHash(root, 'skills/owner/skill'),
+    previousTreeHash,
   });
 
   const plan = resolveApprovedSubmission({
@@ -144,8 +149,8 @@ test('authorizes a reviewed update only when repository and source path stay sta
     /reviewed update snapshot does not match/,
   );
 
-  report.meta.previous_tree_hash = calculateCanonicalTreeHash(root, 'skills/owner/skill');
-  report.meta.source_url = `https://github.com/owner/other/tree/${newCommit}/skills/skill`;
+  report.meta.previous_tree_hash = previousTreeHash;
+  report.meta.source_url = `https://github.com/owner/other/tree/${newCommit}/skills/new-skill`;
   writeFileSync(reportPath, `${JSON.stringify(report)}\n`);
   assert.throws(
     () => resolveApprovedSubmission({

@@ -61,7 +61,7 @@ on:
         description: 'Machine-readable terminal outcome reason'
         value: ${{ jobs.discover-and-plan.outputs.target_disposition == 'all_existing' && jobs.discover-and-plan.outputs.target_reason || jobs.merge-and-create-pr.outputs.outcome_reason }}
       existing_targets:
-        description: 'Comma-separated exact targets for a handled existing-target rejection'
+        description: 'Comma-separated exact published targets found during classification'
         value: ${{ jobs.discover-and-plan.outputs.existing_targets }}
       source_sha:
         description: 'Immutable source commit used for discovery'
@@ -139,7 +139,7 @@ jobs:
       github_url: ${{ steps.discover.outputs.github_url }}
       source_sha: ${{ steps.clone.outputs.ref_sha }}
       scope_path: ${{ steps.discover.outputs.scope_path }}
-      selection_plan: ${{ steps.discover.outputs.selection_plan }}
+      selection_plan: ${{ steps.targets.outputs.processing_plan }}
       physical_count: ${{ steps.discover.outputs.physical_count }}
       selected_count: ${{ steps.discover.outputs.skill_count }}
       ignored_count: ${{ steps.discover.outputs.ignored_count }}
@@ -149,6 +149,7 @@ jobs:
       target_reason: ${{ steps.targets.outputs.reason_code }}
       existing_count: ${{ steps.targets.outputs.existing_count }}
       existing_targets: ${{ steps.targets.outputs.existing_targets }}
+      update_targets: ${{ steps.targets.outputs.update_targets }}
       update_snapshots: ${{ steps.targets.outputs.update_snapshots }}
     steps:
       - name: Clear inherited discovery checkout
@@ -435,7 +436,6 @@ jobs:
         id: targets
         env:
           FULL_SELECTION_PLAN: ${{ steps.discover.outputs.selection_plan }}
-          SOURCE_REF: ${{ steps.clone.outputs.branch }}
         run: |
           set -euo pipefail
           PLAN_FILE="${RUNNER_TEMP:?}/target-plan-${{ github.run_id }}-${{ github.run_attempt }}.json"
@@ -446,18 +446,21 @@ jobs:
           CLASSIFICATION=$(node "$GITHUB_WORKSPACE/scripts/classify-submission-targets.mjs" \
             --marketplace-root "$GITHUB_WORKSPACE" \
             --selection-plan "$PLAN_FILE" \
-            --slug-aliases-file "$GITHUB_WORKSPACE/governance/submission-slug-aliases.json" \
-            --source-ref "$SOURCE_REF")
+            --slug-aliases-file "$GITHUB_WORKSPACE/governance/submission-slug-aliases.json")
           DISPOSITION=$(jq -er '.disposition' <<< "$CLASSIFICATION")
           REASON_CODE=$(jq -er '.reasonCode' <<< "$CLASSIFICATION")
           SELECTED_COUNT=$(jq -er '.selectedCount' <<< "$CLASSIFICATION")
+          PROCESSING_PLAN=$(jq -cer '.processingPlan' <<< "$CLASSIFICATION")
           EXISTING_COUNT=$(jq -er '.existingCount' <<< "$CLASSIFICATION")
           EXISTING_TARGETS=$(jq -er '.existingTargets | join(",")' <<< "$CLASSIFICATION")
+          UPDATE_TARGETS=$(jq -cer '.updateTargets' <<< "$CLASSIFICATION")
           UPDATE_SNAPSHOTS=$(jq -cer '.updateSnapshots // []' <<< "$CLASSIFICATION")
           echo "disposition=$DISPOSITION" >> "$GITHUB_OUTPUT"
           echo "reason_code=$REASON_CODE" >> "$GITHUB_OUTPUT"
+          echo "processing_plan=$PROCESSING_PLAN" >> "$GITHUB_OUTPUT"
           echo "existing_count=$EXISTING_COUNT" >> "$GITHUB_OUTPUT"
           echo "existing_targets=$EXISTING_TARGETS" >> "$GITHUB_OUTPUT"
+          echo "update_targets=$UPDATE_TARGETS" >> "$GITHUB_OUTPUT"
           echo "update_snapshots=$UPDATE_SNAPSHOTS" >> "$GITHUB_OUTPUT"
           if [ "$DISPOSITION" = "all_existing" ]; then
             echo "::notice title=SUBMISSION_ALREADY_PUBLISHED::All $EXISTING_COUNT selected targets already exist; skipping CLI, AI, shards, artifacts, branch, and PR"
@@ -496,7 +499,7 @@ jobs:
         id: plan
         if: steps.targets.outputs.disposition == 'processable'
         env:
-          FULL_SELECTION_PLAN: ${{ steps.discover.outputs.selection_plan }}
+          FULL_SELECTION_PLAN: ${{ steps.targets.outputs.processing_plan }}
           EXPLICIT_PATH: ${{ steps.clone.outputs.explicit_path }}
         run: |
           COUNT=$(jq -er '.skills | length' <<< "$FULL_SELECTION_PLAN")
@@ -896,7 +899,7 @@ jobs:
           APP_TOKEN: ${{ steps.app-token.outputs.token }}
           REPOSITORY: ${{ github.repository }}
           SHARD_MATRIX: ${{ needs.discover-and-plan.outputs.matrix }}
-          UPDATE_TARGETS: ${{ needs.discover-and-plan.outputs.existing_targets }}
+          UPDATE_TARGETS: ${{ needs.discover-and-plan.outputs.update_targets }}
           UPDATE_SNAPSHOTS: ${{ needs.discover-and-plan.outputs.update_snapshots }}
         run: |
           set -euo pipefail
@@ -1010,11 +1013,16 @@ jobs:
           cd "$WORK_DIR"
 
           echo "=== Copying only frozen submission results ==="
+          jq -e --argjson targets "$UPDATE_TARGETS" '
+            (map(.targetDir) | sort) == ($targets | sort)
+            and (map(.targetDir) | unique | length) == length
+            and ($targets | unique | length) == ($targets | length)
+          ' <<< "$UPDATE_SNAPSHOTS" >/dev/null || {
+            echo "::error::Update target and snapshot sets do not match"
+            exit 1
+          }
           is_update_target() {
-            case ",$UPDATE_TARGETS," in
-              *",$1,"*) return 0 ;;
-              *) return 1 ;;
-            esac
+            jq -e --arg targetDir "$1" 'index($targetDir) != null' <<< "$UPDATE_TARGETS" >/dev/null
           }
           for pending_dir in "${SUBMISSION_PATHS[@]}"; do
             test ! -e "$WORK_DIR/$pending_dir" || {
@@ -1034,9 +1042,13 @@ jobs:
               EXPECTED_TREE_HASH=$(jq -er '.treeHash' <<< "$SNAPSHOT")
               EXPECTED_SOURCE_REF=$(jq -er '.sourceRef' <<< "$SNAPSHOT")
               CURRENT_REPORT="$WORK_DIR/$target_dir/skill-report.json"
-              jq -e --arg treeHash "$EXPECTED_TREE_HASH" --arg sourceRef "$EXPECTED_SOURCE_REF" \
-                '.meta.tree_hash == $treeHash and .meta.source_ref == $sourceRef' \
-                "$CURRENT_REPORT" >/dev/null || {
+              CURRENT_TREE_HASH=$(node "$GITHUB_WORKSPACE/scripts/resolve-approved-submission.mjs" \
+                --tree-hash-at-commit \
+                --repo-root "$WORK_DIR" \
+                --commit HEAD \
+                --skill-dir "$target_dir")
+              jq -e --arg sourceRef "$EXPECTED_SOURCE_REF" '.meta.source_ref == $sourceRef' \
+                "$CURRENT_REPORT" >/dev/null && [ "$CURRENT_TREE_HASH" = "$EXPECTED_TREE_HASH" ] || {
                   echo "::error::Published update target changed after classification: $target_dir"
                   exit 1
                 }

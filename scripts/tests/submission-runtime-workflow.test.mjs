@@ -462,13 +462,18 @@ test('existing-target classification is a pre-CLI gate with a handled rejection 
     /all_selected_targets_already_published/,
   );
   assert.match(reusable, /existing_targets:/);
+  assert.match(reusable, /FULL_SELECTION_PLAN: \$\{\{ steps\.targets\.outputs\.processing_plan \}\}/);
+  assert.doesNotMatch(reusable, /--source-ref/);
   const latePendingGuard = reusable.indexOf('Pending path already exists on main');
   const latePublishedGuard = reusable.indexOf('Frozen update target is missing or unsafe');
   const lateCopy = reusable.indexOf('cp -R "$MERGED_RESULTS/$pending_dir"');
   assert.ok(latePendingGuard > 0 && latePendingGuard < lateCopy);
   assert.ok(latePublishedGuard > latePendingGuard && latePublishedGuard < lateCopy);
   assert.match(reusable, /Unexpected published target collision/);
-  assert.match(reusable, /UPDATE_TARGETS: \$\{\{ needs\.discover-and-plan\.outputs\.existing_targets \}\}/);
+  assert.match(reusable, /UPDATE_TARGETS: \$\{\{ needs\.discover-and-plan\.outputs\.update_targets \}\}/);
+  assert.match(reusable, /Update target and snapshot sets do not match/);
+  assert.match(reusable, /CURRENT_TREE_HASH=\$\(node "\$GITHUB_WORKSPACE\/scripts\/resolve-approved-submission\.mjs"/);
+  assert.match(reusable, /\[ "\$CURRENT_TREE_HASH" = "\$EXPECTED_TREE_HASH" \]/);
   assert.match(reusable, /previous_tree_hash = \$treeHash/);
   assert.match(reusable, /previous_source_ref = \$sourceRef/);
 });

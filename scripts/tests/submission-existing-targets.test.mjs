@@ -107,44 +107,53 @@ function writeTarget(root, slug, {
   return directory;
 }
 
-function classify(root, plan = selectionPlan(), sourceRef = 'main') {
-  return classifySubmissionTargets({ marketplaceRoot: root, selectionPlan: plan, sourceRef });
+function classify(root, plan = selectionPlan()) {
+  return classifySubmissionTargets({ marketplaceRoot: root, selectionPlan: plan });
 }
 
 test('zero existing targets preserves the complete processable selection', () => withMarketplace((root) => {
-  assert.deepEqual(classify(root), {
+  const plan = selectionPlan();
+  assert.deepEqual(classify(root, plan), {
     schemaVersion: 1,
     disposition: 'processable',
     reasonCode: 'no_selected_targets_already_published',
     selectedCount: 2,
+    processingPlan: plan,
     existingCount: 0,
     existingTargets: [],
+    updateTargets: [],
   });
 }));
 
 test('all exact community targets become a handled rejection', () => withMarketplace((root) => {
-  writeTarget(root, 'alpha');
-  writeTarget(root, 'beta');
-  assert.deepEqual(classify(root), {
+  writeTarget(root, 'alpha', { sourceRef: SOURCE_COMMIT });
+  writeTarget(root, 'beta', { sourceRef: SOURCE_COMMIT });
+  const plan = selectionPlan();
+  assert.deepEqual(classify(root, plan), {
     schemaVersion: 1,
     disposition: 'all_existing',
     reasonCode: 'all_selected_targets_already_published',
     selectedCount: 2,
+    processingPlan: { ...plan, skills: [] },
     existingCount: 2,
     existingTargets: ['skills/example/alpha', 'skills/example/beta'],
+    updateTargets: [],
   });
 }));
 
 test('same source identity at a new immutable commit is processed as an update', () => withMarketplace((root) => {
   writeTarget(root, 'alpha', { sourceRef: '2'.repeat(40) });
-  const result = classify(root, selectionPlan([{ slug: 'alpha', path: 'skills/alpha' }]), SOURCE_COMMIT);
+  const plan = selectionPlan([{ slug: 'alpha', path: 'skills/alpha' }]);
+  const result = classify(root, plan);
   assert.deepEqual(result, {
     schemaVersion: 1,
     disposition: 'processable',
     reasonCode: 'all_selected_targets_are_updates',
     selectedCount: 1,
+    processingPlan: plan,
     existingCount: 1,
     existingTargets: ['skills/example/alpha'],
+    updateTargets: ['skills/example/alpha'],
     updateSnapshots: [{
       targetDir: 'skills/example/alpha',
       treeHash: calculateCanonicalTreeHash(root, 'skills/example/alpha'),
@@ -155,26 +164,26 @@ test('same source identity at a new immutable commit is processed as an update',
 
 test('the same immutable source commit remains a handled no-op', () => withMarketplace((root) => {
   writeTarget(root, 'alpha', { sourceRef: SOURCE_COMMIT });
-  const result = classify(root, selectionPlan([{ slug: 'alpha', path: 'skills/alpha' }]), SOURCE_COMMIT);
+  const result = classify(root, selectionPlan([{ slug: 'alpha', path: 'skills/alpha' }]));
   assert.equal(result.disposition, 'all_existing');
   assert.equal(result.reasonCode, 'all_selected_targets_already_published');
 }));
 
-test('an existing source can only be updated from an immutable commit URL', () => withMarketplace((root) => {
-  writeTarget(root, 'alpha', { sourceRef: '2'.repeat(40) });
-  assert.throws(
-    () => classify(root, selectionPlan([{ slug: 'alpha', path: 'skills/alpha' }]), 'main'),
-    /existing targets must be updated with an immutable commit URL/,
-  );
+test('a same-repository source path move is processed as an update', () => withMarketplace((root) => {
+  writeTarget(root, 'alpha', { sourceRef: 'main', skillPath: 'legacy/alpha' });
+  const plan = selectionPlan([{ slug: 'alpha', path: 'skills/alpha' }]);
+  const result = classify(root, plan);
+  assert.equal(result.disposition, 'processable');
+  assert.equal(result.reasonCode, 'all_selected_targets_are_updates');
+  assert.deepEqual(result.updateTargets, ['skills/example/alpha']);
+  assert.deepEqual(result.processingPlan, plan);
 }));
 
-test('an update refuses a published target whose recorded tree hash is stale', () => withMarketplace((root) => {
+test('an update snapshots the authoritative tree when legacy report metadata is stale', () => withMarketplace((root) => {
   writeTarget(root, 'alpha', { sourceRef: '2'.repeat(40) });
   writeFileSync(join(root, 'skills/example/alpha/SKILL.md'), '---\nname: alpha\n---\nchanged\n');
-  assert.throws(
-    () => classify(root, selectionPlan([{ slug: 'alpha', path: 'skills/alpha' }]), SOURCE_COMMIT),
-    /tree_hash is missing or stale/,
-  );
+  const result = classify(root, selectionPlan([{ slug: 'alpha', path: 'skills/alpha' }]));
+  assert.equal(result.updateSnapshots[0].treeHash, calculateCanonicalTreeHash(root, 'skills/example/alpha'));
 }));
 
 test('an exact repository-bound alias validates the published display name', () => withMarketplace((root) => {
@@ -186,13 +195,13 @@ test('an exact repository-bound alias validates the published display name', () 
     targetOwner: 'zx029w',
     skillPath: path,
     skillName: path,
+    sourceRef: SOURCE_COMMIT,
   });
   const plan = selectionPlan([{ slug, path }], repository);
   plan.scope = { reason: 'repository_fallback', path: '.' };
   const result = classifySubmissionTargets({
     marketplaceRoot: root,
     selectionPlan: plan,
-    sourceRef: 'main',
     slugAliasRegistry: {
       schemaVersion: 1,
       aliases: [{ repository, path, expectedName: path, baseSlug: slug }],
@@ -202,7 +211,7 @@ test('an exact repository-bound alias validates the published display name', () 
 }));
 
 test('an exact official flat target is recognized without weakening community identity', () => withMarketplace((root) => {
-  writeTarget(root, 'alpha', { layout: 'official', repository: 'anthropics/skills' });
+  writeTarget(root, 'alpha', { layout: 'official', repository: 'anthropics/skills', sourceRef: SOURCE_COMMIT });
   const result = classify(
     root,
     selectionPlan([{ slug: 'alpha', path: 'skills/alpha' }], 'anthropics/skills'),
@@ -211,15 +220,48 @@ test('an exact official flat target is recognized without weakening community id
   assert.deepEqual(result.existingTargets, ['skills/alpha']);
 }));
 
-test('mixed existing and new targets fail closed instead of processing a subset', () => withMarketplace((root) => {
-  writeTarget(root, 'alpha');
-  assert.throws(() => classify(root), /partial published-target collision: 1 existing, 1 new/);
+test('OpenAI path moves and new targets are processed in one complete batch', () => withMarketplace((root) => {
+  const repository = 'openai/codex';
+  const slugs = ['imagegen', 'openai-docs', 'plugin-creator', 'review-agent', 'skill-creator', 'skill-installer'];
+  const oldRoot = 'codex-rs/core/src/skills/assets/samples';
+  const newRoot = 'codex-rs/skills/src/assets/samples';
+  for (const slug of ['skill-creator', 'skill-installer']) {
+    writeTarget(root, slug, {
+      layout: 'official',
+      repository,
+      sourceRef: 'main',
+      skillPath: `${oldRoot}/${slug}`,
+    });
+  }
+  const plan = selectionPlan(slugs.map((slug) => ({ slug, path: `${newRoot}/${slug}` })), repository);
+  plan.scope = { reason: 'explicit_path', path: newRoot };
+  const result = classify(root, plan);
+  assert.equal(result.disposition, 'processable');
+  assert.equal(result.reasonCode, 'selected_targets_include_new_and_updates');
+  assert.deepEqual(result.processingPlan, plan);
+  assert.deepEqual(result.updateTargets, ['skills/skill-creator', 'skills/skill-installer']);
+  assert.equal(result.updateSnapshots.length, 2);
+}));
+
+test('unchanged targets are filtered while updates and new targets continue', () => withMarketplace((root) => {
+  writeTarget(root, 'alpha', { sourceRef: SOURCE_COMMIT });
+  writeTarget(root, 'beta', { sourceRef: 'main', skillPath: 'legacy/beta' });
+  const plan = selectionPlan([
+    { slug: 'alpha', path: 'skills/alpha' },
+    { slug: 'beta', path: 'skills/beta' },
+    { slug: 'gamma', path: 'skills/gamma' },
+  ]);
+  const result = classify(root, plan);
+  assert.equal(result.reasonCode, 'selected_targets_include_new_and_updates');
+  assert.deepEqual(result.processingPlan.skills, [
+    { slug: 'beta', path: 'skills/beta' },
+    { slug: 'gamma', path: 'skills/gamma' },
+  ]);
+  assert.deepEqual(result.updateTargets, ['skills/example/beta']);
 }));
 
 for (const mismatch of [
   { name: 'repository', options: { repository: 'other/source' }, pattern: /source (?:repository mismatch|URL is not canonical)|source_url is not canonical/ },
-  { name: 'ref', options: { sourceRef: 'release' }, pattern: /immutable commit URL/ },
-  { name: 'path', options: { skillPath: 'skills/other' }, pattern: /source (?:path mismatch|URL is not canonical)|source_url is not canonical/ },
 ]) {
   test(`a published target with a ${mismatch.name} mismatch fails closed`, () => withMarketplace((root) => {
     writeTarget(root, 'alpha', mismatch.options);
@@ -341,14 +383,14 @@ test('slash refs require the canonical percent-encoded source URL', () => withMa
     sourceRef: 'feature/ready',
     sourceUrl: 'https://github.com/example/source/tree/feature%2Fready/skills/alpha/',
   });
-  assert.equal(classify(root, plan, 'feature/ready').disposition, 'all_existing');
+  assert.equal(classify(root, plan).disposition, 'processable');
 
   rmSync(join(root, 'skills', 'example', 'alpha'), { recursive: true, force: true });
   writeTarget(root, 'alpha', {
     sourceRef: 'feature/ready',
     sourceUrl: 'https://github.com/example/source/tree/feature/ready/skills/alpha/',
   });
-  assert.throws(() => classify(root, plan, 'feature/ready'), /source_url is not canonical/);
+  assert.throws(() => classify(root, plan), /source_url (?:does not match source_ref|is not canonical)/);
 }));
 
 test('a symlinked target ancestor fails closed even when the final path is missing', () => withMarketplace((root) => {
@@ -362,7 +404,7 @@ test('a symlinked target ancestor fails closed even when the final path is missi
 }));
 
 test('an unrelated flat official slug does not hide an exact namespaced target', () => withMarketplace((root) => {
-  writeTarget(root, 'alpha');
+  writeTarget(root, 'alpha', { sourceRef: SOURCE_COMMIT });
   writeTarget(root, 'alpha', {
     layout: 'official',
     repository: 'other/source',
