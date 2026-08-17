@@ -1,0 +1,71 @@
+name: Publish ClawHub
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  publish-clawhub:
+    name: Publish skill to ClawHub
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout skill release
+        uses: actions/checkout@v4
+
+      - name: Validate tag matches skill version
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME}"
+          version="${tag#v}"
+          skill_name="$(sed -n 's/^name:[[:space:]]*//p' SKILL.md | head -n 1 | tr -d '\r')"
+          skill_version="$(sed -n 's/^[[:space:]]*version:[[:space:]]*//p' SKILL.md | head -n 1 | tr -d '\r')"
+          if [ -z "$skill_name" ]; then
+            echo "Missing skill name in SKILL.md" >&2
+            exit 1
+          fi
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Invalid release tag: ${tag}" >&2
+            exit 1
+          fi
+          if [ "$skill_version" != "$version" ]; then
+            echo "SKILL.md version ${skill_version} does not match release tag ${tag}" >&2
+            exit 1
+          fi
+          echo "SKILL_NAME=${skill_name}" >> "$GITHUB_ENV"
+          echo "SKILL_VERSION=${version}" >> "$GITHUB_ENV"
+          echo "SKILL_DISPLAY_NAME=ShareOne HTML & Document Share Links" >> "$GITHUB_ENV"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install ClawHub CLI
+        run: npm install -g clawhub
+
+      - name: Publish to ClawHub
+        env:
+          CLAWHUB_TOKEN: ${{ secrets.CLAWHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${CLAWHUB_TOKEN}" ]; then
+            echo "Missing required secret CLAWHUB_TOKEN" >&2
+            exit 1
+          fi
+          clawhub login --token "${CLAWHUB_TOKEN}"
+          set +e
+          output="$(clawhub skill publish . --slug "${SKILL_NAME}" --version "${SKILL_VERSION}" --name "${SKILL_DISPLAY_NAME}" 2>&1)"
+          status=$?
+          set -e
+          printf '%s\n' "$output"
+          if [ "$status" -ne 0 ]; then
+            if printf '%s\n' "$output" | grep -Fq "Version ${SKILL_VERSION} already exists"; then
+              echo "ClawHub version ${SKILL_VERSION} already exists; treating tag replay as successful."
+              exit 0
+            fi
+            exit "$status"
+          fi

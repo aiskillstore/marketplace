@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>本地推理 · 数据不出设备</title>
+<!--
+  Client-side inference (data-local compute) reference page for ShareOne.
+  Pattern: the MODEL is public (inline below), the user's DATA is private
+  (__SHAREONE__.putPrivate → their browser only), and inference runs in the
+  browser — so the raw data never leaves the device. See agent.md §14.
+
+  Swap MODEL_COEFFS + the CSV columns for your own model. Publish with
+  allow_data:true. Also the fixture for e2e/ai_browser/client_inference_check.py.
+-->
+<style>
+  :root { color-scheme: light; }
+  body { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; max-width: 760px; margin: 32px auto; padding: 0 16px; color: #0f172a; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  .sub { color: #64748b; font-size: 14px; margin-bottom: 18px; }
+  .envelope { background: #ecfdf5; border: 1px solid #a7f3d0; border-radius: 12px; padding: 12px 14px; font-size: 13px; color: #065f46; margin-bottom: 18px; line-height: 1.6; }
+  .drop { border: 2px dashed #10b981; border-radius: 14px; padding: 28px 20px; text-align: center; background: #f0fdf4; }
+  code { background: #f1f5f9; padding: 1px 5px; border-radius: 5px; font-size: 12px; }
+  .out { margin-top: 18px; }
+  .stat { display: inline-block; background: #fff; border: 1px solid #e2e8f0; border-radius: 10px; padding: 10px 14px; margin: 6px 8px 0 0; font-size: 14px; }
+  .stat b { font-size: 20px; color: #0f172a; }
+  table { border-collapse: collapse; width: 100%; font-size: 13px; margin-top: 12px; }
+  th, td { border-bottom: 1px solid #eef2f7; padding: 5px 8px; text-align: right; }
+  th:first-child, td:first-child { text-align: left; }
+  .off { color: #b91c1c; font-weight: 600; }
+</style>
+</head>
+<body>
+  <h1>🔬 本地推理工具</h1>
+  <div class="sub">上传你的 CSV → 用页面内的模型在<strong>你的浏览器里</strong>算 → 数据不上传、不出设备。</div>
+
+  <div class="envelope">
+    🔒 <strong>数据在哪：</strong>你上传的数据只写入 <code>putPrivate</code>——<strong>仅这台设备、这个浏览器的本地存储</strong>，
+    不上传服务器、不同步、不做端到端加密云存储。它私密是因为字节从不离开本机。<br>
+    模型系数是<strong>公开</strong>的（就在本页），只有你的原始数据是私有的。
+  </div>
+
+  <div class="drop" id="drop">
+    <b>把 CSV 拖到这里，或</b> <input type="file" id="file" accept=".csv,text/csv">
+    <div style="font-size:12px;color:#475569;margin-top:8px">CSV 需含列：<code>x1, x2, y</code>（示例线性模型：预测 y）</div>
+  </div>
+
+  <div class="out" id="out"></div>
+
+<script>
+  // ---- 公开模型（把它换成你自己的系数）----
+  const MODEL_COEFFS = { intercept: 1.5, x1: 2.0, x2: -0.5 };
+  const predict = (r) => MODEL_COEFFS.intercept + MODEL_COEFFS.x1 * r.x1 + MODEL_COEFFS.x2 * r.x2;
+
+  function parseCSV(text) {
+    const lines = text.trim().split(/\r?\n/);
+    const header = lines[0].split(',').map(s => s.trim());
+    return lines.slice(1).filter(Boolean).map(line => {
+      const cells = line.split(',');
+      const row = {};
+      header.forEach((h, i) => { row[h] = Number(cells[i]); });
+      return row;
+    });
+  }
+
+  // 私有存储：优先 putPrivate（本机），无 SDK 时回退到 sessionStorage。
+  async function storePrivate(key, value) {
+    if (window.__SHAREONE__ && __SHAREONE__.putPrivate) return __SHAREONE__.putPrivate(key, value);
+    sessionStorage.setItem('__priv__' + key, JSON.stringify(value));
+  }
+
+  async function runInference(csvText) {
+    const rows = parseCSV(csvText);
+    await storePrivate('dataset', rows);            // 原始数据只留在本机
+    const preds = rows.map(predict);
+    const hasY = rows.length && Number.isFinite(rows[0].y);
+    const mae = hasY ? rows.reduce((s, r, i) => s + Math.abs(preds[i] - r.y), 0) / rows.length : null;
+
+    let html = '<div>';
+    html += '<span class="stat">样本数 <b>' + rows.length + '</b></span>';
+    if (mae != null) html += '<span class="stat">MAE <b>' + mae.toFixed(3) + '</b></span>';
+    html += '</div><table><thead><tr><th>#</th><th>x1</th><th>x2</th>' +
+      (hasY ? '<th>实际 y</th>' : '') + '<th>预测</th>' + (hasY ? '<th>误差</th>' : '') +
+      '</tr></thead><tbody>';
+    rows.forEach((r, i) => {
+      const off = hasY ? Math.abs(preds[i] - r.y) : null;
+      html += '<tr><td>' + (i + 1) + '</td><td>' + r.x1 + '</td><td>' + r.x2 + '</td>' +
+        (hasY ? '<td>' + r.y + '</td>' : '') + '<td>' + preds[i].toFixed(2) + '</td>' +
+        (hasY ? '<td class="' + (off > 2 ? 'off' : '') + '">' + off.toFixed(2) + '</td>' : '') + '</tr>';
+    });
+    html += '</tbody></table>';
+    document.getElementById('out').innerHTML = html;
+    const result = { rows: rows.length, mae, predictions: preds };
+    window.__result = result;   // test hook
+    return result;
+  }
+
+  document.getElementById('file').addEventListener('change', async (e) => {
+    const f = e.target.files[0];
+    if (f) runInference(await f.text());
+  });
+  const drop = document.getElementById('drop');
+  drop.addEventListener('dragover', (e) => e.preventDefault());
+  drop.addEventListener('drop', async (e) => {
+    e.preventDefault();
+    const f = e.dataTransfer.files[0];
+    if (f) runInference(await f.text());
+  });
+  window.__runInference = runInference;  // used by client_inference_check.py
+</script>
+</body>
+</html>

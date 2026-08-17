@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>拖拽上传 · 公开 vs 敏感</title>
+<!--
+  Reference page for ShareOne page storage. Two drop zones; the zone you drop into
+  decides where the file goes — ShareOne forces the sensitivity choice:
+    公开框  → __SHAREONE__.putShared(key, file)   (server · public · cross-device · ≤8MB)
+    敏感框  → __SHAREONE__.putPrivate(key, file)  (this device only · private · ~5MB)
+  Publish this HTML with allow_data:true. Also serves as the fixture for
+  e2e/ai_browser/dropzone_check.py.
+-->
+<style>
+  :root { color-scheme: light; }
+  body { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; max-width: 900px; margin: 32px auto; padding: 0 16px; color: #0f172a; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  .sub { color: #64748b; font-size: 14px; margin-bottom: 24px; }
+  .zones { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  @media (max-width: 640px) { .zones { grid-template-columns: 1fr; } }
+  .zone { border: 2px dashed #cbd5e1; border-radius: 16px; padding: 28px 20px; min-height: 210px; text-align: center; transition: background .15s, border-color .15s; }
+  .zone.public { border-color: #3b82f6; background: #eff6ff; }
+  .zone.sensitive { border-color: #ef4444; background: #fef2f2; }
+  .zone.drag { filter: brightness(0.96); }
+  .zone h2 { font-size: 17px; margin: 10px 0 6px; }
+  .badge { display:inline-block; font-size:11px; font-weight:700; padding:2px 9px; border-radius:999px; }
+  .public .badge { background:#3b82f6; color:#fff; }
+  .sensitive .badge { background:#ef4444; color:#fff; }
+  .hint { color:#475569; font-size:12.5px; margin: 6px 0 14px; line-height:1.6; }
+  code { background:#f1f5f9; padding:1px 5px; border-radius:5px; font-size:12px; }
+  .files { text-align:left; margin-top:6px; }
+  .chip { display:flex; align-items:center; gap:8px; background:#fff; border:1px solid #e2e8f0; border-radius:10px; padding:8px 10px; margin-top:8px; font-size:13px; }
+  .chip .name { font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .chip .meta { color:#64748b; font-size:12px; margin-left:auto; white-space:nowrap; }
+  .chip.err { border-color:#fca5a5; background:#fff1f2; color:#b91c1c; }
+  a.link { color:#2563eb; margin-left:8px; }
+</style>
+</head>
+<body>
+  <h1>拖拽上传：公开 vs 敏感</h1>
+  <div class="sub">把文件拖进对应的框——存储位置由你选的框决定。ShareOne 强制你区分敏感度。</div>
+  <div class="zones">
+    <div class="zone public" id="public">
+      <span class="badge">公开</span>
+      <h2>公开数据拖到这里</h2>
+      <div class="hint">存到 ShareOne 服务器 <code>putShared</code><br>任何能看到本页的人都能读 · 跨设备 · 单文件 ≤8MB</div>
+      <div class="files" id="public-files"></div>
+    </div>
+    <div class="zone sensitive" id="sensitive">
+      <span class="badge">敏感</span>
+      <h2>敏感数据拖到这里</h2>
+      <div class="hint">只存这台设备 <code>putPrivate</code><br>不会上传 · 别人读不到 · 仅本机 · ~5MB</div>
+      <div class="files" id="sensitive-files"></div>
+    </div>
+  </div>
+<script>
+  window.__results = [];
+  function human(n){ return n < 1024 ? n + ' B' : n < 1048576 ? (n/1024).toFixed(1) + ' KB' : (n/1048576).toFixed(1) + ' MB'; }
+
+  async function handleFile(file, kind){
+    var listId = kind === 'public' ? 'public-files' : 'sensitive-files';
+    var chip = document.createElement('div');
+    chip.className = 'chip';
+    chip.innerHTML = '<span class="name">📄 ' + file.name + '</span><span class="meta">' + human(file.size) + ' · 存储中…</span>';
+    document.getElementById(listId).appendChild(chip);
+    var rec = { box: kind, name: file.name, size: file.size };
+    try {
+      var key = 'file:' + file.name;
+      if (kind === 'public') {
+        await __SHAREONE__.putShared(key, file);
+        var got = await __SHAREONE__.getShared(key);
+        rec.ok = true; rec.url = got && got.url;
+      } else {
+        await __SHAREONE__.putPrivate(key, file);
+        var g2 = await __SHAREONE__.getPrivate(key);
+        rec.ok = true; rec.url = g2 && g2.url;
+      }
+      chip.querySelector('.meta').textContent = human(file.size) + ' · ✓ 已存';
+      if (rec.url) {
+        var a = document.createElement('a');
+        a.className = 'link'; a.href = rec.url; a.target = '_blank'; a.textContent = '打开';
+        chip.appendChild(a);
+      }
+    } catch (e) {
+      rec.ok = false; rec.error = String((e && e.message) || e);
+      chip.className = 'chip err';
+      chip.querySelector('.meta').textContent = '✗ ' + rec.error;
+    }
+    window.__results.push(rec);
+    return rec;
+  }
+
+  ['public', 'sensitive'].forEach(function (kind) {
+    var el = document.getElementById(kind);
+    el.addEventListener('dragover', function (e) { e.preventDefault(); el.classList.add('drag'); });
+    el.addEventListener('dragleave', function () { el.classList.remove('drag'); });
+    el.addEventListener('drop', function (e) {
+      e.preventDefault(); el.classList.remove('drag');
+      Array.prototype.forEach.call(e.dataTransfer.files, function (f) { handleFile(f, kind); });
+    });
+  });
+
+  // Test hook: drive a drop without a real OS drag (used by dropzone_check.py).
+  window.__dropFile = function (kind, file) { return handleFile(file, kind); };
+</script>
+</body>
+</html>
