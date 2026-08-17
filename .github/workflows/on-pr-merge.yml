@@ -75,6 +75,7 @@ jobs:
           node-version: '24'
 
       - name: Find pending skills and commit to skills directory
+        id: publish
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           APP_TOKEN: ${{ steps.app-token.outputs.token }}
@@ -209,6 +210,8 @@ jobs:
           mapfile -t SKILL_PATHS < <(jq -r '.skills[].pendingDir' "$APPROVAL_PLAN")
           mapfile -t TARGET_PATHS < <(jq -r '.skills[].targetDir' "$APPROVAL_PLAN")
           SKILL_NAMES=$(jq -r '[.skills[].reportSlug | "/" + .] | join(" ")' "$APPROVAL_PLAN")
+          DUPLICATE_ONLY=$(jq -r '[.skills[] | select(.duplicate != true)] | length == 0' "$APPROVAL_PLAN")
+          echo "duplicate_only=$DUPLICATE_ONLY" >> "$GITHUB_OUTPUT"
           test "${#SKILL_PATHS[@]}" -gt 0
           test "${#SKILL_PATHS[@]}" -eq "${#TARGET_PATHS[@]}"
           echo "Frozen pending skills: ${SKILL_PATHS[*]}"
@@ -239,6 +242,19 @@ jobs:
 
             echo "Moving $PENDING_DIR to $TARGET_DIR"
 
+            IS_DUPLICATE=$(jq -r --arg pendingDir "$PENDING_DIR" \
+              '.skills[] | select(.pendingDir == $pendingDir) | .duplicate' "$APPROVAL_PLAN")
+            if [ "$IS_DUPLICATE" = "true" ]; then
+              test -d "$TARGET_DIR" && test ! -L "$TARGET_DIR" \
+                && diff -qr --exclude=skill-report.json "$PENDING_DIR" "$TARGET_DIR" || {
+                  echo "::error::Exact duplicate target changed after approval planning: $TARGET_DIR"
+                  exit 1
+                }
+              echo "Published skill already matches; removing duplicate pending submission"
+              rm -rf -- "$PENDING_DIR"
+              continue
+            fi
+
             IS_UPDATE=$(jq -r --arg pendingDir "$PENDING_DIR" \
               '.skills[] | select(.pendingDir == $pendingDir) | .update' "$APPROVAL_PLAN")
             if [ "$IS_UPDATE" = "true" ]; then
@@ -252,12 +268,6 @@ jobs:
             fi
 
             mkdir -p "$(dirname "$TARGET_DIR")"
-            if [ -d "$TARGET_DIR" ] && [ ! -L "$TARGET_DIR" ] \
-              && diff -qr --exclude=skill-report.json "$PENDING_DIR" "$TARGET_DIR"; then
-              echo "Published skill already matches; removing duplicate pending submission"
-              rm -rf -- "$PENDING_DIR"
-              continue
-            fi
             test ! -e "$TARGET_DIR" && test ! -L "$TARGET_DIR" || {
               echo "::error::Refusing to overwrite existing published target $TARGET_DIR"
               exit 1
@@ -327,9 +337,10 @@ jobs:
             }
           fi
 
-      - name: Notify skillstore - Merged
+      - name: Notify skillstore - Resolved
         if: steps.freeze_pr.outputs.submission_id != ''
         env:
+          DUPLICATE_ONLY: ${{ steps.publish.outputs.duplicate_only }}
           SUBMISSION_ID: ${{ steps.freeze_pr.outputs.submission_id }}
           SKILLSTORE_API_URL: ${{ secrets.SKILLSTORE_API_URL }}
           SKILLSTORE_CALLBACK_TOKEN: ${{ secrets.SKILLSTORE_CALLBACK_TOKEN }}
@@ -342,23 +353,35 @@ jobs:
             echo "::error::Skillstore callback secrets are not configured"
             exit 1
           fi
+          EVENT="merged"
+          REASON=""
+          if [ "$DUPLICATE_ONLY" = "true" ]; then
+            EVENT="rejected"
+            REASON="All reviewed skills already exist at the same immutable source and canonical tree."
+          fi
           PAYLOAD=$(jq -n \
             --arg submission_id "$SUBMISSION_ID" \
+            --arg event "$EVENT" \
             --arg pr_url "$PR_URL" \
             --arg pr_number "$PR_NUMBER" \
             --arg merged_by "$MERGED_BY" \
+            --arg reason "$REASON" \
             --arg workflow_run_id "${{ github.run_id }}" \
             --arg workflow_run_url "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
             '{
               submission_id: $submission_id,
-              event: "merged",
+              event: $event,
               pr_url: $pr_url,
               pr_number: ($pr_number | tonumber),
-              merged_by: $merged_by,
               workflow_run_id: ($workflow_run_id | tonumber),
               workflow_run_url: $workflow_run_url
-            }')
-          echo "📤 Notifying skillstore: submission $SUBMISSION_ID merged"
+            } + if $event == "rejected" then {
+              rejected_by: $merged_by,
+              reason: $reason
+            } else {
+              merged_by: $merged_by
+            } end')
+          echo "📤 Notifying skillstore: submission $SUBMISSION_ID $EVENT"
           curl --fail-with-body --silent --show-error \
             --retry 3 --retry-delay 2 --retry-max-time 120 --retry-connrefused \
             --connect-timeout 10 --max-time 30 \

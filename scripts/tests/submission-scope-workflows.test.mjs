@@ -750,9 +750,13 @@ test('merged approval scope comes only from immutable PR changed files', () => {
   assert.match(approval, /ls-tree HEAD/);
   assert.match(approval, /symlink or non-directory path component/);
   assert.match(approval, /node scripts\/resolve-approved-submission\.mjs/);
+  assert.match(approval, /id: publish/);
+  assert.match(approval, /select\(\.duplicate != true\)/);
   assert.match(approval, /mapfile -t SKILL_PATHS/);
   assert.match(approval, /diff -qr --exclude=skill-report\.json "\$PENDING_DIR" "\$TARGET_DIR"/);
   assert.match(approval, /rm -rf -- "\$PENDING_DIR"/);
+  assert.match(approval, /EVENT="rejected"/);
+  assert.match(approval, /same immutable source and canonical tree/);
   assert.match(approval, /Reviewed update target is missing or unsafe/);
   assert.match(approval, /git diff --quiet "\$MERGE_COMMIT_SHA" HEAD -- "\$PENDING_DIR"/);
   assert.match(approval, /Published update target changed after the reviewed merge/);

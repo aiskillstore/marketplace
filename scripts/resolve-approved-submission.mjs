@@ -296,7 +296,8 @@ export function resolveApprovedSubmission({ repositoryRoot, changedFiles }) {
 
     const targetDir = `skills/${segments.slice(1).join('/')}`;
     const targetPath = resolve(root, targetDir);
-    const update = existsSync(targetPath);
+    let update = existsSync(targetPath);
+    let duplicate = false;
     let previousSourceRef = null;
     if (update) {
       const targetStat = lstatSync(targetPath);
@@ -315,27 +316,39 @@ export function resolveApprovedSubmission({ repositoryRoot, changedFiles }) {
       }
       const nextIdentity = sourceIdentity(report, `${pendingDir}/skill-report.json`);
       const previousIdentity = sourceIdentity(publishedReport, `${targetDir}/skill-report.json`);
-      const expectedPreviousTreeHash = report?.meta?.previous_tree_hash;
-      const expectedPreviousSourceRef = report?.meta?.previous_source_ref;
-      if (!/^[0-9a-f]{64}$/.test(expectedPreviousTreeHash ?? '')
-        || typeof expectedPreviousSourceRef !== 'string' || expectedPreviousSourceRef === ''
-        || publishedTreeHash !== expectedPreviousTreeHash
-        || previousIdentity.ref !== expectedPreviousSourceRef) {
-        fail(`${pendingDir} reviewed update snapshot does not match the published target`);
+      duplicate = publishedTreeHash === actualTreeHash
+        && report.meta.source_type === publishedReport?.meta?.source_type
+        && report.meta.slug === publishedReport?.meta?.slug
+        && nextIdentity.repository === previousIdentity.repository
+        && nextIdentity.path === previousIdentity.path
+        && /^[0-9a-f]{40}$/.test(nextIdentity.ref)
+        && nextIdentity.ref === previousIdentity.ref;
+      if (duplicate) {
+        update = false;
+      } else {
+        const expectedPreviousTreeHash = report?.meta?.previous_tree_hash;
+        const expectedPreviousSourceRef = report?.meta?.previous_source_ref;
+        if (!/^[0-9a-f]{64}$/.test(expectedPreviousTreeHash ?? '')
+          || typeof expectedPreviousSourceRef !== 'string' || expectedPreviousSourceRef === ''
+          || publishedTreeHash !== expectedPreviousTreeHash
+          || previousIdentity.ref !== expectedPreviousSourceRef) {
+          fail(`${pendingDir} reviewed update snapshot does not match the published target`);
+        }
+        if (report.meta.source_type !== publishedReport?.meta?.source_type
+          || report.meta.slug !== publishedReport?.meta?.slug
+          || nextIdentity.repository !== previousIdentity.repository
+          || nextIdentity.path !== previousIdentity.path) {
+          fail(`${pendingDir} source identity does not match the published target`);
+        }
+        if (!/^[0-9a-f]{40}$/.test(nextIdentity.ref) || nextIdentity.ref === previousIdentity.ref) {
+          fail(`${pendingDir} update must use a new immutable source commit`);
+        }
+        previousSourceRef = expectedPreviousSourceRef;
       }
-      if (report.meta.source_type !== publishedReport?.meta?.source_type
-        || report.meta.slug !== publishedReport?.meta?.slug
-        || nextIdentity.repository !== previousIdentity.repository
-        || nextIdentity.path !== previousIdentity.path) {
-        fail(`${pendingDir} source identity does not match the published target`);
-      }
-      if (!/^[0-9a-f]{40}$/.test(nextIdentity.ref) || nextIdentity.ref === previousIdentity.ref) {
-        fail(`${pendingDir} update must use a new immutable source commit`);
-      }
-      previousSourceRef = expectedPreviousSourceRef;
     }
     return {
       contentHash: actualContentHash,
+      duplicate,
       treeHash: actualTreeHash,
       pendingDir,
       reportSlug: report.meta.slug,
