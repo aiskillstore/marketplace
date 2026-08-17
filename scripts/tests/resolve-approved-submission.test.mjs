@@ -156,6 +156,33 @@ test('authorizes a reviewed update only when repository and source path stay sta
   );
 }));
 
+test('resolves an exact concurrent duplicate without weakening update snapshots', () => withRepository((root) => {
+  const sourceRef = '1'.repeat(40);
+  addSkill(root, 'skills/owner/skill', { slug: 'owner-skill', sourceRef });
+  addSkill(root, 'pending/owner/skill', { slug: 'owner-skill', sourceRef });
+
+  const plan = resolveApprovedSubmission({
+    repositoryRoot: root,
+    changedFiles: ['pending/owner/skill/SKILL.md', 'pending/owner/skill/skill-report.json'],
+  });
+  assert.equal(plan.skills[0].duplicate, true);
+  assert.equal(plan.skills[0].update, false);
+
+  write(root, 'pending/owner/skill/SKILL.md', '# Changed\n');
+  const reportPath = join(root, 'pending/owner/skill/skill-report.json');
+  const report = JSON.parse(readFileSync(reportPath, 'utf8'));
+  report.meta.content_hash = createHash('sha256').update('# Changed\n').digest('hex');
+  report.meta.tree_hash = calculateCanonicalTreeHash(root, 'pending/owner/skill');
+  writeFileSync(reportPath, `${JSON.stringify(report)}\n`);
+  assert.throws(
+    () => resolveApprovedSubmission({
+      repositoryRoot: root,
+      changedFiles: ['pending/owner/skill/SKILL.md', 'pending/owner/skill/skill-report.json'],
+    }),
+    /reviewed update snapshot does not match/,
+  );
+}));
+
 test('rejects root-level and over-nested pending SKILL.md paths', () => withRepository((root) => {
   write(root, 'pending/SKILL.md', '# Broken\n');
   assert.throws(
