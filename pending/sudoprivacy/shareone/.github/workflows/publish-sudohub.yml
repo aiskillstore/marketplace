@@ -1,0 +1,73 @@
+name: Publish Sudohub
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  publish-sudohub:
+    name: Publish skill to Sudohub
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout skill release
+        uses: actions/checkout@v4
+
+      - name: Validate tag matches skill version
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME}"
+          version="${tag#v}"
+          skill_version="$(sed -n 's/^[[:space:]]*version:[[:space:]]*//p' SKILL.md | head -n 1 | tr -d '\r')"
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Invalid release tag: ${tag}" >&2
+            exit 1
+          fi
+          if [ "$skill_version" != "$version" ]; then
+            echo "SKILL.md version ${skill_version} does not match release tag ${tag}" >&2
+            exit 1
+          fi
+          echo "SKILL_VERSION=${version}" >> "$GITHUB_ENV"
+
+      - name: Build skill zip
+        run: |
+          set -euo pipefail
+          zip -r shareone-skill.zip . \
+            -x ".git/*" \
+            -x ".github/*" \
+            -x ".shareone_credentials" \
+            -x "node_modules/*" \
+            -x ".DS_Store"
+          test -f shareone-skill.zip
+
+      - name: Publish to Sudohub
+        env:
+          SUDOHUB_AUTHORIZATION: ${{ secrets.SUDOHUB_AUTHORIZATION }}
+        run: |
+          set -euo pipefail
+          if [ -z "${SUDOHUB_AUTHORIZATION}" ]; then
+            echo "Missing required secret SUDOHUB_AUTHORIZATION" >&2
+            exit 1
+          fi
+          response_file="$(mktemp)"
+          http_status="$(curl -sS \
+            -o "$response_file" \
+            -w "%{http_code}" \
+            -X POST "https://sudoclawhub.sudoprivacy.com/api/skill-versions/" \
+            -H "Authorization: ${SUDOHUB_AUTHORIZATION}" \
+            -F "skill_id=eed0ad02-4caa-4770-8c62-490f691e6479" \
+            -F "version=${SKILL_VERSION}" \
+            -F "skill_file=@shareone-skill.zip")"
+          cat "$response_file"
+          if [[ "$http_status" =~ ^2 ]]; then
+            exit 0
+          fi
+          if grep -Fq "already exists" "$response_file"; then
+            echo "Sudohub version ${SKILL_VERSION} already exists; treating tag replay as successful."
+            exit 0
+          fi
+          echo "Sudohub publish failed with HTTP ${http_status}" >&2
+          exit 1

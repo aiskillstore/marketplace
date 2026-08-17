@@ -1,0 +1,85 @@
+name: Publish SkillHub
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  publish-skillhub:
+    name: Publish skill to SkillHub
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout skill release
+        uses: actions/checkout@v4
+
+      - name: Validate tag matches skill version
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME}"
+          version="${tag#v}"
+          skill_slug="$(sed -n 's/^[[:space:]]*slug:[[:space:]]*//p' SKILL.md | head -n 1 | tr -d '\r')"
+          skill_version="$(sed -n 's/^[[:space:]]*version:[[:space:]]*//p' SKILL.md | head -n 1 | tr -d '\r')"
+          if [ -z "$skill_slug" ]; then
+            echo "Missing skill slug in SKILL.md" >&2
+            exit 1
+          fi
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Invalid release tag: ${tag}" >&2
+            exit 1
+          fi
+          if [ "$skill_version" != "$version" ]; then
+            echo "SKILL.md version ${skill_version} does not match release tag ${tag}" >&2
+            exit 1
+          fi
+          echo "SKILL_SLUG=${skill_slug}" >> "$GITHUB_ENV"
+          echo "SKILL_VERSION=${version}" >> "$GITHUB_ENV"
+
+      - name: Install SkillHub CLI
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsSL https://skillhub.cn/install/install.sh | bash -s -- --cli-only
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          "$HOME/.local/bin/skillhub" --version
+
+      - name: Authenticate SkillHub CLI
+        env:
+          SKILLHUB_TOKEN: ${{ secrets.SKILLHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${SKILLHUB_TOKEN}" ]; then
+            echo "Missing required secret SKILLHUB_TOKEN" >&2
+            exit 1
+          fi
+          skillhub auth login \
+            --token "${SKILLHUB_TOKEN}" \
+            --host https://api.skillhub.cn
+          skillhub auth whoami
+
+      - name: Publish to SkillHub
+        shell: bash
+        run: |
+          set -euo pipefail
+          staging_dir="${RUNNER_TEMP}/skillhub-publish"
+          rm -rf "$staging_dir"
+          mkdir -p "$staging_dir"
+          cp SKILL.md "$staging_dir/"
+          cp -R agents scripts workflows "$staging_dir/"
+          skillhub publish "$staging_dir" --dry-run
+          set +e
+          output="$(skillhub publish "$staging_dir" --changelog "Release ${SKILL_SLUG} v${SKILL_VERSION}" 2>&1)"
+          status=$?
+          set -e
+          printf '%s\n' "$output"
+          if [ "$status" -ne 0 ]; then
+            if printf '%s\n' "$output" | grep -Eq "版本 ${SKILL_VERSION} 已存在|already exists"; then
+              echo "SkillHub version ${SKILL_VERSION} already exists; treating tag replay as successful."
+              exit 0
+            fi
+            exit "$status"
+          fi
