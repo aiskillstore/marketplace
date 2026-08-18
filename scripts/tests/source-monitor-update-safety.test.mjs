@@ -73,8 +73,9 @@ test('accepts a coherent source-monitor payload update', () => {
   const root = fixture();
   try {
     const dir = join(root, 'skills', 'owner', 'coherent');
-    write(join(dir, 'SKILL.md'), '# Coherent\n\nSee [guide](references/guide.md).\n');
+    write(join(dir, 'SKILL.md'), '# Coherent\n\nSee [guide](references/guide.md) and `ooxml/scripts/pack.py`.\n');
     write(join(dir, 'references', 'guide.md'), '# Old\n');
+    write(join(dir, 'ooxml', 'scripts', 'pack.py'), '# pack\n');
     bindReport(root, dir, { slug: 'owner-coherent' });
     commit(root);
 

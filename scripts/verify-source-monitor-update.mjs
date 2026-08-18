@@ -84,7 +84,7 @@ function referencedPaths(skillText) {
     const value = normalizeReference(match[1]);
     if (value) references.add(value);
   }
-  for (const match of skillText.matchAll(/\b((?:references|scripts|assets|commands|prompts|tests)\/[A-Za-z0-9._~!$&'()+,;=@%/-]+)/gu)) {
+  for (const match of skillText.matchAll(/(?<![A-Za-z0-9._~!$&'()+,;=@%/:-])((?:[A-Za-z0-9._~!$&'()+,;=@%-]+\/)*(?:references|scripts|assets|commands|prompts|tests)\/[A-Za-z0-9._~!$&'()+,;=@%/-]+)/gu)) {
     const value = normalizeReference(match[1]);
     if (value) references.add(value);
   }
