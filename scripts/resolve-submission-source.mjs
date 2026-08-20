@@ -86,8 +86,8 @@ export function parseGitHubRepository(githubUrl) {
   const rawSegments = parsed.pathname.split('/').filter(Boolean);
   if (rawSegments.length < 2) fail(`GitHub URL must include owner and repository: ${githubUrl}`);
   const segments = rawSegments.map(decodePathSegment);
-  const owner = segments[0];
-  const repo = segments[1].replace(/\.git$/i, '');
+  const owner = segments[0].toLowerCase();
+  const repo = segments[1].replace(/\.git$/i, '').toLowerCase();
   if (!/^[A-Za-z0-9_-]+$/.test(owner) || !/^[A-Za-z0-9._-]+$/.test(repo) || repo === '') {
     fail(`invalid GitHub owner or repository: ${owner}/${repo}`);
   }

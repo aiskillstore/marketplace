@@ -109,6 +109,18 @@ test('repository URLs use the exact default head and unsafe encoded paths are re
   }), /unsafe path segment/);
 });
 
+test('repository identity is normalized to lowercase without changing ref or skill path', () => {
+  const result = resolveSubmissionSource({
+    githubUrl: 'https://github.com/Side-Products/Faceless-Skill/tree/main/skills/demo',
+    defaultRef: 'main',
+    refsText: refs([MAIN_SHA, 'refs/heads/main']),
+  });
+  assert.equal(result.owner, 'side-products');
+  assert.equal(result.repo, 'faceless-skill');
+  assert.equal(result.skillPath, 'skills/demo');
+  assert.equal(result.normalizedUrl, 'https://github.com/side-products/faceless-skill/tree/main/skills/demo');
+});
+
 test('root SKILL.md blob keeps the explicit root sentinel and cannot be overridden by a manifest', () => {
   const result = resolveSubmissionSource({
     githubUrl: 'https://github.com/example/repo/blob/main/SKILL.md',
