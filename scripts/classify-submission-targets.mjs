@@ -193,7 +193,7 @@ function assertSourceIdentity(report, { repository }, reportPath) {
 
   const segments = decodedSegments(sourceUrl);
   const [owner, repo, kind, actualRef, ...actualPathSegments] = segments;
-  if (`${owner ?? ''}/${repo ?? ''}` !== repository || kind !== 'tree') {
+  if (`${owner ?? ''}/${repo ?? ''}`.toLowerCase() !== repository || kind !== 'tree') {
     sourceMismatch(`published target source repository mismatch at ${reportPath}: expected ${repository}`);
   }
   if (actualRef === undefined) {
@@ -206,7 +206,7 @@ function assertSourceIdentity(report, { repository }, reportPath) {
     fail(`published target source_url does not match source_ref at ${reportPath}`);
   }
   const sourcePath = actualPathSegments.join('/');
-  const canonicalPath = `/${repository}/tree/${encodeURIComponent(reportRef)}${sourcePath === ''
+  const canonicalPath = `/${owner}/${repo}/tree/${encodeURIComponent(reportRef)}${sourcePath === ''
     ? ''
     : `/${actualPathSegments.map((segment) => encodeURIComponent(segment)).join('/')}`}`;
   const parsedPath = new URL(sourceUrl).pathname;

@@ -179,6 +179,15 @@ test('a same-repository source path move is processed as an update', () => withM
   assert.deepEqual(result.processingPlan, plan);
 }));
 
+test('legacy GitHub owner and repository casing preserves the same source identity', () => withMarketplace((root) => {
+  writeTarget(root, 'alpha', {
+    sourceRef: SOURCE_COMMIT,
+    sourceUrl: `https://github.com/Example/Source/tree/${SOURCE_COMMIT}/skills/alpha/`,
+  });
+  const result = classify(root, selectionPlan([{ slug: 'alpha', path: 'skills/alpha' }]));
+  assert.equal(result.disposition, 'all_existing');
+}));
+
 test('an update snapshots the authoritative tree when legacy report metadata is stale', () => withMarketplace((root) => {
   writeTarget(root, 'alpha', { sourceRef: '2'.repeat(40) });
   writeFileSync(join(root, 'skills/example/alpha/SKILL.md'), '---\nname: alpha\n---\nchanged\n');
@@ -350,7 +359,6 @@ for (const sourceUrl of [
   'https://github.com/example/source/tree/main/skills%2Falpha',
   'https://github.com/example/source/tree/main/skills/%2e/alpha',
   'https://github.com/example/source/tree/main/skills/%0Aalpha',
-  'https://github.com/Example/source/tree/main/skills/alpha/',
 ]) {
   test(`noncanonical published source URL fails closed: ${sourceUrl}`, () => withMarketplace((root) => {
     writeTarget(root, 'alpha', { sourceUrl });
