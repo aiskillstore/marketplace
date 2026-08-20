@@ -25,6 +25,14 @@ You need to plan, clarify, standardize, and confirm tasks so that users can inpu
 2. 脚本用法、参数、命令示例统一以 [references/commands.md](references/commands.md) 及其分脚本文档为准。
 3. 不要为了了解脚本怎么用而直接通读源码。
 
+## 安全与隐私
+
+- 凭据（`ZENTAO_ACCOUNT` / `ZENTAO_PASSWORD`）只从进程环境变量或用户本地的 `.env` 文件读取，本技能不包含、不生成、不转发任何凭据。
+- 所有网络请求统一经过地址校验，只会发往用户自己配置的 `ZENTAO_BASE_URL`，不访问任何第三方服务，无遥测。
+- 登录凭据通过 POST 表单体提交，不会出现在 URL 或日志中；错误输出不包含凭据。
+- 所有写操作默认预览（dry-run），必须显式加 `--execute` 并经用户确认后才会写入禅道。
+- 详细说明见 [SECURITY.md](SECURITY.md)。
+
 ## 资源
 
 - [references/plan-task.md](references/plan-task.md)：规划任务规则说明
