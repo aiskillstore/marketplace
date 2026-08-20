@@ -2,7 +2,7 @@
 
 ## 环境
 
-操作禅道必填变量：
+操作禅道必填变量（优先读取进程环境变量，其次读取 `.env` 文件）：
 
 ```env
 ZENTAO_BASE_URL=https://your-zentao-instance.com/zentao/
@@ -11,6 +11,13 @@ ZENTAO_PASSWORD=your-password
 ZENTAO_NAME=your-name
 ```
 ZENTAO_ACCOUNT一般是ZENTAO_NAME的拼音
+
+### 凭据安全
+
+- 推荐通过环境变量注入凭据；`.env` 只是本地便利选项，可通过 `--env-file` 指定路径。
+- `.env` 只保存在本机并加入 `.gitignore`，绝不能提交到仓库或打进技能包（技能包内只提供 `.env.example` 模板）。
+- 凭据只会用于登录用户自己配置的 `ZENTAO_BASE_URL`，脚本所有网络请求都限制在该地址内，不访问第三方服务、无遥测。
+- 详见 [../SECURITY.md](../SECURITY.md)。
 
 安装脚本依赖：
 

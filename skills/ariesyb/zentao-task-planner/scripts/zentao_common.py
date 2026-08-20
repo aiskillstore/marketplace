@@ -14,6 +14,7 @@ from typing import Any, Dict, Iterable, List, Literal, Optional, Tuple
 import requests
 from bs4 import BeautifulSoup
 from dotenv import load_dotenv
+from requests.adapters import HTTPAdapter
 
 try:
     from chinese_calendar import is_workday
@@ -25,6 +26,8 @@ except ModuleNotFoundError:
 TASK_PLAN_HEADER = "人员姓名\t需求编号\t任务名称（功能点）\t任务类型\t预计工时（小时）\t预计开始\t预计结束"
 TASK_PLAN_HEADER_PREFIX = ["人员姓名", "需求编号", "任务名称（功能点）"]
 WEEKDAY_NAMES = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"]
+USER_AGENT = "zentao-task-planner-skill/1.0"
+REQUEST_TIMEOUT_SECONDS = 30
 
 TASK_TYPE_DICT = {
     "需求": "requirementDocking",
@@ -149,6 +152,12 @@ class ZentaoConfig:
     account: str
     password: str
 
+    def __repr__(self) -> str:
+        return (
+            f"ZentaoConfig(base_url={self.base_url!r}, "
+            f"account={self.account!r}, password='***')"
+        )
+
     @classmethod
     def from_env(cls, env_file: Optional[str] = None) -> "ZentaoConfig":
         load_skill_env(env_file=env_file)
@@ -169,8 +178,12 @@ class ZentaoConfig:
         if missing:
             raise ValueError(f"缺少环境变量: {', '.join(missing)}")
 
+        normalized_base_url = base_url.rstrip("/") + "/"
+        if not normalized_base_url.lower().startswith(("http://", "https://")):
+            raise ValueError("ZENTAO_BASE_URL 必须以 http:// 或 https:// 开头")
+
         return cls(
-            base_url=base_url.rstrip("/") + "/",
+            base_url=normalized_base_url,
             account=account,
             password=password,
         )
@@ -354,6 +367,15 @@ def parse_task_plan_text(
     return rows, errors
 
 
+class TimeoutHTTPAdapter(HTTPAdapter):
+    """为所有请求统一设置超时，避免网络异常时脚本无限挂起。"""
+
+    def send(self, request, **kwargs):  # type: ignore[override]
+        if kwargs.get("timeout") is None:
+            kwargs["timeout"] = REQUEST_TIMEOUT_SECONDS
+        return super().send(request, **kwargs)
+
+
 class ZentaoClient:
     """供技能脚本使用的独立禅道 HTTP 客户端。"""
 
@@ -362,6 +384,15 @@ class ZentaoClient:
         self.account = config.account
         self.password = config.password
         self.session = requests.Session()
+        self.session.headers.update(
+            {
+                "User-Agent": USER_AGENT,
+                "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+            }
+        )
+        adapter = TimeoutHTTPAdapter()
+        self.session.mount("http://", adapter)
+        self.session.mount("https://", adapter)
         self.session_id: Optional[str] = None
         self.is_logged_in = False
 
@@ -369,11 +400,19 @@ class ZentaoClient:
     def from_env(cls, env_file: Optional[str] = None) -> "ZentaoClient":
         return cls(ZentaoConfig.from_env(env_file=env_file))
 
+    def _url(self, path: str) -> str:
+        """拼接接口地址，并保证请求永远不会发往配置站点之外的地址。"""
+        if path.startswith(("http://", "https://")):
+            if not path.startswith(self.base_url):
+                raise ValueError(f"请求地址超出禅道站点范围: {path}")
+            return path
+        return f"{self.base_url}{path}"
+
     def login(self) -> bool:
-        url = f"{self.base_url}user-login.json"
+        # 凭据通过 POST 表单体提交，避免出现在 URL、服务器访问日志或代理日志中
         response = self.session.post(
-            url,
-            params={"account": self.account, "password": self.password},
+            self._url("user-login.json"),
+            data={"account": self.account, "password": self.password},
         )
 
         if response.status_code != 200:
@@ -402,8 +441,8 @@ class ZentaoClient:
             try:
                 outer_data = json.loads(text)
             except json.JSONDecodeError as exc:
-                print(f"[DEBUG] 响应内容:\n{response.text}")
-                raise
+                excerpt = strip_html_tags(text)[:200]
+                raise ValueError(f"响应不是有效 JSON: {exc}；响应片段: {excerpt}") from exc
         if outer_data.get("status") != "success":
             raise ValueError(f"API返回失败: {outer_data.get('reason', '未知错误')}")
 
@@ -415,13 +454,13 @@ class ZentaoClient:
 
     def get_story_detail(self, story_id: int) -> Dict[str, Any]:
         self.ensure_logged_in()
-        response = self.session.post(f"{self.base_url}story-view-{story_id}.json")
+        response = self.session.post(self._url(f"story-view-{story_id}.json"))
         data = self._parse_response_data(response)
         return data.get("story", {})
 
     def get_user_list(self) -> Dict[str, str]:
         self.ensure_logged_in()
-        response = self.session.post(f"{self.base_url}my-managecontacts.json")
+        response = self.session.post(self._url("my-managecontacts.json"))
         data = self._parse_response_data(response)
         return data.get("users", {})
 
@@ -435,12 +474,12 @@ class ZentaoClient:
         }
         if view not in endpoint_map:
             raise ValueError(f"不支持的任务视图: {view}")
-        response = self.session.post(f"{self.base_url}{endpoint_map[view]}")
+        response = self.session.post(self._url(endpoint_map[view]))
         return self._parse_response_data(response)
 
     def get_doing_projects(self) -> List[Dict[str, Any]]:
         self.ensure_logged_in()
-        response = self.session.post(f"{self.base_url}project-all-doing-order_desc-0.json")
+        response = self.session.post(self._url("project-all-doing-order_desc-0.json"))
         data = self._parse_response_data(response)
         return data.get("projectStats", [])
 
@@ -454,16 +493,12 @@ class ZentaoClient:
                 raise ValueError("无法获取进行中的项目以解析任务类型")
             resolved_project_id = int(projects[0]["id"])
 
-        url = f"{self.base_url}task-create-{resolved_project_id}-0-0.html"
         response = self.session.get(
-            url,
+            self._url(f"task-create-{resolved_project_id}-0-0.html"),
             headers={
                 "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
-                "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
                 "Cache-Control": "max-age=0",
-                "Connection": "keep-alive",
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36",
-                "Referer": f"{self.base_url}my-task.html",
+                "Referer": self._url("my-task.html"),
                 "Upgrade-Insecure-Requests": "1",
             },
         )
@@ -488,7 +523,7 @@ class ZentaoClient:
 
     def get_task_detail(self, task_id: int) -> Dict[str, Any]:
         self.ensure_logged_in()
-        response = self.session.post(f"{self.base_url}task-view-{task_id}.json")
+        response = self.session.post(self._url(f"task-view-{task_id}.json"))
         data = self._parse_response_data(response)
         return data.get("task", {})
 
@@ -580,9 +615,7 @@ class ZentaoClient:
     def _form_headers(self, referer: str) -> Dict[str, str]:
         return {
             "Content-Type": "application/x-www-form-urlencoded",
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
-            "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
             "Referer": referer,
             "Origin": self.base_url.rstrip("/"),
             "Connection": "keep-alive",
@@ -791,7 +824,7 @@ class ZentaoClient:
         est_started: Optional[str] = None,
         deadline: Optional[str] = None,
     ) -> Dict[str, Any]:
-        url = f"{self.base_url}task-create-{project_id}-{story_id}-{module_id}.html"
+        url = self._url(f"task-create-{project_id}-{story_id}-{module_id}.html")
         today = datetime.now().strftime("%Y-%m-%d")
         if not est_started:
             est_started = today
@@ -829,9 +862,7 @@ class ZentaoClient:
             headers={
                 "Content-Type": "application/x-www-form-urlencoded",
                 "Referer": url,
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
                 "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
-                "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
                 "Accept-Encoding": "gzip, deflate, br",
                 "Origin": self.base_url.rstrip("/"),
                 "Connection": "keep-alive",
@@ -851,7 +882,7 @@ class ZentaoClient:
 
     def close_task(self, task_id: int, comment: str = "") -> bool:
         self.ensure_logged_in()
-        url = f"{self.base_url}task-close-{task_id}.html?onlybody=yes"
+        url = self._url(f"task-close-{task_id}.html?onlybody=yes")
         response = self.session.get(url)
         if response.status_code != 200:
             raise RuntimeError(f"获取关闭任务页面失败，状态码: {response.status_code}")
@@ -879,7 +910,7 @@ class ZentaoClient:
         if not resolved_assigned_to:
             resolved_assigned_to = self.account
 
-        url = f"{self.base_url}task-activate-{task_id}.html?onlybody=yes"
+        url = self._url(f"task-activate-{task_id}.html?onlybody=yes")
         response = self.session.get(url)
         if response.status_code != 200:
             raise RuntimeError(f"获取激活任务页面失败，状态码: {response.status_code}")
@@ -908,10 +939,10 @@ class ZentaoClient:
 
     def get_task_efforts(self, task_id: int) -> List[Dict[str, Any]]:
         self.ensure_logged_in()
-        url = f"{self.base_url}task-recordEstimate-{task_id}.html?onlybody=yes"
+        url = self._url(f"task-recordEstimate-{task_id}.html?onlybody=yes")
         response = self.session.get(
             url,
-            headers={"Referer": f"{self.base_url}task-view-{task_id}.html"},
+            headers={"Referer": self._url(f"task-view-{task_id}.html")},
         )
         if response.status_code != 200:
             raise RuntimeError(f"获取任务工时页面失败，状态码: {response.status_code}")
@@ -919,7 +950,7 @@ class ZentaoClient:
 
     def edit_effort_date(self, effort_id: int, effort_date: str) -> bool:
         self.ensure_logged_in()
-        url = f"{self.base_url}task-editEstimate-{effort_id}.html?onlybody=yes"
+        url = self._url(f"task-editEstimate-{effort_id}.html?onlybody=yes")
         response = self.session.get(url)
         if response.status_code != 200:
             raise RuntimeError(f"获取编辑工时页面失败，状态码: {response.status_code}")
@@ -1014,7 +1045,7 @@ class ZentaoClient:
         self.ensure_logged_in()
         before_detail = self.get_task_detail(task_id)
 
-        url = f"{self.base_url}task-finish-{task_id}.html?onlybody=yes"
+        url = self._url(f"task-finish-{task_id}.html?onlybody=yes")
         response = self.session.get(url)
         if response.status_code != 200:
             raise RuntimeError(f"获取完成任务页面失败，状态码: {response.status_code}")
