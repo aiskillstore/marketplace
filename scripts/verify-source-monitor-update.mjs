@@ -60,7 +60,7 @@ function existingRegular(path, label) {
 }
 
 function normalizeReference(raw) {
-  let value = raw.trim().replace(/^['"]|['"]$/gu, '');
+  let value = raw.trim();
   value = value.split('#', 1)[0].split('?', 1)[0];
   try {
     value = decodeURIComponent(value);
@@ -68,6 +68,7 @@ function normalizeReference(raw) {
     return null;
   }
   value = value.replace(/[)\]}>.,;:!?]+$/u, '');
+  value = value.replace(/^['"]|['"]$/gu, '').replace(/^(?:\.\/)+/u, '');
   if (
     value === ''
     || /^(?:https?:|mailto:|data:|#)/iu.test(value)
