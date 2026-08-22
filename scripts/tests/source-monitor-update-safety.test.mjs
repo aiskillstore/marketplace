@@ -94,6 +94,24 @@ test('accepts a coherent source-monitor payload update', () => {
   }
 });
 
+test('accepts a quoted relative source reference with trailing punctuation', () => {
+  const root = fixture();
+  try {
+    const dir = join(root, 'skills', 'owner', 'relative-reference');
+    write(join(dir, 'SKILL.md'), "# Relative\n\n```ts\nsetupFiles: './tests/setup.ts',\n```\n");
+    write(join(dir, 'tests', 'setup.ts'), '// setup\n');
+    bindReport(root, dir, { slug: 'owner-relative-reference' });
+    commit(root);
+
+    write(join(dir, 'tests', 'setup.ts'), '// updated setup\n');
+    bindReport(root, dir, { slug: 'owner-relative-reference' });
+
+    assert.equal(verifySourceMonitorUpdate({ repositoryRoot: root }).changedSkills, 1);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('accepts a coherent flat published skill update', () => {
   const root = fixture();
   try {
