@@ -180,6 +180,9 @@ function fakeApi(sequence) {
       calls.push(['merge', number, headSha, method]);
       return { merged: true, sha: 'd'.repeat(40), message: 'Pull Request successfully merged' };
     },
+    async dispatchPublication(number) {
+      calls.push(['dispatch-publication', number]);
+    },
   };
 }
 
@@ -209,9 +212,9 @@ test('revalidates immediately before exact-head ordinary merge and confirms auth
   merged.pr.merge_commit_sha = 'd'.repeat(40);
   const api = fakeApi([snapshot(), snapshot(), merged]);
   const result = await runAutoMerge(api, { workflowRunId: 123 });
-  assert.deepEqual(api.calls, [['merge', 42, HEAD, 'merge']]);
+  assert.deepEqual(api.calls, [['merge', 42, HEAD, 'merge'], ['dispatch-publication', 42]]);
   assert.deepEqual(result, {
-    outcome: 'MERGED_CONFIRMED',
+    outcome: 'MERGED_AND_PUBLICATION_DISPATCHED',
     prNumber: 42,
     headSha: HEAD,
     mergeCommitSha: 'd'.repeat(40),
@@ -249,6 +252,21 @@ test('an accepted but unconfirmed asynchronous update is UNKNOWN and is never re
   const api = fakeApi([behind, behind, ...Array.from({ length: 12 }, () => behind.pr)]);
   await assert.rejects(() => runAutoMerge(api, { workflowRunId: 123 }), AutoMergeUnknownEffectError);
   assert.equal(api.calls.filter(([kind]) => kind === 'update').length, 1);
+});
+
+test('confirmed merge with failed publication dispatch is UNKNOWN and is never repeated', async () => {
+  const merged = snapshot();
+  merged.pr.state = 'closed';
+  merged.pr.merged = true;
+  merged.pr.merge_commit_sha = 'd'.repeat(40);
+  const api = fakeApi([snapshot(), snapshot(), merged.pr]);
+  api.dispatchPublication = async (...args) => {
+    api.calls.push(['dispatch-publication', ...args]);
+    throw new TypeError('dispatch response lost');
+  };
+  await assert.rejects(() => runAutoMerge(api, { workflowRunId: 123 }), AutoMergeUnknownEffectError);
+  assert.equal(api.calls.filter(([kind]) => kind === 'merge').length, 1);
+  assert.equal(api.calls.filter(([kind]) => kind === 'dispatch-publication').length, 1);
 });
 
 test('successful merge followed by readback failure is UNKNOWN and is never repeated', async () => {

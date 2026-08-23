@@ -7,7 +7,9 @@ import { parse } from 'yaml';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const WORKFLOW_PATH = resolve(ROOT, '.github/workflows/auto-merge-trusted-skill-pr.yml');
+const PUBLISH_WORKFLOW_PATH = resolve(ROOT, '.github/workflows/on-pr-merge.yml');
 const source = readFileSync(WORKFLOW_PATH, 'utf8');
+const publishSource = readFileSync(PUBLISH_WORKFLOW_PATH, 'utf8');
 const workflow = parse(source);
 const trigger = workflow.on ?? workflow.true;
 
@@ -20,7 +22,7 @@ test('uses only the trusted default-branch validation workflow_run event', () =>
 
 test('uses a literal hosted runner, non-cancelling serialization and exact minimal permissions', () => {
   assert.deepEqual(workflow.permissions, {
-    actions: 'read',
+    actions: 'write',
     checks: 'read',
     contents: 'write',
     'pull-requests': 'write',
@@ -50,4 +52,8 @@ test('checks out only the trusted workflow SHA without credentials and executes 
 
 test('contains no bypass, force-push, auto-merge or untrusted PR execution path', () => {
   assert.doesNotMatch(source, /--admin|--auto|force-with-lease|git push|pull\/\$\{|workflow_run\.head_repository|workflow_run\.head_branch/);
+});
+
+test('post-merge recovery accepts the exact GitHub Actions bot merger identity', () => {
+  assert.match(publishSource, /github-actions\\\[bot\\\]/);
 });
