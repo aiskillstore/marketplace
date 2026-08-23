@@ -18,6 +18,7 @@ function snapshot(overrides = {}) {
     repository: REPO,
     repositoryRules: [{
       enforcement: 'active',
+      target: 'branch',
       bypass_actors: [{ actor_id: 2628292, actor_type: 'Integration', bypass_mode: 'always' }],
       conditions: { ref_name: { include: ['refs/heads/main'], exclude: [] } },
       rules: [
@@ -53,16 +54,16 @@ function snapshot(overrides = {}) {
     ],
     checks: [
       {
-        name: 'publication-admission', status: 'completed', conclusion: 'success', app: { id: 15368 },
-        workflow: { id: 330383167, name: 'Publication Provenance', path: '.github/workflows/publication-provenance.yml', event: 'pull_request', head_sha: HEAD, status: 'completed', conclusion: 'success' },
+        id: 1001, name: 'publication-admission', status: 'completed', conclusion: 'success', app: { id: 15368 },
+        workflow: { run_id: 200, id: 330383167, name: 'Publication Provenance', path: '.github/workflows/publication-provenance.yml', event: 'pull_request', head_sha: HEAD, status: 'completed', conclusion: 'success' },
       },
       {
-        name: 'action-pin-policy', status: 'completed', conclusion: 'success', app: { id: 15368 },
-        workflow: { id: 219313535, name: 'Validate Marketplace', path: '.github/workflows/validate-marketplace.yml', event: 'pull_request', head_sha: HEAD, status: 'completed', conclusion: 'success' },
+        id: 1002, name: 'action-pin-policy', status: 'completed', conclusion: 'success', app: { id: 15368 },
+        workflow: { run_id: 123, id: 219313535, name: 'Validate Marketplace', path: '.github/workflows/validate-marketplace.yml', event: 'pull_request', head_sha: HEAD, status: 'completed', conclusion: 'success' },
       },
       {
-        name: 'validate', status: 'completed', conclusion: 'success', app: { id: 15368 },
-        workflow: { id: 219313535, name: 'Validate Marketplace', path: '.github/workflows/validate-marketplace.yml', event: 'pull_request', head_sha: HEAD, status: 'completed', conclusion: 'success' },
+        id: 1003, name: 'validate', status: 'completed', conclusion: 'success', app: { id: 15368 },
+        workflow: { run_id: 123, id: 219313535, name: 'Validate Marketplace', path: '.github/workflows/validate-marketplace.yml', event: 'pull_request', head_sha: HEAD, status: 'completed', conclusion: 'success' },
       },
     ],
     statuses: [],
@@ -144,6 +145,9 @@ test('fails closed on incomplete files, unsafe tree entries, truncation and ambi
     [() => { const v = snapshot(); v.statuses = [{ context: 'legacy', state: 'pending' }]; return v; }, /status legacy.*pending/],
     [() => { const v = snapshot(); v.checks[0].app.id = 999; return v; }, /not from GitHub Actions/],
     [() => { const v = snapshot(); v.checks[2].workflow.id = 999; return v; }, /not bound to the trusted workflow/],
+    [() => { const v = snapshot(); v.checks[2].workflow.run_id = 999; return v; }, /not bound to the trusted workflow/],
+    [() => { const v = snapshot(); v.repositoryRules[0].target = 'tag'; return v; }, /strict protected-main/],
+    [() => { const v = snapshot(); v.repositoryRules[0].conditions.ref_name.exclude = ['refs/heads/main']; return v; }, /strict protected-main/],
     [() => { const v = snapshot(); v.repositoryRules[0].bypass_actors.push({ actor_id: 15368, actor_type: 'Integration' }); return v; }, /must not bypass/],
     [() => { const v = snapshot(); v.repositoryRules[0].rules[1].parameters.strict_required_status_checks_policy = false; return v; }, /strict protected-main/],
   ];

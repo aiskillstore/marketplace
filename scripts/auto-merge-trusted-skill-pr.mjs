@@ -101,6 +101,9 @@ export function validateSnapshot(snapshot) {
   block(Array.isArray(snapshot.repositoryRules), 'repository ruleset evidence is required');
   const publicationBoundary = snapshot.repositoryRules.find((ruleset) =>
     ruleset?.enforcement === 'active'
+    && ruleset?.target === 'branch'
+    && Array.isArray(ruleset?.conditions?.ref_name?.exclude)
+    && ruleset.conditions.ref_name.exclude.length === 0
     && ruleset?.conditions?.ref_name?.include?.includes('refs/heads/main')
     && ruleset?.rules?.some((rule) => rule.type === 'pull_request')
     && ruleset?.rules?.some((rule) =>
@@ -174,13 +177,16 @@ export function validateSnapshot(snapshot) {
     if (!checkNames.has(required)) throw new AutoMergeWaitingError(`missing required check ${required}`);
     const check = checks.find((candidate) => candidate.name === required);
     const expected = TRUSTED_WORKFLOWS[required];
-    block(check?.workflow?.id === expected.id
+    block(Number.isSafeInteger(check?.id)
+      && Number.isSafeInteger(check?.workflow?.run_id)
+      && check.workflow.id === expected.id
       && check.workflow.name === expected.name
       && check.workflow.path === expected.path
       && check.workflow.event === 'pull_request'
       && check.workflow.head_sha === pr.head.sha
       && check.workflow.status === 'completed'
-      && check.workflow.conclusion === 'success',
+      && check.workflow.conclusion === 'success'
+      && (required === 'publication-admission' || check.workflow.run_id === workflowRun.id),
     `check ${required} is not bound to the trusted workflow run`);
   }
   block(Array.isArray(statuses), 'exact-head statuses are required');
@@ -372,21 +378,29 @@ export class GitHubApi {
     const currentRun = await this.request(`/actions/runs/${this.currentRunId}`);
     const rawChecks = (await this.paginate(`/commits/${headSha}/check-runs?filter=latest`, (value) => value?.check_runs))
       .filter((check) => check.check_suite?.id !== currentRun.check_suite_id && !(check.name === 'auto-merge' && check.app?.id === GITHUB_ACTIONS_APP_ID));
-    const trustedCheckRunIds = new Map();
+    const trustedCheckRefs = new Map();
     for (const check of rawChecks) {
       if (!REQUIRED_CHECKS.includes(check.name)) continue;
-      const match = /^https:\/\/github\.com\/aiskillstore\/marketplace\/actions\/runs\/(\d+)\/job\/\d+(?:\?.*)?$/u.exec(check.details_url ?? '');
+      const match = /^https:\/\/github\.com\/aiskillstore\/marketplace\/actions\/runs\/(\d+)\/job\/(\d+)(?:\?.*)?$/u.exec(check.details_url ?? '');
       block(match, `check ${check.name} has no trusted workflow-run URL`);
-      trustedCheckRunIds.set(check.name, Number(match[1]));
+      trustedCheckRefs.set(check.name, { runId: Number(match[1]), jobId: Number(match[2]), checkId: check.id });
     }
-    const uniqueRunIds = [...new Set(trustedCheckRunIds.values())];
+    const uniqueRunIds = [...new Set([...trustedCheckRefs.values()].map((ref) => ref.runId))];
+    const uniqueJobIds = [...new Set([...trustedCheckRefs.values()].map((ref) => ref.jobId))];
     const trustedRuns = new Map(await Promise.all(uniqueRunIds.map(async (runId) => [runId, await this.request(`/actions/runs/${runId}`)])));
+    const trustedJobs = new Map(await Promise.all(uniqueJobIds.map(async (jobId) => [jobId, await this.request(`/actions/jobs/${jobId}`)])));
+    for (const ref of trustedCheckRefs.values()) {
+      const job = trustedJobs.get(ref.jobId);
+      block(job?.run_id === ref.runId
+        && job?.check_run_url === `https://api.github.com/repos/${this.repository}/check-runs/${ref.checkId}`,
+      'required check is not bound to its GitHub Actions job');
+    }
     const uniqueWorkflowIds = [...new Set([...trustedRuns.values()].map((run) => run.workflow_id))];
     const trustedWorkflowDefinitions = new Map(await Promise.all(uniqueWorkflowIds.map(async (workflowId) => [workflowId, await this.request(`/actions/workflows/${workflowId}`)])));
     const checks = rawChecks.map((check) => {
-      const runId = trustedCheckRunIds.get(check.name);
-      if (!runId) return check;
-      const run = trustedRuns.get(runId);
+      const ref = trustedCheckRefs.get(check.name);
+      if (!ref) return check;
+      const run = trustedRuns.get(ref.runId);
       const definition = trustedWorkflowDefinitions.get(run.workflow_id);
       return {
         ...check,
@@ -442,6 +456,7 @@ export class GitHubApi {
       },
       files: files.map((file) => ({ filename: file.filename, status: file.status, sha: file.sha, ...(file.previous_filename ? { previous_filename: file.previous_filename } : {}) })),
       checks: checks.map((check) => ({
+        id: check.id,
         name: check.name,
         status: check.status,
         conclusion: check.conclusion,
