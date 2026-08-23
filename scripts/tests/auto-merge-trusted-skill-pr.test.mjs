@@ -3,6 +3,7 @@ import { test } from 'node:test';
 import {
   AutoMergeBlockedError,
   AutoMergeUnknownEffectError,
+  latestStatusesByContext,
   runAutoMerge,
   validateSnapshot,
 } from '../auto-merge-trusted-skill-pr.mjs';
@@ -51,9 +52,18 @@ function snapshot(overrides = {}) {
       { filename: `${ROOT}/skill-report.json`, status: 'added', sha: '2'.repeat(40) },
     ],
     checks: [
-      { name: 'publication-admission', status: 'completed', conclusion: 'success', app: { id: 15368 } },
-      { name: 'action-pin-policy', status: 'completed', conclusion: 'success', app: { id: 15368 } },
-      { name: 'validate', status: 'completed', conclusion: 'success', app: { id: 15368 } },
+      {
+        name: 'publication-admission', status: 'completed', conclusion: 'success', app: { id: 15368 },
+        workflow: { id: 330383167, name: 'Publication Provenance', path: '.github/workflows/publication-provenance.yml', event: 'pull_request', head_sha: HEAD, status: 'completed', conclusion: 'success' },
+      },
+      {
+        name: 'action-pin-policy', status: 'completed', conclusion: 'success', app: { id: 15368 },
+        workflow: { id: 219313535, name: 'Validate Marketplace', path: '.github/workflows/validate-marketplace.yml', event: 'pull_request', head_sha: HEAD, status: 'completed', conclusion: 'success' },
+      },
+      {
+        name: 'validate', status: 'completed', conclusion: 'success', app: { id: 15368 },
+        workflow: { id: 219313535, name: 'Validate Marketplace', path: '.github/workflows/validate-marketplace.yml', event: 'pull_request', head_sha: HEAD, status: 'completed', conclusion: 'success' },
+      },
     ],
     statuses: [],
     tree: {
@@ -112,6 +122,17 @@ test('fails closed on identity, provenance, scope, label, state and exact-head d
   for (const [build, pattern] of cases) expectBlocked(build(), pattern);
 });
 
+test('uses only the newest commit status per context across retry history', () => {
+  assert.deepEqual(latestStatusesByContext([
+    { id: 3, context: 'legacy', state: 'success' },
+    { id: 2, context: 'other', state: 'success' },
+    { id: 1, context: 'legacy', state: 'failure' },
+  ]), [
+    { id: 3, context: 'legacy', state: 'success' },
+    { id: 2, context: 'other', state: 'success' },
+  ]);
+});
+
 test('fails closed on incomplete files, unsafe tree entries, truncation and ambiguous checks', () => {
   const cases = [
     [() => { const v = snapshot(); v.files.pop(); v.tree.entries.pop(); v.pr.changed_files = 1; return v; }, /skill-report\.json/],
@@ -122,6 +143,7 @@ test('fails closed on incomplete files, unsafe tree entries, truncation and ambi
     [() => { const v = snapshot(); v.checks.pop(); return v; }, /missing required check validate/],
     [() => { const v = snapshot(); v.statuses = [{ context: 'legacy', state: 'pending' }]; return v; }, /status legacy.*pending/],
     [() => { const v = snapshot(); v.checks[0].app.id = 999; return v; }, /not from GitHub Actions/],
+    [() => { const v = snapshot(); v.checks[2].workflow.id = 999; return v; }, /not bound to the trusted workflow/],
     [() => { const v = snapshot(); v.repositoryRules[0].bypass_actors.push({ actor_id: 15368, actor_type: 'Integration' }); return v; }, /must not bypass/],
     [() => { const v = snapshot(); v.repositoryRules[0].rules[1].parameters.strict_required_status_checks_policy = false; return v; }, /strict protected-main/],
   ];
@@ -141,6 +163,9 @@ function fakeApi(sequence) {
       const next = sequence.shift();
       if (next instanceof Error) throw next;
       return structuredClone(next?.pr ?? next);
+    },
+    async readCommit(sha) {
+      return { sha, parents: [{ sha: HEAD }, { sha: BASE }] };
     },
     async sleep() {},
     async updateBranch(number, headSha) {
@@ -201,6 +226,17 @@ test('update-branch uses expected exact head and stops for a fresh CI run', asyn
   assert.deepEqual(api.calls, [['update', 42, HEAD]]);
   assert.equal(result.outcome, 'UPDATE_CONFIRMED_AWAITING_CI');
   assert.equal(result.newHeadSha, 'e'.repeat(40));
+});
+
+test('an unrelated concurrent head change cannot confirm update-branch', async () => {
+  const behind = snapshot();
+  behind.pr.mergeable_state = 'behind';
+  const changed = snapshot();
+  changed.pr.head.sha = 'e'.repeat(40);
+  const api = fakeApi([behind, behind, changed.pr]);
+  api.readCommit = async (sha) => ({ sha, parents: [{ sha: 'f'.repeat(40) }] });
+  await assert.rejects(() => runAutoMerge(api, { workflowRunId: 123 }), AutoMergeUnknownEffectError);
+  assert.equal(api.calls.filter(([kind]) => kind === 'update').length, 1);
 });
 
 test('an accepted but unconfirmed asynchronous update is UNKNOWN and is never repeated', async () => {

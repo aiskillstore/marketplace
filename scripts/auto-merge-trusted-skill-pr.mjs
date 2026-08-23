@@ -4,7 +4,12 @@ import { pathToFileURL } from 'node:url';
 const TRUSTED_REPOSITORY = 'aiskillstore/marketplace';
 const TRUSTED_BOT = Object.freeze({ id: 254047988, login: 'ai-skill-store[bot]', type: 'Bot' });
 const GITHUB_ACTIONS_APP_ID = 15368;
-const REQUIRED_CHECKS = Object.freeze(['publication-admission', 'action-pin-policy', 'validate']);
+const TRUSTED_WORKFLOWS = Object.freeze({
+  'publication-admission': { id: 330383167, name: 'Publication Provenance', path: '.github/workflows/publication-provenance.yml' },
+  'action-pin-policy': { id: 219313535, name: 'Validate Marketplace', path: '.github/workflows/validate-marketplace.yml' },
+  validate: { id: 219313535, name: 'Validate Marketplace', path: '.github/workflows/validate-marketplace.yml' },
+});
+const REQUIRED_CHECKS = Object.freeze(Object.keys(TRUSTED_WORKFLOWS));
 const SHA_RE = /^[0-9a-f]{40}$/;
 const SEGMENT_RE = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 
@@ -63,6 +68,19 @@ function rootForPath(path) {
   if (parts.length < 4 || parts[0] !== 'pending') return null;
   if (!SEGMENT_RE.test(parts[1]) || !SEGMENT_RE.test(parts[2])) return null;
   return parts.slice(0, 3).join('/');
+}
+
+export function latestStatusesByContext(statusHistory) {
+  block(Array.isArray(statusHistory), 'status history must be an array');
+  const latest = [];
+  const seen = new Set();
+  for (const status of statusHistory) {
+    block(typeof status?.context === 'string' && status.context.length > 0, 'status context is required');
+    if (seen.has(status.context)) continue;
+    seen.add(status.context);
+    latest.push(status);
+  }
+  return latest;
 }
 
 function checkTerminal(check) {
@@ -154,6 +172,16 @@ export function validateSnapshot(snapshot) {
   }
   for (const required of REQUIRED_CHECKS) {
     if (!checkNames.has(required)) throw new AutoMergeWaitingError(`missing required check ${required}`);
+    const check = checks.find((candidate) => candidate.name === required);
+    const expected = TRUSTED_WORKFLOWS[required];
+    block(check?.workflow?.id === expected.id
+      && check.workflow.name === expected.name
+      && check.workflow.path === expected.path
+      && check.workflow.event === 'pull_request'
+      && check.workflow.head_sha === pr.head.sha
+      && check.workflow.status === 'completed'
+      && check.workflow.conclusion === 'success',
+    `check ${required} is not bound to the trusted workflow run`);
   }
   block(Array.isArray(statuses), 'exact-head statuses are required');
   const statusNames = new Set();
@@ -209,8 +237,13 @@ export async function runAutoMerge(api, { workflowRunId }) {
       for (let attempt = 0; attempt < 12; attempt += 1) {
         const pr = await api.readPr(second.prNumber);
         if (validSha(pr?.head?.sha) && pr.head.sha !== second.headSha) {
-          changedHead = pr.head.sha;
-          break;
+          const commit = await api.readCommit(pr.head.sha);
+          const parentShas = new Set((commit?.parents ?? []).map((parent) => parent.sha));
+          if (parentShas.has(second.headSha) && parentShas.has(second.baseSha)) {
+            changedHead = pr.head.sha;
+            break;
+          }
+          throw new AutoMergeUnknownEffectError(`update-branch produced an uncorrelated head for PR #${second.prNumber}`);
         }
         if (attempt < 11) await api.sleep(5_000);
       }
@@ -302,6 +335,10 @@ export class GitHubApi {
     return this.request(`/pulls/${number}`);
   }
 
+  async readCommit(sha) {
+    return this.request(`/commits/${sha}`);
+  }
+
   async existsAt(path, ref) {
     try {
       await this.request(`/contents/${encodeContentPath(path)}?ref=${encodeURIComponent(ref)}`);
@@ -333,9 +370,40 @@ export class GitHubApi {
     block(validSha(headSha) && headSha === workflowRun.head_sha, 'PR head does not match the workflow run');
     const files = await this.paginate(`/pulls/${pr.number}/files`);
     const currentRun = await this.request(`/actions/runs/${this.currentRunId}`);
-    const checks = (await this.paginate(`/commits/${headSha}/check-runs?filter=latest`, (value) => value?.check_runs))
+    const rawChecks = (await this.paginate(`/commits/${headSha}/check-runs?filter=latest`, (value) => value?.check_runs))
       .filter((check) => check.check_suite?.id !== currentRun.check_suite_id && !(check.name === 'auto-merge' && check.app?.id === GITHUB_ACTIONS_APP_ID));
-    const statuses = await this.paginate(`/commits/${headSha}/statuses`);
+    const trustedCheckRunIds = new Map();
+    for (const check of rawChecks) {
+      if (!REQUIRED_CHECKS.includes(check.name)) continue;
+      const match = /^https:\/\/github\.com\/aiskillstore\/marketplace\/actions\/runs\/(\d+)\/job\/\d+(?:\?.*)?$/u.exec(check.details_url ?? '');
+      block(match, `check ${check.name} has no trusted workflow-run URL`);
+      trustedCheckRunIds.set(check.name, Number(match[1]));
+    }
+    const uniqueRunIds = [...new Set(trustedCheckRunIds.values())];
+    const trustedRuns = new Map(await Promise.all(uniqueRunIds.map(async (runId) => [runId, await this.request(`/actions/runs/${runId}`)])));
+    const uniqueWorkflowIds = [...new Set([...trustedRuns.values()].map((run) => run.workflow_id))];
+    const trustedWorkflowDefinitions = new Map(await Promise.all(uniqueWorkflowIds.map(async (workflowId) => [workflowId, await this.request(`/actions/workflows/${workflowId}`)])));
+    const checks = rawChecks.map((check) => {
+      const runId = trustedCheckRunIds.get(check.name);
+      if (!runId) return check;
+      const run = trustedRuns.get(runId);
+      const definition = trustedWorkflowDefinitions.get(run.workflow_id);
+      return {
+        ...check,
+        workflow: {
+          run_id: run.id,
+          id: run.workflow_id,
+          name: run.name,
+          path: definition.path,
+          event: run.event,
+          head_sha: run.head_sha,
+          status: run.status,
+          conclusion: run.conclusion,
+        },
+      };
+    });
+    const statusHistory = await this.paginate(`/commits/${headSha}/statuses`);
+    const latestStatuses = latestStatusesByContext(statusHistory);
     const tree = await this.request(`/git/trees/${headSha}?recursive=1`);
     const roots = new Set(files.map((file) => rootForPath(file.filename)).filter(Boolean));
     const root = roots.size === 1 ? [...roots][0] : 'pending/invalid/invalid';
@@ -373,8 +441,14 @@ export class GitHubApi {
         head: { ref: pr.head?.ref, sha: pr.head?.sha, repo: { id: pr.head?.repo?.id, full_name: pr.head?.repo?.full_name } },
       },
       files: files.map((file) => ({ filename: file.filename, status: file.status, sha: file.sha, ...(file.previous_filename ? { previous_filename: file.previous_filename } : {}) })),
-      checks: checks.map((check) => ({ name: check.name, status: check.status, conclusion: check.conclusion, app: { id: check.app?.id } })),
-      statuses: statuses.map((status) => ({ context: status.context, state: status.state })),
+      checks: checks.map((check) => ({
+        name: check.name,
+        status: check.status,
+        conclusion: check.conclusion,
+        app: { id: check.app?.id },
+        ...(check.workflow ? { workflow: check.workflow } : {}),
+      })),
+      statuses: latestStatuses.map((status) => ({ context: status.context, state: status.state })),
       tree: { truncated: tree.truncated, entries: (tree.tree ?? []).map((entry) => ({ path: entry.path, type: entry.type, mode: entry.mode, sha: entry.sha })) },
       basePendingExists,
       publishedTargetExists,
