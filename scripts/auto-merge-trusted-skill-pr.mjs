@@ -276,7 +276,12 @@ export async function runAutoMerge(api, { workflowRunId }) {
     throw new AutoMergeUnknownEffectError(`merge effect is unknown for PR #${second.prNumber}`);
   }
   if (mergedReadback(readback, second)) {
-    return { outcome: 'MERGED_CONFIRMED', prNumber: second.prNumber, headSha: second.headSha, mergeCommitSha: readback.merge_commit_sha, classification: second.classification };
+    try {
+      await api.dispatchPublication(second.prNumber);
+    } catch {
+      throw new AutoMergeUnknownEffectError(`merge is confirmed but publication recovery dispatch is unknown for PR #${second.prNumber}`);
+    }
+    return { outcome: 'MERGED_AND_PUBLICATION_DISPATCHED', prNumber: second.prNumber, headSha: second.headSha, mergeCommitSha: readback.merge_commit_sha, classification: second.classification };
   }
   if (mutationError && definiteMutationRejection(mutationError)) throw new AutoMergeBlockedError(`merge rejected with HTTP ${mutationError.status}`);
   throw new AutoMergeUnknownEffectError(`merge effect is unknown for PR #${second.prNumber}`);
@@ -476,6 +481,13 @@ export class GitHubApi {
 
   async merge(number, headSha, method) {
     return this.request(`/pulls/${number}/merge`, { method: 'PUT', body: { sha: headSha, merge_method: method } });
+  }
+
+  async dispatchPublication(number) {
+    return this.request('/actions/workflows/on-pr-merge.yml/dispatches', {
+      method: 'POST',
+      body: { ref: 'main', inputs: { pr_number: String(number) } },
+    });
   }
 }
 
