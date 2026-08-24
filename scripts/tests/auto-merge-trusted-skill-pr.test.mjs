@@ -74,6 +74,11 @@ function snapshot(overrides = {}) {
         { path: `${ROOT}/skill-report.json`, type: 'blob', mode: '100644', sha: '2'.repeat(40) },
       ],
     },
+    report: {
+      path: `${ROOT}/skill-report.json`,
+      sha: '2'.repeat(40),
+      securityAudit: { riskLevel: 'low', isBlocked: false, safeToPublish: true },
+    },
     basePendingExists: false,
     publishedTargetExists: false,
   };
@@ -150,6 +155,16 @@ test('fails closed on incomplete files, unsafe tree entries, truncation and ambi
     [() => { const v = snapshot(); v.repositoryRules[0].conditions.ref_name.exclude = ['refs/heads/main']; return v; }, /strict protected-main/],
     [() => { const v = snapshot(); v.repositoryRules[0].bypass_actors.push({ actor_id: 15368, actor_type: 'Integration' }); return v; }, /must not bypass/],
     [() => { const v = snapshot(); v.repositoryRules[0].rules[1].parameters.strict_required_status_checks_policy = false; return v; }, /strict protected-main/],
+  ];
+  for (const [build, pattern] of cases) expectBlocked(build(), pattern);
+});
+
+test('leaves blocked, unsafe, and high-risk Skills for manual review', () => {
+  const cases = [
+    [() => { const v = snapshot(); v.report.securityAudit.isBlocked = true; return v; }, /blocks publication/],
+    [() => { const v = snapshot(); v.report.securityAudit.safeToPublish = false; return v; }, /requires manual review/],
+    [() => { const v = snapshot(); v.report.securityAudit.riskLevel = 'high'; return v; }, /high-risk/],
+    [() => { const v = snapshot(); v.report.sha = '3'.repeat(40); return v; }, /exact PR head/],
   ];
   for (const [build, pattern] of cases) expectBlocked(build(), pattern);
 });
