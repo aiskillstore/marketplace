@@ -27,6 +27,13 @@ export class AutoMergeWaitingError extends AutoMergeBlockedError {
   }
 }
 
+export class AutoMergeSkippedError extends AutoMergeBlockedError {
+  constructor(message) {
+    super(message);
+    this.name = 'AutoMergeSkippedError';
+  }
+}
+
 export class AutoMergeUnknownEffectError extends Error {
   constructor(message) {
     super(message);
@@ -45,6 +52,10 @@ class GitHubApiError extends Error {
 
 function block(condition, message) {
   if (!condition) throw new AutoMergeBlockedError(message);
+}
+
+function skip(condition, message) {
+  if (!condition) throw new AutoMergeSkippedError(message);
 }
 
 function validSha(value) {
@@ -124,35 +135,36 @@ export function validateSnapshot(snapshot) {
   block(Array.isArray(workflowRun.pull_requests) && workflowRun.pull_requests.length === 1, 'workflow run must bind exactly one PR');
 
   block(pr?.number === workflowRun.pull_requests[0]?.number, 'workflow run PR number does not match');
-  block(pr.state === 'open' && pr.draft === false && pr.merged !== true, 'PR must be open and non-draft');
-  block(pr.base?.ref === 'main', 'PR base must be main');
-  block(sameRepository(pr.base?.repo, repository) && sameRepository(pr.head?.repo, repository), 'PR head and base must use the same repository');
-  block(pr.user?.id === TRUSTED_BOT.id && pr.user?.login === TRUSTED_BOT.login && pr.user?.type === TRUSTED_BOT.type, 'PR author is not the trusted App identity');
-  block(typeof pr.head?.ref === 'string' && pr.head.ref.startsWith('submission/'), 'PR head must use trusted submission/ provenance');
+  skip(pr.state === 'open' && pr.draft === false && pr.merged !== true, 'PR must be open and non-draft');
+  skip(pr.base?.ref === 'main', 'PR base must be main');
+  skip(sameRepository(pr.base?.repo, repository) && sameRepository(pr.head?.repo, repository), 'PR head and base must use the same repository');
+  skip(pr.user?.id === TRUSTED_BOT.id && pr.user?.login === TRUSTED_BOT.login && pr.user?.type === TRUSTED_BOT.type, 'PR author is not the trusted App identity');
+  skip(typeof pr.head?.ref === 'string' && pr.head.ref.startsWith('submission/'), 'PR head must use trusted submission/ provenance');
   block(validSha(pr.head?.sha) && validSha(pr.base?.sha), 'PR head and base SHA must be exact');
   block(workflowRun.head_sha === pr.head.sha, 'workflow run must bind the exact PR head');
-  block(Array.isArray(pr.labels) && pr.labels.some((label) => label?.name === 'pending-review'), 'PR must have pending-review');
+  skip(Array.isArray(pr.labels) && pr.labels.some((label) => label?.name === 'pending-review'), 'PR must have pending-review');
   block(pr.mergeable === true, 'PR is not mergeable');
   block(['clean', 'behind'].includes(pr.mergeable_state), `PR mergeable_state is ${pr.mergeable_state ?? 'unknown'}`);
 
-  block(Array.isArray(files) && files.length > 0, 'PR files are required');
+  block(Array.isArray(files), 'PR files are required');
+  skip(files.length > 0, 'PR files are required');
   block(Number.isSafeInteger(pr.changed_files) && pr.changed_files === files.length, 'PR file pagination/count is incomplete');
   const seenFiles = new Set();
   const roots = new Set();
   for (const file of files) {
-    block(file?.status === 'added' && file.previous_filename == null, `every Skill file must be newly added: ${file?.filename ?? '<unknown>'}`);
-    block(safePath(file.filename), 'PR contains an unsafe path');
-    block(!seenFiles.has(file.filename), `duplicate PR file ${file.filename}`);
+    skip(file?.status === 'added' && file.previous_filename == null, `every Skill file must be newly added: ${file?.filename ?? '<unknown>'}`);
+    skip(safePath(file.filename), 'PR contains an unsafe path');
+    skip(!seenFiles.has(file.filename), `duplicate PR file ${file.filename}`);
     seenFiles.add(file.filename);
     const root = rootForPath(file.filename);
-    block(root !== null, 'PR must change only one pending Skill root');
+    skip(root !== null, 'PR must change only one pending Skill root');
     roots.add(root);
   }
-  block(roots.size === 1, 'PR must change only one pending Skill root');
+  skip(roots.size === 1, 'PR must change only one pending Skill root');
   const [root] = roots;
-  block(seenFiles.has(`${root}/SKILL.md`), 'Skill root is missing SKILL.md');
-  block(seenFiles.has(`${root}/skill-report.json`), 'Skill root is missing skill-report.json');
-  block(snapshot.basePendingExists === false, 'pending root already exists on the base');
+  skip(seenFiles.has(`${root}/SKILL.md`), 'Skill root is missing SKILL.md');
+  skip(seenFiles.has(`${root}/skill-report.json`), 'Skill root is missing skill-report.json');
+  skip(snapshot.basePendingExists === false, 'pending root already exists on the base');
 
   block(tree?.truncated === false && Array.isArray(tree.entries), 'exact-head tree is truncated or missing');
   const treeFiles = new Set();
@@ -160,10 +172,10 @@ export function validateSnapshot(snapshot) {
     if (typeof entry?.path !== 'string' || (entry.path !== root && !entry.path.startsWith(`${root}/`))) continue;
     if (entry.path === root && entry.type === 'tree') continue;
     if (entry.type === 'tree') continue;
-    block(entry.type === 'blob' && ['100644', '100755'].includes(entry.mode), 'Skill tree must contain ordinary blobs only');
+    skip(entry.type === 'blob' && ['100644', '100755'].includes(entry.mode), 'Skill tree must contain ordinary blobs only');
     treeFiles.add(entry.path);
   }
-  block(treeFiles.size === seenFiles.size && [...seenFiles].every((path) => treeFiles.has(path)), 'PR files do not equal the exact-head Skill tree');
+  skip(treeFiles.size === seenFiles.size && [...seenFiles].every((path) => treeFiles.has(path)), 'PR files do not equal the exact-head Skill tree');
 
   const reportPath = `${root}/skill-report.json`;
   const reportFile = files.find((file) => file.filename === reportPath);
@@ -174,11 +186,12 @@ export function validateSnapshot(snapshot) {
     && report.sha === reportFile?.sha
     && report.sha === reportTreeEntry?.sha,
   'security report is not bound to the exact PR head');
-  block(report.securityAudit?.isBlocked === false, 'security report blocks publication');
-  block(report.securityAudit?.safeToPublish === true, 'unsafe Skill requires manual review');
-  block(['safe', 'low', 'medium'].includes(report.securityAudit?.riskLevel), 'high-risk Skill requires manual review');
+  skip(report.securityAudit?.isBlocked === false, 'security report blocks publication');
+  skip(report.securityAudit?.safeToPublish === true, 'unsafe Skill requires manual review');
+  skip(['safe', 'low', 'medium'].includes(report.securityAudit?.riskLevel), 'high-risk Skill requires manual review');
 
-  block(Array.isArray(checks) && checks.length > 0, 'exact-head checks are required');
+  block(Array.isArray(checks), 'exact-head checks are required');
+  if (checks.length === 0) throw new AutoMergeWaitingError('exact-head checks are required');
   const checkNames = new Set();
   for (const check of checks) {
     block(check?.app?.id === GITHUB_ACTIONS_APP_ID, `check ${check?.name ?? '<unknown>'} is not from GitHub Actions`);
@@ -281,16 +294,30 @@ export async function runAutoMerge(api, { workflowRunId }) {
           if (attempt < 11) await api.sleep(5_000);
           continue;
         }
-        const parentShas = new Set((commit?.parents ?? []).map((parent) => parent.sha));
+        const parentShas = [...new Set((commit?.parents ?? []).map((parent) => parent.sha))];
         const readbackBaseSha = pr.base?.sha;
-        if (parentShas.has(second.headSha) && validSha(readbackBaseSha) && parentShas.has(readbackBaseSha)) {
-          return {
-            outcome: 'UPDATE_CONFIRMED_AWAITING_CI',
-            prNumber: second.prNumber,
-            oldHeadSha: second.headSha,
-            newHeadSha: pr.head.sha,
-            classification: second.classification,
-          };
+        const updateBaseParents = parentShas.filter((sha) => sha !== second.headSha);
+        if (parentShas.length === 2
+          && parentShas.includes(second.headSha)
+          && updateBaseParents.length === 1
+          && validSha(readbackBaseSha)) {
+          let updateBaseIsOnMain;
+          try {
+            updateBaseIsOnMain = updateBaseParents[0] === readbackBaseSha
+              || await api.isCommitAncestor(updateBaseParents[0], readbackBaseSha);
+          } catch {
+            if (attempt < 11) await api.sleep(5_000);
+            continue;
+          }
+          if (updateBaseIsOnMain) {
+            return {
+              outcome: 'UPDATE_CONFIRMED_AWAITING_CI',
+              prNumber: second.prNumber,
+              oldHeadSha: second.headSha,
+              newHeadSha: pr.head.sha,
+              classification: second.classification,
+            };
+          }
         }
         throw new AutoMergeUnknownEffectError(`update-branch produced an uncorrelated head for PR #${second.prNumber}`);
       }
@@ -325,14 +352,25 @@ export async function runAutoMerge(api, { workflowRunId }) {
 }
 
 export async function runRecoverySweep(api) {
-  const workflowRunIds = await api.listRecoveryWorkflowRunIds();
-  for (const workflowRunId of workflowRunIds) {
+  const candidates = await api.listRecoveryCandidates();
+  for (const candidate of candidates) {
+    if (candidate.workflowRunId == null) {
+      return {
+        outcome: 'WAITING_CI',
+        prNumber: candidate.prNumber,
+        headSha: candidate.headSha,
+        reason: 'missing exact-head Validate Marketplace run',
+      };
+    }
     try {
-      const result = await runAutoMerge(api, { workflowRunId });
+      const result = await runAutoMerge(api, { workflowRunId: candidate.workflowRunId });
       if (result.outcome === 'ALREADY_MERGED') continue;
       return result;
     } catch (error) {
-      if (error instanceof AutoMergeBlockedError) continue;
+      if (error instanceof AutoMergeSkippedError) continue;
+      if (error instanceof AutoMergeWaitingError) {
+        return { outcome: 'WAITING_CI', prNumber: candidate.prNumber, workflowRunId: candidate.workflowRunId, reason: error.message };
+      }
       throw error;
     }
   }
@@ -427,6 +465,14 @@ export class GitHubApi {
     return this.request(`/commits/${sha}`);
   }
 
+  async isCommitAncestor(ancestorSha, descendantSha) {
+    block(validSha(ancestorSha) && validSha(descendantSha), 'commit lineage requires exact SHAs');
+    const comparison = await this.request(`/compare/${ancestorSha}...${descendantSha}`);
+    return comparison?.base_commit?.sha === ancestorSha
+      && comparison?.merge_base_commit?.sha === ancestorSha
+      && ['ahead', 'identical'].includes(comparison?.status);
+  }
+
   async existsAt(path, ref) {
     try {
       await this.request(`/contents/${encodeContentPath(path)}?ref=${encodeURIComponent(ref)}`);
@@ -437,18 +483,19 @@ export class GitHubApi {
     }
   }
 
-  async listRecoveryWorkflowRunIds() {
+  async listRecoveryCandidates() {
     const repository = await this.request('');
     block(repository?.full_name === TRUSTED_REPOSITORY && Number.isSafeInteger(repository.id), 'trusted repository evidence is unavailable');
     const pulls = await this.paginate('/pulls?state=open&base=main&sort=created&direction=asc');
-    const workflowRunIds = [];
+    const candidates = [];
     for (const pr of pulls) {
       if (!trustedRecoverySeed(pr, repository)) continue;
       const checks = await this.paginate(`/commits/${pr.head.sha}/check-runs?filter=latest`, (value) => value?.check_runs);
       const runIds = [...new Set(checks.map(workflowRunIdFromCheck).filter(Number.isSafeInteger))];
-      if (runIds.length === 1) workflowRunIds.push(runIds[0]);
+      block(runIds.length <= 1, `PR #${pr.number} has ambiguous exact-head validation runs`);
+      candidates.push({ prNumber: pr.number, headSha: pr.head.sha, workflowRunId: runIds[0] ?? null });
     }
-    return workflowRunIds;
+    return candidates;
   }
 
   async buildSnapshot(workflowRunId) {
@@ -618,6 +665,10 @@ async function main() {
       : await runAutoMerge(api, { workflowRunId: Number(process.env.WORKFLOW_RUN_ID) });
     process.stdout.write(`${JSON.stringify(result)}\n`);
   } catch (error) {
+    if (error instanceof AutoMergeSkippedError) {
+      process.stdout.write(`${JSON.stringify({ outcome: 'SKIPPED', reason: error.message })}\n`);
+      return;
+    }
     if (error instanceof AutoMergeWaitingError) {
       process.stdout.write(`${JSON.stringify({ outcome: 'WAITING_CI', reason: error.message })}\n`);
       return;
