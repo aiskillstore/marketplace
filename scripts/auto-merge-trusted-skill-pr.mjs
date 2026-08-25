@@ -265,26 +265,36 @@ export async function runAutoMerge(api, { workflowRunId }) {
     } catch (error) {
       mutationError = error;
     }
-    let changedHead;
-    try {
-      for (let attempt = 0; attempt < 12; attempt += 1) {
-        const pr = await api.readPr(second.prNumber);
-        if (validSha(pr?.head?.sha) && pr.head.sha !== second.headSha) {
-          const commit = await api.readCommit(pr.head.sha);
-          const parentShas = new Set((commit?.parents ?? []).map((parent) => parent.sha));
-          if (parentShas.has(second.headSha) && parentShas.has(second.baseSha)) {
-            changedHead = pr.head.sha;
-            break;
-          }
-          throw new AutoMergeUnknownEffectError(`update-branch produced an uncorrelated head for PR #${second.prNumber}`);
-        }
+    for (let attempt = 0; attempt < 12; attempt += 1) {
+      let pr;
+      try {
+        pr = await api.readPr(second.prNumber);
+      } catch {
         if (attempt < 11) await api.sleep(5_000);
+        continue;
       }
-    } catch {
-      throw new AutoMergeUnknownEffectError(`update-branch effect is unknown for PR #${second.prNumber}`);
-    }
-    if (changedHead) {
-      return { outcome: 'UPDATE_CONFIRMED_AWAITING_CI', prNumber: second.prNumber, oldHeadSha: second.headSha, newHeadSha: changedHead, classification: second.classification };
+      if (validSha(pr?.head?.sha) && pr.head.sha !== second.headSha) {
+        let commit;
+        try {
+          commit = await api.readCommit(pr.head.sha);
+        } catch {
+          if (attempt < 11) await api.sleep(5_000);
+          continue;
+        }
+        const parentShas = new Set((commit?.parents ?? []).map((parent) => parent.sha));
+        const readbackBaseSha = pr.base?.sha;
+        if (parentShas.has(second.headSha) && validSha(readbackBaseSha) && parentShas.has(readbackBaseSha)) {
+          return {
+            outcome: 'UPDATE_CONFIRMED_AWAITING_CI',
+            prNumber: second.prNumber,
+            oldHeadSha: second.headSha,
+            newHeadSha: pr.head.sha,
+            classification: second.classification,
+          };
+        }
+        throw new AutoMergeUnknownEffectError(`update-branch produced an uncorrelated head for PR #${second.prNumber}`);
+      }
+      if (attempt < 11) await api.sleep(5_000);
     }
     if (mutationError && definiteMutationRejection(mutationError)) throw new AutoMergeBlockedError(`update-branch rejected with HTTP ${mutationError.status}`);
     throw new AutoMergeUnknownEffectError(`update-branch effect is unknown for PR #${second.prNumber}`);
@@ -314,8 +324,46 @@ export async function runAutoMerge(api, { workflowRunId }) {
   throw new AutoMergeUnknownEffectError(`merge effect is unknown for PR #${second.prNumber}`);
 }
 
+export async function runRecoverySweep(api) {
+  const workflowRunIds = await api.listRecoveryWorkflowRunIds();
+  for (const workflowRunId of workflowRunIds) {
+    try {
+      const result = await runAutoMerge(api, { workflowRunId });
+      if (result.outcome === 'ALREADY_MERGED') continue;
+      return result;
+    } catch (error) {
+      if (error instanceof AutoMergeBlockedError) continue;
+      throw error;
+    }
+  }
+  return { outcome: 'NO_ELIGIBLE_RECOVERY' };
+}
+
 function encodeContentPath(path) {
   return path.split('/').map(encodeURIComponent).join('/');
+}
+
+function trustedRecoverySeed(pr, repository) {
+  return pr?.state === 'open'
+    && pr.draft === false
+    && pr.base?.ref === 'main'
+    && sameRepository(pr.base?.repo, repository)
+    && sameRepository(pr.head?.repo, repository)
+    && pr.user?.id === TRUSTED_BOT.id
+    && pr.user?.login === TRUSTED_BOT.login
+    && pr.user?.type === TRUSTED_BOT.type
+    && typeof pr.head?.ref === 'string'
+    && pr.head.ref.startsWith('submission/')
+    && validSha(pr.head?.sha)
+    && Array.isArray(pr.labels)
+    && pr.labels.some((label) => label?.name === 'pending-review');
+}
+
+function workflowRunIdFromCheck(check) {
+  if (check?.name !== 'validate' || check?.app?.id !== GITHUB_ACTIONS_APP_ID) return null;
+  const match = /^https:\/\/github\.com\/aiskillstore\/marketplace\/actions\/runs\/(\d+)\/job\/\d+(?:\?.*)?$/u.exec(check.details_url ?? '');
+  const runId = match ? Number(match[1]) : NaN;
+  return Number.isSafeInteger(runId) && runId > 0 ? runId : null;
 }
 
 export class GitHubApi {
@@ -387,6 +435,20 @@ export class GitHubApi {
       if (error instanceof GitHubApiError && error.status === 404) return false;
       throw error;
     }
+  }
+
+  async listRecoveryWorkflowRunIds() {
+    const repository = await this.request('');
+    block(repository?.full_name === TRUSTED_REPOSITORY && Number.isSafeInteger(repository.id), 'trusted repository evidence is unavailable');
+    const pulls = await this.paginate('/pulls?state=open&base=main&sort=created&direction=asc');
+    const workflowRunIds = [];
+    for (const pr of pulls) {
+      if (!trustedRecoverySeed(pr, repository)) continue;
+      const checks = await this.paginate(`/commits/${pr.head.sha}/check-runs?filter=latest`, (value) => value?.check_runs);
+      const runIds = [...new Set(checks.map(workflowRunIdFromCheck).filter(Number.isSafeInteger))];
+      if (runIds.length === 1) workflowRunIds.push(runIds[0]);
+    }
+    return workflowRunIds;
   }
 
   async buildSnapshot(workflowRunId) {
@@ -551,7 +613,9 @@ async function main() {
     currentRunId: process.env.GITHUB_RUN_ID,
   });
   try {
-    const result = await runAutoMerge(api, { workflowRunId: Number(process.env.WORKFLOW_RUN_ID) });
+    const result = process.env.RECOVERY_SWEEP === 'true'
+      ? await runRecoverySweep(api)
+      : await runAutoMerge(api, { workflowRunId: Number(process.env.WORKFLOW_RUN_ID) });
     process.stdout.write(`${JSON.stringify(result)}\n`);
   } catch (error) {
     if (error instanceof AutoMergeWaitingError) {
