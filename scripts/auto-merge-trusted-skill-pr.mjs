@@ -230,17 +230,31 @@ function mergedReadback(pr, plan) {
   return pr?.merged === true && pr.state === 'closed' && pr.head?.sha === plan.headSha && validSha(pr.merge_commit_sha);
 }
 
+function mergeabilityIsComputing(pr) {
+  return pr?.merged !== true && (pr?.mergeable == null || pr?.mergeable_state === 'unknown');
+}
+
+async function buildStableSnapshot(api, workflowRunId) {
+  let snapshot;
+  for (let attempt = 0; attempt < 6; attempt += 1) {
+    snapshot = await api.buildSnapshot(workflowRunId);
+    if (!mergeabilityIsComputing(snapshot?.pr)) return snapshot;
+    if (attempt < 5) await api.sleep(5_000);
+  }
+  return snapshot;
+}
+
 function definiteMutationRejection(error) {
   return error instanceof GitHubApiError && [405, 409, 422].includes(error.status);
 }
 
 export async function runAutoMerge(api, { workflowRunId }) {
-  const firstSnapshot = await api.buildSnapshot(workflowRunId);
+  const firstSnapshot = await buildStableSnapshot(api, workflowRunId);
   if (firstSnapshot?.pr?.merged === true && firstSnapshot.pr.state === 'closed' && firstSnapshot.pr.head?.sha === firstSnapshot.workflowRun?.head_sha) {
     return { outcome: 'ALREADY_MERGED', prNumber: firstSnapshot.pr.number, headSha: firstSnapshot.pr.head.sha, mergeCommitSha: firstSnapshot.pr.merge_commit_sha };
   }
   const first = validateSnapshot(firstSnapshot);
-  const secondSnapshot = await api.buildSnapshot(workflowRunId);
+  const secondSnapshot = await buildStableSnapshot(api, workflowRunId);
   const second = validateSnapshot(secondSnapshot);
   block(samePlan(first, second), 'candidate changed during pre-effect revalidation');
 
@@ -305,24 +319,26 @@ function encodeContentPath(path) {
 }
 
 export class GitHubApi {
-  constructor({ token, repository, currentRunId }) {
+  constructor({ token, updateToken, repository, currentRunId }) {
     block(typeof token === 'string' && token.length > 0, 'GH_TOKEN is required');
+    block(typeof updateToken === 'string' && updateToken.length > 0, 'GH_UPDATE_TOKEN is required');
     block(repository === TRUSTED_REPOSITORY, `GITHUB_REPOSITORY must be ${TRUSTED_REPOSITORY}`);
     block(Number.isSafeInteger(Number(currentRunId)) && Number(currentRunId) > 0, 'GITHUB_RUN_ID is invalid');
     this.token = token;
+    this.updateToken = updateToken;
     this.repository = repository;
     this.currentRunId = Number(currentRunId);
     this.baseUrl = `https://api.github.com/repos/${repository}`;
   }
 
-  async request(path, { method = 'GET', body } = {}) {
+  async request(path, { method = 'GET', body, token = this.token } = {}) {
     let response;
     try {
       response = await fetch(`${this.baseUrl}${path}`, {
         method,
         headers: {
           Accept: 'application/vnd.github+json',
-          Authorization: `Bearer ${this.token}`,
+          Authorization: `Bearer ${token}`,
           'X-GitHub-Api-Version': '2022-11-28',
           'User-Agent': 'skillstore-trusted-auto-merge',
         },
@@ -508,7 +524,11 @@ export class GitHubApi {
   }
 
   async updateBranch(number, headSha) {
-    return this.request(`/pulls/${number}/update-branch`, { method: 'PUT', body: { expected_head_sha: headSha } });
+    return this.request(`/pulls/${number}/update-branch`, {
+      method: 'PUT',
+      body: { expected_head_sha: headSha },
+      token: this.updateToken,
+    });
   }
 
   async merge(number, headSha, method) {
@@ -524,7 +544,12 @@ export class GitHubApi {
 }
 
 async function main() {
-  const api = new GitHubApi({ token: process.env.GH_TOKEN, repository: process.env.GITHUB_REPOSITORY, currentRunId: process.env.GITHUB_RUN_ID });
+  const api = new GitHubApi({
+    token: process.env.GH_TOKEN,
+    updateToken: process.env.GH_UPDATE_TOKEN,
+    repository: process.env.GITHUB_REPOSITORY,
+    currentRunId: process.env.GITHUB_RUN_ID,
+  });
   try {
     const result = await runAutoMerge(api, { workflowRunId: Number(process.env.WORKFLOW_RUN_ID) });
     process.stdout.write(`${JSON.stringify(result)}\n`);
