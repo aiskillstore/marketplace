@@ -20,7 +20,7 @@ test('uses only the trusted default-branch validation workflow_run event', () =>
   assert.doesNotMatch(source, /pull_request_target|\bworkflow_dispatch\b/);
 });
 
-test('uses a literal hosted runner, non-cancelling serialization and exact minimal permissions', () => {
+test('uses a literal hosted runner, non-cancelling repository serialization and exact minimal permissions', () => {
   assert.deepEqual(workflow.permissions, {
     actions: 'write',
     checks: 'read',
@@ -29,25 +29,33 @@ test('uses a literal hosted runner, non-cancelling serialization and exact minim
     statuses: 'read',
   });
   assert.equal(workflow.concurrency['cancel-in-progress'], false);
-  assert.match(workflow.concurrency.group, /workflow_run\.head_sha/);
+  assert.equal(workflow.concurrency.group, 'trusted-skill-auto-merge-${{ github.repository }}');
   const job = workflow.jobs['auto-merge'];
   assert.equal(job['runs-on'], 'ubuntu-latest');
   assert.match(job.if, /workflow_run\.event == 'pull_request'/);
   assert.ok(Number.parseInt(job['timeout-minutes'], 10) <= 15);
 });
 
-test('checks out only the trusted workflow SHA without credentials and executes the bounded helper', () => {
+test('checks out only trusted automation and confines the event-capable App token to update-branch', () => {
   const steps = workflow.jobs['auto-merge'].steps;
   const checkout = steps.find((step) => step.uses?.startsWith('actions/checkout@'));
   assert.match(checkout.uses, /^actions\/checkout@[0-9a-f]{40}$/);
   assert.equal(checkout.with.ref, '${{ github.sha }}');
   assert.equal(checkout.with['persist-credentials'], false);
   assert.ok(steps.every((step) => !String(step.with?.ref ?? '').includes('workflow_run.head_sha')));
-  const run = steps.find((step) => step.run)?.run ?? '';
-  assert.match(run, /^node scripts\/auto-merge-trusted-skill-pr\.mjs$/m);
-  assert.equal(steps.find((step) => step.run).env.GH_TOKEN, '${{ github.token }}');
-  assert.equal(steps.find((step) => step.run).env.GITHUB_RUN_ID, '${{ github.run_id }}');
-  assert.equal(steps.find((step) => step.run).env.WORKFLOW_RUN_ID, '${{ github.event.workflow_run.id }}');
+  const appToken = steps.find((step) => step.id === 'app-token');
+  assert.match(appToken.uses, /^actions\/create-github-app-token@[0-9a-f]{40}$/);
+  assert.equal(appToken.with['client-id'], '${{ vars.APP_CLIENT_ID }}');
+  assert.equal(appToken.with['private-key'], '${{ secrets.APP_PRIVATE_KEY }}');
+  assert.equal(appToken.with.repositories, 'marketplace');
+  assert.equal(appToken.with['permission-contents'], 'write');
+  assert.equal(appToken.with['permission-pull-requests'], 'write');
+  const executor = steps.find((step) => step.run);
+  assert.match(executor.run, /^node scripts\/auto-merge-trusted-skill-pr\.mjs$/m);
+  assert.equal(executor.env.GH_TOKEN, '${{ github.token }}');
+  assert.equal(executor.env.GH_UPDATE_TOKEN, '${{ steps.app-token.outputs.token }}');
+  assert.equal(executor.env.GITHUB_RUN_ID, '${{ github.run_id }}');
+  assert.equal(executor.env.WORKFLOW_RUN_ID, '${{ github.event.workflow_run.id }}');
 });
 
 test('contains no bypass, force-push, auto-merge or untrusted PR execution path', () => {
