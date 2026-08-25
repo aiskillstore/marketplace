@@ -6,6 +6,7 @@ import {
   GitHubApi,
   latestStatusesByContext,
   runAutoMerge,
+  runRecoverySweep,
   validateSnapshot,
 } from '../auto-merge-trusted-skill-pr.mjs';
 
@@ -387,6 +388,36 @@ test('update-branch uses expected exact head through the event-capable update cr
   assert.equal(result.newHeadSha, 'e'.repeat(40));
 });
 
+test('confirms update-branch against the fresh base readback when main advances after pre-effect validation', async () => {
+  const behind = snapshot();
+  behind.pr.mergeable_state = 'behind';
+  const changed = snapshot();
+  changed.pr.head.sha = 'e'.repeat(40);
+  changed.pr.base.sha = 'c'.repeat(40);
+  const api = fakeApi([behind, behind, changed.pr]);
+  api.readCommit = async (sha) => ({ sha, parents: [{ sha: HEAD }, { sha: changed.pr.base.sha }] });
+  const result = await runAutoMerge(api, { workflowRunId: 123 });
+  assert.equal(result.outcome, 'UPDATE_CONFIRMED_AWAITING_CI');
+  assert.equal(result.newHeadSha, changed.pr.head.sha);
+});
+
+test('retries a transient new-head commit read and returns confirmed instead of UNKNOWN', async () => {
+  const behind = snapshot();
+  behind.pr.mergeable_state = 'behind';
+  const changed = snapshot();
+  changed.pr.head.sha = 'e'.repeat(40);
+  const api = fakeApi([behind, behind, changed.pr, changed.pr]);
+  let reads = 0;
+  api.readCommit = async (sha) => {
+    reads += 1;
+    if (reads === 1) throw new TypeError('transient commit read failure');
+    return { sha, parents: [{ sha: HEAD }, { sha: BASE }] };
+  };
+  const result = await runAutoMerge(api, { workflowRunId: 123 });
+  assert.equal(result.outcome, 'UPDATE_CONFIRMED_AWAITING_CI');
+  assert.equal(reads, 2);
+});
+
 test('an unrelated concurrent head change cannot confirm update-branch', async () => {
   const behind = snapshot();
   behind.pr.mergeable_state = 'behind';
@@ -593,4 +624,29 @@ test('does not repeat an unknown merge effect and only trusts merged readback', 
   };
   await assert.rejects(() => runAutoMerge(api, { workflowRunId: 123 }), AutoMergeUnknownEffectError);
   assert.equal(api.calls.filter(([kind]) => kind === 'merge').length, 1);
+});
+
+test('recovery sweep skips ineligible historical PRs and performs only the first eligible effect', async () => {
+  const unsafe = snapshot();
+  unsafe.report.securityAudit.riskLevel = 'high';
+  const behind = snapshot();
+  behind.pr.number = 43;
+  behind.workflowRun.pull_requests = [{ number: 43 }];
+  behind.pr.mergeable_state = 'behind';
+  const changed = structuredClone(behind);
+  changed.pr.head.sha = 'e'.repeat(40);
+  const api = fakeApi([unsafe, behind, behind, changed.pr]);
+  api.listRecoveryWorkflowRunIds = async () => [101, 102, 103];
+  api.readCommit = async (sha) => ({ sha, parents: [{ sha: HEAD }, { sha: BASE }] });
+  const result = await runRecoverySweep(api);
+  assert.equal(result.outcome, 'UPDATE_CONFIRMED_AWAITING_CI');
+  assert.equal(result.prNumber, 43);
+  assert.deepEqual(api.calls, [['update', 43, HEAD]]);
+});
+
+test('recovery sweep is a no-op when no exact-head validation run is recoverable', async () => {
+  const api = fakeApi([]);
+  api.listRecoveryWorkflowRunIds = async () => [];
+  assert.deepEqual(await runRecoverySweep(api), { outcome: 'NO_ELIGIBLE_RECOVERY' });
+  assert.deepEqual(api.calls, []);
 });
