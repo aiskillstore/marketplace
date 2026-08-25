@@ -80,7 +80,6 @@ function snapshot(overrides = {}) {
     reports: [{
       path: `${ROOT}/skill-report.json`,
       sha: '2'.repeat(40),
-      securityAudit: { is_blocked: false, safe_to_publish: true },
     }],
     basePendingExists: false,
     baseSkillRootsExist: false,
@@ -105,7 +104,6 @@ function sourceMonitorSnapshot(overrides = {}) {
   value.reports = [{
     path: `${SOURCE_ROOT}/skill-report.json`,
     sha: '4'.repeat(40),
-    securityAudit: { is_blocked: false, safe_to_publish: true },
   }];
   return structuredClone(Object.assign(value, overrides));
 }
@@ -278,7 +276,6 @@ test('qualifies multiple canonical pending Skill roots when every root has a bou
   value.reports.push({
     path: `${secondRoot}/skill-report.json`,
     sha: '4'.repeat(40),
-    securityAudit: { is_blocked: false, safe_to_publish: true },
   });
   assert.deepEqual(validateSnapshot(value).roots, [ROOT, secondRoot].sort());
 });
@@ -305,6 +302,9 @@ function fakeApi(sequence) {
     },
     async readCommit(sha) {
       return { sha, parents: [{ sha: HEAD }, { sha: BASE }] };
+    },
+    async isCommitAncestor(ancestorSha, descendantSha) {
+      return ancestorSha === descendantSha;
     },
     async sleep() {},
     async updateBranch(number, headSha) {
@@ -399,6 +399,37 @@ test('confirms update-branch against the fresh base readback when main advances 
   const result = await runAutoMerge(api, { workflowRunId: 123 });
   assert.equal(result.outcome, 'UPDATE_CONFIRMED_AWAITING_CI');
   assert.equal(result.newHeadSha, changed.pr.head.sha);
+});
+
+test('confirms update when the update base is an ancestor of a twice-advanced main tip', async () => {
+  const behind = snapshot();
+  behind.pr.mergeable_state = 'behind';
+  const updateBase = 'c'.repeat(40);
+  const currentBase = 'd'.repeat(40);
+  const changed = snapshot();
+  changed.pr.head.sha = 'e'.repeat(40);
+  changed.pr.base.sha = currentBase;
+  const api = fakeApi([behind, behind, changed.pr]);
+  api.readCommit = async (sha) => ({ sha, parents: [{ sha: HEAD }, { sha: updateBase }] });
+  api.isCommitAncestor = async (ancestorSha, descendantSha) => ancestorSha === updateBase && descendantSha === currentBase;
+  const result = await runAutoMerge(api, { workflowRunId: 123 });
+  assert.equal(result.outcome, 'UPDATE_CONFIRMED_AWAITING_CI');
+  assert.equal(result.newHeadSha, changed.pr.head.sha);
+});
+
+test('rejects a new-head second parent that is not on the trusted main lineage', async () => {
+  const behind = snapshot();
+  behind.pr.mergeable_state = 'behind';
+  const unrelated = 'c'.repeat(40);
+  const currentBase = 'd'.repeat(40);
+  const changed = snapshot();
+  changed.pr.head.sha = 'e'.repeat(40);
+  changed.pr.base.sha = currentBase;
+  const api = fakeApi([behind, behind, changed.pr]);
+  api.readCommit = async (sha) => ({ sha, parents: [{ sha: HEAD }, { sha: unrelated }] });
+  api.isCommitAncestor = async () => false;
+  await assert.rejects(() => runAutoMerge(api, { workflowRunId: 123 }), AutoMergeUnknownEffectError);
+  assert.equal(api.calls.filter(([kind]) => kind === 'update').length, 1);
 });
 
 test('retries a transient new-head commit read and returns confirmed instead of UNKNOWN', async () => {
@@ -628,7 +659,8 @@ test('does not repeat an unknown merge effect and only trusts merged readback', 
 
 test('recovery sweep skips ineligible historical PRs and performs only the first eligible effect', async () => {
   const unsafe = snapshot();
-  unsafe.report.securityAudit.riskLevel = 'high';
+  unsafe.files.push({ filename: 'scripts/injected.mjs', status: 'added', sha: '9'.repeat(40) });
+  unsafe.pr.changed_files = unsafe.files.length;
   const behind = snapshot();
   behind.pr.number = 43;
   behind.workflowRun.pull_requests = [{ number: 43 }];
@@ -636,7 +668,11 @@ test('recovery sweep skips ineligible historical PRs and performs only the first
   const changed = structuredClone(behind);
   changed.pr.head.sha = 'e'.repeat(40);
   const api = fakeApi([unsafe, behind, behind, changed.pr]);
-  api.listRecoveryWorkflowRunIds = async () => [101, 102, 103];
+  api.listRecoveryCandidates = async () => [
+    { prNumber: 42, headSha: HEAD, workflowRunId: 101 },
+    { prNumber: 43, headSha: HEAD, workflowRunId: 102 },
+    { prNumber: 44, headSha: HEAD, workflowRunId: 103 },
+  ];
   api.readCommit = async (sha) => ({ sha, parents: [{ sha: HEAD }, { sha: BASE }] });
   const result = await runRecoverySweep(api);
   assert.equal(result.outcome, 'UPDATE_CONFIRMED_AWAITING_CI');
@@ -644,9 +680,75 @@ test('recovery sweep skips ineligible historical PRs and performs only the first
   assert.deepEqual(api.calls, [['update', 43, HEAD]]);
 });
 
-test('recovery sweep is a no-op when no exact-head validation run is recoverable', async () => {
+test('recovery sweep stops at the oldest waiting candidate and never updates a later behind PR', async () => {
+  const waiting = snapshot();
+  waiting.checks = waiting.checks.filter((check) => check.name !== 'validate');
+  const later = snapshot();
+  later.pr.number = 43;
+  later.workflowRun.pull_requests = [{ number: 43 }];
+  later.pr.mergeable_state = 'behind';
+  const api = fakeApi([waiting, later, later]);
+  api.listRecoveryCandidates = async () => [
+    { prNumber: 42, headSha: HEAD, workflowRunId: 101 },
+    { prNumber: 43, headSha: HEAD, workflowRunId: 102 },
+  ];
+  const result = await runRecoverySweep(api);
+  assert.match(result.reason, /missing required check validate/);
+  assert.equal(result.outcome, 'WAITING_CI');
+  assert.deepEqual(api.calls, []);
+});
+
+test('recovery sweep reports oldest-candidate CI failure instead of scanning later PRs', async () => {
+  const failed = snapshot();
+  failed.checks.find((check) => check.name === 'validate').conclusion = 'failure';
+  const later = snapshot();
+  later.pr.number = 43;
+  later.workflowRun.pull_requests = [{ number: 43 }];
+  later.pr.mergeable_state = 'behind';
+  const api = fakeApi([failed, later, later]);
+  api.listRecoveryCandidates = async () => [
+    { prNumber: 42, headSha: HEAD, workflowRunId: 101 },
+    { prNumber: 43, headSha: HEAD, workflowRunId: 102 },
+  ];
+  await assert.rejects(() => runRecoverySweep(api), /check validate concluded failure/);
+  assert.deepEqual(api.calls, []);
+});
+
+test('recovery sweep reports oldest-candidate conflict instead of scanning later PRs', async () => {
+  const conflicted = snapshot();
+  conflicted.pr.mergeable = false;
+  conflicted.pr.mergeable_state = 'dirty';
+  const later = snapshot();
+  later.pr.number = 43;
+  later.workflowRun.pull_requests = [{ number: 43 }];
+  later.pr.mergeable_state = 'behind';
+  const api = fakeApi([conflicted, later, later]);
+  api.listRecoveryCandidates = async () => [
+    { prNumber: 42, headSha: HEAD, workflowRunId: 101 },
+    { prNumber: 43, headSha: HEAD, workflowRunId: 102 },
+  ];
+  await assert.rejects(() => runRecoverySweep(api), /PR is not mergeable/);
+  assert.deepEqual(api.calls, []);
+});
+
+test('recovery sweep stops before later PRs when the oldest trusted seed has no validation run yet', async () => {
   const api = fakeApi([]);
-  api.listRecoveryWorkflowRunIds = async () => [];
+  api.listRecoveryCandidates = async () => [
+    { prNumber: 42, headSha: HEAD, workflowRunId: null },
+    { prNumber: 43, headSha: HEAD, workflowRunId: 102 },
+  ];
+  assert.deepEqual(await runRecoverySweep(api), {
+    outcome: 'WAITING_CI',
+    prNumber: 42,
+    headSha: HEAD,
+    reason: 'missing exact-head Validate Marketplace run',
+  });
+  assert.deepEqual(api.calls, []);
+});
+
+test('recovery sweep is a no-op when no trusted open candidate is recoverable', async () => {
+  const api = fakeApi([]);
+  api.listRecoveryCandidates = async () => [];
   assert.deepEqual(await runRecoverySweep(api), { outcome: 'NO_ELIGIBLE_RECOVERY' });
   assert.deepEqual(api.calls, []);
 });

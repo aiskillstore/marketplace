@@ -30,6 +30,13 @@ export class AutoMergeWaitingError extends AutoMergeBlockedError {
   }
 }
 
+export class AutoMergeSkippedError extends AutoMergeBlockedError {
+  constructor(message) {
+    super(message);
+    this.name = 'AutoMergeSkippedError';
+  }
+}
+
 export class AutoMergeUnknownEffectError extends Error {
   constructor(message) {
     super(message);
@@ -48,6 +55,10 @@ class GitHubApiError extends Error {
 
 function block(condition, message) {
   if (!condition) throw new AutoMergeBlockedError(message);
+}
+
+function skip(condition, message) {
+  if (!condition) throw new AutoMergeSkippedError(message);
 }
 
 function validSha(value) {
@@ -109,7 +120,7 @@ function routeForPr(pr) {
     block(SOURCE_MONITOR_REF_RE.test(ref), 'PR head must use trusted source-monitor provenance');
     return SOURCE_MONITOR_ROUTE;
   }
-  throw new AutoMergeBlockedError('PR head must use trusted submission/ or source-monitor provenance');
+  throw new AutoMergeSkippedError('PR head must use trusted submission/ or source-monitor provenance');
 }
 
 export function latestStatusesByContext(statusHistory) {
@@ -169,27 +180,28 @@ export function validateSnapshot(snapshot, { allowMerged = false } = {}) {
   if (allowMerged) {
     block(pr.state === 'closed' && pr.merged === true && validSha(pr.merge_commit_sha), 'PR must be authoritatively merged');
   } else {
-    block(pr.state === 'open' && pr.draft === false && pr.merged !== true, 'PR must be open and non-draft');
+    skip(pr.state === 'open' && pr.draft === false && pr.merged !== true, 'PR must be open and non-draft');
   }
-  block(pr.base?.ref === 'main', 'PR base must be main');
-  block(sameRepository(pr.base?.repo, repository) && sameRepository(pr.head?.repo, repository), 'PR head and base must use the same repository');
-  block(pr.user?.id === TRUSTED_BOT.id && pr.user?.login === TRUSTED_BOT.login && pr.user?.type === TRUSTED_BOT.type, 'PR author is not the trusted App identity');
+  skip(pr.base?.ref === 'main', 'PR base must be main');
+  skip(sameRepository(pr.base?.repo, repository) && sameRepository(pr.head?.repo, repository), 'PR head and base must use the same repository');
+  skip(pr.user?.id === TRUSTED_BOT.id && pr.user?.login === TRUSTED_BOT.login && pr.user?.type === TRUSTED_BOT.type, 'PR author is not the trusted App identity');
   const route = routeForPr(pr);
   block(validSha(pr.head?.sha) && validSha(pr.base?.sha), 'PR head and base SHA must be exact');
   block(workflowRun.head_sha === pr.head.sha, 'workflow run must bind the exact PR head');
   const labelNames = new Set((Array.isArray(pr.labels) ? pr.labels : []).map((label) => label?.name));
   if (route === SUBMISSION_ROUTE) {
-    block(labelNames.has('pending-review'), 'PR must have pending-review');
+    skip(labelNames.has('pending-review'), 'PR must have pending-review');
   } else {
-    block(labelNames.has('skill-source-monitor'), 'source-monitor PR must have skill-source-monitor label');
-    block(!labelNames.has('pending-review'), 'source-monitor PR must not have pending-review');
+    skip(labelNames.has('skill-source-monitor'), 'source-monitor PR must have skill-source-monitor label');
+    skip(!labelNames.has('pending-review'), 'source-monitor PR must not have pending-review');
   }
   if (!allowMerged) {
     block(pr.mergeable === true, 'PR is not mergeable');
     block(['clean', 'behind'].includes(pr.mergeable_state), `PR mergeable_state is ${pr.mergeable_state ?? 'unknown'}`);
   }
 
-  block(Array.isArray(files) && files.length > 0, 'PR files are required');
+  block(Array.isArray(files), 'PR files are required');
+  skip(files.length > 0, 'PR files are required');
   block(Number.isSafeInteger(pr.changed_files) && pr.changed_files === files.length, 'PR file pagination/count is incomplete');
   block(tree?.truncated === false && Array.isArray(tree.entries), 'exact-head tree is truncated or missing');
   const seenFiles = new Set();
@@ -197,56 +209,56 @@ export function validateSnapshot(snapshot, { allowMerged = false } = {}) {
   const topLevel = route === SUBMISSION_ROUTE ? 'pending' : 'skills';
   const publishedRootCandidates = route === SOURCE_MONITOR_ROUTE ? publishedRootsFromTree(tree) : [];
   for (const file of files) {
-    block(safePath(file?.filename), 'PR contains an unsafe path');
-    block(!seenFiles.has(file.filename), `duplicate PR file ${file.filename}`);
+    skip(safePath(file?.filename), 'PR contains an unsafe path');
+    skip(!seenFiles.has(file.filename), `duplicate PR file ${file.filename}`);
     seenFiles.add(file.filename);
     if (route === SUBMISSION_ROUTE) {
-      block(file.status === 'added' && file.previous_filename == null, `every Skill file must be newly added: ${file.filename}`);
+      skip(file.status === 'added' && file.previous_filename == null, `every Skill file must be newly added: ${file.filename}`);
     } else {
-      block(['added', 'modified', 'removed', 'changed'].includes(file.status) && file.previous_filename == null,
+      skip(['added', 'modified', 'removed', 'changed'].includes(file.status) && file.previous_filename == null,
         `unsupported source-monitor file status: ${file.status ?? 'missing'}`);
     }
     const root = route === SUBMISSION_ROUTE
       ? rootForPath(file.filename, topLevel)
       : publishedRootForPath(file.filename, publishedRootCandidates);
-    block(root !== null, `PR must change only ${topLevel === 'pending' ? 'pending' : 'published'} Skill roots`);
+    skip(root !== null, `PR must change only ${topLevel === 'pending' ? 'pending' : 'published'} Skill roots`);
     roots.add(root);
   }
-  block(roots.size > 0, `PR must change ${topLevel} Skill roots`);
+  skip(roots.size > 0, `PR must change ${topLevel} Skill roots`);
   const rootList = [...roots].sort();
-  if (route === SOURCE_MONITOR_ROUTE) block(rootList.length <= 25, 'source-monitor PR exceeds the provider sync limit');
+  if (route === SOURCE_MONITOR_ROUTE) skip(rootList.length <= 25, 'source-monitor PR exceeds the provider sync limit');
   for (const root of rootList) {
     const skillFile = files.find((file) => file.filename === `${root}/SKILL.md`);
     const reportFile = files.find((file) => file.filename === `${root}/skill-report.json`);
-    if (route === SUBMISSION_ROUTE) block(skillFile && skillFile.status !== 'removed', 'Skill root is missing SKILL.md');
-    block(reportFile && reportFile.status !== 'removed', 'Skill root is missing skill-report.json');
+    if (route === SUBMISSION_ROUTE) skip(skillFile && skillFile.status !== 'removed', 'Skill root is missing SKILL.md');
+    skip(reportFile && reportFile.status !== 'removed', 'Skill root is missing skill-report.json');
   }
   if (route === SUBMISSION_ROUTE) {
-    block(snapshot.basePendingExists === false, 'pending root already exists on the base');
+    skip(snapshot.basePendingExists === false, 'pending root already exists on the base');
   } else {
-    block(snapshot.baseSkillRootsExist === true, 'source-monitor Skill roots must already exist on the base');
+    skip(snapshot.baseSkillRootsExist === true, 'source-monitor Skill roots must already exist on the base');
   }
 
   const treeByPath = new Map();
   for (const entry of tree.entries) {
     if (typeof entry?.path !== 'string' || !rootList.some((root) => entry.path === root || entry.path.startsWith(`${root}/`))) continue;
     if (entry.type === 'tree') continue;
-    block(entry.type === 'blob' && ['100644', '100755'].includes(entry.mode), 'Skill tree must contain ordinary blobs only');
+    skip(entry.type === 'blob' && ['100644', '100755'].includes(entry.mode), 'Skill tree must contain ordinary blobs only');
     treeByPath.set(entry.path, entry);
   }
   if (route === SUBMISSION_ROUTE) {
-    block(treeByPath.size === seenFiles.size && [...seenFiles].every((path) => treeByPath.has(path)), 'PR files do not equal the exact-head Skill tree');
+    skip(treeByPath.size === seenFiles.size && [...seenFiles].every((path) => treeByPath.has(path)), 'PR files do not equal the exact-head Skill tree');
   } else {
     for (const file of files) {
       const entry = treeByPath.get(file.filename);
       if (file.status === 'removed') {
-        block(entry == null, `removed source-monitor file remains on the exact PR head: ${file.filename}`);
+        skip(entry == null, `removed source-monitor file remains on the exact PR head: ${file.filename}`);
       } else {
         block(entry?.sha === file.sha && validSha(file.sha), `source-monitor file is not bound to the exact PR head: ${file.filename}`);
       }
     }
     for (const root of rootList) {
-      block(treeByPath.has(`${root}/SKILL.md`) && treeByPath.has(`${root}/skill-report.json`), 'source-monitor Skill root is incomplete on the exact PR head');
+      skip(treeByPath.has(`${root}/SKILL.md`) && treeByPath.has(`${root}/skill-report.json`), 'source-monitor Skill root is incomplete on the exact PR head');
     }
   }
 
@@ -265,7 +277,8 @@ export function validateSnapshot(snapshot, { allowMerged = false } = {}) {
     'skill report is not bound to the exact PR head');
   }
 
-  block(Array.isArray(checks) && checks.length > 0, 'exact-head checks are required');
+  block(Array.isArray(checks), 'exact-head checks are required');
+  if (checks.length === 0) throw new AutoMergeWaitingError('exact-head checks are required');
   const checkNames = new Set();
   for (const check of checks) {
     block(check?.app?.id === GITHUB_ACTIONS_APP_ID, `check ${check?.name ?? '<unknown>'} is not from GitHub Actions`);
@@ -387,16 +400,30 @@ export async function runAutoMerge(api, { workflowRunId }) {
           if (attempt < 11) await api.sleep(5_000);
           continue;
         }
-        const parentShas = new Set((commit?.parents ?? []).map((parent) => parent.sha));
+        const parentShas = [...new Set((commit?.parents ?? []).map((parent) => parent.sha))];
         const readbackBaseSha = pr.base?.sha;
-        if (parentShas.has(second.headSha) && validSha(readbackBaseSha) && parentShas.has(readbackBaseSha)) {
-          return {
-            outcome: 'UPDATE_CONFIRMED_AWAITING_CI',
-            prNumber: second.prNumber,
-            oldHeadSha: second.headSha,
-            newHeadSha: pr.head.sha,
-            classification: second.classification,
-          };
+        const updateBaseParents = parentShas.filter((sha) => sha !== second.headSha);
+        if (parentShas.length === 2
+          && parentShas.includes(second.headSha)
+          && updateBaseParents.length === 1
+          && validSha(readbackBaseSha)) {
+          let updateBaseIsOnMain;
+          try {
+            updateBaseIsOnMain = updateBaseParents[0] === readbackBaseSha
+              || await api.isCommitAncestor(updateBaseParents[0], readbackBaseSha);
+          } catch {
+            if (attempt < 11) await api.sleep(5_000);
+            continue;
+          }
+          if (updateBaseIsOnMain) {
+            return {
+              outcome: 'UPDATE_CONFIRMED_AWAITING_CI',
+              prNumber: second.prNumber,
+              oldHeadSha: second.headSha,
+              newHeadSha: pr.head.sha,
+              classification: second.classification,
+            };
+          }
         }
         throw new AutoMergeUnknownEffectError(`update-branch produced an uncorrelated head for PR #${second.prNumber}`);
       }
@@ -439,14 +466,25 @@ export async function runAutoMerge(api, { workflowRunId }) {
 }
 
 export async function runRecoverySweep(api) {
-  const workflowRunIds = await api.listRecoveryWorkflowRunIds();
-  for (const workflowRunId of workflowRunIds) {
+  const candidates = await api.listRecoveryCandidates();
+  for (const candidate of candidates) {
+    if (candidate.workflowRunId == null) {
+      return {
+        outcome: 'WAITING_CI',
+        prNumber: candidate.prNumber,
+        headSha: candidate.headSha,
+        reason: 'missing exact-head Validate Marketplace run',
+      };
+    }
     try {
-      const result = await runAutoMerge(api, { workflowRunId });
+      const result = await runAutoMerge(api, { workflowRunId: candidate.workflowRunId });
       if (result.outcome === 'ALREADY_MERGED') continue;
       return result;
     } catch (error) {
-      if (error instanceof AutoMergeBlockedError) continue;
+      if (error instanceof AutoMergeSkippedError) continue;
+      if (error instanceof AutoMergeWaitingError) {
+        return { outcome: 'WAITING_CI', prNumber: candidate.prNumber, workflowRunId: candidate.workflowRunId, reason: error.message };
+      }
       throw error;
     }
   }
@@ -458,6 +496,13 @@ function encodeContentPath(path) {
 }
 
 function trustedRecoverySeed(pr, repository) {
+  const labels = new Set((Array.isArray(pr?.labels) ? pr.labels : []).map((label) => label?.name));
+  const submission = typeof pr?.head?.ref === 'string'
+    && pr.head.ref.startsWith('submission/')
+    && labels.has('pending-review');
+  const sourceMonitor = SOURCE_MONITOR_REF_RE.test(pr?.head?.ref ?? '')
+    && labels.has('skill-source-monitor')
+    && !labels.has('pending-review');
   return pr?.state === 'open'
     && pr.draft === false
     && pr.base?.ref === 'main'
@@ -466,11 +511,8 @@ function trustedRecoverySeed(pr, repository) {
     && pr.user?.id === TRUSTED_BOT.id
     && pr.user?.login === TRUSTED_BOT.login
     && pr.user?.type === TRUSTED_BOT.type
-    && typeof pr.head?.ref === 'string'
-    && pr.head.ref.startsWith('submission/')
     && validSha(pr.head?.sha)
-    && Array.isArray(pr.labels)
-    && pr.labels.some((label) => label?.name === 'pending-review');
+    && (submission || sourceMonitor);
 }
 
 function workflowRunIdFromCheck(check) {
@@ -541,6 +583,14 @@ export class GitHubApi {
     return this.request(`/commits/${sha}`);
   }
 
+  async isCommitAncestor(ancestorSha, descendantSha) {
+    block(validSha(ancestorSha) && validSha(descendantSha), 'commit lineage requires exact SHAs');
+    const comparison = await this.request(`/compare/${ancestorSha}...${descendantSha}`);
+    return comparison?.base_commit?.sha === ancestorSha
+      && comparison?.merge_base_commit?.sha === ancestorSha
+      && ['ahead', 'identical'].includes(comparison?.status);
+  }
+
   async existsAt(path, ref) {
     try {
       await this.request(`/contents/${encodeContentPath(path)}?ref=${encodeURIComponent(ref)}`);
@@ -551,18 +601,19 @@ export class GitHubApi {
     }
   }
 
-  async listRecoveryWorkflowRunIds() {
+  async listRecoveryCandidates() {
     const repository = await this.request('');
     block(repository?.full_name === TRUSTED_REPOSITORY && Number.isSafeInteger(repository.id), 'trusted repository evidence is unavailable');
     const pulls = await this.paginate('/pulls?state=open&base=main&sort=created&direction=asc');
-    const workflowRunIds = [];
+    const candidates = [];
     for (const pr of pulls) {
       if (!trustedRecoverySeed(pr, repository)) continue;
       const checks = await this.paginate(`/commits/${pr.head.sha}/check-runs?filter=latest`, (value) => value?.check_runs);
       const runIds = [...new Set(checks.map(workflowRunIdFromCheck).filter(Number.isSafeInteger))];
-      if (runIds.length === 1) workflowRunIds.push(runIds[0]);
+      block(runIds.length <= 1, `PR #${pr.number} has ambiguous exact-head validation runs`);
+      candidates.push({ prNumber: pr.number, headSha: pr.head.sha, workflowRunId: runIds[0] ?? null });
     }
-    return workflowRunIds;
+    return candidates;
   }
 
   async buildSnapshot(workflowRunId) {
@@ -769,6 +820,10 @@ async function main() {
       : await runAutoMerge(api, { workflowRunId: Number(process.env.WORKFLOW_RUN_ID) });
     process.stdout.write(`${JSON.stringify(result)}\n`);
   } catch (error) {
+    if (error instanceof AutoMergeSkippedError) {
+      process.stdout.write(`${JSON.stringify({ outcome: 'SKIPPED', reason: error.message })}\n`);
+      return;
+    }
     if (error instanceof AutoMergeWaitingError) {
       process.stdout.write(`${JSON.stringify({ outcome: 'WAITING_CI', reason: error.message })}\n`);
       return;
