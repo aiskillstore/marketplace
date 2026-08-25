@@ -13,7 +13,7 @@ permissions:
   statuses: read
 
 concurrency:
-  group: trusted-skill-auto-merge-${{ github.repository }}-${{ github.event.workflow_run.head_sha }}
+  group: trusted-skill-auto-merge-${{ github.repository }}
   cancel-in-progress: false
 
 jobs:
@@ -33,9 +33,23 @@ jobs:
         with:
           node-version: 22
 
+      # GITHUB_TOKEN update-branch events do not trigger a fresh pull_request CI run.
+      # This event-capable App token is confined by the helper to update-branch only;
+      # merges and publication dispatches continue to use the non-bypass GITHUB_TOKEN.
+      - name: Generate event-capable update-branch token
+        id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
+        with:
+          client-id: ${{ vars.APP_CLIENT_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+          repositories: marketplace
+          permission-contents: write
+          permission-pull-requests: write
+
       - name: Qualify, update, or merge the exact trusted Skill PR
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_UPDATE_TOKEN: ${{ steps.app-token.outputs.token }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           GITHUB_RUN_ID: ${{ github.run_id }}
           WORKFLOW_RUN_ID: ${{ github.event.workflow_run.id }}

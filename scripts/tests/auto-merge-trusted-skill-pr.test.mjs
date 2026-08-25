@@ -220,6 +220,21 @@ test('returns a harmless no-op for the duplicate prerequisite event after merge'
   assert.deepEqual(api.calls, []);
 });
 
+test('waits for transient GitHub mergeability before qualifying and updating a behind PR', async () => {
+  const computing = snapshot();
+  computing.pr.mergeable = null;
+  computing.pr.mergeable_state = 'unknown';
+  const behind = snapshot();
+  behind.pr.mergeable_state = 'behind';
+  const changed = snapshot();
+  changed.pr.head.sha = 'e'.repeat(40);
+  changed.workflowRun.head_sha = 'e'.repeat(40);
+  const api = fakeApi([computing, behind, behind, changed]);
+  const result = await runAutoMerge(api, { workflowRunId: 123 });
+  assert.deepEqual(api.calls, [['update', 42, HEAD]]);
+  assert.equal(result.outcome, 'UPDATE_CONFIRMED_AWAITING_CI');
+});
+
 test('revalidates immediately before exact-head ordinary merge and confirms authoritative readback', async () => {
   const merged = snapshot();
   merged.pr.state = 'closed';
@@ -237,7 +252,7 @@ test('revalidates immediately before exact-head ordinary merge and confirms auth
   });
 });
 
-test('update-branch uses expected exact head and stops for a fresh CI run', async () => {
+test('update-branch uses expected exact head through the event-capable update credential and awaits fresh CI', async () => {
   const behind = snapshot();
   behind.pr.mergeable_state = 'behind';
   const changed = snapshot();
