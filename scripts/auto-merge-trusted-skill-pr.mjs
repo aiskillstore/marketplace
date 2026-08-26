@@ -12,6 +12,9 @@ const TRUSTED_WORKFLOWS = Object.freeze({
 const REQUIRED_CHECKS = Object.freeze(Object.keys(TRUSTED_WORKFLOWS));
 const SHA_RE = /^[0-9a-f]{40}$/;
 const SEGMENT_RE = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+const SOURCE_MONITOR_REF_RE = /^skill-source-monitor\/run-[1-9][0-9]*$/u;
+const SUBMISSION_ROUTE = 'submission';
+const SOURCE_MONITOR_ROUTE = 'source_monitor';
 
 export class AutoMergeBlockedError extends Error {
   constructor(message) {
@@ -62,12 +65,51 @@ function safePath(path) {
   return parts.every((part) => part.length > 0 && part !== '.' && part !== '..');
 }
 
-function rootForPath(path) {
+function rootForPath(path, topLevel = 'pending') {
   if (!safePath(path)) return null;
   const parts = path.split('/');
-  if (parts.length < 4 || parts[0] !== 'pending') return null;
+  if (parts.length < 4 || parts[0] !== topLevel) return null;
   if (!SEGMENT_RE.test(parts[1]) || !SEGMENT_RE.test(parts[2])) return null;
   return parts.slice(0, 3).join('/');
+}
+
+function publishedRootSyntax(root) {
+  if (!safePath(root)) return false;
+  const parts = root.split('/');
+  return parts[0] === 'skills'
+    && [2, 3].includes(parts.length)
+    && parts.slice(1).every((part) => SEGMENT_RE.test(part));
+}
+
+function publishedRootsFromTree(tree) {
+  const blobs = new Set((tree?.entries ?? [])
+    .filter((entry) => entry?.type === 'blob' && typeof entry.path === 'string')
+    .map((entry) => entry.path));
+  const roots = new Set();
+  for (const path of blobs) {
+    if (!path.endsWith('/skill-report.json')) continue;
+    const root = path.slice(0, -'/skill-report.json'.length);
+    if (publishedRootSyntax(root) && blobs.has(`${root}/SKILL.md`)) roots.add(root);
+  }
+  return [...roots].sort();
+}
+
+function publishedRootForPath(path, candidates) {
+  if (!safePath(path) || !Array.isArray(candidates)) return null;
+  const matches = candidates
+    .filter((root) => path === root || path.startsWith(`${root}/`))
+    .sort((first, second) => second.length - first.length);
+  return matches[0] ?? null;
+}
+
+function routeForPr(pr) {
+  const ref = pr?.head?.ref;
+  if (typeof ref === 'string' && ref.startsWith('submission/')) return SUBMISSION_ROUTE;
+  if (typeof ref === 'string' && ref.startsWith('skill-source-monitor/')) {
+    block(SOURCE_MONITOR_REF_RE.test(ref), 'PR head must use trusted source-monitor provenance');
+    return SOURCE_MONITOR_ROUTE;
+  }
+  throw new AutoMergeBlockedError('PR head must use trusted submission/ or source-monitor provenance');
 }
 
 export function latestStatusesByContext(statusHistory) {
@@ -92,7 +134,7 @@ function checkTerminal(check) {
   block(check.conclusion === 'success', `check ${name} concluded ${check.conclusion}`);
 }
 
-export function validateSnapshot(snapshot) {
+export function validateSnapshot(snapshot, { allowMerged = false } = {}) {
   block(snapshot && typeof snapshot === 'object', 'snapshot must be an object');
   const { repository, workflowRun, pr, files, checks, statuses, tree } = snapshot;
   block(repository?.full_name === TRUSTED_REPOSITORY, `repository must be ${TRUSTED_REPOSITORY}`);
@@ -124,57 +166,99 @@ export function validateSnapshot(snapshot) {
   block(Array.isArray(workflowRun.pull_requests) && workflowRun.pull_requests.length === 1, 'workflow run must bind exactly one PR');
 
   block(pr?.number === workflowRun.pull_requests[0]?.number, 'workflow run PR number does not match');
-  block(pr.state === 'open' && pr.draft === false && pr.merged !== true, 'PR must be open and non-draft');
+  if (allowMerged) {
+    block(pr.state === 'closed' && pr.merged === true && validSha(pr.merge_commit_sha), 'PR must be authoritatively merged');
+  } else {
+    block(pr.state === 'open' && pr.draft === false && pr.merged !== true, 'PR must be open and non-draft');
+  }
   block(pr.base?.ref === 'main', 'PR base must be main');
   block(sameRepository(pr.base?.repo, repository) && sameRepository(pr.head?.repo, repository), 'PR head and base must use the same repository');
   block(pr.user?.id === TRUSTED_BOT.id && pr.user?.login === TRUSTED_BOT.login && pr.user?.type === TRUSTED_BOT.type, 'PR author is not the trusted App identity');
-  block(typeof pr.head?.ref === 'string' && pr.head.ref.startsWith('submission/'), 'PR head must use trusted submission/ provenance');
+  const route = routeForPr(pr);
   block(validSha(pr.head?.sha) && validSha(pr.base?.sha), 'PR head and base SHA must be exact');
   block(workflowRun.head_sha === pr.head.sha, 'workflow run must bind the exact PR head');
-  block(Array.isArray(pr.labels) && pr.labels.some((label) => label?.name === 'pending-review'), 'PR must have pending-review');
-  block(pr.mergeable === true, 'PR is not mergeable');
-  block(['clean', 'behind'].includes(pr.mergeable_state), `PR mergeable_state is ${pr.mergeable_state ?? 'unknown'}`);
+  const labelNames = new Set((Array.isArray(pr.labels) ? pr.labels : []).map((label) => label?.name));
+  if (route === SUBMISSION_ROUTE) {
+    block(labelNames.has('pending-review'), 'PR must have pending-review');
+  } else {
+    block(labelNames.has('skill-source-monitor'), 'source-monitor PR must have skill-source-monitor label');
+    block(!labelNames.has('pending-review'), 'source-monitor PR must not have pending-review');
+  }
+  if (!allowMerged) {
+    block(pr.mergeable === true, 'PR is not mergeable');
+    block(['clean', 'behind'].includes(pr.mergeable_state), `PR mergeable_state is ${pr.mergeable_state ?? 'unknown'}`);
+  }
 
   block(Array.isArray(files) && files.length > 0, 'PR files are required');
   block(Number.isSafeInteger(pr.changed_files) && pr.changed_files === files.length, 'PR file pagination/count is incomplete');
+  block(tree?.truncated === false && Array.isArray(tree.entries), 'exact-head tree is truncated or missing');
   const seenFiles = new Set();
   const roots = new Set();
+  const topLevel = route === SUBMISSION_ROUTE ? 'pending' : 'skills';
+  const publishedRootCandidates = route === SOURCE_MONITOR_ROUTE ? publishedRootsFromTree(tree) : [];
   for (const file of files) {
-    block(file?.status === 'added' && file.previous_filename == null, `every Skill file must be newly added: ${file?.filename ?? '<unknown>'}`);
-    block(safePath(file.filename), 'PR contains an unsafe path');
+    block(safePath(file?.filename), 'PR contains an unsafe path');
     block(!seenFiles.has(file.filename), `duplicate PR file ${file.filename}`);
     seenFiles.add(file.filename);
-    const root = rootForPath(file.filename);
-    block(root !== null, 'PR must change only one pending Skill root');
+    if (route === SUBMISSION_ROUTE) {
+      block(file.status === 'added' && file.previous_filename == null, `every Skill file must be newly added: ${file.filename}`);
+    } else {
+      block(['added', 'modified', 'removed', 'changed'].includes(file.status) && file.previous_filename == null,
+        `unsupported source-monitor file status: ${file.status ?? 'missing'}`);
+    }
+    const root = route === SUBMISSION_ROUTE
+      ? rootForPath(file.filename, topLevel)
+      : publishedRootForPath(file.filename, publishedRootCandidates);
+    block(root !== null, `PR must change only ${topLevel === 'pending' ? 'pending' : 'published'} Skill roots`);
     roots.add(root);
   }
-  block(roots.size > 0, 'PR must change pending Skill roots');
+  block(roots.size > 0, `PR must change ${topLevel} Skill roots`);
   const rootList = [...roots].sort();
+  if (route === SOURCE_MONITOR_ROUTE) block(rootList.length <= 25, 'source-monitor PR exceeds the provider sync limit');
   for (const root of rootList) {
-    block(seenFiles.has(`${root}/SKILL.md`), 'Skill root is missing SKILL.md');
-    block(seenFiles.has(`${root}/skill-report.json`), 'Skill root is missing skill-report.json');
+    const skillFile = files.find((file) => file.filename === `${root}/SKILL.md`);
+    const reportFile = files.find((file) => file.filename === `${root}/skill-report.json`);
+    if (route === SUBMISSION_ROUTE) block(skillFile && skillFile.status !== 'removed', 'Skill root is missing SKILL.md');
+    block(reportFile && reportFile.status !== 'removed', 'Skill root is missing skill-report.json');
   }
-  block(snapshot.basePendingExists === false, 'pending root already exists on the base');
+  if (route === SUBMISSION_ROUTE) {
+    block(snapshot.basePendingExists === false, 'pending root already exists on the base');
+  } else {
+    block(snapshot.baseSkillRootsExist === true, 'source-monitor Skill roots must already exist on the base');
+  }
 
-  block(tree?.truncated === false && Array.isArray(tree.entries), 'exact-head tree is truncated or missing');
-  const treeFiles = new Set();
+  const treeByPath = new Map();
   for (const entry of tree.entries) {
     if (typeof entry?.path !== 'string' || !rootList.some((root) => entry.path === root || entry.path.startsWith(`${root}/`))) continue;
-    if (rootList.includes(entry.path) && entry.type === 'tree') continue;
     if (entry.type === 'tree') continue;
     block(entry.type === 'blob' && ['100644', '100755'].includes(entry.mode), 'Skill tree must contain ordinary blobs only');
-    treeFiles.add(entry.path);
+    treeByPath.set(entry.path, entry);
   }
-  block(treeFiles.size === seenFiles.size && [...seenFiles].every((path) => treeFiles.has(path)), 'PR files do not equal the exact-head Skill tree');
+  if (route === SUBMISSION_ROUTE) {
+    block(treeByPath.size === seenFiles.size && [...seenFiles].every((path) => treeByPath.has(path)), 'PR files do not equal the exact-head Skill tree');
+  } else {
+    for (const file of files) {
+      const entry = treeByPath.get(file.filename);
+      if (file.status === 'removed') {
+        block(entry == null, `removed source-monitor file remains on the exact PR head: ${file.filename}`);
+      } else {
+        block(entry?.sha === file.sha && validSha(file.sha), `source-monitor file is not bound to the exact PR head: ${file.filename}`);
+      }
+    }
+    for (const root of rootList) {
+      block(treeByPath.has(`${root}/SKILL.md`) && treeByPath.has(`${root}/skill-report.json`), 'source-monitor Skill root is incomplete on the exact PR head');
+    }
+  }
 
   block(Array.isArray(snapshot.reports) && snapshot.reports.length === rootList.length, 'exact-head skill reports are required');
   const reportsByPath = new Map(snapshot.reports.map((report) => [report?.path, report]));
   for (const root of rootList) {
     const reportPath = `${root}/skill-report.json`;
     const reportFile = files.find((file) => file.filename === reportPath);
-    const reportTreeEntry = tree.entries.find((entry) => entry.path === reportPath);
+    const reportTreeEntry = treeByPath.get(reportPath);
     const report = reportsByPath.get(reportPath);
-    block(report?.path === reportPath
+    block(reportFile?.status !== 'removed'
+      && report?.path === reportPath
       && validSha(report.sha)
       && report.sha === reportFile?.sha
       && report.sha === reportTreeEntry?.sha,
@@ -217,7 +301,10 @@ export function validateSnapshot(snapshot) {
   return {
     eligible: true,
     action: pr.mergeable_state === 'behind' ? 'update_branch' : 'merge',
-    classification: snapshot.publishedTargetExists === true ? 'UPDATE_SKILL' : 'NEW_SKILL',
+    classification: route === SOURCE_MONITOR_ROUTE
+      ? 'SOURCE_MONITOR_UPDATE'
+      : (snapshot.publishedTargetExists === true ? 'UPDATE_SKILL' : 'NEW_SKILL'),
+    postMergeAction: route === SOURCE_MONITOR_ROUTE ? 'provider_sync' : 'publication',
     prNumber: pr.number,
     headSha: pr.head.sha,
     baseSha: pr.base.sha,
@@ -227,7 +314,13 @@ export function validateSnapshot(snapshot) {
 }
 
 function samePlan(first, second) {
-  return first.prNumber === second.prNumber && first.headSha === second.headSha && first.baseSha === second.baseSha && first.root === second.root && first.classification === second.classification && first.action === second.action;
+  return first.prNumber === second.prNumber
+    && first.headSha === second.headSha
+    && first.baseSha === second.baseSha
+    && first.root === second.root
+    && first.classification === second.classification
+    && first.postMergeAction === second.postMergeAction
+    && first.action === second.action;
 }
 
 function mergedReadback(pr, plan) {
@@ -255,6 +348,15 @@ function definiteMutationRejection(error) {
 export async function runAutoMerge(api, { workflowRunId }) {
   const firstSnapshot = await buildStableSnapshot(api, workflowRunId);
   if (firstSnapshot?.pr?.merged === true && firstSnapshot.pr.state === 'closed' && firstSnapshot.pr.head?.sha === firstSnapshot.workflowRun?.head_sha) {
+    if (SOURCE_MONITOR_REF_RE.test(firstSnapshot.pr.head?.ref ?? '')) {
+      const merged = validateSnapshot(firstSnapshot, { allowMerged: true });
+      try {
+        await api.dispatchProviderSync(merged.prNumber, merged.headSha, merged.roots);
+      } catch {
+        throw new AutoMergeUnknownEffectError(`merge is confirmed but provider sync reconciliation is unknown for PR #${merged.prNumber}`);
+      }
+      return { outcome: 'ALREADY_MERGED_AND_PROVIDER_SYNC_CONFIRMED', prNumber: merged.prNumber, headSha: merged.headSha, mergeCommitSha: firstSnapshot.pr.merge_commit_sha, classification: merged.classification };
+    }
     return { outcome: 'ALREADY_MERGED', prNumber: firstSnapshot.pr.number, headSha: firstSnapshot.pr.head.sha, mergeCommitSha: firstSnapshot.pr.merge_commit_sha };
   }
   const first = validateSnapshot(firstSnapshot);
@@ -307,6 +409,14 @@ export async function runAutoMerge(api, { workflowRunId }) {
     throw new AutoMergeUnknownEffectError(`merge effect is unknown for PR #${second.prNumber}`);
   }
   if (mergedReadback(readback, second)) {
+    if (second.postMergeAction === 'provider_sync') {
+      try {
+        await api.dispatchProviderSync(second.prNumber, second.headSha, second.roots);
+      } catch {
+        throw new AutoMergeUnknownEffectError(`merge is confirmed but provider sync dispatch is unknown for PR #${second.prNumber}`);
+      }
+      return { outcome: 'MERGED_AND_PROVIDER_SYNC_DISPATCHED', prNumber: second.prNumber, headSha: second.headSha, mergeCommitSha: readback.merge_commit_sha, classification: second.classification };
+    }
     try {
       await api.dispatchPublication(second.prNumber);
     } catch {
@@ -457,7 +567,11 @@ export class GitHubApi {
     const statusHistory = await this.paginate(`/commits/${headSha}/statuses`);
     const latestStatuses = latestStatusesByContext(statusHistory);
     const tree = await this.request(`/git/trees/${headSha}?recursive=1`);
-    const roots = [...new Set(files.map((file) => rootForPath(file.filename)).filter(Boolean))].sort();
+    const topLevel = SOURCE_MONITOR_REF_RE.test(pr.head?.ref ?? '') ? 'skills' : 'pending';
+    const publishedRootCandidates = topLevel === 'skills' ? publishedRootsFromTree({ entries: tree.tree ?? [] }) : [];
+    const roots = [...new Set(files.map((file) => topLevel === 'pending'
+      ? rootForPath(file.filename, topLevel)
+      : publishedRootForPath(file.filename, publishedRootCandidates)).filter(Boolean))].sort();
     const reports = await Promise.all(roots.map(async (root) => {
       const reportPath = `${root}/skill-report.json`;
       const reportBlob = await this.request(`/contents/${encodeContentPath(reportPath)}?ref=${encodeURIComponent(headSha)}`);
@@ -466,9 +580,12 @@ export class GitHubApi {
     }));
     const baseSha = pr.base?.sha;
     block(validSha(baseSha), 'PR base SHA is invalid');
-    const basePendingEvidence = await Promise.all(roots.map((root) => this.existsAt(root, baseSha)));
-    const publishedEvidence = await Promise.all(roots.map((root) => this.existsAt(`skills/${root.slice('pending/'.length)}`, baseSha)));
-    const basePendingExists = basePendingEvidence.some(Boolean);
+    const baseRootEvidence = await Promise.all(roots.map((root) => this.existsAt(root, baseSha)));
+    const publishedEvidence = topLevel === 'pending'
+      ? await Promise.all(roots.map((root) => this.existsAt(`skills/${root.slice('pending/'.length)}`, baseSha)))
+      : baseRootEvidence;
+    const basePendingExists = topLevel === 'pending' && baseRootEvidence.some(Boolean);
+    const baseSkillRootsExist = topLevel === 'skills' && roots.length > 0 && baseRootEvidence.every(Boolean);
     const publishedTargetExists = publishedEvidence.some(Boolean);
     return {
       repository: { id: repository.id, full_name: repository.full_name, default_branch: repository.default_branch },
@@ -509,6 +626,7 @@ export class GitHubApi {
       tree: { truncated: tree.truncated, entries: (tree.tree ?? []).map((entry) => ({ path: entry.path, type: entry.type, mode: entry.mode, sha: entry.sha })) },
       reports,
       basePendingExists,
+      baseSkillRootsExist,
       publishedTargetExists,
     };
   }
@@ -530,6 +648,48 @@ export class GitHubApi {
       method: 'POST',
       body: { ref: 'main', inputs: { pr_number: String(number) } },
     });
+  }
+
+  async findProviderSyncRun(correlationTitle) {
+    for (let page = 1; page <= 30; page += 1) {
+      const result = await this.request(`/actions/workflows/sync-to-supabase.yml/runs?event=workflow_dispatch&per_page=100&page=${page}`);
+      block(Array.isArray(result?.workflow_runs), 'provider sync workflow run evidence is invalid');
+      const match = result.workflow_runs.find((run) => run?.display_title === correlationTitle
+        && run?.head_branch === 'main'
+        && run?.head_repository?.full_name === this.repository);
+      if (match) return match;
+      if (result.workflow_runs.length < 100) return undefined;
+    }
+    throw new AutoMergeBlockedError('provider sync workflow run search exceeded the bounded limit');
+  }
+
+  async dispatchProviderSync(prNumber, headSha, roots) {
+    block(Number.isSafeInteger(prNumber) && prNumber > 0, 'provider sync PR number is invalid');
+    block(validSha(headSha), 'provider sync head SHA is invalid');
+    block(Array.isArray(roots) && roots.length > 0 && roots.length <= 25, 'provider sync roots are required');
+    const slugs = roots.map((root) => {
+      block(publishedRootSyntax(root), `invalid provider sync root: ${root}`);
+      return root.slice('skills/'.length);
+    });
+    const correlationId = `source-monitor-pr-${prNumber}-${headSha}`;
+    const correlationTitle = `Provider sync ${correlationId}`;
+    if (await this.findProviderSyncRun(correlationTitle)) return { outcome: 'PROVIDER_SYNC_ALREADY_DISPATCHED' };
+
+    let mutationError;
+    try {
+      await this.request('/actions/workflows/sync-to-supabase.yml/dispatches', {
+        method: 'POST',
+        body: { ref: 'main', inputs: { slugs: slugs.join(' '), correlation_id: correlationId } },
+      });
+    } catch (error) {
+      mutationError = error;
+    }
+    for (let attempt = 0; attempt < 12; attempt += 1) {
+      if (await this.findProviderSyncRun(correlationTitle)) return { outcome: 'PROVIDER_SYNC_DISPATCH_CONFIRMED' };
+      if (attempt < 11) await this.sleep(5_000);
+    }
+    if (mutationError && definiteMutationRejection(mutationError)) throw new AutoMergeBlockedError(`provider sync dispatch rejected with HTTP ${mutationError.status}`);
+    throw new AutoMergeUnknownEffectError(`provider sync dispatch effect is unknown for PR #${prNumber}`);
   }
 }
 

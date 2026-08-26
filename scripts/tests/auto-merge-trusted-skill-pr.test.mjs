@@ -3,6 +3,7 @@ import { test } from 'node:test';
 import {
   AutoMergeBlockedError,
   AutoMergeUnknownEffectError,
+  GitHubApi,
   latestStatusesByContext,
   runAutoMerge,
   validateSnapshot,
@@ -12,6 +13,7 @@ const REPO = { id: 9001, full_name: 'aiskillstore/marketplace', default_branch: 
 const HEAD = 'a'.repeat(40);
 const BASE = 'b'.repeat(40);
 const ROOT = 'pending/example/skill';
+const SOURCE_ROOT = 'skills/example/skill';
 
 function snapshot(overrides = {}) {
   const value = {
@@ -79,8 +81,26 @@ function snapshot(overrides = {}) {
       sha: '2'.repeat(40),
     }],
     basePendingExists: false,
+    baseSkillRootsExist: false,
     publishedTargetExists: false,
   };
+  return structuredClone(Object.assign(value, overrides));
+}
+
+function sourceMonitorSnapshot(overrides = {}) {
+  const value = snapshot({ baseSkillRootsExist: true, publishedTargetExists: true });
+  value.pr.head.ref = 'skill-source-monitor/run-32942863771';
+  value.pr.labels = [{ name: 'skill-source-monitor' }];
+  value.files = [
+    { filename: `${SOURCE_ROOT}/SKILL.md`, status: 'modified', sha: '3'.repeat(40) },
+    { filename: `${SOURCE_ROOT}/skill-report.json`, status: 'modified', sha: '4'.repeat(40) },
+  ];
+  value.tree.entries = [
+    { path: `${SOURCE_ROOT}/SKILL.md`, type: 'blob', mode: '100644', sha: '3'.repeat(40) },
+    { path: `${SOURCE_ROOT}/skill-report.json`, type: 'blob', mode: '100644', sha: '4'.repeat(40) },
+    { path: `${SOURCE_ROOT}/references/unchanged.md`, type: 'blob', mode: '100644', sha: '5'.repeat(40) },
+  ];
+  value.reports = [{ path: `${SOURCE_ROOT}/skill-report.json`, sha: '4'.repeat(40) }];
   return structuredClone(Object.assign(value, overrides));
 }
 
@@ -97,6 +117,7 @@ test('qualifies one exact trusted NEW_SKILL root for ordinary merge', () => {
     eligible: true,
     action: 'merge',
     classification: 'NEW_SKILL',
+    postMergeAction: 'publication',
     prNumber: 42,
     headSha: HEAD,
     baseSha: BASE,
@@ -112,12 +133,76 @@ test('qualifies UPDATE_SKILL and requests only standard update-branch when behin
   assert.equal(validateSnapshot(value).action, 'update_branch');
 });
 
+test('qualifies an exact trusted source-monitor update and routes its post-merge sync', () => {
+  assert.deepEqual(validateSnapshot(sourceMonitorSnapshot()), {
+    eligible: true,
+    action: 'merge',
+    classification: 'SOURCE_MONITOR_UPDATE',
+    postMergeAction: 'provider_sync',
+    prNumber: 42,
+    headSha: HEAD,
+    baseSha: BASE,
+    root: SOURCE_ROOT,
+    roots: [SOURCE_ROOT],
+  });
+});
+
+test('source-monitor accepts a canonical flat published Skill root', () => {
+  const value = sourceMonitorSnapshot();
+  const flatRoot = 'skills/flat-skill';
+  const rewrite = (path) => path.replace(SOURCE_ROOT, flatRoot);
+  value.files = value.files.map((file) => ({ ...file, filename: rewrite(file.filename) }));
+  value.tree.entries = value.tree.entries.map((entry) => ({ ...entry, path: rewrite(entry.path) }));
+  value.reports = value.reports.map((report) => ({ ...report, path: rewrite(report.path) }));
+  assert.deepEqual(validateSnapshot(value).roots, [flatRoot]);
+});
+
+test('source-monitor accepts auxiliary-only changes when exact-head SKILL.md and changed report remain bound', () => {
+  const value = sourceMonitorSnapshot();
+  value.files = value.files.filter((file) => file.filename !== `${SOURCE_ROOT}/SKILL.md`);
+  value.pr.changed_files = value.files.length;
+  assert.equal(validateSnapshot(value).classification, 'SOURCE_MONITOR_UPDATE');
+});
+
+test('source-monitor route fails closed on branch, label, published scope and exact-head binding', () => {
+  const cases = [
+    [() => { const v = sourceMonitorSnapshot(); v.pr.head.ref = 'skill-source-monitor/manual'; return v; }, /trusted source-monitor provenance/],
+    [() => { const v = sourceMonitorSnapshot(); v.pr.labels = [{ name: 'pending-review' }]; return v; }, /skill-source-monitor label/],
+    [() => { const v = sourceMonitorSnapshot(); v.pr.labels.push({ name: 'pending-review' }); return v; }, /must not have pending-review/],
+    [() => { const v = sourceMonitorSnapshot(); v.files.push({ filename: 'scripts/injected.mjs', status: 'modified', sha: '6'.repeat(40) }); v.pr.changed_files = 3; return v; }, /published Skill root/],
+    [() => { const v = sourceMonitorSnapshot(); v.files[0].status = 'renamed'; v.files[0].previous_filename = 'skills/example/old/SKILL.md'; return v; }, /unsupported source-monitor file status/],
+    [() => { const v = sourceMonitorSnapshot(); v.files[1].status = 'removed'; return v; }, /skill-report\.json/],
+    [() => { const v = sourceMonitorSnapshot(); v.baseSkillRootsExist = false; return v; }, /must already exist on the base/],
+    [() => { const v = sourceMonitorSnapshot(); v.files[0].sha = '6'.repeat(40); return v; }, /exact PR head/],
+    [() => {
+      const v = sourceMonitorSnapshot();
+      for (let index = 2; index <= 26; index += 1) {
+        const root = `skills/example/skill-${index}`;
+        const skillSha = index.toString(16).padStart(40, '0');
+        const reportSha = (index + 100).toString(16).padStart(40, '0');
+        v.files.push(
+          { filename: `${root}/SKILL.md`, status: 'modified', sha: skillSha },
+          { filename: `${root}/skill-report.json`, status: 'modified', sha: reportSha },
+        );
+        v.tree.entries.push(
+          { path: `${root}/SKILL.md`, type: 'blob', mode: '100644', sha: skillSha },
+          { path: `${root}/skill-report.json`, type: 'blob', mode: '100644', sha: reportSha },
+        );
+        v.reports.push({ path: `${root}/skill-report.json`, sha: reportSha });
+      }
+      v.pr.changed_files = v.files.length;
+      return v;
+    }, /provider sync limit/],
+  ];
+  for (const [build, pattern] of cases) expectBlocked(build(), pattern);
+});
+
 test('fails closed on identity, provenance, scope, label, state and exact-head drift', () => {
   const cases = [
     [() => { const v = snapshot(); v.pr.user.id = 7; return v; }, /trusted App identity/],
     [() => { const v = snapshot(); v.pr.user.login = 'ai-skill-store'; return v; }, /trusted App identity/],
     [() => { const v = snapshot(); v.pr.head.repo.id = 7; return v; }, /same repository/],
-    [() => { const v = snapshot(); v.pr.head.ref = 'skill-source-monitor/x'; return v; }, /submission\//],
+    [() => { const v = snapshot(); v.pr.head.ref = 'feature/x'; return v; }, /submission\/ or source-monitor/],
     [() => { const v = snapshot(); v.pr.draft = true; return v; }, /open and non-draft/],
     [() => { const v = snapshot(); v.pr.labels = []; return v; }, /pending-review/],
     [() => { const v = snapshot(); v.workflowRun.head_sha = 'c'.repeat(40); return v; }, /exact PR head/],
@@ -214,6 +299,9 @@ function fakeApi(sequence) {
     async dispatchPublication(number) {
       calls.push(['dispatch-publication', number]);
     },
+    async dispatchProviderSync(...args) {
+      calls.push(['dispatch-provider-sync', ...args]);
+    },
   };
 }
 
@@ -298,6 +386,164 @@ test('an accepted but unconfirmed asynchronous update is UNKNOWN and is never re
   const api = fakeApi([behind, behind, ...Array.from({ length: 12 }, () => behind.pr)]);
   await assert.rejects(() => runAutoMerge(api, { workflowRunId: 123 }), AutoMergeUnknownEffectError);
   assert.equal(api.calls.filter(([kind]) => kind === 'update').length, 1);
+});
+
+test('source-monitor merge dispatches exact changed Skill roots to provider sync without publication recovery', async () => {
+  const merged = sourceMonitorSnapshot();
+  merged.pr.state = 'closed';
+  merged.pr.merged = true;
+  merged.pr.merge_commit_sha = 'd'.repeat(40);
+  const api = fakeApi([sourceMonitorSnapshot(), sourceMonitorSnapshot(), merged.pr]);
+  const result = await runAutoMerge(api, { workflowRunId: 123 });
+  assert.deepEqual(api.calls, [
+    ['merge', 42, HEAD, 'merge'],
+    ['dispatch-provider-sync', 42, HEAD, [SOURCE_ROOT]],
+  ]);
+  assert.deepEqual(result, {
+    outcome: 'MERGED_AND_PROVIDER_SYNC_DISPATCHED',
+    prNumber: 42,
+    headSha: HEAD,
+    mergeCommitSha: 'd'.repeat(40),
+    classification: 'SOURCE_MONITOR_UPDATE',
+  });
+});
+
+test('provider sync dispatch binds canonical source-monitor roots and idempotency key to exact manual slugs', async () => {
+  const originalFetch = globalThis.fetch;
+  const observed = [];
+  let dispatched = false;
+  globalThis.fetch = async (url, options) => {
+    observed.push({ url: String(url), options });
+    if ((options?.method ?? 'GET') === 'POST') {
+      dispatched = true;
+      return new Response(null, { status: 204 });
+    }
+    return Response.json({ workflow_runs: dispatched ? [{
+      display_title: `Provider sync source-monitor-pr-42-${HEAD}`,
+      head_branch: 'main',
+      head_repository: { full_name: REPO.full_name },
+    }] : [] });
+  };
+  try {
+    const api = new GitHubApi({
+      token: 'test-token',
+      updateToken: 'test-update-token',
+      repository: REPO.full_name,
+      currentRunId: 999,
+    });
+    await api.dispatchProviderSync(42, HEAD, [SOURCE_ROOT, 'skills/flat-skill']);
+    const post = observed.find(({ options }) => options?.method === 'POST');
+    assert.ok(post);
+    assert.equal(post.url, 'https://api.github.com/repos/aiskillstore/marketplace/actions/workflows/sync-to-supabase.yml/dispatches');
+    assert.deepEqual(JSON.parse(post.options.body), {
+      ref: 'main',
+      inputs: {
+        slugs: 'example/skill flat-skill',
+        correlation_id: `source-monitor-pr-42-${HEAD}`,
+      },
+    });
+    assert.ok(observed.some(({ url, options }) => (options?.method ?? 'GET') === 'GET'
+      && url.includes('/actions/workflows/sync-to-supabase.yml/runs?event=workflow_dispatch')));
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('provider sync reconciliation does not redispatch an existing exact correlation', async () => {
+  const originalFetch = globalThis.fetch;
+  const observed = [];
+  globalThis.fetch = async (url, options) => {
+    observed.push({ url: String(url), options });
+    return Response.json({ workflow_runs: [{
+      display_title: `Provider sync source-monitor-pr-42-${HEAD}`,
+      head_branch: 'main',
+      head_repository: { full_name: REPO.full_name },
+    }] });
+  };
+  try {
+    const api = new GitHubApi({ token: 'test-token', updateToken: 'test-update-token', repository: REPO.full_name, currentRunId: 999 });
+    await api.dispatchProviderSync(42, HEAD, [SOURCE_ROOT]);
+    assert.equal(observed.filter(({ options }) => options?.method === 'POST').length, 0);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('provider sync reconciliation finds an exact correlation on a later bounded page', async () => {
+  const originalFetch = globalThis.fetch;
+  const observed = [];
+  globalThis.fetch = async (url, options) => {
+    observed.push({ url: String(url), options });
+    const page = Number(new URL(String(url)).searchParams.get('page'));
+    if (page === 1) {
+      return Response.json({ workflow_runs: Array.from({ length: 100 }, (_, index) => ({
+        display_title: `unrelated-${index}`,
+        head_branch: 'main',
+        head_repository: { full_name: REPO.full_name },
+      })) });
+    }
+    return Response.json({ workflow_runs: [{
+      display_title: `Provider sync source-monitor-pr-42-${HEAD}`,
+      head_branch: 'main',
+      head_repository: { full_name: REPO.full_name },
+    }] });
+  };
+  try {
+    const api = new GitHubApi({ token: 'test-token', updateToken: 'test-update-token', repository: REPO.full_name, currentRunId: 999 });
+    await api.dispatchProviderSync(42, HEAD, [SOURCE_ROOT]);
+    assert.equal(observed.filter(({ options }) => options?.method === 'POST').length, 0);
+    assert.ok(observed.some(({ url }) => new URL(url).searchParams.get('page') === '2'));
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('provider sync reconciliation fails closed after bounded pagination without redispatch', async () => {
+  const originalFetch = globalThis.fetch;
+  const observed = [];
+  globalThis.fetch = async (url, options) => {
+    observed.push({ url: String(url), options });
+    return Response.json({ workflow_runs: Array.from({ length: 100 }, (_, index) => ({
+      display_title: `unrelated-${index}`,
+      head_branch: 'main',
+      head_repository: { full_name: REPO.full_name },
+    })) });
+  };
+  try {
+    const api = new GitHubApi({ token: 'test-token', updateToken: 'test-update-token', repository: REPO.full_name, currentRunId: 999 });
+    await assert.rejects(() => api.dispatchProviderSync(42, HEAD, [SOURCE_ROOT]), /bounded limit/);
+    assert.equal(observed.filter(({ options }) => options?.method === 'POST').length, 0);
+    assert.equal(observed.length, 30);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('a rerun reconciles provider sync for an already merged source-monitor PR', async () => {
+  const merged = sourceMonitorSnapshot();
+  merged.pr.state = 'closed';
+  merged.pr.merged = true;
+  merged.pr.merge_commit_sha = 'd'.repeat(40);
+  const api = fakeApi([merged]);
+  const result = await runAutoMerge(api, { workflowRunId: 123 });
+  assert.deepEqual(api.calls, [['dispatch-provider-sync', 42, HEAD, [SOURCE_ROOT]]]);
+  assert.equal(result.outcome, 'ALREADY_MERGED_AND_PROVIDER_SYNC_CONFIRMED');
+});
+
+test('confirmed source-monitor merge with failed provider sync dispatch is UNKNOWN and is never repeated', async () => {
+  const merged = sourceMonitorSnapshot();
+  merged.pr.state = 'closed';
+  merged.pr.merged = true;
+  merged.pr.merge_commit_sha = 'd'.repeat(40);
+  const api = fakeApi([sourceMonitorSnapshot(), sourceMonitorSnapshot(), merged.pr]);
+  api.dispatchProviderSync = async (...args) => {
+    api.calls.push(['dispatch-provider-sync', ...args]);
+    throw new TypeError('dispatch response lost');
+  };
+  await assert.rejects(() => runAutoMerge(api, { workflowRunId: 123 }), AutoMergeUnknownEffectError);
+  assert.equal(api.calls.filter(([kind]) => kind === 'merge').length, 1);
+  assert.equal(api.calls.filter(([kind]) => kind === 'dispatch-provider-sync').length, 1);
+  assert.equal(api.calls.filter(([kind]) => kind === 'dispatch-publication').length, 0);
 });
 
 test('confirmed merge with failed publication dispatch is UNKNOWN and is never repeated', async () => {
