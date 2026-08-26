@@ -148,32 +148,38 @@ export function validateSnapshot(snapshot) {
     block(root !== null, 'PR must change only one pending Skill root');
     roots.add(root);
   }
-  block(roots.size === 1, 'PR must change only one pending Skill root');
-  const [root] = roots;
-  block(seenFiles.has(`${root}/SKILL.md`), 'Skill root is missing SKILL.md');
-  block(seenFiles.has(`${root}/skill-report.json`), 'Skill root is missing skill-report.json');
+  block(roots.size > 0, 'PR must change pending Skill roots');
+  const rootList = [...roots].sort();
+  for (const root of rootList) {
+    block(seenFiles.has(`${root}/SKILL.md`), 'Skill root is missing SKILL.md');
+    block(seenFiles.has(`${root}/skill-report.json`), 'Skill root is missing skill-report.json');
+  }
   block(snapshot.basePendingExists === false, 'pending root already exists on the base');
 
   block(tree?.truncated === false && Array.isArray(tree.entries), 'exact-head tree is truncated or missing');
   const treeFiles = new Set();
   for (const entry of tree.entries) {
-    if (typeof entry?.path !== 'string' || (entry.path !== root && !entry.path.startsWith(`${root}/`))) continue;
-    if (entry.path === root && entry.type === 'tree') continue;
+    if (typeof entry?.path !== 'string' || !rootList.some((root) => entry.path === root || entry.path.startsWith(`${root}/`))) continue;
+    if (rootList.includes(entry.path) && entry.type === 'tree') continue;
     if (entry.type === 'tree') continue;
     block(entry.type === 'blob' && ['100644', '100755'].includes(entry.mode), 'Skill tree must contain ordinary blobs only');
     treeFiles.add(entry.path);
   }
   block(treeFiles.size === seenFiles.size && [...seenFiles].every((path) => treeFiles.has(path)), 'PR files do not equal the exact-head Skill tree');
 
-  const reportPath = `${root}/skill-report.json`;
-  const reportFile = files.find((file) => file.filename === reportPath);
-  const reportTreeEntry = tree.entries.find((entry) => entry.path === reportPath);
-  const report = snapshot.report;
-  block(report?.path === reportPath
-    && validSha(report.sha)
-    && report.sha === reportFile?.sha
-    && report.sha === reportTreeEntry?.sha,
-  'security report is not bound to the exact PR head');
+  block(Array.isArray(snapshot.reports) && snapshot.reports.length === rootList.length, 'exact-head skill reports are required');
+  const reportsByPath = new Map(snapshot.reports.map((report) => [report?.path, report]));
+  for (const root of rootList) {
+    const reportPath = `${root}/skill-report.json`;
+    const reportFile = files.find((file) => file.filename === reportPath);
+    const reportTreeEntry = tree.entries.find((entry) => entry.path === reportPath);
+    const report = reportsByPath.get(reportPath);
+    block(report?.path === reportPath
+      && validSha(report.sha)
+      && report.sha === reportFile?.sha
+      && report.sha === reportTreeEntry?.sha,
+    'skill report is not bound to the exact PR head');
+  }
 
   block(Array.isArray(checks) && checks.length > 0, 'exact-head checks are required');
   const checkNames = new Set();
@@ -215,7 +221,8 @@ export function validateSnapshot(snapshot) {
     prNumber: pr.number,
     headSha: pr.head.sha,
     baseSha: pr.base.sha,
-    root,
+    root: rootList.join(','),
+    roots: rootList,
   };
 }
 
@@ -450,18 +457,19 @@ export class GitHubApi {
     const statusHistory = await this.paginate(`/commits/${headSha}/statuses`);
     const latestStatuses = latestStatusesByContext(statusHistory);
     const tree = await this.request(`/git/trees/${headSha}?recursive=1`);
-    const roots = new Set(files.map((file) => rootForPath(file.filename)).filter(Boolean));
-    const root = roots.size === 1 ? [...roots][0] : 'pending/invalid/invalid';
-    const published = `skills/${root.slice('pending/'.length)}`;
-    const reportPath = `${root}/skill-report.json`;
-    const reportBlob = await this.request(`/contents/${encodeContentPath(reportPath)}?ref=${encodeURIComponent(headSha)}`);
-    block(reportBlob?.type === 'file' && validSha(reportBlob.sha), 'exact-head skill report is unavailable');
+    const roots = [...new Set(files.map((file) => rootForPath(file.filename)).filter(Boolean))].sort();
+    const reports = await Promise.all(roots.map(async (root) => {
+      const reportPath = `${root}/skill-report.json`;
+      const reportBlob = await this.request(`/contents/${encodeContentPath(reportPath)}?ref=${encodeURIComponent(headSha)}`);
+      block(reportBlob?.type === 'file' && validSha(reportBlob.sha), `exact-head skill report is unavailable: ${reportPath}`);
+      return { path: reportPath, sha: reportBlob.sha };
+    }));
     const baseSha = pr.base?.sha;
     block(validSha(baseSha), 'PR base SHA is invalid');
-    const [basePendingExists, publishedTargetExists] = await Promise.all([
-      this.existsAt(root, baseSha),
-      this.existsAt(published, baseSha),
-    ]);
+    const basePendingEvidence = await Promise.all(roots.map((root) => this.existsAt(root, baseSha)));
+    const publishedEvidence = await Promise.all(roots.map((root) => this.existsAt(`skills/${root.slice('pending/'.length)}`, baseSha)));
+    const basePendingExists = basePendingEvidence.some(Boolean);
+    const publishedTargetExists = publishedEvidence.some(Boolean);
     return {
       repository: { id: repository.id, full_name: repository.full_name, default_branch: repository.default_branch },
       repositoryRules,
@@ -499,10 +507,7 @@ export class GitHubApi {
       })),
       statuses: latestStatuses.map((status) => ({ context: status.context, state: status.state })),
       tree: { truncated: tree.truncated, entries: (tree.tree ?? []).map((entry) => ({ path: entry.path, type: entry.type, mode: entry.mode, sha: entry.sha })) },
-      report: {
-        path: reportPath,
-        sha: reportBlob.sha,
-      },
+      reports,
       basePendingExists,
       publishedTargetExists,
     };
