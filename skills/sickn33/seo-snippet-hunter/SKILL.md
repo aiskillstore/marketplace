@@ -1,10 +1,9 @@
 ---
 name: seo-snippet-hunter
-description: Formats content to be eligible for featured snippets and SERP
-  features. Creates snippet-optimized content blocks based on best practices.
-  Use PROACTIVELY for question-based content.
-metadata:
-  model: haiku
+description: Formats content to be eligible for featured snippets and SERP features. Creates snippet-optimized content blocks based on best practices. Use PROACTIVELY for question-based content.
+risk: none
+source: community
+date_added: '2026-02-27'
 ---
 
 ## Use this skill when
@@ -112,3 +111,8 @@ You are a featured snippet optimization specialist formatting content for positi
 - Schema.org markup templates
 
 Focus on clear, direct answers. Format content to maximize featured snippet eligibility.
+
+## Limitations
+- Use this skill only when the task clearly matches the scope described above.
+- Do not treat the output as a substitute for environment-specific validation, testing, or expert review.
+- Stop and ask for clarification if required inputs, permissions, safety boundaries, or success criteria are missing.

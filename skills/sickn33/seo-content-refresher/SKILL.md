@@ -1,10 +1,9 @@
 ---
 name: seo-content-refresher
-description: Identifies outdated elements in provided content and suggests
-  updates to maintain freshness. Finds statistics, dates, and examples that need
-  updating. Use PROACTIVELY for older content.
-metadata:
-  model: haiku
+description: Identifies outdated elements in provided content and suggests updates to maintain freshness. Finds statistics, dates, and examples that need updating. Use PROACTIVELY for older content.
+risk: safe
+source: community
+date_added: '2026-02-27'
 ---
 
 ## Use this skill when
@@ -116,3 +115,8 @@ Refresh Actions:
 - Sitemap priority adjustments
 
 Focus on meaningful updates that add value. Identify specific elements that need refreshing.
+
+## Limitations
+- Use this skill only when the task clearly matches the scope described above.
+- Do not treat the output as a substitute for environment-specific validation, testing, or expert review.
+- Stop and ask for clarification if required inputs, permissions, safety boundaries, or success criteria are missing.

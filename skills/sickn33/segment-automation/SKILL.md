@@ -1,8 +1,9 @@
 ---
 name: segment-automation
 description: "Automate Segment tasks via Rube MCP (Composio): track events, identify users, manage groups, page views, aliases, batch operations. Always search tools first for current schemas."
-requires:
-  mcp: [rube]
+risk: critical
+source: community
+date_added: "2026-02-27"
 ---
 
 # Segment Automation via Rube MCP
@@ -223,3 +224,11 @@ Segment recommends consistent event naming:
 | Source schema | SEGMENT_LIST_SCHEMA_SETTINGS_IN_SOURCE | sourceId |
 | Update source | SEGMENT_UPDATE_SOURCE | sourceId |
 | Warehouses | SEGMENT_LIST_CONNECTED_WAREHOUSES_FROM_SOURCE | sourceId |
+
+## When to Use
+This skill is applicable to execute the workflow or actions described in the overview.
+
+## Limitations
+- Use this skill only when the task clearly matches the scope described above.
+- Do not treat the output as a substitute for environment-specific validation, testing, or expert review.
+- Stop and ask for clarification if required inputs, permissions, safety boundaries, or success criteria are missing.

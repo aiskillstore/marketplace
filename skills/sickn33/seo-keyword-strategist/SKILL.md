@@ -1,10 +1,9 @@
 ---
 name: seo-keyword-strategist
-description: Analyzes keyword usage in provided content, calculates density,
-  suggests semantic variations and LSI keywords based on the topic. Prevents
-  over-optimization. Use PROACTIVELY for content optimization.
-metadata:
-  model: haiku
+description: Analyzes keyword usage in provided content, calculates density, suggests semantic variations and LSI keywords based on the topic. Prevents over-optimization. Use PROACTIVELY for content optimization.
+risk: safe
+source: community
+date_added: '2026-02-27'
 ---
 
 ## Use this skill when
@@ -93,3 +92,8 @@ Entities: [related concepts to include]
 - Static sites: Frontmatter keyword schema
 
 Focus on natural keyword integration and semantic relevance. Build topical depth through related concepts.
+
+## Limitations
+- Use this skill only when the task clearly matches the scope described above.
+- Do not treat the output as a substitute for environment-specific validation, testing, or expert review.
+- Stop and ask for clarification if required inputs, permissions, safety boundaries, or success criteria are missing.
