@@ -140,6 +140,7 @@ test('incremental detection subtracts only verified successful manual recovery a
   const lastSync = section(workflow, '      - name: Find last successful sync commit', '      - name: Detect changed skills');
   const detect = section(workflow, '      - name: Detect changed skills', '      - name: Download skillstore-cli');
 
+  assert.match(lastSync, /if: inputs\.slugs == ''/);
   assert.match(lastSync, /status=success&event=push/);
   assert.doesNotMatch(lastSync, /status=success&event=workflow_dispatch/);
   assert.match(lastSync, /set -euo pipefail/);
@@ -153,6 +154,23 @@ test('incremental detection subtracts only verified successful manual recovery a
   assert.match(detect, /--recoveries "\$RECOVERIES_FILE"/);
   assert.match(detect, /MAX_RECOVERY_RUNS=100/);
   assert.match(workflow, /retention-days: 30/);
+});
+
+test('manual slug sync carries an optional exact correlation without requiring an incremental baseline', () => {
+  const workflow = readFileSync(WORKFLOW, 'utf8');
+  assert.match(workflow, /correlation_id:/);
+  assert.match(workflow, /format\('Provider sync \{0\}', inputs\.correlation_id\)/);
+  const lastSync = section(workflow, '      - name: Find last successful sync commit', '      - name: Detect changed skills');
+  assert.match(lastSync, /if: inputs\.slugs == ''/);
+  const correlation = section(workflow, '      - name: Validate trusted sync correlation', '      - name: Generate GitHub App Token');
+  assert.match(correlation, /\^source-monitor-pr-\[1-9\]\[0-9\]\*-\[0-9a-f\]\{40\}\$/);
+  assert.match(correlation, /"\$EVENT_NAME" != 'workflow_dispatch'/);
+  assert.match(correlation, /"\$GIT_REF" != 'refs\/heads\/main'/);
+  const detect = section(workflow, '      - name: Detect changed skills', '      - name: Download skillstore-cli');
+  assert.match(detect, /if \[ -n "\$INPUT_SLUGS" \]/);
+  assert.ok(detect.indexOf('Specific slugs requested') < detect.indexOf('Comparing HEAD against'));
+  const callbacks = section(workflow, '      - name: Resolve published submissions', '      - name: Upload synced slugs artifact');
+  assert.match(callbacks, /!startsWith\(inputs\.correlation_id, 'source-monitor-pr-'\)/);
 });
 
 test('manual recovery resolves its original submission and fails closed on callback errors', () => {
