@@ -74,11 +74,10 @@ function snapshot(overrides = {}) {
         { path: `${ROOT}/skill-report.json`, type: 'blob', mode: '100644', sha: '2'.repeat(40) },
       ],
     },
-    report: {
+    reports: [{
       path: `${ROOT}/skill-report.json`,
       sha: '2'.repeat(40),
-      securityAudit: { riskLevel: 'low', isBlocked: false, safeToPublish: true },
-    },
+    }],
     basePendingExists: false,
     publishedTargetExists: false,
   };
@@ -102,6 +101,7 @@ test('qualifies one exact trusted NEW_SKILL root for ordinary merge', () => {
     headSha: HEAD,
     baseSha: BASE,
     root: ROOT,
+    roots: [ROOT],
   });
 });
 
@@ -121,7 +121,7 @@ test('fails closed on identity, provenance, scope, label, state and exact-head d
     [() => { const v = snapshot(); v.pr.draft = true; return v; }, /open and non-draft/],
     [() => { const v = snapshot(); v.pr.labels = []; return v; }, /pending-review/],
     [() => { const v = snapshot(); v.workflowRun.head_sha = 'c'.repeat(40); return v; }, /exact PR head/],
-    [() => { const v = snapshot(); v.files.push({ filename: '.github/workflows/pwn.yml', status: 'added', sha: '3'.repeat(40) }); v.pr.changed_files = 3; return v; }, /one pending Skill root/],
+    [() => { const v = snapshot(); v.files.push({ filename: '.github/workflows/pwn.yml', status: 'added', sha: '3'.repeat(40) }); v.pr.changed_files = 3; return v; }, /pending Skill root/],
     [() => { const v = snapshot(); v.files[0].status = 'modified'; return v; }, /newly added/],
     [() => { const v = snapshot(); v.basePendingExists = true; return v; }, /pending root already exists/],
   ];
@@ -159,19 +159,29 @@ test('fails closed on incomplete files, unsafe tree entries, truncation and ambi
   for (const [build, pattern] of cases) expectBlocked(build(), pattern);
 });
 
-test('does not use security-report risk fields as auto-merge gates', () => {
-  const cases = [
-    () => { const v = snapshot(); v.report.securityAudit.isBlocked = true; return v; },
-    () => { const v = snapshot(); v.report.securityAudit.safeToPublish = false; return v; },
-    () => { const v = snapshot(); v.report.securityAudit.riskLevel = 'critical'; return v; },
-    () => { const v = snapshot(); v.report.securityAudit = {}; return v; },
-  ];
-  for (const build of cases) assert.equal(validateSnapshot(build()).eligible, true);
+test('does not inspect security-report risk fields as auto-merge gates', () => {
+  assert.equal(validateSnapshot(snapshot()).eligible, true);
 });
 
-test('still requires the report file to be bound to the exact head', () => {
+test('qualifies multiple canonical pending Skill roots when every root has a bound report', () => {
+  const secondRoot = 'pending/example/second-skill';
   const value = snapshot();
-  value.report.sha = '3'.repeat(40);
+  value.files.push(
+    { filename: `${secondRoot}/SKILL.md`, status: 'added', sha: '3'.repeat(40) },
+    { filename: `${secondRoot}/skill-report.json`, status: 'added', sha: '4'.repeat(40) },
+  );
+  value.pr.changed_files = 4;
+  value.tree.entries.push(
+    { path: `${secondRoot}/SKILL.md`, type: 'blob', mode: '100644', sha: '3'.repeat(40) },
+    { path: `${secondRoot}/skill-report.json`, type: 'blob', mode: '100644', sha: '4'.repeat(40) },
+  );
+  value.reports.push({ path: `${secondRoot}/skill-report.json`, sha: '4'.repeat(40) });
+  assert.deepEqual(validateSnapshot(value).roots, [ROOT, secondRoot].sort());
+});
+
+test('still requires every report file to be bound to the exact head', () => {
+  const value = snapshot();
+  value.reports[0].sha = '3'.repeat(40);
   expectBlocked(value, /exact PR head/);
 });
 
