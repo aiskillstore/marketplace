@@ -1,0 +1,196 @@
+contract_version: comic-v3
+task_id: example-mug-towel
+artifact_type: recurring-character-diary-comic
+
+sources:
+  - id: user-brief
+    kind: user
+    ref: "<message, file, or approved source locator>"
+  - id: locked-story
+    kind: story-contract
+    ref: "<path or artifact id>"
+  - id: lead-profile
+    kind: character-profile
+    ref: "<path or profile id>"
+
+story:
+  spine: "The lead tries to postpone washing one mug until a towel catches its handle and pulls it into the sink."
+  final_viewpoint: "A physical consequence makes the deferred next step visible."
+  panel_count: 4
+  reading_order: [p1, p2, p3, p4]
+
+layout_strategy_candidates:
+  - id: structure-a
+    grammar: shared-boundary-mosaic
+    reading_path: [p1, p2, p3, p4]
+    dominant_anchor: p3
+  - id: structure-b
+    grammar: mother-panel-with-reaction-inset
+    reading_path: [p1, p2, p3, p4]
+    dominant_anchor: p3
+  - id: structure-c
+    grammar: scenic-anchor-with-open-final-beat
+    reading_path: [p1, p2, p3, p4]
+    dominant_anchor: p4
+selected_strategy: structure-b
+selected_strategy_review:
+  working_size: pass
+  exactly_25_percent: pass
+  reason: "The causal action remains the visual anchor while the final state has a quiet landing."
+
+entities:
+  - id: lead
+    kind: character
+    profile_ref: lead-profile
+  - id: mug
+    kind: prop
+    identity: "cream mug, one cobalt C handle, one cobalt rim ring"
+  - id: towel
+    kind: prop
+    identity: "one unmarked mustard towel"
+
+states:
+  - id: mug-p3
+    panel: p3
+    entity: mug
+    facts:
+      - field: location
+        value: counter-edge
+        level: S0
+        source: locked-story
+      - field: motion
+        value: sliding-toward-sink
+        level: S0
+        source: locked-story
+  - id: mug-p4
+    panel: p4
+    entity: mug
+    facts:
+      - field: location
+        value: inside-sink
+        level: S0
+        source: locked-story
+
+relations:
+  - id: towel-drags-mug
+    panel: p3
+    subject: towel.corner
+    predicate: passes_through
+    object: mug.handle
+    level: S0
+    source: locked-story
+    evidence:
+      required:
+        - towel is visible on both sides of the handle opening
+        - a taut towel segment points toward the sink
+        - the character does not directly grip or push the mug
+      forbidden_proxies:
+        - towel and mug merely overlap or co-occur
+        - towel points away from the required next state
+    leads_to: mug-p4
+
+directional_surfaces:
+  - id: mug-handle-opening-p3
+    panel: p3
+    object: mug.handle
+    reader_or_operator: towel.corner
+    content_face: handle-opening-plane
+    reader_side: towel-entry-side
+    viewer_side: oblique-side-view
+    hinge_or_controls: not-applicable
+    gaze_or_hands: "lead does not directly grip or push the mug"
+    visible_proof:
+      - "towel remains visible on both sides of the handle opening"
+      - "taut segment points toward the sink"
+
+dialogue:
+  - id: line-p1
+    panel: p1
+    speaker: lead
+    exact_text: "先泡一会儿。"
+    level: S0
+    source: locked-story
+    render_stage: page-native-final
+    fallback_render_stage: deterministic-lettering
+  - id: line-p3
+    panel: p3
+    speaker: lead
+    exact_text: "泡着也算洗。"
+    level: S0
+    source: locked-story
+    render_stage: page-native-final
+    fallback_render_stage: deterministic-lettering
+
+panels:
+  - id: p1
+    beat: "the lead postpones washing the mug"
+    cast: [lead]
+    required_states: []
+    required_relations: []
+    dialogue: [line-p1]
+    preferences: []
+    risk:
+      factors: []
+      score: 0
+  - id: p2
+    beat: "the towel is set down near the mug without contact yet"
+    cast: [lead]
+    required_states: []
+    required_relations: []
+    dialogue: []
+    preferences: []
+    risk:
+      factors: [cross-panel-transition]
+      score: 1
+  - id: p3
+    beat: "turn begins and the mug starts moving"
+    cast: [lead]
+    required_states: [mug-p3]
+    required_relations: [towel-drags-mug]
+    dialogue: [line-p3]
+    preferences:
+      - rule: "leave a safe region for later lettering"
+        level: S2
+        source: locked-story
+    risk:
+      factors: [cross-panel-transition, exposed-grip, exact-spatial-contact, physical-causality]
+      score: 6
+  - id: p4
+    beat: "the mug has landed inside the sink"
+    cast: [lead]
+    required_states: [mug-p4]
+    required_relations: []
+    dialogue: []
+    preferences: []
+    risk:
+      factors: [cross-panel-transition]
+      score: 1
+
+global_rules:
+  - id: no-unapproved-text
+    level: S0
+    rule: "final page contains only the exact approved dialogue; an unlettered fallback contains no text or bubbles"
+    source: locked-story
+  - id: lead-identity
+    level: S1
+    rule: "each visible lead appearance satisfies the referenced profile"
+    source: lead-profile
+
+unknowns: []
+
+routing:
+  mode: page-native
+  high_risk_focus_panels: [p3, p4]
+  reason: "S0 physical causality increases prompt and QA focus but does not split the page"
+  fallback_gate:
+    page_native_attempts_required: 2
+    same_named_s0_or_s1_failure_required: true
+    local_repair_must_be_unisolatable: true
+    user_accepts_reconstruction_tradeoff: false
+
+attempt_budget:
+  max_art_generations_total: 8
+  max_page_native_attempts: 2
+  max_attempts_per_panel_after_reconstruction_approval: 2
+  max_local_repairs_per_artifact: 1
+  stop_after_consecutive_no_improvement: 2
