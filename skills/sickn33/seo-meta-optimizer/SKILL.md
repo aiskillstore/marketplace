@@ -1,10 +1,9 @@
 ---
 name: seo-meta-optimizer
-description: Creates optimized meta titles, descriptions, and URL suggestions
-  based on character limits and best practices. Generates compelling,
-  keyword-rich metadata. Use PROACTIVELY for new content.
-metadata:
-  model: haiku
+description: Creates optimized meta titles, descriptions, and URL suggestions based on character limits and best practices. Generates compelling, keyword-rich metadata. Use PROACTIVELY for new content.
+risk: none
+source: community
+date_added: '2026-02-27'
 ---
 
 ## Use this skill when
@@ -90,3 +89,8 @@ Description: Action verb + benefit. Include keyword naturally. Clear CTA here âœ
 - Astro/Next.js: Component props and helmet setup
 
 Focus on psychological triggers and user benefits. Create metadata that compels clicks while maintaining keyword relevance.
+
+## Limitations
+- Use this skill only when the task clearly matches the scope described above.
+- Do not treat the output as a substitute for environment-specific validation, testing, or expert review.
+- Stop and ask for clarification if required inputs, permissions, safety boundaries, or success criteria are missing.
