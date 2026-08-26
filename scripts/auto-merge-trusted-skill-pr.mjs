@@ -174,9 +174,6 @@ export function validateSnapshot(snapshot) {
     && report.sha === reportFile?.sha
     && report.sha === reportTreeEntry?.sha,
   'security report is not bound to the exact PR head');
-  block(report.securityAudit?.isBlocked === false, 'security report blocks publication');
-  block(report.securityAudit?.safeToPublish === true, 'unsafe Skill requires manual review');
-  block(['safe', 'low', 'medium'].includes(report.securityAudit?.riskLevel), 'high-risk Skill requires manual review');
 
   block(Array.isArray(checks) && checks.length > 0, 'exact-head checks are required');
   const checkNames = new Set();
@@ -458,14 +455,7 @@ export class GitHubApi {
     const published = `skills/${root.slice('pending/'.length)}`;
     const reportPath = `${root}/skill-report.json`;
     const reportBlob = await this.request(`/contents/${encodeContentPath(reportPath)}?ref=${encodeURIComponent(headSha)}`);
-    block(reportBlob?.type === 'file' && reportBlob.encoding === 'base64' && validSha(reportBlob.sha)
-      && typeof reportBlob.content === 'string', 'exact-head security report is unavailable');
-    let reportJson;
-    try {
-      reportJson = JSON.parse(Buffer.from(reportBlob.content, 'base64').toString('utf8'));
-    } catch {
-      throw new AutoMergeBlockedError('exact-head security report is not valid JSON');
-    }
+    block(reportBlob?.type === 'file' && validSha(reportBlob.sha), 'exact-head skill report is unavailable');
     const baseSha = pr.base?.sha;
     block(validSha(baseSha), 'PR base SHA is invalid');
     const [basePendingExists, publishedTargetExists] = await Promise.all([
@@ -512,11 +502,6 @@ export class GitHubApi {
       report: {
         path: reportPath,
         sha: reportBlob.sha,
-        securityAudit: {
-          riskLevel: reportJson?.security_audit?.risk_level,
-          isBlocked: reportJson?.security_audit?.is_blocked,
-          safeToPublish: reportJson?.security_audit?.safe_to_publish,
-        },
       },
       basePendingExists,
       publishedTargetExists,

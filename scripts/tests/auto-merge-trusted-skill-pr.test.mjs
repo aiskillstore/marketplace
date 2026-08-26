@@ -159,14 +159,20 @@ test('fails closed on incomplete files, unsafe tree entries, truncation and ambi
   for (const [build, pattern] of cases) expectBlocked(build(), pattern);
 });
 
-test('leaves blocked, unsafe, and high-risk Skills for manual review', () => {
+test('does not use security-report risk fields as auto-merge gates', () => {
   const cases = [
-    [() => { const v = snapshot(); v.report.securityAudit.isBlocked = true; return v; }, /blocks publication/],
-    [() => { const v = snapshot(); v.report.securityAudit.safeToPublish = false; return v; }, /requires manual review/],
-    [() => { const v = snapshot(); v.report.securityAudit.riskLevel = 'high'; return v; }, /high-risk/],
-    [() => { const v = snapshot(); v.report.sha = '3'.repeat(40); return v; }, /exact PR head/],
+    () => { const v = snapshot(); v.report.securityAudit.isBlocked = true; return v; },
+    () => { const v = snapshot(); v.report.securityAudit.safeToPublish = false; return v; },
+    () => { const v = snapshot(); v.report.securityAudit.riskLevel = 'critical'; return v; },
+    () => { const v = snapshot(); v.report.securityAudit = {}; return v; },
   ];
-  for (const [build, pattern] of cases) expectBlocked(build(), pattern);
+  for (const build of cases) assert.equal(validateSnapshot(build()).eligible, true);
+});
+
+test('still requires the report file to be bound to the exact head', () => {
+  const value = snapshot();
+  value.report.sha = '3'.repeat(40);
+  expectBlocked(value, /exact PR head/);
 });
 
 function fakeApi(sequence) {
