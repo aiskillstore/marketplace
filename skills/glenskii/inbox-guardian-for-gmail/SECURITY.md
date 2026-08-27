@@ -20,12 +20,14 @@ To avoid quarantining important messages, the tool applies a clear order of chec
 1. **Protected Mail**: Any message that you star, send, or save as a draft is always marked safe.
 2. **Whitelist Priority**: Any sender address or domain in your allowed list always takes priority over keyword filters.
 3. **Reputation Tracking**: The tool keeps a local record of people you email. These local contacts receive trusted-sender precedence. This is a convenience rule, not an identity verification service.
-4. **Audit First**: The default action is an audit dry-run. It writes a review file so you can verify results before any labels change.
+4. **Audit First**: The default action is an audit dry-run. It writes a signed, time-limited review file so you can verify results before any labels change.
 
 ### 3. Minimal Access Permissions
 By default, the tool requests only the `https://www.googleapis.com/auth/gmail.modify` permission. This allows reading message headers, applying labels, archiving messages, and moving messages to Gmail Trash. It does not grant administrative access to the Google account.
 
-Permanent deletion is not part of the default scope. It requests the broader `https://mail.google.com/` scope only when the owner selects `--hard-delete` and `--confirm-destructive`, then types a second confirmation before action.
+Permanent deletion is not available through this skill. The strongest available action is an owner-approved move to Gmail Trash, which remains recoverable through Gmail's normal retention window.
+
+Before execution, the utility verifies the review file signature, expiry, structure, message identifier format, and current classification. A changed or stale review file cannot trigger a mailbox action.
 
 ### 4. Unsubscribe Boundary
 

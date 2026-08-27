@@ -20,4 +20,4 @@ Use your preferred user-level scheduler, such as `launchd` on macOS or cron on L
 
 ## Review Requirement
 
-Open each generated review file before applying quarantine or Trash. Do not schedule `--execute`, `--trash`, or `--hard-delete`.
+Open each generated review file before applying quarantine or Trash. Do not schedule `--execute` or `--trash`.

@@ -1,4 +1,4 @@
-# Inbox Guardian for Gmail (v1.0.1)
+# Inbox Guardian for Gmail (v1.0.2)
 
 ![Inbox Guardian for Gmail](assets/social-preview.png)
 
@@ -79,7 +79,7 @@ Follow the complete [Google OAuth setup guide](docs/google-oauth-setup.md). Plac
 python guardian.py --setup
 ```
 
-The setup command creates local configuration if needed, opens the owner's browser for Google consent, stores the resulting local token, and confirms the connected mailbox. It does not scan, label, move, or delete mail.
+The setup command creates local configuration if needed, opens the owner's browser for Google consent, stores the resulting local token with private file permissions where supported, and confirms the connected mailbox. It does not scan, label, move, or delete mail.
 
 ---
 
@@ -140,7 +140,7 @@ python guardian.py --review-unsub
 
 This release does not install or remove operating-system schedules. After a successful `--setup`, you can schedule the standard audit command through Windows Task Scheduler, macOS `launchd`, or Linux cron. Read the [scheduled audit guide](docs/scheduled-runs.md) before enabling it.
 
-Scheduled runs should remain audit-only. Review each generated file before running a quarantine or Trash command.
+Scheduled runs should remain audit-only. Each generated review file is signed, expires after 24 hours, and is rechecked against current mailbox metadata before an owner runs a quarantine or Trash command.
 
 ---
 

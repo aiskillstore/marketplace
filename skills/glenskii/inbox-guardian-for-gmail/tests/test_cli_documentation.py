@@ -14,14 +14,14 @@ def test_skill_instructions_use_supported_cli_flags():
         "--review-file",
         "--trash",
         "--review-unsub",
-        "--hard-delete",
-        "--confirm-destructive",
     }
     unsupported = {
         "--sweep",
         "--action",
         "--stop-cold",
         "--confirm-permanent-delete",
+        "--hard-delete",
+        "--confirm-destructive",
     }
 
     for flag in expected:

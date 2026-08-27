@@ -1,6 +1,7 @@
 import os
 import json
 import datetime
+from guardian_storage import write_private_json
 
 STATS_FILE = os.path.join(os.path.dirname(__file__), "guardian_stats.json")
 
@@ -26,8 +27,7 @@ class StatsTracker:
         # Keep only last 30 days of daily events
         cutoff = (datetime.datetime.now() - datetime.timedelta(days=30)).isoformat()
         self.data["daily_events"] = [e for e in self.data.get("daily_events", []) if e.get("timestamp", "") > cutoff]
-        with open(self.stats_file, 'w', encoding='utf-8') as f:
-            json.dump(self.data, f, indent=2)
+        write_private_json(self.stats_file, self.data)
 
     def record_neutralization(self, sender, subject, reason, relay_domain=None):
         now = datetime.datetime.now().isoformat()

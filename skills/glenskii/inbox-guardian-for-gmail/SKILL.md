@@ -1,14 +1,14 @@
 ---
 name: inbox-guardian-for-gmail
-description: Review a personal Gmail inbox with local, owner-approved spam rules. Use for audit-first quarantine, sender rules, and header review. Do not use for automatic unsubscribe requests or unreviewed permanent deletion.
+description: Review a personal Gmail inbox with local, owner-approved spam rules. Use for audit-first quarantine, Trash, sender rules, and header review. Do not use for automatic unsubscribe requests or unreviewed mailbox actions.
 license: MIT
 metadata:
-  version: 1.0.1
+  version: 1.0.2
 ---
 
 # Inbox Guardian for Gmail
 
-Use this skill to help an owner review a Gmail inbox with rules that stay on the owner's computer. The bundled utility audits messages, applies reviewed quarantine or Trash actions, and can perform an explicitly confirmed permanent deletion.
+Use this skill to help an owner review a Gmail inbox with rules that stay on the owner's computer. The bundled utility audits messages, then applies only reviewed quarantine or Trash actions.
 
 ## Start with Scope
 
@@ -23,7 +23,7 @@ Use this skill to help an owner review a Gmail inbox with rules that stay on the
 - **Audit**: This is the default action. It writes a local review file and does not change mail.
 - **Quarantine**: A reviewed execution adds the `Guardian/Quarantine` label and removes the Inbox label. The owner can review and restore mail at any time in Gmail.
 - **Trash**: This is reversible through the normal 30-day Gmail Trash window using the `--trash` flag.
-- **Permanent deletion**: This is an owner-only action. It requires `--hard-delete`, `--confirm-destructive`, a browser consent request for the broader Gmail scope, and a typed confirmation.
+- **Trash**: This is the strongest action in this skill. It is an explicit owner choice and remains recoverable through Gmail's normal retention window.
 
 ## Data and Unsubscribe Boundaries
 

@@ -38,7 +38,7 @@ pytest tests/ -v
 
 ## Guidelines for Pull Requests
 
-1. **Safety First**: Never make permanent deletion the default behavior. Quarantine and review must remain the standard flow.
+1. **Safety First**: Do not add irreversible deletion. Quarantine and review must remain the standard flow.
 2. **Input Validation**: Never pass unvalidated text directly into search queries.
 3. **Clear Writing**: Avoid excessive jargon or marketing claims. Do not use em dashes in documentation. Use straightforward, readable English.
 4. **Test Coverage**: Include unit tests for any new filter rules or code changes.

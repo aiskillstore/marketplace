@@ -1,9 +1,10 @@
 import os
 import sys
 import json
-import sqlite3
 import datetime
 import webbrowser
+from html import escape
+from guardian_storage import open_private_sqlite, write_private_bytes
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 CONFIG_FILE = os.path.join(SCRIPT_DIR, "config.json")
@@ -11,6 +12,11 @@ CONFIG_EXAMPLE = os.path.join(SCRIPT_DIR, "config.example.json")
 STATS_FILE = os.path.join(SCRIPT_DIR, "guardian_stats.json")
 DB_PATH = os.path.join(SCRIPT_DIR, "sender_reputation.db")
 DASHBOARD_HTML = os.path.join(SCRIPT_DIR, "dashboard.html")
+
+
+def display_text(value) -> str:
+    """Encode mailbox-derived data before placing it in the local HTML report."""
+    return escape(str(value or ''), quote=True)
 
 def load_json(path):
     if os.path.exists(path):
@@ -27,7 +33,7 @@ def get_reputation_stats():
     recent_vips = []
     if os.path.exists(DB_PATH):
         try:
-            with sqlite3.connect(DB_PATH) as conn:
+            with open_private_sqlite(DB_PATH) as conn:
                 cursor = conn.cursor()
                 cursor.execute('SELECT COUNT(*) FROM senders WHERE is_vip = 1 OR score >= 5')
                 vip_count = cursor.fetchone()[0]
@@ -61,14 +67,14 @@ def generate_dashboard_html():
     
     event_rows = ""
     for ev in reversed(events[-20:]):
-        ts = ev.get("timestamp", "").replace("T", " ")[:19]
-        relay_badge = f'<span class="badge badge-relay">🧬 {ev.get("relay_harvested")}</span>' if ev.get("relay_harvested") else '<span class="text-muted">None</span>'
+        ts = display_text(ev.get("timestamp", "").replace("T", " ")[:19])
+        relay_badge = f'<span class="badge badge-relay">🧬 {display_text(ev.get("relay_harvested"))}</span>' if ev.get("relay_harvested") else '<span class="text-muted">None</span>'
         event_rows += f"""
         <tr>
             <td class="text-muted">{ts}</td>
-            <td class="fw-bold">{ev.get('sender', '')}</td>
-            <td>{ev.get('subject', '')}</td>
-            <td><span class="badge badge-reason">{ev.get('reason', '')}</span></td>
+            <td class="fw-bold">{display_text(ev.get('sender', ''))}</td>
+            <td>{display_text(ev.get('subject', ''))}</td>
+            <td><span class="badge badge-reason">{display_text(ev.get('reason', ''))}</span></td>
             <td>{relay_badge}</td>
         </tr>
         """
@@ -80,16 +86,16 @@ def generate_dashboard_html():
     for v in recent_vips:
         vip_rows += f"""
         <tr>
-            <td class="fw-bold">{v['email']}</td>
-            <td><span class="badge badge-vip">⭐ VIP (Score {v['score']})</span></td>
-            <td class="text-muted">{v.get('notes', 'Trusted correspondent')}</td>
+            <td class="fw-bold">{display_text(v['email'])}</td>
+            <td><span class="badge badge-vip">⭐ VIP (Score {display_text(v['score'])})</span></td>
+            <td class="text-muted">{display_text(v.get('notes', 'Trusted correspondent'))}</td>
         </tr>
         """
     if not vip_rows:
         vip_rows = """<tr><td colspan="3" class="text-muted py-3">Run <code>python guardian.py --seed-reputation</code> to index trusted contacts.</td></tr>"""
 
-    domain_pills = "".join([f'<span class="pill pill-domain">🌐 {d}</span>' for d in whitelist_domains]) if whitelist_domains else '<span class="text-muted">None configured</span>'
-    block_pills = "".join([f'<span class="pill pill-block">🚫 {d}</span>' for d in blocklist_domains[-15:]]) if blocklist_domains else '<span class="text-muted">None configured</span>'
+    domain_pills = "".join([f'<span class="pill pill-domain">🌐 {display_text(d)}</span>' for d in whitelist_domains]) if whitelist_domains else '<span class="text-muted">None configured</span>'
+    block_pills = "".join([f'<span class="pill pill-block">🚫 {display_text(d)}</span>' for d in blocklist_domains[-15:]]) if blocklist_domains else '<span class="text-muted">None configured</span>'
 
     now_str = datetime.datetime.now().strftime("%B %d, %Y - %I:%M:%S %p")
 
@@ -99,7 +105,6 @@ def generate_dashboard_html():
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Gmail Guardian | Visual Control Center</title>
-    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <style>
         :root {{
             --bg-primary: #0a0f0d;
@@ -113,8 +118,8 @@ def generate_dashboard_html():
             --text-secondary: #8da398;
             --text-muted: #53695e;
             --border-color: rgba(0, 229, 153, 0.15);
-            --font-main: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
-            --font-mono: 'JetBrains Mono', monospace;
+            --font-main: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            --font-mono: "Cascadia Mono", "SFMono-Regular", Consolas, monospace;
         }}
         * {{ box-sizing: border-box; margin: 0; padding: 0; }}
         body {{
@@ -382,14 +387,13 @@ def generate_dashboard_html():
 
         <footer>
             <div>Report Generated: {now_str}</div>
-            <div>Gmail Guardian v0.1.0 • 100% Local-First Open Source</div>
+            <div>Inbox Guardian for Gmail v1.0.2 • 100% Local-First Open Source</div>
         </footer>
     </div>
 </body>
 </html>
 """
-    with open(DASHBOARD_HTML, 'w', encoding='utf-8') as f:
-        f.write(html_content)
+    write_private_bytes(DASHBOARD_HTML, html_content.encode('utf-8'))
     print(f"[DASHBOARD] Generated updated visual report: {DASHBOARD_HTML}")
     return DASHBOARD_HTML
 

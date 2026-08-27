@@ -40,6 +40,7 @@ def test_whitelist_beats_spam_keywords(mock_engine):
     headers = {
         "from": "CEO <partner@special.com>",
         "return-path": "<partner@special.com>",
+        "authentication-results": "mx.google.com; dmarc=pass header.from=special.com",
         "subject": "Urgent: Account is locked and crypto review"
     }
     verdict, reason = mock_engine.classify_message(headers, labels=["INBOX"])
@@ -50,10 +51,22 @@ def test_whitelist_domain_beats_suspicious_tlds(mock_engine):
     headers = {
         "from": "Support <support@mybusiness.org>",
         "return-path": "<bounces@mybusiness.org>",
+        "authentication-results": "mx.google.com; dmarc=pass header.from=mybusiness.org",
         "subject": "System Status Update"
     }
     verdict, reason = mock_engine.classify_message(headers, labels=["INBOX"])
     assert verdict == "SAFE"
+
+def test_spoofed_allowlisted_header_is_not_trusted(mock_engine):
+    headers = {
+        "from": "CEO <partner@special.com>",
+        "return-path": "<relay@hostile.example>",
+        "authentication-results": "mx.google.com; dmarc=fail header.from=special.com",
+        "subject": "Account is locked",
+    }
+    verdict, reason = mock_engine.classify_message(headers, labels=["INBOX"])
+    assert verdict == "QUARANTINE_KEYWORD"
+    assert "Whitelisted" not in reason
 
 def test_blocklist_triggers_quarantine(mock_engine):
     headers = {

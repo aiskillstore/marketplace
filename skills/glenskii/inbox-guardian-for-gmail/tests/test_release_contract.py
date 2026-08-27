@@ -16,6 +16,7 @@ def test_private_mailbox_artifacts_are_ignored():
         "guardian_stats.json",
         "sender_reputation.db",
         "guardian_review_*.json",
+        "guardian_review.key",
         "guardian_unsubscribe_review_*.json",
         "dashboard.html",
     ):

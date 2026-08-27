@@ -15,6 +15,7 @@ REQUIRED_FILES = (
     "LICENSE",
     "SECURITY.md",
     "guardian.py",
+    "guardian_storage.py",
     "requirements.txt",
     "docs/google-oauth-setup.md",
     "docs/safety-model.md",
@@ -28,6 +29,7 @@ PRIVATE_ARTIFACTS = (
     "guardian_stats.json",
     "sender_reputation.db",
     "guardian_review_*.json",
+    "guardian_review.key",
     "guardian_unsubscribe_review_*.json",
     "dashboard.html",
 )
@@ -68,9 +70,12 @@ def main() -> None:
         if artifact not in ignored:
             fail(f"private artifact is not ignored: {artifact}")
 
-    for unsupported in ("--install-scheduler", "--uninstall-scheduler"):
+    for unsupported in ("--install-scheduler", "--uninstall-scheduler", "--hard-delete", "--confirm-destructive", ".messages().delete("):
         if unsupported in readme:
             fail(f"README advertises unsupported command: {unsupported}")
+
+    if ".messages().delete(" in guardian:
+        fail("guardian.py must not contain irreversible Gmail deletion")
 
     for relative_path in ("SKILL.md", "README.md", "SECURITY.md", "docs/google-oauth-setup.md"):
         if "—" in read(relative_path):

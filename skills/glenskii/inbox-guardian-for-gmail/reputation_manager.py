@@ -1,7 +1,7 @@
 import os
-import sqlite3
 import datetime
 from email.utils import parseaddr
+from guardian_storage import open_private_sqlite
 
 DB_PATH = os.path.join(os.path.dirname(__file__), "sender_reputation.db")
 
@@ -11,7 +11,7 @@ class ReputationManager:
         self._init_db()
 
     def _get_conn(self):
-        return sqlite3.connect(self.db_path)
+        return open_private_sqlite(self.db_path)
 
     def _init_db(self):
         with self._get_conn() as conn:

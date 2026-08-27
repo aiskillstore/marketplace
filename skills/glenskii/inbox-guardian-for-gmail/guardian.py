@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Gmail Guardian (v0.1.0)
+Inbox Guardian for Gmail (v1.0.2)
 -----------------------
 Local-first inbox organization, autonomous relay harvesting & heuristic quarantine engine.
 
@@ -8,7 +8,7 @@ Core Architectural Principles:
 1. Least Privilege: Uses `gmail.modify` by default (read, label, archive, trash).
 2. Quarantine by Default: Moves suspicious emails to `Guardian/Quarantine` label.
 3. Review-First Audit: Audit mode is default and generates an actionable review file.
-4. Autonomous Relay Harvesting: Automatically learns rogue sending domains on detection.
+4. Local Relay Learning: Records suspicious relay domains only after a reviewed action.
 5. SQLite VIP Reputation: Auto-indexes trusted correspondents to prevent false positives.
 6. Visual Reporting Dashboard: Generates a sleek dark-mode interactive HTML control center.
 """
@@ -17,16 +17,21 @@ import os
 import sys
 import time
 import json
-import base64
 import argparse
 import datetime
+import hashlib
+import hmac
+import re
+import secrets
 import unicodedata
+from pathlib import Path
 from guardian_sanitizer import (
     is_valid_domain,
     is_valid_email,
     sanitize_query_token,
     extract_clean_address_and_domain
 )
+from guardian_storage import restrict_file, write_private_bytes, write_private_json
 from reputation_manager import ReputationManager
 from stats_tracker import StatsTracker
 from google.oauth2.credentials import Credentials
@@ -35,10 +40,9 @@ from google.auth.transport.requests import Request
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 
-__version__ = "1.0.1"
+__version__ = "1.0.2"
 
 DEFAULT_SCOPES = ['https://www.googleapis.com/auth/gmail.modify']
-DESTRUCTIVE_SCOPE = ['https://mail.google.com/']
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 CREDENTIALS_FILE = os.path.join(SCRIPT_DIR, 'credentials.json')
@@ -46,6 +50,9 @@ TOKEN_FILE = os.path.join(SCRIPT_DIR, 'token.json')
 CONFIG_FILE = os.path.join(SCRIPT_DIR, 'config.json')
 CONFIG_EXAMPLE_FILE = os.path.join(SCRIPT_DIR, 'config.example.json')
 LOG_FILE = os.path.join(SCRIPT_DIR, 'guardian.log')
+REVIEW_KEY_FILE = os.path.join(SCRIPT_DIR, 'guardian_review.key')
+REVIEW_FILE_PREFIX = 'guardian_review_'
+REVIEW_MAX_AGE_HOURS = 24
 
 if hasattr(sys.stdout, 'reconfigure'):
     sys.stdout.reconfigure(encoding='utf-8', errors='replace')
@@ -60,12 +67,35 @@ if sys.platform == 'win32':
 reputation = ReputationManager()
 stats = StatsTracker()
 
+
+def _load_review_key() -> bytes:
+    if os.path.exists(REVIEW_KEY_FILE):
+        key = Path(REVIEW_KEY_FILE).read_bytes()
+        if len(key) == 32:
+            restrict_file(REVIEW_KEY_FILE)
+            return key
+        raise ValueError('The local review key is invalid. Remove it and create a new audit review file.')
+
+    key = secrets.token_bytes(32)
+    write_private_bytes(REVIEW_KEY_FILE, key)
+    return key
+
+
+def _canonical_json(value) -> bytes:
+    return json.dumps(value, sort_keys=True, separators=(',', ':'), ensure_ascii=False).encode('utf-8')
+
+
+def _review_signature(payload: dict) -> str:
+    return hmac.new(_load_review_key(), _canonical_json(payload), hashlib.sha256).hexdigest()
+
 def load_config():
     """Loads configuration with strict fallback."""
     if os.path.exists(CONFIG_FILE):
         try:
             with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
-                return json.load(f)
+                cfg = json.load(f)
+            restrict_file(CONFIG_FILE)
+            return cfg
         except Exception as e:
             log(f"[WARN] Failed to read {CONFIG_FILE}: {e}")
 
@@ -73,8 +103,7 @@ def load_config():
         try:
             with open(CONFIG_EXAMPLE_FILE, 'r', encoding='utf-8') as f:
                 cfg = json.load(f)
-                with open(CONFIG_FILE, 'w', encoding='utf-8') as out:
-                    json.dump(cfg, out, indent=2)
+                write_private_json(CONFIG_FILE, cfg)
                 return cfg
         except Exception:
             pass
@@ -95,8 +124,7 @@ def load_config():
     }
 
 def save_config(cfg):
-    with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
-        json.dump(cfg, f, indent=2)
+    write_private_json(CONFIG_FILE, cfg)
 
 def log(msg):
     timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -105,6 +133,7 @@ def log(msg):
     try:
         with open(LOG_FILE, "a", encoding="utf-8") as f:
             f.write(line)
+        restrict_file(LOG_FILE)
     except Exception:
         pass
 
@@ -140,6 +169,7 @@ class GmailAuth:
         if os.path.exists(TOKEN_FILE):
             try:
                 creds = Credentials.from_authorized_user_file(TOKEN_FILE, scopes)
+                restrict_file(TOKEN_FILE)
             except Exception:
                 creds = None
 
@@ -158,8 +188,7 @@ class GmailAuth:
                 flow = InstalledAppFlow.from_client_secrets_file(CREDENTIALS_FILE, scopes)
                 print("\n[AUTH] Opening browser to complete Google OAuth authorization...")
                 creds = flow.run_local_server(port=0)
-                with open(TOKEN_FILE, 'w') as token:
-                    token.write(creds.to_json())
+                write_private_bytes(TOKEN_FILE, creds.to_json().encode('utf-8'))
                 print(f"[AUTH] Authorized user credentials saved to '{TOKEN_FILE}'.\n")
 
         return build('gmail', 'v1', credentials=creds)
@@ -225,7 +254,40 @@ class GuardianEngine:
             log(f"[WARN] Could not create label '{label_name}': {e}")
             return None
 
-    def is_safe_sender(self, from_header, return_path):
+    @staticmethod
+    def _domains_align(candidate: str, expected: str) -> bool:
+        candidate = candidate.lower().strip().lstrip('@.')
+        expected = expected.lower().strip().lstrip('@.')
+        return bool(candidate and expected and (candidate == expected or candidate.endswith('.' + expected) or expected.endswith('.' + candidate)))
+
+    def has_aligned_authentication(self, headers) -> bool:
+        """Require Gmail authentication evidence before trusting displayed sender headers."""
+        from_header = headers.get('from', '')
+        _, _, from_domain = extract_clean_address_and_domain(from_header)
+        auth_results = headers.get('authentication-results', '').lower()
+        if not from_domain or not auth_results:
+            return False
+
+        dmarc_domains = re.findall(r'header\.from=([^\s;]+)', auth_results)
+        if 'dmarc=pass' in auth_results and any(self._domains_align(domain, from_domain) for domain in dmarc_domains):
+            return True
+
+        dkim_domains = re.findall(r'header\.i=@([^\s;]+)', auth_results)
+        if 'dkim=pass' in auth_results and any(self._domains_align(domain, from_domain) for domain in dkim_domains):
+            return True
+
+        spf_domains = re.findall(r'smtp\.mailfrom=([^\s;]+)', auth_results)
+        if 'spf=pass' in auth_results and any(self._domains_align(domain, from_domain) for domain in spf_domains):
+            return True
+
+        return False
+
+    def is_safe_sender(self, headers):
+        from_header = headers.get('from', '')
+        return_path = headers.get('return-path', '')
+        if not self.has_aligned_authentication(headers):
+            return False
+
         if reputation.is_trusted(from_header, return_path):
             return True
 
@@ -276,7 +338,7 @@ class GuardianEngine:
             return "SAFE", "Sent / Draft communication"
 
         # 2. Whitelist & Reputation Precedence
-        if self.is_safe_sender(from_h, rp):
+        if self.is_safe_sender(headers):
             return "SAFE", "Whitelisted or VIP trusted correspondent"
 
         # 3. Explicit Blocklist
@@ -337,14 +399,7 @@ class GuardianEngine:
                 
         return messages
 
-    def execute_quarantine(self, msg_id, move_to_trash=False, hard_delete=False, from_h="", subj="", reason="", rp_h=""):
-        harvested = auto_harvest_relay(rp_h)
-
-        if hard_delete:
-            self.service.users().messages().delete(userId='me', id=msg_id).execute()
-            stats.record_neutralization(from_h, subj, f"HARD_DELETE ({reason})", harvested)
-            return "hard_deleted"
-
+    def execute_quarantine(self, msg_id, move_to_trash=False, from_h="", subj="", reason="", rp_h=""):
         label_name = self.config.get("quarantine_label_name", "Guardian/Quarantine")
         label_id = self.get_or_create_label(label_name)
 
@@ -359,6 +414,7 @@ class GuardianEngine:
                 except Exception:
                     pass
             self.service.users().messages().trash(userId='me', id=msg_id).execute()
+            harvested = auto_harvest_relay(rp_h)
             stats.record_neutralization(from_h, subj, f"TRASH ({reason})", harvested)
             return "trashed"
 
@@ -368,6 +424,7 @@ class GuardianEngine:
             body['addLabelIds'] = [label_id]
 
         self.service.users().messages().modify(userId='me', id=msg_id, body=body).execute()
+        harvested = auto_harvest_relay(rp_h)
         stats.record_neutralization(from_h, subj, f"QUARANTINE ({reason})", harvested)
         return "quarantined"
 
@@ -413,47 +470,96 @@ class GuardianEngine:
 
         if output_review_file:
             ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-            filename = f"guardian_review_{ts}.json"
-            with open(filename, 'w', encoding='utf-8') as f:
-                json.dump(review_records, f, indent=2)
+            filename = f"{REVIEW_FILE_PREFIX}{ts}.json"
+            now = datetime.datetime.now(datetime.timezone.utc)
+            payload = {
+                "schema_version": 1,
+                "created_at": now.isoformat(),
+                "expires_at": (now + datetime.timedelta(hours=REVIEW_MAX_AGE_HOURS)).isoformat(),
+                "records": review_records,
+            }
+            review_document = {
+                **payload,
+                "integrity": {
+                    "algorithm": "HMAC-SHA256",
+                    "signature": _review_signature(payload),
+                },
+            }
+            write_private_json(os.path.join(SCRIPT_DIR, filename), review_document)
             print(f"\n[REVIEW FILE GENERATED] -> {filename}")
             print(f"To execute quarantine on this review file, run:")
             print(f"  python guardian.py --execute --review-file {filename}\n")
 
         return review_records
 
-    def execute_from_review_file(self, review_file, move_to_trash=False, hard_delete=False):
-        if not os.path.exists(review_file):
-            raise FileNotFoundError(f"Review file '{review_file}' does not exist.")
+    def _read_verified_review_file(self, review_file):
+        review_path = Path(review_file).resolve(strict=True)
+        skill_path = Path(SCRIPT_DIR).resolve()
+        if skill_path not in review_path.parents or not review_path.name.startswith(REVIEW_FILE_PREFIX):
+            raise ValueError('Review files must be generated by this local Inbox Guardian installation.')
 
-        with open(review_file, 'r', encoding='utf-8') as f:
-            records = json.load(f)
+        document = json.loads(review_path.read_text(encoding='utf-8'))
+        required_keys = {"schema_version", "created_at", "expires_at", "records", "integrity"}
+        if set(document) != required_keys or document.get("schema_version") != 1:
+            raise ValueError('Review file has an unsupported structure.')
+
+        integrity = document.get("integrity")
+        if not isinstance(integrity, dict) or integrity.get("algorithm") != "HMAC-SHA256":
+            raise ValueError('Review file has no supported integrity record.')
+
+        payload = {key: document[key] for key in ("schema_version", "created_at", "expires_at", "records")}
+        expected_signature = _review_signature(payload)
+        if not hmac.compare_digest(str(integrity.get("signature", "")), expected_signature):
+            raise ValueError('Review file integrity verification failed. Run a new audit before execution.')
+
+        try:
+            expiry = datetime.datetime.fromisoformat(document["expires_at"])
+        except (TypeError, ValueError) as error:
+            raise ValueError('Review file has an invalid expiry time.') from error
+        if expiry.tzinfo is None or datetime.datetime.now(datetime.timezone.utc) > expiry:
+            raise ValueError('Review file has expired. Run a new audit before execution.')
+
+        records = document["records"]
+        if not isinstance(records, list):
+            raise ValueError('Review file records must be a list.')
+        for record in records:
+            if not isinstance(record, dict) or not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", str(record.get("id", ""))):
+                raise ValueError('Review file contains an invalid message identifier.')
+            if record.get("proposed_action") not in {"KEEP", "QUARANTINE"}:
+                raise ValueError('Review file contains an invalid proposed action.')
+        return records
+
+    def _fetch_current_message(self, msg_id):
+        return self.service.users().messages().get(
+            userId='me',
+            id=msg_id,
+            format='metadata',
+            metadataHeaders=['From', 'Return-Path', 'Subject', 'Date', 'Authentication-Results'],
+        ).execute()
+
+    def execute_from_review_file(self, review_file, move_to_trash=False):
+        records = self._read_verified_review_file(review_file)
 
         targets = [r for r in records if r.get('proposed_action') == 'QUARANTINE']
         print(f"\nFound {len(targets)} messages flagged for quarantine in review file.")
-
-        if hard_delete:
-            print("\n" + "!"*60)
-            print("WARNING: DESTRUCTIVE HARD-DELETE REQUESTED")
-            print("Messages will be permanently erased from Google servers.")
-            print("!"*60)
-            confirm = input("Type 'CONFIRM' to execute hard deletion: ").strip()
-            if confirm != "CONFIRM":
-                print("Hard deletion cancelled by user.")
-                return
 
         executed = 0
         for t in targets:
             mid = t['id']
             try:
+                current = self._fetch_current_message(mid)
+                headers = {header['name'].lower(): header['value'] for header in current.get('payload', {}).get('headers', [])}
+                verdict, reason = self.classify_message(headers, current.get('labelIds', []))
+                if not verdict.startswith("QUARANTINE"):
+                    log(f"  [SKIPPED] {mid}: message no longer matches a quarantine rule")
+                    continue
                 res = self.execute_quarantine(
                     mid,
                     move_to_trash=move_to_trash,
-                    hard_delete=hard_delete,
-                    from_h=t.get('from', ''),
-                    subj=t.get('subject', ''),
-                    reason=t.get('reason', ''),
-                    rp_h=t.get('return_path', '')
+                    from_h=headers.get('from', ''),
+                    subj=headers.get('subject', ''),
+                    reason=reason,
+                    rp_h=headers.get('return-path', '')
                 )
                 executed += 1
                 log(f"  [{res.upper()}] {t.get('from', '')[:30]} | Subj: {t.get('subject', '')[:35]}")
@@ -508,8 +614,6 @@ def main():
     parser.add_argument('--execute', action='store_true', help="Execute actions from a generated review file")
     parser.add_argument('--review-file', type=str, help="Path to audit review JSON file to execute")
     parser.add_argument('--trash', action='store_true', help="Move quarantined items to Trash instead of labeling/archiving")
-    parser.add_argument('--hard-delete', action='store_true', help="Permanently destroy quarantined items (Requires --confirm-destructive)")
-    parser.add_argument('--confirm-destructive', action='store_true', help="Explicit confirmation for permanent deletion")
     
     parser.add_argument('--block-domain', type=str, help="Add validated domain to blocklist")
     parser.add_argument('--add-whitelist-domain', type=str, help="Add validated domain to safe whitelist")
@@ -569,14 +673,7 @@ def main():
         print(json.dumps(cfg, indent=2))
         return
 
-    scopes = DEFAULT_SCOPES
-    if args.hard_delete:
-        if not args.confirm_destructive:
-            print("[ERROR] Hard-delete requires both '--hard-delete' AND '--confirm-destructive'.")
-            sys.exit(1)
-        scopes = DESTRUCTIVE_SCOPE
-
-    engine = GuardianEngine(scopes=scopes)
+    engine = GuardianEngine(scopes=DEFAULT_SCOPES)
 
     if args.seed_reputation:
         reputation.seed_from_mailbox(engine.service)
@@ -590,8 +687,7 @@ def main():
             sys.exit(1)
         engine.execute_from_review_file(
             args.review_file,
-            move_to_trash=args.trash,
-            hard_delete=args.hard_delete
+            move_to_trash=args.trash
         )
     else:
         engine.run_audit(max_results=args.max)
