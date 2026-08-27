@@ -1,9 +1,9 @@
 ---
 name: inbox-guardian-for-gmail
-description: Review a personal Gmail inbox with local, owner-approved spam rules. Use for audit-first quarantine, Trash, sender rules, and header review. Do not use for automatic unsubscribe requests or unreviewed mailbox actions.
+description: Review a personal Gmail inbox with local, owner-approved spam rules. Use for audit-first quarantine, Trash, repeated-evidence sender learning, and header review. Do not use for automatic unsubscribe requests or unreviewed mailbox actions.
 license: MIT
 metadata:
-  version: 1.0.2
+  version: 1.0.3
 ---
 
 # Inbox Guardian for Gmail
@@ -20,15 +20,17 @@ Use this skill to help an owner review a Gmail inbox with rules that stay on the
 
 ## Choose the Right Action
 
-- **Audit**: This is the default action. It writes a local review file and does not change mail.
+- **Audit**: This is the default action. It writes a signed, short-lived local review file and does not change mail.
 - **Quarantine**: A reviewed execution adds the `Guardian/Quarantine` label and removes the Inbox label. The owner can review and restore mail at any time in Gmail.
-- **Trash**: This is reversible through the normal 30-day Gmail Trash window using the `--trash` flag.
 - **Trash**: This is the strongest action in this skill. It is an explicit owner choice and remains recoverable through Gmail's normal retention window.
+- **Learning**: Repeated, reviewed messages can promote an aligned sender domain into the local blocklist. Shared relays and one-off return paths are not promoted automatically. Owners can still explicitly block any validated domain.
 
 ## Data and Unsubscribe Boundaries
 
-- The local dashboard and statistics file retain sender and subject excerpts for recent reviewed actions. These files stay local and are ignored by Git.
+- Review files retain only the operational message identifier, classification, reason, and proposed action. Sender and subject details are shown during the live audit and re-fetched before execution.
 - A `List-Unsubscribe` header is only a review signal. This utility does not verify the destination, follow the link, submit a request, or confirm that a sender is legitimate.
+
+Read [the operating model](references/operating-model.md) for detailed data retention, learning, and execution rules.
 
 ## Common Workflows
 
@@ -51,7 +53,7 @@ python guardian.py --review-unsub
 ```
 
 ### 4. Execute Quarantine from a Review File
-Apply quarantine actions after the owner reviews the audit file:
+Apply quarantine actions after the owner reviews the audit file. The command requires a final typed confirmation before it changes mail:
 ```bash
 python guardian.py --execute --review-file <file_path>
 ```

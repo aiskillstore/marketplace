@@ -20,6 +20,7 @@ REQUIRED_FILES = (
     "docs/google-oauth-setup.md",
     "docs/safety-model.md",
     "docs/scheduled-runs.md",
+    "references/operating-model.md",
 )
 PRIVATE_ARTIFACTS = (
     "credentials.json",

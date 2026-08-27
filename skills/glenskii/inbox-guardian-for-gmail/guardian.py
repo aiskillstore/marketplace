@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Inbox Guardian for Gmail (v1.0.2)
+Inbox Guardian for Gmail (v1.0.3)
 -----------------------
 Local-first inbox organization, autonomous relay harvesting & heuristic quarantine engine.
 
@@ -8,7 +8,7 @@ Core Architectural Principles:
 1. Least Privilege: Uses `gmail.modify` by default (read, label, archive, trash).
 2. Quarantine by Default: Moves suspicious emails to `Guardian/Quarantine` label.
 3. Review-First Audit: Audit mode is default and generates an actionable review file.
-4. Local Relay Learning: Records suspicious relay domains only after a reviewed action.
+4. Local Sender Learning: Promotes aligned sender domains after repeated reviewed actions.
 5. SQLite VIP Reputation: Auto-indexes trusted correspondents to prevent false positives.
 6. Visual Reporting Dashboard: Generates a sleek dark-mode interactive HTML control center.
 """
@@ -40,7 +40,7 @@ from google.auth.transport.requests import Request
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 
-__version__ = "1.0.2"
+__version__ = "1.0.3"
 
 DEFAULT_SCOPES = ['https://www.googleapis.com/auth/gmail.modify']
 
@@ -53,6 +53,7 @@ LOG_FILE = os.path.join(SCRIPT_DIR, 'guardian.log')
 REVIEW_KEY_FILE = os.path.join(SCRIPT_DIR, 'guardian_review.key')
 REVIEW_FILE_PREFIX = 'guardian_review_'
 REVIEW_MAX_AGE_HOURS = 24
+LEARNING_PROMOTION_THRESHOLD = 2
 
 if hasattr(sys.stdout, 'reconfigure'):
     sys.stdout.reconfigure(encoding='utf-8', errors='replace')
@@ -113,6 +114,7 @@ def load_config():
         "whitelist_emails": [],
         "blocklist_domains": [],
         "blocklist_senders": [],
+        "learned_domain_candidates": {},
         "trusted_unsub_domains": ["substack.com", "medium.com", "github.com", "linkedin.com"],
         "suspicious_sender_tlds": [".biz", ".web.id", ".my.id", ".top", ".xyz", ".at", ".us", ".me", ".info"],
         "quarantine_keywords": [
@@ -143,23 +145,59 @@ def normalize_text(text: str) -> str:
         return ""
     return unicodedata.normalize('NFKD', text).encode('ascii', 'ignore').decode('ascii').lower()
 
-def auto_harvest_relay(rp_header):
-    """Automatically learns and stores root sending domains of identified spam."""
-    _, _, dom = extract_clean_address_and_domain(rp_header)
-    if not dom or len(dom) < 4 or '.' not in dom:
+def _domains_align(candidate, expected):
+    candidate = (candidate or "").lower().strip().lstrip('@.')
+    expected = (expected or "").lower().strip().lstrip('@.')
+    return bool(candidate and expected and (
+        candidate == expected
+        or candidate.endswith('.' + expected)
+        or expected.endswith('.' + candidate)
+    ))
+
+
+def learn_confirmed_sender_domain(from_header, return_path_header):
+    """Promote a sender domain only after repeated, reviewed, aligned evidence."""
+    _, _, from_domain = extract_clean_address_and_domain(from_header)
+    _, _, return_path_domain = extract_clean_address_and_domain(return_path_header)
+    if not from_domain or not return_path_domain:
         return None
-    
+
+    # Shared mail relays are common. A reviewed action must never turn an
+    # unrelated relay into a domain-wide block rule.
+    if not _domains_align(from_domain, return_path_domain):
+        log("  [LEARNING SKIPPED] Sender and return-path domains do not align.")
+        return None
+
     cfg = load_config()
-    whitelist = [w.lower() for w in cfg.get("whitelist_domains", [])]
-    if any(dom == w or dom.endswith('.' + w) for w in whitelist + ["google.com", "gmail.com", "github.com", "stripe.com"]):
+    whitelist = [item.lower().strip() for item in cfg.get("whitelist_domains", [])]
+    protected_domains = whitelist + ["google.com", "gmail.com", "github.com", "stripe.com"]
+    if any(_domains_align(from_domain, domain) for domain in protected_domains):
+        return None
+
+    candidates = cfg.setdefault("learned_domain_candidates", {})
+    if not isinstance(candidates, dict):
+        candidates = {}
+        cfg["learned_domain_candidates"] = candidates
+    count = int(candidates.get(from_domain, 0)) + 1
+    candidates[from_domain] = count
+
+    if count < LEARNING_PROMOTION_THRESHOLD:
+        save_config(cfg)
+        log(
+            f"  [LEARNING RECORDED] '{from_domain}' has {count}/"
+            f"{LEARNING_PROMOTION_THRESHOLD} reviewed actions before blocklist promotion."
+        )
         return None
 
     blocklist = cfg.setdefault("blocklist_domains", [])
-    if dom not in blocklist:
-        blocklist.append(dom)
+    if from_domain not in blocklist:
+        blocklist.append(from_domain)
+        candidates.pop(from_domain, None)
         save_config(cfg)
-        log(f"  🧬 [AUTONOMOUS HARVEST] Learned and blocklisted rogue relay domain: '{dom}'")
-        return dom
+        log(f"  [LEARNING PROMOTED] Blocklisted confirmed sender domain: '{from_domain}'")
+        return from_domain
+
+    save_config(cfg)
     return None
 
 class GmailAuth:
@@ -205,7 +243,7 @@ def print_oauth_setup_instructions():
 
 def run_setup(scopes=DEFAULT_SCOPES):
     if not os.path.exists(CREDENTIALS_FILE):
-        print(f"Missing '{CREDENTIALS_FILE}'.")
+        print(f"Missing OAuth desktop client file: '{CREDENTIALS_FILE}'.")
         print_oauth_setup_instructions()
         return 1
     load_config()
@@ -414,7 +452,7 @@ class GuardianEngine:
                 except Exception:
                     pass
             self.service.users().messages().trash(userId='me', id=msg_id).execute()
-            harvested = auto_harvest_relay(rp_h)
+            harvested = learn_confirmed_sender_domain(from_h, rp_h)
             stats.record_neutralization(from_h, subj, f"TRASH ({reason})", harvested)
             return "trashed"
 
@@ -424,7 +462,7 @@ class GuardianEngine:
             body['addLabelIds'] = [label_id]
 
         self.service.users().messages().modify(userId='me', id=msg_id, body=body).execute()
-        harvested = auto_harvest_relay(rp_h)
+        harvested = learn_confirmed_sender_domain(from_h, rp_h)
         stats.record_neutralization(from_h, subj, f"QUARANTINE ({reason})", harvested)
         return "quarantined"
 
@@ -450,10 +488,6 @@ class GuardianEngine:
 
             record = {
                 "id": m.get('id'),
-                "date": headers.get('date', ''),
-                "from": headers.get('from', ''),
-                "return_path": headers.get('return-path', ''),
-                "subject": headers.get('subject', ''),
                 "classification": verdict,
                 "reason": reason,
                 "proposed_action": "QUARANTINE" if verdict.startswith("QUARANTINE") else "KEEP"
@@ -562,7 +596,10 @@ class GuardianEngine:
                     rp_h=headers.get('return-path', '')
                 )
                 executed += 1
-                log(f"  [{res.upper()}] {t.get('from', '')[:30]} | Subj: {t.get('subject', '')[:35]}")
+                log(
+                    f"  [{res.upper()}] {headers.get('from', '')[:30]} | "
+                    f"Subj: {headers.get('subject', '')[:35]}"
+                )
             except Exception as e:
                 log(f"  [ERROR] Failed on {mid}: {e}")
 
@@ -572,6 +609,15 @@ class GuardianEngine:
             generate_dashboard_html()
         except Exception:
             pass
+
+
+def confirm_review_execution(review_file, move_to_trash=False):
+    action = "TRASH" if move_to_trash else "QUARANTINE"
+    expected = f"{action} {Path(review_file).name}"
+    print("\nReviewed mailbox action requested.")
+    print(f"Type exactly: {expected}")
+    supplied = input("> ").strip()
+    return hmac.compare_digest(supplied, expected)
 
     def review_unsubscribes(self, max_results=50):
         print(f"\n=======================================================")
@@ -685,6 +731,9 @@ def main():
         if not args.review_file:
             print("[ERROR] '--execute' requires '--review-file <path_to_json_file>'.")
             sys.exit(1)
+        if not confirm_review_execution(args.review_file, move_to_trash=args.trash):
+            print("[CANCELLED] No mailbox changes were made.")
+            return
         engine.execute_from_review_file(
             args.review_file,
             move_to_trash=args.trash

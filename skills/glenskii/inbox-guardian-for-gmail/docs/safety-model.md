@@ -16,13 +16,13 @@ Subdomains match a configured domain. Lookalike domains do not. For example, `ma
 
 ## Actions
 
-Audit is the default action. It creates a local signed review file and does not change mail. The file expires after 24 hours. Before action, the tool validates its structure and signature, then rechecks the current message classification. Quarantine is a reviewed action that preserves the message while moving it out of the Inbox. Trash is an explicit owner choice and remains reversible through Gmail.
+Audit is the default action. It creates a local signed review file and does not change mail. The file expires after 24 hours and keeps only the message identifier, classification, reason, and proposed action. Before action, the tool validates its structure and signature, rechecks the current message classification, and requires a final typed owner confirmation. Quarantine is a reviewed action that preserves the message while moving it out of the Inbox. Trash is an explicit owner choice and remains reversible through Gmail.
 
 Permanent deletion is intentionally outside this skill. It must be completed manually in Gmail after the normal Trash retention period or through the mailbox owner's own controls.
 
 ## Data handling
 
-The utility stores its OAuth token, configuration, log, review files, local reputation database, and activity history beside the script. These files can expose mailbox access or mail metadata. New and updated files use owner-only permissions where the operating system supports them. Keep them out of version control and support requests.
+The utility stores its OAuth token, configuration, log, review files, local reputation database, and activity history beside the script. These files can expose mailbox access or mail metadata. New and updated files use owner-only permissions where the operating system supports them. Keep them out of version control and support requests. The review-file minimum record does not replace normal device security.
 
 The local activity history records sender and subject excerpts for reviewed actions so the dashboard can display recent activity. The reputation database records correspondents and domains found in Sent and Starred mail. Both are local, ignored by Git, and should be protected like mailbox data.
 

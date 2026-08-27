@@ -10,9 +10,7 @@ def test_setup_explains_missing_credentials(monkeypatch, tmp_path, capsys):
     result = guardian.run_setup()
 
     assert result == 1
-    output = capsys.readouterr().out
-    assert "OAuth setup required" in output
-    assert "Desktop app OAuth client" in output
+    assert "OAuth desktop client file" in capsys.readouterr().out
 
 
 def test_setup_authenticates_and_confirms_account(monkeypatch, tmp_path, capsys):

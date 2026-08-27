@@ -1,4 +1,4 @@
-# Inbox Guardian for Gmail (v1.0.2)
+# Inbox Guardian for Gmail (v1.0.3)
 
 ![Inbox Guardian for Gmail](assets/social-preview.png)
 
@@ -26,7 +26,7 @@ Key features include:
 1. **Least-Privilege Access**: The default Gmail scope can read message headers, label messages, archive them, and move them to Trash. It does not grant administrative account access.
 2. **Audit Before Action**: A normal run writes a local review file. Nothing changes in Gmail until the owner executes that reviewed file.
 3. **Recoverable Quarantine**: Reviewed candidates receive the `Guardian/Quarantine` label and leave the Inbox. The owner can restore them in Gmail.
-4. **Local Sender Learning**: When a reviewed action is applied, the tool can add the related return-path domain to the local blocklist. Trusted contacts built from Sent and Starred mail take precedence over matching rules.
+4. **Local Sender Learning**: Repeated reviewed actions can promote an aligned sender domain into the local blocklist. It does not automatically block shared relays or one-off return paths. Trusted contacts built from Sent and Starred mail take precedence over matching rules.
 5. **Local Dashboard**: A browser dashboard reads local activity data and rules. It does not host the dashboard or send it to a third-party service.
 6. **Header Review Only**: The tool can display `List-Unsubscribe` headers for inspection. It does not follow links, send unsubscribe requests, or treat a header as proof that a sender is legitimate.
 7. **Text Normalization**: It converts styled Unicode text to a plain form before comparing configured rules.
@@ -114,10 +114,10 @@ Inspect your recent emails, view classifications, and write a review file:
 ```bash
 python guardian.py
 ```
-This generates a file named `guardian_review_YYYYMMDD_HHMMSS.json`.
+This generates a signed file named `guardian_review_YYYYMMDD_HHMMSS.json`. It retains only the operational message identifier, classification, reason, and proposed action. Sender and subject details remain in the live audit output and are re-fetched before action.
 
 ### 6. Apply Quarantine from a Review File
-Move flagged items to the `Guardian/Quarantine` label based on your audit:
+Move flagged items to the `Guardian/Quarantine` label based on your audit. The command requires a final typed confirmation before changing mail:
 ```bash
 python guardian.py --execute --review-file guardian_review_20260826_080000.json
 ```
@@ -140,7 +140,7 @@ python guardian.py --review-unsub
 
 This release does not install or remove operating-system schedules. After a successful `--setup`, you can schedule the standard audit command through Windows Task Scheduler, macOS `launchd`, or Linux cron. Read the [scheduled audit guide](docs/scheduled-runs.md) before enabling it.
 
-Scheduled runs should remain audit-only. Each generated review file is signed, expires after 24 hours, and is rechecked against current mailbox metadata before an owner runs a quarantine or Trash command.
+Scheduled runs should remain audit-only. Each generated review file is signed, expires after 24 hours, retains only the minimum execution record, and is rechecked against current mailbox metadata before an owner runs a quarantine or Trash command.
 
 ---
 

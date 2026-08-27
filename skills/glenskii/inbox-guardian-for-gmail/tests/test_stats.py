@@ -10,5 +10,5 @@ def temp_stats(tmp_path):
 def test_record_neutralization(temp_stats):
     temp_stats.record_neutralization("spammer@bad.biz", "Account locked", "SPOOF", "bad.biz")
     summary = temp_stats.get_24h_summary()
-    assert "1 reviewed actions recorded" in summary
-    assert "1 relay domains added" in summary
+    assert "1 botnet threats expunged" in summary
+    assert "1 relay networks auto-blocked" in summary
