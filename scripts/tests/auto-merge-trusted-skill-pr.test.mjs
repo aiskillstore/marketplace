@@ -79,6 +79,7 @@ function snapshot(overrides = {}) {
     reports: [{
       path: `${ROOT}/skill-report.json`,
       sha: '2'.repeat(40),
+      securityAudit: { is_blocked: false, safe_to_publish: true },
     }],
     basePendingExists: false,
     baseSkillRootsExist: false,
@@ -100,7 +101,11 @@ function sourceMonitorSnapshot(overrides = {}) {
     { path: `${SOURCE_ROOT}/skill-report.json`, type: 'blob', mode: '100644', sha: '4'.repeat(40) },
     { path: `${SOURCE_ROOT}/references/unchanged.md`, type: 'blob', mode: '100644', sha: '5'.repeat(40) },
   ];
-  value.reports = [{ path: `${SOURCE_ROOT}/skill-report.json`, sha: '4'.repeat(40) }];
+  value.reports = [{
+    path: `${SOURCE_ROOT}/skill-report.json`,
+    sha: '4'.repeat(40),
+    securityAudit: { is_blocked: false, safe_to_publish: true },
+  }];
   return structuredClone(Object.assign(value, overrides));
 }
 
@@ -244,8 +249,15 @@ test('fails closed on incomplete files, unsafe tree entries, truncation and ambi
   for (const [build, pattern] of cases) expectBlocked(build(), pattern);
 });
 
-test('does not inspect security-report risk fields as auto-merge gates', () => {
-  assert.equal(validateSnapshot(snapshot()).eligible, true);
+test('fails closed when an exact-head report is blocked or unsafe to publish', () => {
+  for (const [securityAudit, pattern] of [
+    [{ is_blocked: true, safe_to_publish: false }, /blocked from automatic publication/],
+    [{ is_blocked: false, safe_to_publish: false }, /not safe for automatic publication/],
+  ]) {
+    const value = snapshot();
+    value.reports[0].securityAudit = securityAudit;
+    expectBlocked(value, pattern);
+  }
 });
 
 test('qualifies multiple canonical pending Skill roots when every root has a bound report', () => {
@@ -260,7 +272,11 @@ test('qualifies multiple canonical pending Skill roots when every root has a bou
     { path: `${secondRoot}/SKILL.md`, type: 'blob', mode: '100644', sha: '3'.repeat(40) },
     { path: `${secondRoot}/skill-report.json`, type: 'blob', mode: '100644', sha: '4'.repeat(40) },
   );
-  value.reports.push({ path: `${secondRoot}/skill-report.json`, sha: '4'.repeat(40) });
+  value.reports.push({
+    path: `${secondRoot}/skill-report.json`,
+    sha: '4'.repeat(40),
+    securityAudit: { is_blocked: false, safe_to_publish: true },
+  });
   assert.deepEqual(validateSnapshot(value).roots, [ROOT, secondRoot].sort());
 });
 
