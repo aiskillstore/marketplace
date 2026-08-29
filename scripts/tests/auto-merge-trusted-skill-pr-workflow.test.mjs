@@ -14,11 +14,10 @@ const workflow = parse(source);
 const trigger = workflow.on ?? workflow.true;
 
 test('uses trusted validation events plus bounded default-branch recovery triggers', () => {
-  assert.deepEqual(Object.keys(trigger), ['workflow_run', 'schedule', 'workflow_dispatch']);
+  assert.deepEqual(Object.keys(trigger), ['workflow_run', 'schedule']);
   assert.deepEqual(trigger.workflow_run.workflows, ['Validate Marketplace']);
   assert.deepEqual(trigger.workflow_run.types, ['completed']);
   assert.deepEqual(trigger.schedule, [{ cron: '*/5 * * * *' }]);
-  assert.equal(trigger.workflow_dispatch, null);
   assert.doesNotMatch(source, /pull_request_target/);
 });
 
@@ -34,7 +33,7 @@ test('uses a literal hosted runner, non-cancelling repository serialization and 
   assert.equal(workflow.concurrency.group, 'trusted-skill-auto-merge-${{ github.repository }}');
   const job = workflow.jobs['auto-merge'];
   assert.equal(job['runs-on'], 'ubuntu-latest');
-  assert.match(job.if, /github\.event_name != 'workflow_run'/);
+  assert.match(job.if, /github\.event_name == 'schedule'/);
   assert.match(job.if, /workflow_run\.event == 'pull_request'/);
   assert.ok(Number.parseInt(job['timeout-minutes'], 10) <= 15);
 });
@@ -59,7 +58,7 @@ test('checks out only trusted automation and confines the event-capable App toke
   assert.equal(executor.env.GH_UPDATE_TOKEN, '${{ steps.app-token.outputs.token }}');
   assert.equal(executor.env.GITHUB_RUN_ID, '${{ github.run_id }}');
   assert.equal(executor.env.WORKFLOW_RUN_ID, '${{ github.event.workflow_run.id }}');
-  assert.equal(executor.env.RECOVERY_SWEEP, "${{ github.event_name != 'workflow_run' }}");
+  assert.equal(executor.env.RECOVERY_SWEEP, "${{ github.event_name == 'schedule' }}");
 });
 
 test('contains no bypass, force-push, auto-merge or untrusted PR execution path', () => {
