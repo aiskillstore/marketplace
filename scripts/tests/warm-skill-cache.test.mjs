@@ -1152,7 +1152,10 @@ test('workflow checks out scripts, requires bounded skill scope, and has no reti
   assert.match(workflow, /CACHE_VERSION_HEADER: x-kv-version/);
   assert.match(workflow, /Warm scope is empty/);
   assert.match(workflow, /Resolved scope needs at least \$MINIMUM_REQUESTS requests/);
-  assert.match(workflow, /batch-size: \$\{\{ env\.INVALIDATE_BATCH_SIZE \}\}[\s\S]*concurrency: '1'[\s\S]*invalidate-artifacts: 'false'[\s\S]*invalidate-dependent-packs: 'false'/);
+  assert.match(workflow, /- invalidate/);
+  assert.match(workflow, /Invalidate selected skill caches\n\s+if: inputs\.mode != 'warm'/);
+  assert.match(workflow, /Warm and verify API, HTML, and optional ZIP caches\n\s+if: inputs\.mode != 'invalidate'/);
+  assert.match(workflow, /batch-size: \$\{\{ env\.INVALIDATE_BATCH_SIZE \}\}[\s\S]*concurrency: '1'[\s\S]*invalidate-artifacts: \$\{\{ inputs\.mode == 'invalidate' \}\}[\s\S]*invalidate-dependent-packs: \$\{\{ inputs\.mode == 'invalidate' \}\}/);
   assert.match(workflow, /node scripts\/warm-skill-cache\.mjs/);
   assert.doesNotMatch(workflow, /Warm workflows cache|Warm releases cache|type=skills/);
   assert.doesNotMatch(invalidateAction, /packs\/workflows/);
@@ -1203,7 +1206,7 @@ test('workflow rejects oversized and underbudget force invalidation before the i
       INPUT_SLUGS: Array.from({ length: 26 }, (_, index) => `skill-${index + 1}`).join('\n'),
     });
     assert.equal(oversized.status, 1);
-    assert.match(`${oversized.stdout}\n${oversized.stderr}`, /Force invalidation is limited to 25 skills per run; resolved 26/);
+    assert.match(`${oversized.stdout}\n${oversized.stderr}`, /Invalidation is limited to 25 skills per run; resolved 26/);
 
     const underbudget = runScope({
       INPUT_SLUGS: Array.from({ length: 22 }, (_, index) => `skill-${index + 1}`).join('\n'),
@@ -1215,6 +1218,13 @@ test('workflow rejects oversized and underbudget force invalidation before the i
       INPUT_SLUGS: Array.from({ length: 21 }, (_, index) => `skill-${index + 1}`).join('\n'),
     });
     assert.equal(exactBudget.status, 0, `${exactBudget.stdout}\n${exactBudget.stderr}`);
+
+    const invalidateOnly = runScope({
+      MODE: 'invalidate',
+      INPUT_SLUGS: Array.from({ length: 25 }, (_, index) => `skill-${index + 1}`).join('\n'),
+      REQUEST_BUDGET: '1',
+    });
+    assert.equal(invalidateOnly.status, 0, `${invalidateOnly.stdout}\n${invalidateOnly.stderr}`);
 
     const expandedByteBudget = runScope({ BYTE_BUDGET: '33554432' });
     assert.equal(expandedByteBudget.status, 0, `${expandedByteBudget.stdout}\n${expandedByteBudget.stderr}`);
@@ -1228,7 +1238,7 @@ test('workflow rejects oversized and underbudget force invalidation before the i
 
     const forceZip = runScope({ WARM_ZIP: 'true' });
     assert.equal(forceZip.status, 1);
-    assert.match(`${forceZip.stdout}\n${forceZip.stderr}`, /force mode does not invalidate immutable ZIP artifacts/);
+    assert.match(`${forceZip.stdout}\n${forceZip.stderr}`, /force\/invalidate modes do not invalidate immutable ZIP artifacts/);
   } finally {
     rmSync(workDir, { recursive: true, force: true });
   }
