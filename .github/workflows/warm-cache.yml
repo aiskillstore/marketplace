@@ -4,12 +4,13 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: 'warm = verify/fill cache, force = invalidate selected skills first'
+        description: 'warm = verify/fill, force = invalidate then verify, invalidate = remove selected cache entries only'
         required: true
         type: choice
         options:
           - warm
           - force
+          - invalidate
         default: warm
       scope:
         description: 'Warm only an explicit changed or high-traffic Skill set'
@@ -128,8 +129,8 @@ jobs:
             echo "::error::warm_zip must be true or false"
             exit 1
           fi
-          if [ "$MODE" = "force" ] && [ "$WARM_ZIP" = "true" ]; then
-            echo "::error::force mode does not invalidate immutable ZIP artifacts; run ZIP verification separately in warm mode"
+          if [ "$MODE" != "warm" ] && [ "$WARM_ZIP" = "true" ]; then
+            echo "::error::force/invalidate modes do not invalidate immutable ZIP artifacts; run ZIP verification separately in warm mode"
             exit 1
           fi
 
@@ -178,14 +179,17 @@ jobs:
             echo "::error::Warm scope is empty. Supply an explicit changed or high-traffic Skill set."
             exit 1
           fi
-          if [ "$MODE" = "force" ] && [ "$SLUG_COUNT" -gt "$MAX_FORCE_INVALIDATION_SLUGS" ]; then
-            echo "::error::Force invalidation is limited to $MAX_FORCE_INVALIDATION_SLUGS skills per run; resolved $SLUG_COUNT"
+          if [ "$MODE" != "warm" ] && [ "$SLUG_COUNT" -gt "$MAX_FORCE_INVALIDATION_SLUGS" ]; then
+            echo "::error::Invalidation is limited to $MAX_FORCE_INVALIDATION_SLUGS skills per run; resolved $SLUG_COUNT"
             exit 1
           fi
           LOCALE_COUNT=$(grep -c . "$LOCALES_FILE")
-          MINIMUM_REQUESTS=$((2 + SLUG_COUNT * LOCALE_COUNT * 6))
-          if [ "$WARM_ZIP" = "true" ]; then
-            MINIMUM_REQUESTS=$((MINIMUM_REQUESTS + SLUG_COUNT * 3))
+          MINIMUM_REQUESTS=0
+          if [ "$MODE" != "invalidate" ]; then
+            MINIMUM_REQUESTS=$((2 + SLUG_COUNT * LOCALE_COUNT * 6))
+            if [ "$WARM_ZIP" = "true" ]; then
+              MINIMUM_REQUESTS=$((MINIMUM_REQUESTS + SLUG_COUNT * 3))
+            fi
           fi
           if [ "$MINIMUM_REQUESTS" -gt "$REQUEST_BUDGET" ]; then
             echo "::error::Resolved scope needs at least $MINIMUM_REQUESTS requests for complete cache verification, above request_budget=$REQUEST_BUDGET"
@@ -198,7 +202,7 @@ jobs:
           echo "locales=$RESOLVED_LOCALES" >> "$GITHUB_OUTPUT"
 
       - name: Invalidate selected skill caches
-        if: inputs.mode == 'force'
+        if: inputs.mode != 'warm'
         uses: ./.github/actions/invalidate-cache
         with:
           type: skills
@@ -206,11 +210,12 @@ jobs:
           secret: ${{ secrets.CACHE_INVALIDATE_SECRET }}
           batch-size: ${{ env.INVALIDATE_BATCH_SIZE }}
           concurrency: '1'
-          invalidate-artifacts: 'false'
-          invalidate-dependent-packs: 'false'
+          invalidate-artifacts: ${{ inputs.mode == 'invalidate' }}
+          invalidate-dependent-packs: ${{ inputs.mode == 'invalidate' }}
           fail-on-error: 'true'
 
       - name: Warm and verify API, HTML, and optional ZIP caches
+        if: inputs.mode != 'invalidate'
         env:
           SLUGS_FILE: ${{ steps.scope.outputs.slugs_file }}
           REQUEST_BUDGET: ${{ inputs.request_budget }}
@@ -253,7 +258,7 @@ jobs:
           node scripts/warm-skill-cache.mjs "${args[@]}"
 
       - name: Upload warm verification evidence
-        if: always()
+        if: always() && inputs.mode != 'invalidate'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: warm-cache-verification-${{ github.run_id }}
