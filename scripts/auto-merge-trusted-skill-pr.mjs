@@ -358,19 +358,27 @@ function definiteMutationRejection(error) {
   return error instanceof GitHubApiError && [405, 409, 422].includes(error.status);
 }
 
-export async function runAutoMerge(api, { workflowRunId }) {
+export async function runAutoMerge(api, { workflowRunId, deferPostMergeDispatch = false }) {
   const firstSnapshot = await buildStableSnapshot(api, workflowRunId);
   if (firstSnapshot?.pr?.merged === true && firstSnapshot.pr.state === 'closed' && firstSnapshot.pr.head?.sha === firstSnapshot.workflowRun?.head_sha) {
-    if (SOURCE_MONITOR_REF_RE.test(firstSnapshot.pr.head?.ref ?? '')) {
-      const merged = validateSnapshot(firstSnapshot, { allowMerged: true });
-      try {
-        await api.dispatchProviderSync(merged.prNumber, merged.headSha, merged.roots);
-      } catch {
-        throw new AutoMergeUnknownEffectError(`merge is confirmed but provider sync reconciliation is unknown for PR #${merged.prNumber}`);
-      }
-      return { outcome: 'ALREADY_MERGED_AND_PROVIDER_SYNC_CONFIRMED', prNumber: merged.prNumber, headSha: merged.headSha, mergeCommitSha: firstSnapshot.pr.merge_commit_sha, classification: merged.classification };
+    const merged = validateSnapshot(firstSnapshot, { allowMerged: true });
+    let dispatchResult;
+    try {
+      dispatchResult = merged.postMergeAction === 'provider_sync'
+        ? await api.dispatchProviderSync(merged.prNumber, merged.headSha, merged.roots)
+        : await api.dispatchPublication(merged.prNumber, merged.headSha, firstSnapshot.pr.merge_commit_sha);
+    } catch (error) {
+      if (error instanceof AutoMergeBlockedError || error instanceof AutoMergeUnknownEffectError) throw error;
+      const effect = merged.postMergeAction === 'provider_sync' ? 'provider sync' : 'publication';
+      throw new AutoMergeUnknownEffectError(`merge is confirmed but ${effect} reconciliation is unknown for PR #${merged.prNumber}`);
     }
-    return { outcome: 'ALREADY_MERGED', prNumber: firstSnapshot.pr.number, headSha: firstSnapshot.pr.head.sha, mergeCommitSha: firstSnapshot.pr.merge_commit_sha };
+    return {
+      ...dispatchResult,
+      prNumber: merged.prNumber,
+      headSha: merged.headSha,
+      mergeCommitSha: firstSnapshot.pr.merge_commit_sha,
+      classification: merged.classification,
+    };
   }
   const first = validateSnapshot(firstSnapshot);
   const secondSnapshot = await buildStableSnapshot(api, workflowRunId);
@@ -446,20 +454,29 @@ export async function runAutoMerge(api, { workflowRunId }) {
     throw new AutoMergeUnknownEffectError(`merge effect is unknown for PR #${second.prNumber}`);
   }
   if (mergedReadback(readback, second)) {
-    if (second.postMergeAction === 'provider_sync') {
-      try {
-        await api.dispatchProviderSync(second.prNumber, second.headSha, second.roots);
-      } catch {
-        throw new AutoMergeUnknownEffectError(`merge is confirmed but provider sync dispatch is unknown for PR #${second.prNumber}`);
-      }
-      return { outcome: 'MERGED_AND_PROVIDER_SYNC_DISPATCHED', prNumber: second.prNumber, headSha: second.headSha, mergeCommitSha: readback.merge_commit_sha, classification: second.classification };
+    if (deferPostMergeDispatch) {
+      return {
+        outcome: second.postMergeAction === 'provider_sync'
+          ? 'MERGED_AWAITING_PROVIDER_SYNC_RECONCILIATION'
+          : 'MERGED_AWAITING_PUBLICATION_RECONCILIATION',
+        prNumber: second.prNumber,
+        headSha: second.headSha,
+        mergeCommitSha: readback.merge_commit_sha,
+        classification: second.classification,
+      };
     }
     try {
-      await api.dispatchPublication(second.prNumber);
-    } catch {
-      throw new AutoMergeUnknownEffectError(`merge is confirmed but publication recovery dispatch is unknown for PR #${second.prNumber}`);
+      if (second.postMergeAction === 'provider_sync') {
+        await api.dispatchProviderSync(second.prNumber, second.headSha, second.roots);
+        return { outcome: 'MERGED_AND_PROVIDER_SYNC_DISPATCHED', prNumber: second.prNumber, headSha: second.headSha, mergeCommitSha: readback.merge_commit_sha, classification: second.classification };
+      }
+      await api.dispatchPublication(second.prNumber, second.headSha, readback.merge_commit_sha);
+      return { outcome: 'MERGED_AND_PUBLICATION_DISPATCHED', prNumber: second.prNumber, headSha: second.headSha, mergeCommitSha: readback.merge_commit_sha, classification: second.classification };
+    } catch (error) {
+      if (error instanceof AutoMergeBlockedError || error instanceof AutoMergeUnknownEffectError) throw error;
+      const effect = second.postMergeAction === 'provider_sync' ? 'provider sync' : 'publication';
+      throw new AutoMergeUnknownEffectError(`merge is confirmed but ${effect} dispatch is unknown for PR #${second.prNumber}`);
     }
-    return { outcome: 'MERGED_AND_PUBLICATION_DISPATCHED', prNumber: second.prNumber, headSha: second.headSha, mergeCommitSha: readback.merge_commit_sha, classification: second.classification };
   }
   if (mutationError && definiteMutationRejection(mutationError)) throw new AutoMergeBlockedError(`merge rejected with HTTP ${mutationError.status}`);
   throw new AutoMergeUnknownEffectError(`merge effect is unknown for PR #${second.prNumber}`);
@@ -469,6 +486,7 @@ export async function runRecoverySweep(api) {
   const candidates = await api.listRecoveryCandidates();
   for (const candidate of candidates) {
     if (candidate.workflowRunId == null) {
+      if (candidate.phase === 'MERGED') continue;
       return {
         outcome: 'WAITING_CI',
         prNumber: candidate.prNumber,
@@ -477,8 +495,11 @@ export async function runRecoverySweep(api) {
       };
     }
     try {
-      const result = await runAutoMerge(api, { workflowRunId: candidate.workflowRunId });
-      if (result.outcome === 'ALREADY_MERGED') continue;
+      const result = await runAutoMerge(api, {
+        workflowRunId: candidate.workflowRunId,
+        deferPostMergeDispatch: true,
+      });
+      if (['PUBLICATION_ALREADY_DISPATCHED', 'PROVIDER_SYNC_ALREADY_DISPATCHED'].includes(result.outcome)) continue;
       return result;
     } catch (error) {
       if (error instanceof AutoMergeSkippedError) continue;
@@ -503,8 +524,9 @@ function trustedRecoverySeed(pr, repository) {
   const sourceMonitor = SOURCE_MONITOR_REF_RE.test(pr?.head?.ref ?? '')
     && labels.has('skill-source-monitor')
     && !labels.has('pending-review');
-  return pr?.state === 'open'
-    && pr.draft === false
+  const lifecycle = (pr?.state === 'open' && pr.draft === false && pr.merged_at == null)
+    || (pr?.state === 'closed' && pr.draft === false && typeof pr.merged_at === 'string' && validSha(pr.merge_commit_sha));
+  return lifecycle
     && pr.base?.ref === 'main'
     && sameRepository(pr.base?.repo, repository)
     && sameRepository(pr.head?.repo, repository)
@@ -604,14 +626,31 @@ export class GitHubApi {
   async listRecoveryCandidates() {
     const repository = await this.request('');
     block(repository?.full_name === TRUSTED_REPOSITORY && Number.isSafeInteger(repository.id), 'trusted repository evidence is unavailable');
-    const pulls = await this.paginate('/pulls?state=open&base=main&sort=created&direction=asc');
+    const [openPulls, recentClosedPulls] = await Promise.all([
+      this.paginate('/pulls?state=open&base=main&sort=created&direction=asc'),
+      this.request('/pulls?state=closed&base=main&sort=updated&direction=desc&per_page=100&page=1'),
+    ]);
+    block(Array.isArray(recentClosedPulls), 'recent merged PR evidence is unavailable');
+    const mergedSeeds = [];
+    for (const pr of recentClosedPulls) {
+      if (!trustedRecoverySeed(pr, repository) || pr.state !== 'closed') continue;
+      const mergeCommit = await this.readCommit(pr.merge_commit_sha);
+      const marker = `Trusted auto-merge PR #${pr.number}\n\nAgentCrew-Recovery: ${pr.number}:${pr.head.sha}`;
+      if (mergeCommit?.commit?.message === marker) mergedSeeds.push(pr);
+    }
+    mergedSeeds.sort((left, right) => String(left.merged_at).localeCompare(String(right.merged_at)) || left.number - right.number);
+    const openSeeds = openPulls.filter((pr) => trustedRecoverySeed(pr, repository) && pr.state === 'open');
     const candidates = [];
-    for (const pr of pulls) {
-      if (!trustedRecoverySeed(pr, repository)) continue;
+    for (const pr of [...mergedSeeds, ...openSeeds]) {
       const checks = await this.paginate(`/commits/${pr.head.sha}/check-runs?filter=latest`, (value) => value?.check_runs);
       const runIds = [...new Set(checks.map(workflowRunIdFromCheck).filter(Number.isSafeInteger))];
       block(runIds.length <= 1, `PR #${pr.number} has ambiguous exact-head validation runs`);
-      candidates.push({ prNumber: pr.number, headSha: pr.head.sha, workflowRunId: runIds[0] ?? null });
+      candidates.push({
+        prNumber: pr.number,
+        headSha: pr.head.sha,
+        workflowRunId: runIds[0] ?? null,
+        phase: pr.state === 'closed' ? 'MERGED' : 'OPEN',
+      });
     }
     return candidates;
   }
@@ -754,14 +793,56 @@ export class GitHubApi {
   }
 
   async merge(number, headSha, method) {
-    return this.request(`/pulls/${number}/merge`, { method: 'PUT', body: { sha: headSha, merge_method: method } });
+    return this.request(`/pulls/${number}/merge`, {
+      method: 'PUT',
+      body: {
+        sha: headSha,
+        merge_method: method,
+        commit_title: `Trusted auto-merge PR #${number}`,
+        commit_message: `AgentCrew-Recovery: ${number}:${headSha}`,
+      },
+    });
   }
 
-  async dispatchPublication(number) {
-    return this.request('/actions/workflows/on-pr-merge.yml/dispatches', {
-      method: 'POST',
-      body: { ref: 'main', inputs: { pr_number: String(number) } },
-    });
+  async findPublicationRun(correlationTitle) {
+    for (let page = 1; page <= 30; page += 1) {
+      const result = await this.request(`/actions/workflows/on-pr-merge.yml/runs?event=workflow_dispatch&per_page=100&page=${page}`);
+      block(Array.isArray(result?.workflow_runs), 'publication workflow run evidence is invalid');
+      const match = result.workflow_runs.find((run) => run?.display_title === correlationTitle
+        && run?.event === 'workflow_dispatch'
+        && run?.head_branch === 'main'
+        && run?.head_repository?.full_name === this.repository);
+      if (match) return match;
+      if (result.workflow_runs.length < 100) return undefined;
+    }
+    throw new AutoMergeBlockedError('publication workflow run search exceeded the bounded limit');
+  }
+
+  async dispatchPublication(prNumber, headSha, mergeCommitSha) {
+    block(Number.isSafeInteger(prNumber) && prNumber > 0, 'publication PR number is invalid');
+    block(validSha(headSha), 'publication head SHA is invalid');
+    block(validSha(mergeCommitSha), 'publication merge commit SHA is invalid');
+    const correlationId = `submission-pr-${prNumber}-${headSha}-${mergeCommitSha}`;
+    const correlationTitle = `Publication ${correlationId}`;
+    const existing = await this.findPublicationRun(correlationTitle);
+    if (existing) return { outcome: 'PUBLICATION_ALREADY_DISPATCHED', workflowRunId: existing.id };
+
+    let mutationError;
+    try {
+      await this.request('/actions/workflows/on-pr-merge.yml/dispatches', {
+        method: 'POST',
+        body: { ref: 'main', inputs: { pr_number: String(prNumber), correlation_id: correlationId } },
+      });
+    } catch (error) {
+      mutationError = error;
+    }
+    for (let attempt = 0; attempt < 12; attempt += 1) {
+      const run = await this.findPublicationRun(correlationTitle);
+      if (run) return { outcome: 'PUBLICATION_DISPATCH_CONFIRMED', workflowRunId: run.id };
+      if (attempt < 11) await this.sleep(5_000);
+    }
+    if (mutationError && definiteMutationRejection(mutationError)) throw new AutoMergeBlockedError(`publication dispatch rejected with HTTP ${mutationError.status}`);
+    throw new AutoMergeUnknownEffectError(`publication dispatch effect is unknown for PR #${prNumber}`);
   }
 
   async findProviderSyncRun(correlationTitle) {

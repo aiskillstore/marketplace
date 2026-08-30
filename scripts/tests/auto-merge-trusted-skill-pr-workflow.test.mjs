@@ -65,6 +65,11 @@ test('contains no bypass, force-push, auto-merge or untrusted PR execution path'
   assert.doesNotMatch(source, /--admin|--auto|force-with-lease|git push|pull\/\$\{|workflow_run\.head_repository|workflow_run\.head_branch/);
 });
 
-test('post-merge recovery accepts the exact GitHub Actions bot merger identity', () => {
+test('post-merge recovery accepts the exact GitHub Actions bot merger identity and binds dispatch correlation', () => {
   assert.match(publishSource, /github-actions\\\[bot\\\]/);
+  assert.match(publishSource, /^run-name:.*Publication.*inputs\.correlation_id/m);
+  assert.match(publishSource, /correlation_id:/);
+  assert.match(publishSource, /required: true/);
+  assert.match(publishSource, /EXPECTED_CORRELATION_ID="submission-pr-\$\{PR_NUMBER\}-\$\{HEAD_SHA\}-\$\{MERGE_COMMIT_SHA\}"/);
+  assert.match(publishSource, /\[ "\$CORRELATION_ID" = "\$EXPECTED_CORRELATION_ID" \]/);
 });

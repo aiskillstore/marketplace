@@ -315,11 +315,13 @@ function fakeApi(sequence) {
       calls.push(['merge', number, headSha, method]);
       return { merged: true, sha: 'd'.repeat(40), message: 'Pull Request successfully merged' };
     },
-    async dispatchPublication(number) {
-      calls.push(['dispatch-publication', number]);
+    async dispatchPublication(...args) {
+      calls.push(['dispatch-publication', ...args]);
+      return { outcome: 'PUBLICATION_DISPATCH_CONFIRMED' };
     },
     async dispatchProviderSync(...args) {
       calls.push(['dispatch-provider-sync', ...args]);
+      return { outcome: 'PROVIDER_SYNC_DISPATCH_CONFIRMED' };
     },
   };
 }
@@ -332,15 +334,15 @@ test('rejects base drift before the effect and performs no mutation', async () =
   assert.deepEqual(api.calls, []);
 });
 
-test('returns a harmless no-op for the duplicate prerequisite event after merge', async () => {
+test('reconciles publication for an already merged trusted submission', async () => {
   const merged = snapshot();
   merged.pr.state = 'closed';
   merged.pr.merged = true;
   merged.pr.merge_commit_sha = 'd'.repeat(40);
   const api = fakeApi([merged]);
   const result = await runAutoMerge(api, { workflowRunId: 123 });
-  assert.equal(result.outcome, 'ALREADY_MERGED');
-  assert.deepEqual(api.calls, []);
+  assert.equal(result.outcome, 'PUBLICATION_DISPATCH_CONFIRMED');
+  assert.deepEqual(api.calls, [['dispatch-publication', 42, HEAD, 'd'.repeat(40)]]);
 });
 
 test('waits for transient GitHub mergeability before qualifying and updating a behind PR', async () => {
@@ -365,7 +367,7 @@ test('revalidates immediately before exact-head ordinary merge and confirms auth
   merged.pr.merge_commit_sha = 'd'.repeat(40);
   const api = fakeApi([snapshot(), snapshot(), merged]);
   const result = await runAutoMerge(api, { workflowRunId: 123 });
-  assert.deepEqual(api.calls, [['merge', 42, HEAD, 'merge'], ['dispatch-publication', 42]]);
+  assert.deepEqual(api.calls, [['merge', 42, HEAD, 'merge'], ['dispatch-publication', 42, HEAD, 'd'.repeat(40)]]);
   assert.deepEqual(result, {
     outcome: 'MERGED_AND_PUBLICATION_DISPATCHED',
     prNumber: 42,
@@ -373,6 +375,17 @@ test('revalidates immediately before exact-head ordinary merge and confirms auth
     mergeCommitSha: 'd'.repeat(40),
     classification: 'NEW_SKILL',
   });
+});
+
+test('scheduled recovery performs only the merge effect and defers publication reconciliation', async () => {
+  const merged = snapshot();
+  merged.pr.state = 'closed';
+  merged.pr.merged = true;
+  merged.pr.merge_commit_sha = 'd'.repeat(40);
+  const api = fakeApi([snapshot(), snapshot(), merged]);
+  const result = await runAutoMerge(api, { workflowRunId: 123, deferPostMergeDispatch: true });
+  assert.equal(result.outcome, 'MERGED_AWAITING_PUBLICATION_RECONCILIATION');
+  assert.deepEqual(api.calls, [['merge', 42, HEAD, 'merge']]);
 });
 
 test('update-branch uses expected exact head through the event-capable update credential and awaits fresh CI', async () => {
@@ -486,6 +499,64 @@ test('source-monitor merge dispatches exact changed Skill roots to provider sync
     mergeCommitSha: 'd'.repeat(40),
     classification: 'SOURCE_MONITOR_UPDATE',
   });
+});
+
+test('publication dispatch binds exact merged identity and confirms a correlated workflow run', async () => {
+  const originalFetch = globalThis.fetch;
+  const observed = [];
+  let dispatched = false;
+  const mergeSha = 'd'.repeat(40);
+  globalThis.fetch = async (url, options) => {
+    observed.push({ url: String(url), options });
+    if ((options?.method ?? 'GET') === 'POST') {
+      dispatched = true;
+      return new Response(null, { status: 204 });
+    }
+    return Response.json({ workflow_runs: dispatched ? [{
+      id: 9001,
+      event: 'workflow_dispatch',
+      display_title: `Publication submission-pr-42-${HEAD}-${mergeSha}`,
+      head_branch: 'main',
+      head_repository: { full_name: REPO.full_name },
+    }] : [] });
+  };
+  try {
+    const api = new GitHubApi({ token: 'test-token', updateToken: 'test-update-token', repository: REPO.full_name, currentRunId: 999 });
+    const result = await api.dispatchPublication(42, HEAD, mergeSha);
+    assert.equal(result.outcome, 'PUBLICATION_DISPATCH_CONFIRMED');
+    const post = observed.find(({ options }) => options?.method === 'POST');
+    assert.deepEqual(JSON.parse(post.options.body), {
+      ref: 'main',
+      inputs: { pr_number: '42', correlation_id: `submission-pr-42-${HEAD}-${mergeSha}` },
+    });
+    assert.equal(observed.filter(({ options }) => options?.method === 'POST').length, 1);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('publication reconciliation does not redispatch an existing exact correlation', async () => {
+  const originalFetch = globalThis.fetch;
+  const observed = [];
+  const mergeSha = 'd'.repeat(40);
+  globalThis.fetch = async (url, options) => {
+    observed.push({ url: String(url), options });
+    return Response.json({ workflow_runs: [{
+      id: 9001,
+      event: 'workflow_dispatch',
+      display_title: `Publication submission-pr-42-${HEAD}-${mergeSha}`,
+      head_branch: 'main',
+      head_repository: { full_name: REPO.full_name },
+    }] });
+  };
+  try {
+    const api = new GitHubApi({ token: 'test-token', updateToken: 'test-update-token', repository: REPO.full_name, currentRunId: 999 });
+    const result = await api.dispatchPublication(42, HEAD, mergeSha);
+    assert.equal(result.outcome, 'PUBLICATION_ALREADY_DISPATCHED');
+    assert.equal(observed.filter(({ options }) => options?.method === 'POST').length, 0);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });
 
 test('provider sync dispatch binds canonical source-monitor roots and idempotency key to exact manual slugs', async () => {
@@ -607,7 +678,7 @@ test('a rerun reconciles provider sync for an already merged source-monitor PR',
   const api = fakeApi([merged]);
   const result = await runAutoMerge(api, { workflowRunId: 123 });
   assert.deepEqual(api.calls, [['dispatch-provider-sync', 42, HEAD, [SOURCE_ROOT]]]);
-  assert.equal(result.outcome, 'ALREADY_MERGED_AND_PROVIDER_SYNC_CONFIRMED');
+  assert.equal(result.outcome, 'PROVIDER_SYNC_DISPATCH_CONFIRMED');
 });
 
 test('confirmed source-monitor merge with failed provider sync dispatch is UNKNOWN and is never repeated', async () => {
@@ -655,6 +726,34 @@ test('does not repeat an unknown merge effect and only trusts merged readback', 
   };
   await assert.rejects(() => runAutoMerge(api, { workflowRunId: 123 }), AutoMergeUnknownEffectError);
   assert.equal(api.calls.filter(([kind]) => kind === 'merge').length, 1);
+});
+
+test('recovery sweep performs at most one effect when it merges a clean submission', async () => {
+  const merged = snapshot();
+  merged.pr.state = 'closed';
+  merged.pr.merged = true;
+  merged.pr.merge_commit_sha = 'd'.repeat(40);
+  const api = fakeApi([snapshot(), snapshot(), merged]);
+  api.listRecoveryCandidates = async () => [
+    { prNumber: 42, headSha: HEAD, workflowRunId: 101, phase: 'OPEN' },
+  ];
+  const result = await runRecoverySweep(api);
+  assert.equal(result.outcome, 'MERGED_AWAITING_PUBLICATION_RECONCILIATION');
+  assert.deepEqual(api.calls, [['merge', 42, HEAD, 'merge']]);
+});
+
+test('recovery sweep reconciles one already merged submission without another merge', async () => {
+  const merged = snapshot();
+  merged.pr.state = 'closed';
+  merged.pr.merged = true;
+  merged.pr.merge_commit_sha = 'd'.repeat(40);
+  const api = fakeApi([merged]);
+  api.listRecoveryCandidates = async () => [
+    { prNumber: 42, headSha: HEAD, workflowRunId: 101, phase: 'MERGED' },
+  ];
+  const result = await runRecoverySweep(api);
+  assert.equal(result.outcome, 'PUBLICATION_DISPATCH_CONFIRMED');
+  assert.deepEqual(api.calls, [['dispatch-publication', 42, HEAD, 'd'.repeat(40)]]);
 });
 
 test('recovery sweep skips ineligible historical PRs and performs only the first eligible effect', async () => {

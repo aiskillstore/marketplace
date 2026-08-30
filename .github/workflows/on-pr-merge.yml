@@ -1,4 +1,5 @@
 name: On PR Merge - Approve Skill
+run-name: ${{ github.event_name == 'workflow_dispatch' && format('Publication {0}', inputs.correlation_id) || format('Publish merged PR #{0}', github.event.pull_request.number) }}
 
 on:
   pull_request:
@@ -8,6 +9,10 @@ on:
     inputs:
       pr_number:
         description: Exact merged submission PR to recover
+        required: true
+        type: string
+      correlation_id:
+        description: Exact idempotency correlation bound to the merged PR identity
         required: true
         type: string
 
@@ -24,6 +29,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ github.event_name == 'workflow_dispatch' && inputs.pr_number || github.event.pull_request.number }}
+          CORRELATION_ID: ${{ github.event_name == 'workflow_dispatch' && inputs.correlation_id || '' }}
+          EVENT_NAME: ${{ github.event_name }}
           REPOSITORY: ${{ github.repository }}
         run: |
           set -euo pipefail
@@ -46,12 +53,21 @@ jobs:
           }
 
           MERGE_COMMIT_SHA=$(jq -er '.merge_commit_sha' <<< "$PR")
+          HEAD_SHA=$(jq -er '.head.sha' <<< "$PR")
           PR_URL=$(jq -er '.html_url' <<< "$PR")
           MERGED_BY=$(jq -er '.merged_by.login' <<< "$PR")
           SUBMISSION_ID=$(jq -r '.body // ""' <<< "$PR" \
             | grep -oE 'Submission ID.*`[0-9a-f-]{36}`' \
             | grep -oE '[0-9a-f-]{36}' || true)
           [[ "$MERGE_COMMIT_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$HEAD_SHA" =~ ^[0-9a-f]{40}$ ]]
+          if [ "$EVENT_NAME" = workflow_dispatch ]; then
+            EXPECTED_CORRELATION_ID="submission-pr-${PR_NUMBER}-${HEAD_SHA}-${MERGE_COMMIT_SHA}"
+            [ "$CORRELATION_ID" = "$EXPECTED_CORRELATION_ID" ] || {
+              echo "::error::Publication correlation does not match the authoritative merged PR identity"
+              exit 1
+            }
+          fi
           [ "$PR_URL" = "https://github.com/$REPOSITORY/pull/$PR_NUMBER" ]
           [[ "$MERGED_BY" =~ ^([A-Za-z0-9-]+|github-actions\[bot\])$ ]]
           {
