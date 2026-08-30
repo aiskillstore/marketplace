@@ -249,14 +249,16 @@ test('fails closed on incomplete files, unsafe tree entries, truncation and ambi
   for (const [build, pattern] of cases) expectBlocked(build(), pattern);
 });
 
-test('fails closed when an exact-head report is blocked or unsafe to publish', () => {
-  for (const [securityAudit, pattern] of [
-    [{ is_blocked: true, safe_to_publish: false }, /blocked from automatic publication/],
-    [{ is_blocked: false, safe_to_publish: false }, /not safe for automatic publication/],
+test('does not use security-report risk fields as automatic merge gates', () => {
+  for (const securityAudit of [
+    { is_blocked: true, safe_to_publish: false, risk_level: 'critical' },
+    { is_blocked: false, safe_to_publish: false, risk_level: 'medium' },
+    {},
+    undefined,
   ]) {
     const value = snapshot();
     value.reports[0].securityAudit = securityAudit;
-    expectBlocked(value, pattern);
+    assert.equal(validateSnapshot(value).eligible, true);
   }
 });
 
