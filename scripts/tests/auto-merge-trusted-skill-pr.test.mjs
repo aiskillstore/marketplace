@@ -615,6 +615,34 @@ test('publication reconciliation waits on an in-progress run without another eff
   }
 });
 
+test('a terminal failed run overrides a stale durable pending reservation', async () => {
+  const originalFetch = globalThis.fetch;
+  const observed = [];
+  const correlationId = `submission-pr-42-${HEAD}-${MERGE}`;
+  const context = `agentcrew/publication/${createHash('sha256').update(correlationId).digest('hex')}`;
+  globalThis.fetch = async (url, options) => {
+    observed.push({ url: String(url), options });
+    if (String(url).includes('/statuses')) return Response.json([{ context, state: 'pending' }]);
+    return Response.json({ workflow_runs: [{
+      id: 9001,
+      event: 'workflow_dispatch',
+      status: 'completed',
+      conclusion: 'failure',
+      display_title: `Publication ${correlationId}`,
+      head_branch: 'main',
+      head_repository: { full_name: REPO.full_name },
+    }] });
+  };
+  try {
+    const api = new GitHubApi({ token: 'test-token', updateToken: 'test-update-token', repository: REPO.full_name, currentRunId: 999 });
+    const result = await api.dispatchPublication(42, HEAD, MERGE);
+    assert.equal(result.outcome, 'PUBLICATION_FAILED_REQUIRES_INSPECTION');
+    assert.equal(observed.filter(({ options }) => options?.method === 'POST').length, 0);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test('publication reconciliation fails closed on a partial failed run without replaying effects', async () => {
   const originalFetch = globalThis.fetch;
   const observed = [];

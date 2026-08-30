@@ -900,7 +900,10 @@ export class GitHubApi {
       return { outcome: 'PUBLICATION_FAILED_REQUIRES_INSPECTION', workflowRunId: existing?.id, conclusion: existing?.conclusion };
     }
     if (effectStatus?.state === 'pending') {
-      return { outcome: 'PUBLICATION_IN_PROGRESS', workflowRunId: existing?.id };
+      if (!existing || (existing.status === 'completed' && existing.conclusion !== 'success')) {
+        return { outcome: 'PUBLICATION_FAILED_REQUIRES_INSPECTION', workflowRunId: existing?.id, conclusion: existing?.conclusion ?? 'missing-run-evidence' };
+      }
+      return { outcome: 'PUBLICATION_IN_PROGRESS', workflowRunId: existing.id };
     }
     if (existing?.status === 'completed' && existing.conclusion === 'success') {
       return { outcome: 'PUBLICATION_ALREADY_DISPATCHED', workflowRunId: existing.id };
@@ -968,7 +971,10 @@ export class GitHubApi {
       return { outcome: 'PROVIDER_SYNC_FAILED_REQUIRES_INSPECTION', workflowRunId: existing?.id, conclusion: existing?.conclusion };
     }
     if (effectStatus?.state === 'pending') {
-      return { outcome: 'PROVIDER_SYNC_IN_PROGRESS', workflowRunId: existing?.id };
+      if (!existing || (existing.status === 'completed' && existing.conclusion !== 'success')) {
+        return { outcome: 'PROVIDER_SYNC_FAILED_REQUIRES_INSPECTION', workflowRunId: existing?.id, conclusion: existing?.conclusion ?? 'missing-run-evidence' };
+      }
+      return { outcome: 'PROVIDER_SYNC_IN_PROGRESS', workflowRunId: existing.id };
     }
     if (existing?.status === 'completed' && existing.conclusion === 'success') {
       return { outcome: 'PROVIDER_SYNC_ALREADY_DISPATCHED', workflowRunId: existing.id };
