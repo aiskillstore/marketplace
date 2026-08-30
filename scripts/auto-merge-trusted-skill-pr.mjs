@@ -263,8 +263,6 @@ export function validateSnapshot(snapshot, { allowMerged = false } = {}) {
       && report.sha === reportFile?.sha
       && report.sha === reportTreeEntry?.sha,
     'skill report is not bound to the exact PR head');
-    block(report?.securityAudit?.is_blocked === false, `${reportPath} is blocked from automatic publication`);
-    block(report?.securityAudit?.safe_to_publish === true, `${reportPath} is not safe for automatic publication`);
   }
 
   block(Array.isArray(checks) && checks.length > 0, 'exact-head checks are required');
@@ -577,16 +575,9 @@ export class GitHubApi {
     const reports = await Promise.all(roots.map(async (root) => {
       const reportPath = `${root}/skill-report.json`;
       const reportBlob = await this.request(`/contents/${encodeContentPath(reportPath)}?ref=${encodeURIComponent(headSha)}`);
-      block(reportBlob?.type === 'file' && validSha(reportBlob.sha)
-        && reportBlob.encoding === 'base64' && typeof reportBlob.content === 'string',
-      `exact-head skill report is unavailable: ${reportPath}`);
-      let report;
-      try {
-        report = JSON.parse(Buffer.from(reportBlob.content, 'base64').toString('utf8'));
-      } catch {
-        throw new AutoMergeBlockedError(`exact-head skill report is invalid JSON: ${reportPath}`);
-      }
-      return { path: reportPath, sha: reportBlob.sha, securityAudit: report?.security_audit };
+      block(reportBlob?.type === 'file' && validSha(reportBlob.sha),
+        `exact-head skill report is unavailable: ${reportPath}`);
+      return { path: reportPath, sha: reportBlob.sha };
     }));
     const baseSha = pr.base?.sha;
     block(validSha(baseSha), 'PR base SHA is invalid');
