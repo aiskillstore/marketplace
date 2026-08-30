@@ -366,7 +366,7 @@ export async function runAutoMerge(api, { workflowRunId, deferPostMergeDispatch 
     let dispatchResult;
     try {
       dispatchResult = merged.postMergeAction === 'provider_sync'
-        ? await api.dispatchProviderSync(merged.prNumber, merged.headSha, merged.roots)
+        ? await api.dispatchProviderSync(merged.prNumber, merged.headSha, firstSnapshot.pr.merge_commit_sha, merged.roots)
         : await api.dispatchPublication(merged.prNumber, merged.headSha, firstSnapshot.pr.merge_commit_sha);
     } catch (error) {
       if (error instanceof AutoMergeBlockedError || error instanceof AutoMergeUnknownEffectError) throw error;
@@ -468,7 +468,7 @@ export async function runAutoMerge(api, { workflowRunId, deferPostMergeDispatch 
     }
     try {
       if (second.postMergeAction === 'provider_sync') {
-        await api.dispatchProviderSync(second.prNumber, second.headSha, second.roots);
+        await api.dispatchProviderSync(second.prNumber, second.headSha, readback.merge_commit_sha, second.roots);
         return { outcome: 'MERGED_AND_PROVIDER_SYNC_DISPATCHED', prNumber: second.prNumber, headSha: second.headSha, mergeCommitSha: readback.merge_commit_sha, classification: second.classification };
       }
       await api.dispatchPublication(second.prNumber, second.headSha, readback.merge_commit_sha);
@@ -488,7 +488,7 @@ export async function runRecoverySweep(api) {
   for (const candidate of candidates) {
     if (candidate.phase === 'MERGED') {
       const result = candidate.postMergeAction === 'provider_sync'
-        ? await api.dispatchProviderSync(candidate.prNumber, candidate.headSha, candidate.roots)
+        ? await api.dispatchProviderSync(candidate.prNumber, candidate.headSha, candidate.mergeCommitSha, candidate.roots)
         : await api.dispatchPublication(candidate.prNumber, candidate.headSha, candidate.mergeCommitSha);
       if (['PUBLICATION_ALREADY_DISPATCHED', 'PROVIDER_SYNC_ALREADY_DISPATCHED'].includes(result.outcome)) continue;
       return {
@@ -530,14 +530,14 @@ function encodeContentPath(path) {
 
 function trustedRecoverySeed(pr, repository) {
   const labels = new Set((Array.isArray(pr?.labels) ? pr.labels : []).map((label) => label?.name));
+  const merged = pr?.state === 'closed' && pr.draft === false
+    && typeof pr.merged_at === 'string' && validSha(pr.merge_commit_sha);
   const submission = typeof pr?.head?.ref === 'string'
     && pr.head.ref.startsWith('submission/')
-    && labels.has('pending-review');
+    && (merged || labels.has('pending-review'));
   const sourceMonitor = SOURCE_MONITOR_REF_RE.test(pr?.head?.ref ?? '')
-    && labels.has('skill-source-monitor')
-    && !labels.has('pending-review');
-  const lifecycle = (pr?.state === 'open' && pr.draft === false && pr.merged_at == null)
-    || (pr?.state === 'closed' && pr.draft === false && typeof pr.merged_at === 'string' && validSha(pr.merge_commit_sha));
+    && (merged || (labels.has('skill-source-monitor') && !labels.has('pending-review')));
+  const lifecycle = (pr?.state === 'open' && pr.draft === false && pr.merged_at == null) || merged;
   return lifecycle
     && pr.base?.ref === 'main'
     && sameRepository(pr.base?.repo, repository)
@@ -876,7 +876,25 @@ export class GitHubApi {
     const correlationId = `submission-pr-${prNumber}-${headSha}-${mergeCommitSha}`;
     const correlationTitle = `Publication ${correlationId}`;
     const existing = await this.findPublicationRun(correlationTitle);
-    if (existing) return { outcome: 'PUBLICATION_ALREADY_DISPATCHED', workflowRunId: existing.id };
+    if (existing?.status === 'completed' && existing.conclusion === 'success') {
+      return { outcome: 'PUBLICATION_ALREADY_DISPATCHED', workflowRunId: existing.id };
+    }
+    if (existing && existing.status !== 'completed') {
+      return { outcome: 'PUBLICATION_IN_PROGRESS', workflowRunId: existing.id };
+    }
+    if (existing) {
+      let rerunError;
+      try {
+        await this.request(`/actions/runs/${existing.id}/rerun`, { method: 'POST' });
+      } catch (error) {
+        rerunError = error;
+      }
+      if (!rerunError) return { outcome: 'PUBLICATION_RETRY_CONFIRMED', workflowRunId: existing.id };
+      const readback = await this.findPublicationRun(correlationTitle);
+      if (readback && readback.status !== 'completed') return { outcome: 'PUBLICATION_RETRY_CONFIRMED', workflowRunId: readback.id };
+      if (definiteMutationRejection(rerunError)) throw new AutoMergeBlockedError(`publication rerun rejected with HTTP ${rerunError.status}`);
+      throw new AutoMergeUnknownEffectError(`publication rerun effect is unknown for PR #${prNumber}`);
+    }
 
     let mutationError;
     try {
@@ -901,6 +919,7 @@ export class GitHubApi {
       const result = await this.request(`/actions/workflows/sync-to-supabase.yml/runs?event=workflow_dispatch&per_page=100&page=${page}`);
       block(Array.isArray(result?.workflow_runs), 'provider sync workflow run evidence is invalid');
       const match = result.workflow_runs.find((run) => run?.display_title === correlationTitle
+        && run?.event === 'workflow_dispatch'
         && run?.head_branch === 'main'
         && run?.head_repository?.full_name === this.repository);
       if (match) return match;
@@ -909,23 +928,50 @@ export class GitHubApi {
     throw new AutoMergeBlockedError('provider sync workflow run search exceeded the bounded limit');
   }
 
-  async dispatchProviderSync(prNumber, headSha, roots) {
+  async dispatchProviderSync(prNumber, headSha, mergeCommitSha, roots) {
     block(Number.isSafeInteger(prNumber) && prNumber > 0, 'provider sync PR number is invalid');
     block(validSha(headSha), 'provider sync head SHA is invalid');
+    block(validSha(mergeCommitSha), 'provider sync merge commit SHA is invalid');
     block(Array.isArray(roots) && roots.length > 0 && roots.length <= 25, 'provider sync roots are required');
     const slugs = roots.map((root) => {
       block(publishedRootSyntax(root), `invalid provider sync root: ${root}`);
       return root.slice('skills/'.length);
     });
-    const correlationId = `source-monitor-pr-${prNumber}-${headSha}`;
+    const correlationId = `source-monitor-pr-${prNumber}-${headSha}-${mergeCommitSha}`;
     const correlationTitle = `Provider sync ${correlationId}`;
-    if (await this.findProviderSyncRun(correlationTitle)) return { outcome: 'PROVIDER_SYNC_ALREADY_DISPATCHED' };
+    const existing = await this.findProviderSyncRun(correlationTitle);
+    if (existing?.status === 'completed' && existing.conclusion === 'success') {
+      return { outcome: 'PROVIDER_SYNC_ALREADY_DISPATCHED', workflowRunId: existing.id };
+    }
+    if (existing && existing.status !== 'completed') {
+      return { outcome: 'PROVIDER_SYNC_IN_PROGRESS', workflowRunId: existing.id };
+    }
+    if (existing) {
+      let rerunError;
+      try {
+        await this.request(`/actions/runs/${existing.id}/rerun`, { method: 'POST' });
+      } catch (error) {
+        rerunError = error;
+      }
+      if (!rerunError) return { outcome: 'PROVIDER_SYNC_RETRY_CONFIRMED', workflowRunId: existing.id };
+      const readback = await this.findProviderSyncRun(correlationTitle);
+      if (readback && readback.status !== 'completed') return { outcome: 'PROVIDER_SYNC_RETRY_CONFIRMED', workflowRunId: readback.id };
+      if (definiteMutationRejection(rerunError)) throw new AutoMergeBlockedError(`provider sync rerun rejected with HTTP ${rerunError.status}`);
+      throw new AutoMergeUnknownEffectError(`provider sync rerun effect is unknown for PR #${prNumber}`);
+    }
 
     let mutationError;
     try {
       await this.request('/actions/workflows/sync-to-supabase.yml/dispatches', {
         method: 'POST',
-        body: { ref: 'main', inputs: { slugs: slugs.join(' '), correlation_id: correlationId } },
+        body: {
+          ref: 'main',
+          inputs: {
+            slugs: slugs.join(' '),
+            correlation_id: correlationId,
+            merge_commit_sha: mergeCommitSha,
+          },
+        },
       });
     } catch (error) {
       mutationError = error;
@@ -947,9 +993,7 @@ async function main() {
     currentRunId: process.env.GITHUB_RUN_ID,
   });
   try {
-    const result = process.env.RECOVERY_SWEEP === 'true'
-      ? await runRecoverySweep(api)
-      : await runAutoMerge(api, { workflowRunId: Number(process.env.WORKFLOW_RUN_ID) });
+    const result = await runRecoverySweep(api);
     process.stdout.write(`${JSON.stringify(result)}\n`);
   } catch (error) {
     if (error instanceof AutoMergeSkippedError) {

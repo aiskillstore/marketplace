@@ -163,7 +163,10 @@ test('manual slug sync carries an optional exact correlation without requiring a
   const lastSync = section(workflow, '      - name: Find last successful sync commit', '      - name: Detect changed skills');
   assert.match(lastSync, /if: inputs\.slugs == ''/);
   const correlation = section(workflow, '      - name: Validate trusted sync correlation', '      - name: Generate GitHub App Token');
-  assert.match(correlation, /\^source-monitor-pr-\[1-9\]\[0-9\]\*-\[0-9a-f\]\{40\}\$/);
+  assert.match(correlation, /\^source-monitor-pr-\(\[1-9\]\[0-9\]\*\)-\(\[0-9a-f\]\{40\}\)-\(\[0-9a-f\]\{40\}\)\$/);
+  assert.match(correlation, /MERGE_COMMIT_SHA/);
+  assert.match(correlation, /Provider sync correlation does not match the authoritative merged source-monitor PR/);
+  assert.match(correlation, /Correlated merge is not on the current main lineage/);
   assert.match(correlation, /"\$EVENT_NAME" != 'workflow_dispatch'/);
   assert.match(correlation, /"\$GIT_REF" != 'refs\/heads\/main'/);
   const detect = section(workflow, '      - name: Detect changed skills', '      - name: Download skillstore-cli');

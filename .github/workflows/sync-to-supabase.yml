@@ -24,6 +24,10 @@ on:
         description: 'Optional exact idempotency correlation for trusted automation'
         type: string
         default: ''
+      merge_commit_sha:
+        description: 'Exact marker-bound merge commit for correlated source-monitor recovery'
+        type: string
+        default: ''
 
 concurrency:
   group: sync-supabase
@@ -133,8 +137,12 @@ jobs:
         env:
           CORRELATION_ID: ${{ inputs.correlation_id }}
           INPUT_SLUGS: ${{ inputs.slugs }}
+          MERGE_COMMIT_SHA: ${{ inputs.merge_commit_sha }}
           EVENT_NAME: ${{ github.event_name }}
           GIT_REF: ${{ github.ref }}
+          CURRENT_MAIN_SHA: ${{ github.sha }}
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
         run: |
           set -euo pipefail
           if [ -z "$CORRELATION_ID" ]; then
@@ -144,14 +152,63 @@ jobs:
             echo "::error::A correlated provider sync must be dispatched on main"
             exit 1
           fi
-          if ! [[ "$CORRELATION_ID" =~ ^source-monitor-pr-[1-9][0-9]*-[0-9a-f]{40}$ ]]; then
+          if ! [[ "$CORRELATION_ID" =~ ^source-monitor-pr-([1-9][0-9]*)-([0-9a-f]{40})-([0-9a-f]{40})$ ]]; then
             echo "::error::Invalid provider sync correlation"
             exit 1
           fi
-          if [ -z "$INPUT_SLUGS" ]; then
-            echo "::error::A correlated provider sync requires exact Skill slugs"
+          PR_NUMBER="${BASH_REMATCH[1]}"
+          HEAD_SHA="${BASH_REMATCH[2]}"
+          CORRELATED_MERGE_SHA="${BASH_REMATCH[3]}"
+          if [ "$MERGE_COMMIT_SHA" != "$CORRELATED_MERGE_SHA" ] || [ -z "$INPUT_SLUGS" ]; then
+            echo "::error::A correlated provider sync requires exact merge identity and Skill slugs"
             exit 1
           fi
+
+          PR=$(gh api "repos/$REPOSITORY/pulls/$PR_NUMBER")
+          jq -e --arg repository "$REPOSITORY" --arg head_sha "$HEAD_SHA" --arg merge_sha "$MERGE_COMMIT_SHA" '
+            .merged == true and
+            .base.ref == "main" and
+            .user.id == 254047988 and
+            .user.login == "ai-skill-store[bot]" and
+            .head.repo.full_name == $repository and
+            (.head.ref | test("^skill-source-monitor/run-[1-9][0-9]*$")) and
+            .head.sha == $head_sha and
+            .merge_commit_sha == $merge_sha
+          ' <<< "$PR" >/dev/null || {
+            echo "::error::Provider sync correlation does not match the authoritative merged source-monitor PR"
+            exit 1
+          }
+          COMPARE=$(gh api "repos/$REPOSITORY/compare/${MERGE_COMMIT_SHA}...${CURRENT_MAIN_SHA}")
+          jq -e --arg merge_sha "$MERGE_COMMIT_SHA" '
+            .merge_base_commit.sha == $merge_sha and (.status == "ahead" or .status == "identical")
+          ' <<< "$COMPARE" >/dev/null || {
+            echo "::error::Correlated merge is not on the current main lineage"
+            exit 1
+          }
+
+          mapfile -t EXPECTED_SLUGS < <(tr ', ' '\n\n' <<< "$INPUT_SLUGS" | sed '/^$/d' | LC_ALL=C sort -u)
+          mapfile -t CHANGED_FILES < <(gh api --paginate "repos/$REPOSITORY/pulls/$PR_NUMBER/files?per_page=100" --jq '.[].filename')
+          [ "${#EXPECTED_SLUGS[@]}" -gt 0 ] && [ "${#EXPECTED_SLUGS[@]}" -le 25 ]
+          for file in "${CHANGED_FILES[@]}"; do
+            matched=false
+            for slug in "${EXPECTED_SLUGS[@]}"; do
+              if [[ "$file" == "skills/$slug" || "$file" == "skills/$slug/"* ]]; then matched=true; break; fi
+            done
+            [ "$matched" = true ] || {
+              echo "::error::Changed file is outside correlated provider sync roots: $file"
+              exit 1
+            }
+          done
+          for slug in "${EXPECTED_SLUGS[@]}"; do
+            found=false
+            for file in "${CHANGED_FILES[@]}"; do
+              if [[ "$file" == "skills/$slug" || "$file" == "skills/$slug/"* ]]; then found=true; break; fi
+            done
+            [ "$found" = true ] || {
+              echo "::error::Correlated provider sync root is not changed by the merged PR: $slug"
+              exit 1
+            }
+          done
 
       - name: Generate GitHub App Token
         id: app-token
