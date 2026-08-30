@@ -30,6 +30,8 @@ from model_selection import (  # noqa: E402
     CallerError as SelectionError,
     EvidenceUnavailable,
     ReviewRequired,
+    child_environment,
+    validate_child_environment_names,
     validate_selection_record,
     validate_selection_record_shape,
 )
@@ -41,6 +43,7 @@ from recommendation_record import (  # noqa: E402
 
 MAX_JSON_BYTES = 1024 * 1024
 MAX_HANDOFF_BYTES = 4096
+MAX_VERIFY_ENV_PAYLOAD = 256 * 1024
 SHA256_RE = re.compile(r"[0-9a-f]{64}\Z")
 COMMIT_RE = re.compile(r"(?:[0-9a-f]{40}|[0-9a-f]{64})\Z")
 LABEL_RE = re.compile(r"verify-[0-9]{3}\Z")
@@ -941,6 +944,7 @@ def build_parser() -> UsageParser:
     parser.add_argument("--allow", action="append", default=[])
     parser.add_argument("--only", action="append", default=[])
     parser.add_argument("--verify", action="append", default=[])
+    parser.add_argument("--verify-env", action="append", default=[])
     parser.add_argument("--expect-edits", action="count", default=0)
     parser.add_argument("--selection", action="append")
     parser.add_argument("--pre-recommendation", action="append")
@@ -948,37 +952,36 @@ def build_parser() -> UsageParser:
 
 
 def sanitized_gate_environment() -> dict[str, str]:
-    gate_environment = os.environ.copy()
-    unsafe_shell = {
-        "BASH_ENV",
-        "ENV",
-        "SHELLOPTS",
-        "BASHOPTS",
-        "PS4",
-        "CDPATH",
-        "GLOBIGNORE",
-        "BASH_LOADABLES_PATH",
-        "BASH_XTRACEFD",
-        "BASH_COMPAT",
-    }
-    for key in tuple(gate_environment):
-        if (
-            key in unsafe_shell
-            or key.startswith("PYTHON")
-            or key.startswith("BASH_FUNC_")
-        ):
-            gate_environment.pop(key, None)
-    gate_environment.pop("AGY_WORKER_SCHEMA", None)
-    return gate_environment
+    """Build the gate baseline without verifier-only opt-in values."""
+
+    return child_environment([])
+
+
+def verifier_environment_payload(explicit_names: list[str]) -> bytes:
+    """Encode present verifier-only values for the gate's private pipe."""
+
+    records: list[bytes] = []
+    for name in explicit_names:
+        if name in os.environ:
+            records.extend(
+                (os.fsencode(name), b"\0", os.fsencode(os.environ[name]), b"\0")
+            )
+    payload = b"".join(records)
+    if len(payload) > MAX_VERIFY_ENV_PAYLOAD:
+        raise ProtocolFailure("verifier environment payload is too large")
+    return payload
 
 
 def run_gate(
     gate: Path,
     args: list[str],
+    verify_environment: list[str],
     evidence_fd: int,
     controller: SignalController,
 ) -> int:
     child: subprocess.Popen[bytes] | None = None
+    verify_read_fd = -1
+    verify_write_fd = -1
     try:
         gate_environment = sanitized_gate_environment()
         evidence_token = secrets.token_hex(32)
@@ -986,6 +989,8 @@ def run_gate(
         gate_environment["AGY_WORKER_INTERNAL_PYTHON"] = str(
             Path(sys.executable).resolve(strict=True)
         )
+        payload = verifier_environment_payload(verify_environment)
+        verify_read_fd, verify_write_fd = os.pipe()
         child = subprocess.Popen(
             [
                 "/bin/bash",
@@ -995,13 +1000,22 @@ def run_gate(
                 str(evidence_fd),
                 "--evidence-token",
                 evidence_token,
+                "--verify-env-fd",
+                str(verify_read_fd),
             ],
             stdin=subprocess.DEVNULL,
-            pass_fds=(evidence_fd,),
+            pass_fds=(evidence_fd, verify_read_fd),
             start_new_session=True,
             env=gate_environment,
         )
         controller.set_group(child.pid)
+        os.close(verify_read_fd)
+        verify_read_fd = -1
+        while payload:
+            written = os.write(verify_write_fd, payload)
+            payload = payload[written:]
+        os.close(verify_write_fd)
+        verify_write_fd = -1
         gate_exit = child.wait()
         return gate_exit
     except SignalInterruption:
@@ -1016,8 +1030,23 @@ def run_gate(
                 pass
         raise
     except OSError as exc:
+        if child is not None:
+            try:
+                os.killpg(child.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            try:
+                child.wait(timeout=5)
+            except (subprocess.TimeoutExpired, OSError):
+                pass
         raise ProtocolFailure("gate could not start") from exc
     finally:
+        for descriptor in (verify_read_fd, verify_write_fd):
+            if descriptor >= 0:
+                try:
+                    os.close(descriptor)
+                except OSError:
+                    pass
         controller.set_group(None)
 
 
@@ -1040,6 +1069,10 @@ def verify_main(
         parser.error("at least one non-empty --verify command is required")
     if len(args.verify) > 999:
         parser.error("at most 999 verifier commands are supported")
+    try:
+        verify_environment = validate_child_environment_names(args.verify_env)
+    except EvidenceUnavailable as exc:
+        parser.error(str(exc))
     assert receipt_text and envelope_text and repo_text and base
 
     target = Path(receipt_text)
@@ -1090,10 +1123,13 @@ def verify_main(
             gate_args.append("--expect-edits")
         for value in args.verify:
             gate_args += ["--verify", value]
+        for value in verify_environment:
+            gate_args += ["--verify-env", value]
 
         try:
             gate_rc = run_gate(
-                runtime_root / "qa-gate.sh", gate_args, write_fd, controller
+                runtime_root / "qa-gate.sh", gate_args, verify_environment,
+                write_fd, controller
             )
         finally:
             if write_fd >= 0:
@@ -1122,6 +1158,7 @@ def verify_main(
             "allow": args.allow,
             "only": args.only,
             "expect_edits": bool(args.expect_edits),
+            "verify_environment": verify_environment,
         }
         receipt: dict[str, Any] = {
             "schema_version": 1,

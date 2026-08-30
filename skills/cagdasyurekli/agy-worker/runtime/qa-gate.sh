@@ -6,7 +6,8 @@
 #
 # usage: qa-gate.sh --envelope FILE --repo DIR --base FULL_COMMIT_ID
 #                   [--allow PATHGLOB]... [--only PATHGLOB]...
-#                   [--expect-edits] --verify COMMAND [--verify COMMAND]...
+#                   [--expect-edits] [--verify-env NAME]...
+#                   --verify COMMAND [--verify COMMAND]...
 #                   (internal verify-job handoff: --evidence-fd FD
 #                    --evidence-token TOKEN)
 # exit: 0 accepted · 10 scope violation · 11 untrusted command/test claim
@@ -19,8 +20,9 @@ SCHEMA="${AGY_WORKER_SCHEMA:-$SCRIPT_DIR/schemas/worker-result.schema.json}"
 
 envelope=""; repo="$PWD"; base=""; expect_edits=0
 evidence_fd=""; evidence_fd_seen=0; evidence_token=""; evidence_token_seen=0
+verify_env_fd=""; verify_env_fd_seen=0
 evidence_python=""
-allow=(); only=(); verify=()
+allow=(); only=(); verify=(); verify_env=()
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --envelope) [[ $# -ge 2 ]] || exit 64; envelope="$2"; shift 2 ;;
@@ -33,6 +35,9 @@ while [[ $# -gt 0 ]]; do
                 echo "qa-gate.sh: --verify requires a non-empty command" >&2; exit 64;
             }
             verify+=("$2"); shift 2 ;;
+        --verify-env)
+            [[ $# -ge 2 ]] || exit 64
+            verify_env+=("$2"); shift 2 ;;
         --expect-edits) expect_edits=1; shift ;;
         --evidence-fd)
             [[ $# -ge 2 && $evidence_fd_seen -eq 0 ]] || exit 64
@@ -45,9 +50,75 @@ while [[ $# -gt 0 ]]; do
             evidence_token="$2"
             evidence_token_seen=1
             shift 2 ;;
+        --verify-env-fd)
+            [[ $# -ge 2 && $verify_env_fd_seen -eq 0 ]] || exit 64
+            case "$2" in ''|*[!0-9]*|0|1|2) exit 64 ;; esac
+            verify_env_fd="$2"
+            verify_env_fd_seen=1
+            shift 2 ;;
         *) echo "qa-gate.sh: unknown arg: $1" >&2; exit 64 ;;
     esac
 done
+
+if (( verify_env_fd_seen )) && [[ "$verify_env_fd" == "$evidence_fd" ]]; then
+    exit 64
+fi
+
+(( ${#verify_env[@]} <= 64 )) || {
+    echo "qa-gate.sh: at most 64 --verify-env names are supported" >&2; exit 64;
+}
+for verify_env_name in ${verify_env+"${verify_env[@]}"}; do
+    case "$verify_env_name" in
+        ''|*[!A-Za-z0-9_]*|[0-9]*|BASH_ENV|ENV|SHELLOPTS|BASHOPTS|PS4|CDPATH|GLOBIGNORE|BASH_LOADABLES_PATH|BASH_XTRACEFD|BASH_COMPAT|NODE_OPTIONS|RUBYOPT|RUBYLIB|PERL5OPT|PERL5LIB|JAVA_TOOL_OPTIONS|JDK_JAVA_OPTIONS|CLASSPATH|AGY_WORKER_SCHEMA|BASH_FUNC_*|PYTHON*|LD_*|DYLD_*|GIT_*|AGY_WORKER_INTERNAL_*)
+            echo "qa-gate.sh: unsafe --verify-env name" >&2; exit 64 ;;
+    esac
+    [[ ${#verify_env_name} -le 128 ]] || {
+        echo "qa-gate.sh: invalid --verify-env name" >&2; exit 64;
+    }
+    verify_env_occurrences=0
+    for compared_verify_env_name in "${verify_env[@]}"; do
+        [[ "$verify_env_name" != "$compared_verify_env_name" ]] || \
+            verify_env_occurrences=$((verify_env_occurrences + 1))
+    done
+    (( verify_env_occurrences == 1 )) || {
+        echo "qa-gate.sh: repeated --verify-env name" >&2; exit 64;
+    }
+done
+
+verifier_environment=()
+append_verifier_environment() {
+    local name="$1" present=""
+    builtin eval "present=\${$name+x}"
+    [[ -z "$present" ]] || verifier_environment+=("$name=${!name}")
+}
+for baseline_name in HOME PATH TMPDIR LANG LANGUAGE LC_ALL LC_CTYPE LC_NUMERIC \
+        LC_TIME LC_COLLATE LC_MONETARY LC_MESSAGES LC_PAPER LC_NAME LC_ADDRESS \
+        LC_TELEPHONE LC_MEASUREMENT LC_IDENTIFICATION; do
+    append_verifier_environment "$baseline_name"
+done
+if (( verify_env_fd_seen )); then
+    (( evidence_fd_seen && evidence_token_seen )) || exit 64
+    received_verify_env=()
+    received_name=""
+    while IFS= read -r -d '' received_name <&"$verify_env_fd"; do
+        IFS= read -r -d '' received_value <&"$verify_env_fd" || exit 64
+        received_allowed=0
+        for verify_env_name in ${verify_env+"${verify_env[@]}"}; do
+            [[ "$received_name" != "$verify_env_name" ]] || received_allowed=1
+        done
+        (( received_allowed )) || exit 64
+        for previous_name in ${received_verify_env+"${received_verify_env[@]}"}; do
+            [[ "$received_name" != "$previous_name" ]] || exit 64
+        done
+        received_verify_env+=("$received_name")
+        verifier_environment+=("$received_name=$received_value")
+    done
+    [[ -z "$received_name" ]] || exit 64
+    builtin eval "exec ${verify_env_fd}<&-"
+elif (( ${#verify_env[@]} )); then
+    echo "qa-gate.sh: --verify-env requires verify-job.sh private handoff" >&2
+    exit 64
+fi
 
 [[ -n "$envelope" && -f "$envelope" ]] || {
     echo "qa-gate.sh: --envelope FILE required" >&2; exit 64;
@@ -446,14 +517,14 @@ for (( i=0; i<${#verify[@]}; i++ )); do
         if (
             builtin eval "exec ${evidence_fd}>&-" || exit 126
             unset AGY_WORKER_INTERNAL_EVIDENCE_TOKEN AGY_WORKER_INTERNAL_PYTHON
-            exec /bin/bash -c "$vcmd"
+            exec /usr/bin/env -i "${verifier_environment[@]}" /bin/bash -c "$vcmd"
         ); then
             verifier_rc=0
         else
             verifier_rc=$?
         fi
     else
-        if bash -c "$vcmd"; then
+        if /usr/bin/env -i "${verifier_environment[@]}" /bin/bash -c "$vcmd"; then
             verifier_rc=0
         else
             verifier_rc=$?

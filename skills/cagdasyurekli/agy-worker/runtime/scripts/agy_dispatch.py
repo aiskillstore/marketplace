@@ -57,6 +57,7 @@ COMMAND_V1_FIELDS = {
 COMMAND_V2_FIELDS = COMMAND_V1_FIELDS | {"workflow", "max_cycles", "continue_prompt"}
 COMMAND_V3_FIELDS = COMMAND_V2_FIELDS | {"agy_version_observed"}
 COMMAND_V4_FIELDS = COMMAND_V3_FIELDS | {"selection_path", "selection_sha256", "selection_identity"}
+COMMAND_V5_FIELDS = COMMAND_V4_FIELDS | {"provider_env"}
 STATE_PROJECT_FIELDS = {
     "workflow", "max_cycles", "cycle", "phase", "assurance",
     "check_summary", "check_counts", "verification_path", "verification_sha256",
@@ -76,8 +77,9 @@ STATE_V5_FIELDS = {
 STATE_V6_FIELDS = {"selection_sha256", "selection_identity"}
 STATE_V8_FIELDS = {"worktree_snapshot_algorithm"}
 STATE_V9_FIELDS = {"worktree_root_identity"}
+STATE_V10_FIELDS = {"provider_terminal_status"}
 PUBLIC_LAUNCHER = '"$PIPELINE/agy-worker.sh"'
-CURRENT_STATE_SCHEMA = 9
+CURRENT_STATE_SCHEMA = 10
 WORKTREE_SNAPSHOT_LEGACY_V6 = "legacy-v6"
 WORKTREE_SNAPSHOT_SEMANTIC_V1 = "semantic-v1"
 CURRENT_WORKTREE_SNAPSHOT_ALGORITHM = WORKTREE_SNAPSHOT_SEMANTIC_V1
@@ -97,7 +99,7 @@ REASONS = {
     "permission_required", "empty_output", "invalid_envelope",
     "output_oversized", "interrupted", "provider_quota_exhausted",
     "provider_terminal_error", "provider_terminal_cancelled",
-    "selection_preflight_failed",
+    "selection_preflight_failed", "resolve_undo_present",
 }
 EXIT_BY_REASON = {
     "empty_output": 3,
@@ -109,7 +111,7 @@ EXIT_BY_REASON = {
     "provider_timeout": 17,
     "authentication_failed": 18,
     "provider_unavailable": 19,
-    "status_unavailable": 20,
+    "status_unavailable": 20, "resolve_undo_present": 20,
     "resume_failed": 21,
     "cancelled": 22,
     "output_oversized": 23,
@@ -154,6 +156,8 @@ class SelectionPreflightError(DispatchError):
 class WorktreeBaselineError(DispatchError):
     """The queued worktree baseline is unavailable or no longer exact."""
 
+class ResolveUndoPresentError(WorktreeBaselineError):
+    """A valid, non-empty REUC observation is present in the worktree index."""
 
 _selection_spec = importlib.util.spec_from_file_location(
     "agy_dispatch_model_selection", Path(__file__).with_name("model_selection.py"),
@@ -454,19 +458,31 @@ def load_command(job: Path) -> tuple[dict[str, Any], bytes, tuple[int, int, int,
             "continue_prompt": "legacy commands cannot continue projects",
             "agy_version_observed": False,
             "selection_path": None, "selection_sha256": None, "selection_identity": None,
+            "provider_env": [],
         })
     elif set(value) == COMMAND_V2_FIELDS and value.get("schema_version") == 2:
         if raw != canonical(value):
             raise DispatchError("dispatch command is not canonical")
         value = dict(value)
         value["agy_version_observed"] = False
-        value.update({"selection_path": None, "selection_sha256": None, "selection_identity": None})
+        value.update({
+            "selection_path": None, "selection_sha256": None, "selection_identity": None,
+            "provider_env": [],
+        })
     elif set(value) == COMMAND_V3_FIELDS and value.get("schema_version") == 3:
         if raw != canonical(value):
             raise DispatchError("dispatch command is not canonical")
         value = dict(value)
-        value.update({"selection_path": None, "selection_sha256": None, "selection_identity": None})
-    elif set(value) != COMMAND_V4_FIELDS or value.get("schema_version") != 4:
+        value.update({
+            "selection_path": None, "selection_sha256": None, "selection_identity": None,
+            "provider_env": [],
+        })
+    elif set(value) == COMMAND_V4_FIELDS and value.get("schema_version") == 4:
+        if raw != canonical(value):
+            raise DispatchError("dispatch command is not canonical")
+        value = dict(value)
+        value["provider_env"] = []
+    elif set(value) != COMMAND_V5_FIELDS or value.get("schema_version") != 5:
         raise DispatchError("dispatch command fields are invalid")
     elif raw != canonical(value):
         raise DispatchError("dispatch command is not canonical")
@@ -507,6 +523,15 @@ def load_command(job: Path) -> tuple[dict[str, Any], bytes, tuple[int, int, int,
         raise DispatchError("dispatch resume prompt is invalid")
     if not isinstance(value["continue_prompt"], str) or not value["continue_prompt"]:
         raise DispatchError("dispatch continue prompt is invalid")
+    if not isinstance(value["provider_env"], list) or any(
+        not isinstance(item, str) for item in value["provider_env"]
+    ):
+        raise DispatchError("dispatch provider environment is invalid")
+    try:
+        if MODEL_SELECTION.validate_child_environment_names(value["provider_env"]) != value["provider_env"]:
+            raise DispatchError("dispatch provider environment is not canonical")
+    except MODEL_SELECTION.EvidenceUnavailable as exc:
+        raise DispatchError("dispatch provider environment is invalid") from exc
     if value["workflow"] not in {"legacy", "explore", "task", "project"}:
         raise DispatchError("dispatch workflow is invalid")
     if not _valid_max_cycles(value["workflow"], value["max_cycles"]):
@@ -554,15 +579,17 @@ def validate_state(value: Any) -> dict[str, Any]:
         "candidate_worktree_sha256", "candidate_worktree_entries",
         "selection_sha256", "selection_identity",
         "worktree_snapshot_algorithm", "worktree_root_identity",
+        "provider_terminal_status",
     }
     retry_fields = {"provider_retry_after_seconds", "provider_retry_observed_epoch"}
-    legacy_fields = fields - STATE_PROJECT_FIELDS - retry_fields - STATE_V5_FIELDS - STATE_V6_FIELDS - STATE_V8_FIELDS - STATE_V9_FIELDS
-    version_three_fields = fields - retry_fields - STATE_V5_FIELDS - STATE_V6_FIELDS - STATE_V8_FIELDS - STATE_V9_FIELDS
-    version_four_fields = fields - STATE_V5_FIELDS - STATE_V6_FIELDS - STATE_V8_FIELDS - STATE_V9_FIELDS
-    version_five_fields = fields - STATE_V6_FIELDS - STATE_V8_FIELDS - STATE_V9_FIELDS
-    version_six_fields = fields - STATE_V8_FIELDS - STATE_V9_FIELDS
-    version_seven_fields = fields - STATE_V8_FIELDS - STATE_V9_FIELDS
-    version_eight_fields = fields - STATE_V9_FIELDS
+    legacy_fields = fields - STATE_PROJECT_FIELDS - retry_fields - STATE_V5_FIELDS - STATE_V6_FIELDS - STATE_V8_FIELDS - STATE_V9_FIELDS - STATE_V10_FIELDS
+    version_three_fields = fields - retry_fields - STATE_V5_FIELDS - STATE_V6_FIELDS - STATE_V8_FIELDS - STATE_V9_FIELDS - STATE_V10_FIELDS
+    version_four_fields = fields - STATE_V5_FIELDS - STATE_V6_FIELDS - STATE_V8_FIELDS - STATE_V9_FIELDS - STATE_V10_FIELDS
+    version_five_fields = fields - STATE_V6_FIELDS - STATE_V8_FIELDS - STATE_V9_FIELDS - STATE_V10_FIELDS
+    version_six_fields = fields - STATE_V8_FIELDS - STATE_V9_FIELDS - STATE_V10_FIELDS
+    version_seven_fields = fields - STATE_V8_FIELDS - STATE_V9_FIELDS - STATE_V10_FIELDS
+    version_eight_fields = fields - STATE_V9_FIELDS - STATE_V10_FIELDS
+    version_nine_fields = fields - STATE_V10_FIELDS
     if not isinstance(value, dict):
         raise DispatchError("dispatch state fields are invalid")
     if set(value) == legacy_fields and value.get("schema_version") == 1:
@@ -640,16 +667,22 @@ def validate_state(value: Any) -> dict[str, Any]:
         pass
     elif set(value) == version_eight_fields and value.get("schema_version") == 8:
         pass
+    elif set(value) == version_nine_fields and value.get("schema_version") == 9:
+        pass
     elif set(value) != fields or value.get("schema_version") != CURRENT_STATE_SCHEMA:
         raise DispatchError("dispatch state fields are invalid")
     if value["kind"] != "agy-worker-dispatch-state":
         raise DispatchError("dispatch state version is invalid")
-    if value["schema_version"] == CURRENT_STATE_SCHEMA and (
+    if value["schema_version"] in {9, CURRENT_STATE_SCHEMA} and (
         value["worktree_snapshot_algorithm"] != CURRENT_WORKTREE_SNAPSHOT_ALGORITHM
     ):
         raise DispatchError("dispatch worktree snapshot algorithm is invalid")
+    if value["schema_version"] == CURRENT_STATE_SCHEMA and (
+        value.get("provider_terminal_status") not in {"unknown", "success", "error", "cancelled"}
+    ):
+        raise DispatchError("dispatch provider terminal status is invalid")
     root_identity = value.get("worktree_root_identity")
-    if value["schema_version"] == CURRENT_STATE_SCHEMA:
+    if value["schema_version"] in {9, CURRENT_STATE_SCHEMA}:
         def valid_authority(authority: Any, *, directory: bool | None = None) -> bool:
             if not isinstance(authority, dict) or set(authority) != {
                 "dev", "ino", "type", "mode", "uid", "gid",
@@ -973,11 +1006,16 @@ def initial_state(
     state_schema: int = CURRENT_STATE_SCHEMA,
     explain_worktree_rejection: bool = False,
 ) -> dict[str, Any]:
-    if state_schema not in {6, 7, 8, CURRENT_STATE_SCHEMA}:
+    if state_schema not in {6, 7, 8, 9, CURRENT_STATE_SCHEMA}:
         raise DispatchError("dispatch state schema is invalid")
     now = time.time()
     workflow = command.get("workflow", "legacy")
     max_cycles = command.get("max_cycles", 1)
+    try:
+        worktree_baseline = _worktree_snapshot(
+            command["workdir"], legacy=state_schema == 6, explain_unsupported=explain_worktree_rejection)
+    except ResolveUndoPresentError:
+        worktree_baseline = None
     state = {
         "schema_version": state_schema,
         "kind": "agy-worker-dispatch-state",
@@ -1052,10 +1090,7 @@ def initial_state(
         # recommendation; public aliases are derived at read time.
         "next_action": "none",
         "next_action_command": None,
-        "worktree_baseline": _worktree_snapshot(
-            command["workdir"], legacy=state_schema == 6,
-            explain_unsupported=explain_worktree_rejection,
-        ),
+        "worktree_baseline": worktree_baseline,
         "provider_schema_sha256": None if schema_bindings is None else schema_bindings["provider_schema_sha256"],
         "provider_schema_identity": None if schema_bindings is None else schema_bindings["provider_schema_identity"],
         "canonical_schema_sha256": None if schema_bindings is None else schema_bindings["canonical_schema_sha256"],
@@ -1067,11 +1102,13 @@ def initial_state(
     }
     if state_schema >= 8:
         state["worktree_snapshot_algorithm"] = CURRENT_WORKTREE_SNAPSHOT_ALGORITHM
-    if state_schema == CURRENT_STATE_SCHEMA:
+    if state_schema >= 9:
         root_identity = _dispatch_root_identity(command["workdir"])
         if root_identity is None:
             raise DispatchError("dispatch worktree root cannot be bound")
         state["worktree_root_identity"] = root_identity
+    if state_schema == CURRENT_STATE_SCHEMA:
+        state["provider_terminal_status"] = "unknown"
     return state
 
 
@@ -1079,7 +1116,7 @@ def _upgrade_legacy_state(
     state: dict[str, Any], command: dict[str, Any], *,
     migration_facts: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Prepare an eligible pre-V9 state for one atomic approved current write."""
+    """Prepare an eligible pre-V10 state for one atomic approved current write."""
     if state["schema_version"] >= CURRENT_STATE_SCHEMA:
         return state
     if state["schema_version"] == 1:
@@ -1121,6 +1158,40 @@ def _upgrade_legacy_state(
         assert migration_facts is not None
         snapshot = migration_facts["semantic_snapshot"]
         root_identity = migration_facts["root_identity"]
+    elif value["schema_version"] == 9:
+        persisted_root = value.get("worktree_root_identity")
+        current_root = _dispatch_root_identity(command["workdir"])
+        boundary = _git_boundary_identity(command["workdir"])
+        if (
+            persisted_root is None
+            or current_root is None
+            or persisted_root != current_root
+            or persisted_root != boundary
+        ):
+            raise DispatchError("legacy dispatch root identity cannot be proved")
+        expected_schemas = _schema_bindings(command)
+        for key, val in expected_schemas.items():
+            if value.get(key) != val:
+                raise DispatchError("dispatch schema binding changed")
+        if (
+            value.get("selection_sha256") != command.get("selection_sha256")
+            or value.get("selection_identity") != command.get("selection_identity")
+        ):
+            raise DispatchError("dispatch selection binding changed")
+        expected = value.get("candidate_worktree_sha256") if value["candidate_recognized"] else None
+        expected_entries = value.get("candidate_worktree_entries") if value["candidate_recognized"] else None
+        if expected is None:
+            baseline = value.get("worktree_baseline")
+            if isinstance(baseline, dict):
+                expected, expected_entries = baseline.get("sha256"), baseline.get("entries")
+        observed = _state_worktree_snapshot(value, command["workdir"])
+        if (
+            observed is None or not isinstance(expected, str) or type(expected_entries) is not int
+            or observed["sha256"] != expected or observed["entries"] != expected_entries
+        ):
+            raise DispatchError("legacy dispatch root identity cannot be proved")
+        root_identity = persisted_root
+        snapshot = observed
     else:
         expected = value.get("candidate_worktree_sha256") if value["candidate_recognized"] else None
         expected_entries = value.get("candidate_worktree_entries") if value["candidate_recognized"] else None
@@ -1155,6 +1226,7 @@ def _upgrade_legacy_state(
         "selection_sha256": command.get("selection_sha256"),
         "selection_identity": command.get("selection_identity"),
         "worktree_root_identity": root_identity,
+        "provider_terminal_status": "unknown",
     })
     if value["candidate_recognized"]:
         value["candidate_worktree_sha256"] = snapshot["sha256"]
@@ -1283,7 +1355,15 @@ def _transition_locked(
         # ``validate_state`` projects additive facts while reading old bytes.
         # A cheap active control must write the old generation's exact field
         # shape back, not accidentally persist a partial migration.
-        omitted = set(STATE_V5_FIELDS) | set(STATE_V6_FIELDS) | set(STATE_V8_FIELDS) | set(STATE_V9_FIELDS)
+        omitted = set(STATE_V10_FIELDS)
+        if value["schema_version"] < 9:
+            omitted |= set(STATE_V9_FIELDS)
+        if value["schema_version"] < 8:
+            omitted |= set(STATE_V8_FIELDS)
+        if value["schema_version"] < 6:
+            omitted |= set(STATE_V6_FIELDS)
+        if value["schema_version"] < 5:
+            omitted |= set(STATE_V5_FIELDS)
         if value["schema_version"] == 1:
             omitted |= set(STATE_PROJECT_FIELDS) | {
                 "provider_retry_after_seconds", "provider_retry_observed_epoch",
@@ -1446,7 +1526,7 @@ def _verification_copy_is_eligible(value: dict[str, Any]) -> bool:
     current-state-only so status never advertises a command the helper rejects.
     """
     return bool(
-        value["schema_version"] >= CURRENT_STATE_SCHEMA
+        value["schema_version"] >= 9
         and _finalize_is_eligible(value)
     )
 
@@ -2367,9 +2447,10 @@ def _worktree_snapshot(
             "_worktree_snapshot", workdir, legacy=legacy,
             explain_unsupported=explain_unsupported,
         )
+    except _WORKTREE_HELPER._ResolveUndoPresentError as exc:
+        raise ResolveUndoPresentError(str(exc)) from None
     except _WORKTREE_HELPER._UnsupportedWorktreeError as exc:
         raise WorktreeBaselineError(str(exc)) from None
-
 
 _WORKTREE_FACADE_DEFAULTS = {
     name: globals()[name] for name in _WORKTREE_HELPER._IMPLEMENTATION_FUNCTIONS
@@ -2515,7 +2596,7 @@ def _bound_candidate_worktree(state: dict[str, Any], command: dict[str, Any]) ->
     # same V9 extractor used by lifecycle recovery is repeated here so a
     # direct candidate-binding caller cannot turn a substituted Git boundary
     # into a content-only comparison.
-    if state.get("schema_version") == CURRENT_STATE_SCHEMA and (
+    if state.get("schema_version") in {9, CURRENT_STATE_SCHEMA} and (
         _git_boundary_identity(command["workdir"])
         != state.get("worktree_root_identity")
     ):
@@ -2552,7 +2633,7 @@ def _bound_current_candidate(job: Path, state: dict[str, Any]) -> tuple[dict[str
     # Old snapshots are readable evidence only.  Do not synthesize a V9 root
     # identity during a result/status read: that would make a replacement root
     # look approved before an explicit, provable transition.
-    legacy_read = state["schema_version"] < CURRENT_STATE_SCHEMA
+    legacy_read = state["schema_version"] < 9
     result_path = Path(state["result_path"])
     try:
         result_parent = result_path.parent.resolve(strict=True)
@@ -2860,12 +2941,13 @@ def _bound_legacy_unknown_result(job: Path, state: dict[str, Any]) -> bytes:
     _bound_lifecycle_inputs(bound_job, state, command, read_legacy=True)
     return raw
 
-
 def _bound_worktree_baseline(state: dict[str, Any], command: dict[str, Any]) -> None:
     """Require the queued worktree fact set immediately before provider launch."""
     expected = state["worktree_baseline"]
     current = _state_worktree_snapshot(state, command["workdir"])
     if expected is None or current is None:
+        if state.get("schema_version", CURRENT_STATE_SCHEMA) >= 7:
+            _worktree_snapshot(command["workdir"], explain_unsupported=True)
         raise WorktreeBaselineError("queued worktree baseline is unavailable")
     if (
         current["sha256"] != expected["sha256"]
@@ -2988,7 +3070,7 @@ def _bound_lifecycle_inputs(
         root_info = root.lstat()
     except OSError as exc:
         raise DispatchError("dispatch worktree root is unavailable") from exc
-    if checked["schema_version"] >= CURRENT_STATE_SCHEMA:
+    if checked["schema_version"] in {9, CURRENT_STATE_SCHEMA}:
         root_identity = _dispatch_root_identity(command["workdir"])
         if (
             root_identity is None
@@ -3014,7 +3096,7 @@ def _bound_lifecycle_inputs(
     _load_bound_selection(
         command, checked, legacy_command_binding=read_legacy,
     )
-    if checked["schema_version"] >= CURRENT_STATE_SCHEMA:
+    if checked["schema_version"] in {9, CURRENT_STATE_SCHEMA}:
         _bound_schemas(command, checked)
     elif not read_legacy or _schema_paths(command) is None:
         raise DispatchError("legacy dispatch schema binding cannot be proved")
@@ -3337,6 +3419,7 @@ def controller(job: Path, ownership_fd: int) -> int:
         schema_paths: tuple[Path, Path] | None = None
         try:
             command = _load_bound_command(job, state, stage_readonly=False)
+            MODEL_SELECTION.ACTIVE_CHILD_ENV = list(command["provider_env"])
             _load_bound_selection(command, state)
             schema_paths = _bound_schemas(command, state)
             if not _worktree_symlink_boundary(command["workdir"]):
@@ -3540,6 +3623,7 @@ def controller(job: Path, ownership_fd: int) -> int:
                                 stdin=subprocess.DEVNULL,
                                 stdout=subprocess.PIPE,
                                 stderr=subprocess.PIPE,
+                                env=MODEL_SELECTION.child_environment(command["provider_env"]),
                                 start_new_session=True,
                                 preexec_fn=lambda: os.umask(int(command["child_umask"], 8)),
                             )
@@ -3559,8 +3643,8 @@ def controller(job: Path, ownership_fd: int) -> int:
                 reason = "selection_preflight_failed"
                 failure_stage = "selection_preflight"
                 returncode = EXIT_BY_REASON[reason]
-            except WorktreeBaselineError:
-                reason = "status_unavailable"
+            except WorktreeBaselineError as exc:
+                reason = "resolve_undo_present" if isinstance(exc, ResolveUndoPresentError) else "status_unavailable"
                 failure_stage = "binding_failure"
                 returncode = EXIT_BY_REASON[reason]
             except DispatchError:
@@ -3802,6 +3886,7 @@ def controller(job: Path, ownership_fd: int) -> int:
                     )
                     if terminal_failure is not None:
                         reason, provider_retry_after = terminal_failure
+                        outer_status = "ERROR"
                         # The exact 1.1.13 quota terminal has a valid outer ERROR
                         # fact but intentionally carries no structured report.
                         # Preserve both facts without treating quota as a report.
@@ -4020,6 +4105,15 @@ def controller(job: Path, ownership_fd: int) -> int:
                     else current["candidate_source"] if preserve_candidate_forensics
                     else "none"
                 )
+                if failure_stage in {"schema_rejection", "binding_failure", "framing", "outer_status", "invalid_envelope"}:
+                    provider_terminal_status = "unknown"
+                else:
+                    provider_terminal_status = (
+                        "success" if outer_status == "SUCCESS"
+                        else "error" if outer_status == "ERROR"
+                        else "cancelled" if outer_status in {"CANCELLED", "CANCELED"}
+                        else "unknown"
+                    )
                 preserved_path = current["result_path"] if preserve_candidate_forensics else None
                 preserved_sha = current["result_sha256"] if preserve_candidate_forensics else None
                 preserved_identity = current["result_identity"] if preserve_candidate_forensics else None
@@ -4036,6 +4130,7 @@ def controller(job: Path, ownership_fd: int) -> int:
                     "result_identity": list(result_binding[1]) if result_binding is not None else preserved_identity,
                     "candidate_recognized": candidate_recognized,
                     "candidate_source": candidate_source,
+                    "provider_terminal_status": provider_terminal_status,
                     # Preserve an exact old candidate after a binding failure for
                     # forensics, but never claim it can still be read or reviewed.
                     "result_available": candidate_recognized and not candidate_unavailable,
@@ -4346,14 +4441,17 @@ def spawn(
         if parent_signal is not None:
             _terminalize_queued_signal(job, parent_signal)
             return 128 + parent_signal
-        command = [
+        bound_command = _load_bound_command(job, state, stage_readonly=False)
+        controller_environment = MODEL_SELECTION.child_environment(bound_command["provider_env"])
+        controller_argv = [
             sys.executable, "-I", "-S", "-B", str(Path(__file__).resolve()),
             "controller", "--job-dir", str(job), "--ownership-fd", str(ownership_fd),
         ]
         controller_process = subprocess.Popen(
-            command, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+            controller_argv, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL, start_new_session=True, close_fds=True,
             pass_fds=(ownership_fd,),
+            env=controller_environment,
         )
       deadline = time.monotonic() + 5.0
       forwarded = False
@@ -4453,6 +4551,7 @@ def _terminal_projection(
         "controller_pid": None,
         "finished_epoch": time.time(),
         "failure_stage": failure_stage,
+        "provider_terminal_status": state.get("provider_terminal_status", "unknown"),
         # A local process signal is not evidence that the provider observed a
         # cancellation.  Startup/binding failures make no remote-cancel claim.
         "remote_cancel_unverified": remote_cancel_unverified,
@@ -4571,6 +4670,7 @@ def _terminalize_owned(
                 # case that must retain binding_failure fail-closed.
                 "failure_stage": None if (cancelled or prior_candidate_is_bound) else "binding_failure",
                 "remote_cancel_unverified": bool(cancelled and postlaunch_cancel),
+                "provider_terminal_status": current.get("provider_terminal_status", "unknown"),
             }
             if current["schema_version"] >= 5:
                 updates.update({

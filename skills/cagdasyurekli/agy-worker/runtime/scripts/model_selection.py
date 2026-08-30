@@ -35,6 +35,24 @@ SOURCE_PATH = COMPAT_ROOT / "agy-upstream-head.txt"
 SHA256_RE = re.compile(r"[0-9a-f]{64}")
 SOURCE_NAMES = ("cli", "environment")
 TIER_SOURCES = ("cli", "environment", "implicit-default")
+CHILD_ENV_BASE = ("HOME", "PATH", "TMPDIR", "LANG", "LANGUAGE")
+CHILD_ENV_LOCALES = (
+    "LC_ALL", "LC_CTYPE", "LC_NUMERIC", "LC_TIME", "LC_COLLATE",
+    "LC_MONETARY", "LC_MESSAGES", "LC_PAPER", "LC_NAME", "LC_ADDRESS",
+    "LC_TELEPHONE", "LC_MEASUREMENT", "LC_IDENTIFICATION",
+)
+ENV_NAME_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]{0,127}")
+BLOCKED_ENV_NAMES = {
+    "BASH_ENV", "ENV", "SHELLOPTS", "BASHOPTS", "PS4", "CDPATH",
+    "GLOBIGNORE", "BASH_LOADABLES_PATH", "BASH_XTRACEFD", "BASH_COMPAT",
+    "NODE_OPTIONS", "RUBYOPT", "RUBYLIB", "PERL5OPT", "PERL5LIB",
+    "JAVA_TOOL_OPTIONS", "JDK_JAVA_OPTIONS", "CLASSPATH",
+    "AGY_WORKER_SCHEMA",
+}
+BLOCKED_ENV_PREFIXES = (
+    "BASH_FUNC_", "PYTHON", "LD_", "DYLD_", "GIT_", "AGY_WORKER_INTERNAL_",
+)
+ACTIVE_CHILD_ENV: list[str] = []
 VERSION_TIMEOUT_SECONDS = 3.0
 VERSION_OUTPUT_LIMIT = 128
 HELP_TIMEOUT_SECONDS = 3.0
@@ -53,6 +71,34 @@ TIER_MODEL_BY_NAME = {
     "hard": "gemini-3.1-pro-high",
     "hardest": "claude-opus-4-6-thinking",
 }
+
+
+def validate_child_environment_names(names: list[str]) -> list[str]:
+    if len(names) > 64:
+        raise EvidenceUnavailable("too many explicit child environment names")
+    if len(set(names)) != len(names):
+        raise EvidenceUnavailable("explicit child environment names must be unique")
+    for name in names:
+        if (
+            ENV_NAME_RE.fullmatch(name) is None
+            or name in BLOCKED_ENV_NAMES
+            or any(name.startswith(prefix) for prefix in BLOCKED_ENV_PREFIXES)
+        ):
+            raise EvidenceUnavailable("explicit child environment name is unsafe")
+    return sorted(names)
+
+
+def child_environment(
+    explicit_names: list[str] | None = None, *, force_c_locale: bool = False,
+) -> dict[str, str]:
+    names = validate_child_environment_names(
+        ACTIVE_CHILD_ENV if explicit_names is None else explicit_names
+    )
+    allowed = set(CHILD_ENV_BASE) | set(CHILD_ENV_LOCALES) | set(names)
+    environment = {name: os.environ[name] for name in allowed if name in os.environ}
+    if force_c_locale:
+        environment["LC_ALL"] = "C"
+    return environment
 COMMON_RECORD_FIELDS = {"schema_version", "kind", "selection_mode"}
 TIER_RECORD_FIELDS = COMMON_RECORD_FIELDS | {
     "selected_tier",
@@ -530,11 +576,10 @@ def probe_command(
     def interrupt_probe(signal_number: int, _frame: Any) -> None:
         raise ProbeInterrupted(signal_number)
 
-    probe_environment = dict(os.environ)
-    # The public approval recipe hashes C-locale help bytes.  Bind the runtime
-    # probe to the same locale so inherited language settings cannot make an
-    # otherwise compatible approval impossible to reproduce.
-    probe_environment["LC_ALL"] = "C"
+    # Interface probes never need provider credentials. The public approval
+    # recipe hashes C-locale help bytes, so bind the minimal probe environment
+    # to that locale as well.
+    probe_environment = child_environment(force_c_locale=True)
     try:
         for signal_number in watched_signals:
             signal.signal(signal_number, interrupt_probe)
@@ -1257,12 +1302,18 @@ def build_parser() -> UsageParser:
     parser.add_argument("--validate-record", action="append")
     parser.add_argument("--verify-record-executable", action="append")
     parser.add_argument("--observe-installed-version", action="store_true")
+    parser.add_argument("--child-env", action="append", default=[])
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
+    global ACTIVE_CHILD_ENV
     parser = build_parser()
     args = parser.parse_args(argv)
+    try:
+        ACTIVE_CHILD_ENV = validate_child_environment_names(args.child_env)
+    except EvidenceUnavailable as exc:
+        parser.error(str(exc))
     tier = one(parser, args.tier, "--tier", False)
     tier_source = one(parser, args.tier_source, "--tier-source", False)
     model = one(parser, args.model, "--model", False)

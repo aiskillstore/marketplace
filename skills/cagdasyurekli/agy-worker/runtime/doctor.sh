@@ -56,6 +56,8 @@ doctor_runtime_complete() {
         model-selection.sh \
         doctor.sh \
         feedback-triage.sh \
+        model-intelligence.sh \
+        delegation-policy.sh \
         scripts/validate-envelope.py \
         scripts/evidence_receipt.py \
         scripts/evidence_report.py \
@@ -71,7 +73,9 @@ doctor_runtime_complete() {
         scripts/agy_dispatch.py \
         scripts/job_lifecycle.py \
         scripts/doctor-metadata.py \
-        scripts/feedback-triage.py; do
+        scripts/feedback-triage.py \
+        scripts/model_intelligence.py \
+        scripts/delegation_policy.py; do
         case "$required" in
             */*) dependency_parent="${required%/*}" ;;
             *) dependency_parent='.' ;;
@@ -101,6 +105,9 @@ doctor_runtime_complete() {
         schemas/swebench-workflow-study-plan.schema.json \
         schemas/swebench-workflow-study-report.schema.json \
         schemas/swebench-workflow-study-advisory.schema.json \
+        schemas/model-intelligence-evidence.schema.json \
+        schemas/model-intelligence-advisory.schema.json \
+        schemas/delegation-policy.schema.json \
         schemas/persona-dispatch.schema.json \
         schemas/persona-human-review.schema.json \
         schemas/persona-run-evidence.schema.json \
@@ -116,6 +123,7 @@ doctor_runtime_complete() {
         compat/personas/bulk-test-writer.json \
         compat/personas/diff-reviewer.json \
         compat/personas/repo-inventory.json \
+        compat/model-intelligence/dataset.v1.json \
         benchmarks/v1/manifest.json \
         benchmarks/v1/portable-source.json \
         benchmarks/v1/tasks/exact-edit/initial.txt \

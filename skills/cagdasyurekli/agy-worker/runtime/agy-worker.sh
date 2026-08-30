@@ -113,6 +113,7 @@ usage: agy-worker.sh [--workdir DIR] [--persona NAME] [--mode plan|accept-edits]
                      [--literal-model EXACT_SLUG]
                      [--idle-timeout 10m] [--hard-timeout 2h]
                      [--max-runtime 12h]
+                     [--provider-env NAME]...
                      [--add-dir DIR]... [--allow-slash-commands]
        ... task prompt on stdin ...
 
@@ -258,6 +259,7 @@ approve_help_sha_seen=0; approve_help_sha=""
 literal_cli_seen=0; literal_cli_value=""
 idle_cli_seen=0; hard_cli_seen=0; max_cli_seen=0
 job_cli_seen=0
+provider_env=()
 # Injection control (rec #8): worker prompts routinely embed repo content, and a
 # "/skill ..." string inside that content would otherwise expand as a real command.
 # Default OFF; only a caller who controls the whole prompt should re-enable it.
@@ -308,6 +310,9 @@ while [[ $# -gt 0 ]]; do
             [[ $# -ge 2 ]] || usage
             (( job_cli_seen == 0 )) || { echo "agy-worker.sh: repeated --job-id" >&2; exit 64; }
             job_cli_seen=1; job_id="$2"; shift 2 ;;
+        --provider-env)
+            [[ $# -ge 2 ]] || usage
+            provider_env+=("$2"); shift 2 ;;
         --effort)
             [[ $# -ge 2 ]] || usage
             (( effort_cli_seen == 0 )) || { echo "agy-worker.sh: repeated --effort" >&2; exit 64; }
@@ -326,6 +331,30 @@ while [[ $# -gt 0 ]]; do
         *) echo "agy-worker.sh: invalid usage; run --help for usage" >&2; usage ;;
     esac
 done
+
+if (( ${#provider_env[@]} > 64 )); then
+    echo "agy-worker.sh: at most 64 --provider-env names are supported" >&2
+    exit 64
+fi
+if (( ${#provider_env[@]} )); then
+    for provider_env_name in "${provider_env[@]}"; do
+        case "$provider_env_name" in
+            ''|*[!A-Za-z0-9_]*|[0-9]*|BASH_ENV|ENV|SHELLOPTS|BASHOPTS|PS4|CDPATH|GLOBIGNORE|BASH_LOADABLES_PATH|BASH_XTRACEFD|BASH_COMPAT|NODE_OPTIONS|RUBYOPT|RUBYLIB|PERL5OPT|PERL5LIB|JAVA_TOOL_OPTIONS|JDK_JAVA_OPTIONS|CLASSPATH|BASH_FUNC_*|PYTHON*|LD_*|DYLD_*|AGY_WORKER_INTERNAL_*)
+                echo "agy-worker.sh: unsafe --provider-env name" >&2; exit 64 ;;
+        esac
+        [[ ${#provider_env_name} -le 128 ]] || {
+            echo "agy-worker.sh: invalid --provider-env name" >&2; exit 64;
+        }
+        provider_env_occurrences=0
+        for compared_provider_env_name in "${provider_env[@]}"; do
+            [[ "$provider_env_name" != "$compared_provider_env_name" ]] || \
+                provider_env_occurrences=$((provider_env_occurrences + 1))
+        done
+        (( provider_env_occurrences == 1 )) || {
+            echo "agy-worker.sh: repeated --provider-env name" >&2; exit 64;
+        }
+    done
+fi
 
 if (( job_cli_seen == 0 && job_env_seen == 0 )); then
     job_id="job-$(python3 -I -S -B - <<'PY'
@@ -730,6 +759,13 @@ selection_file="$job_dir/selection.json"
 # Resolve once before consuming the task. New direct selectors validate the exact
 # portable matrix and installed agy version; legacy tiers preserve their old mapping.
 selection_args=(--output "$selection_file")
+child_env_args=()
+for provider_env_name in ${provider_env+"${provider_env[@]}"}; do
+    child_env_args+=(--child-env "$provider_env_name")
+done
+if (( ${#child_env_args[@]} )); then
+    selection_args+=("${child_env_args[@]}")
+fi
 if [[ "$selection_kind" == "tier" ]]; then
     selection_args+=(--tier "$tier" --tier-source "$tier_source")
 elif [[ "$selection_kind" == "literal" ]]; then
@@ -777,6 +813,7 @@ PY
 if [[ "$agy_selection_mode" == "literal-model" ]]; then
     set +e
     observed_version="$(python3 -B "$SCRIPT_DIR/scripts/model_selection.py" \
+        ${child_env_args+"${child_env_args[@]}"} \
         --observe-installed-version 2>/dev/null)"
     observe_rc=$?
     set -e
@@ -795,6 +832,7 @@ fi
 if [[ "$agy_selection_mode" == "exact-model" || "$agy_selection_mode" == "model-effort" ]]; then
     set +e
     python3 -B "$SCRIPT_DIR/scripts/model_selection.py" \
+        ${child_env_args+"${child_env_args[@]}"} \
         --verify-record-executable "$selection_file" > /dev/null 2>&1
     executable_rc=$?
     set -e
@@ -922,7 +960,7 @@ command_workflow="${workflow:-legacy}"
 python3 -I -S -B - "$command_file" "$job_id" "$workdir" "$agy_version" "$agy_version_observed" \
     "$idle_seconds" "$hard_seconds" "$max_seconds" "$notice_seconds" \
     "$stage_dir_arg" "$stage_file_arg" "$CALLER_UMASK" "$command_workflow" "$max_cycles" \
-    "$selection_file" "${cmd[@]}" <<'PY'
+    "${#provider_env[@]}" ${provider_env+"${provider_env[@]}"} "$selection_file" "${cmd[@]}" <<'PY'
 import json
 import os
 from pathlib import Path
@@ -930,12 +968,15 @@ import sys
 
 (
     output, job_id, workdir, agy_version, agy_version_observed, idle, hard, maximum, notice,
-    stage_dir, stage_file, child_umask, workflow, max_cycles, selection_path, *argv
+    stage_dir, stage_file, child_umask, workflow, max_cycles, provider_env_count, *remainder
 ) = sys.argv[1:]
+provider_env_count = int(provider_env_count)
+provider_env = sorted(remainder[:provider_env_count])
+selection_path, *argv = remainder[provider_env_count:]
 if not isinstance(child_umask, str) or len(child_umask) not in (3, 4) or any(ch not in "01234567" for ch in child_umask):
     raise SystemExit(64)
 value = {
-    "schema_version": 4,
+    "schema_version": 5,
     "kind": "agy-worker-dispatch-command",
     "job_id": job_id,
     "workdir": workdir,
@@ -943,6 +984,7 @@ value = {
     "agy_version": agy_version,
     "agy_version_observed": agy_version_observed == "true",
     "selection_path": selection_path,
+    "provider_env": provider_env,
     "idle_seconds": int(idle),
     "hard_seconds": int(hard),
     "max_seconds": int(maximum),

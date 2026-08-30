@@ -1,6 +1,11 @@
 ---
 name: agy-worker
-description: Let Codex use Google Antigravity CLI (agy) for repository exploration, feature work, and project-scale implementation. Codex owns the diff review, verification, repair loop, and transparent delivery assurance; agy is not limited to mechanical edits or predeclared files.
+description: Let Codex use Google Antigravity CLI (agy) for repository exploration, bounded feature work, and project-scale implementation. Use when a Codex task benefits from delegated repository work while Codex retains diff review, verification, repair, and delivery assurance.
+license: MIT
+compatibility: Requires OpenAI Codex CLI, Bash, Python 3, git, and agy with provider network access. Claude and Claude Code hosts are not supported.
+metadata:
+  author: cagdasyurekli
+  version: "0.11.0"
 ---
 
 # Use agy to explore, build, and repair
@@ -8,6 +13,9 @@ description: Let Codex use Google Antigravity CLI (agy) for repository explorati
 `agy-worker` is for making progress on real repository work. Default to the workflow
 that matches the user's request; do not decline merely because files, architecture, or
 verification commands must be discovered during the work.
+
+For host compatibility, provider transmission, environment, and verification
+boundaries, see [Security and compatibility](references/SECURITY_AND_COMPATIBILITY.md).
 
 ## Before dispatch
 
@@ -72,6 +80,22 @@ The final acceptor must be a different agent or fresh context; no planner or imp
 Purely mechanical changes are exempt.
 Verification v2 and the controller bind candidate evidence, not agent identity or governance.
 The final human-readable handoff must report the planner/reviewer separation.
+
+## Delegation-First Coordinator Policy
+
+When delegation-first policy is enabled via explicit user opt-in (`user_opt_in: true`), AGY is the first substantive repository actor
+after instruction discovery, scope/privacy approval, disposable worktree setup, and
+verification planning. The packaged coordinator skill requires running the `delegation-policy.sh` evaluator before substantive repository work; the runtime cannot infer prior work, make dispatch decisions, or authorize Git/model changes on its own.
+Missing transmission or scope approvals, missing user opt-in,
+triggered hard stops, preflight failures, provider unavailability, or cycle budget exhaustion
+must produce honest `blocked` or `partially_verified` outcomes; they must never silently authorize
+direct Codex implementation as a fallback.
+
+Direct-Codex implementation and second-eye workflows remain explicit policy overrides.
+Direct-Codex requires no provider transmission or preflight; second-eye respects provider availability and preflight checks.
+Small tasks incur fixed initialization overhead (prompt staging, sandbox setup, provider
+round-trip); token observations are telemetry counts only and are not billing, quota,
+allowance, or general cost-savings evidence.
 
 ## Prepare an isolated target
 
@@ -169,7 +193,11 @@ evidence.
 For a bounded candidate that needs gate/receipt evidence, run `verify-job.sh` with the
 immutable base, a suitable `--only` policy when one exists, and driver-authored
 `--verify` commands. A passed gate is strong candidate evidence, not a merge, release,
-or claim of general correctness.
+or claim of general correctness. Provider and verifier children inherit only the
+documented baseline environment. Add a caller variable by exact name only when needed:
+`--provider-env NAME` for `agy` children or `verify-job.sh --verify-env NAME` for its
+verifier child. Verifier-only values do not enter the outer gate environment.
+Never opt in credentials merely to preserve an ambient shell setup.
 
 ## Hard stops
 
@@ -232,7 +260,7 @@ filesystem snapshot, FSEvents watcher, or hostile same-user tamper defense: the 
 owner, same-UID processes, and OS administrators are trusted, and mutation after an
 entry's final read remains a portable residual.
 
-V9 uses `dispatching` for an active initial, resume, or restart attempt;
+Current V10 uses `dispatching` for an active initial, resume, or restart attempt;
 `attempt-failed` for a pre-candidate failure; `awaiting-verification` for a recognized
 candidate; `repairing` for an active continuation; and `repair-failed` for an actual
 failed continuation attempt. Controller terminal phases are `completed` or `blocked`;
@@ -250,10 +278,10 @@ read-only. A V3/V4 current result can make its first lifecycle transition only w
 `status` supplies an exact `migration_binding_sha256` and the command receives both
 that digest and the current state SHA; it is recomputed under the transition lock.
 `last_success_*`-only V3/V4 evidence remains read-only. Persisted V5/V6 state retains its exact legacy digest;
-V7 retains its exact semantic-v1 digest; and V8 retains its explicit semantic-v1
-algorithm. An approved V5/V6 transition proves its legacy state, then atomically
-captures a fresh semantic-v1 V9 baseline/candidate; V7/V8 reuse an exact semantic
-proof. V9 separately persists stable no-follow root/Git authority and excludes mutable
+V7 retains its exact semantic-v1 digest; V8 retains its explicit semantic-v1
+algorithm; V9 is a supported transition state to current V10, validating stored selection digest, root authority, and schema bindings before upgrade and adding sanitized `provider_terminal_status` (`"unknown"`).
+`provider_terminal_status` (`unknown`, `success`, `error`, `cancelled`) is a since-dispatch observation from the specific attempt's outer terminal status and framing. It is not ambient provider or account health, quota, routing, model acceptance, task acceptance, or billing evidence.
+V10 is current, separately persisting stable no-follow root/Git authority and excluding mutable
 worktree, index, HEAD, ref, and object content. `status`, `wait`,
 `result`, `resume`, `restart`, `continue`, and `finalize` default to JSON and accept text; text is
 three sanitized driver-owned lines. Every emitted action or stale-approval rerun command uses

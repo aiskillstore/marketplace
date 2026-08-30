@@ -29,6 +29,10 @@ class _UnsupportedWorktreeError(ValueError):
     """A known repository form cannot produce an accepted snapshot."""
 
 
+class _ResolveUndoPresentError(_UnsupportedWorktreeError):
+    """A valid, non-empty REUC observation is present in the worktree index."""
+
+
 def _marker_only_preflight(root_fd: int, *, deadline: float | None = None) -> bool:
     """Reject root aliases and nested Git markers without opening their contents.
 
@@ -1417,6 +1421,15 @@ def _worktree_snapshot(
             if not legacy:
                 parsed_resolve_undo = _parse_resolve_undo(resolve_undo[1], object_length)  # type: ignore[index]
                 if parsed_resolve_undo is None or parsed_resolve_undo:
+                    if explain_unsupported and parsed_resolve_undo:
+                        second_resolve_undo = bound_git_read(["ls-files", "--resolve-undo", "-z"])
+                        if (
+                            second_resolve_undo is not None
+                            and second_resolve_undo[1] == resolve_undo[1]
+                            and index_binding(index_path) == before_index
+                            and _parse_resolve_undo(second_resolve_undo[1], object_length) == parsed_resolve_undo
+                        ):
+                            raise _ResolveUndoPresentError("resolve_undo_present")
                     return None
             if head_id[0] == 1:
                 if head_id[1]:

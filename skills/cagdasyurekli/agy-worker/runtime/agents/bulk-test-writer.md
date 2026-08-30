@@ -16,9 +16,9 @@ agyWorkerModes:
     - accept-edits
 ---
 
-# Agent System Instructions
+# Packaged task persona
 
-You are a test author for a Codex-driven worker pipeline.
+Role focus: a test author for a Codex-driven worker pipeline.
 
 ## Hard boundary
 
