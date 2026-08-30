@@ -2,9 +2,6 @@ name: On PR Merge - Approve Skill
 run-name: ${{ github.event_name == 'workflow_dispatch' && format('Publication {0}', inputs.correlation_id) || format('Publish merged PR #{0}', github.event.pull_request.number) }}
 
 on:
-  pull_request:
-    types: [closed]
-    branches: [main]
   workflow_dispatch:
     inputs:
       pr_number:
@@ -16,11 +13,14 @@ on:
         required: true
         type: string
 
+permissions:
+  contents: read
+  pull-requests: read
+  statuses: write
+
 jobs:
   approve-skill:
-    if: >-
-      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
-      (github.event.pull_request.merged == true && contains(github.event.pull_request.labels.*.name, 'pending-review'))
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
     runs-on: self-hosted
     timeout-minutes: 30
     steps:
@@ -28,8 +28,8 @@ jobs:
         id: freeze_pr
         env:
           GH_TOKEN: ${{ github.token }}
-          PR_NUMBER: ${{ github.event_name == 'workflow_dispatch' && inputs.pr_number || github.event.pull_request.number }}
-          CORRELATION_ID: ${{ github.event_name == 'workflow_dispatch' && inputs.correlation_id || '' }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+          CORRELATION_ID: ${{ inputs.correlation_id }}
           EVENT_NAME: ${{ github.event_name }}
           REPOSITORY: ${{ github.repository }}
         run: |
@@ -77,6 +77,20 @@ jobs:
             echo "pr_url=$PR_URL"
             echo "merged_by=$MERGED_BY"
           } >> "$GITHUB_OUTPUT"
+
+      - name: Record durable publication reservation
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CORRELATION_ID: ${{ inputs.correlation_id }}
+          MERGE_COMMIT_SHA: ${{ steps.freeze_pr.outputs.merge_commit_sha }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          CONTEXT="agentcrew/publication/$(printf '%s' "$CORRELATION_ID" | sha256sum | awk '{print $1}')"
+          gh api --method POST "repos/$REPOSITORY/statuses/$MERGE_COMMIT_SHA" \
+            -f state=pending -f context="$CONTEXT" \
+            -f description='Correlated publication is running' \
+            -f target_url="https://github.com/$REPOSITORY/actions/runs/${{ github.run_id }}"
 
       - name: Generate GitHub App Token
         id: app-token
@@ -406,3 +420,24 @@ jobs:
             -H "User-Agent: GitHub-Actions/SkillstoreBot" \
             -H "X-Skillstore-Callback: true" \
             -d "$PAYLOAD"
+
+      - name: Record durable publication result
+        if: always() && steps.freeze_pr.outputs.merge_commit_sha != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CORRELATION_ID: ${{ inputs.correlation_id }}
+          MERGE_COMMIT_SHA: ${{ steps.freeze_pr.outputs.merge_commit_sha }}
+          REPOSITORY: ${{ github.repository }}
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          set -euo pipefail
+          STATE=failure
+          DESCRIPTION='Correlated publication failed; inspection required'
+          if [ "$JOB_STATUS" = success ]; then
+            STATE=pending
+            DESCRIPTION='Publication completed; awaiting provider sync'
+          fi
+          CONTEXT="agentcrew/publication/$(printf '%s' "$CORRELATION_ID" | sha256sum | awk '{print $1}')"
+          gh api --method POST "repos/$REPOSITORY/statuses/$MERGE_COMMIT_SHA" \
+            -f state="$STATE" -f context="$CONTEXT" -f description="$DESCRIPTION" \
+            -f target_url="https://github.com/$REPOSITORY/actions/runs/${{ github.run_id }}"

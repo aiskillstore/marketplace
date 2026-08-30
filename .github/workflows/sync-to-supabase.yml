@@ -29,12 +29,21 @@ on:
         type: string
         default: ''
 
+permissions:
+  actions: read
+  contents: read
+  pull-requests: read
+  statuses: write
+
 concurrency:
   group: sync-supabase
   cancel-in-progress: false
 
 jobs:
   sync:
+    if: >-
+      (github.event_name != 'push' || !contains(github.event.head_commit.message || '', 'AgentCrew-Recovery:')) &&
+      (github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success')
     runs-on: self-hosted
     timeout-minutes: 240
     outputs:
@@ -152,13 +161,14 @@ jobs:
             echo "::error::A correlated provider sync must be dispatched on main"
             exit 1
           fi
-          if ! [[ "$CORRELATION_ID" =~ ^source-monitor-pr-([1-9][0-9]*)-([0-9a-f]{40})-([0-9a-f]{40})$ ]]; then
+          if ! [[ "$CORRELATION_ID" =~ ^source-monitor-pr-([1-9][0-9]*)-([0-9a-f]{40})-([0-9a-f]{40})-([0-9a-f]{64})$ ]]; then
             echo "::error::Invalid provider sync correlation"
             exit 1
           fi
           PR_NUMBER="${BASH_REMATCH[1]}"
           HEAD_SHA="${BASH_REMATCH[2]}"
           CORRELATED_MERGE_SHA="${BASH_REMATCH[3]}"
+          CORRELATED_ROOTS_DIGEST="${BASH_REMATCH[4]}"
           if [ "$MERGE_COMMIT_SHA" != "$CORRELATED_MERGE_SHA" ] || [ -z "$INPUT_SLUGS" ]; then
             echo "::error::A correlated provider sync requires exact merge identity and Skill slugs"
             exit 1
@@ -221,6 +231,28 @@ jobs:
               echo "::error::Correlated provider sync roots do not exactly match the merged PR"
               exit 1
             }
+          ROOTS_CANONICAL=$(IFS=$'\n'; printf '%s' "${ACTUAL_SLUGS[*]}")
+          ROOTS_DIGEST=$(printf '%s' "$ROOTS_CANONICAL" | sha256sum | awk '{print $1}')
+          [ "$ROOTS_DIGEST" = "$CORRELATED_ROOTS_DIGEST" ] \
+            && [ "$CORRELATION_ID" = "source-monitor-pr-${PR_NUMBER}-${HEAD_SHA}-${MERGE_COMMIT_SHA}-${ROOTS_DIGEST}" ] || {
+            echo "::error::Provider sync correlation is not bound to the exact canonical root set"
+            exit 1
+          }
+
+      - name: Record durable provider sync reservation
+        if: inputs.correlation_id != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CORRELATION_ID: ${{ inputs.correlation_id }}
+          MERGE_COMMIT_SHA: ${{ inputs.merge_commit_sha }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          CONTEXT="agentcrew/provider-sync/$(printf '%s' "$CORRELATION_ID" | sha256sum | awk '{print $1}')"
+          gh api --method POST "repos/$REPOSITORY/statuses/$MERGE_COMMIT_SHA" \
+            -f state=pending -f context="$CONTEXT" \
+            -f description='Correlated provider sync is running' \
+            -f target_url="https://github.com/$REPOSITORY/actions/runs/${{ github.run_id }}"
 
       - name: Generate GitHub App Token
         id: app-token
@@ -915,6 +947,41 @@ jobs:
           name: synced-slugs
           path: synced-slugs.txt
           retention-days: 30
+
+      - name: Record durable correlated sync result
+        if: >-
+          always() &&
+          ((inputs.correlation_id != '' && inputs.merge_commit_sha != '') ||
+           (github.event_name == 'workflow_run' && startsWith(github.event.workflow_run.display_title, 'Publication submission-pr-')))
+        env:
+          GH_TOKEN: ${{ github.token }}
+          INPUT_CORRELATION_ID: ${{ inputs.correlation_id }}
+          INPUT_MERGE_COMMIT_SHA: ${{ inputs.merge_commit_sha }}
+          UPSTREAM_TITLE: ${{ github.event.workflow_run.display_title }}
+          EVENT_NAME: ${{ github.event_name }}
+          REPOSITORY: ${{ github.repository }}
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          set -euo pipefail
+          CORRELATION_ID="$INPUT_CORRELATION_ID"
+          MERGE_COMMIT_SHA="$INPUT_MERGE_COMMIT_SHA"
+          CONTEXT_PREFIX='agentcrew/provider-sync'
+          if [ "$EVENT_NAME" = workflow_run ]; then
+            CORRELATION_ID="${UPSTREAM_TITLE#Publication }"
+            [[ "$CORRELATION_ID" =~ ^submission-pr-([1-9][0-9]*)-([0-9a-f]{40})-([0-9a-f]{40})$ ]]
+            MERGE_COMMIT_SHA="${BASH_REMATCH[3]}"
+            CONTEXT_PREFIX='agentcrew/publication'
+          fi
+          STATE=failure
+          DESCRIPTION='Correlated provider sync failed; inspection required'
+          if [ "$JOB_STATUS" = success ]; then
+            STATE=success
+            DESCRIPTION='Correlated provider sync completed'
+          fi
+          CONTEXT="$CONTEXT_PREFIX/$(printf '%s' "$CORRELATION_ID" | sha256sum | awk '{print $1}')"
+          gh api --method POST "repos/$REPOSITORY/statuses/$MERGE_COMMIT_SHA" \
+            -f state="$STATE" -f context="$CONTEXT" -f description="$DESCRIPTION" \
+            -f target_url="https://github.com/$REPOSITORY/actions/runs/${{ github.run_id }}"
 
   # ============================================================
   # CALCULATE QUALITY SCORES

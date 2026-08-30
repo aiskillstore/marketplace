@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { test } from 'node:test';
 import {
   AutoMergeBlockedError,
@@ -14,6 +15,8 @@ const REPO = { id: 9001, full_name: 'aiskillstore/marketplace', default_branch: 
 const HEAD = 'a'.repeat(40);
 const BASE = 'b'.repeat(40);
 const MERGE = 'd'.repeat(40);
+const SOURCE_DIGEST = 'ca9a8698b31c5d2f7e83762e1debad971057946329aa47cc81ac2f36d73cb9a9';
+const MULTI_SOURCE_DIGEST = '4c9b6e03bb42455445bb3db770c886b045b29599e57aed5568b783e168d31730';
 const ROOT = 'pending/example/skill';
 const SOURCE_ROOT = 'skills/example/skill';
 
@@ -509,6 +512,7 @@ test('publication dispatch binds exact merged identity and confirms a correlated
   const mergeSha = 'd'.repeat(40);
   globalThis.fetch = async (url, options) => {
     observed.push({ url: String(url), options });
+    if (String(url).includes('/statuses')) return Response.json([]);
     if ((options?.method ?? 'GET') === 'POST') {
       dispatched = true;
       return new Response(null, { status: 204 });
@@ -544,6 +548,7 @@ test('publication reconciliation does not redispatch an existing exact correlati
   const mergeSha = 'd'.repeat(40);
   globalThis.fetch = async (url, options) => {
     observed.push({ url: String(url), options });
+    if (String(url).includes('/statuses')) return Response.json([]);
     return Response.json({ workflow_runs: [{
       id: 9001,
       event: 'workflow_dispatch',
@@ -564,11 +569,32 @@ test('publication reconciliation does not redispatch an existing exact correlati
   }
 });
 
+test('durable publication success prevents replay after the Actions run is no longer listed', async () => {
+  const originalFetch = globalThis.fetch;
+  const observed = [];
+  const correlationId = `submission-pr-42-${HEAD}-${MERGE}`;
+  const context = `agentcrew/publication/${createHash('sha256').update(correlationId).digest('hex')}`;
+  globalThis.fetch = async (url, options) => {
+    observed.push({ url: String(url), options });
+    if (String(url).includes('/statuses')) return Response.json([{ context, state: 'success' }]);
+    return Response.json({ workflow_runs: [] });
+  };
+  try {
+    const api = new GitHubApi({ token: 'test-token', updateToken: 'test-update-token', repository: REPO.full_name, currentRunId: 999 });
+    const result = await api.dispatchPublication(42, HEAD, MERGE);
+    assert.equal(result.outcome, 'PUBLICATION_ALREADY_DISPATCHED');
+    assert.equal(observed.filter(({ options }) => options?.method === 'POST').length, 0);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test('publication reconciliation waits on an in-progress run without another effect', async () => {
   const originalFetch = globalThis.fetch;
   const observed = [];
   globalThis.fetch = async (url, options) => {
     observed.push({ url: String(url), options });
+    if (String(url).includes('/statuses')) return Response.json([]);
     return Response.json({ workflow_runs: [{
       id: 9001,
       event: 'workflow_dispatch',
@@ -594,6 +620,7 @@ test('publication reconciliation fails closed on a partial failed run without re
   const observed = [];
   globalThis.fetch = async (url, options) => {
     observed.push({ url: String(url), options });
+    if (String(url).includes('/statuses')) return Response.json([]);
     if ((options?.method ?? 'GET') === 'POST') return new Response(null, { status: 201 });
     return Response.json({ workflow_runs: [{
       id: 9001,
@@ -621,6 +648,7 @@ test('provider sync dispatch binds canonical source-monitor roots and idempotenc
   let dispatched = false;
   globalThis.fetch = async (url, options) => {
     observed.push({ url: String(url), options });
+    if (String(url).includes('/statuses')) return Response.json([]);
     if ((options?.method ?? 'GET') === 'POST') {
       dispatched = true;
       return new Response(null, { status: 204 });
@@ -630,7 +658,7 @@ test('provider sync dispatch binds canonical source-monitor roots and idempotenc
       event: 'workflow_dispatch',
       status: 'queued',
       conclusion: null,
-      display_title: `Provider sync source-monitor-pr-42-${HEAD}-${MERGE}`,
+      display_title: `Provider sync source-monitor-pr-42-${HEAD}-${MERGE}-${MULTI_SOURCE_DIGEST}`,
       head_branch: 'main',
       head_repository: { full_name: REPO.full_name },
     }] : [] });
@@ -650,7 +678,7 @@ test('provider sync dispatch binds canonical source-monitor roots and idempotenc
       ref: 'main',
       inputs: {
         slugs: 'example/skill flat-skill',
-        correlation_id: `source-monitor-pr-42-${HEAD}-${MERGE}`,
+        correlation_id: `source-monitor-pr-42-${HEAD}-${MERGE}-${MULTI_SOURCE_DIGEST}`,
         merge_commit_sha: MERGE,
       },
     });
@@ -666,12 +694,13 @@ test('provider sync reconciliation does not redispatch an existing exact correla
   const observed = [];
   globalThis.fetch = async (url, options) => {
     observed.push({ url: String(url), options });
+    if (String(url).includes('/statuses')) return Response.json([]);
     return Response.json({ workflow_runs: [{
       id: 9101,
       event: 'workflow_dispatch',
       status: 'completed',
       conclusion: 'success',
-      display_title: `Provider sync source-monitor-pr-42-${HEAD}-${MERGE}`,
+      display_title: `Provider sync source-monitor-pr-42-${HEAD}-${MERGE}-${SOURCE_DIGEST}`,
       head_branch: 'main',
       head_repository: { full_name: REPO.full_name },
     }] });
@@ -690,6 +719,7 @@ test('provider sync reconciliation finds an exact correlation on a later bounded
   const observed = [];
   globalThis.fetch = async (url, options) => {
     observed.push({ url: String(url), options });
+    if (String(url).includes('/statuses')) return Response.json([]);
     const page = Number(new URL(String(url)).searchParams.get('page'));
     if (page === 1) {
       return Response.json({ workflow_runs: Array.from({ length: 100 }, (_, index) => ({
@@ -703,7 +733,7 @@ test('provider sync reconciliation finds an exact correlation on a later bounded
       event: 'workflow_dispatch',
       status: 'completed',
       conclusion: 'success',
-      display_title: `Provider sync source-monitor-pr-42-${HEAD}-${MERGE}`,
+      display_title: `Provider sync source-monitor-pr-42-${HEAD}-${MERGE}-${SOURCE_DIGEST}`,
       head_branch: 'main',
       head_repository: { full_name: REPO.full_name },
     }] });
@@ -723,6 +753,7 @@ test('provider sync reconciliation fails closed after bounded pagination without
   const observed = [];
   globalThis.fetch = async (url, options) => {
     observed.push({ url: String(url), options });
+    if (String(url).includes('/statuses')) return Response.json([]);
     return Response.json({ workflow_runs: Array.from({ length: 100 }, (_, index) => ({
       display_title: `unrelated-${index}`,
       head_branch: 'main',
@@ -733,7 +764,7 @@ test('provider sync reconciliation fails closed after bounded pagination without
     const api = new GitHubApi({ token: 'test-token', updateToken: 'test-update-token', repository: REPO.full_name, currentRunId: 999 });
     await assert.rejects(() => api.dispatchProviderSync(42, HEAD, MERGE, [SOURCE_ROOT]), /bounded limit/);
     assert.equal(observed.filter(({ options }) => options?.method === 'POST').length, 0);
-    assert.equal(observed.length, 30);
+    assert.equal(observed.length, 31);
   } finally {
     globalThis.fetch = originalFetch;
   }

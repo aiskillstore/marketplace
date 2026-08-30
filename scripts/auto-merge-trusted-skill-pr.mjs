@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { createHash } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
 
 const TRUSTED_REPOSITORY = 'aiskillstore/marketplace';
@@ -83,6 +84,10 @@ function rootForPath(path, topLevel = 'pending') {
   if (parts.length < 4 || parts[0] !== topLevel) return null;
   if (!SEGMENT_RE.test(parts[1]) || !SEGMENT_RE.test(parts[2])) return null;
   return parts.slice(0, 3).join('/');
+}
+
+function rootSetDigest(slugs) {
+  return createHash('sha256').update([...new Set(slugs)].sort().join('\n')).digest('hex');
 }
 
 function publishedRootSyntax(root) {
@@ -491,6 +496,9 @@ export async function runRecoverySweep(api) {
         ? await api.dispatchProviderSync(candidate.prNumber, candidate.headSha, candidate.mergeCommitSha, candidate.roots)
         : await api.dispatchPublication(candidate.prNumber, candidate.headSha, candidate.mergeCommitSha);
       if (['PUBLICATION_ALREADY_DISPATCHED', 'PROVIDER_SYNC_ALREADY_DISPATCHED'].includes(result.outcome)) continue;
+      if (result.outcome.endsWith('_FAILED_REQUIRES_INSPECTION')) {
+        throw new AutoMergeBlockedError(`${result.outcome} for PR #${candidate.prNumber} (workflow run ${result.workflowRunId ?? 'unavailable'})`);
+      }
       return {
         ...result,
         prNumber: candidate.prNumber,
@@ -855,6 +863,11 @@ export class GitHubApi {
     });
   }
 
+  async readEffectStatus(commitSha, context) {
+    const statuses = await this.paginate(`/commits/${commitSha}/statuses`);
+    return latestStatusesByContext(statuses).find((status) => status.context === context);
+  }
+
   async findPublicationRun(correlationTitle) {
     for (let page = 1; page <= 30; page += 1) {
       const result = await this.request(`/actions/workflows/on-pr-merge.yml/runs?event=workflow_dispatch&per_page=100&page=${page}`);
@@ -875,7 +888,20 @@ export class GitHubApi {
     block(validSha(mergeCommitSha), 'publication merge commit SHA is invalid');
     const correlationId = `submission-pr-${prNumber}-${headSha}-${mergeCommitSha}`;
     const correlationTitle = `Publication ${correlationId}`;
-    const existing = await this.findPublicationRun(correlationTitle);
+    const effectContext = `agentcrew/publication/${rootSetDigest([correlationId])}`;
+    const [effectStatus, existing] = await Promise.all([
+      this.readEffectStatus(mergeCommitSha, effectContext),
+      this.findPublicationRun(correlationTitle),
+    ]);
+    if (effectStatus?.state === 'success') {
+      return { outcome: 'PUBLICATION_ALREADY_DISPATCHED', workflowRunId: existing?.id };
+    }
+    if (['failure', 'error'].includes(effectStatus?.state)) {
+      return { outcome: 'PUBLICATION_FAILED_REQUIRES_INSPECTION', workflowRunId: existing?.id, conclusion: existing?.conclusion };
+    }
+    if (effectStatus?.state === 'pending') {
+      return { outcome: 'PUBLICATION_IN_PROGRESS', workflowRunId: existing?.id };
+    }
     if (existing?.status === 'completed' && existing.conclusion === 'success') {
       return { outcome: 'PUBLICATION_ALREADY_DISPATCHED', workflowRunId: existing.id };
     }
@@ -883,11 +909,7 @@ export class GitHubApi {
       return { outcome: 'PUBLICATION_IN_PROGRESS', workflowRunId: existing.id };
     }
     if (existing) {
-      return {
-        outcome: 'PUBLICATION_FAILED_REQUIRES_INSPECTION',
-        workflowRunId: existing.id,
-        conclusion: existing.conclusion,
-      };
+      return { outcome: 'PUBLICATION_FAILED_REQUIRES_INSPECTION', workflowRunId: existing.id, conclusion: existing.conclusion };
     }
 
     let mutationError;
@@ -931,9 +953,23 @@ export class GitHubApi {
       block(publishedRootSyntax(root), `invalid provider sync root: ${root}`);
       return root.slice('skills/'.length);
     });
-    const correlationId = `source-monitor-pr-${prNumber}-${headSha}-${mergeCommitSha}`;
+    const rootsDigest = rootSetDigest(slugs);
+    const correlationId = `source-monitor-pr-${prNumber}-${headSha}-${mergeCommitSha}-${rootsDigest}`;
     const correlationTitle = `Provider sync ${correlationId}`;
-    const existing = await this.findProviderSyncRun(correlationTitle);
+    const effectContext = `agentcrew/provider-sync/${rootSetDigest([correlationId])}`;
+    const [effectStatus, existing] = await Promise.all([
+      this.readEffectStatus(mergeCommitSha, effectContext),
+      this.findProviderSyncRun(correlationTitle),
+    ]);
+    if (effectStatus?.state === 'success') {
+      return { outcome: 'PROVIDER_SYNC_ALREADY_DISPATCHED', workflowRunId: existing?.id };
+    }
+    if (['failure', 'error'].includes(effectStatus?.state)) {
+      return { outcome: 'PROVIDER_SYNC_FAILED_REQUIRES_INSPECTION', workflowRunId: existing?.id, conclusion: existing?.conclusion };
+    }
+    if (effectStatus?.state === 'pending') {
+      return { outcome: 'PROVIDER_SYNC_IN_PROGRESS', workflowRunId: existing?.id };
+    }
     if (existing?.status === 'completed' && existing.conclusion === 'success') {
       return { outcome: 'PROVIDER_SYNC_ALREADY_DISPATCHED', workflowRunId: existing.id };
     }
@@ -941,11 +977,7 @@ export class GitHubApi {
       return { outcome: 'PROVIDER_SYNC_IN_PROGRESS', workflowRunId: existing.id };
     }
     if (existing) {
-      return {
-        outcome: 'PROVIDER_SYNC_FAILED_REQUIRES_INSPECTION',
-        workflowRunId: existing.id,
-        conclusion: existing.conclusion,
-      };
+      return { outcome: 'PROVIDER_SYNC_FAILED_REQUIRES_INSPECTION', workflowRunId: existing.id, conclusion: existing.conclusion };
     }
 
     let mutationError;
