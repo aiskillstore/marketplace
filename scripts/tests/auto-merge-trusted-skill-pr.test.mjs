@@ -589,7 +589,7 @@ test('publication reconciliation waits on an in-progress run without another eff
   }
 });
 
-test('publication reconciliation reruns one failed correlated run instead of redispatching', async () => {
+test('publication reconciliation fails closed on a partial failed run without replaying effects', async () => {
   const originalFetch = globalThis.fetch;
   const observed = [];
   globalThis.fetch = async (url, options) => {
@@ -608,10 +608,8 @@ test('publication reconciliation reruns one failed correlated run instead of red
   try {
     const api = new GitHubApi({ token: 'test-token', updateToken: 'test-update-token', repository: REPO.full_name, currentRunId: 999 });
     const result = await api.dispatchPublication(42, HEAD, MERGE);
-    assert.equal(result.outcome, 'PUBLICATION_RETRY_CONFIRMED');
-    const posts = observed.filter(({ options }) => options?.method === 'POST');
-    assert.equal(posts.length, 1);
-    assert.match(posts[0].url, /\/actions\/runs\/9001\/rerun$/);
+    assert.equal(result.outcome, 'PUBLICATION_FAILED_REQUIRES_INSPECTION');
+    assert.equal(observed.filter(({ options }) => options?.method === 'POST').length, 0);
   } finally {
     globalThis.fetch = originalFetch;
   }

@@ -188,27 +188,39 @@ jobs:
 
           mapfile -t EXPECTED_SLUGS < <(tr ', ' '\n\n' <<< "$INPUT_SLUGS" | sed '/^$/d' | LC_ALL=C sort -u)
           mapfile -t CHANGED_FILES < <(gh api --paginate "repos/$REPOSITORY/pulls/$PR_NUMBER/files?per_page=100" --jq '.[].filename')
+          TREE=$(gh api "repos/$REPOSITORY/git/trees/$HEAD_SHA?recursive=1")
+          jq -e '.truncated == false and (.tree | type == "array")' <<< "$TREE" >/dev/null
+          mapfile -t CANDIDATE_ROOTS < <(jq -r '
+            [.tree[] | select(.type == "blob") | .path] as $blobs
+            | $blobs[]
+            | select(endswith("/skill-report.json"))
+            | sub("/skill-report.json$"; "")
+            | select((split("/") | length) == 2 or (split("/") | length) == 3)
+            | select(split("/")[1:] | all(test("^[A-Za-z0-9][A-Za-z0-9._-]*$")))
+            | select(. as $root | $blobs | index($root + "/SKILL.md"))
+          ' <<< "$TREE" | LC_ALL=C sort -u)
           [ "${#EXPECTED_SLUGS[@]}" -gt 0 ] && [ "${#EXPECTED_SLUGS[@]}" -le 25 ]
+          ACTUAL_ROOTS=()
           for file in "${CHANGED_FILES[@]}"; do
-            matched=false
-            for slug in "${EXPECTED_SLUGS[@]}"; do
-              if [[ "$file" == "skills/$slug" || "$file" == "skills/$slug/"* ]]; then matched=true; break; fi
+            matched_root=''
+            for root in "${CANDIDATE_ROOTS[@]}"; do
+              if [[ "$file" == "$root" || "$file" == "$root/"* ]] \
+                && [ "${#root}" -gt "${#matched_root}" ]; then
+                matched_root="$root"
+              fi
             done
-            [ "$matched" = true ] || {
-              echo "::error::Changed file is outside correlated provider sync roots: $file"
+            [ -n "$matched_root" ] || {
+              echo "::error::Changed file is outside an exact canonical provider sync root: $file"
               exit 1
             }
+            ACTUAL_ROOTS+=("${matched_root#skills/}")
           done
-          for slug in "${EXPECTED_SLUGS[@]}"; do
-            found=false
-            for file in "${CHANGED_FILES[@]}"; do
-              if [[ "$file" == "skills/$slug" || "$file" == "skills/$slug/"* ]]; then found=true; break; fi
-            done
-            [ "$found" = true ] || {
-              echo "::error::Correlated provider sync root is not changed by the merged PR: $slug"
+          mapfile -t ACTUAL_SLUGS < <(printf '%s\n' "${ACTUAL_ROOTS[@]}" | LC_ALL=C sort -u)
+          [ "${#ACTUAL_SLUGS[@]}" -eq "${#EXPECTED_SLUGS[@]}" ] \
+            && diff -u <(printf '%s\n' "${EXPECTED_SLUGS[@]}") <(printf '%s\n' "${ACTUAL_SLUGS[@]}") || {
+              echo "::error::Correlated provider sync roots do not exactly match the merged PR"
               exit 1
             }
-          done
 
       - name: Generate GitHub App Token
         id: app-token

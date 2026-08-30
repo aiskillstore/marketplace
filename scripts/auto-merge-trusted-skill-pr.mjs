@@ -883,17 +883,11 @@ export class GitHubApi {
       return { outcome: 'PUBLICATION_IN_PROGRESS', workflowRunId: existing.id };
     }
     if (existing) {
-      let rerunError;
-      try {
-        await this.request(`/actions/runs/${existing.id}/rerun`, { method: 'POST' });
-      } catch (error) {
-        rerunError = error;
-      }
-      if (!rerunError) return { outcome: 'PUBLICATION_RETRY_CONFIRMED', workflowRunId: existing.id };
-      const readback = await this.findPublicationRun(correlationTitle);
-      if (readback && readback.status !== 'completed') return { outcome: 'PUBLICATION_RETRY_CONFIRMED', workflowRunId: readback.id };
-      if (definiteMutationRejection(rerunError)) throw new AutoMergeBlockedError(`publication rerun rejected with HTTP ${rerunError.status}`);
-      throw new AutoMergeUnknownEffectError(`publication rerun effect is unknown for PR #${prNumber}`);
+      return {
+        outcome: 'PUBLICATION_FAILED_REQUIRES_INSPECTION',
+        workflowRunId: existing.id,
+        conclusion: existing.conclusion,
+      };
     }
 
     let mutationError;
@@ -947,17 +941,11 @@ export class GitHubApi {
       return { outcome: 'PROVIDER_SYNC_IN_PROGRESS', workflowRunId: existing.id };
     }
     if (existing) {
-      let rerunError;
-      try {
-        await this.request(`/actions/runs/${existing.id}/rerun`, { method: 'POST' });
-      } catch (error) {
-        rerunError = error;
-      }
-      if (!rerunError) return { outcome: 'PROVIDER_SYNC_RETRY_CONFIRMED', workflowRunId: existing.id };
-      const readback = await this.findProviderSyncRun(correlationTitle);
-      if (readback && readback.status !== 'completed') return { outcome: 'PROVIDER_SYNC_RETRY_CONFIRMED', workflowRunId: readback.id };
-      if (definiteMutationRejection(rerunError)) throw new AutoMergeBlockedError(`provider sync rerun rejected with HTTP ${rerunError.status}`);
-      throw new AutoMergeUnknownEffectError(`provider sync rerun effect is unknown for PR #${prNumber}`);
+      return {
+        outcome: 'PROVIDER_SYNC_FAILED_REQUIRES_INSPECTION',
+        workflowRunId: existing.id,
+        conclusion: existing.conclusion,
+      };
     }
 
     let mutationError;
