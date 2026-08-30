@@ -742,15 +742,17 @@ test('recovery sweep performs at most one effect when it merges a clean submissi
   assert.deepEqual(api.calls, [['merge', 42, HEAD, 'merge']]);
 });
 
-test('recovery sweep reconciles one already merged submission without another merge', async () => {
-  const merged = snapshot();
-  merged.pr.state = 'closed';
-  merged.pr.merged = true;
-  merged.pr.merge_commit_sha = 'd'.repeat(40);
-  const api = fakeApi([merged]);
-  api.listRecoveryCandidates = async () => [
-    { prNumber: 42, headSha: HEAD, workflowRunId: 101, phase: 'MERGED' },
-  ];
+test('recovery sweep reconciles a marker-bound merged submission without historical workflow metadata', async () => {
+  const api = fakeApi([]);
+  api.listRecoveryCandidates = async () => [{
+    prNumber: 42,
+    headSha: HEAD,
+    mergeCommitSha: 'd'.repeat(40),
+    workflowRunId: null,
+    phase: 'MERGED',
+    postMergeAction: 'publication',
+    roots: [ROOT],
+  }];
   const result = await runRecoverySweep(api);
   assert.equal(result.outcome, 'PUBLICATION_DISPATCH_CONFIRMED');
   assert.deepEqual(api.calls, [['dispatch-publication', 42, HEAD, 'd'.repeat(40)]]);
@@ -833,8 +835,8 @@ test('recovery sweep reports oldest-candidate conflict instead of scanning later
 test('recovery sweep stops before later PRs when the oldest trusted seed has no validation run yet', async () => {
   const api = fakeApi([]);
   api.listRecoveryCandidates = async () => [
-    { prNumber: 42, headSha: HEAD, workflowRunId: null },
-    { prNumber: 43, headSha: HEAD, workflowRunId: 102 },
+    { prNumber: 42, headSha: HEAD, workflowRunId: null, phase: 'OPEN' },
+    { prNumber: 43, headSha: HEAD, workflowRunId: 102, phase: 'OPEN' },
   ];
   assert.deepEqual(await runRecoverySweep(api), {
     outcome: 'WAITING_CI',

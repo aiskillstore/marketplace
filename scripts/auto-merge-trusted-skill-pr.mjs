@@ -15,6 +15,7 @@ const SEGMENT_RE = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 const SOURCE_MONITOR_REF_RE = /^skill-source-monitor\/run-[1-9][0-9]*$/u;
 const SUBMISSION_ROUTE = 'submission';
 const SOURCE_MONITOR_ROUTE = 'source_monitor';
+const RECOVERY_MARKER_EPOCH = '2026-08-30T00:00:00Z';
 
 export class AutoMergeBlockedError extends Error {
   constructor(message) {
@@ -485,8 +486,19 @@ export async function runAutoMerge(api, { workflowRunId, deferPostMergeDispatch 
 export async function runRecoverySweep(api) {
   const candidates = await api.listRecoveryCandidates();
   for (const candidate of candidates) {
+    if (candidate.phase === 'MERGED') {
+      const result = candidate.postMergeAction === 'provider_sync'
+        ? await api.dispatchProviderSync(candidate.prNumber, candidate.headSha, candidate.roots)
+        : await api.dispatchPublication(candidate.prNumber, candidate.headSha, candidate.mergeCommitSha);
+      if (['PUBLICATION_ALREADY_DISPATCHED', 'PROVIDER_SYNC_ALREADY_DISPATCHED'].includes(result.outcome)) continue;
+      return {
+        ...result,
+        prNumber: candidate.prNumber,
+        headSha: candidate.headSha,
+        mergeCommitSha: candidate.mergeCommitSha,
+      };
+    }
     if (candidate.workflowRunId == null) {
-      if (candidate.phase === 'MERGED') continue;
       return {
         outcome: 'WAITING_CI',
         prNumber: candidate.prNumber,
@@ -626,30 +638,69 @@ export class GitHubApi {
   async listRecoveryCandidates() {
     const repository = await this.request('');
     block(repository?.full_name === TRUSTED_REPOSITORY && Number.isSafeInteger(repository.id), 'trusted repository evidence is unavailable');
-    const [openPulls, recentClosedPulls] = await Promise.all([
-      this.paginate('/pulls?state=open&base=main&sort=created&direction=asc'),
-      this.request('/pulls?state=closed&base=main&sort=updated&direction=desc&per_page=100&page=1'),
-    ]);
-    block(Array.isArray(recentClosedPulls), 'recent merged PR evidence is unavailable');
-    const mergedSeeds = [];
-    for (const pr of recentClosedPulls) {
+    const openPulls = await this.paginate('/pulls?state=open&base=main&sort=created&direction=asc');
+    const closedPulls = [];
+    for (let page = 1; page <= 30; page += 1) {
+      const items = await this.request(`/pulls?state=closed&base=main&sort=updated&direction=desc&per_page=100&page=${page}`);
+      block(Array.isArray(items), 'merged PR recovery evidence is unavailable');
+      closedPulls.push(...items.filter((pr) => String(pr?.merged_at ?? '') >= RECOVERY_MARKER_EPOCH));
+      const reachedEpoch = items.length < 100
+        || items.every((pr) => String(pr?.updated_at ?? '') < RECOVERY_MARKER_EPOCH);
+      if (reachedEpoch) break;
+      if (page === 30) throw new AutoMergeBlockedError('merged PR recovery search exceeded the bounded marker epoch');
+    }
+
+    const seeds = [];
+    for (const pr of closedPulls) {
       if (!trustedRecoverySeed(pr, repository) || pr.state !== 'closed') continue;
       const mergeCommit = await this.readCommit(pr.merge_commit_sha);
       const marker = `Trusted auto-merge PR #${pr.number}\n\nAgentCrew-Recovery: ${pr.number}:${pr.head.sha}`;
-      if (mergeCommit?.commit?.message === marker) mergedSeeds.push(pr);
+      if (mergeCommit?.commit?.message !== marker) continue;
+      const sourceMonitor = SOURCE_MONITOR_REF_RE.test(pr.head?.ref ?? '');
+      let roots = [];
+      if (sourceMonitor) {
+        const [files, tree] = await Promise.all([
+          this.paginate(`/pulls/${pr.number}/files`),
+          this.request(`/git/trees/${pr.head.sha}?recursive=1`),
+        ]);
+        block(tree?.truncated === false && Array.isArray(tree.tree), `merged source-monitor PR #${pr.number} has no exact tree evidence`);
+        const candidates = publishedRootsFromTree({ entries: tree.tree });
+        roots = [...new Set(files.map((file) => publishedRootForPath(file.filename, candidates)).filter(Boolean))].sort();
+        block(roots.length > 0 && roots.length <= 25, `merged source-monitor PR #${pr.number} has invalid sync roots`);
+      }
+      seeds.push({
+        pr,
+        phase: 'MERGED',
+        mergeCommitSha: pr.merge_commit_sha,
+        postMergeAction: sourceMonitor ? 'provider_sync' : 'publication',
+        roots,
+      });
     }
-    mergedSeeds.sort((left, right) => String(left.merged_at).localeCompare(String(right.merged_at)) || left.number - right.number);
-    const openSeeds = openPulls.filter((pr) => trustedRecoverySeed(pr, repository) && pr.state === 'open');
+    for (const pr of openPulls) {
+      if (trustedRecoverySeed(pr, repository) && pr.state === 'open') seeds.push({ pr, phase: 'OPEN' });
+    }
+    seeds.sort((left, right) => String(left.pr.created_at).localeCompare(String(right.pr.created_at)) || left.pr.number - right.pr.number);
+
     const candidates = [];
-    for (const pr of [...mergedSeeds, ...openSeeds]) {
-      const checks = await this.paginate(`/commits/${pr.head.sha}/check-runs?filter=latest`, (value) => value?.check_runs);
-      const runIds = [...new Set(checks.map(workflowRunIdFromCheck).filter(Number.isSafeInteger))];
-      block(runIds.length <= 1, `PR #${pr.number} has ambiguous exact-head validation runs`);
+    for (const seed of seeds) {
+      const { pr } = seed;
+      let workflowRunId = null;
+      if (seed.phase === 'OPEN') {
+        const checks = await this.paginate(`/commits/${pr.head.sha}/check-runs?filter=latest`, (value) => value?.check_runs);
+        const runIds = [...new Set(checks.map(workflowRunIdFromCheck).filter(Number.isSafeInteger))];
+        block(runIds.length <= 1, `PR #${pr.number} has ambiguous exact-head validation runs`);
+        workflowRunId = runIds[0] ?? null;
+      }
       candidates.push({
         prNumber: pr.number,
         headSha: pr.head.sha,
-        workflowRunId: runIds[0] ?? null,
-        phase: pr.state === 'closed' ? 'MERGED' : 'OPEN',
+        workflowRunId,
+        phase: seed.phase,
+        ...(seed.phase === 'MERGED' ? {
+          mergeCommitSha: seed.mergeCommitSha,
+          postMergeAction: seed.postMergeAction,
+          roots: seed.roots,
+        } : {}),
       });
     }
     return candidates;
