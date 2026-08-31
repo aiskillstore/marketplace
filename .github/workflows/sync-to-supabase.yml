@@ -6,10 +6,6 @@ on:
     branches: [main]
     paths:
       - 'skills/**'
-  workflow_run:
-    workflows: ["On PR Merge - Approve Skill"]
-    types: [completed]
-    branches: [main]
   workflow_dispatch:
     inputs:
       slugs:
@@ -42,8 +38,8 @@ concurrency:
 jobs:
   sync:
     if: >-
-      (github.event_name != 'push' || !contains(github.event.head_commit.message || '', 'AgentCrew-Recovery:')) &&
-      (github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success')
+      github.event_name != 'push' ||
+      !contains(github.event.head_commit.message || '', 'AgentCrew-Recovery:')
     runs-on: self-hosted
     timeout-minutes: 240
     outputs:
@@ -74,6 +70,7 @@ jobs:
           /scripts/detect-changed-skills.mjs
           /scripts/materialize-changed-skills.mjs
           /scripts/validate-correlated-sync-roots.mjs
+          /scripts/guard-provider-rerun.mjs
           /scripts/refresh-security-research-stats.sh
           /.github/actions/download-skillstore-cli/
           EOF
@@ -126,6 +123,7 @@ jobs:
             scripts/detect-changed-skills.mjs \
             scripts/materialize-changed-skills.mjs \
             scripts/validate-correlated-sync-roots.mjs \
+            scripts/guard-provider-rerun.mjs \
             scripts/refresh-security-research-stats.sh \
             .github/actions/download-skillstore-cli/action.yml; do
             if git ls-files -v -- "$required_path" | awk '$1 ~ /^S/ { found=1 } END { exit !found }'; then
@@ -248,7 +246,40 @@ jobs:
             --slugs "${ACTUAL_SLUGS[*]}"
           echo "sync_commit_sha=$MERGE_COMMIT_SHA" >> "$GITHUB_OUTPUT"
 
-      - name: Verify durable provider sync dispatch claim
+      - name: Guard provider write against workflow reruns
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_RUN_ATTEMPT: ${{ github.run_attempt }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_RUN_ATTEMPT" =~ ^[1-9][0-9]*$ ]] || {
+            echo "::error::Invalid workflow run attempt"
+            exit 1
+          }
+          if [ "$GITHUB_RUN_ATTEMPT" -eq 1 ]; then
+            exit 0
+          fi
+
+          EVIDENCE_FILE="${RUNNER_TEMP:?}/provider-rerun-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.json"
+          jq -n --argjson currentAttempt "$GITHUB_RUN_ATTEMPT" \
+            '{currentAttempt: $currentAttempt, previousAttempts: []}' > "$EVIDENCE_FILE"
+          for attempt in $(seq 1 $((GITHUB_RUN_ATTEMPT - 1))); do
+            JOBS=$(gh api "repos/$REPOSITORY/actions/runs/$GITHUB_RUN_ID/attempts/$attempt/jobs?per_page=100")
+            jq -e '.total_count == (.jobs | length)' <<< "$JOBS" >/dev/null || {
+              echo "::error::Incomplete jobs evidence for workflow attempt $attempt"
+              exit 1
+            }
+            NEXT_FILE="${EVIDENCE_FILE}.next"
+            jq --argjson attempt "$attempt" --argjson jobs "$(jq '.jobs' <<< "$JOBS")" \
+              '.previousAttempts += [{attempt: $attempt, jobs: $jobs}]' \
+              "$EVIDENCE_FILE" > "$NEXT_FILE"
+            mv "$NEXT_FILE" "$EVIDENCE_FILE"
+          done
+          node ./scripts/guard-provider-rerun.mjs --input "$EVIDENCE_FILE"
+
+      - name: Verify durable provider sync dispatch outbox
         id: provider_sync_claim
         if: inputs.correlation_id != ''
         env:
@@ -259,25 +290,93 @@ jobs:
         run: |
           set -euo pipefail
           DIGEST=$(printf '%s' "$CORRELATION_ID" | sha256sum | awk '{print $1}')
-          CLAIM_REF="tags/agentcrew-dispatch-claims/provider-sync/$DIGEST"
+          OUTBOX_PREFIX="tags/agentcrew-dispatch-outbox/provider-sync/$DIGEST/"
           CONTEXT="agentcrew/provider-sync/$DIGEST"
-          CLAIM=$(gh api "repos/$REPOSITORY/git/ref/$CLAIM_REF")
-          jq -e --arg ref "refs/$CLAIM_REF" --arg merge_sha "$MERGE_COMMIT_SHA" '
-            .ref == $ref and .object.type == "commit" and .object.sha == $merge_sha
-          ' <<< "$CLAIM" >/dev/null || {
-            echo "::error::Durable provider sync dispatch claim does not bind the exact merge commit"
+          OUTBOX=$(gh api "repos/$REPOSITORY/git/matching-refs/$OUTBOX_PREFIX")
+          jq -e --arg prefix "refs/$OUTBOX_PREFIX" --arg merge_sha "$MERGE_COMMIT_SHA" '
+            length > 0 and length <= 8 and
+            all(.[];
+              (.ref | startswith($prefix)) and
+              ((.ref | ltrimstr($prefix)) | test("^[0-9]{13}-[1-9][0-9]*$")) and
+              .object.type == "commit" and
+              .object.sha == $merge_sha)
+          ' <<< "$OUTBOX" >/dev/null || {
+            echo "::error::Durable provider sync dispatch outbox does not bind the exact merge commit"
             exit 1
           }
           STATUSES=$(gh api --paginate "repos/$REPOSITORY/commits/$MERGE_COMMIT_SHA/statuses?per_page=100" | jq -s 'add')
-          if jq -e --arg context "$CONTEXT" 'any(.[]; .context == $context)' <<< "$STATUSES" >/dev/null; then
+          CURRENT=$(jq -c --arg context "$CONTEXT" '[.[] | select(.context == $context)][0] // {}' <<< "$STATUSES")
+          CURRENT_STATE=$(jq -r '.state // ""' <<< "$CURRENT")
+          CURRENT_TARGET_URL=$(jq -r '.target_url // ""' <<< "$CURRENT")
+          EXPECTED_TARGET_URL="https://github.com/$REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          if [ -n "$CURRENT_STATE" ]; then
+            if [ "$GITHUB_RUN_ATTEMPT" -gt 1 ] \
+              && { [ "$CURRENT_STATE" = pending ] || [ "$CURRENT_STATE" = failure ]; } \
+              && [ "$CURRENT_TARGET_URL" = "$EXPECTED_TARGET_URL" ]; then
+              echo "::notice::Reusing this run's durable provider sync reservation after closed skipped-step evidence"
+              echo "owns_reservation=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
             echo "::error::Existing durable provider sync status refuses duplicate execution"
             exit 1
           fi
           gh api --method POST "repos/$REPOSITORY/statuses/$MERGE_COMMIT_SHA" \
             -f state=pending -f context="$CONTEXT" \
             -f description='Correlated provider sync is running' \
-            -f target_url="https://github.com/$REPOSITORY/actions/runs/${{ github.run_id }}"
+            -f target_url="$EXPECTED_TARGET_URL"
           echo "owns_reservation=true" >> "$GITHUB_OUTPUT"
+
+      - name: Wait for authoritative publication completion
+        id: publication-correlation
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PUSH_MESSAGE: ${{ github.event.head_commit.message }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          mapfile -t CORRELATIONS < <(
+            sed -nE 's/^AgentCrew-Publication: (submission-pr-[1-9][0-9]*-[0-9a-f]{40}-[0-9a-f]{40})$/\1/p' <<< "$PUSH_MESSAGE"
+          )
+          if [ "${#CORRELATIONS[@]}" -eq 0 ]; then
+            exit 0
+          fi
+          [ "${#CORRELATIONS[@]}" -eq 1 ] || {
+            echo "::error::Publication push has multiple correlation trailers"
+            exit 1
+          }
+          CORRELATION_ID="${CORRELATIONS[0]}"
+          [[ "$CORRELATION_ID" =~ ^submission-pr-([1-9][0-9]*)-([0-9a-f]{40})-([0-9a-f]{40})$ ]]
+          MERGE_COMMIT_SHA="${BASH_REMATCH[3]}"
+          echo "correlation_id=$CORRELATION_ID" >> "$GITHUB_OUTPUT"
+          echo "merge_commit_sha=$MERGE_COMMIT_SHA" >> "$GITHUB_OUTPUT"
+          CONTEXT="agentcrew/publication/$(printf '%s' "$CORRELATION_ID" | sha256sum | awk '{print $1}')"
+          STATUSES=$(gh api --paginate "repos/$REPOSITORY/commits/$MERGE_COMMIT_SHA/statuses?per_page=100" | jq -s 'add')
+          OWNER_URL=$(jq -r --arg context "$CONTEXT" '[.[] | select(.context == $context)][0].target_url // ""' <<< "$STATUSES")
+          [[ "$OWNER_URL" =~ ^https://github\.com/$REPOSITORY/actions/runs/([1-9][0-9]*)$ ]] || {
+            echo "::error::Publication reservation does not identify one authoritative owner run"
+            exit 1
+          }
+          OWNER_RUN_ID="${BASH_REMATCH[1]}"
+          PUBLICATION_RUN=''
+          for attempt in {1..60}; do
+            PUBLICATION_RUN=$(gh api "repos/$REPOSITORY/actions/runs/$OWNER_RUN_ID")
+            if [ "$(jq -r '.status // ""' <<< "$PUBLICATION_RUN")" = completed ]; then
+              break
+            fi
+            [ "$attempt" -eq 60 ] || sleep 5
+          done
+          jq -e --arg title "Publication $CORRELATION_ID" --arg repository "$REPOSITORY" '
+            .display_title == $title and .head_branch == "main" and .head_repository.full_name == $repository
+          ' <<< "$PUBLICATION_RUN" >/dev/null || {
+            echo "::error::Publication reservation owner does not match the exact correlation"
+            exit 1
+          }
+          [ "$(jq -r '.status // ""' <<< "$PUBLICATION_RUN")" = completed ] \
+            && [ "$(jq -r '.conclusion // ""' <<< "$PUBLICATION_RUN")" = success ] || {
+              echo "::error::Correlated publication failed or completion is unknown"
+              exit 1
+            }
 
       - name: Generate GitHub App Token
         id: app-token
@@ -294,15 +393,44 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          # Find the commit SHA of the last successful sync workflow run
-          # This ensures we catch ALL changes since the last sync, even if multiple PRs merged
-          LAST_RUN=$(gh api "repos/${{ github.repository }}/actions/workflows/sync-to-supabase.yml/runs?status=success&event=push&per_page=5" \
-            --jq '.workflow_runs[0] // {}')
-          LAST_SHA=$(jq -r '.head_sha // ""' <<< "$LAST_RUN")
-          LAST_CREATED_AT=$(jq -r '.created_at // ""' <<< "$LAST_RUN")
+          # Advance the baseline when the provider step itself succeeded, even if a
+          # later callback/status step failed. Conversely, a failed provider step is
+          # an unknown partial effect and blocks automatic replay for inspection.
+          RUNS=$(gh api "repos/${{ github.repository }}/actions/workflows/sync-to-supabase.yml/runs?status=completed&event=push&per_page=100")
+          LAST_SHA=''
+          LAST_CREATED_AT=''
+          while IFS=$'\t' read -r run_id head_sha created_at run_conclusion; do
+            [ -n "$run_id" ] || continue
+            JOBS=$(gh api "repos/${{ github.repository }}/actions/runs/$run_id/jobs?per_page=100")
+            PUBLICATION_CONCLUSION=$(jq -r '[.jobs[].steps[]? | select(.name == "Wait for authoritative publication completion")][0].conclusion // ""' <<< "$JOBS")
+            SYNC_CONCLUSION=$(jq -r '[.jobs[].steps[]? | select(.name == "Sync skills to Supabase")][0].conclusion // ""' <<< "$JOBS")
+            if [ "$PUBLICATION_CONCLUSION" = failure ] || [ "$PUBLICATION_CONCLUSION" = cancelled ]; then
+              echo "::error::Previous publication push run $run_id did not establish authoritative publication success; inspection is required"
+              exit 1
+            fi
+            if [ "$SYNC_CONCLUSION" = success ] && [ "$run_conclusion" = success ]; then
+              LAST_SHA="$head_sha"
+              LAST_CREATED_AT="$created_at"
+              break
+            fi
+            if [ "$SYNC_CONCLUSION" = success ]; then
+              echo "::error::Previous provider sync run $run_id completed the provider write but downstream effects are incomplete; inspection is required"
+              exit 1
+            fi
+            if [ "$SYNC_CONCLUSION" = skipped ] && [ "$run_conclusion" = success ]; then
+              LAST_SHA="$head_sha"
+              LAST_CREATED_AT="$created_at"
+              break
+            fi
+            if [ "$run_conclusion" = skipped ]; then
+              continue
+            fi
+            echo "::error::Previous provider sync run $run_id lacks closed provider evidence ($SYNC_CONCLUSION); inspection is required before replay"
+            exit 1
+          done < <(jq -r '.workflow_runs[] | [.id, .head_sha, .created_at, .conclusion] | @tsv' <<< "$RUNS")
 
           if [ -z "$LAST_SHA" ] || [ -z "$LAST_CREATED_AT" ]; then
-            echo "::error::No successful push sync baseline found; refusing an incomplete fallback"
+            echo "::error::No provider-complete push sync baseline found; refusing an incomplete fallback"
             exit 1
           fi
           if ! git cat-file -e "$LAST_SHA^{commit}" 2>/dev/null \
@@ -347,11 +475,11 @@ jobs:
             jq -n '[]' > "$RECOVERIES_FILE"
 
             if [ -n "$BASE_RUN_CREATED_AT" ]; then
-              RUNS_RESPONSE=$(gh api "repos/${{ github.repository }}/actions/workflows/sync-to-supabase.yml/runs?status=success&event=workflow_dispatch&per_page=$MAX_RECOVERY_RUNS")
+              RUNS_RESPONSE=$(gh api "repos/${{ github.repository }}/actions/workflows/sync-to-supabase.yml/runs?status=completed&event=workflow_dispatch&per_page=$MAX_RECOVERY_RUNS")
               PAGE_COUNT=$(jq '.workflow_runs | length' <<< "$RUNS_RESPONSE")
               OLDEST_CREATED_AT=$(jq -r '.workflow_runs[-1].created_at // ""' <<< "$RUNS_RESPONSE")
               if [ "$PAGE_COUNT" -eq "$MAX_RECOVERY_RUNS" ] && [[ "$OLDEST_CREATED_AT" > "$BASE_RUN_CREATED_AT" ]]; then
-                echo "::error::More than $MAX_RECOVERY_RUNS successful manual recoveries exist after the push baseline"
+                echo "::error::More than $MAX_RECOVERY_RUNS completed manual recoveries exist after the push baseline"
                 exit 1
               fi
 
@@ -360,18 +488,27 @@ jobs:
                   | select(.created_at > $baseline)
                   | select(.head_branch == "main")
                   | select(.head_repository.full_name == $repository)
-                  | {runId: .id, headSha: .head_sha}]
+                  | select(.display_title | startswith("Provider sync source-monitor-pr-"))
+                  | {runId: .id, headSha: .head_sha, conclusion: .conclusion}]
               ' <<< "$RUNS_RESPONSE")
 
-              while IFS=$'\t' read -r run_id run_head; do
+              while IFS=$'\t' read -r run_id run_head run_conclusion; do
                 [ -n "$run_id" ] || continue
-                ARTIFACTS=$(gh api "repos/${{ github.repository }}/actions/runs/$run_id/artifacts?per_page=100")
-                ARTIFACT_COUNT=$(jq '[.artifacts[] | select(.name == "synced-slugs" and .expired == false)] | length' <<< "$ARTIFACTS")
-                if [ "$ARTIFACT_COUNT" -eq 0 ]; then
+                JOBS=$(gh api "repos/${{ github.repository }}/actions/runs/$run_id/jobs?per_page=100")
+                CLAIM_CONCLUSION=$(jq -r '[.jobs[].steps[]? | select(.name == "Verify durable provider sync dispatch outbox")][0].conclusion // ""' <<< "$JOBS")
+                SYNC_CONCLUSION=$(jq -r '[.jobs[].steps[]? | select(.name == "Sync skills to Supabase")][0].conclusion // ""' <<< "$JOBS")
+                if [ "$CLAIM_CONCLUSION" = failure ] && [ -z "$SYNC_CONCLUSION" ]; then
+                  echo "::notice::Ignoring conclusively non-owning duplicate recovery run $run_id"
                   continue
                 fi
+                if [ "$SYNC_CONCLUSION" != success ] || [ "$run_conclusion" != success ]; then
+                  echo "::error::Correlated provider sync run $run_id lacks complete provider and downstream evidence; refusing generic replay"
+                  exit 1
+                fi
+                ARTIFACTS=$(gh api "repos/${{ github.repository }}/actions/runs/$run_id/artifacts?per_page=100")
+                ARTIFACT_COUNT=$(jq '[.artifacts[] | select(.name == "synced-slugs" and .expired == false)] | length' <<< "$ARTIFACTS")
                 if [ "$ARTIFACT_COUNT" -ne 1 ]; then
-                  echo "::error::Recovery run $run_id has duplicate synced-slugs artifacts"
+                  echo "::error::Recovery run $run_id must have exactly one provider-complete synced-slugs artifact"
                   exit 1
                 fi
 
@@ -409,7 +546,7 @@ jobs:
                   '. + [{runId: $runId, headSha: $headSha, artifactId: $artifactId, digest: $digest, slugs: $slugs}]' \
                   "$RECOVERIES_FILE" > "$NEXT_RECOVERIES"
                 mv "$NEXT_RECOVERIES" "$RECOVERIES_FILE"
-              done < <(jq -r '.[] | [.runId, .headSha] | @tsv' <<< "$RECOVERY_RUNS")
+              done < <(jq -r '.[] | [.runId, .headSha, .conclusion] | @tsv' <<< "$RECOVERY_RUNS")
             fi
 
             CHANGED=$(node ./scripts/detect-changed-skills.mjs \
@@ -605,6 +742,14 @@ jobs:
           SYNCED_COUNT=$(wc -l < synced-slugs.txt | tr -d ' ')
           echo "synced_count=$SYNCED_COUNT" >> "$GITHUB_OUTPUT"
           echo "::notice::Synced $SYNCED_COUNT skill(s); slug payload saved to artifact input"
+
+      - name: Upload provider-complete synced slugs artifact
+        if: steps.sync.outputs.synced_count != '0'
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: synced-slugs
+          path: synced-slugs.txt
+          retention-days: 30
 
       - name: Reconcile durable security change events
         id: reconcile-security-events
@@ -980,40 +1125,37 @@ jobs:
               -H "Content-Type: application/json" \
               -H "User-Agent: GitHub-Actions/SkillstoreBot" \
               -H "X-Skillstore-Callback: true" \
+              -H "Idempotency-Key: publication-published-${SUBMISSION_ID}" \
               -d "$PAYLOAD"
           done
 
-      - name: Upload synced slugs artifact
-        if: steps.changes.outputs.skip_sync != 'true' && steps.sync.outputs.synced_count != '0'
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
-        with:
-          name: synced-slugs
-          path: synced-slugs.txt
-          retention-days: 30
-
-      - name: Record durable correlated sync result
-        if: >-
-          always() &&
-          ((inputs.correlation_id != '' && inputs.merge_commit_sha != '' && steps.provider_sync_claim.outputs.owns_reservation == 'true') ||
-           (github.event_name == 'workflow_run' && startsWith(github.event.workflow_run.display_title, 'Publication submission-pr-')))
+      - name: Record durable publication provider result
+        if: always() && github.event_name == 'push'
         env:
           GH_TOKEN: ${{ github.token }}
-          INPUT_CORRELATION_ID: ${{ inputs.correlation_id }}
-          INPUT_MERGE_COMMIT_SHA: ${{ inputs.merge_commit_sha }}
-          UPSTREAM_TITLE: ${{ github.event.workflow_run.display_title }}
-          EVENT_NAME: ${{ github.event_name }}
+          CORRELATION_ID: ${{ steps.publication-correlation.outputs.correlation_id }}
+          MERGE_COMMIT_SHA: ${{ steps.publication-correlation.outputs.merge_commit_sha }}
           REPOSITORY: ${{ github.repository }}
           JOB_STATUS: ${{ job.status }}
         run: |
           set -euo pipefail
-          CORRELATION_ID="$INPUT_CORRELATION_ID"
-          MERGE_COMMIT_SHA="$INPUT_MERGE_COMMIT_SHA"
-          CONTEXT_PREFIX='agentcrew/provider-sync'
-          if [ "$EVENT_NAME" = workflow_run ]; then
-            CORRELATION_ID="${UPSTREAM_TITLE#Publication }"
-            [[ "$CORRELATION_ID" =~ ^submission-pr-([1-9][0-9]*)-([0-9a-f]{40})-([0-9a-f]{40})$ ]]
-            MERGE_COMMIT_SHA="${BASH_REMATCH[3]}"
-            CONTEXT_PREFIX='agentcrew/publication'
+          if [ -z "$CORRELATION_ID" ] || [ -z "$MERGE_COMMIT_SHA" ]; then
+            exit 0
+          fi
+          CONTEXT="agentcrew/publication/$(printf '%s' "$CORRELATION_ID" | sha256sum | awk '{print $1}')"
+          STATUSES=$(gh api --paginate "repos/$REPOSITORY/commits/$MERGE_COMMIT_SHA/statuses?per_page=100" | jq -s 'add')
+          CURRENT=$(jq -c --arg context "$CONTEXT" '[.[] | select(.context == $context)][0] // {}' <<< "$STATUSES")
+          CURRENT_STATE=$(jq -r '.state // ""' <<< "$CURRENT")
+          CURRENT_DESCRIPTION=$(jq -r '.description // ""' <<< "$CURRENT")
+          CURRENT_TARGET_URL=$(jq -r '.target_url // ""' <<< "$CURRENT")
+          [[ "$CURRENT_TARGET_URL" =~ ^https://github\.com/$REPOSITORY/actions/runs/[1-9][0-9]*$ ]] || {
+            echo "::error::Publication owner target is missing or malformed"
+            exit 1
+          }
+          if [ "$CURRENT_STATE" = failure ] \
+            && [ "$CURRENT_DESCRIPTION" = 'Correlated publication failed; inspection required' ]; then
+            echo "::notice::Upstream publication failure is authoritative; refusing to overwrite it"
+            exit 0
           fi
           STATE=failure
           DESCRIPTION='Correlated provider sync failed; inspection required'
@@ -1021,7 +1163,31 @@ jobs:
             STATE=success
             DESCRIPTION='Correlated provider sync completed'
           fi
-          CONTEXT="$CONTEXT_PREFIX/$(printf '%s' "$CORRELATION_ID" | sha256sum | awk '{print $1}')"
+          gh api --method POST "repos/$REPOSITORY/statuses/$MERGE_COMMIT_SHA" \
+            -f state="$STATE" -f context="$CONTEXT" -f description="$DESCRIPTION" \
+            -f target_url="$CURRENT_TARGET_URL"
+
+      - name: Record durable correlated manual sync result
+        if: >-
+          always() &&
+          inputs.correlation_id != '' &&
+          inputs.merge_commit_sha != '' &&
+          steps.provider_sync_claim.outputs.owns_reservation == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CORRELATION_ID: ${{ inputs.correlation_id }}
+          MERGE_COMMIT_SHA: ${{ inputs.merge_commit_sha }}
+          REPOSITORY: ${{ github.repository }}
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          set -euo pipefail
+          STATE=failure
+          DESCRIPTION='Correlated provider sync failed; inspection required'
+          if [ "$JOB_STATUS" = success ]; then
+            STATE=success
+            DESCRIPTION='Correlated provider sync completed'
+          fi
+          CONTEXT="agentcrew/provider-sync/$(printf '%s' "$CORRELATION_ID" | sha256sum | awk '{print $1}')"
           gh api --method POST "repos/$REPOSITORY/statuses/$MERGE_COMMIT_SHA" \
             -f state="$STATE" -f context="$CONTEXT" -f description="$DESCRIPTION" \
             -f target_url="https://github.com/$REPOSITORY/actions/runs/${{ github.run_id }}"

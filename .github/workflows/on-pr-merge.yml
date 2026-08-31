@@ -82,7 +82,7 @@ jobs:
             echo "merged_by=$MERGED_BY"
           } >> "$GITHUB_OUTPUT"
 
-      - name: Verify durable publication dispatch claim
+      - name: Verify durable publication dispatch outbox
         id: publication_claim
         env:
           GH_TOKEN: ${{ github.token }}
@@ -92,13 +92,18 @@ jobs:
         run: |
           set -euo pipefail
           DIGEST=$(printf '%s' "$CORRELATION_ID" | sha256sum | awk '{print $1}')
-          CLAIM_REF="tags/agentcrew-dispatch-claims/publication/$DIGEST"
+          OUTBOX_PREFIX="tags/agentcrew-dispatch-outbox/publication/$DIGEST/"
           CONTEXT="agentcrew/publication/$DIGEST"
-          CLAIM=$(gh api "repos/$REPOSITORY/git/ref/$CLAIM_REF")
-          jq -e --arg ref "refs/$CLAIM_REF" --arg merge_sha "$MERGE_COMMIT_SHA" '
-            .ref == $ref and .object.type == "commit" and .object.sha == $merge_sha
-          ' <<< "$CLAIM" >/dev/null || {
-            echo "::error::Durable publication dispatch claim does not bind the exact merge commit"
+          OUTBOX=$(gh api "repos/$REPOSITORY/git/matching-refs/$OUTBOX_PREFIX")
+          jq -e --arg prefix "refs/$OUTBOX_PREFIX" --arg merge_sha "$MERGE_COMMIT_SHA" '
+            length > 0 and length <= 8 and
+            all(.[];
+              (.ref | startswith($prefix)) and
+              ((.ref | ltrimstr($prefix)) | test("^[0-9]{13}-[1-9][0-9]*$")) and
+              .object.type == "commit" and
+              .object.sha == $merge_sha)
+          ' <<< "$OUTBOX" >/dev/null || {
+            echo "::error::Durable publication dispatch outbox does not bind the exact merge commit"
             exit 1
           }
           STATUSES=$(gh api --paginate "repos/$REPOSITORY/commits/$MERGE_COMMIT_SHA/statuses?per_page=100" | jq -s 'add')
@@ -130,6 +135,7 @@ jobs:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           APP_TOKEN: ${{ steps.app-token.outputs.token }}
           MERGE_COMMIT_SHA: ${{ steps.freeze_pr.outputs.merge_commit_sha }}
+          CORRELATION_ID: ${{ inputs.correlation_id }}
           PR_NUMBER: ${{ steps.freeze_pr.outputs.pr_number }}
           REPOSITORY: ${{ github.repository }}
           SUBMISSION_ID: ${{ steps.freeze_pr.outputs.submission_id }}
@@ -327,6 +333,10 @@ jobs:
 
           echo "=== Committing and pushing ==="
           git add -A -f -- "${SKILL_PATHS[@]}" "${TARGET_PATHS[@]}"
+          PROVIDER_SYNC_REQUIRED=false
+          if ! git diff --staged --quiet -- "${TARGET_PATHS[@]}"; then
+            PROVIDER_SYNC_REQUIRED=true
+          fi
 
           if git diff --staged --quiet; then
             echo "No changes to commit"
@@ -336,7 +346,9 @@ jobs:
               SUBMISSION_TAG=" [submission: $SUBMISSION_ID]"
             fi
 
-            git commit -m "Approve skills: $SKILL_NAMES$SUBMISSION_TAG"
+            git commit \
+              -m "Approve skills: $SKILL_NAMES$SUBMISSION_TAG" \
+              -m "AgentCrew-Publication: $CORRELATION_ID"
 
             # Configure git remote URL with authentication token
             echo "🔑 Configuring git authentication..."
@@ -385,6 +397,7 @@ jobs:
               exit 1
             }
           fi
+          echo "provider_sync_required=$PROVIDER_SYNC_REQUIRED" >> "$GITHUB_OUTPUT"
 
       - name: Notify skillstore - Resolved
         if: steps.freeze_pr.outputs.submission_id != ''
@@ -396,6 +409,7 @@ jobs:
           PR_URL: ${{ steps.freeze_pr.outputs.pr_url }}
           PR_NUMBER: ${{ steps.freeze_pr.outputs.pr_number }}
           MERGED_BY: ${{ steps.freeze_pr.outputs.merged_by }}
+          CORRELATION_ID: ${{ inputs.correlation_id }}
         run: |
           set -euo pipefail
           if [ -z "$SKILLSTORE_API_URL" ] || [ -z "$SKILLSTORE_CALLBACK_TOKEN" ]; then
@@ -439,6 +453,7 @@ jobs:
             -H "Content-Type: application/json" \
             -H "User-Agent: GitHub-Actions/SkillstoreBot" \
             -H "X-Skillstore-Callback: true" \
+            -H "Idempotency-Key: publication-resolved-${CORRELATION_ID}" \
             -d "$PAYLOAD"
 
       - name: Record durable publication result
@@ -447,17 +462,30 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           CORRELATION_ID: ${{ inputs.correlation_id }}
           MERGE_COMMIT_SHA: ${{ steps.freeze_pr.outputs.merge_commit_sha }}
+          PROVIDER_SYNC_REQUIRED: ${{ steps.publish.outputs.provider_sync_required }}
           REPOSITORY: ${{ github.repository }}
           JOB_STATUS: ${{ job.status }}
         run: |
           set -euo pipefail
-          STATE=failure
-          DESCRIPTION='Correlated publication failed; inspection required'
-          if [ "$JOB_STATUS" = success ]; then
-            STATE=pending
-            DESCRIPTION='Publication completed; awaiting provider sync'
-          fi
           CONTEXT="agentcrew/publication/$(printf '%s' "$CORRELATION_ID" | sha256sum | awk '{print $1}')"
-          gh api --method POST "repos/$REPOSITORY/statuses/$MERGE_COMMIT_SHA" \
-            -f state="$STATE" -f context="$CONTEXT" -f description="$DESCRIPTION" \
-            -f target_url="https://github.com/$REPOSITORY/actions/runs/${{ github.run_id }}"
+          if [ "$JOB_STATUS" != success ]; then
+            gh api --method POST "repos/$REPOSITORY/statuses/$MERGE_COMMIT_SHA" \
+              -f state=failure -f context="$CONTEXT" \
+              -f description='Correlated publication failed; inspection required' \
+              -f target_url="https://github.com/$REPOSITORY/actions/runs/${{ github.run_id }}"
+            exit 0
+          fi
+          if [ "$PROVIDER_SYNC_REQUIRED" != true ]; then
+            gh api --method POST "repos/$REPOSITORY/statuses/$MERGE_COMMIT_SHA" \
+              -f state=success -f context="$CONTEXT" \
+              -f description='Publication completed; no provider changes required' \
+              -f target_url="https://github.com/$REPOSITORY/actions/runs/${{ github.run_id }}"
+            exit 0
+          fi
+          STATUSES=$(gh api --paginate "repos/$REPOSITORY/commits/$MERGE_COMMIT_SHA/statuses?per_page=100" | jq -s 'add')
+          CURRENT_STATE=$(jq -r --arg context "$CONTEXT" '[.[] | select(.context == $context)][0].state // ""' <<< "$STATUSES")
+          if [ "$CURRENT_STATE" = success ] || [ "$CURRENT_STATE" = failure ]; then
+            echo "::notice::Provider sync already recorded $CURRENT_STATE; refusing to regress it"
+            exit 0
+          fi
+          echo "::notice::Publication completed; the unique push sync owns provider completion"

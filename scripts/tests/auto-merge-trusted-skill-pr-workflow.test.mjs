@@ -76,15 +76,17 @@ test('post-merge recovery accepts the exact GitHub Actions bot merger identity a
   assert.match(publishSource, /\[ "\$CORRELATION_ID" = "\$EXPECTED_CORRELATION_ID" \]/);
 });
 
-test('publication receiver serializes one correlation and verifies the durable claim before writes', () => {
+test('publication receiver serializes one correlation and verifies the durable outbox before writes', () => {
   const publishWorkflow = parse(publishSource);
   assert.equal(publishWorkflow.concurrency.group, 'publication-${{ inputs.correlation_id }}');
   assert.equal(publishWorkflow.concurrency['cancel-in-progress'], false);
-  const claimGuard = publishSource.indexOf('Verify durable publication dispatch claim');
+  const outboxGuard = publishSource.indexOf('Verify durable publication dispatch outbox');
   const appToken = publishSource.indexOf('Generate GitHub App Token');
-  assert.ok(claimGuard > 0 && claimGuard < appToken);
-  assert.match(publishSource, /agentcrew-dispatch-claims\/publication/);
+  assert.ok(outboxGuard > 0 && outboxGuard < appToken);
+  assert.match(publishSource, /agentcrew-dispatch-outbox\/publication/);
+  assert.match(publishSource, /length > 0 and length <= 8/);
   assert.match(publishSource, /object\.sha == \$merge_sha/);
   assert.match(publishSource, /Existing durable publication status refuses duplicate execution/);
   assert.match(publishSource, /steps\.publication_claim\.outputs\.owns_reservation == 'true'/);
+  assert.match(publishSource, /Idempotency-Key: publication-resolved-/);
 });

@@ -17,6 +17,9 @@ const SOURCE_MONITOR_REF_RE = /^skill-source-monitor\/run-[1-9][0-9]*$/u;
 const SUBMISSION_ROUTE = 'submission';
 const SOURCE_MONITOR_ROUTE = 'source_monitor';
 const RECOVERY_MARKER_EPOCH = '2026-08-30T00:00:00Z';
+const DISPATCH_OUTBOX_STALE_MS = 15 * 60 * 1_000;
+const DISPATCH_OUTBOX_FUTURE_SKEW_MS = 5 * 60 * 1_000;
+const DISPATCH_OUTBOX_MAX_ATTEMPTS = 8;
 
 export class AutoMergeBlockedError extends Error {
   constructor(message) {
@@ -90,12 +93,12 @@ function rootSetDigest(slugs) {
   return createHash('sha256').update([...new Set(slugs)].sort().join('\n')).digest('hex');
 }
 
-function dispatchClaim(kind, correlationId) {
-  block(['publication', 'provider-sync'].includes(kind), 'dispatch claim kind is invalid');
-  block(typeof correlationId === 'string' && correlationId.length > 0, 'dispatch claim correlation is invalid');
+function dispatchOutbox(kind, correlationId) {
+  block(['publication', 'provider-sync'].includes(kind), 'dispatch outbox kind is invalid');
+  block(typeof correlationId === 'string' && correlationId.length > 0, 'dispatch outbox correlation is invalid');
   const digest = rootSetDigest([correlationId]);
-  const name = `agentcrew-dispatch-claims/${kind}/${digest}`;
-  return { fullRef: `refs/tags/${name}`, apiRef: `tags/${name}` };
+  const name = `agentcrew-dispatch-outbox/${kind}/${digest}/`;
+  return { fullPrefix: `refs/tags/${name}`, apiPrefix: `tags/${name}` };
 }
 
 export function resolveWorkflowPrNumber(payloadPrs, exactAssociatedPrs) {
@@ -518,7 +521,6 @@ export async function runAutoMerge(api, { workflowRunId, deferPostMergeDispatch 
 
 export async function runRecoverySweep(api) {
   const candidates = await api.listRecoveryCandidates();
-  let deferredResult;
   for (const candidate of candidates) {
     if (candidate.phase === 'MERGED') {
       const result = candidate.postMergeAction === 'provider_sync'
@@ -526,13 +528,12 @@ export async function runRecoverySweep(api) {
         : await api.dispatchPublication(candidate.prNumber, candidate.headSha, candidate.mergeCommitSha);
       if (['PUBLICATION_ALREADY_DISPATCHED', 'PROVIDER_SYNC_ALREADY_DISPATCHED'].includes(result.outcome)) continue;
       if (result.outcome === 'PUBLICATION_AWAITING_PROVIDER_SYNC') {
-        deferredResult ??= {
+        return {
           ...result,
           prNumber: candidate.prNumber,
           headSha: candidate.headSha,
           mergeCommitSha: candidate.mergeCommitSha,
         };
-        continue;
       }
       if (result.outcome.endsWith('_FAILED_REQUIRES_INSPECTION')) {
         throw new AutoMergeBlockedError(`${result.outcome} for PR #${candidate.prNumber} (workflow run ${result.workflowRunId ?? 'unavailable'})`);
@@ -567,7 +568,7 @@ export async function runRecoverySweep(api) {
       throw error;
     }
   }
-  return deferredResult ?? { outcome: 'NO_ELIGIBLE_RECOVERY' };
+  return { outcome: 'NO_ELIGIBLE_RECOVERY' };
 }
 
 function encodeContentPath(path) {
@@ -603,7 +604,7 @@ function workflowRunIdFromCheck(check) {
 }
 
 export class GitHubApi {
-  constructor({ token, updateToken, repository, currentRunId }) {
+  constructor({ token, updateToken, repository, currentRunId, now = () => Date.now() }) {
     block(typeof token === 'string' && token.length > 0, 'GH_TOKEN is required');
     block(typeof updateToken === 'string' && updateToken.length > 0, 'GH_UPDATE_TOKEN is required');
     block(repository === TRUSTED_REPOSITORY, `GITHUB_REPOSITORY must be ${TRUSTED_REPOSITORY}`);
@@ -612,6 +613,8 @@ export class GitHubApi {
     this.updateToken = updateToken;
     this.repository = repository;
     this.currentRunId = Number(currentRunId);
+    block(typeof now === 'function', 'dispatch outbox clock is invalid');
+    this.now = now;
     this.baseUrl = `https://api.github.com/repos/${repository}`;
   }
 
@@ -904,51 +907,63 @@ export class GitHubApi {
     return latestStatusesByContext(statuses).find((status) => status.context === context);
   }
 
-  async readDispatchClaim(kind, correlationId) {
-    const claim = dispatchClaim(kind, correlationId);
-    try {
-      const ref = await this.request(`/git/ref/${claim.apiRef}`);
-      block(ref?.ref === claim.fullRef && ref?.object?.type === 'commit' && validSha(ref.object.sha),
-        'dispatch claim evidence is invalid');
-      return { claim, ref };
-    } catch (error) {
-      if (error instanceof GitHubApiError && error.status === 404) return { claim, ref: undefined };
-      throw error;
-    }
+  async readDispatchOutbox(kind, correlationId, mergeCommitSha) {
+    const outbox = dispatchOutbox(kind, correlationId);
+    const refs = await this.request(`/git/matching-refs/${outbox.apiPrefix}`);
+    block(Array.isArray(refs), 'dispatch outbox evidence is invalid');
+    block(refs.length <= DISPATCH_OUTBOX_MAX_ATTEMPTS, 'dispatch outbox exceeded the bounded attempt limit');
+    const attempts = refs.map((ref) => {
+      block(typeof ref?.ref === 'string' && ref.ref.startsWith(outbox.fullPrefix), 'dispatch outbox ref is invalid');
+      const suffix = ref.ref.slice(outbox.fullPrefix.length);
+      const match = /^([0-9]{13})-([1-9][0-9]*)$/u.exec(suffix);
+      block(match && ref.object?.type === 'commit' && ref.object.sha === mergeCommitSha,
+        'dispatch outbox attempt is malformed or bound to a different merge commit');
+      const createdAt = Number(match[1]);
+      const runId = Number(match[2]);
+      block(Number.isSafeInteger(createdAt) && Number.isSafeInteger(runId)
+        && createdAt <= this.now() + DISPATCH_OUTBOX_FUTURE_SKEW_MS,
+      'dispatch outbox attempt timestamp is invalid');
+      return { ref: ref.ref, createdAt, runId };
+    });
+    attempts.sort((left, right) => left.createdAt - right.createdAt || left.runId - right.runId);
+    return { outbox, attempts };
   }
 
-  async acquireDispatchClaim(kind, correlationId, mergeCommitSha) {
-    const before = await this.readDispatchClaim(kind, correlationId);
-    if (before.ref) {
-      block(before.ref.object.sha === mergeCommitSha, 'dispatch claim is bound to a different merge commit');
-      return false;
+  async prepareDispatchOutbox(kind, correlationId, mergeCommitSha) {
+    const before = await this.readDispatchOutbox(kind, correlationId, mergeCommitSha);
+    const latest = before.attempts.at(-1);
+    if (latest && this.now() - latest.createdAt < DISPATCH_OUTBOX_STALE_MS) {
+      return { shouldDispatch: false, retryAfter: latest.createdAt + DISPATCH_OUTBOX_STALE_MS };
     }
+    block(before.attempts.length < DISPATCH_OUTBOX_MAX_ATTEMPTS,
+      'dispatch outbox exhausted the bounded attempt limit');
+    const createdAt = this.now();
+    block(Number.isSafeInteger(createdAt) && createdAt >= 0, 'dispatch outbox clock returned an invalid timestamp');
+    const fullRef = `${before.outbox.fullPrefix}${createdAt}-${this.currentRunId}`;
     let createError;
     let created;
     try {
       created = await this.request('/git/refs', {
         method: 'POST',
-        body: { ref: before.claim.fullRef, sha: mergeCommitSha },
+        body: { ref: fullRef, sha: mergeCommitSha },
       });
     } catch (error) {
       createError = error;
     }
     if (created) {
-      block(created.ref === before.claim.fullRef
-        && created.object?.type === 'commit'
-        && created.object.sha === mergeCommitSha,
-      'created dispatch claim does not match the exact merge commit');
-      return true;
+      block(created.ref === fullRef && created.object?.type === 'commit' && created.object.sha === mergeCommitSha,
+        'created dispatch outbox attempt does not match the exact merge commit');
+      return { shouldDispatch: true };
     }
-    const after = await this.readDispatchClaim(kind, correlationId);
-    if (after.ref) {
-      block(after.ref.object.sha === mergeCommitSha, 'dispatch claim is bound to a different merge commit');
-      throw new AutoMergeUnknownEffectError('dispatch claim ownership is unknown; refusing workflow dispatch');
+    const after = await this.readDispatchOutbox(kind, correlationId, mergeCommitSha);
+    if (after.attempts.some((attempt) => attempt.ref === fullRef)) return { shouldDispatch: true };
+    if (after.attempts.some((attempt) => attempt.createdAt >= createdAt)) {
+      return { shouldDispatch: false, retryAfter: after.attempts.at(-1).createdAt + DISPATCH_OUTBOX_STALE_MS };
     }
     if (createError && definiteMutationRejection(createError)) {
-      throw new AutoMergeBlockedError(`dispatch claim rejected with HTTP ${createError.status}`);
+      throw new AutoMergeBlockedError(`dispatch outbox attempt rejected with HTTP ${createError.status}`);
     }
-    throw new AutoMergeUnknownEffectError('dispatch claim effect is unknown; refusing workflow dispatch');
+    throw new AutoMergeUnknownEffectError('dispatch outbox attempt is unknown; refusing workflow dispatch');
   }
 
   async recordTerminalDispatchRejection(commitSha, context, description) {
@@ -1014,9 +1029,9 @@ export class GitHubApi {
       return { outcome: 'PUBLICATION_FAILED_REQUIRES_INSPECTION', workflowRunId: existing.id, conclusion: existing.conclusion };
     }
 
-    const ownsClaim = await this.acquireDispatchClaim('publication', correlationId, mergeCommitSha);
-    if (!ownsClaim) {
-      throw new AutoMergeUnknownEffectError(`publication dispatch is claimed but has no authoritative run or status evidence for PR #${prNumber}`);
+    const outboxAttempt = await this.prepareDispatchOutbox('publication', correlationId, mergeCommitSha);
+    if (!outboxAttempt.shouldDispatch) {
+      return { outcome: 'PUBLICATION_OUTBOX_PENDING', retryAfter: outboxAttempt.retryAfter };
     }
 
     let mutationError;
@@ -1101,9 +1116,9 @@ export class GitHubApi {
       return { outcome: 'PROVIDER_SYNC_FAILED_REQUIRES_INSPECTION', workflowRunId: existing.id, conclusion: existing.conclusion };
     }
 
-    const ownsClaim = await this.acquireDispatchClaim('provider-sync', correlationId, mergeCommitSha);
-    if (!ownsClaim) {
-      throw new AutoMergeUnknownEffectError(`provider sync dispatch is claimed but has no authoritative run or status evidence for PR #${prNumber}`);
+    const outboxAttempt = await this.prepareDispatchOutbox('provider-sync', correlationId, mergeCommitSha);
+    if (!outboxAttempt.shouldDispatch) {
+      return { outcome: 'PROVIDER_SYNC_OUTBOX_PENDING', retryAfter: outboxAttempt.retryAfter };
     }
 
     let mutationError;

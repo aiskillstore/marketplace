@@ -5,6 +5,7 @@ import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { parse } from 'yaml';
 import { buildShardPlan } from '../plan-cache-invalidation.mjs';
 
 const TEST_DIR = dirname(fileURLToPath(import.meta.url));
@@ -33,6 +34,63 @@ function runAggregate({ plan = 'success', shards = 'success', scores = 'success'
     },
   });
 }
+
+test('publication provider writes use push as the only automatic trigger', () => {
+  const workflow = readFileSync(WORKFLOW, 'utf8');
+  assert.match(workflow, /^  push:/m);
+  assert.match(workflow, /^  workflow_dispatch:/m);
+  assert.doesNotMatch(workflow, /^  workflow_run:/m);
+  assert.doesNotMatch(workflow, /github\.event\.workflow_run/);
+  assert.match(workflow, /AgentCrew-Publication:/);
+  assert.match(workflow, /Record durable publication provider result/);
+  const providerResult = section(workflow, '      - name: Record durable publication provider result', '      - name: Record durable correlated manual sync result');
+  assert.match(providerResult, /CURRENT_TARGET_URL/);
+  assert.match(providerResult, /Publication owner target is missing or malformed/);
+  assert.match(providerResult, /-f target_url="\$CURRENT_TARGET_URL"/);
+  assert.doesNotMatch(providerResult, /target_url="https:\/\/github\.com\/\$REPOSITORY\/actions\/runs\/\$\{\{ github\.run_id \}\}"/);
+  assert.match(workflow, /actions\/runs\/\$OWNER_RUN_ID/);
+  assert.match(workflow, /Wait for authoritative publication completion/);
+  assert.match(workflow, /\.status \/\/ "".*completed/);
+  assert.match(workflow, /\.conclusion \/\/ "".*success/);
+  assert.match(workflow, /Publication reservation does not identify one authoritative owner run/);
+  assert.match(workflow, /actions\/runs\/\$OWNER_RUN_ID/);
+  assert.match(workflow, /Publication reservation owner does not match the exact correlation/);
+  assert.match(workflow, /Ignoring conclusively non-owning duplicate recovery run/);
+  assert.match(workflow, /Idempotency-Key: publication-published-/);
+  assert.match(workflow, /Record durable correlated manual sync result/);
+  assert.match(workflow, /status=completed&event=push/);
+  assert.match(workflow, /actions\/runs\/\$run_id\/jobs/);
+  assert.match(workflow, /Previous provider sync run .* lacks closed provider evidence/);
+
+  const rerunGuard = section(workflow, '      - name: Guard provider write against workflow reruns', '      - name: Sync skills to Supabase');
+  assert.match(rerunGuard, /GITHUB_RUN_ATTEMPT/);
+  assert.match(rerunGuard, /actions\/runs\/\$GITHUB_RUN_ID\/attempts\/\$attempt\/jobs/);
+  assert.match(rerunGuard, /node \.\/scripts\/guard-provider-rerun\.mjs/);
+  assert.doesNotMatch(rerunGuard, /continue-on-error/);
+
+  const providerClaim = section(workflow, '      - name: Verify durable provider sync dispatch outbox', '      - name: Wait for authoritative publication completion');
+  assert.match(providerClaim, /CURRENT_TARGET_URL/);
+  assert.match(providerClaim, /actions\/runs\/\$GITHUB_RUN_ID/);
+  assert.match(providerClaim, /CURRENT_STATE.*pending.*failure/s);
+  assert.match(providerClaim, /Reusing this run's durable provider sync reservation/);
+});
+
+test('push-first and legacy-workflow-first orders admit one provider sync and one callback', () => {
+  const workflow = readFileSync(WORKFLOW, 'utf8');
+  const parsed = parse(workflow);
+  const trigger = parsed.on ?? parsed.true;
+  const automaticTriggers = new Set(Object.keys(trigger).filter((name) => name !== 'workflow_dispatch'));
+  assert.deepEqual([...automaticTriggers], ['push']);
+  for (const sequence of [['push', 'workflow_run'], ['workflow_run', 'push']]) {
+    const admitted = sequence.filter((event) => automaticTriggers.has(event));
+    assert.deepEqual(admitted, ['push']);
+  }
+  assert.equal((workflow.match(/- name: Sync skills to Supabase/g) ?? []).length, 1);
+  assert.equal((workflow.match(/- name: Notify skillstore - Published submissions/g) ?? []).length, 1);
+  assert.ok(workflow.indexOf('- name: Wait for authoritative publication completion') < workflow.indexOf('- name: Sync skills to Supabase'));
+  assert.ok(workflow.indexOf('- name: Sync skills to Supabase') < workflow.indexOf('- name: Upload provider-complete synced slugs artifact'));
+  assert.ok(workflow.indexOf('- name: Upload provider-complete synced slugs artifact') < workflow.indexOf('- name: Notify skillstore - Published submissions'));
+});
 
 test('workflow matrix is artifact-backed, one-Skill, and serial', () => {
   const workflow = readFileSync(WORKFLOW, 'utf8');
@@ -143,13 +201,20 @@ test('incremental detection subtracts only verified successful manual recovery a
   const detect = section(workflow, '      - name: Detect changed skills', '      - name: Download skillstore-cli');
 
   assert.match(lastSync, /if: inputs\.slugs == ''/);
-  assert.match(lastSync, /status=success&event=push/);
-  assert.doesNotMatch(lastSync, /status=success&event=workflow_dispatch/);
+  assert.match(lastSync, /status=completed&event=push/);
+  assert.match(lastSync, /Sync skills to Supabase/);
+  assert.match(lastSync, /SYNC_CONCLUSION.*success/);
+  assert.match(lastSync, /lacks closed provider evidence/);
+  assert.match(lastSync, /did not establish authoritative publication success/);
+  assert.doesNotMatch(lastSync, /event=workflow_dispatch/);
   assert.match(lastSync, /set -euo pipefail/);
   assert.match(lastSync, /git merge-base --is-ancestor "\$LAST_SHA"/);
   assert.match(lastSync, /refusing an incomplete fallback/);
   assert.doesNotMatch(lastSync, /HEAD~1|2>\/dev\/null \|\| echo/);
-  assert.match(detect, /status=success&event=workflow_dispatch/);
+  assert.match(detect, /status=completed&event=workflow_dispatch/);
+  assert.match(detect, /Correlated provider sync run .* lacks complete provider and downstream evidence/);
+  assert.match(lastSync, /completed the provider write but downstream effects are incomplete/);
+  assert.match(detect, /exactly one provider-complete synced-slugs artifact/);
   assert.match(detect, /synced-slugs/);
   assert.match(detect, /sha256sum/);
   assert.match(detect, /artifact_digest/);
@@ -214,19 +279,21 @@ test('manual slug sync carries an optional exact correlation without requiring a
   assert.match(correlation, /Provider sync correlation does not match the authoritative merged source-monitor PR/);
   assert.match(correlation, /Correlated merge is not on the current main lineage/);
   assert.match(correlation, /Provider sync correlation is not bound to the exact canonical root set/);
+  assert.match(correlation, /agentcrew-dispatch-outbox\/provider-sync/);
+  assert.match(correlation, /length > 0 and length <= 8/);
   assert.match(correlation, /"\$EVENT_NAME" != 'workflow_dispatch'/);
   assert.match(correlation, /"\$GIT_REF" != 'refs\/heads\/main'/);
   const detect = section(workflow, '      - name: Detect changed skills', '      - name: Download skillstore-cli');
   assert.match(detect, /if \[ -n "\$INPUT_SLUGS" \]/);
   assert.ok(detect.indexOf('Specific slugs requested') < detect.indexOf('Comparing HEAD against'));
-  const callbacks = section(workflow, '      - name: Resolve published submissions', '      - name: Upload synced slugs artifact');
+  const callbacks = section(workflow, '      - name: Resolve published submissions', '      - name: Record durable publication provider result');
   assert.match(callbacks, /!startsWith\(inputs\.correlation_id, 'source-monitor-pr-'\)/);
 });
 
 test('manual recovery resolves its original submission and fails closed on callback errors', () => {
   const workflow = readFileSync(WORKFLOW, 'utf8');
   const resolvePublished = section(workflow, '      - name: Resolve published submissions', '      - name: Notify skillstore - Published submissions');
-  const notifyPublished = section(workflow, '      - name: Notify skillstore - Published submissions', '      - name: Upload synced slugs artifact');
+  const notifyPublished = section(workflow, '      - name: Notify skillstore - Published submissions', '      - name: Record durable publication provider result');
 
   assert.match(resolvePublished, /SYNC_MODE: \$\{\{ steps\.changes\.outputs\.mode \}\}/);
   assert.match(resolvePublished, /CHANGED_SKILLS: \$\{\{ steps\.changes\.outputs\.changed_skills \}\}/);
@@ -234,6 +301,7 @@ test('manual recovery resolves its original submission and fails closed on callb
   assert.match(resolvePublished, /--grep=\\\\\[submission:/);
   assert.doesNotMatch(resolvePublished, /BASE_SHA \|\| 'HEAD~1'/);
   assert.match(notifyPublished, /curl --fail-with-body -sS/);
+  assert.match(notifyPublished, /Idempotency-Key: publication-published-/);
   assert.match(notifyPublished, /callback secrets are not configured[\s\S]*exit 1/);
   assert.doesNotMatch(notifyPublished, /Failed to notify skillstore|\|\| echo/);
 });
