@@ -73,6 +73,7 @@ jobs:
           /scripts/resolve-manual-skills.mjs
           /scripts/detect-changed-skills.mjs
           /scripts/materialize-changed-skills.mjs
+          /scripts/validate-correlated-sync-roots.mjs
           /scripts/refresh-security-research-stats.sh
           /.github/actions/download-skillstore-cli/
           EOF
@@ -124,6 +125,7 @@ jobs:
             scripts/resolve-manual-skills.mjs \
             scripts/detect-changed-skills.mjs \
             scripts/materialize-changed-skills.mjs \
+            scripts/validate-correlated-sync-roots.mjs \
             scripts/refresh-security-research-stats.sh \
             .github/actions/download-skillstore-cli/action.yml; do
             if git ls-files -v -- "$required_path" | awk '$1 ~ /^S/ { found=1 } END { exit !found }'; then
@@ -143,6 +145,7 @@ jobs:
           done
 
       - name: Validate trusted sync correlation
+        id: trusted-correlation
         env:
           CORRELATION_ID: ${{ inputs.correlation_id }}
           INPUT_SLUGS: ${{ inputs.slugs }}
@@ -155,6 +158,7 @@ jobs:
         run: |
           set -euo pipefail
           if [ -z "$CORRELATION_ID" ]; then
+            echo "sync_commit_sha=$CURRENT_MAIN_SHA" >> "$GITHUB_OUTPUT"
             exit 0
           fi
           if [ "$EVENT_NAME" != 'workflow_dispatch' ] || [ "$GIT_REF" != 'refs/heads/main' ]; then
@@ -238,8 +242,14 @@ jobs:
             echo "::error::Provider sync correlation is not bound to the exact canonical root set"
             exit 1
           }
+          node ./scripts/validate-correlated-sync-roots.mjs \
+            --merge "$MERGE_COMMIT_SHA" \
+            --current "$CURRENT_MAIN_SHA" \
+            --slugs "${ACTUAL_SLUGS[*]}"
+          echo "sync_commit_sha=$MERGE_COMMIT_SHA" >> "$GITHUB_OUTPUT"
 
-      - name: Record durable provider sync reservation
+      - name: Verify durable provider sync dispatch claim
+        id: provider_sync_claim
         if: inputs.correlation_id != ''
         env:
           GH_TOKEN: ${{ github.token }}
@@ -248,11 +258,26 @@ jobs:
           REPOSITORY: ${{ github.repository }}
         run: |
           set -euo pipefail
-          CONTEXT="agentcrew/provider-sync/$(printf '%s' "$CORRELATION_ID" | sha256sum | awk '{print $1}')"
+          DIGEST=$(printf '%s' "$CORRELATION_ID" | sha256sum | awk '{print $1}')
+          CLAIM_REF="tags/agentcrew-dispatch-claims/provider-sync/$DIGEST"
+          CONTEXT="agentcrew/provider-sync/$DIGEST"
+          CLAIM=$(gh api "repos/$REPOSITORY/git/ref/$CLAIM_REF")
+          jq -e --arg ref "refs/$CLAIM_REF" --arg merge_sha "$MERGE_COMMIT_SHA" '
+            .ref == $ref and .object.type == "commit" and .object.sha == $merge_sha
+          ' <<< "$CLAIM" >/dev/null || {
+            echo "::error::Durable provider sync dispatch claim does not bind the exact merge commit"
+            exit 1
+          }
+          STATUSES=$(gh api --paginate "repos/$REPOSITORY/commits/$MERGE_COMMIT_SHA/statuses?per_page=100" | jq -s 'add')
+          if jq -e --arg context "$CONTEXT" 'any(.[]; .context == $context)' <<< "$STATUSES" >/dev/null; then
+            echo "::error::Existing durable provider sync status refuses duplicate execution"
+            exit 1
+          fi
           gh api --method POST "repos/$REPOSITORY/statuses/$MERGE_COMMIT_SHA" \
             -f state=pending -f context="$CONTEXT" \
             -f description='Correlated provider sync is running' \
             -f target_url="https://github.com/$REPOSITORY/actions/runs/${{ github.run_id }}"
+          echo "owns_reservation=true" >> "$GITHUB_OUTPUT"
 
       - name: Generate GitHub App Token
         id: app-token
@@ -296,6 +321,7 @@ jobs:
           BASE_SHA: ${{ steps.last_sync.outputs.base_sha }}
           BASE_RUN_CREATED_AT: ${{ steps.last_sync.outputs.base_run_created_at }}
           HEAD_SHA: ${{ github.sha }}
+          SYNC_COMMIT_SHA: ${{ steps.trusted-correlation.outputs.sync_commit_sha }}
           INPUT_SLUGS: ${{ inputs.slugs }}
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -305,7 +331,7 @@ jobs:
             # Resolve against the immutable workflow commit. A mutable self-hosted
             # checkout may not have a skills/ directory at all.
             CHANGED=$(node ./scripts/resolve-manual-skills.mjs \
-              --commit "$HEAD_SHA" \
+              --commit "$SYNC_COMMIT_SHA" \
               --skills "$INPUT_SLUGS")
             echo "Resolved manual skill paths: $CHANGED"
             echo "mode=manual-slugs" >> $GITHUB_OUTPUT
@@ -435,10 +461,11 @@ jobs:
         if: steps.changes.outputs.skip_sync != 'true'
         env:
           CHANGED_SKILLS: ${{ steps.changes.outputs.changed_skills }}
+          SYNC_COMMIT_SHA: ${{ steps.trusted-correlation.outputs.sync_commit_sha }}
         run: |
           set -euo pipefail
           node ./scripts/materialize-changed-skills.mjs \
-            --commit "$GITHUB_SHA" \
+            --commit "$SYNC_COMMIT_SHA" \
             --skills "$CHANGED_SKILLS"
 
       - name: Sync skills to Supabase
@@ -453,6 +480,7 @@ jobs:
           SECURITY_NOTIFICATIONS_ENABLED: ${{ vars.SECURITY_NOTIFICATIONS_ENABLED || 'false' }}
           PUBLIC_SITE_URL: https://skillstore.io
           AUTOMATION_API_KEY: ${{ secrets.SECURITY_ATTESTATION_AUTOMATION_KEY }}
+          SYNC_COMMIT_SHA: ${{ steps.trusted-correlation.outputs.sync_commit_sha }}
         run: |
           echo "Sync mode: $SYNC_MODE"
           echo "Syncing skills: $CHANGED_SKILLS"
@@ -518,7 +546,7 @@ jobs:
               "$GITHUB_WORKSPACE/skillstore-cli" skill sync \
                 --slugs "$paths" \
                 --concurrency "$concurrency" \
-                --marketplace-commit "$GITHUB_SHA" 2>&1 | tee "$output_file"
+                --marketplace-commit "$SYNC_COMMIT_SHA" 2>&1 | tee "$output_file"
             local rc=${PIPESTATUS[0]}
             # Keep errexit disabled until the caller captures rc. Returning a
             # non-zero status with errexit enabled exits before retry handling.
@@ -558,7 +586,22 @@ jobs:
             exit 1
           fi
 
-          printf '%s\n' "$SYNCED_SLUGS" | tr ',' '\n' | sed '/^$/d' | sort -u > synced-slugs.txt
+          printf '%s\n' "$SYNCED_SLUGS" | tr ',' '\n' | sed '/^$/d' | LC_ALL=C sort -u > synced-slugs.txt
+          : > expected-synced-slugs.txt
+          for skill_path in $CHANGED_SKILLS; do
+            report_path="skills/$skill_path/skill-report.json"
+            test -f "$report_path" && test ! -L "$report_path" || {
+              echo "::error::materialized Skill report is missing or unsafe: $report_path"
+              exit 1
+            }
+            jq -er '.meta.slug | select(type == "string" and test("^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$"))' \
+              "$report_path" >> expected-synced-slugs.txt
+          done
+          LC_ALL=C sort -u -o expected-synced-slugs.txt expected-synced-slugs.txt
+          diff -u expected-synced-slugs.txt synced-slugs.txt || {
+            echo "::error::skillstore-cli reported a different synced slug set than requested"
+            exit 1
+          }
           SYNCED_COUNT=$(wc -l < synced-slugs.txt | tr -d ' ')
           echo "synced_count=$SYNCED_COUNT" >> "$GITHUB_OUTPUT"
           echo "::notice::Synced $SYNCED_COUNT skill(s); slug payload saved to artifact input"
@@ -951,7 +994,7 @@ jobs:
       - name: Record durable correlated sync result
         if: >-
           always() &&
-          ((inputs.correlation_id != '' && inputs.merge_commit_sha != '') ||
+          ((inputs.correlation_id != '' && inputs.merge_commit_sha != '' && steps.provider_sync_claim.outputs.owns_reservation == 'true') ||
            (github.event_name == 'workflow_run' && startsWith(github.event.workflow_run.display_title, 'Publication submission-pr-')))
         env:
           GH_TOKEN: ${{ github.token }}
