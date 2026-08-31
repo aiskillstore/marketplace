@@ -1,17 +1,23 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { test } from 'node:test';
 import {
   AutoMergeBlockedError,
   AutoMergeUnknownEffectError,
   GitHubApi,
   latestStatusesByContext,
+  resolveWorkflowPrNumber,
   runAutoMerge,
+  runRecoverySweep,
   validateSnapshot,
 } from '../auto-merge-trusted-skill-pr.mjs';
 
 const REPO = { id: 9001, full_name: 'aiskillstore/marketplace', default_branch: 'main' };
 const HEAD = 'a'.repeat(40);
 const BASE = 'b'.repeat(40);
+const MERGE = 'd'.repeat(40);
+const SOURCE_DIGEST = 'ca9a8698b31c5d2f7e83762e1debad971057946329aa47cc81ac2f36d73cb9a9';
+const MULTI_SOURCE_DIGEST = '4c9b6e03bb42455445bb3db770c886b045b29599e57aed5568b783e168d31730';
 const ROOT = 'pending/example/skill';
 const SOURCE_ROOT = 'skills/example/skill';
 
@@ -79,7 +85,6 @@ function snapshot(overrides = {}) {
     reports: [{
       path: `${ROOT}/skill-report.json`,
       sha: '2'.repeat(40),
-      securityAudit: { is_blocked: false, safe_to_publish: true },
     }],
     basePendingExists: false,
     baseSkillRootsExist: false,
@@ -104,7 +109,6 @@ function sourceMonitorSnapshot(overrides = {}) {
   value.reports = [{
     path: `${SOURCE_ROOT}/skill-report.json`,
     sha: '4'.repeat(40),
-    securityAudit: { is_blocked: false, safe_to_publish: true },
   }];
   return structuredClone(Object.assign(value, overrides));
 }
@@ -277,7 +281,6 @@ test('qualifies multiple canonical pending Skill roots when every root has a bou
   value.reports.push({
     path: `${secondRoot}/skill-report.json`,
     sha: '4'.repeat(40),
-    securityAudit: { is_blocked: false, safe_to_publish: true },
   });
   assert.deepEqual(validateSnapshot(value).roots, [ROOT, secondRoot].sort());
 });
@@ -305,6 +308,9 @@ function fakeApi(sequence) {
     async readCommit(sha) {
       return { sha, parents: [{ sha: HEAD }, { sha: BASE }] };
     },
+    async isCommitAncestor(ancestorSha, descendantSha) {
+      return ancestorSha === descendantSha;
+    },
     async sleep() {},
     async updateBranch(number, headSha) {
       calls.push(['update', number, headSha]);
@@ -314,11 +320,13 @@ function fakeApi(sequence) {
       calls.push(['merge', number, headSha, method]);
       return { merged: true, sha: 'd'.repeat(40), message: 'Pull Request successfully merged' };
     },
-    async dispatchPublication(number) {
-      calls.push(['dispatch-publication', number]);
+    async dispatchPublication(...args) {
+      calls.push(['dispatch-publication', ...args]);
+      return { outcome: 'PUBLICATION_DISPATCH_CONFIRMED' };
     },
     async dispatchProviderSync(...args) {
       calls.push(['dispatch-provider-sync', ...args]);
+      return { outcome: 'PROVIDER_SYNC_DISPATCH_CONFIRMED' };
     },
   };
 }
@@ -331,15 +339,15 @@ test('rejects base drift before the effect and performs no mutation', async () =
   assert.deepEqual(api.calls, []);
 });
 
-test('returns a harmless no-op for the duplicate prerequisite event after merge', async () => {
+test('reconciles publication for an already merged trusted submission', async () => {
   const merged = snapshot();
   merged.pr.state = 'closed';
   merged.pr.merged = true;
   merged.pr.merge_commit_sha = 'd'.repeat(40);
   const api = fakeApi([merged]);
   const result = await runAutoMerge(api, { workflowRunId: 123 });
-  assert.equal(result.outcome, 'ALREADY_MERGED');
-  assert.deepEqual(api.calls, []);
+  assert.equal(result.outcome, 'PUBLICATION_DISPATCH_CONFIRMED');
+  assert.deepEqual(api.calls, [['dispatch-publication', 42, HEAD, 'd'.repeat(40)]]);
 });
 
 test('waits for transient GitHub mergeability before qualifying and updating a behind PR', async () => {
@@ -364,7 +372,7 @@ test('revalidates immediately before exact-head ordinary merge and confirms auth
   merged.pr.merge_commit_sha = 'd'.repeat(40);
   const api = fakeApi([snapshot(), snapshot(), merged]);
   const result = await runAutoMerge(api, { workflowRunId: 123 });
-  assert.deepEqual(api.calls, [['merge', 42, HEAD, 'merge'], ['dispatch-publication', 42]]);
+  assert.deepEqual(api.calls, [['merge', 42, HEAD, 'merge'], ['dispatch-publication', 42, HEAD, 'd'.repeat(40)]]);
   assert.deepEqual(result, {
     outcome: 'MERGED_AND_PUBLICATION_DISPATCHED',
     prNumber: 42,
@@ -372,6 +380,17 @@ test('revalidates immediately before exact-head ordinary merge and confirms auth
     mergeCommitSha: 'd'.repeat(40),
     classification: 'NEW_SKILL',
   });
+});
+
+test('scheduled recovery performs only the merge effect and defers publication reconciliation', async () => {
+  const merged = snapshot();
+  merged.pr.state = 'closed';
+  merged.pr.merged = true;
+  merged.pr.merge_commit_sha = 'd'.repeat(40);
+  const api = fakeApi([snapshot(), snapshot(), merged]);
+  const result = await runAutoMerge(api, { workflowRunId: 123, deferPostMergeDispatch: true });
+  assert.equal(result.outcome, 'MERGED_AWAITING_PUBLICATION_RECONCILIATION');
+  assert.deepEqual(api.calls, [['merge', 42, HEAD, 'merge']]);
 });
 
 test('update-branch uses expected exact head through the event-capable update credential and awaits fresh CI', async () => {
@@ -385,6 +404,67 @@ test('update-branch uses expected exact head through the event-capable update cr
   assert.deepEqual(api.calls, [['update', 42, HEAD]]);
   assert.equal(result.outcome, 'UPDATE_CONFIRMED_AWAITING_CI');
   assert.equal(result.newHeadSha, 'e'.repeat(40));
+});
+
+test('confirms update-branch against the fresh base readback when main advances after pre-effect validation', async () => {
+  const behind = snapshot();
+  behind.pr.mergeable_state = 'behind';
+  const changed = snapshot();
+  changed.pr.head.sha = 'e'.repeat(40);
+  changed.pr.base.sha = 'c'.repeat(40);
+  const api = fakeApi([behind, behind, changed.pr]);
+  api.readCommit = async (sha) => ({ sha, parents: [{ sha: HEAD }, { sha: changed.pr.base.sha }] });
+  const result = await runAutoMerge(api, { workflowRunId: 123 });
+  assert.equal(result.outcome, 'UPDATE_CONFIRMED_AWAITING_CI');
+  assert.equal(result.newHeadSha, changed.pr.head.sha);
+});
+
+test('confirms update when the update base is an ancestor of a twice-advanced main tip', async () => {
+  const behind = snapshot();
+  behind.pr.mergeable_state = 'behind';
+  const updateBase = 'c'.repeat(40);
+  const currentBase = 'd'.repeat(40);
+  const changed = snapshot();
+  changed.pr.head.sha = 'e'.repeat(40);
+  changed.pr.base.sha = currentBase;
+  const api = fakeApi([behind, behind, changed.pr]);
+  api.readCommit = async (sha) => ({ sha, parents: [{ sha: HEAD }, { sha: updateBase }] });
+  api.isCommitAncestor = async (ancestorSha, descendantSha) => ancestorSha === updateBase && descendantSha === currentBase;
+  const result = await runAutoMerge(api, { workflowRunId: 123 });
+  assert.equal(result.outcome, 'UPDATE_CONFIRMED_AWAITING_CI');
+  assert.equal(result.newHeadSha, changed.pr.head.sha);
+});
+
+test('rejects a new-head second parent that is not on the trusted main lineage', async () => {
+  const behind = snapshot();
+  behind.pr.mergeable_state = 'behind';
+  const unrelated = 'c'.repeat(40);
+  const currentBase = 'd'.repeat(40);
+  const changed = snapshot();
+  changed.pr.head.sha = 'e'.repeat(40);
+  changed.pr.base.sha = currentBase;
+  const api = fakeApi([behind, behind, changed.pr]);
+  api.readCommit = async (sha) => ({ sha, parents: [{ sha: HEAD }, { sha: unrelated }] });
+  api.isCommitAncestor = async () => false;
+  await assert.rejects(() => runAutoMerge(api, { workflowRunId: 123 }), AutoMergeUnknownEffectError);
+  assert.equal(api.calls.filter(([kind]) => kind === 'update').length, 1);
+});
+
+test('retries a transient new-head commit read and returns confirmed instead of UNKNOWN', async () => {
+  const behind = snapshot();
+  behind.pr.mergeable_state = 'behind';
+  const changed = snapshot();
+  changed.pr.head.sha = 'e'.repeat(40);
+  const api = fakeApi([behind, behind, changed.pr, changed.pr]);
+  let reads = 0;
+  api.readCommit = async (sha) => {
+    reads += 1;
+    if (reads === 1) throw new TypeError('transient commit read failure');
+    return { sha, parents: [{ sha: HEAD }, { sha: BASE }] };
+  };
+  const result = await runAutoMerge(api, { workflowRunId: 123 });
+  assert.equal(result.outcome, 'UPDATE_CONFIRMED_AWAITING_CI');
+  assert.equal(reads, 2);
 });
 
 test('an unrelated concurrent head change cannot confirm update-branch', async () => {
@@ -415,7 +495,7 @@ test('source-monitor merge dispatches exact changed Skill roots to provider sync
   const result = await runAutoMerge(api, { workflowRunId: 123 });
   assert.deepEqual(api.calls, [
     ['merge', 42, HEAD, 'merge'],
-    ['dispatch-provider-sync', 42, HEAD, [SOURCE_ROOT]],
+    ['dispatch-provider-sync', 42, HEAD, MERGE, [SOURCE_ROOT]],
   ]);
   assert.deepEqual(result, {
     outcome: 'MERGED_AND_PROVIDER_SYNC_DISPATCHED',
@@ -426,18 +506,405 @@ test('source-monitor merge dispatches exact changed Skill roots to provider sync
   });
 });
 
-test('provider sync dispatch binds canonical source-monitor roots and idempotency key to exact manual slugs', async () => {
+test('workflow payload selects its exact PR even when another PR shares the head', () => {
+  assert.equal(resolveWorkflowPrNumber(
+    [{ number: 42 }],
+    [{ number: 42 }, { number: 43 }],
+  ), 42);
+  assert.equal(resolveWorkflowPrNumber([], [{ number: 42 }]), 42);
+  assert.throws(() => resolveWorkflowPrNumber([], [{ number: 42 }, { number: 43 }]), /exactly one PR/);
+  assert.throws(() => resolveWorkflowPrNumber([{ number: 42 }, { number: 43 }], [{ number: 42 }]), /exactly one PR/);
+});
+
+test('publication dispatch claim prevents a second POST after an accepted but unobserved dispatch', async () => {
+  const originalFetch = globalThis.fetch;
+  const observed = [];
+  let claim;
+  globalThis.fetch = async (url, options = {}) => {
+    const method = options.method ?? 'GET';
+    observed.push({ url: String(url), method, body: options.body });
+    if (String(url).includes('/statuses')) return Response.json([]);
+    if (String(url).includes('/actions/workflows/on-pr-merge.yml/runs')) return Response.json({ workflow_runs: [] });
+    if (String(url).includes('/git/ref/tags/agentcrew-dispatch-claims/publication/')) {
+      return claim ? Response.json({ ref: claim.ref, object: { type: 'commit', sha: MERGE } }) : Response.json({}, { status: 404 });
+    }
+    if (String(url).endsWith('/git/refs') && method === 'POST') {
+      claim = JSON.parse(options.body);
+      return Response.json({ ref: claim.ref, object: { type: 'commit', sha: MERGE } }, { status: 201 });
+    }
+    if (String(url).endsWith('/actions/workflows/on-pr-merge.yml/dispatches') && method === 'POST') {
+      return new Response(null, { status: 204 });
+    }
+    throw new Error(`unexpected request: ${method} ${url}`);
+  };
+  try {
+    const api = new GitHubApi({ token: 'test-token', updateToken: 'test-update-token', repository: REPO.full_name, currentRunId: 999 });
+    api.sleep = async () => {};
+    await assert.rejects(() => api.dispatchPublication(42, HEAD, MERGE), AutoMergeUnknownEffectError);
+    const secondStart = observed.length;
+    await assert.rejects(() => api.dispatchPublication(42, HEAD, MERGE), AutoMergeUnknownEffectError);
+    const posts = observed.filter(({ method }) => method === 'POST');
+    assert.equal(posts.filter(({ url }) => url.endsWith('/git/refs')).length, 1);
+    assert.equal(posts.filter(({ url }) => url.endsWith('/actions/workflows/on-pr-merge.yml/dispatches')).length, 1);
+    assert.equal(observed.slice(secondStart).filter(({ method }) => method === 'POST').length, 0);
+    assert.equal(claim.sha, MERGE);
+    assert.match(claim.ref, /^refs\/tags\/agentcrew-dispatch-claims\/publication\/[0-9a-f]{64}$/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('provider sync dispatch claim prevents a second POST after an accepted but unobserved dispatch', async () => {
+  const originalFetch = globalThis.fetch;
+  const observed = [];
+  let claim;
+  globalThis.fetch = async (url, options = {}) => {
+    const method = options.method ?? 'GET';
+    observed.push({ url: String(url), method, body: options.body });
+    if (String(url).includes('/statuses')) return Response.json([]);
+    if (String(url).includes('/actions/workflows/sync-to-supabase.yml/runs')) return Response.json({ workflow_runs: [] });
+    if (String(url).includes('/git/ref/tags/agentcrew-dispatch-claims/provider-sync/')) {
+      return claim ? Response.json({ ref: claim.ref, object: { type: 'commit', sha: MERGE } }) : Response.json({}, { status: 404 });
+    }
+    if (String(url).endsWith('/git/refs') && method === 'POST') {
+      claim = JSON.parse(options.body);
+      return Response.json({ ref: claim.ref, object: { type: 'commit', sha: MERGE } }, { status: 201 });
+    }
+    if (String(url).endsWith('/actions/workflows/sync-to-supabase.yml/dispatches') && method === 'POST') {
+      return new Response(null, { status: 204 });
+    }
+    throw new Error(`unexpected request: ${method} ${url}`);
+  };
+  try {
+    const api = new GitHubApi({ token: 'test-token', updateToken: 'test-update-token', repository: REPO.full_name, currentRunId: 999 });
+    api.sleep = async () => {};
+    await assert.rejects(() => api.dispatchProviderSync(42, HEAD, MERGE, [SOURCE_ROOT]), AutoMergeUnknownEffectError);
+    const secondStart = observed.length;
+    await assert.rejects(() => api.dispatchProviderSync(42, HEAD, MERGE, [SOURCE_ROOT]), AutoMergeUnknownEffectError);
+    const posts = observed.filter(({ method }) => method === 'POST');
+    assert.equal(posts.filter(({ url }) => url.endsWith('/git/refs')).length, 1);
+    assert.equal(posts.filter(({ url }) => url.endsWith('/actions/workflows/sync-to-supabase.yml/dispatches')).length, 1);
+    assert.equal(observed.slice(secondStart).filter(({ method }) => method === 'POST').length, 0);
+    assert.equal(claim.sha, MERGE);
+    assert.match(claim.ref, /^refs\/tags\/agentcrew-dispatch-claims\/provider-sync\/[0-9a-f]{64}$/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('a definite dispatch rejection is durably recorded and is not retried', async () => {
+  const originalFetch = globalThis.fetch;
+  const observed = [];
+  let claim;
+  let failureStatus;
+  globalThis.fetch = async (url, options = {}) => {
+    const method = options.method ?? 'GET';
+    observed.push({ url: String(url), method, body: options.body });
+    if (String(url).includes(`/commits/${MERGE}/statuses`)) {
+      return Response.json(failureStatus ? [failureStatus] : []);
+    }
+    if (String(url).endsWith(`/statuses/${MERGE}`) && method === 'POST') {
+      const body = JSON.parse(options.body);
+      failureStatus = { context: body.context, state: body.state };
+      return Response.json({ id: 1, ...failureStatus }, { status: 201 });
+    }
+    if (String(url).includes('/actions/workflows/on-pr-merge.yml/runs')) return Response.json({ workflow_runs: [] });
+    if (String(url).includes('/git/ref/tags/agentcrew-dispatch-claims/publication/')) {
+      return claim ? Response.json({ ref: claim.ref, object: { type: 'commit', sha: MERGE } }) : Response.json({}, { status: 404 });
+    }
+    if (String(url).endsWith('/git/refs') && method === 'POST') {
+      claim = JSON.parse(options.body);
+      return Response.json({ ref: claim.ref, object: { type: 'commit', sha: MERGE } }, { status: 201 });
+    }
+    if (String(url).endsWith('/actions/workflows/on-pr-merge.yml/dispatches') && method === 'POST') {
+      return Response.json({ message: 'rejected' }, { status: 422 });
+    }
+    throw new Error(`unexpected request: ${method} ${url}`);
+  };
+  try {
+    const api = new GitHubApi({ token: 'test-token', updateToken: 'test-update-token', repository: REPO.full_name, currentRunId: 999 });
+    api.sleep = async () => {};
+    await assert.rejects(() => api.dispatchPublication(42, HEAD, MERGE), /rejected with HTTP 422/);
+    assert.equal(failureStatus.state, 'failure');
+    const secondStart = observed.length;
+    const second = await api.dispatchPublication(42, HEAD, MERGE);
+    assert.equal(second.outcome, 'PUBLICATION_FAILED_REQUIRES_INSPECTION');
+    assert.equal(observed.slice(secondStart).filter(({ url, method }) => method === 'POST' && url.endsWith('/actions/workflows/on-pr-merge.yml/dispatches')).length, 0);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('a definite provider dispatch 404 is durably recorded and is not retried', async () => {
+  const originalFetch = globalThis.fetch;
+  const observed = [];
+  let claim;
+  let failureStatus;
+  globalThis.fetch = async (url, options = {}) => {
+    const method = options.method ?? 'GET';
+    observed.push({ url: String(url), method, body: options.body });
+    if (String(url).includes(`/commits/${MERGE}/statuses`)) {
+      return Response.json(failureStatus ? [failureStatus] : []);
+    }
+    if (String(url).endsWith(`/statuses/${MERGE}`) && method === 'POST') {
+      const body = JSON.parse(options.body);
+      failureStatus = { context: body.context, state: body.state };
+      return Response.json({ id: 1, ...failureStatus }, { status: 201 });
+    }
+    if (String(url).includes('/actions/workflows/sync-to-supabase.yml/runs')) return Response.json({ workflow_runs: [] });
+    if (String(url).includes('/git/ref/tags/agentcrew-dispatch-claims/provider-sync/')) {
+      return claim ? Response.json({ ref: claim.ref, object: { type: 'commit', sha: MERGE } }) : Response.json({}, { status: 404 });
+    }
+    if (String(url).endsWith('/git/refs') && method === 'POST') {
+      claim = JSON.parse(options.body);
+      return Response.json({ ref: claim.ref, object: { type: 'commit', sha: MERGE } }, { status: 201 });
+    }
+    if (String(url).endsWith('/actions/workflows/sync-to-supabase.yml/dispatches') && method === 'POST') {
+      return Response.json({ message: 'workflow unavailable' }, { status: 404 });
+    }
+    throw new Error(`unexpected request: ${method} ${url}`);
+  };
+  try {
+    const api = new GitHubApi({ token: 'test-token', updateToken: 'test-update-token', repository: REPO.full_name, currentRunId: 999 });
+    api.sleep = async () => {};
+    await assert.rejects(() => api.dispatchProviderSync(42, HEAD, MERGE, [SOURCE_ROOT]), /rejected with HTTP 404/);
+    assert.equal(failureStatus.state, 'failure');
+    const secondStart = observed.length;
+    const second = await api.dispatchProviderSync(42, HEAD, MERGE, [SOURCE_ROOT]);
+    assert.equal(second.outcome, 'PROVIDER_SYNC_FAILED_REQUIRES_INSPECTION');
+    assert.equal(observed.slice(secondStart).filter(({ url, method }) => method === 'POST' && url.endsWith('/actions/workflows/sync-to-supabase.yml/dispatches')).length, 0);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('publication dispatch binds exact merged identity and confirms a correlated workflow run', async () => {
   const originalFetch = globalThis.fetch;
   const observed = [];
   let dispatched = false;
+  let claim;
+  const mergeSha = 'd'.repeat(40);
   globalThis.fetch = async (url, options) => {
     observed.push({ url: String(url), options });
+    if (String(url).includes('/statuses')) return Response.json([]);
+    if (String(url).includes('/git/ref/tags/agentcrew-dispatch-claims/publication/')) {
+      return claim ? Response.json({ ref: claim.ref, object: { type: 'commit', sha: mergeSha } }) : Response.json({}, { status: 404 });
+    }
+    if (String(url).endsWith('/git/refs') && options?.method === 'POST') {
+      claim = JSON.parse(options.body);
+      return Response.json({ ref: claim.ref, object: { type: 'commit', sha: mergeSha } }, { status: 201 });
+    }
     if ((options?.method ?? 'GET') === 'POST') {
       dispatched = true;
       return new Response(null, { status: 204 });
     }
     return Response.json({ workflow_runs: dispatched ? [{
-      display_title: `Provider sync source-monitor-pr-42-${HEAD}`,
+      id: 9001,
+      event: 'workflow_dispatch',
+      status: 'queued',
+      conclusion: null,
+      display_title: `Publication submission-pr-42-${HEAD}-${mergeSha}`,
+      head_branch: 'main',
+      head_repository: { full_name: REPO.full_name },
+    }] : [] });
+  };
+  try {
+    const api = new GitHubApi({ token: 'test-token', updateToken: 'test-update-token', repository: REPO.full_name, currentRunId: 999 });
+    const result = await api.dispatchPublication(42, HEAD, mergeSha);
+    assert.equal(result.outcome, 'PUBLICATION_DISPATCH_CONFIRMED');
+    const post = observed.find(({ url, options }) => options?.method === 'POST' && url.endsWith('/actions/workflows/on-pr-merge.yml/dispatches'));
+    assert.deepEqual(JSON.parse(post.options.body), {
+      ref: 'main',
+      inputs: { pr_number: '42', correlation_id: `submission-pr-42-${HEAD}-${mergeSha}` },
+    });
+    assert.equal(observed.filter(({ url, options }) => options?.method === 'POST' && url.endsWith('/git/refs')).length, 1);
+    assert.equal(observed.filter(({ url, options }) => options?.method === 'POST' && url.endsWith('/actions/workflows/on-pr-merge.yml/dispatches')).length, 1);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('publication reconciliation does not redispatch an existing exact correlation', async () => {
+  const originalFetch = globalThis.fetch;
+  const observed = [];
+  const mergeSha = 'd'.repeat(40);
+  globalThis.fetch = async (url, options) => {
+    observed.push({ url: String(url), options });
+    if (String(url).includes('/statuses')) return Response.json([]);
+    return Response.json({ workflow_runs: [{
+      id: 9001,
+      event: 'workflow_dispatch',
+      status: 'completed',
+      conclusion: 'success',
+      display_title: `Publication submission-pr-42-${HEAD}-${mergeSha}`,
+      head_branch: 'main',
+      head_repository: { full_name: REPO.full_name },
+    }] });
+  };
+  try {
+    const api = new GitHubApi({ token: 'test-token', updateToken: 'test-update-token', repository: REPO.full_name, currentRunId: 999 });
+    const result = await api.dispatchPublication(42, HEAD, mergeSha);
+    assert.equal(result.outcome, 'PUBLICATION_ALREADY_DISPATCHED');
+    assert.equal(observed.filter(({ options }) => options?.method === 'POST').length, 0);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('durable publication success prevents replay after the Actions run is no longer listed', async () => {
+  const originalFetch = globalThis.fetch;
+  const observed = [];
+  const correlationId = `submission-pr-42-${HEAD}-${MERGE}`;
+  const context = `agentcrew/publication/${createHash('sha256').update(correlationId).digest('hex')}`;
+  globalThis.fetch = async (url, options) => {
+    observed.push({ url: String(url), options });
+    if (String(url).includes('/statuses')) return Response.json([{ context, state: 'success' }]);
+    return Response.json({ workflow_runs: [] });
+  };
+  try {
+    const api = new GitHubApi({ token: 'test-token', updateToken: 'test-update-token', repository: REPO.full_name, currentRunId: 999 });
+    const result = await api.dispatchPublication(42, HEAD, MERGE);
+    assert.equal(result.outcome, 'PUBLICATION_ALREADY_DISPATCHED');
+    assert.equal(observed.filter(({ options }) => options?.method === 'POST').length, 0);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('publication reconciliation waits on an in-progress run without another effect', async () => {
+  const originalFetch = globalThis.fetch;
+  const observed = [];
+  globalThis.fetch = async (url, options) => {
+    observed.push({ url: String(url), options });
+    if (String(url).includes('/statuses')) return Response.json([]);
+    return Response.json({ workflow_runs: [{
+      id: 9001,
+      event: 'workflow_dispatch',
+      status: 'in_progress',
+      conclusion: null,
+      display_title: `Publication submission-pr-42-${HEAD}-${MERGE}`,
+      head_branch: 'main',
+      head_repository: { full_name: REPO.full_name },
+    }] });
+  };
+  try {
+    const api = new GitHubApi({ token: 'test-token', updateToken: 'test-update-token', repository: REPO.full_name, currentRunId: 999 });
+    const result = await api.dispatchPublication(42, HEAD, MERGE);
+    assert.equal(result.outcome, 'PUBLICATION_IN_PROGRESS');
+    assert.equal(observed.filter(({ options }) => options?.method === 'POST').length, 0);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('a completed publication with pending durable status is awaiting provider sync, not active', async () => {
+  const originalFetch = globalThis.fetch;
+  const observed = [];
+  const correlationId = `submission-pr-42-${HEAD}-${MERGE}`;
+  const context = `agentcrew/publication/${createHash('sha256').update(correlationId).digest('hex')}`;
+  globalThis.fetch = async (url, options) => {
+    observed.push({ url: String(url), options });
+    if (String(url).includes('/statuses')) return Response.json([{ context, state: 'pending' }]);
+    return Response.json({ workflow_runs: [{
+      id: 9001,
+      event: 'workflow_dispatch',
+      status: 'completed',
+      conclusion: 'success',
+      display_title: `Publication ${correlationId}`,
+      head_branch: 'main',
+      head_repository: { full_name: REPO.full_name },
+    }] });
+  };
+  try {
+    const api = new GitHubApi({ token: 'test-token', updateToken: 'test-update-token', repository: REPO.full_name, currentRunId: 999 });
+    const result = await api.dispatchPublication(42, HEAD, MERGE);
+    assert.equal(result.outcome, 'PUBLICATION_AWAITING_PROVIDER_SYNC');
+    assert.equal(observed.filter(({ options }) => options?.method === 'POST').length, 0);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('a terminal failed run overrides a stale durable pending reservation', async () => {
+  const originalFetch = globalThis.fetch;
+  const observed = [];
+  const correlationId = `submission-pr-42-${HEAD}-${MERGE}`;
+  const context = `agentcrew/publication/${createHash('sha256').update(correlationId).digest('hex')}`;
+  globalThis.fetch = async (url, options) => {
+    observed.push({ url: String(url), options });
+    if (String(url).includes('/statuses')) return Response.json([{ context, state: 'pending' }]);
+    return Response.json({ workflow_runs: [{
+      id: 9001,
+      event: 'workflow_dispatch',
+      status: 'completed',
+      conclusion: 'failure',
+      display_title: `Publication ${correlationId}`,
+      head_branch: 'main',
+      head_repository: { full_name: REPO.full_name },
+    }] });
+  };
+  try {
+    const api = new GitHubApi({ token: 'test-token', updateToken: 'test-update-token', repository: REPO.full_name, currentRunId: 999 });
+    const result = await api.dispatchPublication(42, HEAD, MERGE);
+    assert.equal(result.outcome, 'PUBLICATION_FAILED_REQUIRES_INSPECTION');
+    assert.equal(observed.filter(({ options }) => options?.method === 'POST').length, 0);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('publication reconciliation fails closed on a partial failed run without replaying effects', async () => {
+  const originalFetch = globalThis.fetch;
+  const observed = [];
+  globalThis.fetch = async (url, options) => {
+    observed.push({ url: String(url), options });
+    if (String(url).includes('/statuses')) return Response.json([]);
+    if ((options?.method ?? 'GET') === 'POST') return new Response(null, { status: 201 });
+    return Response.json({ workflow_runs: [{
+      id: 9001,
+      event: 'workflow_dispatch',
+      status: 'completed',
+      conclusion: 'failure',
+      display_title: `Publication submission-pr-42-${HEAD}-${MERGE}`,
+      head_branch: 'main',
+      head_repository: { full_name: REPO.full_name },
+    }] });
+  };
+  try {
+    const api = new GitHubApi({ token: 'test-token', updateToken: 'test-update-token', repository: REPO.full_name, currentRunId: 999 });
+    const result = await api.dispatchPublication(42, HEAD, MERGE);
+    assert.equal(result.outcome, 'PUBLICATION_FAILED_REQUIRES_INSPECTION');
+    assert.equal(observed.filter(({ options }) => options?.method === 'POST').length, 0);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('provider sync dispatch binds canonical source-monitor roots and idempotency key to exact manual slugs', async () => {
+  const originalFetch = globalThis.fetch;
+  const observed = [];
+  let dispatched = false;
+  let claim;
+  globalThis.fetch = async (url, options) => {
+    observed.push({ url: String(url), options });
+    if (String(url).includes('/statuses')) return Response.json([]);
+    if (String(url).includes('/git/ref/tags/agentcrew-dispatch-claims/provider-sync/')) {
+      return claim ? Response.json({ ref: claim.ref, object: { type: 'commit', sha: MERGE } }) : Response.json({}, { status: 404 });
+    }
+    if (String(url).endsWith('/git/refs') && options?.method === 'POST') {
+      claim = JSON.parse(options.body);
+      return Response.json({ ref: claim.ref, object: { type: 'commit', sha: MERGE } }, { status: 201 });
+    }
+    if ((options?.method ?? 'GET') === 'POST') {
+      dispatched = true;
+      return new Response(null, { status: 204 });
+    }
+    return Response.json({ workflow_runs: dispatched ? [{
+      id: 9101,
+      event: 'workflow_dispatch',
+      status: 'queued',
+      conclusion: null,
+      display_title: `Provider sync source-monitor-pr-42-${HEAD}-${MERGE}-${MULTI_SOURCE_DIGEST}`,
       head_branch: 'main',
       head_repository: { full_name: REPO.full_name },
     }] : [] });
@@ -449,15 +916,16 @@ test('provider sync dispatch binds canonical source-monitor roots and idempotenc
       repository: REPO.full_name,
       currentRunId: 999,
     });
-    await api.dispatchProviderSync(42, HEAD, [SOURCE_ROOT, 'skills/flat-skill']);
-    const post = observed.find(({ options }) => options?.method === 'POST');
+    await api.dispatchProviderSync(42, HEAD, MERGE, [SOURCE_ROOT, 'skills/flat-skill']);
+    const post = observed.find(({ url, options }) => options?.method === 'POST' && url.endsWith('/actions/workflows/sync-to-supabase.yml/dispatches'));
     assert.ok(post);
     assert.equal(post.url, 'https://api.github.com/repos/aiskillstore/marketplace/actions/workflows/sync-to-supabase.yml/dispatches');
     assert.deepEqual(JSON.parse(post.options.body), {
       ref: 'main',
       inputs: {
         slugs: 'example/skill flat-skill',
-        correlation_id: `source-monitor-pr-42-${HEAD}`,
+        correlation_id: `source-monitor-pr-42-${HEAD}-${MERGE}-${MULTI_SOURCE_DIGEST}`,
+        merge_commit_sha: MERGE,
       },
     });
     assert.ok(observed.some(({ url, options }) => (options?.method ?? 'GET') === 'GET'
@@ -472,15 +940,20 @@ test('provider sync reconciliation does not redispatch an existing exact correla
   const observed = [];
   globalThis.fetch = async (url, options) => {
     observed.push({ url: String(url), options });
+    if (String(url).includes('/statuses')) return Response.json([]);
     return Response.json({ workflow_runs: [{
-      display_title: `Provider sync source-monitor-pr-42-${HEAD}`,
+      id: 9101,
+      event: 'workflow_dispatch',
+      status: 'completed',
+      conclusion: 'success',
+      display_title: `Provider sync source-monitor-pr-42-${HEAD}-${MERGE}-${SOURCE_DIGEST}`,
       head_branch: 'main',
       head_repository: { full_name: REPO.full_name },
     }] });
   };
   try {
     const api = new GitHubApi({ token: 'test-token', updateToken: 'test-update-token', repository: REPO.full_name, currentRunId: 999 });
-    await api.dispatchProviderSync(42, HEAD, [SOURCE_ROOT]);
+    await api.dispatchProviderSync(42, HEAD, MERGE, [SOURCE_ROOT]);
     assert.equal(observed.filter(({ options }) => options?.method === 'POST').length, 0);
   } finally {
     globalThis.fetch = originalFetch;
@@ -492,6 +965,7 @@ test('provider sync reconciliation finds an exact correlation on a later bounded
   const observed = [];
   globalThis.fetch = async (url, options) => {
     observed.push({ url: String(url), options });
+    if (String(url).includes('/statuses')) return Response.json([]);
     const page = Number(new URL(String(url)).searchParams.get('page'));
     if (page === 1) {
       return Response.json({ workflow_runs: Array.from({ length: 100 }, (_, index) => ({
@@ -501,14 +975,18 @@ test('provider sync reconciliation finds an exact correlation on a later bounded
       })) });
     }
     return Response.json({ workflow_runs: [{
-      display_title: `Provider sync source-monitor-pr-42-${HEAD}`,
+      id: 9101,
+      event: 'workflow_dispatch',
+      status: 'completed',
+      conclusion: 'success',
+      display_title: `Provider sync source-monitor-pr-42-${HEAD}-${MERGE}-${SOURCE_DIGEST}`,
       head_branch: 'main',
       head_repository: { full_name: REPO.full_name },
     }] });
   };
   try {
     const api = new GitHubApi({ token: 'test-token', updateToken: 'test-update-token', repository: REPO.full_name, currentRunId: 999 });
-    await api.dispatchProviderSync(42, HEAD, [SOURCE_ROOT]);
+    await api.dispatchProviderSync(42, HEAD, MERGE, [SOURCE_ROOT]);
     assert.equal(observed.filter(({ options }) => options?.method === 'POST').length, 0);
     assert.ok(observed.some(({ url }) => new URL(url).searchParams.get('page') === '2'));
   } finally {
@@ -521,6 +999,7 @@ test('provider sync reconciliation fails closed after bounded pagination without
   const observed = [];
   globalThis.fetch = async (url, options) => {
     observed.push({ url: String(url), options });
+    if (String(url).includes('/statuses')) return Response.json([]);
     return Response.json({ workflow_runs: Array.from({ length: 100 }, (_, index) => ({
       display_title: `unrelated-${index}`,
       head_branch: 'main',
@@ -529,9 +1008,9 @@ test('provider sync reconciliation fails closed after bounded pagination without
   };
   try {
     const api = new GitHubApi({ token: 'test-token', updateToken: 'test-update-token', repository: REPO.full_name, currentRunId: 999 });
-    await assert.rejects(() => api.dispatchProviderSync(42, HEAD, [SOURCE_ROOT]), /bounded limit/);
+    await assert.rejects(() => api.dispatchProviderSync(42, HEAD, MERGE, [SOURCE_ROOT]), /bounded limit/);
     assert.equal(observed.filter(({ options }) => options?.method === 'POST').length, 0);
-    assert.equal(observed.length, 30);
+    assert.equal(observed.length, 31);
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -544,8 +1023,8 @@ test('a rerun reconciles provider sync for an already merged source-monitor PR',
   merged.pr.merge_commit_sha = 'd'.repeat(40);
   const api = fakeApi([merged]);
   const result = await runAutoMerge(api, { workflowRunId: 123 });
-  assert.deepEqual(api.calls, [['dispatch-provider-sync', 42, HEAD, [SOURCE_ROOT]]]);
-  assert.equal(result.outcome, 'ALREADY_MERGED_AND_PROVIDER_SYNC_CONFIRMED');
+  assert.deepEqual(api.calls, [['dispatch-provider-sync', 42, HEAD, MERGE, [SOURCE_ROOT]]]);
+  assert.equal(result.outcome, 'PROVIDER_SYNC_DISPATCH_CONFIRMED');
 });
 
 test('confirmed source-monitor merge with failed provider sync dispatch is UNKNOWN and is never repeated', async () => {
@@ -593,4 +1072,148 @@ test('does not repeat an unknown merge effect and only trusts merged readback', 
   };
   await assert.rejects(() => runAutoMerge(api, { workflowRunId: 123 }), AutoMergeUnknownEffectError);
   assert.equal(api.calls.filter(([kind]) => kind === 'merge').length, 1);
+});
+
+test('recovery sweep performs at most one effect when it merges a clean submission', async () => {
+  const merged = snapshot();
+  merged.pr.state = 'closed';
+  merged.pr.merged = true;
+  merged.pr.merge_commit_sha = 'd'.repeat(40);
+  const api = fakeApi([snapshot(), snapshot(), merged]);
+  api.listRecoveryCandidates = async () => [
+    { prNumber: 42, headSha: HEAD, workflowRunId: 101, phase: 'OPEN' },
+  ];
+  const result = await runRecoverySweep(api);
+  assert.equal(result.outcome, 'MERGED_AWAITING_PUBLICATION_RECONCILIATION');
+  assert.deepEqual(api.calls, [['merge', 42, HEAD, 'merge']]);
+});
+
+test('recovery sweep reconciles a marker-bound merged submission without historical workflow metadata', async () => {
+  const api = fakeApi([]);
+  api.listRecoveryCandidates = async () => [{
+    prNumber: 42,
+    headSha: HEAD,
+    mergeCommitSha: 'd'.repeat(40),
+    workflowRunId: null,
+    phase: 'MERGED',
+    postMergeAction: 'publication',
+    roots: [ROOT],
+  }];
+  const result = await runRecoverySweep(api);
+  assert.equal(result.outcome, 'PUBLICATION_DISPATCH_CONFIRMED');
+  assert.deepEqual(api.calls, [['dispatch-publication', 42, HEAD, 'd'.repeat(40)]]);
+});
+
+test('recovery sweep skips ineligible historical PRs and performs only the first eligible effect', async () => {
+  const unsafe = snapshot();
+  unsafe.files.push({ filename: 'scripts/injected.mjs', status: 'added', sha: '9'.repeat(40) });
+  unsafe.pr.changed_files = unsafe.files.length;
+  const behind = snapshot();
+  behind.pr.number = 43;
+  behind.workflowRun.pull_requests = [{ number: 43 }];
+  behind.pr.mergeable_state = 'behind';
+  const changed = structuredClone(behind);
+  changed.pr.head.sha = 'e'.repeat(40);
+  const api = fakeApi([unsafe, behind, behind, changed.pr]);
+  api.listRecoveryCandidates = async () => [
+    { prNumber: 42, headSha: HEAD, workflowRunId: 101 },
+    { prNumber: 43, headSha: HEAD, workflowRunId: 102 },
+    { prNumber: 44, headSha: HEAD, workflowRunId: 103 },
+  ];
+  api.readCommit = async (sha) => ({ sha, parents: [{ sha: HEAD }, { sha: BASE }] });
+  const result = await runRecoverySweep(api);
+  assert.equal(result.outcome, 'UPDATE_CONFIRMED_AWAITING_CI');
+  assert.equal(result.prNumber, 43);
+  assert.deepEqual(api.calls, [['update', 43, HEAD]]);
+});
+
+test('recovery sweep stops at the oldest waiting candidate and never updates a later behind PR', async () => {
+  const waiting = snapshot();
+  waiting.checks = waiting.checks.filter((check) => check.name !== 'validate');
+  const later = snapshot();
+  later.pr.number = 43;
+  later.workflowRun.pull_requests = [{ number: 43 }];
+  later.pr.mergeable_state = 'behind';
+  const api = fakeApi([waiting, later, later]);
+  api.listRecoveryCandidates = async () => [
+    { prNumber: 42, headSha: HEAD, workflowRunId: 101 },
+    { prNumber: 43, headSha: HEAD, workflowRunId: 102 },
+  ];
+  const result = await runRecoverySweep(api);
+  assert.match(result.reason, /missing required check validate/);
+  assert.equal(result.outcome, 'WAITING_CI');
+  assert.deepEqual(api.calls, []);
+});
+
+test('recovery sweep reports oldest-candidate CI failure instead of scanning later PRs', async () => {
+  const failed = snapshot();
+  failed.checks.find((check) => check.name === 'validate').conclusion = 'failure';
+  const later = snapshot();
+  later.pr.number = 43;
+  later.workflowRun.pull_requests = [{ number: 43 }];
+  later.pr.mergeable_state = 'behind';
+  const api = fakeApi([failed, later, later]);
+  api.listRecoveryCandidates = async () => [
+    { prNumber: 42, headSha: HEAD, workflowRunId: 101 },
+    { prNumber: 43, headSha: HEAD, workflowRunId: 102 },
+  ];
+  await assert.rejects(() => runRecoverySweep(api), /check validate concluded failure/);
+  assert.deepEqual(api.calls, []);
+});
+
+test('recovery sweep reports oldest-candidate conflict instead of scanning later PRs', async () => {
+  const conflicted = snapshot();
+  conflicted.pr.mergeable = false;
+  conflicted.pr.mergeable_state = 'dirty';
+  const later = snapshot();
+  later.pr.number = 43;
+  later.workflowRun.pull_requests = [{ number: 43 }];
+  later.pr.mergeable_state = 'behind';
+  const api = fakeApi([conflicted, later, later]);
+  api.listRecoveryCandidates = async () => [
+    { prNumber: 42, headSha: HEAD, workflowRunId: 101 },
+    { prNumber: 43, headSha: HEAD, workflowRunId: 102 },
+  ];
+  await assert.rejects(() => runRecoverySweep(api), /PR is not mergeable/);
+  assert.deepEqual(api.calls, []);
+});
+
+test('recovery sweep stops before later PRs when the oldest trusted seed has no validation run yet', async () => {
+  const api = fakeApi([]);
+  api.listRecoveryCandidates = async () => [
+    { prNumber: 42, headSha: HEAD, workflowRunId: null, phase: 'OPEN' },
+    { prNumber: 43, headSha: HEAD, workflowRunId: 102, phase: 'OPEN' },
+  ];
+  assert.deepEqual(await runRecoverySweep(api), {
+    outcome: 'WAITING_CI',
+    prNumber: 42,
+    headSha: HEAD,
+    reason: 'missing exact-head Validate Marketplace run',
+  });
+  assert.deepEqual(api.calls, []);
+});
+
+test('recovery sweep skips a completed publication awaiting provider sync and performs one later effect', async () => {
+  const api = fakeApi([]);
+  api.listRecoveryCandidates = async () => [
+    { prNumber: 42, headSha: HEAD, mergeCommitSha: MERGE, phase: 'MERGED', postMergeAction: 'publication', roots: [ROOT] },
+    { prNumber: 43, headSha: HEAD, mergeCommitSha: 'e'.repeat(40), phase: 'MERGED', postMergeAction: 'provider_sync', roots: [SOURCE_ROOT] },
+  ];
+  api.dispatchPublication = async (...args) => {
+    api.calls.push(['dispatch-publication', ...args]);
+    return { outcome: 'PUBLICATION_AWAITING_PROVIDER_SYNC', workflowRunId: 9001 };
+  };
+  const result = await runRecoverySweep(api);
+  assert.equal(result.outcome, 'PROVIDER_SYNC_DISPATCH_CONFIRMED');
+  assert.deepEqual(api.calls, [
+    ['dispatch-publication', 42, HEAD, MERGE],
+    ['dispatch-provider-sync', 43, HEAD, 'e'.repeat(40), [SOURCE_ROOT]],
+  ]);
+});
+
+test('recovery sweep is a no-op when no trusted open candidate is recoverable', async () => {
+  const api = fakeApi([]);
+  api.listRecoveryCandidates = async () => [];
+  assert.deepEqual(await runRecoverySweep(api), { outcome: 'NO_ELIGIBLE_RECOVERY' });
+  assert.deepEqual(api.calls, []);
 });
