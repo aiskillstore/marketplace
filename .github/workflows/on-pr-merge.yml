@@ -1,21 +1,30 @@
 name: On PR Merge - Approve Skill
+run-name: "${{ github.event_name == 'workflow_dispatch' && format('Publication {0}', inputs.correlation_id) || format('Publish merged PR #{0}', github.event.pull_request.number) }}"
 
 on:
-  pull_request:
-    types: [closed]
-    branches: [main]
   workflow_dispatch:
     inputs:
       pr_number:
         description: Exact merged submission PR to recover
         required: true
         type: string
+      correlation_id:
+        description: Exact idempotency correlation bound to the merged PR identity
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  pull-requests: read
+  statuses: write
+
+concurrency:
+  group: publication-${{ inputs.correlation_id }}
+  cancel-in-progress: false
 
 jobs:
   approve-skill:
-    if: >-
-      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
-      (github.event.pull_request.merged == true && contains(github.event.pull_request.labels.*.name, 'pending-review'))
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
     runs-on: self-hosted
     timeout-minutes: 30
     steps:
@@ -23,7 +32,9 @@ jobs:
         id: freeze_pr
         env:
           GH_TOKEN: ${{ github.token }}
-          PR_NUMBER: ${{ github.event_name == 'workflow_dispatch' && inputs.pr_number || github.event.pull_request.number }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+          CORRELATION_ID: ${{ inputs.correlation_id }}
+          EVENT_NAME: ${{ github.event_name }}
           REPOSITORY: ${{ github.repository }}
         run: |
           set -euo pipefail
@@ -32,26 +43,35 @@ jobs:
             exit 1
           }
           PR=$(gh api "repos/$REPOSITORY/pulls/$PR_NUMBER")
-          jq -e --arg repository "$REPOSITORY" '
+          jq -e --arg repository "$REPOSITORY" --arg event_name "$EVENT_NAME" '
             .merged == true and
             .base.ref == "main" and
             .user.id == 254047988 and
             .user.login == "ai-skill-store[bot]" and
             .head.repo.full_name == $repository and
             (.head.ref | startswith("submission/")) and
-            any(.labels[]; .name == "pending-review")
+            ($event_name == "workflow_dispatch" or any(.labels[]; .name == "pending-review"))
           ' <<< "$PR" >/dev/null || {
             echo "::error::Merged pending-review PR does not have trusted submission provenance"
             exit 1
           }
 
           MERGE_COMMIT_SHA=$(jq -er '.merge_commit_sha' <<< "$PR")
+          HEAD_SHA=$(jq -er '.head.sha' <<< "$PR")
           PR_URL=$(jq -er '.html_url' <<< "$PR")
           MERGED_BY=$(jq -er '.merged_by.login' <<< "$PR")
           SUBMISSION_ID=$(jq -r '.body // ""' <<< "$PR" \
             | grep -oE 'Submission ID.*`[0-9a-f-]{36}`' \
             | grep -oE '[0-9a-f-]{36}' || true)
           [[ "$MERGE_COMMIT_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$HEAD_SHA" =~ ^[0-9a-f]{40}$ ]]
+          if [ "$EVENT_NAME" = workflow_dispatch ]; then
+            EXPECTED_CORRELATION_ID="submission-pr-${PR_NUMBER}-${HEAD_SHA}-${MERGE_COMMIT_SHA}"
+            [ "$CORRELATION_ID" = "$EXPECTED_CORRELATION_ID" ] || {
+              echo "::error::Publication correlation does not match the authoritative merged PR identity"
+              exit 1
+            }
+          fi
           [ "$PR_URL" = "https://github.com/$REPOSITORY/pull/$PR_NUMBER" ]
           [[ "$MERGED_BY" =~ ^([A-Za-z0-9-]+|github-actions\[bot\])$ ]]
           {
@@ -61,6 +81,36 @@ jobs:
             echo "pr_url=$PR_URL"
             echo "merged_by=$MERGED_BY"
           } >> "$GITHUB_OUTPUT"
+
+      - name: Verify durable publication dispatch claim
+        id: publication_claim
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CORRELATION_ID: ${{ inputs.correlation_id }}
+          MERGE_COMMIT_SHA: ${{ steps.freeze_pr.outputs.merge_commit_sha }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          DIGEST=$(printf '%s' "$CORRELATION_ID" | sha256sum | awk '{print $1}')
+          CLAIM_REF="tags/agentcrew-dispatch-claims/publication/$DIGEST"
+          CONTEXT="agentcrew/publication/$DIGEST"
+          CLAIM=$(gh api "repos/$REPOSITORY/git/ref/$CLAIM_REF")
+          jq -e --arg ref "refs/$CLAIM_REF" --arg merge_sha "$MERGE_COMMIT_SHA" '
+            .ref == $ref and .object.type == "commit" and .object.sha == $merge_sha
+          ' <<< "$CLAIM" >/dev/null || {
+            echo "::error::Durable publication dispatch claim does not bind the exact merge commit"
+            exit 1
+          }
+          STATUSES=$(gh api --paginate "repos/$REPOSITORY/commits/$MERGE_COMMIT_SHA/statuses?per_page=100" | jq -s 'add')
+          if jq -e --arg context "$CONTEXT" 'any(.[]; .context == $context)' <<< "$STATUSES" >/dev/null; then
+            echo "::error::Existing durable publication status refuses duplicate execution"
+            exit 1
+          fi
+          gh api --method POST "repos/$REPOSITORY/statuses/$MERGE_COMMIT_SHA" \
+            -f state=pending -f context="$CONTEXT" \
+            -f description='Correlated publication is running' \
+            -f target_url="https://github.com/$REPOSITORY/actions/runs/${{ github.run_id }}"
+          echo "owns_reservation=true" >> "$GITHUB_OUTPUT"
 
       - name: Generate GitHub App Token
         id: app-token
@@ -390,3 +440,24 @@ jobs:
             -H "User-Agent: GitHub-Actions/SkillstoreBot" \
             -H "X-Skillstore-Callback: true" \
             -d "$PAYLOAD"
+
+      - name: Record durable publication result
+        if: always() && steps.publication_claim.outputs.owns_reservation == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CORRELATION_ID: ${{ inputs.correlation_id }}
+          MERGE_COMMIT_SHA: ${{ steps.freeze_pr.outputs.merge_commit_sha }}
+          REPOSITORY: ${{ github.repository }}
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          set -euo pipefail
+          STATE=failure
+          DESCRIPTION='Correlated publication failed; inspection required'
+          if [ "$JOB_STATUS" = success ]; then
+            STATE=pending
+            DESCRIPTION='Publication completed; awaiting provider sync'
+          fi
+          CONTEXT="agentcrew/publication/$(printf '%s' "$CORRELATION_ID" | sha256sum | awk '{print $1}')"
+          gh api --method POST "repos/$REPOSITORY/statuses/$MERGE_COMMIT_SHA" \
+            -f state="$STATE" -f context="$CONTEXT" -f description="$DESCRIPTION" \
+            -f target_url="https://github.com/$REPOSITORY/actions/runs/${{ github.run_id }}"
