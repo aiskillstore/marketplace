@@ -360,10 +360,11 @@ jobs:
               LAST_CREATED_AT="$created_at"
               break
             fi
-            if [ "$SYNC_CONCLUSION" = failure ] || [ "$SYNC_CONCLUSION" = cancelled ]; then
-              echo "::error::Previous provider sync run $run_id has an unknown partial effect; inspection is required before replay"
-              exit 1
+            if [ "$run_conclusion" = skipped ]; then
+              continue
             fi
+            echo "::error::Previous provider sync run $run_id lacks closed provider evidence ($SYNC_CONCLUSION); inspection is required before replay"
+            exit 1
           done < <(jq -r '.workflow_runs[] | [.id, .head_sha, .created_at, .conclusion] | @tsv' <<< "$RUNS")
 
           if [ -z "$LAST_SHA" ] || [ -z "$LAST_CREATED_AT" ]; then
@@ -412,11 +413,11 @@ jobs:
             jq -n '[]' > "$RECOVERIES_FILE"
 
             if [ -n "$BASE_RUN_CREATED_AT" ]; then
-              RUNS_RESPONSE=$(gh api "repos/${{ github.repository }}/actions/workflows/sync-to-supabase.yml/runs?status=success&event=workflow_dispatch&per_page=$MAX_RECOVERY_RUNS")
+              RUNS_RESPONSE=$(gh api "repos/${{ github.repository }}/actions/workflows/sync-to-supabase.yml/runs?status=completed&event=workflow_dispatch&per_page=$MAX_RECOVERY_RUNS")
               PAGE_COUNT=$(jq '.workflow_runs | length' <<< "$RUNS_RESPONSE")
               OLDEST_CREATED_AT=$(jq -r '.workflow_runs[-1].created_at // ""' <<< "$RUNS_RESPONSE")
               if [ "$PAGE_COUNT" -eq "$MAX_RECOVERY_RUNS" ] && [[ "$OLDEST_CREATED_AT" > "$BASE_RUN_CREATED_AT" ]]; then
-                echo "::error::More than $MAX_RECOVERY_RUNS successful manual recoveries exist after the push baseline"
+                echo "::error::More than $MAX_RECOVERY_RUNS completed manual recoveries exist after the push baseline"
                 exit 1
               fi
 
@@ -425,18 +426,22 @@ jobs:
                   | select(.created_at > $baseline)
                   | select(.head_branch == "main")
                   | select(.head_repository.full_name == $repository)
+                  | select(.display_title | startswith("Provider sync source-monitor-pr-"))
                   | {runId: .id, headSha: .head_sha}]
               ' <<< "$RUNS_RESPONSE")
 
               while IFS=$'\t' read -r run_id run_head; do
                 [ -n "$run_id" ] || continue
+                JOBS=$(gh api "repos/${{ github.repository }}/actions/runs/$run_id/jobs?per_page=100")
+                SYNC_CONCLUSION=$(jq -r '[.jobs[].steps[]? | select(.name == "Sync skills to Supabase")][0].conclusion // ""' <<< "$JOBS")
+                if [ "$SYNC_CONCLUSION" != success ]; then
+                  echo "::error::Correlated provider sync run $run_id lacks proven provider completion; refusing generic replay"
+                  exit 1
+                fi
                 ARTIFACTS=$(gh api "repos/${{ github.repository }}/actions/runs/$run_id/artifacts?per_page=100")
                 ARTIFACT_COUNT=$(jq '[.artifacts[] | select(.name == "synced-slugs" and .expired == false)] | length' <<< "$ARTIFACTS")
-                if [ "$ARTIFACT_COUNT" -eq 0 ]; then
-                  continue
-                fi
                 if [ "$ARTIFACT_COUNT" -ne 1 ]; then
-                  echo "::error::Recovery run $run_id has duplicate synced-slugs artifacts"
+                  echo "::error::Recovery run $run_id must have exactly one provider-complete synced-slugs artifact"
                   exit 1
                 fi
 
@@ -670,6 +675,14 @@ jobs:
           SYNCED_COUNT=$(wc -l < synced-slugs.txt | tr -d ' ')
           echo "synced_count=$SYNCED_COUNT" >> "$GITHUB_OUTPUT"
           echo "::notice::Synced $SYNCED_COUNT skill(s); slug payload saved to artifact input"
+
+      - name: Upload provider-complete synced slugs artifact
+        if: steps.sync.outputs.synced_count != '0'
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: synced-slugs
+          path: synced-slugs.txt
+          retention-days: 30
 
       - name: Reconcile durable security change events
         id: reconcile-security-events
@@ -1047,14 +1060,6 @@ jobs:
               -H "X-Skillstore-Callback: true" \
               -d "$PAYLOAD"
           done
-
-      - name: Upload synced slugs artifact
-        if: steps.changes.outputs.skip_sync != 'true' && steps.sync.outputs.synced_count != '0'
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
-        with:
-          name: synced-slugs
-          path: synced-slugs.txt
-          retention-days: 30
 
       - name: Record durable publication provider result
         if: always() && github.event_name == 'push'

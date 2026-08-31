@@ -51,7 +51,7 @@ test('publication provider writes use push as the only automatic trigger', () =>
   assert.match(workflow, /Record durable correlated manual sync result/);
   assert.match(workflow, /status=completed&event=push/);
   assert.match(workflow, /actions\/runs\/\$run_id\/jobs/);
-  assert.match(workflow, /Previous provider sync run .* unknown partial effect/);
+  assert.match(workflow, /Previous provider sync run .* lacks closed provider evidence/);
 });
 
 test('push-first and legacy-workflow-first orders admit one provider sync and one callback', () => {
@@ -67,7 +67,8 @@ test('push-first and legacy-workflow-first orders admit one provider sync and on
   assert.equal((workflow.match(/- name: Sync skills to Supabase/g) ?? []).length, 1);
   assert.equal((workflow.match(/- name: Notify skillstore - Published submissions/g) ?? []).length, 1);
   assert.ok(workflow.indexOf('- name: Wait for authoritative publication completion') < workflow.indexOf('- name: Sync skills to Supabase'));
-  assert.ok(workflow.indexOf('- name: Sync skills to Supabase') < workflow.indexOf('- name: Notify skillstore - Published submissions'));
+  assert.ok(workflow.indexOf('- name: Sync skills to Supabase') < workflow.indexOf('- name: Upload provider-complete synced slugs artifact'));
+  assert.ok(workflow.indexOf('- name: Upload provider-complete synced slugs artifact') < workflow.indexOf('- name: Notify skillstore - Published submissions'));
 });
 
 test('workflow matrix is artifact-backed, one-Skill, and serial', () => {
@@ -182,14 +183,16 @@ test('incremental detection subtracts only verified successful manual recovery a
   assert.match(lastSync, /status=completed&event=push/);
   assert.match(lastSync, /Sync skills to Supabase/);
   assert.match(lastSync, /SYNC_CONCLUSION.*success/);
-  assert.match(lastSync, /unknown partial effect/);
+  assert.match(lastSync, /lacks closed provider evidence/);
   assert.match(lastSync, /did not establish authoritative publication success/);
   assert.doesNotMatch(lastSync, /event=workflow_dispatch/);
   assert.match(lastSync, /set -euo pipefail/);
   assert.match(lastSync, /git merge-base --is-ancestor "\$LAST_SHA"/);
   assert.match(lastSync, /refusing an incomplete fallback/);
   assert.doesNotMatch(lastSync, /HEAD~1|2>\/dev\/null \|\| echo/);
-  assert.match(detect, /status=success&event=workflow_dispatch/);
+  assert.match(detect, /status=completed&event=workflow_dispatch/);
+  assert.match(detect, /Correlated provider sync run .* lacks proven provider completion/);
+  assert.match(detect, /exactly one provider-complete synced-slugs artifact/);
   assert.match(detect, /synced-slugs/);
   assert.match(detect, /sha256sum/);
   assert.match(detect, /artifact_digest/);
@@ -261,14 +264,14 @@ test('manual slug sync carries an optional exact correlation without requiring a
   const detect = section(workflow, '      - name: Detect changed skills', '      - name: Download skillstore-cli');
   assert.match(detect, /if \[ -n "\$INPUT_SLUGS" \]/);
   assert.ok(detect.indexOf('Specific slugs requested') < detect.indexOf('Comparing HEAD against'));
-  const callbacks = section(workflow, '      - name: Resolve published submissions', '      - name: Upload synced slugs artifact');
+  const callbacks = section(workflow, '      - name: Resolve published submissions', '      - name: Record durable publication provider result');
   assert.match(callbacks, /!startsWith\(inputs\.correlation_id, 'source-monitor-pr-'\)/);
 });
 
 test('manual recovery resolves its original submission and fails closed on callback errors', () => {
   const workflow = readFileSync(WORKFLOW, 'utf8');
   const resolvePublished = section(workflow, '      - name: Resolve published submissions', '      - name: Notify skillstore - Published submissions');
-  const notifyPublished = section(workflow, '      - name: Notify skillstore - Published submissions', '      - name: Upload synced slugs artifact');
+  const notifyPublished = section(workflow, '      - name: Notify skillstore - Published submissions', '      - name: Record durable publication provider result');
 
   assert.match(resolvePublished, /SYNC_MODE: \$\{\{ steps\.changes\.outputs\.mode \}\}/);
   assert.match(resolvePublished, /CHANGED_SKILLS: \$\{\{ steps\.changes\.outputs\.changed_skills \}\}/);
