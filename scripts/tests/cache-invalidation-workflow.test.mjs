@@ -43,11 +43,15 @@ test('publication provider writes use push as the only automatic trigger', () =>
   assert.doesNotMatch(workflow, /github\.event\.workflow_run/);
   assert.match(workflow, /AgentCrew-Publication:/);
   assert.match(workflow, /Record durable publication provider result/);
-  assert.match(workflow, /actions\/workflows\/on-pr-merge\.yml\/runs\?event=workflow_dispatch/);
+  assert.match(workflow, /actions\/runs\/\$OWNER_RUN_ID/);
   assert.match(workflow, /Wait for authoritative publication completion/);
   assert.match(workflow, /\.status \/\/ "".*completed/);
   assert.match(workflow, /\.conclusion \/\/ "".*success/);
-  assert.match(workflow, /Correlated publication failed or completion is unknown/);
+  assert.match(workflow, /Publication reservation does not identify one authoritative owner run/);
+  assert.match(workflow, /actions\/runs\/\$OWNER_RUN_ID/);
+  assert.match(workflow, /Publication reservation owner does not match the exact correlation/);
+  assert.match(workflow, /Ignoring conclusively non-owning duplicate recovery run/);
+  assert.match(workflow, /Idempotency-Key: publication-published-/);
   assert.match(workflow, /Record durable correlated manual sync result/);
   assert.match(workflow, /status=completed&event=push/);
   assert.match(workflow, /actions\/runs\/\$run_id\/jobs/);
@@ -280,6 +284,7 @@ test('manual recovery resolves its original submission and fails closed on callb
   assert.match(resolvePublished, /--grep=\\\\\[submission:/);
   assert.doesNotMatch(resolvePublished, /BASE_SHA \|\| 'HEAD~1'/);
   assert.match(notifyPublished, /curl --fail-with-body -sS/);
+  assert.match(notifyPublished, /Idempotency-Key: publication-published-/);
   assert.match(notifyPublished, /callback secrets are not configured[\s\S]*exit 1/);
   assert.doesNotMatch(notifyPublished, /Failed to notify skillstore|\|\| echo/);
 });

@@ -304,20 +304,28 @@ jobs:
           MERGE_COMMIT_SHA="${BASH_REMATCH[3]}"
           echo "correlation_id=$CORRELATION_ID" >> "$GITHUB_OUTPUT"
           echo "merge_commit_sha=$MERGE_COMMIT_SHA" >> "$GITHUB_OUTPUT"
+          CONTEXT="agentcrew/publication/$(printf '%s' "$CORRELATION_ID" | sha256sum | awk '{print $1}')"
+          STATUSES=$(gh api --paginate "repos/$REPOSITORY/commits/$MERGE_COMMIT_SHA/statuses?per_page=100" | jq -s 'add')
+          OWNER_URL=$(jq -r --arg context "$CONTEXT" '[.[] | select(.context == $context)][0].target_url // ""' <<< "$STATUSES")
+          [[ "$OWNER_URL" =~ ^https://github\.com/$REPOSITORY/actions/runs/([1-9][0-9]*)$ ]] || {
+            echo "::error::Publication reservation does not identify one authoritative owner run"
+            exit 1
+          }
+          OWNER_RUN_ID="${BASH_REMATCH[1]}"
           PUBLICATION_RUN=''
           for attempt in {1..60}; do
-            RUNS=$(gh api "repos/$REPOSITORY/actions/workflows/on-pr-merge.yml/runs?event=workflow_dispatch&per_page=100")
-            PUBLICATION_RUN=$(jq -c --arg title "Publication $CORRELATION_ID" --arg repository "$REPOSITORY" '
-              [.workflow_runs[]
-                | select(.display_title == $title)
-                | select(.head_branch == "main")
-                | select(.head_repository.full_name == $repository)][0] // {}
-            ' <<< "$RUNS")
+            PUBLICATION_RUN=$(gh api "repos/$REPOSITORY/actions/runs/$OWNER_RUN_ID")
             if [ "$(jq -r '.status // ""' <<< "$PUBLICATION_RUN")" = completed ]; then
               break
             fi
             [ "$attempt" -eq 60 ] || sleep 5
           done
+          jq -e --arg title "Publication $CORRELATION_ID" --arg repository "$REPOSITORY" '
+            .display_title == $title and .head_branch == "main" and .head_repository.full_name == $repository
+          ' <<< "$PUBLICATION_RUN" >/dev/null || {
+            echo "::error::Publication reservation owner does not match the exact correlation"
+            exit 1
+          }
           [ "$(jq -r '.status // ""' <<< "$PUBLICATION_RUN")" = completed ] \
             && [ "$(jq -r '.conclusion // ""' <<< "$PUBLICATION_RUN")" = success ] || {
               echo "::error::Correlated publication failed or completion is unknown"
@@ -441,7 +449,12 @@ jobs:
               while IFS=$'\t' read -r run_id run_head run_conclusion; do
                 [ -n "$run_id" ] || continue
                 JOBS=$(gh api "repos/${{ github.repository }}/actions/runs/$run_id/jobs?per_page=100")
+                CLAIM_CONCLUSION=$(jq -r '[.jobs[].steps[]? | select(.name == "Verify durable provider sync dispatch outbox")][0].conclusion // ""' <<< "$JOBS")
                 SYNC_CONCLUSION=$(jq -r '[.jobs[].steps[]? | select(.name == "Sync skills to Supabase")][0].conclusion // ""' <<< "$JOBS")
+                if [ "$CLAIM_CONCLUSION" = failure ] && [ -z "$SYNC_CONCLUSION" ]; then
+                  echo "::notice::Ignoring conclusively non-owning duplicate recovery run $run_id"
+                  continue
+                fi
                 if [ "$SYNC_CONCLUSION" != success ] || [ "$run_conclusion" != success ]; then
                   echo "::error::Correlated provider sync run $run_id lacks complete provider and downstream evidence; refusing generic replay"
                   exit 1
@@ -1066,6 +1079,7 @@ jobs:
               -H "Content-Type: application/json" \
               -H "User-Agent: GitHub-Actions/SkillstoreBot" \
               -H "X-Skillstore-Callback: true" \
+              -H "Idempotency-Key: publication-published-${SUBMISSION_ID}" \
               -d "$PAYLOAD"
           done
 

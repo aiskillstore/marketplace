@@ -88,4 +88,5 @@ test('publication receiver serializes one correlation and verifies the durable o
   assert.match(publishSource, /object\.sha == \$merge_sha/);
   assert.match(publishSource, /Existing durable publication status refuses duplicate execution/);
   assert.match(publishSource, /steps\.publication_claim\.outputs\.owns_reservation == 'true'/);
+  assert.match(publishSource, /Idempotency-Key: publication-resolved-/);
 });
