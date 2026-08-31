@@ -56,6 +56,12 @@ test('publication provider writes use push as the only automatic trigger', () =>
   assert.match(workflow, /status=completed&event=push/);
   assert.match(workflow, /actions\/runs\/\$run_id\/jobs/);
   assert.match(workflow, /Previous provider sync run .* lacks closed provider evidence/);
+
+  const rerunGuard = section(workflow, '      - name: Guard provider write against workflow reruns', '      - name: Sync skills to Supabase');
+  assert.match(rerunGuard, /GITHUB_RUN_ATTEMPT/);
+  assert.match(rerunGuard, /actions\/runs\/\$GITHUB_RUN_ID\/attempts\/\$attempt\/jobs/);
+  assert.match(rerunGuard, /node \.\/scripts\/guard-provider-rerun\.mjs/);
+  assert.doesNotMatch(rerunGuard, /continue-on-error/);
 });
 
 test('push-first and legacy-workflow-first orders admit one provider sync and one callback', () => {
