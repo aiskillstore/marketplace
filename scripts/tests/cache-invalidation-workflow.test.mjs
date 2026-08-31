@@ -62,6 +62,12 @@ test('publication provider writes use push as the only automatic trigger', () =>
   assert.match(rerunGuard, /actions\/runs\/\$GITHUB_RUN_ID\/attempts\/\$attempt\/jobs/);
   assert.match(rerunGuard, /node \.\/scripts\/guard-provider-rerun\.mjs/);
   assert.doesNotMatch(rerunGuard, /continue-on-error/);
+
+  const providerClaim = section(workflow, '      - name: Verify durable provider sync dispatch outbox', '      - name: Wait for authoritative publication completion');
+  assert.match(providerClaim, /CURRENT_TARGET_URL/);
+  assert.match(providerClaim, /actions\/runs\/\$GITHUB_RUN_ID/);
+  assert.match(providerClaim, /CURRENT_STATE.*pending.*failure/s);
+  assert.match(providerClaim, /Reusing this run's durable provider sync reservation/);
 });
 
 test('push-first and legacy-workflow-first orders admit one provider sync and one callback', () => {

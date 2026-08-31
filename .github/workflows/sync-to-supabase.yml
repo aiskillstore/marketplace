@@ -246,6 +246,39 @@ jobs:
             --slugs "${ACTUAL_SLUGS[*]}"
           echo "sync_commit_sha=$MERGE_COMMIT_SHA" >> "$GITHUB_OUTPUT"
 
+      - name: Guard provider write against workflow reruns
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_RUN_ATTEMPT: ${{ github.run_attempt }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_RUN_ATTEMPT" =~ ^[1-9][0-9]*$ ]] || {
+            echo "::error::Invalid workflow run attempt"
+            exit 1
+          }
+          if [ "$GITHUB_RUN_ATTEMPT" -eq 1 ]; then
+            exit 0
+          fi
+
+          EVIDENCE_FILE="${RUNNER_TEMP:?}/provider-rerun-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.json"
+          jq -n --argjson currentAttempt "$GITHUB_RUN_ATTEMPT" \
+            '{currentAttempt: $currentAttempt, previousAttempts: []}' > "$EVIDENCE_FILE"
+          for attempt in $(seq 1 $((GITHUB_RUN_ATTEMPT - 1))); do
+            JOBS=$(gh api "repos/$REPOSITORY/actions/runs/$GITHUB_RUN_ID/attempts/$attempt/jobs?per_page=100")
+            jq -e '.total_count == (.jobs | length)' <<< "$JOBS" >/dev/null || {
+              echo "::error::Incomplete jobs evidence for workflow attempt $attempt"
+              exit 1
+            }
+            NEXT_FILE="${EVIDENCE_FILE}.next"
+            jq --argjson attempt "$attempt" --argjson jobs "$(jq '.jobs' <<< "$JOBS")" \
+              '.previousAttempts += [{attempt: $attempt, jobs: $jobs}]' \
+              "$EVIDENCE_FILE" > "$NEXT_FILE"
+            mv "$NEXT_FILE" "$EVIDENCE_FILE"
+          done
+          node ./scripts/guard-provider-rerun.mjs --input "$EVIDENCE_FILE"
+
       - name: Verify durable provider sync dispatch outbox
         id: provider_sync_claim
         if: inputs.correlation_id != ''
@@ -272,14 +305,25 @@ jobs:
             exit 1
           }
           STATUSES=$(gh api --paginate "repos/$REPOSITORY/commits/$MERGE_COMMIT_SHA/statuses?per_page=100" | jq -s 'add')
-          if jq -e --arg context "$CONTEXT" 'any(.[]; .context == $context)' <<< "$STATUSES" >/dev/null; then
+          CURRENT=$(jq -c --arg context "$CONTEXT" '[.[] | select(.context == $context)][0] // {}' <<< "$STATUSES")
+          CURRENT_STATE=$(jq -r '.state // ""' <<< "$CURRENT")
+          CURRENT_TARGET_URL=$(jq -r '.target_url // ""' <<< "$CURRENT")
+          EXPECTED_TARGET_URL="https://github.com/$REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          if [ -n "$CURRENT_STATE" ]; then
+            if [ "$GITHUB_RUN_ATTEMPT" -gt 1 ] \
+              && { [ "$CURRENT_STATE" = pending ] || [ "$CURRENT_STATE" = failure ]; } \
+              && [ "$CURRENT_TARGET_URL" = "$EXPECTED_TARGET_URL" ]; then
+              echo "::notice::Reusing this run's durable provider sync reservation after closed skipped-step evidence"
+              echo "owns_reservation=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
             echo "::error::Existing durable provider sync status refuses duplicate execution"
             exit 1
           fi
           gh api --method POST "repos/$REPOSITORY/statuses/$MERGE_COMMIT_SHA" \
             -f state=pending -f context="$CONTEXT" \
             -f description='Correlated provider sync is running' \
-            -f target_url="https://github.com/$REPOSITORY/actions/runs/${{ github.run_id }}"
+            -f target_url="$EXPECTED_TARGET_URL"
           echo "owns_reservation=true" >> "$GITHUB_OUTPUT"
 
       - name: Wait for authoritative publication completion
@@ -560,40 +604,6 @@ jobs:
           node ./scripts/materialize-changed-skills.mjs \
             --commit "$SYNC_COMMIT_SHA" \
             --skills "$CHANGED_SKILLS"
-
-      - name: Guard provider write against workflow reruns
-        if: steps.changes.outputs.skip_sync != 'true'
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GITHUB_RUN_ATTEMPT: ${{ github.run_attempt }}
-          GITHUB_RUN_ID: ${{ github.run_id }}
-          REPOSITORY: ${{ github.repository }}
-        run: |
-          set -euo pipefail
-          [[ "$GITHUB_RUN_ATTEMPT" =~ ^[1-9][0-9]*$ ]] || {
-            echo "::error::Invalid workflow run attempt"
-            exit 1
-          }
-          if [ "$GITHUB_RUN_ATTEMPT" -eq 1 ]; then
-            exit 0
-          fi
-
-          EVIDENCE_FILE="${RUNNER_TEMP:?}/provider-rerun-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.json"
-          jq -n --argjson currentAttempt "$GITHUB_RUN_ATTEMPT" \
-            '{currentAttempt: $currentAttempt, previousAttempts: []}' > "$EVIDENCE_FILE"
-          for attempt in $(seq 1 $((GITHUB_RUN_ATTEMPT - 1))); do
-            JOBS=$(gh api "repos/$REPOSITORY/actions/runs/$GITHUB_RUN_ID/attempts/$attempt/jobs?per_page=100")
-            jq -e '.total_count == (.jobs | length)' <<< "$JOBS" >/dev/null || {
-              echo "::error::Incomplete jobs evidence for workflow attempt $attempt"
-              exit 1
-            }
-            NEXT_FILE="${EVIDENCE_FILE}.next"
-            jq --argjson attempt "$attempt" --argjson jobs "$(jq '.jobs' <<< "$JOBS")" \
-              '.previousAttempts += [{attempt: $attempt, jobs: $jobs}]' \
-              "$EVIDENCE_FILE" > "$NEXT_FILE"
-            mv "$NEXT_FILE" "$EVIDENCE_FILE"
-          done
-          node ./scripts/guard-provider-rerun.mjs --input "$EVIDENCE_FILE"
 
       - name: Sync skills to Supabase
         id: sync
