@@ -191,7 +191,8 @@ test('incremental detection subtracts only verified successful manual recovery a
   assert.match(lastSync, /refusing an incomplete fallback/);
   assert.doesNotMatch(lastSync, /HEAD~1|2>\/dev\/null \|\| echo/);
   assert.match(detect, /status=completed&event=workflow_dispatch/);
-  assert.match(detect, /Correlated provider sync run .* lacks proven provider completion/);
+  assert.match(detect, /Correlated provider sync run .* lacks complete provider and downstream evidence/);
+  assert.match(lastSync, /completed the provider write but downstream effects are incomplete/);
   assert.match(detect, /exactly one provider-complete synced-slugs artifact/);
   assert.match(detect, /synced-slugs/);
   assert.match(detect, /sha256sum/);

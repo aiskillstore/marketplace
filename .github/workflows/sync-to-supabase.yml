@@ -354,8 +354,16 @@ jobs:
               echo "::error::Previous publication push run $run_id did not establish authoritative publication success; inspection is required"
               exit 1
             fi
-            if [ "$SYNC_CONCLUSION" = success ] \
-              || { [ "$SYNC_CONCLUSION" = skipped ] && [ "$run_conclusion" = success ]; }; then
+            if [ "$SYNC_CONCLUSION" = success ] && [ "$run_conclusion" = success ]; then
+              LAST_SHA="$head_sha"
+              LAST_CREATED_AT="$created_at"
+              break
+            fi
+            if [ "$SYNC_CONCLUSION" = success ]; then
+              echo "::error::Previous provider sync run $run_id completed the provider write but downstream effects are incomplete; inspection is required"
+              exit 1
+            fi
+            if [ "$SYNC_CONCLUSION" = skipped ] && [ "$run_conclusion" = success ]; then
               LAST_SHA="$head_sha"
               LAST_CREATED_AT="$created_at"
               break
@@ -427,15 +435,15 @@ jobs:
                   | select(.head_branch == "main")
                   | select(.head_repository.full_name == $repository)
                   | select(.display_title | startswith("Provider sync source-monitor-pr-"))
-                  | {runId: .id, headSha: .head_sha}]
+                  | {runId: .id, headSha: .head_sha, conclusion: .conclusion}]
               ' <<< "$RUNS_RESPONSE")
 
-              while IFS=$'\t' read -r run_id run_head; do
+              while IFS=$'\t' read -r run_id run_head run_conclusion; do
                 [ -n "$run_id" ] || continue
                 JOBS=$(gh api "repos/${{ github.repository }}/actions/runs/$run_id/jobs?per_page=100")
                 SYNC_CONCLUSION=$(jq -r '[.jobs[].steps[]? | select(.name == "Sync skills to Supabase")][0].conclusion // ""' <<< "$JOBS")
-                if [ "$SYNC_CONCLUSION" != success ]; then
-                  echo "::error::Correlated provider sync run $run_id lacks proven provider completion; refusing generic replay"
+                if [ "$SYNC_CONCLUSION" != success ] || [ "$run_conclusion" != success ]; then
+                  echo "::error::Correlated provider sync run $run_id lacks complete provider and downstream evidence; refusing generic replay"
                   exit 1
                 fi
                 ARTIFACTS=$(gh api "repos/${{ github.repository }}/actions/runs/$run_id/artifacts?per_page=100")
@@ -479,7 +487,7 @@ jobs:
                   '. + [{runId: $runId, headSha: $headSha, artifactId: $artifactId, digest: $digest, slugs: $slugs}]' \
                   "$RECOVERIES_FILE" > "$NEXT_RECOVERIES"
                 mv "$NEXT_RECOVERIES" "$RECOVERIES_FILE"
-              done < <(jq -r '.[] | [.runId, .headSha] | @tsv' <<< "$RECOVERY_RUNS")
+              done < <(jq -r '.[] | [.runId, .headSha, .conclusion] | @tsv' <<< "$RECOVERY_RUNS")
             fi
 
             CHANGED=$(node ./scripts/detect-changed-skills.mjs \
