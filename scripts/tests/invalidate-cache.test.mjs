@@ -690,7 +690,7 @@ test('sync workflow uses an artifact-backed bounded invalidator and preserves do
   assert.match(finalizerJob, /needs\.cache-invalidate\.result == 'success'/);
   assert.match(workflow, /runs\?status=completed&event=push&per_page=100/);
   assert.match(workflow, /actions\/runs\/\$run_id\/jobs\?per_page=100/);
-  assert.match(workflow, /Previous provider sync run .* unknown partial effect/);
+  assert.match(workflow, /Previous provider sync run .* lacks closed provider evidence/);
   assert.match(triggerJob, /needs: \[sync, cache-invalidate, finalize-english-cache\]/);
   assert.match(
     triggerJob,
