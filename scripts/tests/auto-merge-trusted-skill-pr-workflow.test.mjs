@@ -27,7 +27,7 @@ test('uses a literal hosted runner, non-cancelling repository serialization and 
     checks: 'read',
     contents: 'write',
     'pull-requests': 'write',
-    statuses: 'read',
+    statuses: 'write',
   });
   assert.equal(workflow.concurrency['cancel-in-progress'], false);
   assert.equal(workflow.concurrency.group, 'trusted-skill-auto-merge-${{ github.repository }}');
@@ -72,4 +72,17 @@ test('post-merge recovery accepts the exact GitHub Actions bot merger identity a
   assert.match(publishSource, /required: true/);
   assert.match(publishSource, /EXPECTED_CORRELATION_ID="submission-pr-\$\{PR_NUMBER\}-\$\{HEAD_SHA\}-\$\{MERGE_COMMIT_SHA\}"/);
   assert.match(publishSource, /\[ "\$CORRELATION_ID" = "\$EXPECTED_CORRELATION_ID" \]/);
+});
+
+test('publication receiver serializes one correlation and verifies the durable claim before writes', () => {
+  const publishWorkflow = parse(publishSource);
+  assert.equal(publishWorkflow.concurrency.group, 'publication-${{ inputs.correlation_id }}');
+  assert.equal(publishWorkflow.concurrency['cancel-in-progress'], false);
+  const claimGuard = publishSource.indexOf('Verify durable publication dispatch claim');
+  const appToken = publishSource.indexOf('Generate GitHub App Token');
+  assert.ok(claimGuard > 0 && claimGuard < appToken);
+  assert.match(publishSource, /agentcrew-dispatch-claims\/publication/);
+  assert.match(publishSource, /object\.sha == \$merge_sha/);
+  assert.match(publishSource, /Existing durable publication status refuses duplicate execution/);
+  assert.match(publishSource, /steps\.publication_claim\.outputs\.owns_reservation == 'true'/);
 });

@@ -18,6 +18,10 @@ permissions:
   pull-requests: read
   statuses: write
 
+concurrency:
+  group: publication-${{ inputs.correlation_id }}
+  cancel-in-progress: false
+
 jobs:
   approve-skill:
     if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
@@ -78,7 +82,8 @@ jobs:
             echo "merged_by=$MERGED_BY"
           } >> "$GITHUB_OUTPUT"
 
-      - name: Record durable publication reservation
+      - name: Verify durable publication dispatch claim
+        id: publication_claim
         env:
           GH_TOKEN: ${{ github.token }}
           CORRELATION_ID: ${{ inputs.correlation_id }}
@@ -86,11 +91,26 @@ jobs:
           REPOSITORY: ${{ github.repository }}
         run: |
           set -euo pipefail
-          CONTEXT="agentcrew/publication/$(printf '%s' "$CORRELATION_ID" | sha256sum | awk '{print $1}')"
+          DIGEST=$(printf '%s' "$CORRELATION_ID" | sha256sum | awk '{print $1}')
+          CLAIM_REF="tags/agentcrew-dispatch-claims/publication/$DIGEST"
+          CONTEXT="agentcrew/publication/$DIGEST"
+          CLAIM=$(gh api "repos/$REPOSITORY/git/ref/$CLAIM_REF")
+          jq -e --arg ref "refs/$CLAIM_REF" --arg merge_sha "$MERGE_COMMIT_SHA" '
+            .ref == $ref and .object.type == "commit" and .object.sha == $merge_sha
+          ' <<< "$CLAIM" >/dev/null || {
+            echo "::error::Durable publication dispatch claim does not bind the exact merge commit"
+            exit 1
+          }
+          STATUSES=$(gh api --paginate "repos/$REPOSITORY/commits/$MERGE_COMMIT_SHA/statuses?per_page=100" | jq -s 'add')
+          if jq -e --arg context "$CONTEXT" 'any(.[]; .context == $context)' <<< "$STATUSES" >/dev/null; then
+            echo "::error::Existing durable publication status refuses duplicate execution"
+            exit 1
+          fi
           gh api --method POST "repos/$REPOSITORY/statuses/$MERGE_COMMIT_SHA" \
             -f state=pending -f context="$CONTEXT" \
             -f description='Correlated publication is running' \
             -f target_url="https://github.com/$REPOSITORY/actions/runs/${{ github.run_id }}"
+          echo "owns_reservation=true" >> "$GITHUB_OUTPUT"
 
       - name: Generate GitHub App Token
         id: app-token
@@ -422,7 +442,7 @@ jobs:
             -d "$PAYLOAD"
 
       - name: Record durable publication result
-        if: always() && steps.freeze_pr.outputs.merge_commit_sha != ''
+        if: always() && steps.publication_claim.outputs.owns_reservation == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           CORRELATION_ID: ${{ inputs.correlation_id }}

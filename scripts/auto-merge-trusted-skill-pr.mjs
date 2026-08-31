@@ -90,6 +90,27 @@ function rootSetDigest(slugs) {
   return createHash('sha256').update([...new Set(slugs)].sort().join('\n')).digest('hex');
 }
 
+function dispatchClaim(kind, correlationId) {
+  block(['publication', 'provider-sync'].includes(kind), 'dispatch claim kind is invalid');
+  block(typeof correlationId === 'string' && correlationId.length > 0, 'dispatch claim correlation is invalid');
+  const digest = rootSetDigest([correlationId]);
+  const name = `agentcrew-dispatch-claims/${kind}/${digest}`;
+  return { fullRef: `refs/tags/${name}`, apiRef: `tags/${name}` };
+}
+
+export function resolveWorkflowPrNumber(payloadPrs, exactAssociatedPrs) {
+  block(Array.isArray(payloadPrs) && Array.isArray(exactAssociatedPrs), 'workflow PR evidence is invalid');
+  const payloadNumbers = payloadPrs.map((candidate) => candidate?.number);
+  block(payloadNumbers.every((number) => Number.isSafeInteger(number) && number > 0), 'workflow payload PR evidence is invalid');
+  const uniquePayloadNumbers = [...new Set(payloadNumbers)];
+  block(uniquePayloadNumbers.length <= 1, 'workflow run must resolve exactly one PR from the exact head');
+  if (uniquePayloadNumbers.length === 1) return uniquePayloadNumbers[0];
+  const associatedNumbers = [...new Set(exactAssociatedPrs.map((candidate) => candidate?.number))];
+  block(associatedNumbers.length === 1 && Number.isSafeInteger(associatedNumbers[0]) && associatedNumbers[0] > 0,
+    'workflow run must resolve exactly one PR from the exact head');
+  return associatedNumbers[0];
+}
+
 function publishedRootSyntax(root) {
   if (!safePath(root)) return false;
   const parts = root.split('/');
@@ -364,6 +385,13 @@ function definiteMutationRejection(error) {
   return error instanceof GitHubApiError && [405, 409, 422].includes(error.status);
 }
 
+function definiteDispatchRejection(error) {
+  return error instanceof GitHubApiError
+    && error.status >= 400
+    && error.status < 500
+    && ![408, 425, 429].includes(error.status);
+}
+
 export async function runAutoMerge(api, { workflowRunId, deferPostMergeDispatch = false }) {
   const firstSnapshot = await buildStableSnapshot(api, workflowRunId);
   if (firstSnapshot?.pr?.merged === true && firstSnapshot.pr.state === 'closed' && firstSnapshot.pr.head?.sha === firstSnapshot.workflowRun?.head_sha) {
@@ -490,12 +518,22 @@ export async function runAutoMerge(api, { workflowRunId, deferPostMergeDispatch 
 
 export async function runRecoverySweep(api) {
   const candidates = await api.listRecoveryCandidates();
+  let deferredResult;
   for (const candidate of candidates) {
     if (candidate.phase === 'MERGED') {
       const result = candidate.postMergeAction === 'provider_sync'
         ? await api.dispatchProviderSync(candidate.prNumber, candidate.headSha, candidate.mergeCommitSha, candidate.roots)
         : await api.dispatchPublication(candidate.prNumber, candidate.headSha, candidate.mergeCommitSha);
       if (['PUBLICATION_ALREADY_DISPATCHED', 'PROVIDER_SYNC_ALREADY_DISPATCHED'].includes(result.outcome)) continue;
+      if (result.outcome === 'PUBLICATION_AWAITING_PROVIDER_SYNC') {
+        deferredResult ??= {
+          ...result,
+          prNumber: candidate.prNumber,
+          headSha: candidate.headSha,
+          mergeCommitSha: candidate.mergeCommitSha,
+        };
+        continue;
+      }
       if (result.outcome.endsWith('_FAILED_REQUIRES_INSPECTION')) {
         throw new AutoMergeBlockedError(`${result.outcome} for PR #${candidate.prNumber} (workflow run ${result.workflowRunId ?? 'unavailable'})`);
       }
@@ -529,7 +567,7 @@ export async function runRecoverySweep(api) {
       throw error;
     }
   }
-  return { outcome: 'NO_ELIGIBLE_RECOVERY' };
+  return deferredResult ?? { outcome: 'NO_ELIGIBLE_RECOVERY' };
 }
 
 function encodeContentPath(path) {
@@ -727,10 +765,8 @@ export class GitHubApi {
       && candidate?.base?.ref === 'main'
       && candidate?.base?.repo?.full_name === this.repository
       && candidate?.head?.repo?.full_name === this.repository);
-    const payloadNumbers = (workflowRun.pull_requests ?? []).map((candidate) => candidate.number).filter(Number.isSafeInteger);
-    const candidateNumbers = [...new Set([...exactAssociatedPrs.map((candidate) => candidate.number), ...payloadNumbers])];
-    block(candidateNumbers.length === 1, 'workflow run must resolve exactly one PR from the exact head');
-    const pr = await this.request(`/pulls/${candidateNumbers[0]}`);
+    const candidateNumber = resolveWorkflowPrNumber(workflowRun.pull_requests ?? [], exactAssociatedPrs);
+    const pr = await this.request(`/pulls/${candidateNumber}`);
     const headSha = pr.head?.sha;
     block(validSha(headSha) && headSha === workflowRun.head_sha, 'PR head does not match the workflow run');
     const files = await this.paginate(`/pulls/${pr.number}/files`);
@@ -868,6 +904,66 @@ export class GitHubApi {
     return latestStatusesByContext(statuses).find((status) => status.context === context);
   }
 
+  async readDispatchClaim(kind, correlationId) {
+    const claim = dispatchClaim(kind, correlationId);
+    try {
+      const ref = await this.request(`/git/ref/${claim.apiRef}`);
+      block(ref?.ref === claim.fullRef && ref?.object?.type === 'commit' && validSha(ref.object.sha),
+        'dispatch claim evidence is invalid');
+      return { claim, ref };
+    } catch (error) {
+      if (error instanceof GitHubApiError && error.status === 404) return { claim, ref: undefined };
+      throw error;
+    }
+  }
+
+  async acquireDispatchClaim(kind, correlationId, mergeCommitSha) {
+    const before = await this.readDispatchClaim(kind, correlationId);
+    if (before.ref) {
+      block(before.ref.object.sha === mergeCommitSha, 'dispatch claim is bound to a different merge commit');
+      return false;
+    }
+    let createError;
+    let created;
+    try {
+      created = await this.request('/git/refs', {
+        method: 'POST',
+        body: { ref: before.claim.fullRef, sha: mergeCommitSha },
+      });
+    } catch (error) {
+      createError = error;
+    }
+    if (created) {
+      block(created.ref === before.claim.fullRef
+        && created.object?.type === 'commit'
+        && created.object.sha === mergeCommitSha,
+      'created dispatch claim does not match the exact merge commit');
+      return true;
+    }
+    const after = await this.readDispatchClaim(kind, correlationId);
+    if (after.ref) {
+      block(after.ref.object.sha === mergeCommitSha, 'dispatch claim is bound to a different merge commit');
+      throw new AutoMergeUnknownEffectError('dispatch claim ownership is unknown; refusing workflow dispatch');
+    }
+    if (createError && definiteMutationRejection(createError)) {
+      throw new AutoMergeBlockedError(`dispatch claim rejected with HTTP ${createError.status}`);
+    }
+    throw new AutoMergeUnknownEffectError('dispatch claim effect is unknown; refusing workflow dispatch');
+  }
+
+  async recordTerminalDispatchRejection(commitSha, context, description) {
+    block(validSha(commitSha), 'terminal dispatch rejection commit is invalid');
+    await this.request(`/statuses/${commitSha}`, {
+      method: 'POST',
+      body: {
+        state: 'failure',
+        context,
+        description,
+        target_url: `https://github.com/${this.repository}/actions/runs/${this.currentRunId}`,
+      },
+    });
+  }
+
   async findPublicationRun(correlationTitle) {
     for (let page = 1; page <= 30; page += 1) {
       const result = await this.request(`/actions/workflows/on-pr-merge.yml/runs?event=workflow_dispatch&per_page=100&page=${page}`);
@@ -903,6 +999,9 @@ export class GitHubApi {
       if (!existing || (existing.status === 'completed' && existing.conclusion !== 'success')) {
         return { outcome: 'PUBLICATION_FAILED_REQUIRES_INSPECTION', workflowRunId: existing?.id, conclusion: existing?.conclusion ?? 'missing-run-evidence' };
       }
+      if (existing.status === 'completed' && existing.conclusion === 'success') {
+        return { outcome: 'PUBLICATION_AWAITING_PROVIDER_SYNC', workflowRunId: existing.id };
+      }
       return { outcome: 'PUBLICATION_IN_PROGRESS', workflowRunId: existing.id };
     }
     if (existing?.status === 'completed' && existing.conclusion === 'success') {
@@ -913,6 +1012,11 @@ export class GitHubApi {
     }
     if (existing) {
       return { outcome: 'PUBLICATION_FAILED_REQUIRES_INSPECTION', workflowRunId: existing.id, conclusion: existing.conclusion };
+    }
+
+    const ownsClaim = await this.acquireDispatchClaim('publication', correlationId, mergeCommitSha);
+    if (!ownsClaim) {
+      throw new AutoMergeUnknownEffectError(`publication dispatch is claimed but has no authoritative run or status evidence for PR #${prNumber}`);
     }
 
     let mutationError;
@@ -929,7 +1033,18 @@ export class GitHubApi {
       if (run) return { outcome: 'PUBLICATION_DISPATCH_CONFIRMED', workflowRunId: run.id };
       if (attempt < 11) await this.sleep(5_000);
     }
-    if (mutationError && definiteMutationRejection(mutationError)) throw new AutoMergeBlockedError(`publication dispatch rejected with HTTP ${mutationError.status}`);
+    if (mutationError && definiteDispatchRejection(mutationError)) {
+      try {
+        await this.recordTerminalDispatchRejection(
+          mergeCommitSha,
+          effectContext,
+          `Publication dispatch rejected with HTTP ${mutationError.status}`,
+        );
+      } catch {
+        throw new AutoMergeUnknownEffectError(`publication dispatch rejection could not be durably recorded for PR #${prNumber}`);
+      }
+      throw new AutoMergeBlockedError(`publication dispatch rejected with HTTP ${mutationError.status}`);
+    }
     throw new AutoMergeUnknownEffectError(`publication dispatch effect is unknown for PR #${prNumber}`);
   }
 
@@ -986,6 +1101,11 @@ export class GitHubApi {
       return { outcome: 'PROVIDER_SYNC_FAILED_REQUIRES_INSPECTION', workflowRunId: existing.id, conclusion: existing.conclusion };
     }
 
+    const ownsClaim = await this.acquireDispatchClaim('provider-sync', correlationId, mergeCommitSha);
+    if (!ownsClaim) {
+      throw new AutoMergeUnknownEffectError(`provider sync dispatch is claimed but has no authoritative run or status evidence for PR #${prNumber}`);
+    }
+
     let mutationError;
     try {
       await this.request('/actions/workflows/sync-to-supabase.yml/dispatches', {
@@ -1006,7 +1126,18 @@ export class GitHubApi {
       if (await this.findProviderSyncRun(correlationTitle)) return { outcome: 'PROVIDER_SYNC_DISPATCH_CONFIRMED' };
       if (attempt < 11) await this.sleep(5_000);
     }
-    if (mutationError && definiteMutationRejection(mutationError)) throw new AutoMergeBlockedError(`provider sync dispatch rejected with HTTP ${mutationError.status}`);
+    if (mutationError && definiteDispatchRejection(mutationError)) {
+      try {
+        await this.recordTerminalDispatchRejection(
+          mergeCommitSha,
+          effectContext,
+          `Provider sync dispatch rejected with HTTP ${mutationError.status}`,
+        );
+      } catch {
+        throw new AutoMergeUnknownEffectError(`provider sync dispatch rejection could not be durably recorded for PR #${prNumber}`);
+      }
+      throw new AutoMergeBlockedError(`provider sync dispatch rejected with HTTP ${mutationError.status}`);
+    }
     throw new AutoMergeUnknownEffectError(`provider sync dispatch effect is unknown for PR #${prNumber}`);
   }
 }
