@@ -1234,7 +1234,7 @@ test('recovery sweep stops before later PRs when the oldest trusted seed has no 
   assert.deepEqual(api.calls, []);
 });
 
-test('recovery sweep skips a completed publication awaiting provider sync and performs one later effect', async () => {
+test('recovery sweep stops at the oldest completed publication while provider sync is pending', async () => {
   const api = fakeApi([]);
   api.listRecoveryCandidates = async () => [
     { prNumber: 42, headSha: HEAD, mergeCommitSha: MERGE, phase: 'MERGED', postMergeAction: 'publication', roots: [ROOT] },
@@ -1244,11 +1244,15 @@ test('recovery sweep skips a completed publication awaiting provider sync and pe
     api.calls.push(['dispatch-publication', ...args]);
     return { outcome: 'PUBLICATION_AWAITING_PROVIDER_SYNC', workflowRunId: 9001 };
   };
-  const result = await runRecoverySweep(api);
-  assert.equal(result.outcome, 'PROVIDER_SYNC_DISPATCH_CONFIRMED');
+  assert.deepEqual(await runRecoverySweep(api), {
+    outcome: 'PUBLICATION_AWAITING_PROVIDER_SYNC',
+    workflowRunId: 9001,
+    prNumber: 42,
+    headSha: HEAD,
+    mergeCommitSha: MERGE,
+  });
   assert.deepEqual(api.calls, [
     ['dispatch-publication', 42, HEAD, MERGE],
-    ['dispatch-provider-sync', 43, HEAD, 'e'.repeat(40), [SOURCE_ROOT]],
   ]);
 });
 

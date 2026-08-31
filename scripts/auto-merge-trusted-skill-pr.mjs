@@ -521,7 +521,6 @@ export async function runAutoMerge(api, { workflowRunId, deferPostMergeDispatch 
 
 export async function runRecoverySweep(api) {
   const candidates = await api.listRecoveryCandidates();
-  let deferredResult;
   for (const candidate of candidates) {
     if (candidate.phase === 'MERGED') {
       const result = candidate.postMergeAction === 'provider_sync'
@@ -529,13 +528,12 @@ export async function runRecoverySweep(api) {
         : await api.dispatchPublication(candidate.prNumber, candidate.headSha, candidate.mergeCommitSha);
       if (['PUBLICATION_ALREADY_DISPATCHED', 'PROVIDER_SYNC_ALREADY_DISPATCHED'].includes(result.outcome)) continue;
       if (result.outcome === 'PUBLICATION_AWAITING_PROVIDER_SYNC') {
-        deferredResult ??= {
+        return {
           ...result,
           prNumber: candidate.prNumber,
           headSha: candidate.headSha,
           mergeCommitSha: candidate.mergeCommitSha,
         };
-        continue;
       }
       if (result.outcome.endsWith('_FAILED_REQUIRES_INSPECTION')) {
         throw new AutoMergeBlockedError(`${result.outcome} for PR #${candidate.prNumber} (workflow run ${result.workflowRunId ?? 'unavailable'})`);
@@ -570,7 +568,7 @@ export async function runRecoverySweep(api) {
       throw error;
     }
   }
-  return deferredResult ?? { outcome: 'NO_ELIGIBLE_RECOVERY' };
+  return { outcome: 'NO_ELIGIBLE_RECOVERY' };
 }
 
 function encodeContentPath(path) {

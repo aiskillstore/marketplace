@@ -43,6 +43,11 @@ test('publication provider writes use push as the only automatic trigger', () =>
   assert.doesNotMatch(workflow, /github\.event\.workflow_run/);
   assert.match(workflow, /AgentCrew-Publication:/);
   assert.match(workflow, /Record durable publication provider result/);
+  const providerResult = section(workflow, '      - name: Record durable publication provider result', '      - name: Record durable correlated manual sync result');
+  assert.match(providerResult, /CURRENT_TARGET_URL/);
+  assert.match(providerResult, /Publication owner target is missing or malformed/);
+  assert.match(providerResult, /-f target_url="\$CURRENT_TARGET_URL"/);
+  assert.doesNotMatch(providerResult, /target_url="https:\/\/github\.com\/\$REPOSITORY\/actions\/runs\/\$\{\{ github\.run_id \}\}"/);
   assert.match(workflow, /actions\/runs\/\$OWNER_RUN_ID/);
   assert.match(workflow, /Wait for authoritative publication completion/);
   assert.match(workflow, /\.status \/\/ "".*completed/);

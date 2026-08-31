@@ -1147,6 +1147,11 @@ jobs:
           CURRENT=$(jq -c --arg context "$CONTEXT" '[.[] | select(.context == $context)][0] // {}' <<< "$STATUSES")
           CURRENT_STATE=$(jq -r '.state // ""' <<< "$CURRENT")
           CURRENT_DESCRIPTION=$(jq -r '.description // ""' <<< "$CURRENT")
+          CURRENT_TARGET_URL=$(jq -r '.target_url // ""' <<< "$CURRENT")
+          [[ "$CURRENT_TARGET_URL" =~ ^https://github\.com/$REPOSITORY/actions/runs/[1-9][0-9]*$ ]] || {
+            echo "::error::Publication owner target is missing or malformed"
+            exit 1
+          }
           if [ "$CURRENT_STATE" = failure ] \
             && [ "$CURRENT_DESCRIPTION" = 'Correlated publication failed; inspection required' ]; then
             echo "::notice::Upstream publication failure is authoritative; refusing to overwrite it"
@@ -1160,7 +1165,7 @@ jobs:
           fi
           gh api --method POST "repos/$REPOSITORY/statuses/$MERGE_COMMIT_SHA" \
             -f state="$STATE" -f context="$CONTEXT" -f description="$DESCRIPTION" \
-            -f target_url="https://github.com/$REPOSITORY/actions/runs/${{ github.run_id }}"
+            -f target_url="$CURRENT_TARGET_URL"
 
       - name: Record durable correlated manual sync result
         if: >-
