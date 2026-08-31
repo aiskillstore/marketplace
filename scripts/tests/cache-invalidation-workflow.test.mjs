@@ -1,7 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildShardPlan } from '../plan-cache-invalidation.mjs';
@@ -11,6 +12,7 @@ const REPO_ROOT = resolve(TEST_DIR, '..', '..');
 const WORKFLOW = join(REPO_ROOT, '.github', 'workflows', 'sync-to-supabase.yml');
 const TEST_WORKFLOW = join(REPO_ROOT, '.github', 'workflows', 'test-recalculate-scores.yml');
 const AGGREGATE = join(REPO_ROOT, 'scripts', 'check-cache-invalidation-aggregate.sh');
+const CORRELATED_ROOT_GUARD = join(REPO_ROOT, 'scripts', 'validate-correlated-sync-roots.mjs');
 
 function section(workflow, start, end) {
   const startIndex = workflow.indexOf(start);
@@ -129,7 +131,7 @@ test('incremental detection resolves both sides from pinned Git trees', () => {
   assert.match(detectJob, /INPUT_SLUGS: \$\{\{ inputs\.slugs \}\}/);
   assert.match(detectJob, /HEAD_SHA: \$\{\{ github\.sha \}\}/);
   assert.doesNotMatch(detectJob.slice(detectJob.indexOf('run: |')), /\$\{\{\s*inputs\./);
-  assert.match(detectJob, /--commit "\$HEAD_SHA"/);
+  assert.match(detectJob, /--commit "\$SYNC_COMMIT_SHA"/);
   assert.match(detectJob, /--base "\$BASE_SHA"/);
   assert.match(detectJob, /--head "\$HEAD_SHA"/);
   assert.doesNotMatch(detectJob, /get_skill_slug|\[ -f "skills\/\$first/);
@@ -156,6 +158,50 @@ test('incremental detection subtracts only verified successful manual recovery a
   assert.match(workflow, /retention-days: 30/);
 });
 
+test('correlated provider sync verifies exact root versions and uses the correlated merge commit', () => {
+  const workflow = readFileSync(WORKFLOW, 'utf8');
+  const correlation = section(workflow, '      - name: Validate trusted sync correlation', '      - name: Generate GitHub App Token');
+  const detect = section(workflow, '      - name: Detect changed skills', '      - name: Download skillstore-cli');
+  const materialize = section(workflow, '      - name: Materialize changed skills', '      - name: Sync skills to Supabase');
+  const sync = section(workflow, '      - name: Sync skills to Supabase', '      - name: Reconcile durable security change events');
+  assert.match(correlation, /id: trusted-correlation/);
+  assert.match(correlation, /validate-correlated-sync-roots\.mjs/);
+  assert.match(correlation, /sync_commit_sha=\$MERGE_COMMIT_SHA/);
+  assert.match(detect, /SYNC_COMMIT_SHA: \$\{\{ steps\.trusted-correlation\.outputs\.sync_commit_sha \}\}/);
+  assert.match(detect, /--commit "\$SYNC_COMMIT_SHA"/);
+  assert.match(materialize, /--commit "\$SYNC_COMMIT_SHA"/);
+  assert.match(sync, /--marketplace-commit "\$SYNC_COMMIT_SHA"/);
+  assert.match(sync, /\.meta\.slug/);
+  assert.match(sync, /materialized Skill report is missing or unsafe/);
+  assert.match(sync, /diff -u expected-synced-slugs\.txt synced-slugs\.txt/);
+
+  const tmp = mkdtempSync(join(tmpdir(), 'marketplace-correlated-roots-'));
+  try {
+    const git = (...args) => spawnSync('git', args, { cwd: tmp, encoding: 'utf8' });
+    assert.equal(git('init').status, 0);
+    assert.equal(git('config', 'user.email', 'test@example.com').status, 0);
+    assert.equal(git('config', 'user.name', 'Test').status, 0);
+    assert.equal(spawnSync('/bin/mkdir', ['-p', join(tmp, 'skills/example/skill'), join(tmp, 'skills/other/skill')]).status, 0);
+    assert.equal(spawnSync('/bin/sh', ['-c', "printf 'v1\\n' > skills/example/skill/SKILL.md; printf '{}\\n' > skills/example/skill/skill-report.json; printf 'o1\\n' > skills/other/skill/SKILL.md"], { cwd: tmp }).status, 0);
+    assert.equal(git('add', '.').status, 0);
+    assert.equal(git('commit', '-m', 'merge').status, 0);
+    const mergeSha = git('rev-parse', 'HEAD').stdout.trim();
+    assert.equal(spawnSync('/bin/sh', ['-c', "printf 'o2\\n' > skills/other/skill/SKILL.md"], { cwd: tmp }).status, 0);
+    assert.equal(git('commit', '-am', 'unrelated').status, 0);
+    const unrelatedSha = git('rev-parse', 'HEAD').stdout.trim();
+    const unchanged = spawnSync(process.execPath, [CORRELATED_ROOT_GUARD, '--merge', mergeSha, '--current', unrelatedSha, '--slugs', 'example/skill'], { cwd: tmp, encoding: 'utf8' });
+    assert.equal(unchanged.status, 0, `${unchanged.stdout}\n${unchanged.stderr}`);
+    assert.equal(spawnSync('/bin/sh', ['-c', "printf 'v2\\n' > skills/example/skill/SKILL.md"], { cwd: tmp }).status, 0);
+    assert.equal(git('commit', '-am', 'same root changed').status, 0);
+    const changedSha = git('rev-parse', 'HEAD').stdout.trim();
+    const changed = spawnSync(process.execPath, [CORRELATED_ROOT_GUARD, '--merge', mergeSha, '--current', changedSha, '--slugs', 'example/skill'], { cwd: tmp, encoding: 'utf8' });
+    assert.notEqual(changed.status, 0);
+    assert.match(`${changed.stdout}\n${changed.stderr}`, /changed after the marker-bound merge/);
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
 test('manual slug sync carries an optional exact correlation without requiring an incremental baseline', () => {
   const workflow = readFileSync(WORKFLOW, 'utf8');
   assert.match(workflow, /correlation_id:/);
@@ -163,7 +209,11 @@ test('manual slug sync carries an optional exact correlation without requiring a
   const lastSync = section(workflow, '      - name: Find last successful sync commit', '      - name: Detect changed skills');
   assert.match(lastSync, /if: inputs\.slugs == ''/);
   const correlation = section(workflow, '      - name: Validate trusted sync correlation', '      - name: Generate GitHub App Token');
-  assert.match(correlation, /\^source-monitor-pr-\[1-9\]\[0-9\]\*-\[0-9a-f\]\{40\}\$/);
+  assert.match(correlation, /\^source-monitor-pr-\(\[1-9\]\[0-9\]\*\)-\(\[0-9a-f\]\{40\}\)-\(\[0-9a-f\]\{40\}\)-\(\[0-9a-f\]\{64\}\)\$/);
+  assert.match(correlation, /MERGE_COMMIT_SHA/);
+  assert.match(correlation, /Provider sync correlation does not match the authoritative merged source-monitor PR/);
+  assert.match(correlation, /Correlated merge is not on the current main lineage/);
+  assert.match(correlation, /Provider sync correlation is not bound to the exact canonical root set/);
   assert.match(correlation, /"\$EVENT_NAME" != 'workflow_dispatch'/);
   assert.match(correlation, /"\$GIT_REF" != 'refs\/heads\/main'/);
   const detect = section(workflow, '      - name: Detect changed skills', '      - name: Download skillstore-cli');
@@ -226,11 +276,12 @@ test('sync materializes only the detected paths from the exact workflow commit',
   );
   assert.match(materialize, /CHANGED_SKILLS: \$\{\{ steps\.changes\.outputs\.changed_skills \}\}/);
   assert.match(materialize, /node \.\/scripts\/materialize-changed-skills\.mjs/);
-  assert.match(materialize, /--commit "\$GITHUB_SHA"/);
+  assert.match(materialize, /SYNC_COMMIT_SHA: \$\{\{ steps\.trusted-correlation\.outputs\.sync_commit_sha \}\}/);
+  assert.match(materialize, /--commit "\$SYNC_COMMIT_SHA"/);
   assert.match(materialize, /--skills "\$CHANGED_SKILLS"/);
   assert.doesNotMatch(materialize, /checkout\s+\.\s*$|sparse-checkout disable|git clean/mi);
   assert.match(sync, /skill sync[\s\S]*--slugs "\$paths"/);
-  assert.match(sync, /--marketplace-commit "\$GITHUB_SHA"/);
+  assert.match(sync, /--marketplace-commit "\$SYNC_COMMIT_SHA"/);
 });
 
 test('sync writes are single-concurrency, single-attempt, and wall-clock bounded', () => {

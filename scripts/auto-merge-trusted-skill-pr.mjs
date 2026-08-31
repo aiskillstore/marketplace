@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { createHash } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
 
 const TRUSTED_REPOSITORY = 'aiskillstore/marketplace';
@@ -15,6 +16,7 @@ const SEGMENT_RE = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 const SOURCE_MONITOR_REF_RE = /^skill-source-monitor\/run-[1-9][0-9]*$/u;
 const SUBMISSION_ROUTE = 'submission';
 const SOURCE_MONITOR_ROUTE = 'source_monitor';
+const RECOVERY_MARKER_EPOCH = '2026-08-30T00:00:00Z';
 
 export class AutoMergeBlockedError extends Error {
   constructor(message) {
@@ -27,6 +29,13 @@ export class AutoMergeWaitingError extends AutoMergeBlockedError {
   constructor(message) {
     super(message);
     this.name = 'AutoMergeWaitingError';
+  }
+}
+
+export class AutoMergeSkippedError extends AutoMergeBlockedError {
+  constructor(message) {
+    super(message);
+    this.name = 'AutoMergeSkippedError';
   }
 }
 
@@ -50,6 +59,10 @@ function block(condition, message) {
   if (!condition) throw new AutoMergeBlockedError(message);
 }
 
+function skip(condition, message) {
+  if (!condition) throw new AutoMergeSkippedError(message);
+}
+
 function validSha(value) {
   return typeof value === 'string' && SHA_RE.test(value);
 }
@@ -71,6 +84,31 @@ function rootForPath(path, topLevel = 'pending') {
   if (parts.length < 4 || parts[0] !== topLevel) return null;
   if (!SEGMENT_RE.test(parts[1]) || !SEGMENT_RE.test(parts[2])) return null;
   return parts.slice(0, 3).join('/');
+}
+
+function rootSetDigest(slugs) {
+  return createHash('sha256').update([...new Set(slugs)].sort().join('\n')).digest('hex');
+}
+
+function dispatchClaim(kind, correlationId) {
+  block(['publication', 'provider-sync'].includes(kind), 'dispatch claim kind is invalid');
+  block(typeof correlationId === 'string' && correlationId.length > 0, 'dispatch claim correlation is invalid');
+  const digest = rootSetDigest([correlationId]);
+  const name = `agentcrew-dispatch-claims/${kind}/${digest}`;
+  return { fullRef: `refs/tags/${name}`, apiRef: `tags/${name}` };
+}
+
+export function resolveWorkflowPrNumber(payloadPrs, exactAssociatedPrs) {
+  block(Array.isArray(payloadPrs) && Array.isArray(exactAssociatedPrs), 'workflow PR evidence is invalid');
+  const payloadNumbers = payloadPrs.map((candidate) => candidate?.number);
+  block(payloadNumbers.every((number) => Number.isSafeInteger(number) && number > 0), 'workflow payload PR evidence is invalid');
+  const uniquePayloadNumbers = [...new Set(payloadNumbers)];
+  block(uniquePayloadNumbers.length <= 1, 'workflow run must resolve exactly one PR from the exact head');
+  if (uniquePayloadNumbers.length === 1) return uniquePayloadNumbers[0];
+  const associatedNumbers = [...new Set(exactAssociatedPrs.map((candidate) => candidate?.number))];
+  block(associatedNumbers.length === 1 && Number.isSafeInteger(associatedNumbers[0]) && associatedNumbers[0] > 0,
+    'workflow run must resolve exactly one PR from the exact head');
+  return associatedNumbers[0];
 }
 
 function publishedRootSyntax(root) {
@@ -109,7 +147,7 @@ function routeForPr(pr) {
     block(SOURCE_MONITOR_REF_RE.test(ref), 'PR head must use trusted source-monitor provenance');
     return SOURCE_MONITOR_ROUTE;
   }
-  throw new AutoMergeBlockedError('PR head must use trusted submission/ or source-monitor provenance');
+  throw new AutoMergeSkippedError('PR head must use trusted submission/ or source-monitor provenance');
 }
 
 export function latestStatusesByContext(statusHistory) {
@@ -169,27 +207,28 @@ export function validateSnapshot(snapshot, { allowMerged = false } = {}) {
   if (allowMerged) {
     block(pr.state === 'closed' && pr.merged === true && validSha(pr.merge_commit_sha), 'PR must be authoritatively merged');
   } else {
-    block(pr.state === 'open' && pr.draft === false && pr.merged !== true, 'PR must be open and non-draft');
+    skip(pr.state === 'open' && pr.draft === false && pr.merged !== true, 'PR must be open and non-draft');
   }
-  block(pr.base?.ref === 'main', 'PR base must be main');
-  block(sameRepository(pr.base?.repo, repository) && sameRepository(pr.head?.repo, repository), 'PR head and base must use the same repository');
-  block(pr.user?.id === TRUSTED_BOT.id && pr.user?.login === TRUSTED_BOT.login && pr.user?.type === TRUSTED_BOT.type, 'PR author is not the trusted App identity');
+  skip(pr.base?.ref === 'main', 'PR base must be main');
+  skip(sameRepository(pr.base?.repo, repository) && sameRepository(pr.head?.repo, repository), 'PR head and base must use the same repository');
+  skip(pr.user?.id === TRUSTED_BOT.id && pr.user?.login === TRUSTED_BOT.login && pr.user?.type === TRUSTED_BOT.type, 'PR author is not the trusted App identity');
   const route = routeForPr(pr);
   block(validSha(pr.head?.sha) && validSha(pr.base?.sha), 'PR head and base SHA must be exact');
   block(workflowRun.head_sha === pr.head.sha, 'workflow run must bind the exact PR head');
   const labelNames = new Set((Array.isArray(pr.labels) ? pr.labels : []).map((label) => label?.name));
   if (route === SUBMISSION_ROUTE) {
-    block(labelNames.has('pending-review'), 'PR must have pending-review');
+    skip(labelNames.has('pending-review'), 'PR must have pending-review');
   } else {
-    block(labelNames.has('skill-source-monitor'), 'source-monitor PR must have skill-source-monitor label');
-    block(!labelNames.has('pending-review'), 'source-monitor PR must not have pending-review');
+    skip(labelNames.has('skill-source-monitor'), 'source-monitor PR must have skill-source-monitor label');
+    skip(!labelNames.has('pending-review'), 'source-monitor PR must not have pending-review');
   }
   if (!allowMerged) {
     block(pr.mergeable === true, 'PR is not mergeable');
     block(['clean', 'behind'].includes(pr.mergeable_state), `PR mergeable_state is ${pr.mergeable_state ?? 'unknown'}`);
   }
 
-  block(Array.isArray(files) && files.length > 0, 'PR files are required');
+  block(Array.isArray(files), 'PR files are required');
+  skip(files.length > 0, 'PR files are required');
   block(Number.isSafeInteger(pr.changed_files) && pr.changed_files === files.length, 'PR file pagination/count is incomplete');
   block(tree?.truncated === false && Array.isArray(tree.entries), 'exact-head tree is truncated or missing');
   const seenFiles = new Set();
@@ -197,56 +236,56 @@ export function validateSnapshot(snapshot, { allowMerged = false } = {}) {
   const topLevel = route === SUBMISSION_ROUTE ? 'pending' : 'skills';
   const publishedRootCandidates = route === SOURCE_MONITOR_ROUTE ? publishedRootsFromTree(tree) : [];
   for (const file of files) {
-    block(safePath(file?.filename), 'PR contains an unsafe path');
-    block(!seenFiles.has(file.filename), `duplicate PR file ${file.filename}`);
+    skip(safePath(file?.filename), 'PR contains an unsafe path');
+    skip(!seenFiles.has(file.filename), `duplicate PR file ${file.filename}`);
     seenFiles.add(file.filename);
     if (route === SUBMISSION_ROUTE) {
-      block(file.status === 'added' && file.previous_filename == null, `every Skill file must be newly added: ${file.filename}`);
+      skip(file.status === 'added' && file.previous_filename == null, `every Skill file must be newly added: ${file.filename}`);
     } else {
-      block(['added', 'modified', 'removed', 'changed'].includes(file.status) && file.previous_filename == null,
+      skip(['added', 'modified', 'removed', 'changed'].includes(file.status) && file.previous_filename == null,
         `unsupported source-monitor file status: ${file.status ?? 'missing'}`);
     }
     const root = route === SUBMISSION_ROUTE
       ? rootForPath(file.filename, topLevel)
       : publishedRootForPath(file.filename, publishedRootCandidates);
-    block(root !== null, `PR must change only ${topLevel === 'pending' ? 'pending' : 'published'} Skill roots`);
+    skip(root !== null, `PR must change only ${topLevel === 'pending' ? 'pending' : 'published'} Skill roots`);
     roots.add(root);
   }
-  block(roots.size > 0, `PR must change ${topLevel} Skill roots`);
+  skip(roots.size > 0, `PR must change ${topLevel} Skill roots`);
   const rootList = [...roots].sort();
-  if (route === SOURCE_MONITOR_ROUTE) block(rootList.length <= 25, 'source-monitor PR exceeds the provider sync limit');
+  if (route === SOURCE_MONITOR_ROUTE) skip(rootList.length <= 25, 'source-monitor PR exceeds the provider sync limit');
   for (const root of rootList) {
     const skillFile = files.find((file) => file.filename === `${root}/SKILL.md`);
     const reportFile = files.find((file) => file.filename === `${root}/skill-report.json`);
-    if (route === SUBMISSION_ROUTE) block(skillFile && skillFile.status !== 'removed', 'Skill root is missing SKILL.md');
-    block(reportFile && reportFile.status !== 'removed', 'Skill root is missing skill-report.json');
+    if (route === SUBMISSION_ROUTE) skip(skillFile && skillFile.status !== 'removed', 'Skill root is missing SKILL.md');
+    skip(reportFile && reportFile.status !== 'removed', 'Skill root is missing skill-report.json');
   }
   if (route === SUBMISSION_ROUTE) {
-    block(snapshot.basePendingExists === false, 'pending root already exists on the base');
+    skip(snapshot.basePendingExists === false, 'pending root already exists on the base');
   } else {
-    block(snapshot.baseSkillRootsExist === true, 'source-monitor Skill roots must already exist on the base');
+    skip(snapshot.baseSkillRootsExist === true, 'source-monitor Skill roots must already exist on the base');
   }
 
   const treeByPath = new Map();
   for (const entry of tree.entries) {
     if (typeof entry?.path !== 'string' || !rootList.some((root) => entry.path === root || entry.path.startsWith(`${root}/`))) continue;
     if (entry.type === 'tree') continue;
-    block(entry.type === 'blob' && ['100644', '100755'].includes(entry.mode), 'Skill tree must contain ordinary blobs only');
+    skip(entry.type === 'blob' && ['100644', '100755'].includes(entry.mode), 'Skill tree must contain ordinary blobs only');
     treeByPath.set(entry.path, entry);
   }
   if (route === SUBMISSION_ROUTE) {
-    block(treeByPath.size === seenFiles.size && [...seenFiles].every((path) => treeByPath.has(path)), 'PR files do not equal the exact-head Skill tree');
+    skip(treeByPath.size === seenFiles.size && [...seenFiles].every((path) => treeByPath.has(path)), 'PR files do not equal the exact-head Skill tree');
   } else {
     for (const file of files) {
       const entry = treeByPath.get(file.filename);
       if (file.status === 'removed') {
-        block(entry == null, `removed source-monitor file remains on the exact PR head: ${file.filename}`);
+        skip(entry == null, `removed source-monitor file remains on the exact PR head: ${file.filename}`);
       } else {
         block(entry?.sha === file.sha && validSha(file.sha), `source-monitor file is not bound to the exact PR head: ${file.filename}`);
       }
     }
     for (const root of rootList) {
-      block(treeByPath.has(`${root}/SKILL.md`) && treeByPath.has(`${root}/skill-report.json`), 'source-monitor Skill root is incomplete on the exact PR head');
+      skip(treeByPath.has(`${root}/SKILL.md`) && treeByPath.has(`${root}/skill-report.json`), 'source-monitor Skill root is incomplete on the exact PR head');
     }
   }
 
@@ -265,7 +304,8 @@ export function validateSnapshot(snapshot, { allowMerged = false } = {}) {
     'skill report is not bound to the exact PR head');
   }
 
-  block(Array.isArray(checks) && checks.length > 0, 'exact-head checks are required');
+  block(Array.isArray(checks), 'exact-head checks are required');
+  if (checks.length === 0) throw new AutoMergeWaitingError('exact-head checks are required');
   const checkNames = new Set();
   for (const check of checks) {
     block(check?.app?.id === GITHUB_ACTIONS_APP_ID, `check ${check?.name ?? '<unknown>'} is not from GitHub Actions`);
@@ -345,19 +385,34 @@ function definiteMutationRejection(error) {
   return error instanceof GitHubApiError && [405, 409, 422].includes(error.status);
 }
 
-export async function runAutoMerge(api, { workflowRunId }) {
+function definiteDispatchRejection(error) {
+  return error instanceof GitHubApiError
+    && error.status >= 400
+    && error.status < 500
+    && ![408, 425, 429].includes(error.status);
+}
+
+export async function runAutoMerge(api, { workflowRunId, deferPostMergeDispatch = false }) {
   const firstSnapshot = await buildStableSnapshot(api, workflowRunId);
   if (firstSnapshot?.pr?.merged === true && firstSnapshot.pr.state === 'closed' && firstSnapshot.pr.head?.sha === firstSnapshot.workflowRun?.head_sha) {
-    if (SOURCE_MONITOR_REF_RE.test(firstSnapshot.pr.head?.ref ?? '')) {
-      const merged = validateSnapshot(firstSnapshot, { allowMerged: true });
-      try {
-        await api.dispatchProviderSync(merged.prNumber, merged.headSha, merged.roots);
-      } catch {
-        throw new AutoMergeUnknownEffectError(`merge is confirmed but provider sync reconciliation is unknown for PR #${merged.prNumber}`);
-      }
-      return { outcome: 'ALREADY_MERGED_AND_PROVIDER_SYNC_CONFIRMED', prNumber: merged.prNumber, headSha: merged.headSha, mergeCommitSha: firstSnapshot.pr.merge_commit_sha, classification: merged.classification };
+    const merged = validateSnapshot(firstSnapshot, { allowMerged: true });
+    let dispatchResult;
+    try {
+      dispatchResult = merged.postMergeAction === 'provider_sync'
+        ? await api.dispatchProviderSync(merged.prNumber, merged.headSha, firstSnapshot.pr.merge_commit_sha, merged.roots)
+        : await api.dispatchPublication(merged.prNumber, merged.headSha, firstSnapshot.pr.merge_commit_sha);
+    } catch (error) {
+      if (error instanceof AutoMergeBlockedError || error instanceof AutoMergeUnknownEffectError) throw error;
+      const effect = merged.postMergeAction === 'provider_sync' ? 'provider sync' : 'publication';
+      throw new AutoMergeUnknownEffectError(`merge is confirmed but ${effect} reconciliation is unknown for PR #${merged.prNumber}`);
     }
-    return { outcome: 'ALREADY_MERGED', prNumber: firstSnapshot.pr.number, headSha: firstSnapshot.pr.head.sha, mergeCommitSha: firstSnapshot.pr.merge_commit_sha };
+    return {
+      ...dispatchResult,
+      prNumber: merged.prNumber,
+      headSha: merged.headSha,
+      mergeCommitSha: firstSnapshot.pr.merge_commit_sha,
+      classification: merged.classification,
+    };
   }
   const first = validateSnapshot(firstSnapshot);
   const secondSnapshot = await buildStableSnapshot(api, workflowRunId);
@@ -371,26 +426,50 @@ export async function runAutoMerge(api, { workflowRunId }) {
     } catch (error) {
       mutationError = error;
     }
-    let changedHead;
-    try {
-      for (let attempt = 0; attempt < 12; attempt += 1) {
-        const pr = await api.readPr(second.prNumber);
-        if (validSha(pr?.head?.sha) && pr.head.sha !== second.headSha) {
-          const commit = await api.readCommit(pr.head.sha);
-          const parentShas = new Set((commit?.parents ?? []).map((parent) => parent.sha));
-          if (parentShas.has(second.headSha) && parentShas.has(second.baseSha)) {
-            changedHead = pr.head.sha;
-            break;
-          }
-          throw new AutoMergeUnknownEffectError(`update-branch produced an uncorrelated head for PR #${second.prNumber}`);
-        }
+    for (let attempt = 0; attempt < 12; attempt += 1) {
+      let pr;
+      try {
+        pr = await api.readPr(second.prNumber);
+      } catch {
         if (attempt < 11) await api.sleep(5_000);
+        continue;
       }
-    } catch {
-      throw new AutoMergeUnknownEffectError(`update-branch effect is unknown for PR #${second.prNumber}`);
-    }
-    if (changedHead) {
-      return { outcome: 'UPDATE_CONFIRMED_AWAITING_CI', prNumber: second.prNumber, oldHeadSha: second.headSha, newHeadSha: changedHead, classification: second.classification };
+      if (validSha(pr?.head?.sha) && pr.head.sha !== second.headSha) {
+        let commit;
+        try {
+          commit = await api.readCommit(pr.head.sha);
+        } catch {
+          if (attempt < 11) await api.sleep(5_000);
+          continue;
+        }
+        const parentShas = [...new Set((commit?.parents ?? []).map((parent) => parent.sha))];
+        const readbackBaseSha = pr.base?.sha;
+        const updateBaseParents = parentShas.filter((sha) => sha !== second.headSha);
+        if (parentShas.length === 2
+          && parentShas.includes(second.headSha)
+          && updateBaseParents.length === 1
+          && validSha(readbackBaseSha)) {
+          let updateBaseIsOnMain;
+          try {
+            updateBaseIsOnMain = updateBaseParents[0] === readbackBaseSha
+              || await api.isCommitAncestor(updateBaseParents[0], readbackBaseSha);
+          } catch {
+            if (attempt < 11) await api.sleep(5_000);
+            continue;
+          }
+          if (updateBaseIsOnMain) {
+            return {
+              outcome: 'UPDATE_CONFIRMED_AWAITING_CI',
+              prNumber: second.prNumber,
+              oldHeadSha: second.headSha,
+              newHeadSha: pr.head.sha,
+              classification: second.classification,
+            };
+          }
+        }
+        throw new AutoMergeUnknownEffectError(`update-branch produced an uncorrelated head for PR #${second.prNumber}`);
+      }
+      if (attempt < 11) await api.sleep(5_000);
     }
     if (mutationError && definiteMutationRejection(mutationError)) throw new AutoMergeBlockedError(`update-branch rejected with HTTP ${mutationError.status}`);
     throw new AutoMergeUnknownEffectError(`update-branch effect is unknown for PR #${second.prNumber}`);
@@ -409,27 +488,118 @@ export async function runAutoMerge(api, { workflowRunId }) {
     throw new AutoMergeUnknownEffectError(`merge effect is unknown for PR #${second.prNumber}`);
   }
   if (mergedReadback(readback, second)) {
-    if (second.postMergeAction === 'provider_sync') {
-      try {
-        await api.dispatchProviderSync(second.prNumber, second.headSha, second.roots);
-      } catch {
-        throw new AutoMergeUnknownEffectError(`merge is confirmed but provider sync dispatch is unknown for PR #${second.prNumber}`);
-      }
-      return { outcome: 'MERGED_AND_PROVIDER_SYNC_DISPATCHED', prNumber: second.prNumber, headSha: second.headSha, mergeCommitSha: readback.merge_commit_sha, classification: second.classification };
+    if (deferPostMergeDispatch) {
+      return {
+        outcome: second.postMergeAction === 'provider_sync'
+          ? 'MERGED_AWAITING_PROVIDER_SYNC_RECONCILIATION'
+          : 'MERGED_AWAITING_PUBLICATION_RECONCILIATION',
+        prNumber: second.prNumber,
+        headSha: second.headSha,
+        mergeCommitSha: readback.merge_commit_sha,
+        classification: second.classification,
+      };
     }
     try {
-      await api.dispatchPublication(second.prNumber);
-    } catch {
-      throw new AutoMergeUnknownEffectError(`merge is confirmed but publication recovery dispatch is unknown for PR #${second.prNumber}`);
+      if (second.postMergeAction === 'provider_sync') {
+        await api.dispatchProviderSync(second.prNumber, second.headSha, readback.merge_commit_sha, second.roots);
+        return { outcome: 'MERGED_AND_PROVIDER_SYNC_DISPATCHED', prNumber: second.prNumber, headSha: second.headSha, mergeCommitSha: readback.merge_commit_sha, classification: second.classification };
+      }
+      await api.dispatchPublication(second.prNumber, second.headSha, readback.merge_commit_sha);
+      return { outcome: 'MERGED_AND_PUBLICATION_DISPATCHED', prNumber: second.prNumber, headSha: second.headSha, mergeCommitSha: readback.merge_commit_sha, classification: second.classification };
+    } catch (error) {
+      if (error instanceof AutoMergeBlockedError || error instanceof AutoMergeUnknownEffectError) throw error;
+      const effect = second.postMergeAction === 'provider_sync' ? 'provider sync' : 'publication';
+      throw new AutoMergeUnknownEffectError(`merge is confirmed but ${effect} dispatch is unknown for PR #${second.prNumber}`);
     }
-    return { outcome: 'MERGED_AND_PUBLICATION_DISPATCHED', prNumber: second.prNumber, headSha: second.headSha, mergeCommitSha: readback.merge_commit_sha, classification: second.classification };
   }
   if (mutationError && definiteMutationRejection(mutationError)) throw new AutoMergeBlockedError(`merge rejected with HTTP ${mutationError.status}`);
   throw new AutoMergeUnknownEffectError(`merge effect is unknown for PR #${second.prNumber}`);
 }
 
+export async function runRecoverySweep(api) {
+  const candidates = await api.listRecoveryCandidates();
+  let deferredResult;
+  for (const candidate of candidates) {
+    if (candidate.phase === 'MERGED') {
+      const result = candidate.postMergeAction === 'provider_sync'
+        ? await api.dispatchProviderSync(candidate.prNumber, candidate.headSha, candidate.mergeCommitSha, candidate.roots)
+        : await api.dispatchPublication(candidate.prNumber, candidate.headSha, candidate.mergeCommitSha);
+      if (['PUBLICATION_ALREADY_DISPATCHED', 'PROVIDER_SYNC_ALREADY_DISPATCHED'].includes(result.outcome)) continue;
+      if (result.outcome === 'PUBLICATION_AWAITING_PROVIDER_SYNC') {
+        deferredResult ??= {
+          ...result,
+          prNumber: candidate.prNumber,
+          headSha: candidate.headSha,
+          mergeCommitSha: candidate.mergeCommitSha,
+        };
+        continue;
+      }
+      if (result.outcome.endsWith('_FAILED_REQUIRES_INSPECTION')) {
+        throw new AutoMergeBlockedError(`${result.outcome} for PR #${candidate.prNumber} (workflow run ${result.workflowRunId ?? 'unavailable'})`);
+      }
+      return {
+        ...result,
+        prNumber: candidate.prNumber,
+        headSha: candidate.headSha,
+        mergeCommitSha: candidate.mergeCommitSha,
+      };
+    }
+    if (candidate.workflowRunId == null) {
+      return {
+        outcome: 'WAITING_CI',
+        prNumber: candidate.prNumber,
+        headSha: candidate.headSha,
+        reason: 'missing exact-head Validate Marketplace run',
+      };
+    }
+    try {
+      const result = await runAutoMerge(api, {
+        workflowRunId: candidate.workflowRunId,
+        deferPostMergeDispatch: true,
+      });
+      if (['PUBLICATION_ALREADY_DISPATCHED', 'PROVIDER_SYNC_ALREADY_DISPATCHED'].includes(result.outcome)) continue;
+      return result;
+    } catch (error) {
+      if (error instanceof AutoMergeSkippedError) continue;
+      if (error instanceof AutoMergeWaitingError) {
+        return { outcome: 'WAITING_CI', prNumber: candidate.prNumber, workflowRunId: candidate.workflowRunId, reason: error.message };
+      }
+      throw error;
+    }
+  }
+  return deferredResult ?? { outcome: 'NO_ELIGIBLE_RECOVERY' };
+}
+
 function encodeContentPath(path) {
   return path.split('/').map(encodeURIComponent).join('/');
+}
+
+function trustedRecoverySeed(pr, repository) {
+  const labels = new Set((Array.isArray(pr?.labels) ? pr.labels : []).map((label) => label?.name));
+  const merged = pr?.state === 'closed' && pr.draft === false
+    && typeof pr.merged_at === 'string' && validSha(pr.merge_commit_sha);
+  const submission = typeof pr?.head?.ref === 'string'
+    && pr.head.ref.startsWith('submission/')
+    && (merged || labels.has('pending-review'));
+  const sourceMonitor = SOURCE_MONITOR_REF_RE.test(pr?.head?.ref ?? '')
+    && (merged || (labels.has('skill-source-monitor') && !labels.has('pending-review')));
+  const lifecycle = (pr?.state === 'open' && pr.draft === false && pr.merged_at == null) || merged;
+  return lifecycle
+    && pr.base?.ref === 'main'
+    && sameRepository(pr.base?.repo, repository)
+    && sameRepository(pr.head?.repo, repository)
+    && pr.user?.id === TRUSTED_BOT.id
+    && pr.user?.login === TRUSTED_BOT.login
+    && pr.user?.type === TRUSTED_BOT.type
+    && validSha(pr.head?.sha)
+    && (submission || sourceMonitor);
+}
+
+function workflowRunIdFromCheck(check) {
+  if (check?.name !== 'validate' || check?.app?.id !== GITHUB_ACTIONS_APP_ID) return null;
+  const match = /^https:\/\/github\.com\/aiskillstore\/marketplace\/actions\/runs\/(\d+)\/job\/\d+(?:\?.*)?$/u.exec(check.details_url ?? '');
+  const runId = match ? Number(match[1]) : NaN;
+  return Number.isSafeInteger(runId) && runId > 0 ? runId : null;
 }
 
 export class GitHubApi {
@@ -493,6 +663,14 @@ export class GitHubApi {
     return this.request(`/commits/${sha}`);
   }
 
+  async isCommitAncestor(ancestorSha, descendantSha) {
+    block(validSha(ancestorSha) && validSha(descendantSha), 'commit lineage requires exact SHAs');
+    const comparison = await this.request(`/compare/${ancestorSha}...${descendantSha}`);
+    return comparison?.base_commit?.sha === ancestorSha
+      && comparison?.merge_base_commit?.sha === ancestorSha
+      && ['ahead', 'identical'].includes(comparison?.status);
+  }
+
   async existsAt(path, ref) {
     try {
       await this.request(`/contents/${encodeContentPath(path)}?ref=${encodeURIComponent(ref)}`);
@@ -501,6 +679,77 @@ export class GitHubApi {
       if (error instanceof GitHubApiError && error.status === 404) return false;
       throw error;
     }
+  }
+
+  async listRecoveryCandidates() {
+    const repository = await this.request('');
+    block(repository?.full_name === TRUSTED_REPOSITORY && Number.isSafeInteger(repository.id), 'trusted repository evidence is unavailable');
+    const openPulls = await this.paginate('/pulls?state=open&base=main&sort=created&direction=asc');
+    const closedPulls = [];
+    for (let page = 1; page <= 30; page += 1) {
+      const items = await this.request(`/pulls?state=closed&base=main&sort=updated&direction=desc&per_page=100&page=${page}`);
+      block(Array.isArray(items), 'merged PR recovery evidence is unavailable');
+      closedPulls.push(...items.filter((pr) => String(pr?.merged_at ?? '') >= RECOVERY_MARKER_EPOCH));
+      const reachedEpoch = items.length < 100
+        || items.every((pr) => String(pr?.updated_at ?? '') < RECOVERY_MARKER_EPOCH);
+      if (reachedEpoch) break;
+      if (page === 30) throw new AutoMergeBlockedError('merged PR recovery search exceeded the bounded marker epoch');
+    }
+
+    const seeds = [];
+    for (const pr of closedPulls) {
+      if (!trustedRecoverySeed(pr, repository) || pr.state !== 'closed') continue;
+      const mergeCommit = await this.readCommit(pr.merge_commit_sha);
+      const marker = `Trusted auto-merge PR #${pr.number}\n\nAgentCrew-Recovery: ${pr.number}:${pr.head.sha}`;
+      if (mergeCommit?.commit?.message !== marker) continue;
+      const sourceMonitor = SOURCE_MONITOR_REF_RE.test(pr.head?.ref ?? '');
+      let roots = [];
+      if (sourceMonitor) {
+        const [files, tree] = await Promise.all([
+          this.paginate(`/pulls/${pr.number}/files`),
+          this.request(`/git/trees/${pr.head.sha}?recursive=1`),
+        ]);
+        block(tree?.truncated === false && Array.isArray(tree.tree), `merged source-monitor PR #${pr.number} has no exact tree evidence`);
+        const candidates = publishedRootsFromTree({ entries: tree.tree });
+        roots = [...new Set(files.map((file) => publishedRootForPath(file.filename, candidates)).filter(Boolean))].sort();
+        block(roots.length > 0 && roots.length <= 25, `merged source-monitor PR #${pr.number} has invalid sync roots`);
+      }
+      seeds.push({
+        pr,
+        phase: 'MERGED',
+        mergeCommitSha: pr.merge_commit_sha,
+        postMergeAction: sourceMonitor ? 'provider_sync' : 'publication',
+        roots,
+      });
+    }
+    for (const pr of openPulls) {
+      if (trustedRecoverySeed(pr, repository) && pr.state === 'open') seeds.push({ pr, phase: 'OPEN' });
+    }
+    seeds.sort((left, right) => String(left.pr.created_at).localeCompare(String(right.pr.created_at)) || left.pr.number - right.pr.number);
+
+    const candidates = [];
+    for (const seed of seeds) {
+      const { pr } = seed;
+      let workflowRunId = null;
+      if (seed.phase === 'OPEN') {
+        const checks = await this.paginate(`/commits/${pr.head.sha}/check-runs?filter=latest`, (value) => value?.check_runs);
+        const runIds = [...new Set(checks.map(workflowRunIdFromCheck).filter(Number.isSafeInteger))];
+        block(runIds.length <= 1, `PR #${pr.number} has ambiguous exact-head validation runs`);
+        workflowRunId = runIds[0] ?? null;
+      }
+      candidates.push({
+        prNumber: pr.number,
+        headSha: pr.head.sha,
+        workflowRunId,
+        phase: seed.phase,
+        ...(seed.phase === 'MERGED' ? {
+          mergeCommitSha: seed.mergeCommitSha,
+          postMergeAction: seed.postMergeAction,
+          roots: seed.roots,
+        } : {}),
+      });
+    }
+    return candidates;
   }
 
   async buildSnapshot(workflowRunId) {
@@ -516,10 +765,8 @@ export class GitHubApi {
       && candidate?.base?.ref === 'main'
       && candidate?.base?.repo?.full_name === this.repository
       && candidate?.head?.repo?.full_name === this.repository);
-    const payloadNumbers = (workflowRun.pull_requests ?? []).map((candidate) => candidate.number).filter(Number.isSafeInteger);
-    const candidateNumbers = [...new Set([...exactAssociatedPrs.map((candidate) => candidate.number), ...payloadNumbers])];
-    block(candidateNumbers.length === 1, 'workflow run must resolve exactly one PR from the exact head');
-    const pr = await this.request(`/pulls/${candidateNumbers[0]}`);
+    const candidateNumber = resolveWorkflowPrNumber(workflowRun.pull_requests ?? [], exactAssociatedPrs);
+    const pr = await this.request(`/pulls/${candidateNumber}`);
     const headSha = pr.head?.sha;
     block(validSha(headSha) && headSha === workflowRun.head_sha, 'PR head does not match the workflow run');
     const files = await this.paginate(`/pulls/${pr.number}/files`);
@@ -641,14 +888,164 @@ export class GitHubApi {
   }
 
   async merge(number, headSha, method) {
-    return this.request(`/pulls/${number}/merge`, { method: 'PUT', body: { sha: headSha, merge_method: method } });
+    return this.request(`/pulls/${number}/merge`, {
+      method: 'PUT',
+      body: {
+        sha: headSha,
+        merge_method: method,
+        commit_title: `Trusted auto-merge PR #${number}`,
+        commit_message: `AgentCrew-Recovery: ${number}:${headSha}`,
+      },
+    });
   }
 
-  async dispatchPublication(number) {
-    return this.request('/actions/workflows/on-pr-merge.yml/dispatches', {
+  async readEffectStatus(commitSha, context) {
+    const statuses = await this.paginate(`/commits/${commitSha}/statuses`);
+    return latestStatusesByContext(statuses).find((status) => status.context === context);
+  }
+
+  async readDispatchClaim(kind, correlationId) {
+    const claim = dispatchClaim(kind, correlationId);
+    try {
+      const ref = await this.request(`/git/ref/${claim.apiRef}`);
+      block(ref?.ref === claim.fullRef && ref?.object?.type === 'commit' && validSha(ref.object.sha),
+        'dispatch claim evidence is invalid');
+      return { claim, ref };
+    } catch (error) {
+      if (error instanceof GitHubApiError && error.status === 404) return { claim, ref: undefined };
+      throw error;
+    }
+  }
+
+  async acquireDispatchClaim(kind, correlationId, mergeCommitSha) {
+    const before = await this.readDispatchClaim(kind, correlationId);
+    if (before.ref) {
+      block(before.ref.object.sha === mergeCommitSha, 'dispatch claim is bound to a different merge commit');
+      return false;
+    }
+    let createError;
+    let created;
+    try {
+      created = await this.request('/git/refs', {
+        method: 'POST',
+        body: { ref: before.claim.fullRef, sha: mergeCommitSha },
+      });
+    } catch (error) {
+      createError = error;
+    }
+    if (created) {
+      block(created.ref === before.claim.fullRef
+        && created.object?.type === 'commit'
+        && created.object.sha === mergeCommitSha,
+      'created dispatch claim does not match the exact merge commit');
+      return true;
+    }
+    const after = await this.readDispatchClaim(kind, correlationId);
+    if (after.ref) {
+      block(after.ref.object.sha === mergeCommitSha, 'dispatch claim is bound to a different merge commit');
+      throw new AutoMergeUnknownEffectError('dispatch claim ownership is unknown; refusing workflow dispatch');
+    }
+    if (createError && definiteMutationRejection(createError)) {
+      throw new AutoMergeBlockedError(`dispatch claim rejected with HTTP ${createError.status}`);
+    }
+    throw new AutoMergeUnknownEffectError('dispatch claim effect is unknown; refusing workflow dispatch');
+  }
+
+  async recordTerminalDispatchRejection(commitSha, context, description) {
+    block(validSha(commitSha), 'terminal dispatch rejection commit is invalid');
+    await this.request(`/statuses/${commitSha}`, {
       method: 'POST',
-      body: { ref: 'main', inputs: { pr_number: String(number) } },
+      body: {
+        state: 'failure',
+        context,
+        description,
+        target_url: `https://github.com/${this.repository}/actions/runs/${this.currentRunId}`,
+      },
     });
+  }
+
+  async findPublicationRun(correlationTitle) {
+    for (let page = 1; page <= 30; page += 1) {
+      const result = await this.request(`/actions/workflows/on-pr-merge.yml/runs?event=workflow_dispatch&per_page=100&page=${page}`);
+      block(Array.isArray(result?.workflow_runs), 'publication workflow run evidence is invalid');
+      const match = result.workflow_runs.find((run) => run?.display_title === correlationTitle
+        && run?.event === 'workflow_dispatch'
+        && run?.head_branch === 'main'
+        && run?.head_repository?.full_name === this.repository);
+      if (match) return match;
+      if (result.workflow_runs.length < 100) return undefined;
+    }
+    throw new AutoMergeBlockedError('publication workflow run search exceeded the bounded limit');
+  }
+
+  async dispatchPublication(prNumber, headSha, mergeCommitSha) {
+    block(Number.isSafeInteger(prNumber) && prNumber > 0, 'publication PR number is invalid');
+    block(validSha(headSha), 'publication head SHA is invalid');
+    block(validSha(mergeCommitSha), 'publication merge commit SHA is invalid');
+    const correlationId = `submission-pr-${prNumber}-${headSha}-${mergeCommitSha}`;
+    const correlationTitle = `Publication ${correlationId}`;
+    const effectContext = `agentcrew/publication/${rootSetDigest([correlationId])}`;
+    const [effectStatus, existing] = await Promise.all([
+      this.readEffectStatus(mergeCommitSha, effectContext),
+      this.findPublicationRun(correlationTitle),
+    ]);
+    if (effectStatus?.state === 'success') {
+      return { outcome: 'PUBLICATION_ALREADY_DISPATCHED', workflowRunId: existing?.id };
+    }
+    if (['failure', 'error'].includes(effectStatus?.state)) {
+      return { outcome: 'PUBLICATION_FAILED_REQUIRES_INSPECTION', workflowRunId: existing?.id, conclusion: existing?.conclusion };
+    }
+    if (effectStatus?.state === 'pending') {
+      if (!existing || (existing.status === 'completed' && existing.conclusion !== 'success')) {
+        return { outcome: 'PUBLICATION_FAILED_REQUIRES_INSPECTION', workflowRunId: existing?.id, conclusion: existing?.conclusion ?? 'missing-run-evidence' };
+      }
+      if (existing.status === 'completed' && existing.conclusion === 'success') {
+        return { outcome: 'PUBLICATION_AWAITING_PROVIDER_SYNC', workflowRunId: existing.id };
+      }
+      return { outcome: 'PUBLICATION_IN_PROGRESS', workflowRunId: existing.id };
+    }
+    if (existing?.status === 'completed' && existing.conclusion === 'success') {
+      return { outcome: 'PUBLICATION_ALREADY_DISPATCHED', workflowRunId: existing.id };
+    }
+    if (existing && existing.status !== 'completed') {
+      return { outcome: 'PUBLICATION_IN_PROGRESS', workflowRunId: existing.id };
+    }
+    if (existing) {
+      return { outcome: 'PUBLICATION_FAILED_REQUIRES_INSPECTION', workflowRunId: existing.id, conclusion: existing.conclusion };
+    }
+
+    const ownsClaim = await this.acquireDispatchClaim('publication', correlationId, mergeCommitSha);
+    if (!ownsClaim) {
+      throw new AutoMergeUnknownEffectError(`publication dispatch is claimed but has no authoritative run or status evidence for PR #${prNumber}`);
+    }
+
+    let mutationError;
+    try {
+      await this.request('/actions/workflows/on-pr-merge.yml/dispatches', {
+        method: 'POST',
+        body: { ref: 'main', inputs: { pr_number: String(prNumber), correlation_id: correlationId } },
+      });
+    } catch (error) {
+      mutationError = error;
+    }
+    for (let attempt = 0; attempt < 12; attempt += 1) {
+      const run = await this.findPublicationRun(correlationTitle);
+      if (run) return { outcome: 'PUBLICATION_DISPATCH_CONFIRMED', workflowRunId: run.id };
+      if (attempt < 11) await this.sleep(5_000);
+    }
+    if (mutationError && definiteDispatchRejection(mutationError)) {
+      try {
+        await this.recordTerminalDispatchRejection(
+          mergeCommitSha,
+          effectContext,
+          `Publication dispatch rejected with HTTP ${mutationError.status}`,
+        );
+      } catch {
+        throw new AutoMergeUnknownEffectError(`publication dispatch rejection could not be durably recorded for PR #${prNumber}`);
+      }
+      throw new AutoMergeBlockedError(`publication dispatch rejected with HTTP ${mutationError.status}`);
+    }
+    throw new AutoMergeUnknownEffectError(`publication dispatch effect is unknown for PR #${prNumber}`);
   }
 
   async findProviderSyncRun(correlationTitle) {
@@ -656,6 +1053,7 @@ export class GitHubApi {
       const result = await this.request(`/actions/workflows/sync-to-supabase.yml/runs?event=workflow_dispatch&per_page=100&page=${page}`);
       block(Array.isArray(result?.workflow_runs), 'provider sync workflow run evidence is invalid');
       const match = result.workflow_runs.find((run) => run?.display_title === correlationTitle
+        && run?.event === 'workflow_dispatch'
         && run?.head_branch === 'main'
         && run?.head_repository?.full_name === this.repository);
       if (match) return match;
@@ -664,23 +1062,62 @@ export class GitHubApi {
     throw new AutoMergeBlockedError('provider sync workflow run search exceeded the bounded limit');
   }
 
-  async dispatchProviderSync(prNumber, headSha, roots) {
+  async dispatchProviderSync(prNumber, headSha, mergeCommitSha, roots) {
     block(Number.isSafeInteger(prNumber) && prNumber > 0, 'provider sync PR number is invalid');
     block(validSha(headSha), 'provider sync head SHA is invalid');
+    block(validSha(mergeCommitSha), 'provider sync merge commit SHA is invalid');
     block(Array.isArray(roots) && roots.length > 0 && roots.length <= 25, 'provider sync roots are required');
     const slugs = roots.map((root) => {
       block(publishedRootSyntax(root), `invalid provider sync root: ${root}`);
       return root.slice('skills/'.length);
     });
-    const correlationId = `source-monitor-pr-${prNumber}-${headSha}`;
+    const rootsDigest = rootSetDigest(slugs);
+    const correlationId = `source-monitor-pr-${prNumber}-${headSha}-${mergeCommitSha}-${rootsDigest}`;
     const correlationTitle = `Provider sync ${correlationId}`;
-    if (await this.findProviderSyncRun(correlationTitle)) return { outcome: 'PROVIDER_SYNC_ALREADY_DISPATCHED' };
+    const effectContext = `agentcrew/provider-sync/${rootSetDigest([correlationId])}`;
+    const [effectStatus, existing] = await Promise.all([
+      this.readEffectStatus(mergeCommitSha, effectContext),
+      this.findProviderSyncRun(correlationTitle),
+    ]);
+    if (effectStatus?.state === 'success') {
+      return { outcome: 'PROVIDER_SYNC_ALREADY_DISPATCHED', workflowRunId: existing?.id };
+    }
+    if (['failure', 'error'].includes(effectStatus?.state)) {
+      return { outcome: 'PROVIDER_SYNC_FAILED_REQUIRES_INSPECTION', workflowRunId: existing?.id, conclusion: existing?.conclusion };
+    }
+    if (effectStatus?.state === 'pending') {
+      if (!existing || (existing.status === 'completed' && existing.conclusion !== 'success')) {
+        return { outcome: 'PROVIDER_SYNC_FAILED_REQUIRES_INSPECTION', workflowRunId: existing?.id, conclusion: existing?.conclusion ?? 'missing-run-evidence' };
+      }
+      return { outcome: 'PROVIDER_SYNC_IN_PROGRESS', workflowRunId: existing.id };
+    }
+    if (existing?.status === 'completed' && existing.conclusion === 'success') {
+      return { outcome: 'PROVIDER_SYNC_ALREADY_DISPATCHED', workflowRunId: existing.id };
+    }
+    if (existing && existing.status !== 'completed') {
+      return { outcome: 'PROVIDER_SYNC_IN_PROGRESS', workflowRunId: existing.id };
+    }
+    if (existing) {
+      return { outcome: 'PROVIDER_SYNC_FAILED_REQUIRES_INSPECTION', workflowRunId: existing.id, conclusion: existing.conclusion };
+    }
+
+    const ownsClaim = await this.acquireDispatchClaim('provider-sync', correlationId, mergeCommitSha);
+    if (!ownsClaim) {
+      throw new AutoMergeUnknownEffectError(`provider sync dispatch is claimed but has no authoritative run or status evidence for PR #${prNumber}`);
+    }
 
     let mutationError;
     try {
       await this.request('/actions/workflows/sync-to-supabase.yml/dispatches', {
         method: 'POST',
-        body: { ref: 'main', inputs: { slugs: slugs.join(' '), correlation_id: correlationId } },
+        body: {
+          ref: 'main',
+          inputs: {
+            slugs: slugs.join(' '),
+            correlation_id: correlationId,
+            merge_commit_sha: mergeCommitSha,
+          },
+        },
       });
     } catch (error) {
       mutationError = error;
@@ -689,7 +1126,18 @@ export class GitHubApi {
       if (await this.findProviderSyncRun(correlationTitle)) return { outcome: 'PROVIDER_SYNC_DISPATCH_CONFIRMED' };
       if (attempt < 11) await this.sleep(5_000);
     }
-    if (mutationError && definiteMutationRejection(mutationError)) throw new AutoMergeBlockedError(`provider sync dispatch rejected with HTTP ${mutationError.status}`);
+    if (mutationError && definiteDispatchRejection(mutationError)) {
+      try {
+        await this.recordTerminalDispatchRejection(
+          mergeCommitSha,
+          effectContext,
+          `Provider sync dispatch rejected with HTTP ${mutationError.status}`,
+        );
+      } catch {
+        throw new AutoMergeUnknownEffectError(`provider sync dispatch rejection could not be durably recorded for PR #${prNumber}`);
+      }
+      throw new AutoMergeBlockedError(`provider sync dispatch rejected with HTTP ${mutationError.status}`);
+    }
     throw new AutoMergeUnknownEffectError(`provider sync dispatch effect is unknown for PR #${prNumber}`);
   }
 }
@@ -702,9 +1150,13 @@ async function main() {
     currentRunId: process.env.GITHUB_RUN_ID,
   });
   try {
-    const result = await runAutoMerge(api, { workflowRunId: Number(process.env.WORKFLOW_RUN_ID) });
+    const result = await runRecoverySweep(api);
     process.stdout.write(`${JSON.stringify(result)}\n`);
   } catch (error) {
+    if (error instanceof AutoMergeSkippedError) {
+      process.stdout.write(`${JSON.stringify({ outcome: 'SKIPPED', reason: error.message })}\n`);
+      return;
+    }
     if (error instanceof AutoMergeWaitingError) {
       process.stdout.write(`${JSON.stringify({ outcome: 'WAITING_CI', reason: error.message })}\n`);
       return;
