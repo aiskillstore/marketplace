@@ -5,6 +5,7 @@ import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { parse } from 'yaml';
 import { buildShardPlan } from '../plan-cache-invalidation.mjs';
 
 const TEST_DIR = dirname(fileURLToPath(import.meta.url));
@@ -33,6 +34,41 @@ function runAggregate({ plan = 'success', shards = 'success', scores = 'success'
     },
   });
 }
+
+test('publication provider writes use push as the only automatic trigger', () => {
+  const workflow = readFileSync(WORKFLOW, 'utf8');
+  assert.match(workflow, /^  push:/m);
+  assert.match(workflow, /^  workflow_dispatch:/m);
+  assert.doesNotMatch(workflow, /^  workflow_run:/m);
+  assert.doesNotMatch(workflow, /github\.event\.workflow_run/);
+  assert.match(workflow, /AgentCrew-Publication:/);
+  assert.match(workflow, /Record durable publication provider result/);
+  assert.match(workflow, /actions\/workflows\/on-pr-merge\.yml\/runs\?event=workflow_dispatch/);
+  assert.match(workflow, /Wait for authoritative publication completion/);
+  assert.match(workflow, /\.status \/\/ "".*completed/);
+  assert.match(workflow, /\.conclusion \/\/ "".*success/);
+  assert.match(workflow, /Correlated publication failed or completion is unknown/);
+  assert.match(workflow, /Record durable correlated manual sync result/);
+  assert.match(workflow, /status=completed&event=push/);
+  assert.match(workflow, /actions\/runs\/\$run_id\/jobs/);
+  assert.match(workflow, /Previous provider sync run .* unknown partial effect/);
+});
+
+test('push-first and legacy-workflow-first orders admit one provider sync and one callback', () => {
+  const workflow = readFileSync(WORKFLOW, 'utf8');
+  const parsed = parse(workflow);
+  const trigger = parsed.on ?? parsed.true;
+  const automaticTriggers = new Set(Object.keys(trigger).filter((name) => name !== 'workflow_dispatch'));
+  assert.deepEqual([...automaticTriggers], ['push']);
+  for (const sequence of [['push', 'workflow_run'], ['workflow_run', 'push']]) {
+    const admitted = sequence.filter((event) => automaticTriggers.has(event));
+    assert.deepEqual(admitted, ['push']);
+  }
+  assert.equal((workflow.match(/- name: Sync skills to Supabase/g) ?? []).length, 1);
+  assert.equal((workflow.match(/- name: Notify skillstore - Published submissions/g) ?? []).length, 1);
+  assert.ok(workflow.indexOf('- name: Wait for authoritative publication completion') < workflow.indexOf('- name: Sync skills to Supabase'));
+  assert.ok(workflow.indexOf('- name: Sync skills to Supabase') < workflow.indexOf('- name: Notify skillstore - Published submissions'));
+});
 
 test('workflow matrix is artifact-backed, one-Skill, and serial', () => {
   const workflow = readFileSync(WORKFLOW, 'utf8');
@@ -143,8 +179,12 @@ test('incremental detection subtracts only verified successful manual recovery a
   const detect = section(workflow, '      - name: Detect changed skills', '      - name: Download skillstore-cli');
 
   assert.match(lastSync, /if: inputs\.slugs == ''/);
-  assert.match(lastSync, /status=success&event=push/);
-  assert.doesNotMatch(lastSync, /status=success&event=workflow_dispatch/);
+  assert.match(lastSync, /status=completed&event=push/);
+  assert.match(lastSync, /Sync skills to Supabase/);
+  assert.match(lastSync, /SYNC_CONCLUSION.*success/);
+  assert.match(lastSync, /unknown partial effect/);
+  assert.match(lastSync, /did not establish authoritative publication success/);
+  assert.doesNotMatch(lastSync, /event=workflow_dispatch/);
   assert.match(lastSync, /set -euo pipefail/);
   assert.match(lastSync, /git merge-base --is-ancestor "\$LAST_SHA"/);
   assert.match(lastSync, /refusing an incomplete fallback/);
@@ -214,6 +254,8 @@ test('manual slug sync carries an optional exact correlation without requiring a
   assert.match(correlation, /Provider sync correlation does not match the authoritative merged source-monitor PR/);
   assert.match(correlation, /Correlated merge is not on the current main lineage/);
   assert.match(correlation, /Provider sync correlation is not bound to the exact canonical root set/);
+  assert.match(correlation, /agentcrew-dispatch-outbox\/provider-sync/);
+  assert.match(correlation, /length > 0 and length <= 8/);
   assert.match(correlation, /"\$EVENT_NAME" != 'workflow_dispatch'/);
   assert.match(correlation, /"\$GIT_REF" != 'refs\/heads\/main'/);
   const detect = section(workflow, '      - name: Detect changed skills', '      - name: Download skillstore-cli');
