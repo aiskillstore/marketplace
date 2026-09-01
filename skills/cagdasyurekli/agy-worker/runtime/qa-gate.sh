@@ -1,13 +1,14 @@
 #!/usr/bin/env bash
 # qa-gate.sh — independently verify an agy worker envelope against reality.
 #
-# The envelope is a CLAIM. Only driver-owned --verify commands execute here.
+# The envelope is a CLAIM. Only driver-owned verifier specs execute here.
 # Worker-supplied commands are untrusted data and are never evaluated.
 #
 # usage: qa-gate.sh --envelope FILE --repo DIR --base FULL_COMMIT_ID
 #                   [--allow PATHGLOB]... [--only PATHGLOB]...
 #                   [--expect-edits] [--verify-env NAME]...
-#                   --verify COMMAND [--verify COMMAND]...
+#                   [--verify-credential-env NAME]...
+#                   --verify-argv CANONICAL_JSON_ARRAY [...]
 #                   (internal verify-job handoff: --evidence-fd FD
 #                    --evidence-token TOKEN)
 # exit: 0 accepted · 10 scope violation · 11 untrusted command/test claim
@@ -22,7 +23,10 @@ envelope=""; repo="$PWD"; base=""; expect_edits=0
 evidence_fd=""; evidence_fd_seen=0; evidence_token=""; evidence_token_seen=0
 verify_env_fd=""; verify_env_fd_seen=0
 evidence_python=""
-allow=(); only=(); verify=(); verify_env=()
+allow=(); only=(); verify_modes=(); verify_specs=(); verify_env=(); verify_credential_env=()
+legacy_shell_verification=0
+acknowledge_verifier_network=0
+acknowledge_verifier_credential_access=0
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --envelope) [[ $# -ge 2 ]] || exit 64; envelope="$2"; shift 2 ;;
@@ -30,14 +34,34 @@ while [[ $# -gt 0 ]]; do
         --base) [[ $# -ge 2 ]] || exit 64; base="$2"; shift 2 ;;
         --allow) [[ $# -ge 2 ]] || exit 64; allow+=("$2"); shift 2 ;;
         --only) [[ $# -ge 2 ]] || exit 64; only+=("$2"); shift 2 ;;
+        --verify-argv)
+            [[ $# -ge 2 ]] || exit 64
+            verify_modes+=("argv"); verify_specs+=("$2"); shift 2 ;;
+        --verify-shell)
+            [[ $# -ge 2 && "$2" == *[![:space:]]* ]] || {
+                echo "qa-gate.sh: shell verifier must be non-empty" >&2; exit 64;
+            }
+            verify_modes+=("shell"); verify_specs+=("$2"); shift 2 ;;
         --verify)
             [[ $# -ge 2 && "$2" == *[![:space:]]* ]] || {
-                echo "qa-gate.sh: --verify requires a non-empty command" >&2; exit 64;
+                echo "qa-gate.sh: legacy shell verifier must be non-empty" >&2; exit 64;
             }
-            verify+=("$2"); shift 2 ;;
+            verify_modes+=("legacy"); verify_specs+=("$2"); shift 2 ;;
+        --legacy-shell-verification)
+            (( legacy_shell_verification == 0 )) || exit 64
+            legacy_shell_verification=1; shift ;;
+        --acknowledge-verifier-network)
+            (( acknowledge_verifier_network == 0 )) || exit 64
+            acknowledge_verifier_network=1; shift ;;
+        --acknowledge-verifier-credential-access)
+            (( acknowledge_verifier_credential_access == 0 )) || exit 64
+            acknowledge_verifier_credential_access=1; shift ;;
         --verify-env)
             [[ $# -ge 2 ]] || exit 64
             verify_env+=("$2"); shift 2 ;;
+        --verify-credential-env)
+            [[ $# -ge 2 ]] || exit 64
+            verify_credential_env+=("$2"); shift 2 ;;
         --expect-edits) expect_edits=1; shift ;;
         --evidence-fd)
             [[ $# -ge 2 && $evidence_fd_seen -eq 0 ]] || exit 64
@@ -60,14 +84,53 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
+(( ${#verify_specs[@]} <= 999 )) || {
+    echo "qa-gate.sh: at most 999 verifier commands are supported" >&2; exit 64;
+}
+legacy_seen=0; shell_seen=0
+for (( verify_index=0; verify_index<${#verify_specs[@]}; verify_index++ )); do
+    verify_mode="${verify_modes[$verify_index]}"
+    if [[ "$verify_mode" == legacy ]]; then legacy_seen=1; shell_seen=1; fi
+    if [[ "$verify_mode" == shell ]]; then shell_seen=1; fi
+done
+if (( legacy_seen && ! legacy_shell_verification )); then
+    echo "qa-gate.sh: --verify is legacy shell verification; migrate to --verify-argv or add --legacy-shell-verification" >&2
+    exit 64
+fi
+if (( legacy_shell_verification && ! legacy_seen )); then
+    echo "qa-gate.sh: --legacy-shell-verification requires --verify" >&2
+    exit 64
+fi
+if (( shell_seen && (! acknowledge_verifier_network || ! acknowledge_verifier_credential_access) )); then
+    echo "qa-gate.sh: shell verification requires both verifier acknowledgements" >&2
+    exit 64
+fi
+
 if (( verify_env_fd_seen )) && [[ "$verify_env_fd" == "$evidence_fd" ]]; then
     exit 64
 fi
 
-(( ${#verify_env[@]} <= 64 )) || {
-    echo "qa-gate.sh: at most 64 --verify-env names are supported" >&2; exit 64;
+(( ${#verify_env[@]} + ${#verify_credential_env[@]} <= 64 )) || {
+    echo "qa-gate.sh: at most 64 verifier environment names are supported" >&2; exit 64;
 }
+is_credential_env_name() {
+    local restore_nocasematch=0 result
+    shopt -q nocasematch || { restore_nocasematch=1; shopt -s nocasematch; }
+    [[ "$1" == HOME || "$1" == PGPASSWORD || "$1" == MYSQL_PWD \
+        || "$1" == GH_PAT || "$1" == DATABASE_URL \
+        || "$1" =~ (^|_)(AUTH|COOKIE|CREDENTIALS?|HOME|KEY|PASS(WORD|WD)?|SESSION|SECRET|TOKEN)(_|$) ]]
+    result=$?
+    (( restore_nocasematch == 0 )) || shopt -u nocasematch
+    return "$result"
+}
+all_verify_env=()
 for verify_env_name in ${verify_env+"${verify_env[@]}"}; do
+    all_verify_env+=("$verify_env_name")
+done
+for verify_env_name in ${verify_credential_env+"${verify_credential_env[@]}"}; do
+    all_verify_env+=("$verify_env_name")
+done
+for verify_env_name in ${all_verify_env+"${all_verify_env[@]}"}; do
     case "$verify_env_name" in
         ''|*[!A-Za-z0-9_]*|[0-9]*|BASH_ENV|ENV|SHELLOPTS|BASHOPTS|PS4|CDPATH|GLOBIGNORE|BASH_LOADABLES_PATH|BASH_XTRACEFD|BASH_COMPAT|NODE_OPTIONS|RUBYOPT|RUBYLIB|PERL5OPT|PERL5LIB|JAVA_TOOL_OPTIONS|JDK_JAVA_OPTIONS|CLASSPATH|AGY_WORKER_SCHEMA|BASH_FUNC_*|PYTHON*|LD_*|DYLD_*|GIT_*|AGY_WORKER_INTERNAL_*)
             echo "qa-gate.sh: unsafe --verify-env name" >&2; exit 64 ;;
@@ -76,7 +139,7 @@ for verify_env_name in ${verify_env+"${verify_env[@]}"}; do
         echo "qa-gate.sh: invalid --verify-env name" >&2; exit 64;
     }
     verify_env_occurrences=0
-    for compared_verify_env_name in "${verify_env[@]}"; do
+    for compared_verify_env_name in "${all_verify_env[@]}"; do
         [[ "$verify_env_name" != "$compared_verify_env_name" ]] || \
             verify_env_occurrences=$((verify_env_occurrences + 1))
     done
@@ -84,6 +147,22 @@ for verify_env_name in ${verify_env+"${verify_env[@]}"}; do
         echo "qa-gate.sh: repeated --verify-env name" >&2; exit 64;
     }
 done
+for verify_env_name in ${verify_env+"${verify_env[@]}"}; do
+    if is_credential_env_name "$verify_env_name"; then
+        echo "qa-gate.sh: credential-like names require --verify-credential-env" >&2
+        exit 64
+    fi
+done
+for verify_env_name in ${verify_credential_env+"${verify_credential_env[@]}"}; do
+    if ! is_credential_env_name "$verify_env_name"; then
+        echo "qa-gate.sh: --verify-credential-env requires a credential-like name" >&2
+        exit 64
+    fi
+done
+if (( ${#verify_credential_env[@]} && ! acknowledge_verifier_credential_access )); then
+    echo "qa-gate.sh: credential environment requires credential acknowledgement" >&2
+    exit 64
+fi
 
 verifier_environment=()
 append_verifier_environment() {
@@ -91,7 +170,7 @@ append_verifier_environment() {
     builtin eval "present=\${$name+x}"
     [[ -z "$present" ]] || verifier_environment+=("$name=${!name}")
 }
-for baseline_name in HOME PATH TMPDIR LANG LANGUAGE LC_ALL LC_CTYPE LC_NUMERIC \
+for baseline_name in PATH TMPDIR LANG LANGUAGE LC_ALL LC_CTYPE LC_NUMERIC \
         LC_TIME LC_COLLATE LC_MONETARY LC_MESSAGES LC_PAPER LC_NAME LC_ADDRESS \
         LC_TELEPHONE LC_MEASUREMENT LC_IDENTIFICATION; do
     append_verifier_environment "$baseline_name"
@@ -103,7 +182,7 @@ if (( verify_env_fd_seen )); then
     while IFS= read -r -d '' received_name <&"$verify_env_fd"; do
         IFS= read -r -d '' received_value <&"$verify_env_fd" || exit 64
         received_allowed=0
-        for verify_env_name in ${verify_env+"${verify_env[@]}"}; do
+        for verify_env_name in ${all_verify_env+"${all_verify_env[@]}"}; do
             [[ "$received_name" != "$verify_env_name" ]] || received_allowed=1
         done
         (( received_allowed )) || exit 64
@@ -115,10 +194,25 @@ if (( verify_env_fd_seen )); then
     done
     [[ -z "$received_name" ]] || exit 64
     builtin eval "exec ${verify_env_fd}<&-"
-elif (( ${#verify_env[@]} )); then
-    echo "qa-gate.sh: --verify-env requires verify-job.sh private handoff" >&2
+elif (( ${#all_verify_env[@]} )); then
+    echo "qa-gate.sh: verifier environment opt-in requires verify-job.sh private handoff" >&2
     exit 64
 fi
+
+verifier_python="$(command -v python3)" || {
+    echo "qa-gate.sh: verifier runtime unavailable" >&2; exit 64;
+}
+for (( verify_index=0; verify_index<${#verify_specs[@]}; verify_index++ )); do
+    [[ "${verify_modes[$verify_index]}" != argv ]] || {
+        if ! printf '%s' "${verify_specs[$verify_index]}" | \
+                "$verifier_python" -I -S -B \
+                "$SCRIPT_DIR/scripts/evidence_receipt.py" validate-verifier argv \
+                >/dev/null 2>&1; then
+            echo "qa-gate.sh: invalid --verify-argv specification" >&2
+            exit 64
+        fi
+    }
+done
 
 [[ -n "$envelope" && -f "$envelope" ]] || {
     echo "qa-gate.sh: --envelope FILE required" >&2; exit 64;
@@ -504,34 +598,54 @@ if [[ "$command_count" != "0" || "$test_count" != "0" ]]; then
     gate_finish 11 untrusted-worker-claim
 fi
 
-if (( ${#verify[@]} == 0 )); then
-    echo "qa-gate: at least one driver-owned --verify command is required" >&2
+if (( ${#verify_specs[@]} == 0 )); then
+    echo "qa-gate: at least one driver-owned verifier is required" >&2
     exit 64
 fi
 
 before_snapshot="$(snapshot_repo)" || gate_finish 14 driver-verification-failed
-for (( i=0; i<${#verify[@]}; i++ )); do
-    vcmd="${verify[$i]}"
-    echo "qa-gate: driver verification: $vcmd" >&2
+for (( i=0; i<${#verify_specs[@]}; i++ )); do
+    verifier_mode="${verify_modes[$i]}"
+    [[ "$verifier_mode" != legacy ]] || verifier_mode=shell
+    verifier_label="$(printf 'verify-%03d' "$((i + 1))")"
+    echo "qa-gate: driver verification: $verifier_label ($verifier_mode)" >&2
     if [[ -n "$evidence_fd" ]]; then
         if (
             builtin eval "exec ${evidence_fd}>&-" || exit 126
             unset AGY_WORKER_INTERNAL_EVIDENCE_TOKEN AGY_WORKER_INTERNAL_PYTHON
-            exec /usr/bin/env -i "${verifier_environment[@]}" /bin/bash -c "$vcmd"
+            cd "$repo" || exit 126
+            if [[ "$verifier_mode" == argv ]]; then
+                printf '%s' "${verify_specs[$i]}" | exec /usr/bin/env -i \
+                    "${verifier_environment[@]}" "$verifier_python" -I -S -B \
+                    "$SCRIPT_DIR/scripts/evidence_receipt.py" execute-verifier argv
+            else
+                exec /usr/bin/env -i "${verifier_environment[@]}" \
+                    /bin/bash -c "${verify_specs[$i]}"
+            fi
         ); then
             verifier_rc=0
         else
             verifier_rc=$?
         fi
     else
-        if /usr/bin/env -i "${verifier_environment[@]}" /bin/bash -c "$vcmd"; then
+        if (
+            cd "$repo" || exit 126
+            if [[ "$verifier_mode" == argv ]]; then
+                printf '%s' "${verify_specs[$i]}" | exec /usr/bin/env -i \
+                    "${verifier_environment[@]}" "$verifier_python" -I -S -B \
+                    "$SCRIPT_DIR/scripts/evidence_receipt.py" execute-verifier argv
+            else
+                exec /usr/bin/env -i "${verifier_environment[@]}" \
+                    /bin/bash -c "${verify_specs[$i]}"
+            fi
+        ); then
             verifier_rc=0
         else
             verifier_rc=$?
         fi
     fi
     if [[ "$verifier_rc" != 0 ]]; then
-        echo "qa-gate: DRIVER VERIFICATION FAILED - '$vcmd'" >&2
+        echo "qa-gate: DRIVER VERIFICATION FAILED - $verifier_label ($verifier_mode)" >&2
         gate_finish 14 driver-verification-failed
     fi
 done

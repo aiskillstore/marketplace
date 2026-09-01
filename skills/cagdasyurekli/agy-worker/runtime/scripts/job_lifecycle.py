@@ -66,6 +66,8 @@ STATE_FIELDS = {
     "dispatch", "cleanup_step", "last_result", "failure",
 }
 LEGACY_STATE_FIELDS = STATE_FIELDS - {"dispatch"}
+FACADE_STATE_FIELDS = STATE_FIELDS | {"origin", "dispatch_job_dir"}
+FACADE_ORIGIN = "workflow-facade"
 PHASES = {
     "initializing", "ready", "init-failed", "init-interrupted", "verifying",
     "verify-failed", "verify-interrupted", "verified-gate-passed",
@@ -153,6 +155,22 @@ class OnceTrue(argparse.Action):
         if getattr(namespace, self.dest, None) is not None:
             parser.error(f"{option_string} must be supplied once")
         setattr(namespace, self.dest, True)
+
+
+class OrderedVerifier(argparse.Action):
+    def __call__(
+        self,
+        parser: argparse.ArgumentParser,
+        namespace: argparse.Namespace,
+        values: Any,
+        option_string: str | None = None,
+    ) -> None:
+        del parser, option_string
+        current = getattr(namespace, self.dest, None)
+        if current is None:
+            current = []
+            setattr(namespace, self.dest, current)
+        current.append((self.const, values))
 
 
 def canonical_bytes(value: Any) -> bytes:
@@ -334,9 +352,28 @@ def canonical_branch_syntax(branch: str) -> bool:
 
 
 def validate_state(value: Any) -> dict[str, Any]:
-    if not isinstance(value, dict) or set(value) not in {frozenset(STATE_FIELDS), frozenset(LEGACY_STATE_FIELDS)}:
+    if not isinstance(value, dict):
         raise JobError("state fields are invalid")
-    if value["schema_version"] != 1 or value["kind"] != "agy-worker-local-job-state":
+    version = value.get("schema_version")
+    fields = set(value)
+    if version == 1:
+        if fields != STATE_FIELDS and fields != LEGACY_STATE_FIELDS:
+            raise JobError("state fields are invalid")
+    elif version == 2:
+        if fields != FACADE_STATE_FIELDS or value.get("origin") != FACADE_ORIGIN:
+            raise JobError("state fields are invalid")
+        dispatch_job_dir = value.get("dispatch_job_dir")
+        if (
+            not isinstance(dispatch_job_dir, str)
+            or not Path(dispatch_job_dir).is_absolute()
+            or os.path.normpath(dispatch_job_dir) != dispatch_job_dir
+            or "\n" in dispatch_job_dir
+            or "\r" in dispatch_job_dir
+        ):
+            raise JobError("state dispatch job directory is invalid")
+    else:
+        raise JobError("state version is invalid")
+    if value["kind"] != "agy-worker-local-job-state":
         raise JobError("state version is invalid")
     if type(value["sequence"]) is not int or value["sequence"] < 1:
         raise JobError("state sequence is invalid")
@@ -1114,6 +1151,19 @@ def initial_state(args: argparse.Namespace) -> tuple[dict[str, Any], Path, Path]
         "last_result": None,
         "failure": None,
     }
+    if args.facade_created:
+        if args.dispatch_job_dir is None:
+            raise JobError("facade init requires a dispatch job directory")
+        dispatch_job_dir = real_absolute(
+            Path(args.dispatch_job_dir), "dispatch job directory", must_exist=False
+        )
+        if contains(repo, dispatch_job_dir) or contains(worktree, dispatch_job_dir):
+            raise JobError("dispatch job directory must be outside repository and worktree")
+        state["schema_version"] = 2
+        state["origin"] = FACADE_ORIGIN
+        state["dispatch_job_dir"] = str(dispatch_job_dir)
+    elif args.dispatch_job_dir is not None:
+        raise JobError("dispatch job directory is facade-only initialization data")
     return state, repo, worktree
 
 
@@ -1242,8 +1292,19 @@ def command_verify(args: argparse.Namespace) -> int:
             command += ["--only", value]
         if args.expect_edits:
             command.append("--expect-edits")
-        for value in args.verify:
-            command += ["--verify", value]
+        for flag, value in args.verifiers:
+            command += [flag, value]
+        for flag in (
+            "legacy_shell_verification",
+            "acknowledge_verifier_network",
+            "acknowledge_verifier_credential_access",
+        ):
+            if getattr(args, flag):
+                command.append("--" + flag.replace("_", "-"))
+        for value in args.verify_env:
+            command += ["--verify-env", value]
+        for value in args.verify_credential_env:
+            command += ["--verify-credential-env", value]
         if args.selection:
             command += ["--selection", args.selection]
         if args.pre_recommendation:
@@ -1515,6 +1576,127 @@ def _cleanup_reconcile(store: StateStore) -> None:
 
 def _cleanup_checkpoint(_name: str) -> None:
     """Test-only callable; production has no CLI or environment override."""
+
+
+def _rollback_dispatch_absent(path: Path) -> Path:
+    path = real_absolute(path, "dispatch job directory", must_exist=False)
+    try:
+        path.lstat()
+    except FileNotFoundError:
+        return path
+    except OSError as exc:
+        raise JobError("dispatch job directory cannot be proven absent") from exc
+    raise JobError("dispatch evidence exists")
+
+
+def _delete_unchanged_state(store: StateStore) -> None:
+    if (
+        store.raw is None
+        or store.metadata is None
+        or store.sha256 is None
+        or store.value is None
+    ):
+        raise JobError("state is not loaded")
+    with store._blocked():
+        store._validate_parent_path()
+        current, metadata = read_regular_at(
+            store.parent_fd, store.name, MAX_STATE_BYTES, "state", private=True
+        )
+        if current != store.raw or not same_identity(
+            metadata, identity(store.metadata)
+        ):
+            raise JobError("state changed before rollback completion")
+        os.unlink(store.name, dir_fd=store.parent_fd)
+        os.fsync(store.parent_fd)
+        store._validate_parent_path()
+        try:
+            os.stat(store.name, dir_fd=store.parent_fd, follow_symlinks=False)
+        except FileNotFoundError:
+            return
+        raise JobError("state rollback removal was incomplete")
+
+
+def command_rollback_ready(args: argparse.Namespace) -> int:
+    store = StateStore(Path(args.state))
+    try:
+        state = store.value
+        assert state is not None and store.sha256 is not None
+        if (
+            state["schema_version"] != 2
+            or state.get("origin") != FACADE_ORIGIN
+            or state["phase"] != "ready"
+            or state["receipt"] is not None
+            or state.get("dispatch") is not None
+        ):
+            raise JobError("state is not facade rollback-eligible")
+        if args.approve_job != state["job_id"]:
+            raise JobError("rollback job approval does not match")
+        if args.approve_state_sha != store.sha256:
+            raise JobError("rollback state approval does not match current bytes")
+        if (
+            args.repo != state["repo_path"]
+            or args.worktree != state["worktree_path"]
+            or args.branch != state["branch"]
+            or args.base != state["base"]
+            or args.dispatch_job_dir != state["dispatch_job_dir"]
+        ):
+            raise JobError("rollback resource binding does not match state")
+        dispatch_job = _rollback_dispatch_absent(Path(args.dispatch_job_dir))
+        repo = Path(state["repo_path"])
+        worktree = Path(state["worktree_path"])
+        if contains(repo, dispatch_job) or contains(worktree, dispatch_job):
+            raise JobError("dispatch job directory must be outside repository and worktree")
+
+        facts = validate_ready_state(state)
+        scan_deletion_domain(facts["worktree"])
+        if candidate_state_digest(
+            facts["worktree"], state["base"], git_reader=git
+        ) != EMPTY_CANDIDATE_STATE_SHA256:
+            raise JobError("rollback candidate is not empty")
+
+        _rollback_dispatch_absent(dispatch_job)
+        _cleanup_checkpoint("before-rollback-worktree-remove")
+        _rollback_dispatch_absent(dispatch_job)
+        facts = validate_ready_state(state)
+        scan_deletion_domain(facts["worktree"])
+        if candidate_state_digest(
+            facts["worktree"], state["base"], git_reader=git
+        ) != EMPTY_CANDIDATE_STATE_SHA256:
+            raise JobError("rollback candidate changed before worktree removal")
+        rc = run_git(
+            facts["repo"], "worktree", "remove", "--force", str(facts["worktree"])
+        )
+        if rc != 0:
+            raise JobError("rollback worktree removal failed")
+        if facts["worktree"].exists() or any(
+            record.get("worktree") == str(facts["worktree"])
+            for record in worktree_records(facts["repo"])
+        ):
+            raise JobError("rollback worktree removal was incomplete")
+
+        _rollback_dispatch_absent(dispatch_job)
+        repo = validate_repo_binding(state)
+        if ref_value(repo, state["branch_ref"]) != state["base"]:
+            raise JobError("branch ref moved before rollback compare-and-delete")
+        _cleanup_checkpoint("before-rollback-ref-delete")
+        _rollback_dispatch_absent(dispatch_job)
+        rc = run_git(repo, "update-ref", "-d", state["branch_ref"], state["base"])
+        if rc != 0:
+            raise JobError("rollback compare-and-delete ref failed")
+        if ref_value(repo, state["branch_ref"]) is not None:
+            raise JobError("rolled-back branch ref still exists")
+
+        _rollback_dispatch_absent(dispatch_job)
+        _cleanup_checkpoint("before-rollback-state-delete")
+        _rollback_dispatch_absent(dispatch_job)
+        _delete_unchanged_state(store)
+        print(canonical_bytes({
+            "job_id": state["job_id"],
+            "rollback_complete": True,
+        }).decode("ascii"), end="")
+        return 0
+    finally:
+        store.close()
 
 
 def command_cleanup(args: argparse.Namespace) -> int:
@@ -1855,6 +2037,8 @@ def parser() -> argparse.ArgumentParser:
     init = commands.add_parser("init")
     for name in ("state", "repo", "worktree", "branch", "base", "job-id"):
         init.add_argument(f"--{name}", action=Once, required=True)
+    init.add_argument("--facade-created", action=OnceTrue)
+    init.add_argument("--dispatch-job-dir", action=Once)
     status = commands.add_parser("status")
     status.add_argument("--state", action=Once, required=True)
     verify = commands.add_parser("verify")
@@ -1864,7 +2048,21 @@ def parser() -> argparse.ArgumentParser:
     verify.add_argument("--allow", action="append", default=[])
     verify.add_argument("--only", action="append", default=[])
     verify.add_argument("--expect-edits", action=OnceTrue)
-    verify.add_argument("--verify", action="append", default=[])
+    verify.set_defaults(verifiers=[])
+    verify.add_argument(
+        "--verify-argv", dest="verifiers", action=OrderedVerifier, const="--verify-argv"
+    )
+    verify.add_argument(
+        "--verify-shell", dest="verifiers", action=OrderedVerifier, const="--verify-shell"
+    )
+    verify.add_argument(
+        "--verify", dest="verifiers", action=OrderedVerifier, const="--verify"
+    )
+    verify.add_argument("--legacy-shell-verification", action=OnceTrue)
+    verify.add_argument("--acknowledge-verifier-network", action=OnceTrue)
+    verify.add_argument("--acknowledge-verifier-credential-access", action=OnceTrue)
+    verify.add_argument("--verify-env", action="append", default=[])
+    verify.add_argument("--verify-credential-env", action="append", default=[])
     verify.add_argument("--selection", action=Once)
     verify.add_argument("--pre-recommendation", action=Once)
     preserve = commands.add_parser("preserve-instructions")
@@ -1874,6 +2072,12 @@ def parser() -> argparse.ArgumentParser:
     cleanup.add_argument("--approve-job", action=Once, required=True)
     cleanup.add_argument("--approve-state-sha", action=Once, required=True)
     cleanup.add_argument("--approve-candidate-sha", action=Once, required=True)
+    rollback = commands.add_parser("rollback-ready")
+    for name in (
+        "state", "approve-job", "approve-state-sha", "repo", "worktree",
+        "branch", "base", "dispatch-job-dir",
+    ):
+        rollback.add_argument(f"--{name}", action=Once, required=True)
     record = commands.add_parser("record-dispatch-failure")
     record.add_argument("--state", action=Once, required=True)
     record.add_argument("--dispatch-state", action=Once, required=True)
@@ -1901,13 +2105,15 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "status":
             return command_status(args)
         if args.command == "verify":
-            if not args.verify or any(not item.strip() for item in args.verify):
+            if not args.verifiers:
                 raise JobError("verify needs at least one driver command")
             return command_verify(args)
         if args.command == "preserve-instructions":
             return command_preserve(args)
         if args.command == "cleanup":
             return command_cleanup(args)
+        if args.command == "rollback-ready":
+            return command_rollback_ready(args)
         if args.command == "record-dispatch-failure":
             return command_record_dispatch_failure(args)
         if args.command == "abort":

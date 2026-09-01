@@ -44,6 +44,9 @@ from recommendation_record import (  # noqa: E402
 MAX_JSON_BYTES = 1024 * 1024
 MAX_HANDOFF_BYTES = 4096
 MAX_VERIFY_ENV_PAYLOAD = 256 * 1024
+MAX_VERIFY_ARGV_ELEMENTS = 256
+MAX_VERIFY_ARGV_ELEMENT_BYTES = 64 * 1024
+MAX_VERIFY_ARGV_BYTES = 256 * 1024
 SHA256_RE = re.compile(r"[0-9a-f]{64}\Z")
 COMMIT_RE = re.compile(r"(?:[0-9a-f]{40}|[0-9a-f]{64})\Z")
 LABEL_RE = re.compile(r"verify-[0-9]{3}\Z")
@@ -925,6 +928,136 @@ class UsageParser(argparse.ArgumentParser):
         self.exit(64, f"verify-job: {message}\n")
 
 
+class VerifierAction(argparse.Action):
+    """Preserve the caller's exact verifier ordering across public modes."""
+
+    def __call__(
+        self,
+        parser: argparse.ArgumentParser,
+        namespace: argparse.Namespace,
+        values: str,
+        option_string: str | None = None,
+    ) -> None:
+        del parser, option_string
+        verifiers = getattr(namespace, self.dest, None)
+        if verifiers is None:
+            verifiers = []
+            setattr(namespace, self.dest, verifiers)
+        verifiers.append((self.const, values))
+
+
+SHELL_EXECUTABLES = frozenset({"sh", "bash", "zsh", "dash", "ksh", "fish"})
+CREDENTIAL_ENV_RE = re.compile(
+    r"(?:^|_)(?:AUTH|COOKIE|CREDENTIALS?|HOME|KEY|PASS(?:WORD|WD)?|SESSION|SECRET|TOKEN)(?:_|$)",
+    re.IGNORECASE,
+)
+CREDENTIAL_ENV_EXACT = frozenset(
+    {"DATABASE_URL", "GH_PAT", "MYSQL_PWD", "PGPASSWORD"}
+)
+
+
+def is_credential_environment_name(name: str) -> bool:
+    normalized = name.upper()
+    return (
+        normalized == "HOME"
+        or normalized in CREDENTIAL_ENV_EXACT
+        or CREDENTIAL_ENV_RE.search(name) is not None
+    )
+
+
+def validate_verifier_argv(raw: str) -> list[str]:
+    """Validate one strict canonical argv JSON value without shell interpretation."""
+
+    try:
+        encoded = raw.encode("utf-8")
+        value = json.loads(raw)
+    except (UnicodeEncodeError, json.JSONDecodeError) as exc:
+        raise UsageFailure("--verify-argv requires a canonical JSON string array") from exc
+    if canonical_bytes(value) != encoded:
+        raise UsageFailure("--verify-argv requires canonical JSON")
+    if not isinstance(value, list) or not (1 <= len(value) <= MAX_VERIFY_ARGV_ELEMENTS):
+        raise UsageFailure("--verify-argv requires 1..256 string elements")
+    total = 0
+    for item in value:
+        if not isinstance(item, str) or "\0" in item:
+            raise UsageFailure("--verify-argv elements must be NUL-free strings")
+        try:
+            size = len(item.encode("utf-8"))
+        except UnicodeEncodeError as exc:
+            raise UsageFailure("--verify-argv elements must be UTF-8 strings") from exc
+        if size > MAX_VERIFY_ARGV_ELEMENT_BYTES:
+            raise UsageFailure("--verify-argv element is too large")
+        total += size
+    if not value[0]:
+        raise UsageFailure("--verify-argv executable must be non-empty")
+    if total > MAX_VERIFY_ARGV_BYTES:
+        raise UsageFailure("--verify-argv aggregate is too large")
+
+    executable = os.path.basename(value[0]).casefold()
+    if executable in SHELL_EXECUTABLES:
+        raise UsageFailure("--verify-argv cannot invoke a shell interpreter")
+    if executable == "env":
+        command: str | None = None
+        options_done = False
+        index = 1
+        while index < len(value):
+            item = value[index]
+            if not options_done and item == "--":
+                options_done = True
+                index += 1
+                continue
+            if (
+                not options_done
+                and (
+                    item == "--split-string"
+                    or item.startswith("--split-string=")
+                    or (
+                        item.startswith("-")
+                        and not item.startswith("--")
+                        and "S" in item[1:]
+                    )
+                )
+            ):
+                raise UsageFailure("--verify-argv cannot use env split-string options")
+            if not options_done and item in ("-i", "--ignore-environment", "-0", "--null", "--debug"):
+                index += 1
+                continue
+            if not options_done and item in ("-u", "--unset", "-C", "--chdir"):
+                index += 2
+                if index > len(value):
+                    raise UsageFailure("--verify-argv env option is incomplete")
+                continue
+            if not options_done and (
+                item.startswith("--unset=")
+                or item.startswith("--chdir=")
+                or (item.startswith("-u") and len(item) > 2)
+                or (item.startswith("-C") and len(item) > 2)
+            ):
+                index += 1
+                continue
+            if not options_done and item.startswith("-"):
+                raise UsageFailure("--verify-argv env option is unsupported")
+            if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*=.*", item, re.DOTALL):
+                index += 1
+                continue
+            command = item
+            break
+        if command is None:
+            raise UsageFailure("--verify-argv env invocation has no executable")
+        if os.path.basename(command).casefold() in SHELL_EXECUTABLES:
+            raise UsageFailure("--verify-argv cannot invoke a shell interpreter through env")
+    return value
+
+
+def verifier_spec_hash(mode: str, value: str) -> str:
+    spec: Any = validate_verifier_argv(value) if mode == "argv" else value
+    return sha256_bytes(canonical_bytes({
+        "domain": "agy-worker-verifier-spec-v1",
+        "mode": mode,
+        "spec": spec,
+    }))
+
+
 def one(parser: UsageParser, values: list[str] | None, flag: str, required: bool) -> str | None:
     if not values:
         if required:
@@ -943,8 +1076,23 @@ def build_parser() -> UsageParser:
     parser.add_argument("--base", action="append")
     parser.add_argument("--allow", action="append", default=[])
     parser.add_argument("--only", action="append", default=[])
-    parser.add_argument("--verify", action="append", default=[])
+    parser.set_defaults(verifier_specs=[])
+    parser.add_argument(
+        "--verify-argv", dest="verifier_specs", action=VerifierAction, const="argv"
+    )
+    parser.add_argument(
+        "--verify-shell", dest="verifier_specs", action=VerifierAction, const="shell"
+    )
+    parser.add_argument(
+        "--verify", dest="verifier_specs", action=VerifierAction, const="legacy"
+    )
+    parser.add_argument("--legacy-shell-verification", action="count", default=0)
+    parser.add_argument("--acknowledge-verifier-network", action="count", default=0)
+    parser.add_argument(
+        "--acknowledge-verifier-credential-access", action="count", default=0
+    )
     parser.add_argument("--verify-env", action="append", default=[])
+    parser.add_argument("--verify-credential-env", action="append", default=[])
     parser.add_argument("--expect-edits", action="count", default=0)
     parser.add_argument("--selection", action="append")
     parser.add_argument("--pre-recommendation", action="append")
@@ -954,7 +1102,9 @@ def build_parser() -> UsageParser:
 def sanitized_gate_environment() -> dict[str, str]:
     """Build the gate baseline without verifier-only opt-in values."""
 
-    return child_environment([])
+    environment = child_environment([])
+    environment.pop("HOME", None)
+    return environment
 
 
 def verifier_environment_payload(explicit_names: list[str]) -> bytes:
@@ -1065,14 +1215,68 @@ def verify_main(
     )
     if args.expect_edits > 1:
         parser.error("--expect-edits must be provided at most once")
-    if not args.verify or any(not value.strip() for value in args.verify):
-        parser.error("at least one non-empty --verify command is required")
-    if len(args.verify) > 999:
+    for flag, count in (
+        ("--legacy-shell-verification", args.legacy_shell_verification),
+        ("--acknowledge-verifier-network", args.acknowledge_verifier_network),
+        (
+            "--acknowledge-verifier-credential-access",
+            args.acknowledge_verifier_credential_access,
+        ),
+    ):
+        if count > 1:
+            parser.error(f"{flag} must be provided at most once")
+    verifier_specs: list[tuple[str, str]] = args.verifier_specs
+    if not verifier_specs:
+        parser.error("at least one --verify-argv or explicitly acknowledged shell verifier is required")
+    if len(verifier_specs) > 999:
         parser.error("at most 999 verifier commands are supported")
+    if any(mode == "legacy" for mode, _value in verifier_specs) and not args.legacy_shell_verification:
+        parser.error(
+            "--verify is legacy shell verification; migrate to --verify-argv or add --legacy-shell-verification"
+        )
+    if args.legacy_shell_verification and not any(
+        mode == "legacy" for mode, _value in verifier_specs
+    ):
+        parser.error("--legacy-shell-verification requires --verify")
+    normalized_verifiers: list[tuple[str, str]] = []
+    for mode, value in verifier_specs:
+        public_mode = "shell" if mode == "legacy" else mode
+        if public_mode == "argv":
+            validate_verifier_argv(value)
+        elif not value.strip():
+            parser.error("shell verifier must be non-empty")
+        normalized_verifiers.append((public_mode, value))
+    shell_requested = any(mode == "shell" for mode, _value in normalized_verifiers)
+    if shell_requested and not (
+        args.acknowledge_verifier_network
+        and args.acknowledge_verifier_credential_access
+    ):
+        parser.error(
+            "shell verification requires --acknowledge-verifier-network and --acknowledge-verifier-credential-access"
+        )
     try:
         verify_environment = validate_child_environment_names(args.verify_env)
+        verify_credential_environment = validate_child_environment_names(
+            args.verify_credential_env
+        )
     except EvidenceUnavailable as exc:
         parser.error(str(exc))
+    if any(is_credential_environment_name(name) for name in verify_environment):
+        parser.error("credential-like names require --verify-credential-env")
+    if any(
+        not is_credential_environment_name(name)
+        for name in verify_credential_environment
+    ):
+        parser.error("--verify-credential-env requires a credential-like name")
+    if set(verify_environment) & set(verify_credential_environment):
+        parser.error("verifier environment names must be unique across both classes")
+    if verify_credential_environment and not args.acknowledge_verifier_credential_access:
+        parser.error(
+            "--verify-credential-env requires --acknowledge-verifier-credential-access"
+        )
+    all_verify_environment = sorted(
+        verify_environment + verify_credential_environment
+    )
     assert receipt_text and envelope_text and repo_text and base
 
     target = Path(receipt_text)
@@ -1121,14 +1325,22 @@ def verify_main(
             gate_args += ["--only", value]
         if args.expect_edits:
             gate_args.append("--expect-edits")
-        for value in args.verify:
-            gate_args += ["--verify", value]
+        for mode, value in verifier_specs:
+            gate_args += ["--verify" if mode == "legacy" else f"--verify-{mode}", value]
+        if args.legacy_shell_verification:
+            gate_args.append("--legacy-shell-verification")
+        if args.acknowledge_verifier_network:
+            gate_args.append("--acknowledge-verifier-network")
+        if args.acknowledge_verifier_credential_access:
+            gate_args.append("--acknowledge-verifier-credential-access")
         for value in verify_environment:
             gate_args += ["--verify-env", value]
+        for value in verify_credential_environment:
+            gate_args += ["--verify-credential-env", value]
 
         try:
             gate_rc = run_gate(
-                runtime_root / "qa-gate.sh", gate_args, verify_environment,
+                runtime_root / "qa-gate.sh", gate_args, all_verify_environment,
                 write_fd, controller
             )
         finally:
@@ -1159,6 +1371,15 @@ def verify_main(
             "only": args.only,
             "expect_edits": bool(args.expect_edits),
             "verify_environment": verify_environment,
+            "verify_credential_environment": verify_credential_environment,
+            "verifier_modes": [mode for mode, _value in normalized_verifiers],
+            "acknowledgements": {
+                "network": bool(args.acknowledge_verifier_network),
+                "credential_access": bool(
+                    args.acknowledge_verifier_credential_access
+                ),
+                "legacy_shell": bool(args.legacy_shell_verification),
+            },
         }
         receipt: dict[str, Any] = {
             "schema_version": 1,
@@ -1170,9 +1391,9 @@ def verify_main(
             "verifiers": [
                 {
                     "label": f"verify-{index:03d}",
-                    "command_sha256": sha256_bytes(command.encode("utf-8")),
+                    "command_sha256": verifier_spec_hash(mode, value),
                 }
-                for index, command in enumerate(args.verify, 1)
+                for index, (mode, value) in enumerate(normalized_verifiers, 1)
             ],
             "initial_candidate_state_sha256": handoff[
                 "initial_candidate_state_sha256"
@@ -1283,13 +1504,55 @@ def validate_main(argv: list[str], runtime_root: Path) -> int:
     return 0
 
 
+def execute_verifier_main(argv: list[str]) -> int:
+    """Internal no-shell executor used by qa-gate's sanitized child."""
+
+    if argv != ["argv"]:
+        return 64
+    payload = sys.stdin.buffer.read(MAX_VERIFY_ARGV_BYTES * 2 + 1)
+    if len(payload) > MAX_VERIFY_ARGV_BYTES * 2:
+        return 64
+    try:
+        raw = payload.decode("utf-8")
+        command = validate_verifier_argv(raw)
+    except (UnicodeDecodeError, UsageFailure):
+        return 64
+    try:
+        os.execvpe(command[0], command, dict(os.environ))
+    except OSError:
+        return 126
+    return 126
+
+
+def validate_verifier_main(argv: list[str]) -> int:
+    if argv != ["argv"]:
+        return 64
+    payload = sys.stdin.buffer.read(MAX_VERIFY_ARGV_BYTES * 2 + 1)
+    if len(payload) > MAX_VERIFY_ARGV_BYTES * 2:
+        return 64
+    try:
+        validate_verifier_argv(payload.decode("utf-8"))
+    except (UnicodeDecodeError, UsageFailure):
+        return 64
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     arguments = list(sys.argv[1:] if argv is None else argv)
     runtime_root = Path(__file__).resolve().parent.parent
-    if not arguments or arguments[0] not in ("verify", "validate"):
-        print("usage: evidence_receipt.py verify|validate ...", file=sys.stderr)
+    if not arguments or arguments[0] not in (
+        "verify", "validate", "execute-verifier", "validate-verifier"
+    ):
+        print(
+            "usage: evidence_receipt.py verify|validate|execute-verifier|validate-verifier ...",
+            file=sys.stderr,
+        )
         return 64
     command = arguments.pop(0)
+    if command == "execute-verifier":
+        return execute_verifier_main(arguments)
+    if command == "validate-verifier":
+        return validate_verifier_main(arguments)
     try:
         if command == "verify":
             with SignalController() as controller:

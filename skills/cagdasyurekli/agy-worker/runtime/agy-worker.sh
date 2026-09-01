@@ -25,7 +25,13 @@ set -euo pipefail
 CALLER_UMASK="$(umask)"
 umask 077
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_SOURCE_DIR="${BASH_SOURCE[0]%/*}"
+[[ "$SCRIPT_SOURCE_DIR" != "${BASH_SOURCE[0]}" ]] || SCRIPT_SOURCE_DIR=.
+SCRIPT_DIR="$(CDPATH= cd -- "$SCRIPT_SOURCE_DIR" && pwd -P)"
+if [[ "${1:-}" == transmission-preview || "${1:-}" == preview ]]; then
+    shift
+    exec /usr/bin/python3 -I -S -B "$SCRIPT_DIR/scripts/agy_dispatch_worktree.py" transmission-preview "$@"
+fi
 # agy receives the ergonomic provider schema. The controller restores its only
 # optional report arrays before independently validating the canonical schema.
 SCHEMA="${AGY_WORKER_SCHEMA:-$SCRIPT_DIR/schemas/worker-result.provider.schema.json}"
@@ -114,10 +120,12 @@ usage: agy-worker.sh [--workdir DIR] [--persona NAME] [--mode plan|accept-edits]
                      [--idle-timeout 10m] [--hard-timeout 2h]
                      [--max-runtime 12h]
                      [--provider-env NAME]...
+                     [--provider-scope FILE --approve-transmission-sha SHA256]
                      [--add-dir DIR]... [--allow-slash-commands]
        ... task prompt on stdin ...
 
        agy-worker.sh start [run options] ... task prompt on stdin ...
+       agy-worker.sh transmission-preview --workdir ABSOLUTE_DISPOSABLE_WORKTREE
        agy-worker.sh status|result --job-id JOB [--format json|text]
        agy-worker.sh verification-copy --job-id JOB --destination NEW_PRIVATE_DIRECTORY [--format json|text]
        agy-worker.sh resume --job-id JOB --approve-state-sha SHA [--approve-migration-sha SHA] [--format json|text]
@@ -259,6 +267,8 @@ approve_help_sha_seen=0; approve_help_sha=""
 literal_cli_seen=0; literal_cli_value=""
 idle_cli_seen=0; hard_cli_seen=0; max_cli_seen=0
 job_cli_seen=0
+provider_scope_seen=0; provider_scope=""
+approve_transmission_sha_seen=0; approve_transmission_sha=""
 provider_env=()
 # Injection control (rec #8): worker prompts routinely embed repo content, and a
 # "/skill ..." string inside that content would otherwise expand as a real command.
@@ -325,12 +335,39 @@ while [[ $# -gt 0 ]]; do
             [[ $# -ge 2 ]] || usage
             (( approve_help_sha_seen == 0 )) || { echo "agy-worker.sh: repeated --approve-help-sha" >&2; exit 64; }
             approve_help_sha_seen=1; approve_help_sha="$2"; shift 2 ;;
+        --provider-scope)
+            [[ $# -ge 2 ]] || usage
+            (( provider_scope_seen == 0 )) || { echo "agy-worker.sh: repeated --provider-scope" >&2; exit 64; }
+            provider_scope_seen=1; provider_scope="$2"; shift 2 ;;
+        --approve-transmission-sha)
+            [[ $# -ge 2 ]] || usage
+            (( approve_transmission_sha_seen == 0 )) || { echo "agy-worker.sh: repeated --approve-transmission-sha" >&2; exit 64; }
+            approve_transmission_sha_seen=1; approve_transmission_sha="$2"; shift 2 ;;
         --add-dir) [[ $# -ge 2 ]] || usage; extra_dirs+=("$2"); shift 2 ;;
         --allow-slash-commands) disable_slash=0; shift ;;
         -h|--help) usage 0 ;;
         *) echo "agy-worker.sh: invalid usage; run --help for usage" >&2; usage ;;
     esac
 done
+
+if (( provider_scope_seen && ${#extra_dirs[@]} > 0 )); then
+    echo "agy-worker.sh: --provider-scope conflicts with --add-dir" >&2
+    exit 64
+fi
+if (( provider_scope_seen && approve_transmission_sha_seen == 0 )); then
+    echo "agy-worker.sh: --provider-scope requires --approve-transmission-sha" >&2
+    exit 64
+fi
+if (( provider_scope_seen == 0 && approve_transmission_sha_seen )); then
+    echo "agy-worker.sh: --approve-transmission-sha requires --provider-scope" >&2
+    exit 64
+fi
+if (( approve_transmission_sha_seen )); then
+    if [[ ! "$approve_transmission_sha" =~ ^[0-9a-f]{64}$ ]]; then
+        echo "agy-worker.sh: --approve-transmission-sha must be 64 lowercase hex characters" >&2
+        exit 64
+    fi
+fi
 
 if (( ${#provider_env[@]} > 64 )); then
     echo "agy-worker.sh: at most 64 --provider-env names are supported" >&2
@@ -930,7 +967,11 @@ build_cmd() {
     # to the cached file and agy is pointed at it instead of failing the job.
     local LC_ALL=C
     stage_used=0
-    if [[ "$mode" == "plan" ]] || (( ${#full_prompt} > 100000 )); then
+    if (( provider_scope_seen )) && (( ${#full_prompt} > 100000 )); then
+        echo "agy-worker.sh: narrow provider scope prompt exceeds the inline bound" >&2
+        exit 64
+    fi
+    if (( provider_scope_seen == 0 )) && { [[ "$mode" == "plan" ]] || (( ${#full_prompt} > 100000 )); }; then
         # The automatic out-of-repo root contains only one read-only staged prompt.
         # Logs and envelopes remain outside agy's granted roots.
         restore_staged_permissions
@@ -960,7 +1001,8 @@ command_workflow="${workflow:-legacy}"
 python3 -I -S -B - "$command_file" "$job_id" "$workdir" "$agy_version" "$agy_version_observed" \
     "$idle_seconds" "$hard_seconds" "$max_seconds" "$notice_seconds" \
     "$stage_dir_arg" "$stage_file_arg" "$CALLER_UMASK" "$command_workflow" "$max_cycles" \
-    "${#provider_env[@]}" ${provider_env+"${provider_env[@]}"} "$selection_file" "${cmd[@]}" <<'PY'
+    "${#provider_env[@]}" ${provider_env+"${provider_env[@]}"} "$selection_file" \
+    "$provider_scope" "$approve_transmission_sha" "${cmd[@]}" <<'PY'
 import json
 import os
 from pathlib import Path
@@ -972,11 +1014,11 @@ import sys
 ) = sys.argv[1:]
 provider_env_count = int(provider_env_count)
 provider_env = sorted(remainder[:provider_env_count])
-selection_path, *argv = remainder[provider_env_count:]
+selection_path, provider_scope_arg, approved_transmission_sha_arg, *argv = remainder[provider_env_count:]
 if not isinstance(child_umask, str) or len(child_umask) not in (3, 4) or any(ch not in "01234567" for ch in child_umask):
     raise SystemExit(64)
 value = {
-    "schema_version": 5,
+    "schema_version": 6,
     "kind": "agy-worker-dispatch-command",
     "job_id": job_id,
     "workdir": workdir,
@@ -1003,6 +1045,10 @@ value = {
         "Address the reported issues using file tools, do not run shell commands, and "
         "return only the final schema-valid envelope."
     ),
+    "provider_scope_path": None,
+    "provider_scope_sha256": None,
+    "provider_scope_identity": None,
+    "approved_transmission_sha256": None,
 }
 descriptor = os.open(selection_path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
 try:
@@ -1025,6 +1071,31 @@ if len(selection) > 512 * 1024 or identity(before) != identity(after) or identit
     raise SystemExit(64)
 value["selection_sha256"] = __import__("hashlib").sha256(selection).hexdigest()
 value["selection_identity"] = list(identity(after))
+
+if provider_scope_arg:
+    scope_path = str(Path(provider_scope_arg).resolve())
+    descriptor = os.open(scope_path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+    try:
+        before_sc = os.fstat(descriptor)
+        if not __import__("stat").S_ISREG(before_sc.st_mode) or before_sc.st_uid != os.geteuid() or before_sc.st_nlink != 1:
+            raise SystemExit(64)
+        sc_data = b""
+        while len(sc_data) <= 512 * 1024:
+            part = os.read(descriptor, 65536)
+            if not part:
+                break
+            sc_data += part
+        after_sc = os.fstat(descriptor)
+    finally:
+        os.close(descriptor)
+    named_sc = os.lstat(scope_path)
+    if len(sc_data) > 512 * 1024 or identity(before_sc) != identity(after_sc) or identity(after_sc) != identity(named_sc):
+        raise SystemExit(64)
+    value["provider_scope_path"] = scope_path
+    value["provider_scope_sha256"] = __import__("hashlib").sha256(sc_data).hexdigest()
+    value["provider_scope_identity"] = list(identity(after_sc))
+    value["approved_transmission_sha256"] = approved_transmission_sha_arg
+
 raw = json.dumps(value, ensure_ascii=True, sort_keys=True, separators=(",", ":")).encode("ascii") + b"\n"
 descriptor = os.open(output, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0), 0o600)
 try:

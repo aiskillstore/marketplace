@@ -43,6 +43,7 @@ doctor_runtime_complete() {
         esac
     done
     for required in \
+        workflow.sh \
         agy-worker.sh \
         job.sh \
         qa-gate.sh \
@@ -57,7 +58,9 @@ doctor_runtime_complete() {
         doctor.sh \
         feedback-triage.sh \
         model-intelligence.sh \
+        model-evidence-campaign.sh \
         delegation-policy.sh \
+        scripts/workflow.py \
         scripts/validate-envelope.py \
         scripts/evidence_receipt.py \
         scripts/evidence_report.py \
@@ -75,6 +78,7 @@ doctor_runtime_complete() {
         scripts/doctor-metadata.py \
         scripts/feedback-triage.py \
         scripts/model_intelligence.py \
+        scripts/model_evidence_campaign.py \
         scripts/delegation_policy.py; do
         case "$required" in
             */*) dependency_parent="${required%/*}" ;;
@@ -94,6 +98,8 @@ doctor_runtime_complete() {
 
     for required in \
         scripts/agy_dispatch_worktree.py \
+        schemas/workflow-state.schema.json \
+        scripts/version_manifest_engine.py \
         schemas/worker-result.schema.json \
         schemas/worker-result.provider.schema.json \
         schemas/evidence-receipt.schema.json \
@@ -107,6 +113,13 @@ doctor_runtime_complete() {
         schemas/swebench-workflow-study-advisory.schema.json \
         schemas/model-intelligence-evidence.schema.json \
         schemas/model-intelligence-advisory.schema.json \
+        schemas/model-evidence-campaign-plan.schema.json \
+        schemas/model-evidence-campaign-record.schema.json \
+        schemas/model-evidence-campaign-evaluation.schema.json \
+        schemas/model-evidence-campaign-aggregate.schema.json \
+        schemas/model-evidence-campaign-aggregate-preview.schema.json \
+        schemas/model-evidence-campaign-advisory-summary.schema.json \
+        schemas/model-evidence-campaign-advisory-preview.schema.json \
         schemas/delegation-policy.schema.json \
         schemas/persona-dispatch.schema.json \
         schemas/persona-human-review.schema.json \
@@ -144,7 +157,10 @@ doctor_runtime_complete() {
         compat/model-effort-matrix.schema.json \
         compat/agy-model-effort-matrix.sha256 \
         compat/agy-models-inventory-binding.json \
-        compat/agy-models-inventory-binding.sha256; do
+        compat/agy-models-inventory-binding.sha256 \
+        compat/agy-version-manifest.json \
+        compat/agy-version-manifest.sha256 \
+        compat/version-manifest.schema.json; do
         dependency_parent="${required%/*}"
         parent_canonical="$(CDPATH= cd -- "$runtime_canonical/$dependency_parent" \
             2>/dev/null && pwd -P)" || return 1

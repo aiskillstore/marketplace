@@ -7,7 +7,606 @@ exception identity and its mutable test seams when two copied runtimes coexist.
 """
 from __future__ import annotations
 
+import contextlib
+import hashlib
+import json
+import os
+from pathlib import Path
+import posixpath
+import selectors
+import shutil
+import signal
+import stat
+import subprocess
+import sys
+import time
+import unicodedata
 from typing import Any, Mapping
+
+
+READABLE_MANIFEST_MAX_ENTRIES = 100000
+READABLE_MANIFEST_MAX_BYTES = 32 * 1024 * 1024
+READABLE_MANIFEST_MAX_DEPTH = 128
+READABLE_MANIFEST_SCAN_SECONDS = 5.0
+READABLE_MANIFEST_KIND = "agy-worker-readable-path-manifest"
+READABLE_MANIFEST_ALGORITHM = "agy-worker-readable-path-manifest-v1"
+READABLE_MANIFEST_GIT = "/usr/bin/git"
+READABLE_MANIFEST_GIT_BYTES = 1024 * 1024
+READABLE_MANIFEST_GIT_SECONDS = 3.0
+SELECTED_CONTENT_MAX_ENTRIES = 100000
+SELECTED_CONTENT_MAX_FILE_BYTES = 128 * 1024 * 1024
+SELECTED_CONTENT_MAX_TOTAL_BYTES = 512 * 1024 * 1024
+SELECTED_CONTENT_SCAN_SECONDS = 30.0
+RECONCILIATION_MAX_OPERATIONS = 100000
+
+
+class ReadableManifestError(ValueError):
+    """The provider-readable path boundary could not be observed completely."""
+
+
+# Standalone preview/parser imports do not have the dispatcher dependency map.
+# ``call`` replaces this binding with the dispatcher's exact exception class.
+DispatchError = ReadableManifestError
+
+
+def _canonical_json(value: Any) -> bytes:
+    return json.dumps(
+        value, ensure_ascii=True, sort_keys=True, separators=(",", ":")
+    ).encode("utf-8")
+
+
+def _canonical_digest(value: Any) -> str:
+    """Hash the repository's newline-terminated canonical JSON encoding."""
+    return hashlib.sha256(_canonical_json(value) + b"\n").hexdigest()
+
+
+def _decode_manifest_path(raw: bytes) -> str:
+    try:
+        return raw.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise ReadableManifestError("path is not UTF-8") from exc
+
+
+def _manifest_binding(info: os.stat_result) -> tuple[int, ...]:
+    return (
+        info.st_dev,
+        info.st_ino,
+        info.st_mode,
+        info.st_nlink,
+        info.st_uid,
+        info.st_gid,
+        info.st_size,
+        info.st_mtime_ns,
+        info.st_ctime_ns,
+    )
+
+
+def _read_bound_control_file(path: str, limit: int = 4096) -> tuple[bytes, tuple[int, ...]]:
+    nofollow = getattr(os, "O_NOFOLLOW", 0)
+    before = os.lstat(path)
+    if not stat.S_ISREG(before.st_mode):
+        raise ReadableManifestError("control marker is not regular")
+    descriptor = os.open(path, os.O_RDONLY | nofollow)
+    try:
+        opened = os.fstat(descriptor)
+        if _manifest_binding(opened) != _manifest_binding(before):
+            raise ReadableManifestError("control marker changed")
+        payload = os.read(descriptor, limit + 1)
+        if len(payload) > limit or os.read(descriptor, 1):
+            raise ReadableManifestError("control marker is oversized")
+        if _manifest_binding(os.fstat(descriptor)) != _manifest_binding(before):
+            raise ReadableManifestError("control marker changed")
+        return payload, _manifest_binding(before)
+    finally:
+        os.close(descriptor)
+
+
+def _linked_worktree_authority(root: str) -> tuple[Any, ...]:
+    marker_path = os.path.join(root, ".git")
+    marker, marker_binding = _read_bound_control_file(marker_path)
+    try:
+        marker_text = marker.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise ReadableManifestError("control marker is not UTF-8") from exc
+    if not marker_text.endswith("\n") or marker_text.count("\n") != 1:
+        raise ReadableManifestError("control marker is malformed")
+    prefix = "gitdir: "
+    if not marker_text.startswith(prefix):
+        raise ReadableManifestError("control marker is malformed")
+    gitdir = marker_text[len(prefix):-1]
+    if (
+        not gitdir
+        or "\0" in gitdir
+        or not os.path.isabs(gitdir)
+        or gitdir != os.path.realpath(gitdir)
+        or not os.path.isdir(gitdir)
+        or os.path.islink(gitdir)
+    ):
+        raise ReadableManifestError("linked worktree administration is invalid")
+    backpointer, backpointer_binding = _read_bound_control_file(
+        os.path.join(gitdir, "gitdir")
+    )
+    try:
+        backpointer_text = backpointer.decode("utf-8").rstrip("\n")
+    except UnicodeDecodeError as exc:
+        raise ReadableManifestError("linked worktree backpointer is invalid") from exc
+    if backpointer_text != marker_path:
+        raise ReadableManifestError("linked worktree backpointer differs")
+    head, head_binding = _read_bound_control_file(os.path.join(gitdir, "HEAD"))
+    try:
+        head_text = head.decode("ascii").rstrip("\n")
+    except UnicodeDecodeError as exc:
+        raise ReadableManifestError("linked worktree HEAD is invalid") from exc
+    if not head_text.startswith("ref: refs/heads/") or len(head_text) <= len("ref: refs/heads/"):
+        raise ReadableManifestError("worktree is not branch-backed")
+    return (
+        marker_binding,
+        gitdir,
+        backpointer_binding,
+        head_binding,
+        head_text,
+    )
+
+
+def _stop_preview_child(child: subprocess.Popen[bytes]) -> None:
+    if child.poll() is None:
+        try:
+            os.killpg(child.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+    try:
+        child.wait(timeout=1)
+    except (OSError, subprocess.TimeoutExpired):
+        pass
+
+
+def _bounded_git_worktree_list(root: str) -> bytes:
+    """Read fixed local Git registration data without prompts, hooks, or network."""
+
+    command = [
+        READABLE_MANIFEST_GIT,
+        "-c", "core.hooksPath=/dev/null",
+        "-c", "protocol.file.allow=never",
+        "-c", "core.fsmonitor=false",
+        "-C", root,
+        "worktree", "list", "--porcelain", "-z",
+    ]
+    environment = {
+        "GIT_CONFIG_GLOBAL": "/dev/null",
+        "GIT_CONFIG_NOSYSTEM": "1",
+        "GIT_OPTIONAL_LOCKS": "0",
+        "GIT_PAGER": "",
+        "GIT_TERMINAL_PROMPT": "0",
+        "GIT_ASKPASS": "/usr/bin/false",
+        "SSH_ASKPASS": "/usr/bin/false",
+        "LC_ALL": "C",
+    }
+    child: subprocess.Popen[bytes] | None = None
+    selector = selectors.DefaultSelector()
+    chunks: list[bytes] = []
+    observed = 0
+    deadline = time.monotonic() + READABLE_MANIFEST_GIT_SECONDS
+    try:
+        child = subprocess.Popen(
+            command,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            close_fds=True,
+            env=environment,
+            start_new_session=True,
+        )
+        if child.stdout is None:
+            raise ReadableManifestError("Git registration output is unavailable")
+        descriptor = child.stdout.fileno()
+        os.set_blocking(descriptor, False)
+        selector.register(descriptor, selectors.EVENT_READ)
+        reached_eof = False
+        while not reached_eof:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise ReadableManifestError("Git registration deadline exceeded")
+            events = selector.select(remaining)
+            if not events:
+                raise ReadableManifestError("Git registration deadline exceeded")
+            for key, _mask in events:
+                chunk = os.read(key.fd, 65536)
+                if not chunk:
+                    selector.unregister(key.fd)
+                    reached_eof = True
+                    break
+                observed += len(chunk)
+                if observed > READABLE_MANIFEST_GIT_BYTES:
+                    raise ReadableManifestError("Git registration output is oversized")
+                chunks.append(chunk)
+        remaining = deadline - time.monotonic()
+        if remaining <= 0 or child.wait(timeout=remaining) != 0:
+            raise ReadableManifestError("Git registration check failed")
+        return b"".join(chunks)
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise ReadableManifestError("Git registration check failed") from exc
+    finally:
+        selector.close()
+        if child is not None:
+            _stop_preview_child(child)
+
+
+def _registered_worktree_authority(root: str, head_text: str) -> tuple[str, str]:
+    raw = _bounded_git_worktree_list(root)
+    target_records: list[dict[bytes, bytes | None]] = []
+    for record_raw in raw.split(b"\0\0"):
+        if not record_raw:
+            continue
+        fields: dict[bytes, bytes | None] = {}
+        for field in record_raw.split(b"\0"):
+            if not field:
+                continue
+            key, separator, value = field.partition(b" ")
+            if key in fields:
+                raise ReadableManifestError("Git registration record is ambiguous")
+            fields[key] = value if separator else None
+        path_raw = fields.get(b"worktree")
+        if path_raw is None:
+            raise ReadableManifestError("Git registration record is malformed")
+        try:
+            path = path_raw.decode("utf-8")
+        except UnicodeDecodeError as exc:
+            raise ReadableManifestError("Git registration path is not UTF-8") from exc
+        if path == root:
+            target_records.append(fields)
+    if len(target_records) != 1:
+        raise ReadableManifestError("worktree is not uniquely registered")
+    record = target_records[0]
+    head_raw = record.get(b"HEAD")
+    branch_raw = record.get(b"branch")
+    if (
+        not isinstance(head_raw, bytes)
+        or len(head_raw) not in (40, 64)
+        or any(byte not in b"0123456789abcdef" for byte in head_raw)
+        or not isinstance(branch_raw, bytes)
+        or b"detached" in record
+        or b"bare" in record
+        or b"prunable" in record
+    ):
+        raise ReadableManifestError("worktree registration is not branch-backed")
+    try:
+        branch = branch_raw.decode("utf-8")
+        head = head_raw.decode("ascii")
+    except UnicodeDecodeError as exc:
+        raise ReadableManifestError("worktree registration is invalid") from exc
+    if not branch.startswith("refs/heads/") or head_text != f"ref: {branch}":
+        raise ReadableManifestError("worktree registration differs from control data")
+    return head, branch
+
+
+def _preview_worktree_authority(root: str) -> tuple[Any, ...]:
+    control = _linked_worktree_authority(root)
+    registration = _registered_worktree_authority(root, control[-1])
+    return control, registration
+
+
+def _scan_readable_paths(root: str) -> tuple[list[dict[str, str]], tuple[Any, ...]]:
+    deadline = time.monotonic() + READABLE_MANIFEST_SCAN_SECONDS
+    nofollow = getattr(os, "O_NOFOLLOW", 0)
+    directory_flag = getattr(os, "O_DIRECTORY", 0)
+    root_fd = os.open(root, os.O_RDONLY | directory_flag | nofollow)
+    entries: list[tuple[bytes, str, str]] = []
+    observations: list[tuple[Any, ...]] = []
+    enumerated_count = 0
+
+    def ensure_time() -> None:
+        if time.monotonic() > deadline:
+            raise ReadableManifestError("scan deadline exceeded")
+
+    def add_entry(kind: str, relative_bytes: bytes) -> None:
+        if len(entries) >= READABLE_MANIFEST_MAX_ENTRIES:
+            raise ReadableManifestError("entry limit exceeded")
+        if relative_bytes.count(b"/") + 1 > READABLE_MANIFEST_MAX_DEPTH:
+            raise ReadableManifestError("depth limit exceeded")
+        relative = _decode_manifest_path(relative_bytes)
+        entries.append((relative_bytes, kind, relative))
+
+    def walk(parent_fd: int, parent_path: str, prefix: bytes, depth: int) -> None:
+        nonlocal enumerated_count
+        ensure_time()
+        if depth > READABLE_MANIFEST_MAX_DEPTH:
+            raise ReadableManifestError("depth limit exceeded")
+        before = os.fstat(parent_fd)
+        if not stat.S_ISDIR(before.st_mode):
+            raise ReadableManifestError("directory changed type")
+        scan_fd = os.dup(parent_fd)
+        try:
+            with os.scandir(scan_fd) as scanned:
+                children: list[tuple[bytes, str]] = []
+                for entry in scanned:
+                    ensure_time()
+                    name = os.fsencode(entry.name)
+                    if not name or b"\0" in name:
+                        raise ReadableManifestError("invalid path")
+                    _decode_manifest_path(name)
+                    if name.lower() == b".git":
+                        if not prefix and name == b".git":
+                            continue
+                        raise ReadableManifestError("nested Git marker")
+                    enumerated_count += 1
+                    if enumerated_count > READABLE_MANIFEST_MAX_ENTRIES:
+                        raise ReadableManifestError("entry limit exceeded")
+                    children.append((name, entry.name))
+        finally:
+            os.close(scan_fd)
+        children.sort(key=lambda item: item[0])
+        listing: list[bytes] = []
+        for name, entry_name in children:
+            ensure_time()
+            relative = name if not prefix else prefix + b"/" + name
+            listing.append(name)
+            info = os.stat(entry_name, dir_fd=parent_fd, follow_symlinks=False)
+            binding = _manifest_binding(info)
+            full_path = os.path.join(parent_path, entry_name)
+            if stat.S_ISDIR(info.st_mode):
+                add_entry("directory", relative)
+                child_fd = os.open(
+                    entry_name,
+                    os.O_RDONLY | directory_flag | nofollow,
+                    dir_fd=parent_fd,
+                )
+                try:
+                    if _manifest_binding(os.fstat(child_fd)) != binding:
+                        raise ReadableManifestError("directory changed")
+                    walk(child_fd, full_path, relative, depth + 1)
+                    if _manifest_binding(os.fstat(child_fd)) != binding:
+                        raise ReadableManifestError("directory changed")
+                finally:
+                    os.close(child_fd)
+                observations.append((relative, "directory", binding))
+            elif stat.S_ISREG(info.st_mode):
+                add_entry("file", relative)
+                file_fd = os.open(entry_name, os.O_RDONLY | nofollow, dir_fd=parent_fd)
+                try:
+                    if _manifest_binding(os.fstat(file_fd)) != binding:
+                        raise ReadableManifestError("file changed")
+                finally:
+                    os.close(file_fd)
+                if _manifest_binding(
+                    os.stat(entry_name, dir_fd=parent_fd, follow_symlinks=False)
+                ) != binding:
+                    raise ReadableManifestError("file changed")
+                observations.append((relative, "file", binding))
+            elif stat.S_ISLNK(info.st_mode):
+                add_entry("symlink", relative)
+                target = os.readlink(entry_name, dir_fd=parent_fd)
+                if not isinstance(target, str):
+                    target = os.fsdecode(target)
+                target.encode("utf-8")
+                resolved = os.path.realpath(full_path)
+                try:
+                    contained = os.path.commonpath([root, resolved]) == root
+                except ValueError:
+                    contained = False
+                if (
+                    not contained
+                    or not os.path.exists(resolved)
+                    or any(part.casefold() == ".git" for part in Path(os.path.relpath(resolved, root)).parts)
+                ):
+                    raise ReadableManifestError("symlink boundary violation")
+                if _manifest_binding(
+                    os.stat(entry_name, dir_fd=parent_fd, follow_symlinks=False)
+                ) != binding:
+                    raise ReadableManifestError("symlink changed")
+                observations.append((relative, "symlink", binding, target))
+            else:
+                raise ReadableManifestError("special node")
+        after = os.fstat(parent_fd)
+        if _manifest_binding(after) != _manifest_binding(before):
+            raise ReadableManifestError("directory changed")
+        observations.append((prefix, "listing", tuple(listing), _manifest_binding(before)))
+
+    try:
+        root_before = _manifest_binding(os.fstat(root_fd))
+        walk(root_fd, root, b"", 0)
+        root_after = _manifest_binding(os.fstat(root_fd))
+        if root_after != root_before:
+            raise ReadableManifestError("root changed")
+    finally:
+        os.close(root_fd)
+    entries.sort(key=lambda item: item[0])
+    public_entries = [{"kind": kind, "path": path} for _raw, kind, path in entries]
+    return public_entries, tuple(observations)
+
+
+def readable_path_manifest(workdir: str) -> dict[str, Any]:
+    """Return a stable content-free provider-readable path manifest preview."""
+
+    if (
+        not workdir
+        or "\0" in workdir
+        or not os.path.isabs(workdir)
+        or os.path.normpath(workdir) != workdir
+        or os.path.realpath(workdir) != workdir
+        or os.path.islink(workdir)
+    ):
+        raise ReadableManifestError("worktree path is not canonical")
+    root_info = os.lstat(workdir)
+    if not stat.S_ISDIR(root_info.st_mode):
+        raise ReadableManifestError("worktree root is not a directory")
+    authority_before = _preview_worktree_authority(workdir)
+    first_entries, first_observation = _scan_readable_paths(workdir)
+    second_entries, second_observation = _scan_readable_paths(workdir)
+    authority_after = _preview_worktree_authority(workdir)
+    if (
+        first_entries != second_entries
+        or first_observation != second_observation
+        or authority_before != authority_after
+        or os.path.realpath(workdir) != workdir
+        or _manifest_binding(os.lstat(workdir)) != _manifest_binding(root_info)
+    ):
+        raise ReadableManifestError("worktree changed during preview")
+    manifest = {
+        "algorithm": READABLE_MANIFEST_ALGORITHM,
+        "entries": first_entries,
+        "entry_count": len(first_entries),
+        "kind": READABLE_MANIFEST_KIND,
+        "schema_version": 1,
+    }
+    manifest_bytes = _canonical_json(manifest)
+    if len(manifest_bytes) > READABLE_MANIFEST_MAX_BYTES:
+        raise ReadableManifestError("manifest byte limit exceeded")
+    return {
+        "bounds": {
+            "max_canonical_bytes": READABLE_MANIFEST_MAX_BYTES,
+            "max_depth": READABLE_MANIFEST_MAX_DEPTH,
+            "max_entries": READABLE_MANIFEST_MAX_ENTRIES,
+            "scan_deadline_seconds": int(READABLE_MANIFEST_SCAN_SECONDS),
+        },
+        "contents_read": False,
+        "manifest": manifest,
+        "manifest_sha256": hashlib.sha256(manifest_bytes).hexdigest(),
+        "network_used": False,
+        "provider_launched": False,
+        "resolved_root": workdir,
+    }
+
+
+def _scan_readable_worktree(worktree: str | Path) -> list[dict[str, str]]:
+    """Return the canonical readable manifest entries for lifecycle binding."""
+
+    return readable_path_manifest(str(worktree))["manifest"]["entries"]
+
+
+def _validate_manifest(manifest: Any) -> list[dict[str, str]]:
+    """Validate and normalize a canonical readable-path entry list."""
+
+    if not isinstance(manifest, list):
+        raise ReadableManifestError("manifest entries are invalid")
+    validated: list[dict[str, str]] = []
+    previous: bytes | None = None
+    for entry in manifest:
+        if (
+            not isinstance(entry, dict)
+            or set(entry) != {"kind", "path"}
+            or entry.get("kind") not in {"directory", "file", "symlink"}
+            or not isinstance(entry.get("path"), str)
+            or not entry["path"]
+        ):
+            raise ReadableManifestError("manifest entry is invalid")
+        path = entry["path"]
+        raw = path.encode("utf-8", "strict")
+        if (
+            b"\0" in raw
+            or path.startswith("/")
+            or path.endswith("/")
+            or posixpath.normpath(path) != path
+            or any(part.casefold() == ".git" for part in path.split("/"))
+            or (previous is not None and raw <= previous)
+        ):
+            raise ReadableManifestError("manifest path is invalid")
+        previous = raw
+        validated.append({"kind": entry["kind"], "path": path})
+    return validated
+
+
+def _manifest_digest(manifest: Any) -> str:
+    """Return the unchanged readable-manifest v1 digest."""
+
+    entries = _validate_manifest(manifest)
+    value = {
+        "algorithm": READABLE_MANIFEST_ALGORITHM,
+        "entries": entries,
+        "entry_count": len(entries),
+        "kind": READABLE_MANIFEST_KIND,
+        "schema_version": 1,
+    }
+    raw = _canonical_json(value)
+    if len(raw) > READABLE_MANIFEST_MAX_BYTES:
+        raise ReadableManifestError("manifest byte limit exceeded")
+    return hashlib.sha256(raw).hexdigest()
+
+
+def _preview_main(argv: list[str]) -> int:
+    workdir: str | None = None
+    scope_path: str | None = None
+    format_opt = "json"
+    idx = 0
+    while idx < len(argv):
+        arg = argv[idx]
+        if arg in ("--workdir", "--worktree"):
+            if idx + 1 >= len(argv) or workdir is not None:
+                print("agy-worker.sh: transmission preview unavailable", file=sys.stderr)
+                return 64
+            workdir = argv[idx + 1]
+            idx += 2
+        elif arg == "--provider-scope":
+            if idx + 1 >= len(argv) or scope_path is not None:
+                print("agy-worker.sh: transmission preview unavailable", file=sys.stderr)
+                return 64
+            scope_path = argv[idx + 1]
+            idx += 2
+        elif arg == "--format":
+            if idx + 1 >= len(argv) or argv[idx + 1] != "json":
+                print("agy-worker.sh: transmission preview unavailable", file=sys.stderr)
+                return 64
+            format_opt = argv[idx + 1]
+            idx += 2
+        else:
+            print("agy-worker.sh: transmission preview unavailable", file=sys.stderr)
+            return 64
+    if workdir is None:
+        print("agy-worker.sh: transmission preview unavailable", file=sys.stderr)
+        return 64
+    try:
+        result = readable_path_manifest(workdir)
+        if scope_path is not None:
+            resolved_scope = os.path.realpath(scope_path)
+            if not os.path.isabs(resolved_scope) or os.path.islink(scope_path):
+                raise ReadableManifestError("provider scope path is invalid")
+            descriptor = os.open(
+                resolved_scope, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0),
+            )
+            try:
+                before = os.fstat(descriptor)
+                if (
+                    not stat.S_ISREG(before.st_mode)
+                    or before.st_uid != os.geteuid()
+                    or before.st_nlink != 1
+                ):
+                    raise ReadableManifestError("provider scope authority is invalid")
+                chunks: list[bytes] = []
+                total = 0
+                while total <= 512 * 1024:
+                    chunk = os.read(descriptor, min(65536, 512 * 1024 + 1 - total))
+                    if not chunk:
+                        break
+                    chunks.append(chunk)
+                    total += len(chunk)
+                after = os.fstat(descriptor)
+            finally:
+                os.close(descriptor)
+            named = os.lstat(resolved_scope)
+            if (
+                total > 512 * 1024
+                or _manifest_binding(before) != _manifest_binding(after)
+                or _manifest_binding(after) != _manifest_binding(named)
+            ):
+                raise ReadableManifestError("provider scope changed during preview")
+            raw_scope = b"".join(chunks)
+            scope = _parse_provider_scope(raw_scope)
+            _validate_scope_against_worktree(scope, workdir, result["manifest"]["entries"])
+            selected_manifest = _build_selected_content_manifest(workdir, scope)
+            selected_sha = _selected_content_digest(selected_manifest)
+            policy_sha = _canonical_digest(scope)
+            manifest_sha = result["manifest_sha256"]
+            transmission_sha = _compute_transmission_sha256(policy_sha, manifest_sha, selected_sha)
+            result["provider_scope"] = scope
+            result["contents_read"] = True
+            result["policy_sha256"] = policy_sha
+            result["selected_content_manifest"] = selected_manifest
+            result["selected_content_sha256"] = selected_sha
+            result["transmission_sha256"] = transmission_sha
+    except (OSError, UnicodeError, ValueError, OverflowError, RecursionError):
+        print("agy-worker.sh: transmission preview unavailable", file=sys.stderr)
+        return 20
+    sys.stdout.buffer.write(_canonical_json(result) + b"\n")
+    return 0
 
 
 def call(name: str, dependencies: Mapping[str, Any], *args: Any, **kwargs: Any) -> Any:
@@ -1874,6 +2473,1535 @@ def _worktree_snapshot(
             os.close(root_fd)
 
 
+def _parse_provider_scope(raw_bytes: bytes) -> dict[str, Any]:
+    """Parse and validate a closed agy-worker-provider-scope JSON object."""
+    if not isinstance(raw_bytes, (bytes, bytearray)):
+        raise DispatchError("provider scope must be raw bytes")
+    try:
+        text = raw_bytes.decode("utf-8", "strict")
+    except UnicodeError as exc:
+        raise DispatchError("provider scope is not valid UTF-8") from exc
+    if "\x00" in text:
+        raise DispatchError("provider scope contains NUL character")
+
+    def _reject_dup(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+        result: dict[str, Any] = {}
+        for key, val in pairs:
+            if key in result:
+                raise DispatchError(f"duplicate key in scope JSON: {key!r}")
+            result[key] = val
+        return result
+
+    try:
+        value = json.loads(text, object_pairs_hook=_reject_dup)
+    except (json.JSONDecodeError, ValueError) as exc:
+        raise DispatchError(f"provider scope JSON is invalid: {exc}") from exc
+
+    if not isinstance(value, dict):
+        raise DispatchError("provider scope must be a JSON object")
+    if set(value.keys()) != {"schema_version", "kind", "read", "write"}:
+        raise DispatchError("provider scope keys must be exactly schema_version, kind, read, write")
+    if value.get("schema_version") != 1:
+        raise DispatchError("provider scope schema_version must be 1")
+    if value.get("kind") != "agy-worker-provider-scope":
+        raise DispatchError("provider scope kind must be agy-worker-provider-scope")
+    if not isinstance(value.get("read"), list) or not isinstance(value.get("write"), list):
+        raise DispatchError("provider scope read and write must be lists")
+
+    def validate_entries(entries: list[Any], section: str) -> list[dict[str, str]]:
+        result: list[dict[str, str]] = []
+        last_path: str | None = None
+        tree_paths: list[str] = []
+        for index, entry in enumerate(entries):
+            if not isinstance(entry, dict):
+                raise DispatchError(f"{section} entry {index} must be an object")
+            if set(entry.keys()) != {"path", "kind"}:
+                raise DispatchError(f"{section} entry {index} keys must be exactly path and kind")
+            path = entry.get("path")
+            kind = entry.get("kind")
+            if not isinstance(path, str) or not path:
+                raise DispatchError(f"{section} entry {index} path is invalid")
+            if not isinstance(kind, str) or kind not in {"file", "tree"}:
+                raise DispatchError(f"{section} entry {index} kind must be 'file' or 'tree'")
+            if "\x00" in path or "\r" in path or "\n" in path:
+                raise DispatchError(f"{section} entry {index} path contains forbidden control characters")
+            if path.startswith("/") or path.endswith("/"):
+                raise DispatchError(f"{section} entry {index} path cannot have leading or trailing slashes")
+            norm = posixpath.normpath(path)
+            if norm != path or norm in ("", ".", "..") or norm.startswith("../") or posixpath.isabs(norm):
+                raise DispatchError(f"{section} entry {index} path is not normalized: {path!r}")
+            parts = norm.split("/")
+            for part in parts:
+                if part.lower() in {".git", ".agy-worker-control"}:
+                    raise DispatchError(f"{section} entry {index} path contains reserved component: {part!r}")
+            if last_path is not None:
+                if path == last_path:
+                    raise DispatchError(f"duplicate path in {section}: {path!r}")
+                if path < last_path:
+                    raise DispatchError(f"{section} entries must be strictly sorted: {path!r} after {last_path!r}")
+            last_path = path
+            # Nonredundancy check against previous tree entries
+            for tree_p in tree_paths:
+                if path.startswith(tree_p + "/"):
+                    raise DispatchError(f"redundant entry in {section}: {path!r} is covered by tree {tree_p!r}")
+            if kind == "tree":
+                tree_paths.append(path)
+            result.append({"kind": kind, "path": path})
+        return result
+
+    validated_read = validate_entries(value["read"], "read")
+    validated_write = validate_entries(value["write"], "write")
+
+    def covered_by_read(entry: dict[str, str]) -> bool:
+        for readable in validated_read:
+            if readable["path"] == entry["path"]:
+                return readable["kind"] == entry["kind"] or readable["kind"] == "tree"
+            if readable["kind"] == "tree" and entry["path"].startswith(
+                readable["path"] + "/"
+            ):
+                return True
+        return False
+
+    for entry in validated_write:
+        if not covered_by_read(entry):
+            raise DispatchError(
+                f"write entry is not covered by read scope: {entry['path']!r}"
+            )
+
+    canonical_obj = {
+        "kind": "agy-worker-provider-scope",
+        "read": validated_read,
+        "schema_version": 1,
+        "write": validated_write,
+    }
+    return canonical_obj
+
+
+def _validate_scope_against_worktree(
+    scope: dict[str, Any], worktree_root: str, readable_manifest: list[dict[str, str]],
+) -> None:
+    """Validate provider scope against the worktree readable manifest and invariants."""
+    manifest_files = {e["path"] for e in readable_manifest if e["kind"] == "file"}
+    manifest_dirs = {e["path"] for e in readable_manifest if e["kind"] == "directory"}
+    manifest_symlinks = {e["path"] for e in readable_manifest if e["kind"] == "symlink"}
+
+    if manifest_symlinks:
+        raise DispatchError("narrow provider scope requires a symlink-free worktree; symlinks rejected")
+
+    directory_flag = getattr(os, "O_DIRECTORY", 0)
+    nofollow = getattr(os, "O_NOFOLLOW", 0)
+
+    # Reject hardlinks (nlink != 1) on all regular files using descriptor-relative O_NOFOLLOW stat
+    root_fd = os.open(worktree_root, os.O_RDONLY | directory_flag | nofollow)
+    try:
+        for rel_path in manifest_files:
+            parts = rel_path.split("/")
+            parent_fd = os.dup(root_fd)
+            try:
+                for comp in parts[:-1]:
+                    next_fd = os.open(comp, os.O_RDONLY | directory_flag | nofollow, dir_fd=parent_fd)
+                    os.close(parent_fd)
+                    parent_fd = next_fd
+                st = os.stat(parts[-1], dir_fd=parent_fd, follow_symlinks=False)
+                if not stat.S_ISREG(st.st_mode) or st.st_nlink != 1:
+                    raise DispatchError(f"narrow provider scope requires hardlink-free regular files; nlink={st.st_nlink} on {rel_path}")
+            finally:
+                os.close(parent_fd)
+    finally:
+        os.close(root_fd)
+
+    # Path alias collision detection (casefold, NFC, NFD)
+    all_paths = [e["path"] for e in readable_manifest]
+    casefold_seen: set[str] = set()
+    nfc_seen: set[str] = set()
+    nfd_seen: set[str] = set()
+    for p in all_paths:
+        cf = p.casefold()
+        if cf in casefold_seen:
+            raise DispatchError(f"worktree contains casefold path alias collision: {p}")
+        casefold_seen.add(cf)
+
+        nfc = unicodedata.normalize("NFC", p)
+        if nfc in nfc_seen:
+            raise DispatchError(f"worktree contains Unicode NFC path alias collision: {p}")
+        nfc_seen.add(nfc)
+
+        nfd = unicodedata.normalize("NFD", p)
+        if nfd in nfd_seen:
+            raise DispatchError(f"worktree contains Unicode NFD path alias collision: {p}")
+        nfd_seen.add(nfd)
+
+    # Validate read entries exist
+    for r in scope["read"]:
+        if r["kind"] == "file":
+            if r["path"] not in manifest_files:
+                raise DispatchError(f"read file does not exist in worktree: {r['path']}")
+        elif r["kind"] == "tree":
+            if r["path"] not in manifest_dirs:
+                raise DispatchError(f"read tree does not exist in worktree: {r['path']}")
+
+    def is_covered_by_read(p: str, kind: str) -> bool:
+        for r in scope["read"]:
+            if r["kind"] == kind and r["path"] == p:
+                return True
+            if r["kind"] == "tree" and (p == r["path"] or p.startswith(r["path"] + "/")):
+                return True
+        return False
+
+    for w in scope["write"]:
+        w_path = w["path"]
+        if w_path in manifest_files:
+            if not is_covered_by_read(w_path, "file"):
+                raise DispatchError(f"existing write file is not covered by read scope: {w_path}")
+        elif w_path in manifest_dirs:
+            if not is_covered_by_read(w_path, "tree"):
+                raise DispatchError(f"existing write tree is not covered by read scope: {w_path}")
+        else:
+            if w["kind"] == "tree":
+                if not is_covered_by_read(w_path, "tree"):
+                    raise DispatchError(f"new write tree is not covered by read tree: {w_path}")
+            elif w["kind"] == "file":
+                parent = posixpath.dirname(w_path)
+                if parent and parent != ".":
+                    if parent not in manifest_dirs and not is_covered_by_read(parent, "tree"):
+                        raise DispatchError(f"new write file parent is not covered by read tree: {w_path}")
+
+
+def _build_selected_content_manifest(
+    root_dir: str | Path, scope: dict[str, Any], *, is_stage: bool = False,
+) -> list[dict[str, Any]]:
+    """Build canonical selected-content manifest using descriptor-relative O_NOFOLLOW operations."""
+    directory_flag = getattr(os, "O_DIRECTORY", 0)
+    nofollow = getattr(os, "O_NOFOLLOW", 0)
+    deadline = time.monotonic() + SELECTED_CONTENT_SCAN_SECONDS
+    total_bytes = 0
+
+    def check_bounds(*, add_bytes: int = 0) -> None:
+        nonlocal total_bytes
+        if time.monotonic() > deadline:
+            raise DispatchError("selected content scan deadline exceeded")
+        total_bytes += add_bytes
+        if total_bytes > SELECTED_CONTENT_MAX_TOTAL_BYTES:
+            raise DispatchError("selected content byte limit exceeded")
+
+    def is_selected_path(p: str) -> tuple[bool, str | None]:
+        for r in scope["read"]:
+            if r["kind"] == "file" and r["path"] == p:
+                return True, "file"
+            if r["kind"] == "tree":
+                if r["path"] == p or p.startswith(r["path"] + "/"):
+                    return True, None
+        for r in scope["read"]:
+            if r["path"].startswith(p + "/"):
+                return True, "directory"
+        return False, None
+
+    manifest: list[dict[str, Any]] = []
+    empty_sha = hashlib.sha256(b"").hexdigest()
+
+    def walk_descriptor(parent_fd: int, rel_prefix: str) -> None:
+        check_bounds()
+        scan_fd = os.dup(parent_fd)
+        try:
+            with os.scandir(scan_fd) as scanned:
+                children = [(entry.name.encode("utf-8"), entry.name) for entry in scanned]
+        finally:
+            os.close(scan_fd)
+        children.sort(key=lambda x: x[0])
+        for _name_b, name_str in children:
+            check_bounds()
+            rel = posixpath.normpath(posixpath.join(rel_prefix, name_str)) if rel_prefix else name_str
+            if name_str in {".git", ".gitmodules"} and not is_stage:
+                continue
+            st = os.stat(name_str, dir_fd=parent_fd, follow_symlinks=False)
+            if stat.S_ISLNK(st.st_mode):
+                raise DispatchError(f"symlink rejected in selected content scan: {rel}")
+            if not (stat.S_ISDIR(st.st_mode) or stat.S_ISREG(st.st_mode)):
+                raise DispatchError(f"special node rejected in selected content scan: {rel}")
+            selected, _ = is_selected_path(rel)
+            if not selected:
+                continue
+            if stat.S_ISDIR(st.st_mode):
+                if len(manifest) >= SELECTED_CONTENT_MAX_ENTRIES:
+                    raise DispatchError("selected content entry limit exceeded")
+                manifest.append({
+                    "executable": False,
+                    "kind": "directory",
+                    "path": rel,
+                    "sha256": empty_sha,
+                    "size": 0,
+                })
+                child_fd = os.open(name_str, os.O_RDONLY | directory_flag | nofollow, dir_fd=parent_fd)
+                try:
+                    walk_descriptor(child_fd, rel)
+                finally:
+                    os.close(child_fd)
+            elif stat.S_ISREG(st.st_mode):
+                if st.st_nlink != 1:
+                    raise DispatchError(f"hardlink rejected in selected content scan: {rel}")
+                file_fd = os.open(name_str, os.O_RDONLY | nofollow, dir_fd=parent_fd)
+                try:
+                    opened = os.fstat(file_fd)
+                    if _manifest_binding(opened) != _manifest_binding(st):
+                        raise DispatchError(f"selected file changed before read: {rel}")
+                    hasher = hashlib.sha256()
+                    total_size = 0
+                    while True:
+                        check_bounds()
+                        chunk = os.read(file_fd, 65536)
+                        if not chunk:
+                            break
+                        total_size += len(chunk)
+                        if total_size > SELECTED_CONTENT_MAX_FILE_BYTES:
+                            raise DispatchError(f"selected file byte limit exceeded: {rel}")
+                        check_bounds(add_bytes=len(chunk))
+                        hasher.update(chunk)
+                    file_sha = hasher.hexdigest()
+                    after = os.fstat(file_fd)
+                finally:
+                    os.close(file_fd)
+                named = os.stat(name_str, dir_fd=parent_fd, follow_symlinks=False)
+                if (
+                    _manifest_binding(opened) != _manifest_binding(after)
+                    or _manifest_binding(after) != _manifest_binding(named)
+                ):
+                    raise DispatchError(f"selected file changed during read: {rel}")
+                if len(manifest) >= SELECTED_CONTENT_MAX_ENTRIES:
+                    raise DispatchError("selected content entry limit exceeded")
+                manifest.append({
+                    "executable": bool(st.st_mode & 0o111),
+                    "kind": "file",
+                    "path": rel,
+                    "sha256": file_sha,
+                    "size": total_size,
+                })
+
+    root_fd = os.open(str(root_dir), os.O_RDONLY | directory_flag | nofollow)
+    try:
+        walk_descriptor(root_fd, "")
+    finally:
+        os.close(root_fd)
+
+    manifest.sort(key=lambda it: it["path"])
+    return manifest
+
+
+def _selected_content_digest(selected_manifest: list[dict[str, Any]]) -> str:
+    """Compute deterministic SHA-256 digest of canonical selected-content manifest."""
+    raw = json.dumps(selected_manifest, ensure_ascii=True, sort_keys=True, separators=(",", ":")).encode("ascii") + b"\n"
+    return hashlib.sha256(raw).hexdigest()
+
+
+def _compute_transmission_sha256(
+    policy_sha256: str, readable_manifest_sha256: str, selected_content_sha256: str,
+) -> str:
+    """Compute deterministic combined transmission SHA-256."""
+    payload = {
+        "manifest_sha256": readable_manifest_sha256,
+        "policy_sha256": policy_sha256,
+        "selected_content_sha256": selected_content_sha256,
+    }
+    raw = json.dumps(payload, ensure_ascii=True, sort_keys=True, separators=(",", ":")).encode("ascii") + b"\n"
+    return hashlib.sha256(raw).hexdigest()
+
+
+def _materialize_stage(
+    source_root: str | Path, stage_dir: str | Path, scope: dict[str, Any], selected_manifest: list[dict[str, Any]],
+) -> tuple[tuple[int, int, int, int, int], str]:
+    """Materialize 0700 Git-less stage with descriptor-relative safe copies."""
+    directory_flag = getattr(os, "O_DIRECTORY", 0)
+    nofollow = getattr(os, "O_NOFOLLOW", 0)
+
+    stage_str = str(stage_dir)
+    source_str = str(source_root)
+    deadline = time.monotonic() + SELECTED_CONTENT_SCAN_SECONDS
+    copied_bytes = 0
+
+    if len(selected_manifest) > SELECTED_CONTENT_MAX_ENTRIES:
+        raise DispatchError("selected content entry limit exceeded")
+    src_root_fd = -1
+    stage_root_fd = -1
+    stage_identity: tuple[int, int, int, int, int] | None = None
+    os.mkdir(stage_str, mode=0o700)
+    try:
+        stage_root_fd = os.open(stage_str, os.O_RDONLY | directory_flag | nofollow)
+        created_st = os.fstat(stage_root_fd)
+        if not stat.S_ISDIR(created_st.st_mode) or created_st.st_uid != os.getuid():
+            raise DispatchError("stage directory authority is invalid")
+        stage_identity = (
+            created_st.st_dev, created_st.st_ino, created_st.st_uid,
+            created_st.st_gid, created_st.st_mode,
+        )
+        os.fchmod(stage_root_fd, 0o700)
+        normalized_st = os.fstat(stage_root_fd)
+        normalized_identity = (
+            normalized_st.st_dev, normalized_st.st_ino, normalized_st.st_uid,
+            normalized_st.st_gid, normalized_st.st_mode,
+        )
+        if (
+            normalized_identity[:4] != stage_identity[:4]
+            or not stat.S_ISDIR(normalized_st.st_mode)
+            or stat.S_IMODE(normalized_st.st_mode) != 0o700
+        ):
+            raise DispatchError("stage directory identity changed before materialization")
+        stage_identity = normalized_identity
+        path_st = os.lstat(stage_str)
+        if (path_st.st_dev, path_st.st_ino, path_st.st_uid, path_st.st_gid, path_st.st_mode) != stage_identity:
+            raise DispatchError("stage directory identity changed before materialization")
+        src_root_fd = os.open(source_str, os.O_RDONLY | directory_flag | nofollow)
+
+        for entry in selected_manifest:
+            if time.monotonic() > deadline:
+                raise DispatchError("stage materialization deadline exceeded")
+            rel = entry["path"]
+            parts = rel.split("/")
+            if entry["kind"] == "directory":
+                curr_fd = os.dup(stage_root_fd)
+                try:
+                    for comp in parts:
+                        try:
+                            next_fd = os.open(comp, os.O_RDONLY | directory_flag | nofollow, dir_fd=curr_fd)
+                        except FileNotFoundError:
+                            os.mkdir(comp, 0o700, dir_fd=curr_fd)
+                            next_fd = os.open(comp, os.O_RDONLY | directory_flag | nofollow, dir_fd=curr_fd)
+                        os.fchmod(next_fd, 0o700)
+                        os.close(curr_fd)
+                        curr_fd = next_fd
+                finally:
+                    os.close(curr_fd)
+            elif entry["kind"] == "file":
+                curr_src = os.dup(src_root_fd)
+                try:
+                    for comp in parts[:-1]:
+                        next_src = os.open(comp, os.O_RDONLY | directory_flag | nofollow, dir_fd=curr_src)
+                        os.close(curr_src)
+                        curr_src = next_src
+                    src_fd = os.open(parts[-1], os.O_RDONLY | nofollow, dir_fd=curr_src)
+                finally:
+                    os.close(curr_src)
+
+                try:
+                    src_st = os.fstat(src_fd)
+                    if not stat.S_ISREG(src_st.st_mode) or src_st.st_nlink != 1:
+                        raise DispatchError(f"source file {rel} is not a valid regular file")
+                    source_hasher = hashlib.sha256()
+                    source_size = 0
+
+                    curr_dst = os.dup(stage_root_fd)
+                    try:
+                        for comp in parts[:-1]:
+                            try:
+                                next_dst = os.open(comp, os.O_RDONLY | directory_flag | nofollow, dir_fd=curr_dst)
+                            except FileNotFoundError:
+                                os.mkdir(comp, 0o700, dir_fd=curr_dst)
+                                next_dst = os.open(comp, os.O_RDONLY | directory_flag | nofollow, dir_fd=curr_dst)
+                            os.fchmod(next_dst, 0o700)
+                            os.close(curr_dst)
+                            curr_dst = next_dst
+
+                        dst_mode = 0o700 if entry["executable"] else 0o600
+                        dst_fd = os.open(
+                            parts[-1],
+                            os.O_WRONLY | os.O_CREAT | os.O_EXCL | nofollow,
+                            dst_mode,
+                            dir_fd=curr_dst,
+                        )
+                        try:
+                            while True:
+                                if time.monotonic() > deadline:
+                                    raise DispatchError("stage materialization deadline exceeded")
+                                chunk = os.read(src_fd, 65536)
+                                if not chunk:
+                                    break
+                                source_size += len(chunk)
+                                copied_bytes += len(chunk)
+                                if (
+                                    source_size > SELECTED_CONTENT_MAX_FILE_BYTES
+                                    or copied_bytes > SELECTED_CONTENT_MAX_TOTAL_BYTES
+                                ):
+                                    raise DispatchError("stage materialization byte limit exceeded")
+                                source_hasher.update(chunk)
+                                view = memoryview(chunk)
+                                while view:
+                                    written = os.write(dst_fd, view)
+                                    if written <= 0:
+                                        raise DispatchError("stage materialization write failed")
+                                    view = view[written:]
+                            os.fsync(dst_fd)
+                            os.fchmod(dst_fd, dst_mode)
+                        finally:
+                            os.close(dst_fd)
+                    finally:
+                        os.close(curr_dst)
+                    source_after = os.fstat(src_fd)
+                    if (
+                        _manifest_binding(source_after) != _manifest_binding(src_st)
+                        or source_size != entry["size"]
+                        or source_hasher.hexdigest() != entry["sha256"]
+                    ):
+                        raise DispatchError(f"source file changed during stage copy: {rel}")
+                finally:
+                    os.close(src_fd)
+
+        rescan = _build_selected_content_manifest(stage_str, scope, is_stage=True)
+        if rescan != selected_manifest:
+            raise DispatchError("materialized stage content does not match source selected content")
+
+        stage_stat = os.fstat(stage_root_fd)
+        identity = (stage_stat.st_dev, stage_stat.st_ino, stage_stat.st_uid, stage_stat.st_gid, stage_stat.st_mode)
+        if identity != stage_identity:
+            raise DispatchError("stage directory identity changed during materialization")
+        return identity, _selected_content_digest(selected_manifest)
+    except Exception as materialization_exc:
+        if src_root_fd >= 0:
+            os.close(src_root_fd)
+            src_root_fd = -1
+        if stage_root_fd >= 0:
+            if stage_identity is not None:
+                try:
+                    cleanup_st = os.fstat(stage_root_fd)
+                    cleanup_identity = (
+                        cleanup_st.st_dev, cleanup_st.st_ino, cleanup_st.st_uid,
+                        cleanup_st.st_gid, cleanup_st.st_mode,
+                    )
+                    if (
+                        cleanup_identity[:2] == stage_identity[:2]
+                        and stat.S_ISDIR(cleanup_st.st_mode)
+                        and cleanup_st.st_uid == os.getuid()
+                    ):
+                        stage_identity = cleanup_identity
+                    else:
+                        stage_identity = None
+                except OSError:
+                    stage_identity = None
+            os.close(stage_root_fd)
+            stage_root_fd = -1
+        if stage_identity is None:
+            raise DispatchError(
+                "stage materialization failed before identity-safe cleanup; cleanup is uncertain"
+            ) from materialization_exc
+        try:
+            _cleanup_stage(stage_str, stage_identity)
+        except Exception as cleanup_exc:
+            raise DispatchError(
+                "stage materialization failed and cleanup is uncertain"
+            ) from cleanup_exc
+        raise
+    finally:
+        if src_root_fd >= 0:
+            os.close(src_root_fd)
+        if stage_root_fd >= 0:
+            os.close(stage_root_fd)
+
+
+def _scan_stage_mutations(
+    stage_dir: str | Path, scope: dict[str, Any], pre_launch_manifest: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], str]:
+    """Rescan stage, detect mutations, and authorize against scope write policy."""
+    directory_flag = getattr(os, "O_DIRECTORY", 0)
+    nofollow = getattr(os, "O_NOFOLLOW", 0)
+    empty_sha = hashlib.sha256(b"").hexdigest()
+    deadline = time.monotonic() + SELECTED_CONTENT_SCAN_SECONDS
+    total_bytes = 0
+
+    current_entries: dict[str, dict[str, Any]] = {}
+
+    def scan_all_descriptor(parent_fd: int, rel_prefix: str) -> None:
+        nonlocal total_bytes
+        if time.monotonic() > deadline:
+            raise DispatchError("stage mutation scan deadline exceeded")
+        scan_fd = os.dup(parent_fd)
+        try:
+            with os.scandir(scan_fd) as scanned:
+                items = [(entry.name.encode("utf-8"), entry.name) for entry in scanned]
+        finally:
+            os.close(scan_fd)
+        items.sort(key=lambda it: it[0])
+
+        for _name_b, name_str in items:
+            if time.monotonic() > deadline:
+                raise DispatchError("stage mutation scan deadline exceeded")
+            if len(current_entries) >= SELECTED_CONTENT_MAX_ENTRIES:
+                raise DispatchError("stage mutation entry limit exceeded")
+            rel = posixpath.normpath(posixpath.join(rel_prefix, name_str)) if rel_prefix else name_str
+            st = os.stat(name_str, dir_fd=parent_fd, follow_symlinks=False)
+            if stat.S_ISLNK(st.st_mode):
+                raise DispatchError(f"symlink mutation rejected in stage: {rel}")
+            if name_str.lower() in {".git", ".gitmodules"}:
+                raise DispatchError(f"git administration mutation rejected in stage: {rel}")
+            if name_str.lower() == ".agy-worker-control":
+                raise DispatchError(f"control file mutation rejected in stage: {rel}")
+
+            if stat.S_ISDIR(st.st_mode):
+                current_entries[rel] = {
+                    "executable": False,
+                    "kind": "directory",
+                    "path": rel,
+                    "sha256": empty_sha,
+                    "size": 0,
+                }
+                child_fd = os.open(name_str, os.O_RDONLY | directory_flag | nofollow, dir_fd=parent_fd)
+                try:
+                    scan_all_descriptor(child_fd, rel)
+                finally:
+                    os.close(child_fd)
+            elif stat.S_ISREG(st.st_mode):
+                if st.st_nlink != 1 or st.st_uid != os.getuid():
+                    raise DispatchError(f"file metadata mutation rejected in stage: {rel}")
+                file_fd = os.open(name_str, os.O_RDONLY | nofollow, dir_fd=parent_fd)
+                try:
+                    opened = os.fstat(file_fd)
+                    if _manifest_binding(opened) != _manifest_binding(st):
+                        raise DispatchError(f"stage file changed before read: {rel}")
+                    hasher = hashlib.sha256()
+                    total_size = 0
+                    while True:
+                        if time.monotonic() > deadline:
+                            raise DispatchError("stage mutation scan deadline exceeded")
+                        chunk = os.read(file_fd, 65536)
+                        if not chunk:
+                            break
+                        total_size += len(chunk)
+                        total_bytes += len(chunk)
+                        if (
+                            total_size > SELECTED_CONTENT_MAX_FILE_BYTES
+                            or total_bytes > SELECTED_CONTENT_MAX_TOTAL_BYTES
+                        ):
+                            raise DispatchError("stage mutation byte limit exceeded")
+                        hasher.update(chunk)
+                    file_sha = hasher.hexdigest()
+                    after = os.fstat(file_fd)
+                finally:
+                    os.close(file_fd)
+                named = os.stat(name_str, dir_fd=parent_fd, follow_symlinks=False)
+                if (
+                    _manifest_binding(opened) != _manifest_binding(after)
+                    or _manifest_binding(after) != _manifest_binding(named)
+                ):
+                    raise DispatchError(f"stage file changed during read: {rel}")
+                current_entries[rel] = {
+                    "executable": bool(st.st_mode & 0o111),
+                    "kind": "file",
+                    "path": rel,
+                    "sha256": file_sha,
+                    "size": total_size,
+                }
+            else:
+                raise DispatchError(f"special node mutation rejected in stage: {rel}")
+
+    root_fd = os.open(str(stage_dir), os.O_RDONLY | directory_flag | nofollow)
+    try:
+        scan_all_descriptor(root_fd, "")
+    finally:
+        os.close(root_fd)
+
+    pre_by_path = {e["path"]: e for e in pre_launch_manifest}
+
+    created_paths = sorted(set(current_entries) - set(pre_by_path))
+    deleted_paths = sorted(set(pre_by_path) - set(current_entries))
+    modified_paths = sorted(
+        p for p in (set(current_entries) & set(pre_by_path))
+        if current_entries[p]["sha256"] != pre_by_path[p]["sha256"]
+        or current_entries[p]["executable"] != pre_by_path[p]["executable"]
+        or current_entries[p]["kind"] != pre_by_path[p]["kind"]
+    )
+    for path in modified_paths:
+        if current_entries[path]["kind"] != pre_by_path[path]["kind"]:
+            raise DispatchError(f"stage path kind change rejected: {path}")
+
+    def is_authorized_write(p: str, kind: str) -> bool:
+        for w in scope["write"]:
+            if w["kind"] == kind and w["path"] == p:
+                return True
+            if w["kind"] == "tree" and (p == w["path"] or p.startswith(w["path"] + "/")):
+                return True
+        return False
+
+    for p in modified_paths:
+        if not is_authorized_write(p, current_entries[p]["kind"]):
+            raise DispatchError(f"unauthorized modification of path: {p}")
+
+    for p in created_paths:
+        if not is_authorized_write(p, current_entries[p]["kind"]):
+            raise DispatchError(f"unauthorized creation of path: {p}")
+
+    for p in deleted_paths:
+        if not is_authorized_write(p, pre_by_path[p]["kind"]):
+            raise DispatchError(f"unauthorized deletion of path: {p}")
+
+    operations: list[dict[str, Any]] = []
+
+    created_dirs = sorted([p for p in created_paths if current_entries[p]["kind"] == "directory"], key=lambda p: p.count("/"))
+    for p in created_dirs:
+        operations.append({
+            "executable": False,
+            "kind": "directory",
+            "op": "create",
+            "path": p,
+            "post_identity": None,
+            "prior_identity": None,
+            "post_sha256": empty_sha,
+            "prior_sha256": None,
+            "sha256": empty_sha,
+            "size": 0,
+        })
+
+    created_files = sorted([p for p in created_paths if current_entries[p]["kind"] == "file"])
+    for p in created_files:
+        operations.append({
+            "executable": current_entries[p]["executable"],
+            "kind": "file",
+            "op": "create",
+            "path": p,
+            "post_identity": None,
+            "prior_identity": None,
+            "post_sha256": current_entries[p]["sha256"],
+            "prior_sha256": None,
+            "sha256": current_entries[p]["sha256"],
+            "size": current_entries[p]["size"],
+        })
+
+    for p in modified_paths:
+        operations.append({
+            "executable": current_entries[p]["executable"],
+            "kind": "file",
+            "op": "replace",
+            "path": p,
+            "post_identity": None,
+            "prior_identity": None,
+            "post_sha256": current_entries[p]["sha256"],
+            "prior_sha256": pre_by_path[p]["sha256"],
+            "sha256": current_entries[p]["sha256"],
+            "size": current_entries[p]["size"],
+        })
+
+    deleted_files = sorted([p for p in deleted_paths if pre_by_path[p]["kind"] == "file"])
+    for p in deleted_files:
+        operations.append({
+            "executable": pre_by_path[p]["executable"],
+            "kind": "file",
+            "op": "delete",
+            "path": p,
+            "post_identity": None,
+            "prior_identity": None,
+            "post_sha256": None,
+            "prior_sha256": pre_by_path[p]["sha256"],
+            "sha256": pre_by_path[p]["sha256"],
+            "size": pre_by_path[p]["size"],
+        })
+
+    deleted_dirs = sorted([p for p in deleted_paths if pre_by_path[p]["kind"] == "directory"], key=lambda p: -p.count("/"))
+    for p in deleted_dirs:
+        operations.append({
+            "executable": False,
+            "kind": "directory",
+            "op": "delete",
+            "path": p,
+            "post_identity": None,
+            "prior_identity": None,
+            "post_sha256": None,
+            "prior_sha256": empty_sha,
+            "sha256": empty_sha,
+            "size": 0,
+        })
+
+    if len(operations) > RECONCILIATION_MAX_OPERATIONS:
+        raise DispatchError("reconciliation operation limit exceeded")
+
+    raw_manifest = json.dumps(operations, ensure_ascii=True, sort_keys=True, separators=(",", ":")).encode("ascii") + b"\n"
+    op_sha = hashlib.sha256(raw_manifest).hexdigest()
+    return operations, op_sha
+
+
+def _reconciliation_write_all(descriptor: int, payload: bytes) -> None:
+    view = memoryview(payload)
+    while view:
+        written = os.write(descriptor, view)
+        if written <= 0:
+            raise DispatchError("reconciliation durable write failed")
+        view = view[written:]
+
+
+def _persist_reconciliation_ledger(job_fd: int, ledger: dict[str, Any]) -> None:
+    """Durably replace the owner-private recovery marker."""
+    nofollow = getattr(os, "O_NOFOLLOW", 0)
+    raw = _canonical_json(ledger) + b"\n"
+    if len(raw) > READABLE_MANIFEST_MAX_BYTES:
+        raise DispatchError("reconciliation ledger is oversized")
+    tmp = f"reconciliation-marker.{os.getpid()}.{time.time_ns()}.tmp"
+    descriptor = os.open(
+        tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | nofollow,
+        0o600, dir_fd=job_fd,
+    )
+    try:
+        _reconciliation_write_all(descriptor, raw)
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+    os.replace(
+        tmp, "reconciliation-in-progress.json",
+        src_dir_fd=job_fd, dst_dir_fd=job_fd,
+    )
+    os.fsync(job_fd)
+
+
+def _reconciliation_parts(value: Any) -> list[str]:
+    if not isinstance(value, str) or not value or value.startswith("/"):
+        raise DispatchError("reconciliation ledger path is invalid")
+    parts = value.split("/")
+    if (
+        posixpath.normpath(value) != value
+        or any(part in {"", ".", ".."} for part in parts)
+        or any(part.casefold() in {".git", ".gitmodules", ".agy-worker-control"} for part in parts)
+    ):
+        raise DispatchError("reconciliation ledger path is invalid")
+    return parts
+
+
+def _reconciliation_root_identity(info: os.stat_result) -> list[int]:
+    return [info.st_dev, info.st_ino, info.st_uid, info.st_gid, info.st_mode]
+
+
+def _reconciliation_parent(root_fd: int, parts: list[str]) -> int:
+    directory_flag = getattr(os, "O_DIRECTORY", 0)
+    nofollow = getattr(os, "O_NOFOLLOW", 0)
+    current = os.dup(root_fd)
+    try:
+        for component in parts[:-1]:
+            child = os.open(
+                component, os.O_RDONLY | directory_flag | nofollow, dir_fd=current,
+            )
+            os.close(current)
+            current = child
+        return current
+    except Exception:
+        os.close(current)
+        raise
+
+
+def _reconciliation_stat(root_fd: int, parts: list[str]) -> os.stat_result | None:
+    parent = _reconciliation_parent(root_fd, parts)
+    try:
+        try:
+            return os.stat(parts[-1], dir_fd=parent, follow_symlinks=False)
+        except FileNotFoundError:
+            return None
+    finally:
+        os.close(parent)
+
+
+def _reconciliation_file_digest(root_fd: int, parts: list[str]) -> tuple[str, int]:
+    nofollow = getattr(os, "O_NOFOLLOW", 0)
+    parent = _reconciliation_parent(root_fd, parts)
+    try:
+        descriptor = os.open(parts[-1], os.O_RDONLY | nofollow, dir_fd=parent)
+    finally:
+        os.close(parent)
+    try:
+        metadata = os.fstat(descriptor)
+        if not stat.S_ISREG(metadata.st_mode) or metadata.st_nlink != 1:
+            raise DispatchError("reconciliation file authority is invalid")
+        hasher = hashlib.sha256()
+        total = 0
+        while True:
+            chunk = os.read(descriptor, 65536)
+            if not chunk:
+                break
+            total += len(chunk)
+            if total > SELECTED_CONTENT_MAX_FILE_BYTES:
+                raise DispatchError("reconciliation file is oversized")
+            hasher.update(chunk)
+        return hasher.hexdigest(), stat.S_IMODE(metadata.st_mode)
+    finally:
+        os.close(descriptor)
+
+
+def _finish_reconciliation_recovery(
+    job_fd: int, recovery_fd: int, ledger: dict[str, Any],
+) -> None:
+    """Remove only the exact backup artifacts named by a verified ledger."""
+    expected = {
+        record["name"] for record in ledger["backups"].values()
+        if isinstance(record, dict) and isinstance(record.get("name"), str)
+    }
+    scan_fd = os.dup(recovery_fd)
+    try:
+        with os.scandir(scan_fd) as entries:
+            actual = {entry.name for entry in entries}
+    finally:
+        os.close(scan_fd)
+    if not actual <= expected:
+        raise DispatchError("reconciliation backup directory contents changed")
+    for name in sorted(actual):
+        os.unlink(name, dir_fd=recovery_fd)
+    os.fsync(recovery_fd)
+    os.rmdir("reconciliation-backups", dir_fd=job_fd)
+    os.unlink("reconciliation-in-progress.json", dir_fd=job_fd)
+    os.fsync(job_fd)
+
+
+def _restore_reconciliation_prior(
+    src_root_fd: int, recovery_fd: int, job_fd: int, ledger: dict[str, Any],
+) -> None:
+    """Restore and verify the ledger's exact pre-reconciliation path state."""
+    directory_flag = getattr(os, "O_DIRECTORY", 0)
+    nofollow = getattr(os, "O_NOFOLLOW", 0)
+    operations = ledger["operation_manifest"]
+    backups = ledger["backups"]
+    directory_backups = ledger["directory_backups"]
+    active = ledger.get("active_operation")
+
+    ledger["status"] = "rollback-restoring"
+    _persist_reconciliation_ledger(job_fd, ledger)
+
+    # Remove only entries created by this transaction and bound after creation.
+    for index in range(len(operations) - 1, -1, -1):
+        operation = operations[index]
+        if operation["op"] != "create":
+            continue
+        parts = _reconciliation_parts(operation["path"])
+        current = _reconciliation_stat(src_root_fd, parts)
+        if current is None:
+            continue
+        if (
+            operation.get("post_identity") is None
+            or list(_manifest_binding(current)) != operation["post_identity"]
+        ):
+            raise DispatchError("reconciliation created target identity is uncertain")
+        parent = _reconciliation_parent(src_root_fd, parts)
+        try:
+            if operation["kind"] == "file":
+                os.unlink(parts[-1], dir_fd=parent)
+            else:
+                os.rmdir(parts[-1], dir_fd=parent)
+            os.fsync(parent)
+        finally:
+            os.close(parent)
+
+    # Restore deleted empty directories shallow-first, preserving their mode.
+    for rel in sorted(directory_backups, key=lambda item: (item.count("/"), item)):
+        record = directory_backups[rel]
+        if (
+            not isinstance(record, dict)
+            or type(record.get("mode")) is not int
+            or not isinstance(record.get("prior_identity"), list)
+            or len(record["prior_identity"]) != 5
+        ):
+            raise DispatchError("reconciliation directory backup is invalid")
+        parts = _reconciliation_parts(rel)
+        current = _reconciliation_stat(src_root_fd, parts)
+        if current is None:
+            record["recreate_pending"] = True
+            _persist_reconciliation_ledger(job_fd, ledger)
+            parent = _reconciliation_parent(src_root_fd, parts)
+            try:
+                os.mkdir(parts[-1], record["mode"], dir_fd=parent)
+                child = os.open(
+                    parts[-1], os.O_RDONLY | directory_flag | nofollow, dir_fd=parent,
+                )
+                try:
+                    os.fchmod(child, record["mode"])
+                    os.fsync(child)
+                    restored = os.fstat(child)
+                finally:
+                    os.close(child)
+                os.fsync(parent)
+            finally:
+                os.close(parent)
+            record["rollback_identity"] = _reconciliation_root_identity(restored)
+            record.pop("recreate_pending", None)
+            _persist_reconciliation_ledger(job_fd, ledger)
+        else:
+            current_identity = _reconciliation_root_identity(current)
+            pending_recreation = bool(record.get("recreate_pending"))
+            if pending_recreation:
+                scan_parent = _reconciliation_parent(src_root_fd, parts)
+                try:
+                    child = os.open(
+                        parts[-1], os.O_RDONLY | directory_flag | nofollow,
+                        dir_fd=scan_parent,
+                    )
+                finally:
+                    os.close(scan_parent)
+                try:
+                    scan_fd = os.dup(child)
+                    try:
+                        with os.scandir(scan_fd) as entries:
+                            is_empty = next(entries, None) is None
+                    finally:
+                        os.close(scan_fd)
+                finally:
+                    os.close(child)
+                if not is_empty:
+                    raise DispatchError("reconciliation pending directory is not empty")
+            if (
+                not stat.S_ISDIR(current.st_mode)
+                or stat.S_IMODE(current.st_mode) != record["mode"]
+                or current_identity not in (
+                    record["prior_identity"], record.get("rollback_identity"),
+                )
+                and not pending_recreation
+            ):
+                raise DispatchError("reconciliation directory restoration is uncertain")
+            if pending_recreation:
+                record["rollback_identity"] = current_identity
+                record.pop("recreate_pending", None)
+                _persist_reconciliation_ledger(job_fd, ledger)
+
+    # Restore every replaced/deleted file from its owner-private durable backup.
+    for rel, record in backups.items():
+        if (
+            not isinstance(record, dict)
+            or type(record.get("mode")) is not int
+            or not isinstance(record.get("name"), str)
+            or not isinstance(record.get("prior_identity"), list)
+            or not isinstance(record.get("prior_sha256"), str)
+        ):
+            raise DispatchError("reconciliation file backup is invalid")
+        parts = _reconciliation_parts(rel)
+        backup_fd = os.open(record["name"], os.O_RDONLY | nofollow, dir_fd=recovery_fd)
+        try:
+            metadata = os.fstat(backup_fd)
+            if (
+                not stat.S_ISREG(metadata.st_mode) or metadata.st_nlink != 1
+                or metadata.st_uid != os.getuid()
+            ):
+                raise DispatchError("reconciliation backup authority is invalid")
+            content = bytearray()
+            hasher = hashlib.sha256()
+            while True:
+                chunk = os.read(backup_fd, 65536)
+                if not chunk:
+                    break
+                content.extend(chunk)
+                if len(content) > SELECTED_CONTENT_MAX_FILE_BYTES:
+                    raise DispatchError("reconciliation backup is oversized")
+                hasher.update(chunk)
+            if hasher.hexdigest() != record["prior_sha256"]:
+                raise DispatchError("reconciliation backup content changed")
+        finally:
+            os.close(backup_fd)
+        current = _reconciliation_stat(src_root_fd, parts)
+        operation_index = next(
+            (index for index, item in enumerate(operations) if item["path"] == rel), None,
+        )
+        operation = operations[operation_index] if operation_index is not None else None
+        allowed = current is None
+        if current is not None and operation is not None:
+            identity = list(_manifest_binding(current))
+            allowed = identity in (
+                record["prior_identity"], operation.get("post_identity"),
+                record.get("rollback_identity"),
+            )
+            if not allowed and active == operation_index and stat.S_ISREG(current.st_mode):
+                current_sha, _current_mode = _reconciliation_file_digest(src_root_fd, parts)
+                allowed = current_sha in {record["prior_sha256"], operation.get("post_sha256")}
+            if not allowed and record.get("restore_pending") and stat.S_ISREG(current.st_mode):
+                current_sha, current_mode = _reconciliation_file_digest(src_root_fd, parts)
+                allowed = current_sha == record["prior_sha256"] and current_mode == record["mode"]
+        if not allowed:
+            raise DispatchError("reconciliation file restoration identity is uncertain")
+        record["restore_pending"] = True
+        _persist_reconciliation_ledger(job_fd, ledger)
+        parent = _reconciliation_parent(src_root_fd, parts)
+        try:
+            tmp = f".tmp.rollback.{os.getpid()}.{time.time_ns()}"
+            tmp_fd = os.open(
+                tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | nofollow,
+                record["mode"], dir_fd=parent,
+            )
+            try:
+                _reconciliation_write_all(tmp_fd, content)
+                os.fchmod(tmp_fd, record["mode"])
+                os.fsync(tmp_fd)
+            finally:
+                os.close(tmp_fd)
+            os.replace(tmp, parts[-1], src_dir_fd=parent, dst_dir_fd=parent)
+            os.fsync(parent)
+            restored = os.stat(parts[-1], dir_fd=parent, follow_symlinks=False)
+        finally:
+            os.close(parent)
+        record["rollback_identity"] = list(_manifest_binding(restored))
+        record.pop("restore_pending", None)
+        _persist_reconciliation_ledger(job_fd, ledger)
+
+    # Do not clear evidence until every manifest path exactly matches its prior state.
+    for operation in operations:
+        parts = _reconciliation_parts(operation["path"])
+        current = _reconciliation_stat(src_root_fd, parts)
+        if operation["op"] == "create":
+            if current is not None:
+                raise DispatchError("reconciliation rollback left a created target")
+        elif operation["kind"] == "directory":
+            record = directory_backups[operation["path"]]
+            if (
+                current is None or not stat.S_ISDIR(current.st_mode)
+                or stat.S_IMODE(current.st_mode) != record["mode"]
+                or _reconciliation_root_identity(current) not in (
+                    record["prior_identity"], record.get("rollback_identity"),
+                )
+            ):
+                raise DispatchError("reconciliation directory rollback verification failed")
+        else:
+            record = backups[operation["path"]]
+            if current is None or not stat.S_ISREG(current.st_mode):
+                raise DispatchError("reconciliation file rollback verification failed")
+            current_sha, current_mode = _reconciliation_file_digest(src_root_fd, parts)
+            if current_sha != record["prior_sha256"] or current_mode != record["mode"]:
+                raise DispatchError("reconciliation file rollback verification failed")
+
+    ledger["status"] = "rolled-back-verified"
+    ledger.pop("active_operation", None)
+    _persist_reconciliation_ledger(job_fd, ledger)
+
+
+def _recover_reconciliation(source_root: str | Path, job_dir: Path) -> bool:
+    """Recover a durable transaction; a second call is an idempotent no-op."""
+    directory_flag = getattr(os, "O_DIRECTORY", 0)
+    nofollow = getattr(os, "O_NOFOLLOW", 0)
+    src_root_fd = os.open(str(source_root), os.O_RDONLY | directory_flag | nofollow)
+    job_fd = os.open(str(job_dir), os.O_RDONLY | directory_flag | nofollow)
+    recovery_fd = -1
+    try:
+        try:
+            marker_fd = os.open(
+                "reconciliation-in-progress.json", os.O_RDONLY | nofollow, dir_fd=job_fd,
+            )
+        except FileNotFoundError:
+            return False
+        try:
+            metadata = os.fstat(marker_fd)
+            if (
+                not stat.S_ISREG(metadata.st_mode) or metadata.st_nlink != 1
+                or metadata.st_uid != os.getuid() or stat.S_IMODE(metadata.st_mode) & 0o077
+                or metadata.st_size > READABLE_MANIFEST_MAX_BYTES
+            ):
+                raise DispatchError("reconciliation ledger authority is invalid")
+            raw = bytearray()
+            while True:
+                chunk = os.read(marker_fd, 65536)
+                if not chunk:
+                    break
+                raw.extend(chunk)
+                if len(raw) > READABLE_MANIFEST_MAX_BYTES:
+                    raise DispatchError("reconciliation ledger is oversized")
+        finally:
+            os.close(marker_fd)
+        try:
+            ledger = json.loads(bytes(raw))
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise DispatchError("reconciliation ledger is invalid") from exc
+        if (
+            not isinstance(ledger, dict) or bytes(raw) != _canonical_json(ledger) + b"\n"
+            or ledger.get("schema_version") != 1
+            or ledger.get("source_root") != str(source_root)
+            or not isinstance(ledger.get("operation_manifest"), list)
+            or len(ledger["operation_manifest"]) > RECONCILIATION_MAX_OPERATIONS
+            or not isinstance(ledger.get("backups"), dict)
+            or not isinstance(ledger.get("directory_backups"), dict)
+        ):
+            raise DispatchError("reconciliation ledger is invalid")
+        if _reconciliation_root_identity(os.fstat(src_root_fd)) != ledger.get("source_root_identity"):
+            raise DispatchError("reconciliation source root identity changed")
+        for operation in ledger["operation_manifest"]:
+            if (
+                not isinstance(operation, dict)
+                or operation.get("op") not in {"create", "replace", "delete"}
+                or operation.get("kind") not in {"file", "directory"}
+            ):
+                raise DispatchError("reconciliation ledger operation is invalid")
+            _reconciliation_parts(operation.get("path"))
+        active = ledger.get("active_operation")
+        if active is not None and (
+            type(active) is not int or not 0 <= active < len(ledger["operation_manifest"])
+        ):
+            raise DispatchError("reconciliation active operation is invalid")
+        recovery_fd = os.open(
+            "reconciliation-backups", os.O_RDONLY | directory_flag | nofollow, dir_fd=job_fd,
+        )
+        recovery_metadata = os.fstat(recovery_fd)
+        if (
+            _reconciliation_root_identity(recovery_metadata) != ledger.get("backup_dir_identity")
+            or recovery_metadata.st_uid != os.getuid()
+            or stat.S_IMODE(recovery_metadata.st_mode) != 0o700
+        ):
+            raise DispatchError("reconciliation backup directory identity changed")
+        if ledger.get("status") not in {"committed", "rolled-back-verified"}:
+            _restore_reconciliation_prior(src_root_fd, recovery_fd, job_fd, ledger)
+        _finish_reconciliation_recovery(job_fd, recovery_fd, ledger)
+        os.close(recovery_fd)
+        recovery_fd = -1
+        return True
+    except DispatchError:
+        raise
+    except (OSError, TypeError, ValueError) as exc:
+        raise DispatchError("reconciliation recovery is uncertain") from exc
+    finally:
+        if recovery_fd >= 0:
+            os.close(recovery_fd)
+        os.close(src_root_fd)
+        os.close(job_fd)
+
+
+def _reconcile_stage_to_source(
+    source_root: str | Path, stage_dir: str | Path, operation_manifest: list[dict[str, Any]], job_dir: Path,
+) -> str:
+    """Apply operation manifest descriptor-relative to source with durable rollback."""
+    _recover_reconciliation(source_root, job_dir)
+    if not operation_manifest:
+        return _selected_content_digest([])
+    if len(operation_manifest) > RECONCILIATION_MAX_OPERATIONS:
+        raise DispatchError("reconciliation operation limit exceeded")
+    directory_flag = getattr(os, "O_DIRECTORY", 0)
+    nofollow = getattr(os, "O_NOFOLLOW", 0)
+
+    src_root_fd = os.open(str(source_root), os.O_RDONLY | directory_flag | nofollow)
+    stage_root_fd = os.open(str(stage_dir), os.O_RDONLY | directory_flag | nofollow)
+    job_fd = os.open(str(job_dir), os.O_RDONLY | directory_flag | nofollow)
+
+    marker_name = "reconciliation-in-progress.json"
+    backup_dir_name = "reconciliation-backups"
+    recovery_fd = -1
+
+    ledger: dict[str, Any] = {
+        "schema_version": 1,
+        "applied_operations": 0,
+        "backups": {},
+        "directory_backups": {},
+        "operation_manifest": operation_manifest,
+        "source_root": str(source_root),
+        "source_root_identity": _reconciliation_root_identity(os.fstat(src_root_fd)),
+        "stage_dir": str(stage_dir),
+        "status": "preparing",
+    }
+
+    def persist_ledger() -> None:
+        _persist_reconciliation_ledger(job_fd, ledger)
+
+    try:
+        try:
+            os.stat(marker_name, dir_fd=job_fd, follow_symlinks=False)
+        except FileNotFoundError:
+            pass
+        else:
+            raise DispatchError("unfinished reconciliation requires recovery")
+        os.mkdir(backup_dir_name, 0o700, dir_fd=job_fd)
+        recovery_fd = os.open(
+            backup_dir_name, os.O_RDONLY | directory_flag | nofollow, dir_fd=job_fd,
+        )
+        ledger["backup_dir_identity"] = _reconciliation_root_identity(os.fstat(recovery_fd))
+
+        backups: dict[str, dict[str, Any]] = {}
+        directory_backups: dict[str, dict[str, Any]] = {}
+        for index, op in enumerate(operation_manifest):
+            parts = _reconciliation_parts(op["path"])
+            curr_src = os.dup(src_root_fd)
+            try:
+                for comp in parts[:-1]:
+                    next_src = os.open(
+                        comp, os.O_RDONLY | directory_flag | nofollow, dir_fd=curr_src,
+                    )
+                    os.close(curr_src)
+                    curr_src = next_src
+                try:
+                    prior = os.stat(parts[-1], dir_fd=curr_src, follow_symlinks=False)
+                except FileNotFoundError:
+                    prior = None
+            finally:
+                os.close(curr_src)
+            if op["op"] == "create":
+                if prior is not None:
+                    raise DispatchError("reconciliation create target already exists")
+                op["prior_identity"] = None
+            else:
+                if prior is None or stat.S_ISLNK(prior.st_mode):
+                    raise DispatchError("reconciliation prior target is unavailable")
+                if (op["kind"] == "file") != stat.S_ISREG(prior.st_mode):
+                    raise DispatchError("reconciliation prior target changed kind")
+                if op["kind"] == "directory" and not stat.S_ISDIR(prior.st_mode):
+                    raise DispatchError("reconciliation prior target changed kind")
+                op["prior_identity"] = list(_manifest_binding(prior))
+                if op["op"] == "delete" and op["kind"] == "directory":
+                    directory_backups[op["path"]] = {
+                        "mode": stat.S_IMODE(prior.st_mode),
+                        "prior_identity": _reconciliation_root_identity(prior),
+                    }
+            if op["op"] in {"replace", "delete"} and op["kind"] == "file":
+                curr_src = os.dup(src_root_fd)
+                try:
+                    for comp in parts[:-1]:
+                        next_src = os.open(comp, os.O_RDONLY | directory_flag | nofollow, dir_fd=curr_src)
+                        os.close(curr_src)
+                        curr_src = next_src
+                    try:
+                        f_fd = os.open(parts[-1], os.O_RDONLY | nofollow, dir_fd=curr_src)
+                    except FileNotFoundError:
+                        f_fd = -1
+                finally:
+                    os.close(curr_src)
+                if f_fd >= 0:
+                    try:
+                        st = os.fstat(f_fd)
+                        backup_name = f"{index:06d}.backup"
+                        backup_fd = os.open(
+                            backup_name,
+                            os.O_WRONLY | os.O_CREAT | os.O_EXCL | nofollow,
+                            0o600, dir_fd=recovery_fd,
+                        )
+                        try:
+                            hasher = hashlib.sha256()
+                            total = 0
+                            while True:
+                                chunk = os.read(f_fd, 65536)
+                                if not chunk:
+                                    break
+                                total += len(chunk)
+                                if total > SELECTED_CONTENT_MAX_FILE_BYTES:
+                                    raise DispatchError("reconciliation backup byte limit exceeded")
+                                hasher.update(chunk)
+                                _reconciliation_write_all(backup_fd, chunk)
+                            os.fsync(backup_fd)
+                        finally:
+                            os.close(backup_fd)
+                        if hasher.hexdigest() != op["prior_sha256"]:
+                            raise DispatchError("reconciliation prior content changed")
+                        backups[op["path"]] = {
+                            "mode": stat.S_IMODE(st.st_mode),
+                            "name": backup_name,
+                            "prior_identity": op["prior_identity"],
+                            "prior_sha256": op["prior_sha256"],
+                        }
+                    finally:
+                        os.close(f_fd)
+
+        os.fsync(recovery_fd)
+        ledger["backups"] = backups
+        ledger["directory_backups"] = directory_backups
+        ledger["status"] = "prepared"
+        persist_ledger()
+
+        try:
+            for operation_index, op in enumerate(operation_manifest):
+                rel = op["path"]
+                parts = rel.split("/")
+                ledger["status"] = "applying"
+                ledger["active_operation"] = operation_index
+                persist_ledger()
+
+                check_fd = os.dup(src_root_fd)
+                try:
+                    for comp in parts[:-1]:
+                        next_fd = os.open(
+                            comp, os.O_RDONLY | directory_flag | nofollow,
+                            dir_fd=check_fd,
+                        )
+                        os.close(check_fd)
+                        check_fd = next_fd
+                    try:
+                        current_prior = os.stat(
+                            parts[-1], dir_fd=check_fd, follow_symlinks=False,
+                        )
+                    except FileNotFoundError:
+                        current_prior = None
+                finally:
+                    os.close(check_fd)
+                if op["op"] == "create":
+                    if current_prior is not None:
+                        raise DispatchError("reconciliation create target drifted")
+                elif (
+                    current_prior is None
+                    or list(_manifest_binding(current_prior)) != op["prior_identity"]
+                ):
+                    raise DispatchError("reconciliation prior target identity drifted")
+
+                if op["op"] == "create" and op["kind"] == "directory":
+                    curr_fd = os.dup(src_root_fd)
+                    try:
+                        for comp in parts:
+                            try:
+                                next_fd = os.open(comp, os.O_RDONLY | directory_flag | nofollow, dir_fd=curr_fd)
+                            except FileNotFoundError:
+                                os.mkdir(comp, 0o700, dir_fd=curr_fd)
+                                next_fd = os.open(comp, os.O_RDONLY | directory_flag | nofollow, dir_fd=curr_fd)
+                            os.fchmod(next_fd, 0o700)
+                            os.fsync(curr_fd)
+                            os.close(curr_fd)
+                            curr_fd = next_fd
+                    finally:
+                        os.close(curr_fd)
+                elif op["op"] in {"create", "replace"} and op["kind"] == "file":
+                    curr_stg = os.dup(stage_root_fd)
+                    try:
+                        for comp in parts[:-1]:
+                            next_stg = os.open(comp, os.O_RDONLY | directory_flag | nofollow, dir_fd=curr_stg)
+                            os.close(curr_stg)
+                            curr_stg = next_stg
+                        stg_fd = os.open(parts[-1], os.O_RDONLY | nofollow, dir_fd=curr_stg)
+                    finally:
+                        os.close(curr_stg)
+                    try:
+                        content = bytearray()
+                        while True:
+                            chunk = os.read(stg_fd, 65536)
+                            if not chunk:
+                                break
+                            content.extend(chunk)
+                    finally:
+                        os.close(stg_fd)
+
+                    curr_src = os.dup(src_root_fd)
+                    try:
+                        for comp in parts[:-1]:
+                            try:
+                                next_src = os.open(comp, os.O_RDONLY | directory_flag | nofollow, dir_fd=curr_src)
+                            except FileNotFoundError:
+                                os.mkdir(comp, 0o700, dir_fd=curr_src)
+                                next_src = os.open(comp, os.O_RDONLY | directory_flag | nofollow, dir_fd=curr_src)
+                            os.fchmod(next_src, 0o700)
+                            os.close(curr_src)
+                            curr_src = next_src
+
+                        tmp_name = f".tmp.reconcile.{os.getpid()}.{time.time_ns()}"
+                        mode = 0o700 if op["executable"] else 0o600
+                        tmp_fd = os.open(tmp_name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | nofollow, mode, dir_fd=curr_src)
+                        try:
+                            _reconciliation_write_all(tmp_fd, content)
+                            os.fsync(tmp_fd)
+                            os.fchmod(tmp_fd, mode)
+                        finally:
+                            os.close(tmp_fd)
+                        os.replace(tmp_name, parts[-1], src_dir_fd=curr_src, dst_dir_fd=curr_src)
+                        os.fsync(curr_src)
+                    finally:
+                        os.close(curr_src)
+                elif op["op"] == "delete" and op["kind"] == "file":
+                    curr_src = os.dup(src_root_fd)
+                    try:
+                        for comp in parts[:-1]:
+                            next_src = os.open(comp, os.O_RDONLY | directory_flag | nofollow, dir_fd=curr_src)
+                            os.close(curr_src)
+                            curr_src = next_src
+                        with contextlib.suppress(FileNotFoundError):
+                            os.unlink(parts[-1], dir_fd=curr_src)
+                            os.fsync(curr_src)
+                    finally:
+                        os.close(curr_src)
+                elif op["op"] == "delete" and op["kind"] == "directory":
+                    curr_src = os.dup(src_root_fd)
+                    try:
+                        for comp in parts[:-1]:
+                            next_src = os.open(comp, os.O_RDONLY | directory_flag | nofollow, dir_fd=curr_src)
+                            os.close(curr_src)
+                            curr_src = next_src
+                        with contextlib.suppress(FileNotFoundError):
+                            os.rmdir(parts[-1], dir_fd=curr_src)
+                            os.fsync(curr_src)
+                    finally:
+                        os.close(curr_src)
+
+                post_fd = os.dup(src_root_fd)
+                try:
+                    for comp in parts[:-1]:
+                        next_fd = os.open(
+                            comp, os.O_RDONLY | directory_flag | nofollow,
+                            dir_fd=post_fd,
+                        )
+                        os.close(post_fd)
+                        post_fd = next_fd
+                    try:
+                        post = os.stat(
+                            parts[-1], dir_fd=post_fd, follow_symlinks=False,
+                        )
+                    except FileNotFoundError:
+                        post = None
+                finally:
+                    os.close(post_fd)
+                if op["op"] == "delete":
+                    if post is not None:
+                        raise DispatchError("reconciliation delete target remains")
+                    op["post_identity"] = None
+                else:
+                    if post is None or stat.S_ISLNK(post.st_mode):
+                        raise DispatchError("reconciliation post target is unavailable")
+                    op["post_identity"] = list(_manifest_binding(post))
+                ledger["applied_operations"] = operation_index + 1
+                ledger.pop("active_operation", None)
+                persist_ledger()
+        except Exception as exc:
+            ledger["status"] = "rollback-required"
+            try:
+                persist_ledger()
+                os.close(recovery_fd)
+                recovery_fd = -1
+                _recover_reconciliation(source_root, job_dir)
+            except Exception as recovery_exc:
+                raise DispatchError(
+                    "reconciliation rollback failed; recovery uncertain"
+                ) from recovery_exc
+            raise DispatchError(f"reconciliation failed and was rolled back: {exc}") from exc
+
+        ledger["status"] = "committed"
+        ledger.pop("active_operation", None)
+        persist_ledger()
+        final_manifest_sha = hashlib.sha256(
+            json.dumps(
+                operation_manifest, ensure_ascii=True, sort_keys=True,
+                separators=(",", ":"),
+            ).encode("ascii") + b"\n"
+        ).hexdigest()
+        _finish_reconciliation_recovery(job_fd, recovery_fd, ledger)
+        os.close(recovery_fd)
+        recovery_fd = -1
+        return final_manifest_sha
+    finally:
+        if recovery_fd >= 0:
+            os.close(recovery_fd)
+        os.close(src_root_fd)
+        os.close(stage_root_fd)
+        os.close(job_fd)
+
+
+def _cleanup_stage(stage_dir: str | Path, recorded_identity: tuple[int, int, int, int, int]) -> None:
+    """Safely and boundly clean up a materialized stage directory."""
+    directory_flag = getattr(os, "O_DIRECTORY", 0)
+    nofollow = getattr(os, "O_NOFOLLOW", 0)
+
+    stg_str = str(stage_dir)
+    stage_root_fd = os.open(stg_str, os.O_RDONLY | directory_flag | nofollow)
+    try:
+        st = os.fstat(stage_root_fd)
+        current_id = (st.st_dev, st.st_ino, st.st_uid, st.st_gid, st.st_mode)
+        if current_id != recorded_identity:
+            raise DispatchError("stage directory identity changed; cleanup refused")
+
+        def remove_dir_contents(parent_fd: int) -> None:
+            scan_fd = os.dup(parent_fd)
+            try:
+                with os.scandir(scan_fd) as scanned:
+                    items = [(entry.name.encode("utf-8"), entry.name) for entry in scanned]
+            finally:
+                os.close(scan_fd)
+            for _name_b, name_str in items:
+                child_st = os.stat(name_str, dir_fd=parent_fd, follow_symlinks=False)
+                if stat.S_ISLNK(child_st.st_mode):
+                    raise DispatchError(f"symlink mutation inside stage refused in cleanup: {name_str}")
+                if stat.S_ISDIR(child_st.st_mode):
+                    child_fd = os.open(name_str, os.O_RDONLY | directory_flag | nofollow, dir_fd=parent_fd)
+                    try:
+                        remove_dir_contents(child_fd)
+                    finally:
+                        os.close(child_fd)
+                    os.rmdir(name_str, dir_fd=parent_fd)
+                else:
+                    os.unlink(name_str, dir_fd=parent_fd)
+
+        remove_dir_contents(stage_root_fd)
+    finally:
+        os.close(stage_root_fd)
+
+    os.rmdir(stg_str)
+
+
 _IMPLEMENTATION_FUNCTIONS = frozenset({
     "_marker_only_preflight",
     "_resolved_path_is_git_administration",
@@ -1891,7 +4019,28 @@ _IMPLEMENTATION_FUNCTIONS = frozenset({
     "_bounded_git_read",
     "_git_boundary_identity",
     "_worktree_snapshot",
+    "_scan_readable_worktree",
+    "_validate_manifest",
+    "_manifest_digest",
+    "_parse_provider_scope",
+    "_validate_scope_against_worktree",
+    "_build_selected_content_manifest",
+    "_canonical_digest",
+    "_selected_content_digest",
+    "_compute_transmission_sha256",
+    "_materialize_stage",
+    "_scan_stage_mutations",
+    "_recover_reconciliation",
+    "_reconcile_stage_to_source",
+    "_cleanup_stage",
 })
 _IMPLEMENTATION_DEFAULTS = {
     name: globals()[name] for name in _IMPLEMENTATION_FUNCTIONS
 }
+
+
+if __name__ == "__main__":
+    if len(sys.argv) >= 2 and sys.argv[1] == "transmission-preview":
+        raise SystemExit(_preview_main(sys.argv[2:]))
+    print("agy-worker.sh: transmission preview unavailable", file=sys.stderr)
+    raise SystemExit(64)
