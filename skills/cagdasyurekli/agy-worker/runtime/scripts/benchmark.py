@@ -773,9 +773,16 @@ def command_run(args: argparse.Namespace) -> dict[str, Any]:
                 if receipt_path.exists() or receipt_path.is_symlink(): fail("benchmark receipt collision")
                 created_receipts.append(receipt_path)
                 candidate_path = (BENCH_ROOT / task["candidate_source"]).resolve(strict=True)
-                verify_content = f"/usr/bin/python3 -I -S -B -c 'import pathlib,sys;sys.exit(0 if pathlib.Path(sys.argv[1]).read_bytes()==pathlib.Path(sys.argv[2]).read_bytes() else 1)' {shell_quote(str(repo / 'proof.txt'))} {shell_quote(str(candidate_path))}"
-                verify_diff = f"/usr/bin/git -C {shell_quote(str(repo))} diff --check {base} -- proof.txt"
-                argv = [str(VERIFY_JOB), "--receipt", str(receipt_path), "--envelope", str((BENCH_ROOT / task["envelope_source"]).resolve(strict=True)), "--repo", str(repo), "--base", base, "--only", "proof.txt", "--expect-edits", "--selection", str(selection_path), "--verify", verify_content, "--verify", verify_diff]
+                verify_content = json.dumps([
+                    "/usr/bin/python3", "-I", "-S", "-B", "-c",
+                    "import pathlib,sys;sys.exit(0 if pathlib.Path(sys.argv[1]).read_bytes()==pathlib.Path(sys.argv[2]).read_bytes() else 1)",
+                    str(repo / "proof.txt"), str(candidate_path),
+                ], ensure_ascii=True, separators=(",", ":"))
+                verify_diff = json.dumps([
+                    "/usr/bin/git", "-C", str(repo), "diff", "--check", base,
+                    "--", "proof.txt",
+                ], ensure_ascii=True, separators=(",", ":"))
+                argv = [str(VERIFY_JOB), "--receipt", str(receipt_path), "--envelope", str((BENCH_ROOT / task["envelope_source"]).resolve(strict=True)), "--repo", str(repo), "--base", base, "--only", "proof.txt", "--expect-edits", "--selection", str(selection_path), "--verify-argv", verify_content, "--verify-argv", verify_diff]
                 started = time.monotonic()
                 rc, stdout, stderr = run_bounded(argv, case)
                 _duration_ms = int((time.monotonic() - started) * 1000)  # diagnostic only; intentionally not recorded

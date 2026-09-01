@@ -30,6 +30,17 @@ TOKEN_DISCLAIMER = (
     "Token observations are telemetry counts only and must never be used to "
     "infer billing, quota, allowance, or general cost savings."
 )
+VALID_MAINTAINER_DISPOSITIONS = {"collect", "defer", "not-applicable"}
+VALID_EVIDENCE_STATES = {
+    "inventory-added",
+    "inventory-removed",
+    "binding-changed",
+    "dataset-expired",
+    "stale-evidence",
+    "missing-evidence",
+    "unreviewed",
+}
+MAX_TRACKED_MODELS = 1000
 
 
 class ModelIntelligenceError(Exception):
@@ -586,9 +597,424 @@ def import_study_report(
     return validate_dataset(dataset)
 
 
+def _extract_model_inventory(
+    data: dict[str, Any], label: str = "inventory"
+) -> tuple[set[str], dict[str, Any], str, dict[str, Any]]:
+    """Extract public model slugs, per-model bindings, source type, and metadata from an inventory binding or matrix dict."""
+    if not isinstance(data, dict):
+        raise ModelIntelligenceError(f"{label} must be a JSON object")
+
+    meta: dict[str, Any] = {}
+    model_bindings: dict[str, Any] = {}
+    slugs: set[str] = set()
+
+    source_families = sum(
+        (
+            "slugs" in data,
+            "adjustable_models" in data or "fixed_models" in data,
+            "models" in data,
+        )
+    )
+    if source_families > 1:
+        raise ModelIntelligenceError(f"{label} mixes incompatible inventory structures")
+
+    if "slugs" in data:
+        source_type = "inventory_binding"
+        if data.get("schema_version") != 1 or isinstance(data.get("schema_version"), bool):
+            raise ModelIntelligenceError(f"{label} has unsupported schema_version")
+        raw_slugs = data.get("slugs")
+        if not isinstance(raw_slugs, list) or len(raw_slugs) > MAX_TRACKED_MODELS or not raw_slugs:
+            raise ModelIntelligenceError(
+                f"{label} slugs must be a non-empty list of at most {MAX_TRACKED_MODELS} items"
+            )
+        for slug in raw_slugs:
+            if not isinstance(slug, str) or not SAFE_STR_RE.fullmatch(slug):
+                raise ModelIntelligenceError(f"{label} contains invalid model slug: {slug!r}")
+            if slug in slugs:
+                raise ModelIntelligenceError(f"{label} contains duplicate slugs")
+            slugs.add(slug)
+            model_bindings[slug] = {
+                "model_id": slug,
+            }
+        meta = {
+            "agy_version": data.get("agy_version"),
+            "reviewed_source_revision": data.get("reviewed_source_revision"),
+            "source_sha256": data.get("source_sha256"),
+            "version_binding_sha256": data.get("version_binding_sha256"),
+            "capture_record_sha256": data.get("capture_record_sha256"),
+            "inventory_normalized_sha256": data.get("inventory_normalized_sha256"),
+        }
+    elif "adjustable_models" in data or "fixed_models" in data:
+        source_type = "model_matrix"
+        if data.get("schema_version") != 1 or isinstance(data.get("schema_version"), bool):
+            raise ModelIntelligenceError(f"{label} has unsupported schema_version")
+        adj = data.get("adjustable_models", [])
+        fixed = data.get("fixed_models", [])
+        if not isinstance(adj, list) or not isinstance(fixed, list):
+            raise ModelIntelligenceError(f"{label} models must be lists")
+        if len(adj) + len(fixed) > MAX_TRACKED_MODELS:
+            raise ModelIntelligenceError(f"{label} model lists exceed maximum allowed length")
+        seen_slugs: set[str] = set()
+        seen_models: set[str] = set()
+        for row in adj:
+            if not isinstance(row, dict) or "resolutions" not in row or not isinstance(row["resolutions"], dict) or "model" not in row:
+                raise ModelIntelligenceError(f"invalid adjustable model row in {label}")
+            base_m = row["model"]
+            if not isinstance(base_m, str) or not SAFE_STR_RE.fullmatch(base_m):
+                raise ModelIntelligenceError(f"{label} contains invalid model name: {base_m!r}")
+            if base_m in seen_models:
+                raise ModelIntelligenceError(f"{label} contains duplicate model name: {base_m!r}")
+            seen_models.add(base_m)
+            unsupported = row.get("unsupported_efforts", [])
+            if not isinstance(unsupported, list):
+                raise ModelIntelligenceError(f"invalid unsupported_efforts in {label}")
+            seen_unsupported: set[str] = set()
+            for u in unsupported:
+                if not isinstance(u, str) or not SAFE_STR_RE.fullmatch(u):
+                    raise ModelIntelligenceError(f"invalid unsupported effort string in {label}")
+                if u in seen_unsupported:
+                    raise ModelIntelligenceError(f"duplicate unsupported effort in {label}")
+                seen_unsupported.add(u)
+            unsupported_sorted = sorted(unsupported)
+            if not row["resolutions"] or len(row["resolutions"]) > MAX_TRACKED_MODELS:
+                raise ModelIntelligenceError(f"invalid resolutions bound in {label}")
+            for eff, res_slug in row["resolutions"].items():
+                if not isinstance(eff, str) or not SAFE_STR_RE.fullmatch(eff):
+                    raise ModelIntelligenceError(f"{label} contains invalid effort key: {eff!r}")
+                if not isinstance(res_slug, str) or not SAFE_STR_RE.fullmatch(res_slug):
+                    raise ModelIntelligenceError(f"{label} contains invalid resolution slug: {res_slug!r}")
+                if res_slug in seen_slugs:
+                    raise ModelIntelligenceError(f"{label} contains duplicate resolution slug: {res_slug!r}")
+                seen_slugs.add(res_slug)
+                slugs.add(res_slug)
+                if len(slugs) > MAX_TRACKED_MODELS:
+                    raise ModelIntelligenceError(f"{label} contains too many model slugs")
+                model_bindings[res_slug] = {
+                    "base_model": base_m,
+                    "effort": eff,
+                    "unsupported_efforts": unsupported_sorted,
+                }
+        for row in fixed:
+            if not isinstance(row, dict) or "model_slug" not in row:
+                raise ModelIntelligenceError(f"invalid fixed model row in {label}")
+            f_slug = row["model_slug"]
+            if not isinstance(f_slug, str) or not SAFE_STR_RE.fullmatch(f_slug):
+                raise ModelIntelligenceError(f"{label} contains invalid fixed model slug: {f_slug!r}")
+            if f_slug in seen_slugs:
+                raise ModelIntelligenceError(f"{label} contains duplicate fixed model slug: {f_slug!r}")
+            seen_slugs.add(f_slug)
+            slugs.add(f_slug)
+            if len(slugs) > MAX_TRACKED_MODELS:
+                raise ModelIntelligenceError(f"{label} contains too many model slugs")
+            classification = row.get("classification")
+            if classification is not None and (not isinstance(classification, str) or not SAFE_STR_RE.fullmatch(classification)):
+                raise ModelIntelligenceError(f"invalid classification in {label}")
+            model_bindings[f_slug] = {
+                "classification": classification,
+            }
+        meta = {
+            "resolution_status": data.get("resolution_status"),
+            "inventory": data.get("inventory"),
+        }
+        if not slugs:
+            raise ModelIntelligenceError(f"{label} must contain at least one model slug")
+    elif "models" in data:
+        source_type = "models_list"
+        raw_models = data["models"]
+        if not isinstance(raw_models, list) or len(raw_models) > MAX_TRACKED_MODELS or not raw_models:
+            raise ModelIntelligenceError(
+                f"{label} models must be a non-empty list of at most {MAX_TRACKED_MODELS} items"
+            )
+        for m in raw_models:
+            if not isinstance(m, str) or not SAFE_STR_RE.fullmatch(m):
+                raise ModelIntelligenceError(f"{label} contains invalid model slug: {m!r}")
+            if m in slugs:
+                raise ModelIntelligenceError(f"{label} contains duplicate models")
+            slugs.add(m)
+            model_bindings[m] = {
+                "model_id": m,
+                "version": data.get("version"),
+            }
+        meta = {
+            "version": data.get("version"),
+        }
+    else:
+        raise ModelIntelligenceError(f"unrecognized {label} structure; expected inventory binding or matrix")
+
+    return slugs, model_bindings, source_type, meta
+
+
+def _get_reviewed_inventory_slugs() -> set[str]:
+    default_binding = Path(__file__).resolve().parent.parent / "compat" / "agy-models-inventory-binding.json"
+    try:
+        data, _, _ = read_json_file(default_binding)
+        slugs, _, _, _ = _extract_model_inventory(data, "default_inventory")
+    except ModelIntelligenceError as exc:
+        raise ModelIntelligenceError("reviewed inventory evidence is unavailable") from exc
+    return slugs
+
+
+def validate_benchmark_review_output(result: dict[str, Any]) -> dict[str, Any]:
+    """Strict schema validation for benchmark review output."""
+    if not isinstance(result, dict):
+        raise ModelIntelligenceError("benchmark review output must be a JSON object")
+
+    allowed_keys = {
+        "schema_version",
+        "kind",
+        "status",
+        "evidence_dataset_sha256",
+        "reference_date",
+        "reviews_due",
+        "maintainer_disposition",
+        "applied",
+        "dispatch_authorized",
+        "model_change_authorized",
+        "effort_change_authorized",
+        "acceptance_authorized",
+        "git_authorized",
+        "benchmark_run_authorized",
+        "provider_call_authorized",
+        "limitations",
+        "token_inference_disclaimer",
+    }
+    if set(result.keys()) != allowed_keys:
+        raise ModelIntelligenceError("benchmark review output keys do not match strict schema")
+
+    if result["schema_version"] != 1 or isinstance(result["schema_version"], bool):
+        raise ModelIntelligenceError("benchmark review schema_version must be integer 1")
+    if result["kind"] != "agy-benchmark-review-tracker":
+        raise ModelIntelligenceError("benchmark review kind must be agy-benchmark-review-tracker")
+    if result["status"] not in {"benchmark-review-due", "unchanged"}:
+        raise ModelIntelligenceError("benchmark review status must be benchmark-review-due or unchanged")
+
+    if result["evidence_dataset_sha256"] is not None:
+        if not isinstance(result["evidence_dataset_sha256"], str) or not SHA256_RE.fullmatch(result["evidence_dataset_sha256"]):
+            raise ModelIntelligenceError("invalid evidence_dataset_sha256")
+
+    parse_iso_date(result["reference_date"], "benchmark review reference_date")
+
+    if not isinstance(result["reviews_due"], list) or len(result["reviews_due"]) > MAX_TRACKED_MODELS:
+        raise ModelIntelligenceError(f"reviews_due must be a list of at most {MAX_TRACKED_MODELS} items")
+
+    seen_review_models: set[str] = set()
+    for item in result["reviews_due"]:
+        if not isinstance(item, dict):
+            raise ModelIntelligenceError("reviews_due item must be a dict")
+        if set(item.keys()) != {"model_id", "evidence_state"}:
+            raise ModelIntelligenceError("reviews_due item must contain strictly model_id and evidence_state")
+        if not isinstance(item["model_id"], str) or not SAFE_STR_RE.fullmatch(item["model_id"]):
+            raise ModelIntelligenceError("invalid model_id in reviews_due")
+        if item["model_id"] in seen_review_models:
+            raise ModelIntelligenceError("duplicate model_id in reviews_due")
+        seen_review_models.add(item["model_id"])
+        if item["evidence_state"] not in VALID_EVIDENCE_STATES:
+            raise ModelIntelligenceError("invalid evidence_state in reviews_due")
+
+    if [item["model_id"] for item in result["reviews_due"]] != sorted(seen_review_models):
+        raise ModelIntelligenceError("reviews_due must be ordered by model_id")
+    if (result["status"] == "benchmark-review-due") != bool(result["reviews_due"]):
+        raise ModelIntelligenceError("benchmark review status does not match reviews_due")
+
+    if result["maintainer_disposition"] is not None:
+        if result["maintainer_disposition"] not in VALID_MAINTAINER_DISPOSITIONS:
+            raise ModelIntelligenceError("invalid maintainer_disposition in output")
+        if result["status"] != "benchmark-review-due" or not result["reviews_due"]:
+            raise ModelIntelligenceError("maintainer disposition is not permitted when no benchmark review is due")
+
+    for auth_key in (
+        "applied",
+        "dispatch_authorized",
+        "model_change_authorized",
+        "effort_change_authorized",
+        "acceptance_authorized",
+        "git_authorized",
+        "benchmark_run_authorized",
+        "provider_call_authorized",
+    ):
+        if result[auth_key] is not False:
+            raise ModelIntelligenceError(f"{auth_key} must be false")
+
+    if (
+        not isinstance(result["limitations"], list)
+        or not 1 <= len(result["limitations"]) <= 20
+        or any(
+            not isinstance(item, str)
+            or not 1 <= len(item) <= 2000
+            or any(ord(char) < 32 and char not in "\t" for char in item)
+            for item in result["limitations"]
+        )
+    ):
+        raise ModelIntelligenceError("limitations must contain bounded single-line strings")
+
+    if result["token_inference_disclaimer"] != TOKEN_DISCLAIMER:
+        raise ModelIntelligenceError("invalid token_inference_disclaimer")
+
+    return result
+
+
+def track_benchmark_review(
+    *,
+    dataset: dict[str, Any] | None = None,
+    dataset_sha: str | None = None,
+    baseline_inventory: dict[str, Any] | None = None,
+    candidate_inventory: dict[str, Any] | None = None,
+    baseline_matrix: dict[str, Any] | None = None,
+    candidate_matrix: dict[str, Any] | None = None,
+    reference_date: str | None = None,
+    maintainer_disposition: str | None = None,
+) -> dict[str, Any]:
+    """Evaluate whether benchmark review is due when supported model inventory or dataset expiry changes."""
+    if reference_date is None:
+        raise ModelIntelligenceError("caller must provide a valid reference_date (YYYY-MM-DD)")
+    ref_dt = parse_iso_date(reference_date, "reference_date")
+
+    if maintainer_disposition is not None:
+        if maintainer_disposition not in VALID_MAINTAINER_DISPOSITIONS:
+            raise ModelIntelligenceError(
+                f"invalid maintainer_disposition: {maintainer_disposition!r}; "
+                f"must be one of {sorted(VALID_MAINTAINER_DISPOSITIONS)}"
+            )
+
+    if (baseline_inventory is None) != (candidate_inventory is None):
+        raise ModelIntelligenceError("baseline and candidate inventory must be provided as a pair")
+
+    if (baseline_matrix is None) != (candidate_matrix is None):
+        raise ModelIntelligenceError("baseline and candidate matrix must be provided as a pair")
+
+    if baseline_inventory is not None and baseline_matrix is not None:
+        raise ModelIntelligenceError("inventory and matrix comparison pairs are mutually exclusive")
+
+    base_slugs: set[str] = set()
+    base_model_bindings: dict[str, Any] = {}
+    cand_slugs: set[str] = set()
+    cand_model_bindings: dict[str, Any] = {}
+
+    if baseline_inventory is not None and candidate_inventory is not None:
+        base_slugs, base_model_bindings, base_type, _ = _extract_model_inventory(baseline_inventory, "baseline_inventory")
+        cand_slugs, cand_model_bindings, cand_type, _ = _extract_model_inventory(candidate_inventory, "candidate_inventory")
+        if base_type != cand_type:
+            raise ModelIntelligenceError("baseline and candidate inventory source types must match")
+    elif baseline_matrix is not None and candidate_matrix is not None:
+        base_slugs, base_model_bindings, base_type, _ = _extract_model_inventory(baseline_matrix, "baseline_matrix")
+        cand_slugs, cand_model_bindings, cand_type, _ = _extract_model_inventory(candidate_matrix, "candidate_matrix")
+        if base_type != cand_type:
+            raise ModelIntelligenceError("baseline and candidate matrix source types must match")
+
+    reviews_due: list[dict[str, Any]] = []
+    seen_models: set[str] = set()
+
+    # 1. Check inventory additions
+    for slug in sorted(cand_slugs - base_slugs):
+        reviews_due.append({
+            "model_id": slug,
+            "evidence_state": "inventory-added",
+        })
+        seen_models.add(slug)
+
+    # 2. Check inventory removals
+    for slug in sorted(base_slugs - cand_slugs):
+        reviews_due.append({
+            "model_id": slug,
+            "evidence_state": "inventory-removed",
+        })
+        seen_models.add(slug)
+
+    # 3. Check binding changes for common models (per-model comparison)
+    for slug in sorted(cand_slugs & base_slugs):
+        if slug not in seen_models:
+            if base_model_bindings.get(slug) != cand_model_bindings.get(slug):
+                reviews_due.append({
+                    "model_id": slug,
+                    "evidence_state": "binding-changed",
+                })
+                seen_models.add(slug)
+
+    # 4. Check dataset expiry / freshness if dataset provided
+    if dataset is not None:
+        validate_dataset(dataset)
+        root_exp_dt = parse_iso_date(dataset["expiry_date"], "expiry_date")
+        root_created_dt = parse_iso_date(dataset["created_date"], "created_date")
+        root_freshness = datetime.timedelta(days=dataset["freshness_window_days"])
+
+        if cand_slugs:
+            expiry_target_models = set(cand_slugs)
+        else:
+            expiry_target_models = _get_reviewed_inventory_slugs() | {it["requested_model"] for it in dataset["items"]}
+
+        if ref_dt > root_exp_dt:
+            for m in sorted(expiry_target_models):
+                if m not in seen_models:
+                    reviews_due.append({
+                        "model_id": m,
+                        "evidence_state": "dataset-expired",
+                    })
+                    seen_models.add(m)
+        elif ref_dt > root_created_dt + root_freshness:
+            for m in sorted(expiry_target_models):
+                if m not in seen_models:
+                    reviews_due.append({
+                        "model_id": m,
+                        "evidence_state": "stale-evidence",
+                    })
+                    seen_models.add(m)
+        else:
+            for item in dataset["items"]:
+                m = item["requested_model"]
+                item_exp = parse_iso_date(item["expiry_date"], "expiry_date")
+                item_obs = parse_iso_date(item["observed_date"], "observed_date")
+                if ref_dt > item_exp:
+                    if m not in seen_models:
+                        reviews_due.append({
+                            "model_id": m,
+                            "evidence_state": "dataset-expired",
+                        })
+                        seen_models.add(m)
+                elif ref_dt > item_obs + root_freshness:
+                    if m not in seen_models:
+                        reviews_due.append({
+                            "model_id": m,
+                            "evidence_state": "stale-evidence",
+                        })
+                        seen_models.add(m)
+
+    reviews_due.sort(key=lambda x: x["model_id"])
+    status = "benchmark-review-due" if reviews_due else "unchanged"
+
+    if maintainer_disposition is not None and not reviews_due:
+        raise ModelIntelligenceError(
+            f"maintainer disposition {maintainer_disposition!r} is not permitted when no benchmark review is due"
+        )
+
+    out = {
+        "schema_version": 1,
+        "kind": "agy-benchmark-review-tracker",
+        "status": status,
+        "evidence_dataset_sha256": dataset_sha,
+        "reference_date": reference_date,
+        "reviews_due": reviews_due,
+        "maintainer_disposition": maintainer_disposition,
+        "applied": False,
+        "dispatch_authorized": False,
+        "model_change_authorized": False,
+        "effort_change_authorized": False,
+        "acceptance_authorized": False,
+        "git_authorized": False,
+        "benchmark_run_authorized": False,
+        "provider_call_authorized": False,
+        "limitations": [
+            "Benchmark review tracker is observational only; no benchmark execution, provider execution, routing change, or git write is authorized.",
+            "Maintainer disposition (collect, defer, not-applicable) must be chosen explicitly by a maintainer and is never selected automatically.",
+            TOKEN_DISCLAIMER,
+        ],
+        "token_inference_disclaimer": TOKEN_DISCLAIMER,
+    }
+    return validate_benchmark_review_output(out)
+
+
 def main(argv: Sequence[str]) -> int:
     if len(argv) < 2:
-        sys.stderr.write("usage: model-intelligence <validate|advise|import-study> [options]\n")
+        sys.stderr.write("usage: model-intelligence <validate|advise|import-study|benchmark-review> [options]\n")
         return 2
 
     subcmd = argv[1]
@@ -730,6 +1156,128 @@ def main(argv: Sequence[str]) -> int:
             return 0
         except ModelIntelligenceError as exc:
             sys.stderr.write(f"model-intelligence import-study error: {exc}\n")
+            return 1
+
+    elif subcmd == "benchmark-review":
+        dataset_path = None
+        base_inv_path = None
+        cand_inv_path = None
+        base_mat_path = None
+        cand_mat_path = None
+        ref_date = None
+        maintainer_disp = None
+        out_path = None
+        idx = 2
+        while idx < len(argv):
+            arg = argv[idx]
+            if arg == "--reference-date" and idx + 1 < len(argv):
+                ref_date = argv[idx + 1]
+                idx += 2
+            elif arg.startswith("--reference-date="):
+                ref_date = arg.partition("=")[2]
+                idx += 1
+            elif arg == "--dataset" and idx + 1 < len(argv):
+                dataset_path = Path(argv[idx + 1])
+                idx += 2
+            elif arg.startswith("--dataset="):
+                dataset_path = Path(arg.partition("=")[2])
+                idx += 1
+            elif arg == "--baseline-inventory" and idx + 1 < len(argv):
+                base_inv_path = Path(argv[idx + 1])
+                idx += 2
+            elif arg.startswith("--baseline-inventory="):
+                base_inv_path = Path(arg.partition("=")[2])
+                idx += 1
+            elif arg == "--candidate-inventory" and idx + 1 < len(argv):
+                cand_inv_path = Path(argv[idx + 1])
+                idx += 2
+            elif arg.startswith("--candidate-inventory="):
+                cand_inv_path = Path(arg.partition("=")[2])
+                idx += 1
+            elif arg == "--baseline-matrix" and idx + 1 < len(argv):
+                base_mat_path = Path(argv[idx + 1])
+                idx += 2
+            elif arg.startswith("--baseline-matrix="):
+                base_mat_path = Path(arg.partition("=")[2])
+                idx += 1
+            elif arg == "--candidate-matrix" and idx + 1 < len(argv):
+                cand_mat_path = Path(argv[idx + 1])
+                idx += 2
+            elif arg.startswith("--candidate-matrix="):
+                cand_mat_path = Path(arg.partition("=")[2])
+                idx += 1
+            elif arg == "--maintainer-disposition" and idx + 1 < len(argv):
+                maintainer_disp = argv[idx + 1]
+                idx += 2
+            elif arg.startswith("--maintainer-disposition="):
+                maintainer_disp = arg.partition("=")[2]
+                idx += 1
+            elif arg == "--out" and idx + 1 < len(argv):
+                out_path = Path(argv[idx + 1])
+                idx += 2
+            elif arg.startswith("--out="):
+                out_path = Path(arg.partition("=")[2])
+                idx += 1
+            else:
+                sys.stderr.write(f"model-intelligence benchmark-review: rejected argument {arg}\n")
+                return 2
+
+        if ref_date is None:
+            sys.stderr.write("model-intelligence benchmark-review: missing required --reference-date YYYY-MM-DD\n")
+            return 2
+
+        if (base_inv_path is None) != (cand_inv_path is None):
+            sys.stderr.write("model-intelligence benchmark-review: --baseline-inventory and --candidate-inventory must be provided as a pair\n")
+            return 2
+
+        if (base_mat_path is None) != (cand_mat_path is None):
+            sys.stderr.write("model-intelligence benchmark-review: --baseline-matrix and --candidate-matrix must be provided as a pair\n")
+            return 2
+
+        try:
+            ds_data = None
+            ds_sha = None
+            if dataset_path is not None:
+                ds_data, ds_sha, _ = read_json_file(dataset_path)
+            else:
+                default_ds = Path(__file__).resolve().parent.parent / "compat" / "model-intelligence" / "dataset.v1.json"
+                if default_ds.is_file():
+                    ds_data, ds_sha, _ = read_json_file(default_ds)
+
+            b_inv = None
+            if base_inv_path is not None:
+                b_inv, _, _ = read_json_file(base_inv_path)
+
+            c_inv = None
+            if cand_inv_path is not None:
+                c_inv, _, _ = read_json_file(cand_inv_path)
+
+            b_mat = None
+            if base_mat_path is not None:
+                b_mat, _, _ = read_json_file(base_mat_path)
+
+            c_mat = None
+            if cand_mat_path is not None:
+                c_mat, _, _ = read_json_file(cand_mat_path)
+
+            result = track_benchmark_review(
+                dataset=ds_data,
+                dataset_sha=ds_sha,
+                baseline_inventory=b_inv,
+                candidate_inventory=c_inv,
+                baseline_matrix=b_mat,
+                candidate_matrix=c_mat,
+                reference_date=ref_date,
+                maintainer_disposition=maintainer_disp,
+            )
+            formatted = json.dumps(result, indent=2) + "\n"
+            if out_path is not None:
+                out_path.write_text(formatted, encoding="utf-8")
+            else:
+                sys.stdout.write(formatted)
+            return 0
+        except (ModelIntelligenceError, OSError):
+            sys.stderr.write("model-intelligence benchmark-review error: operation failed closed\n")
             return 1
 
     else:

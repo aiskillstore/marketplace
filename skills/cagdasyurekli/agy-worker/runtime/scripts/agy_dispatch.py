@@ -58,6 +58,9 @@ COMMAND_V2_FIELDS = COMMAND_V1_FIELDS | {"workflow", "max_cycles", "continue_pro
 COMMAND_V3_FIELDS = COMMAND_V2_FIELDS | {"agy_version_observed"}
 COMMAND_V4_FIELDS = COMMAND_V3_FIELDS | {"selection_path", "selection_sha256", "selection_identity"}
 COMMAND_V5_FIELDS = COMMAND_V4_FIELDS | {"provider_env"}
+COMMAND_V6_FIELDS = COMMAND_V5_FIELDS | {
+    "provider_scope_path", "provider_scope_sha256", "provider_scope_identity", "approved_transmission_sha256",
+}
 STATE_PROJECT_FIELDS = {
     "workflow", "max_cycles", "cycle", "phase", "assurance",
     "check_summary", "check_counts", "verification_path", "verification_sha256",
@@ -78,8 +81,15 @@ STATE_V6_FIELDS = {"selection_sha256", "selection_identity"}
 STATE_V8_FIELDS = {"worktree_snapshot_algorithm"}
 STATE_V9_FIELDS = {"worktree_root_identity"}
 STATE_V10_FIELDS = {"provider_terminal_status"}
+STATE_V11_FIELDS = {
+    "provider_scope_path", "provider_scope_sha256", "provider_scope_identity",
+    "approved_transmission_sha256", "transmission_sha256",
+    "selected_content_sha256", "selected_file_count", "selected_tree_count",
+    "provider_stage_path", "provider_stage_identity",
+    "provider_stage_manifest_sha256", "reconciliation_manifest_sha256",
+}
 PUBLIC_LAUNCHER = '"$PIPELINE/agy-worker.sh"'
-CURRENT_STATE_SCHEMA = 10
+CURRENT_STATE_SCHEMA = 11
 WORKTREE_SNAPSHOT_LEGACY_V6 = "legacy-v6"
 WORKTREE_SNAPSHOT_SEMANTIC_V1 = "semantic-v1"
 CURRENT_WORKTREE_SNAPSHOT_ALGORITHM = WORKTREE_SNAPSHOT_SEMANTIC_V1
@@ -482,7 +492,17 @@ def load_command(job: Path) -> tuple[dict[str, Any], bytes, tuple[int, int, int,
             raise DispatchError("dispatch command is not canonical")
         value = dict(value)
         value["provider_env"] = []
-    elif set(value) != COMMAND_V5_FIELDS or value.get("schema_version") != 5:
+    elif set(value) == COMMAND_V5_FIELDS and value.get("schema_version") == 5:
+        if raw != canonical(value):
+            raise DispatchError("dispatch command is not canonical")
+        value = dict(value)
+        value.update({
+            "provider_scope_path": None,
+            "provider_scope_sha256": None,
+            "provider_scope_identity": None,
+            "approved_transmission_sha256": None,
+        })
+    elif set(value) != COMMAND_V6_FIELDS or value.get("schema_version") != 6:
         raise DispatchError("dispatch command fields are invalid")
     elif raw != canonical(value):
         raise DispatchError("dispatch command is not canonical")
@@ -550,6 +570,22 @@ def load_command(job: Path) -> tuple[dict[str, Any], bytes, tuple[int, int, int,
         or any(type(item) is not int or item < 0 for item in selection_identity)
     ):
         raise DispatchError("dispatch selection binding is invalid")
+    scope_path = value.get("provider_scope_path")
+    scope_sha = value.get("provider_scope_sha256")
+    scope_identity = value.get("provider_scope_identity")
+    approved_sha = value.get("approved_transmission_sha256")
+    if (scope_path is None) != (scope_sha is None) or (scope_path is None) != (scope_identity is None) or (scope_path is None) != (approved_sha is None):
+        raise DispatchError("dispatch provider scope binding is incomplete")
+    if scope_path is not None and (
+        not isinstance(scope_path, str) or not Path(scope_path).is_absolute()
+        or not isinstance(scope_sha, str) or SHA_RE.fullmatch(scope_sha) is None
+        or not isinstance(scope_identity, list) or len(scope_identity) != 5
+        or any(type(item) is not int or item < 0 for item in scope_identity)
+        or not isinstance(approved_sha, str) or SHA_RE.fullmatch(approved_sha) is None
+    ):
+        raise DispatchError("dispatch provider scope binding is invalid")
+    if scope_path is not None and "--add-dir" in value["argv"]:
+        raise DispatchError("narrow provider scope cannot grant an additional directory")
     return value, raw, _identity(info)
 
 
@@ -581,15 +617,17 @@ def validate_state(value: Any) -> dict[str, Any]:
         "worktree_snapshot_algorithm", "worktree_root_identity",
         "provider_terminal_status",
     }
+    fields |= STATE_V11_FIELDS
     retry_fields = {"provider_retry_after_seconds", "provider_retry_observed_epoch"}
-    legacy_fields = fields - STATE_PROJECT_FIELDS - retry_fields - STATE_V5_FIELDS - STATE_V6_FIELDS - STATE_V8_FIELDS - STATE_V9_FIELDS - STATE_V10_FIELDS
-    version_three_fields = fields - retry_fields - STATE_V5_FIELDS - STATE_V6_FIELDS - STATE_V8_FIELDS - STATE_V9_FIELDS - STATE_V10_FIELDS
-    version_four_fields = fields - STATE_V5_FIELDS - STATE_V6_FIELDS - STATE_V8_FIELDS - STATE_V9_FIELDS - STATE_V10_FIELDS
-    version_five_fields = fields - STATE_V6_FIELDS - STATE_V8_FIELDS - STATE_V9_FIELDS - STATE_V10_FIELDS
-    version_six_fields = fields - STATE_V8_FIELDS - STATE_V9_FIELDS - STATE_V10_FIELDS
-    version_seven_fields = fields - STATE_V8_FIELDS - STATE_V9_FIELDS - STATE_V10_FIELDS
-    version_eight_fields = fields - STATE_V9_FIELDS - STATE_V10_FIELDS
-    version_nine_fields = fields - STATE_V10_FIELDS
+    legacy_fields = fields - STATE_PROJECT_FIELDS - retry_fields - STATE_V5_FIELDS - STATE_V6_FIELDS - STATE_V8_FIELDS - STATE_V9_FIELDS - STATE_V10_FIELDS - STATE_V11_FIELDS
+    version_three_fields = fields - retry_fields - STATE_V5_FIELDS - STATE_V6_FIELDS - STATE_V8_FIELDS - STATE_V9_FIELDS - STATE_V10_FIELDS - STATE_V11_FIELDS
+    version_four_fields = fields - STATE_V5_FIELDS - STATE_V6_FIELDS - STATE_V8_FIELDS - STATE_V9_FIELDS - STATE_V10_FIELDS - STATE_V11_FIELDS
+    version_five_fields = fields - STATE_V6_FIELDS - STATE_V8_FIELDS - STATE_V9_FIELDS - STATE_V10_FIELDS - STATE_V11_FIELDS
+    version_six_fields = fields - STATE_V8_FIELDS - STATE_V9_FIELDS - STATE_V10_FIELDS - STATE_V11_FIELDS
+    version_seven_fields = fields - STATE_V8_FIELDS - STATE_V9_FIELDS - STATE_V10_FIELDS - STATE_V11_FIELDS
+    version_eight_fields = fields - STATE_V9_FIELDS - STATE_V10_FIELDS - STATE_V11_FIELDS
+    version_nine_fields = fields - STATE_V10_FIELDS - STATE_V11_FIELDS
+    version_ten_fields = fields - STATE_V11_FIELDS
     if not isinstance(value, dict):
         raise DispatchError("dispatch state fields are invalid")
     if set(value) == legacy_fields and value.get("schema_version") == 1:
@@ -660,7 +698,9 @@ def validate_state(value: Any) -> dict[str, Any]:
         })
     elif set(value) == version_five_fields and value.get("schema_version") == 5:
         value = dict(value)
-        value.update({"selection_sha256": None, "selection_identity": None})
+        value.update({
+            "selection_sha256": None, "selection_identity": None,
+        })
     elif set(value) == version_six_fields and value.get("schema_version") == 6:
         pass
     elif set(value) == version_seven_fields and value.get("schema_version") == 7:
@@ -669,20 +709,22 @@ def validate_state(value: Any) -> dict[str, Any]:
         pass
     elif set(value) == version_nine_fields and value.get("schema_version") == 9:
         pass
+    elif set(value) == version_ten_fields and value.get("schema_version") == 10:
+        pass
     elif set(value) != fields or value.get("schema_version") != CURRENT_STATE_SCHEMA:
         raise DispatchError("dispatch state fields are invalid")
     if value["kind"] != "agy-worker-dispatch-state":
         raise DispatchError("dispatch state version is invalid")
-    if value["schema_version"] in {9, CURRENT_STATE_SCHEMA} and (
+    if value["schema_version"] in {9, 10, CURRENT_STATE_SCHEMA} and (
         value["worktree_snapshot_algorithm"] != CURRENT_WORKTREE_SNAPSHOT_ALGORITHM
     ):
         raise DispatchError("dispatch worktree snapshot algorithm is invalid")
-    if value["schema_version"] == CURRENT_STATE_SCHEMA and (
+    if value["schema_version"] in {10, CURRENT_STATE_SCHEMA} and (
         value.get("provider_terminal_status") not in {"unknown", "success", "error", "cancelled"}
     ):
         raise DispatchError("dispatch provider terminal status is invalid")
     root_identity = value.get("worktree_root_identity")
-    if value["schema_version"] in {9, CURRENT_STATE_SCHEMA}:
+    if value["schema_version"] in {9, 10, CURRENT_STATE_SCHEMA}:
         def valid_authority(authority: Any, *, directory: bool | None = None) -> bool:
             if not isinstance(authority, dict) or set(authority) != {
                 "dev", "ino", "type", "mode", "uid", "gid",
@@ -880,6 +922,45 @@ def validate_state(value: Any) -> dict[str, Any]:
         or any(type(item) is not int or item < 0 for item in selection_identity)
     ):
         raise DispatchError("dispatch selection state binding is invalid")
+    scope_path = value.get("provider_scope_path")
+    scope_sha = value.get("provider_scope_sha256")
+    scope_identity = value.get("provider_scope_identity")
+    approved_sha = value.get("approved_transmission_sha256")
+    transmission_sha = value.get("transmission_sha256")
+    selected_content_sha = value.get("selected_content_sha256")
+    selected_file_count = value.get("selected_file_count")
+    selected_tree_count = value.get("selected_tree_count")
+    stage_path = value.get("provider_stage_path")
+    stage_identity = value.get("provider_stage_identity")
+    stage_manifest_sha = value.get("provider_stage_manifest_sha256")
+    reconciliation_manifest_sha = value.get("reconciliation_manifest_sha256")
+    if (scope_path is None) != (scope_sha is None) or (scope_path is None) != (scope_identity is None) or (scope_path is None) != (approved_sha is None) or (scope_path is None) != (transmission_sha is None) or (scope_path is None) != (selected_content_sha is None) or (scope_path is None) != (selected_file_count is None) or (scope_path is None) != (selected_tree_count is None):
+        raise DispatchError("dispatch provider scope state fields are incomplete")
+    stage_fields = (stage_path, stage_identity, stage_manifest_sha)
+    if any(item is None for item in stage_fields) != all(item is None for item in stage_fields):
+        raise DispatchError("dispatch provider stage state fields are incomplete")
+    if scope_path is None and (
+        any(item is not None for item in stage_fields)
+        or reconciliation_manifest_sha is not None
+    ):
+        raise DispatchError("whole-worktree state cannot carry narrow provider evidence")
+    if scope_path is not None:
+        if (
+            not isinstance(scope_path, str) or not Path(scope_path).is_absolute()
+            or not isinstance(scope_sha, str) or SHA_RE.fullmatch(scope_sha) is None
+            or not isinstance(scope_identity, list) or len(scope_identity) != 5
+            or any(type(item) is not int or item < 0 for item in scope_identity)
+            or not isinstance(approved_sha, str) or SHA_RE.fullmatch(approved_sha) is None
+            or not isinstance(transmission_sha, str) or SHA_RE.fullmatch(transmission_sha) is None
+            or not isinstance(selected_content_sha, str) or SHA_RE.fullmatch(selected_content_sha) is None
+            or type(selected_file_count) is not int or selected_file_count < 0
+            or type(selected_tree_count) is not int or selected_tree_count < 0
+            or (stage_path is not None and (not isinstance(stage_path, str) or not Path(stage_path).is_absolute()))
+            or (stage_identity is not None and (not isinstance(stage_identity, list) or len(stage_identity) != 5 or any(type(item) is not int or item < 0 for item in stage_identity)))
+            or (stage_manifest_sha is not None and (not isinstance(stage_manifest_sha, str) or SHA_RE.fullmatch(stage_manifest_sha) is None))
+            or (reconciliation_manifest_sha is not None and (not isinstance(reconciliation_manifest_sha, str) or SHA_RE.fullmatch(reconciliation_manifest_sha) is None))
+        ):
+            raise DispatchError("dispatch provider scope state fields are invalid")
     current_result = [value["result_path"], value["result_sha256"], value["result_identity"]]
     if any(item is None for item in current_result) != all(item is None for item in current_result):
         raise DispatchError("dispatch result binding is incomplete")
@@ -1006,7 +1087,7 @@ def initial_state(
     state_schema: int = CURRENT_STATE_SCHEMA,
     explain_worktree_rejection: bool = False,
 ) -> dict[str, Any]:
-    if state_schema not in {6, 7, 8, 9, CURRENT_STATE_SCHEMA}:
+    if state_schema not in {6, 7, 8, 9, 10, CURRENT_STATE_SCHEMA}:
         raise DispatchError("dispatch state schema is invalid")
     now = time.time()
     workflow = command.get("workflow", "legacy")
@@ -1107,8 +1188,58 @@ def initial_state(
         if root_identity is None:
             raise DispatchError("dispatch worktree root cannot be bound")
         state["worktree_root_identity"] = root_identity
-    if state_schema == CURRENT_STATE_SCHEMA:
+    if state_schema >= 10:
         state["provider_terminal_status"] = "unknown"
+    if state_schema == CURRENT_STATE_SCHEMA:
+        if command.get("provider_scope_path") is not None:
+            scope_path = Path(command["provider_scope_path"])
+            raw_scope, scope_info = read_regular(scope_path, MAX_COMMAND_BYTES, "provider scope")
+            if digest(raw_scope) != command["provider_scope_sha256"]:
+                raise DispatchError("provider scope file changed since dispatch")
+            if list(_identity(scope_info)) != command["provider_scope_identity"]:
+                raise DispatchError("provider scope file identity changed since dispatch")
+            try:
+                scope = _parse_provider_scope(raw_scope)
+            except ValueError as exc:
+                raise DispatchError(f"invalid provider scope: {exc}") from exc
+            readable_manifest = _scan_readable_worktree(command["workdir"])
+            manifest_sha = _manifest_digest(readable_manifest)
+            _validate_scope_against_worktree(scope, command["workdir"], readable_manifest)
+            selected_manifest = _build_selected_content_manifest(command["workdir"], scope)
+            selected_sha = _selected_content_digest(selected_manifest)
+            policy_sha = _canonical_digest(scope)
+            transmission_sha = _compute_transmission_sha256(policy_sha, manifest_sha, selected_sha)
+            if transmission_sha != command["approved_transmission_sha256"]:
+                raise DispatchError("approved transmission SHA does not match current worktree scope")
+            state.update({
+                "provider_scope_path": command["provider_scope_path"],
+                "provider_scope_sha256": command["provider_scope_sha256"],
+                "provider_scope_identity": command["provider_scope_identity"],
+                "approved_transmission_sha256": command["approved_transmission_sha256"],
+                "transmission_sha256": transmission_sha,
+                "selected_content_sha256": selected_sha,
+                "selected_file_count": sum(1 for e in selected_manifest if e["kind"] == "file"),
+                "selected_tree_count": sum(1 for e in selected_manifest if e["kind"] == "directory"),
+                "provider_stage_path": None,
+                "provider_stage_identity": None,
+                "provider_stage_manifest_sha256": None,
+                "reconciliation_manifest_sha256": None,
+            })
+        else:
+            state.update({
+                "provider_scope_path": None,
+                "provider_scope_sha256": None,
+                "provider_scope_identity": None,
+                "approved_transmission_sha256": None,
+                "transmission_sha256": None,
+                "selected_content_sha256": None,
+                "selected_file_count": None,
+                "selected_tree_count": None,
+                "provider_stage_path": None,
+                "provider_stage_identity": None,
+                "provider_stage_manifest_sha256": None,
+                "reconciliation_manifest_sha256": None,
+            })
     return state
 
 
@@ -1116,7 +1247,7 @@ def _upgrade_legacy_state(
     state: dict[str, Any], command: dict[str, Any], *,
     migration_facts: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Prepare an eligible pre-V10 state for one atomic approved current write."""
+    """Prepare an eligible pre-V11 state for one atomic approved current write."""
     if state["schema_version"] >= CURRENT_STATE_SCHEMA:
         return state
     if state["schema_version"] == 1:
@@ -1227,6 +1358,18 @@ def _upgrade_legacy_state(
         "selection_identity": command.get("selection_identity"),
         "worktree_root_identity": root_identity,
         "provider_terminal_status": "unknown",
+        "provider_scope_path": None,
+        "provider_scope_sha256": None,
+        "provider_scope_identity": None,
+        "approved_transmission_sha256": None,
+        "transmission_sha256": None,
+        "selected_content_sha256": None,
+        "selected_file_count": None,
+        "selected_tree_count": None,
+        "provider_stage_path": None,
+        "provider_stage_identity": None,
+        "provider_stage_manifest_sha256": None,
+        "reconciliation_manifest_sha256": None,
     })
     if value["candidate_recognized"]:
         value["candidate_worktree_sha256"] = snapshot["sha256"]
@@ -1355,7 +1498,9 @@ def _transition_locked(
         # ``validate_state`` projects additive facts while reading old bytes.
         # A cheap active control must write the old generation's exact field
         # shape back, not accidentally persist a partial migration.
-        omitted = set(STATE_V10_FIELDS)
+        omitted = set(STATE_V11_FIELDS)
+        if value["schema_version"] < 10:
+            omitted |= set(STATE_V10_FIELDS)
         if value["schema_version"] < 9:
             omitted |= set(STATE_V9_FIELDS)
         if value["schema_version"] < 8:
@@ -2452,6 +2597,84 @@ def _worktree_snapshot(
     except _WORKTREE_HELPER._UnsupportedWorktreeError as exc:
         raise WorktreeBaselineError(str(exc)) from None
 
+def _scan_readable_worktree(worktree: str | Path) -> list[dict[str, str]]:
+    return _worktree_call("_scan_readable_worktree", worktree)
+
+
+def _validate_manifest(manifest: Any) -> list[dict[str, str]]:
+    return _worktree_call("_validate_manifest", manifest)
+
+
+def _manifest_digest(manifest: list[dict[str, str]]) -> str:
+    return _worktree_call("_manifest_digest", manifest)
+
+
+def _parse_provider_scope(raw_bytes: bytes) -> dict[str, Any]:
+    return _worktree_call("_parse_provider_scope", raw_bytes)
+
+
+def _validate_scope_against_worktree(
+    scope: dict[str, Any], worktree_root: str | Path, readable_manifest: list[dict[str, str]],
+) -> None:
+    return _worktree_call("_validate_scope_against_worktree", scope, worktree_root, readable_manifest)
+
+
+def _build_selected_content_manifest(
+    root_dir: str | Path, scope: dict[str, Any], *, is_stage: bool = False,
+) -> list[dict[str, Any]]:
+    return _worktree_call("_build_selected_content_manifest", root_dir, scope, is_stage=is_stage)
+
+
+def _selected_content_digest(manifest: list[dict[str, Any]]) -> str:
+    return _worktree_call("_selected_content_digest", manifest)
+
+
+def _canonical_digest(value: Any) -> str:
+    return _worktree_call("_canonical_digest", value)
+
+
+def _compute_transmission_sha256(
+    policy_sha256: str, readable_manifest_sha256: str, selected_content_sha256: str,
+) -> str:
+    return _worktree_call(
+        "_compute_transmission_sha256", policy_sha256, readable_manifest_sha256, selected_content_sha256,
+    )
+
+
+def _materialize_stage(
+    source_root: str | Path, stage_dir: str | Path, scope: dict[str, Any],
+    selected_manifest: list[dict[str, Any]],
+) -> tuple[tuple[int, int, int, int, int], str]:
+    return _worktree_call(
+        "_materialize_stage", source_root, stage_dir, scope, selected_manifest,
+    )
+
+
+def _scan_stage_mutations(
+    stage_dir: str | Path, scope: dict[str, Any], pre_launch_manifest: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], str]:
+    return _worktree_call(
+        "_scan_stage_mutations", stage_dir, scope, pre_launch_manifest,
+    )
+
+
+def _reconcile_stage_to_source(
+    source_root: str | Path, stage_dir: str | Path, operation_manifest: list[dict[str, Any]],
+    job_dir: Path,
+) -> str:
+    return _worktree_call(
+        "_reconcile_stage_to_source", source_root, stage_dir, operation_manifest, job_dir,
+    )
+
+
+def _recover_reconciliation(source_root: str | Path, job_dir: Path) -> bool:
+    return _worktree_call("_recover_reconciliation", source_root, job_dir)
+
+
+def _cleanup_stage(stage_dir: str | Path, recorded_identity: tuple[int, int, int, int, int]) -> None:
+    return _worktree_call("_cleanup_stage", stage_dir, recorded_identity)
+
+
 _WORKTREE_FACADE_DEFAULTS = {
     name: globals()[name] for name in _WORKTREE_HELPER._IMPLEMENTATION_FUNCTIONS
 }
@@ -2596,7 +2819,7 @@ def _bound_candidate_worktree(state: dict[str, Any], command: dict[str, Any]) ->
     # same V9 extractor used by lifecycle recovery is repeated here so a
     # direct candidate-binding caller cannot turn a substituted Git boundary
     # into a content-only comparison.
-    if state.get("schema_version") in {9, CURRENT_STATE_SCHEMA} and (
+    if state.get("schema_version") in {9, 10, CURRENT_STATE_SCHEMA} and (
         _git_boundary_identity(command["workdir"])
         != state.get("worktree_root_identity")
     ):
@@ -3070,7 +3293,7 @@ def _bound_lifecycle_inputs(
         root_info = root.lstat()
     except OSError as exc:
         raise DispatchError("dispatch worktree root is unavailable") from exc
-    if checked["schema_version"] in {9, CURRENT_STATE_SCHEMA}:
+    if checked["schema_version"] in {9, 10, CURRENT_STATE_SCHEMA}:
         root_identity = _dispatch_root_identity(command["workdir"])
         if (
             root_identity is None
@@ -3096,7 +3319,7 @@ def _bound_lifecycle_inputs(
     _load_bound_selection(
         command, checked, legacy_command_binding=read_legacy,
     )
-    if checked["schema_version"] in {9, CURRENT_STATE_SCHEMA}:
+    if checked["schema_version"] in {9, 10, CURRENT_STATE_SCHEMA}:
         _bound_schemas(command, checked)
     elif not read_legacy or _schema_paths(command) is None:
         raise DispatchError("legacy dispatch schema binding cannot be proved")
@@ -3104,6 +3327,26 @@ def _bound_lifecycle_inputs(
         _project_boundary(command["workdir"]) != checked["project_boundary"]
     ):
         raise DispatchError("project worktree boundary changed")
+    if checked.get("provider_scope_path") is not None:
+        scope_path = Path(checked["provider_scope_path"])
+        raw_scope, scope_info = read_regular(scope_path, MAX_COMMAND_BYTES, "provider scope")
+        if digest(raw_scope) != checked["provider_scope_sha256"]:
+            raise DispatchError("provider scope file changed since dispatch")
+        if list(_identity(scope_info)) != checked["provider_scope_identity"]:
+            raise DispatchError("provider scope file identity changed since dispatch")
+        try:
+            scope = _parse_provider_scope(raw_scope)
+        except ValueError as exc:
+            raise DispatchError(f"invalid provider scope: {exc}") from exc
+        readable_manifest = _scan_readable_worktree(command["workdir"])
+        manifest_sha = _manifest_digest(readable_manifest)
+        _validate_scope_against_worktree(scope, command["workdir"], readable_manifest)
+        selected_manifest = _build_selected_content_manifest(command["workdir"], scope)
+        selected_sha = _selected_content_digest(selected_manifest)
+        policy_sha = _canonical_digest(scope)
+        transmission_sha = _compute_transmission_sha256(policy_sha, manifest_sha, selected_sha)
+        if transmission_sha != checked["transmission_sha256"]:
+            raise DispatchError("worktree scope transmission binding changed")
     return command, checked
 
 
@@ -3476,8 +3719,19 @@ def controller(job: Path, ownership_fd: int) -> int:
             if state["attempt_origin"] == "conversation-continue":
                 if feedback is None:
                     raise DispatchError("project continuation feedback was not prevalidated")
-                prefix.extend(["--add-dir", str(feedback.parent)])
-                prompt = command["continue_prompt"] + f" Feedback file: '{feedback}'."
+                if state.get("provider_scope_path") is None:
+                    prefix.extend(["--add-dir", str(feedback.parent)])
+                    prompt = command["continue_prompt"] + f" Feedback file: '{feedback}'."
+                else:
+                    feedback_raw, _feedback_info = read_regular(
+                        feedback, MAX_VERIFICATION_BYTES, "verification feedback",
+                        allowed_modes=(0o400,),
+                    )
+                    prompt = (
+                        command["continue_prompt"]
+                        + " Driver verification JSON follows inline:\n"
+                        + feedback_raw.decode("utf-8", "strict")
+                    )
             argv[print_index + 1] = prompt
             argv[print_index:print_index] = prefix
         selector = selectors.DefaultSelector()
@@ -3489,6 +3743,12 @@ def controller(job: Path, ownership_fd: int) -> int:
         failure_stage: str | None = None
         saw_init = False
         saw_terminal = False
+        stage_dir: Path | None = None
+        scope: dict[str, Any] | None = None
+        selected_manifest: list[dict[str, Any]] | None = None
+        stage_manifest_sha: str | None = None
+        stage_identity: tuple[int, int, int, int, int] | None = None
+        narrow_source_snapshot: dict[str, Any] | None = None
 
         def controller_transition(updates: dict[str, Any]) -> bool:
             """Do not turn a concurrent approved control into a controller crash."""
@@ -3561,6 +3821,28 @@ def controller(job: Path, ownership_fd: int) -> int:
                 _bound_worktree_baseline(state, command)
                 if not _worktree_symlink_boundary(command["workdir"]):
                     raise DispatchError("dispatch worktree symlink boundary changed")
+                launch_cwd = command["workdir"]
+                if state.get("provider_scope_path") is not None:
+                    scope_path = Path(state["provider_scope_path"])
+                    raw_scope, scope_info = read_regular(scope_path, MAX_COMMAND_BYTES, "provider scope")
+                    if digest(raw_scope) != state["provider_scope_sha256"]:
+                        raise DispatchError("provider scope file changed since dispatch")
+                    if list(_identity(scope_info)) != state["provider_scope_identity"]:
+                        raise DispatchError("provider scope file identity changed since dispatch")
+                    scope = _parse_provider_scope(raw_scope)
+                    readable_manifest = _scan_readable_worktree(command["workdir"])
+                    manifest_sha = _manifest_digest(readable_manifest)
+                    _validate_scope_against_worktree(scope, command["workdir"], readable_manifest)
+                    selected_manifest = _build_selected_content_manifest(command["workdir"], scope)
+                    selected_sha = _selected_content_digest(selected_manifest)
+                    policy_sha = _canonical_digest(scope)
+                    transmission_sha = _compute_transmission_sha256(policy_sha, manifest_sha, selected_sha)
+                    if transmission_sha != state["transmission_sha256"]:
+                        raise DispatchError("worktree scope transmission binding changed")
+                    narrow_source_snapshot = _worktree_snapshot(command["workdir"])
+                    stage_dir = job / f"stage-{attempt:03d}"
+                    stage_identity, stage_manifest_sha = _materialize_stage(command["workdir"], stage_dir, scope, selected_manifest)
+                    launch_cwd = str(stage_dir)
                 # The prior attempt budget is still a hard stop, but bounded
                 # controller-local proofs do not become a provider timeout.
                 # Commit the running state/CAS boundary after slow preflight.
@@ -3599,12 +3881,19 @@ def controller(job: Path, ownership_fd: int) -> int:
                             reason = "cancelled"
                             returncode = EXIT_BY_REASON[reason]
                         else:
-                            state, prior_raw, _sha = _transition_locked(job, state, prior_raw, {
+                            running_updates = {
                                 "status": "running", "controller_pid": os.getpid(),
                                 "started_epoch": None, "last_progress_epoch": None,
                                 "stream_path": str(stream_path), "stderr_path": str(stderr_path),
                                 "next_action": "wait",
-                            })
+                            }
+                            if stage_dir is not None:
+                                running_updates.update({
+                                    "provider_stage_path": str(stage_dir),
+                                    "provider_stage_identity": list(stage_identity) if stage_identity is not None else None,
+                                    "provider_stage_manifest_sha256": stage_manifest_sha,
+                                })
+                            state, prior_raw, _sha = _transition_locked(job, state, prior_raw, running_updates)
                             exact_executable = None
                             if executable_binding is not None:
                                 try:
@@ -3619,7 +3908,7 @@ def controller(job: Path, ownership_fd: int) -> int:
                             process = subprocess.Popen(
                                 argv,
                                 executable=exact_executable,
-                                cwd=command["workdir"],
+                                cwd=launch_cwd,
                                 stdin=subprocess.DEVNULL,
                                 stdout=subprocess.PIPE,
                                 stderr=subprocess.PIPE,
@@ -3955,6 +4244,42 @@ def controller(job: Path, ownership_fd: int) -> int:
                 exit_code = 128 + stop_signal if stop_signal is not None else EXIT_BY_REASON[reason]
                 result_path = str(envelope_path) if result_binding is not None else None
             cleanup_failed = False
+            reconciliation_manifest_sha: str | None = None
+            if stage_dir is not None and stage_dir.exists():
+                try:
+                    if (
+                        narrow_source_snapshot is None
+                        or _worktree_snapshot(command["workdir"]) != narrow_source_snapshot
+                    ):
+                        raise DispatchError(
+                            "source worktree changed while the narrow provider stage was active"
+                        )
+                    mutations, op_manifest = _scan_stage_mutations(stage_dir, scope, selected_manifest)
+                    if result_binding is not None and outer_status in {
+                        "SUCCESS", "ERROR", "CANCELLED",
+                    }:
+                        reconciliation_manifest_sha = _reconcile_stage_to_source(
+                            command["workdir"], stage_dir, mutations, job,
+                        )
+                        if _build_selected_content_manifest(
+                            command["workdir"], scope,
+                        ) != _build_selected_content_manifest(
+                            stage_dir, scope, is_stage=True,
+                        ):
+                            raise DispatchError(
+                                "source reconciliation does not match the provider stage"
+                            )
+                    else:
+                        reconciliation_manifest_sha = _selected_content_digest([])
+                except Exception:
+                    cleanup_failed = True
+                finally:
+                    try:
+                        if stage_identity is None:
+                            raise DispatchError("stage cleanup identity is unavailable")
+                        _cleanup_stage(stage_dir, stage_identity)
+                    except (OSError, DispatchError):
+                        cleanup_failed = True
             try:
                 selector.close()
                 os.close(stdout_fd); stdout_fd = -1
@@ -4171,6 +4496,8 @@ def controller(job: Path, ownership_fd: int) -> int:
                     "provider_retry_after_seconds": provider_retry_after,
                     "provider_retry_observed_epoch": provider_retry_observed,
                 }
+                if current.get("provider_scope_path") is not None:
+                    updates["reconciliation_manifest_sha256"] = reconciliation_manifest_sha
                 if result_binding is not None:
                     # Continuation feedback remains bound audit evidence for
                     # the prior candidate. A newly returned candidate starts

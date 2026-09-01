@@ -12,6 +12,8 @@ from datetime import date
 from pathlib import Path
 from typing import Any, Iterable
 
+sys.dont_write_bytecode = True
+
 
 VERSION_RE = re.compile(r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)")
 REVISION_RE = re.compile(r"[0-9a-f]{40}")
@@ -508,6 +510,17 @@ def validate_inventory_binding(
         raise CompatibilityError("inventory binding source differs from the reviewed baseline")
     if binding["slugs"] != matrix_slugs(matrix):
         raise CompatibilityError("inventory binding slugs differ from the active matrix")
+    manifest_file = binding_path.parent / "agy-version-manifest.json"
+    try:
+        import version_manifest_engine
+    except ImportError:
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        import version_manifest_engine  # type: ignore[no-redef]
+    try:
+        spec = version_manifest_engine.get_version_spec(version, manifest_file)
+        version_manifest_engine.validate_activation_binding(binding, spec)
+    except version_manifest_engine.EngineError as exc:
+        raise CompatibilityError(f"version manifest error: {exc}") from exc
 
 
 def load_bound_matrix(args: argparse.Namespace) -> tuple[dict[str, Any], bool, str]:
