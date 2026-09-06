@@ -266,7 +266,7 @@ obsidian_get_recent_periodic_notes --period daily --limit 2 | \
 • Need staging database access for migration testing - @infra-team
 
 ## 📎 Links
-• [PR #789](link) | [JIRA Sprint Board](link)
+• PR #789 | JIRA Sprint Board
 ```
 
 **Thread-Based Standup:**
@@ -351,7 +351,7 @@ From standup notes, automatically extract:
 • Taking tomorrow afternoon off (dentist appointment) - Will post morning standup but limited availability after 12pm
 • Mobile responsiveness research doc started: [Link to Notion doc]
 
-📎 [Sprint Board](link) | [My Active PRs](link)
+📎 Sprint Board | My Active PRs
 ```
 
 ### Example 2: AI-Generated Standup from Git History
@@ -527,7 +527,7 @@ jira issues list --assignee currentUser() --status "In Progress"
 • Heads up: Deploying migration to staging at noon, expect ~10min downtime
 
 **🔗 Links**
-• [Active PRs](link) | [Sprint Board](link) | [Migration Runbook](link)
+• Active PRs | Sprint Board | Migration Runbook
 
 ---
 👀 = I've read this | 🤝 = I can help with something | 💬 = Reply in thread

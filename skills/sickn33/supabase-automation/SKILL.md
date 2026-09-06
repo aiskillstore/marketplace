@@ -1,8 +1,9 @@
 ---
 name: supabase-automation
 description: "Automate Supabase database queries, table management, project administration, storage, edge functions, and SQL execution via Rube MCP (Composio). Always search tools first for current schemas."
-requires:
-  mcp: [rube]
+risk: critical
+source: community
+date_added: "2026-02-27"
 ---
 
 # Supabase Automation via Rube MCP
@@ -18,7 +19,6 @@ Automate Supabase operations including database queries, table schema inspection
 ## Setup
 
 **Get Rube MCP**: Add `https://rube.app/mcp` as an MCP server in your client configuration. No API keys needed — just add the endpoint and it works.
-
 
 1. Verify Rube MCP is available by confirming `RUBE_SEARCH_TOOLS` responds
 2. Call `RUBE_MANAGE_CONNECTIONS` with toolkit `supabase`
@@ -234,3 +234,17 @@ Automate Supabase operations including database queries, table schema inspection
 | Get edge function | `SUPABASE_RETRIEVE_A_FUNCTION` | `ref`, function slug |
 | List storage buckets | `SUPABASE_LISTS_ALL_BUCKETS` | `ref` |
 | List DB branches | `SUPABASE_LIST_ALL_DATABASE_BRANCHES` | `ref` |
+
+## When to Use
+This skill is applicable to execute the workflow or actions described in the overview.
+
+## Example
+
+**User request:**
+
+> Automate Supabase database queries, table management, project administration, storage, edge functions, and SQL execution via Rube MCP (Composio).
+
+## Limitations
+- Use this skill only when the task clearly matches the scope described above.
+- Do not treat the output as a substitute for environment-specific validation, testing, or expert review.
+- Stop and ask for clarification if required inputs, permissions, safety boundaries, or success criteria are missing.
