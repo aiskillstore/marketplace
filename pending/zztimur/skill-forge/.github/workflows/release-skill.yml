@@ -1,0 +1,240 @@
+name: Release Skill
+
+on:
+  push:
+    tags:
+      # GitHub Actions tag filters are globs, not SemVer regular expressions.
+      # The release-metadata gate below enforces vMAJOR.MINOR.PATCH exactly.
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Exact annotated vMAJOR.MINOR.PATCH tag to publish
+        required: true
+        type: string
+      receipt_run_id:
+        description: Successful Capture Release Receipt run ID
+        required: true
+        type: string
+      receipt_sha256:
+        description: Reviewer-trusted SHA256 of exact receipt.json bytes
+        required: true
+        type: string
+
+env:
+  RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref_name }}
+  RECEIPT_RUN_ID: ${{ inputs.receipt_run_id }}
+  RECEIPT_SHA256: ${{ inputs.receipt_sha256 }}
+
+concurrency:
+  group: release-${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    name: Build and validate runtime archive
+    runs-on: ubuntu-latest
+    outputs:
+      commit: ${{ steps.candidate.outputs.commit }}
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - name: Check out the committed release revision
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          # Tag events expose the peeled commit as github.sha. Checking out that
+          # commit avoids actions/checkout replacing an annotated tag ref with a
+          # lightweight ref during its final fetch.
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.sha }}
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Restore and prove annotated release tag
+        id: candidate
+        run: |
+          [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          git fetch --force --no-tags origin \
+            "refs/tags/${RELEASE_TAG}:refs/tags/${RELEASE_TAG}"
+          tag_type="$(git cat-file -t "refs/tags/${RELEASE_TAG}" 2>/dev/null || true)"
+          tag_commit="$(git rev-parse "refs/tags/${RELEASE_TAG}^{commit}" 2>/dev/null || true)"
+          head_commit="$(git rev-parse HEAD)"
+          printf 'release_tag=%s object_type=%s tag_commit=%s head=%s\n' \
+            "${RELEASE_TAG}" "${tag_type}" "${tag_commit}" "${head_commit}"
+          test "${tag_type}" = "tag"
+          test "${tag_commit}" = "${head_commit}"
+          echo "commit=${head_commit}" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: '3.x'
+
+      - name: Validate release metadata
+        run: python -S scripts/release_skill.py --verify-tag "${RELEASE_TAG}"
+
+      - name: Build the committed runtime archive
+        run: |
+          mkdir -p dist
+          python -S scripts/package_skill.py build --revision HEAD --output dist/skill-forge.zip
+          (
+            cd dist
+            sha256sum skill-forge.zip > skill-forge.zip.sha256
+          )
+
+      - name: Validate source-only release tooling
+        run: |
+          python -S scripts/validate_audit_contract.py
+          python -S scripts/run_source_tests.py
+
+      - name: Verify archive integrity, source proof, and canonical profiles
+        run: python -S scripts/package_skill.py verify dist/skill-forge.zip --json --source-repo .
+
+      - name: Extract verified runtime archive
+        run: python -S -m zipfile -e dist/skill-forge.zip extracted
+
+      - name: Run regression tests from the extracted runtime
+        run: python -S extracted/skill-forge/scripts/run_self_tests.py
+
+      - name: Generate committed release notes
+        run: |
+          python -S scripts/generate_release_notes.py \
+            --tag "${RELEASE_TAG}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --output dist/RELEASE_NOTES.md
+
+      - name: Require reviewed receipt and successful exact-commit CI
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CANDIDATE_COMMIT: ${{ steps.candidate.outputs.commit }}
+        run: |
+          python -B -S scripts/verify_release_receipt.py \
+            --repository "$GITHUB_REPOSITORY" --release-tag "$RELEASE_TAG" \
+            --commit "$CANDIDATE_COMMIT" --archive dist/skill-forge.zip \
+            --receipt-run-id "$RECEIPT_RUN_ID" --receipt-sha256 "$RECEIPT_SHA256"
+
+      - name: Upload validated release assets
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: skill-forge-release-assets
+          path: |
+            dist/skill-forge.zip
+            dist/skill-forge.zip.sha256
+            dist/RELEASE_NOTES.md
+          if-no-files-found: error
+
+  publish:
+    name: Publish validated release assets
+    if: github.event_name == 'workflow_dispatch'
+    needs: validate
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - name: Check out exact validated candidate for receipt verification
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ needs.validate.outputs.commit }}
+          persist-credentials: false
+
+      - name: Download validated release assets
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: skill-forge-release-assets
+          path: dist
+
+      - name: Recheck receipt and live CI immediately before publication
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CANDIDATE_COMMIT: ${{ needs.validate.outputs.commit }}
+        run: |
+          python3 -B -S scripts/verify_release_receipt.py \
+            --repository "$GITHUB_REPOSITORY" --release-tag "$RELEASE_TAG" \
+            --commit "$CANDIDATE_COMMIT" --archive dist/skill-forge.zip \
+            --receipt-run-id "$RECEIPT_RUN_ID" --receipt-sha256 "$RECEIPT_SHA256"
+          tag_commit="$(gh api "repos/$GITHUB_REPOSITORY/commits/$RELEASE_TAG" --jq .sha)"
+          test "$tag_commit" = "$CANDIDATE_COMMIT"
+
+      - name: Create GitHub Release with ZIP and SHA-256 checksum
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${RELEASE_TAG}" \
+            dist/skill-forge.zip \
+            dist/skill-forge.zip.sha256 \
+            --repo "${GITHUB_REPOSITORY}" \
+            --verify-tag \
+            --title "skill-forge ${RELEASE_TAG}" \
+            --notes-file dist/RELEASE_NOTES.md
+
+  verify-publication:
+    name: Verify published release assets
+    if: github.event_name == 'workflow_dispatch'
+    needs:
+      - validate
+      - publish
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Check out the published release revision
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ needs.validate.outputs.commit }}
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Restore and prove published annotated tag
+        run: |
+          git fetch --force --no-tags origin \
+            "refs/tags/${RELEASE_TAG}:refs/tags/${RELEASE_TAG}"
+          tag_type="$(git cat-file -t "refs/tags/${RELEASE_TAG}" 2>/dev/null || true)"
+          tag_commit="$(git rev-parse "refs/tags/${RELEASE_TAG}^{commit}" 2>/dev/null || true)"
+          head_commit="$(git rev-parse HEAD)"
+          printf 'published_tag=%s object_type=%s tag_commit=%s head=%s\n' \
+            "${RELEASE_TAG}" "${tag_type}" "${tag_commit}" "${head_commit}"
+          test "${tag_type}" = "tag"
+          test "${tag_commit}" = "${head_commit}"
+
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: '3.x'
+
+      - name: Download validated release assets
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: skill-forge-release-assets
+          path: validated
+
+      - name: Download published release assets by exact tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p published
+          gh release download "${RELEASE_TAG}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --pattern "skill-forge.zip" \
+            --pattern "skill-forge.zip.sha256" \
+            --dir published \
+            --clobber
+
+      - name: Compare published assets and verify checksum
+        run: |
+          cmp --silent validated/skill-forge.zip published/skill-forge.zip
+          cmp --silent \
+            validated/skill-forge.zip.sha256 \
+            published/skill-forge.zip.sha256
+          (
+            cd published
+            sha256sum --check --strict skill-forge.zip.sha256
+          )
+
+      - name: Source-prove published archive and canonical profiles
+        run: |
+          python -S scripts/package_skill.py verify \
+            published/skill-forge.zip \
+            --json \
+            --source-repo .

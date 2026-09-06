@@ -1,0 +1,71 @@
+name: Self Tests
+
+on:
+  push:
+    # Release tags are validated by Release Skill. Restricting this workflow to
+    # branches prevents an atomic branch-and-tag release from running the same
+    # cross-platform matrix twice.
+    branches:
+      - "**"
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  linux-containment:
+    name: Linux containment and bounded tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Provision the pinned official test image
+        run: docker pull docker.io/library/python@sha256:933b46a028fd786c9c3d426ebabc237e29a15912231ea8de576e95f0e4f41a4c
+      - name: Probe containment and run reviewed bundled suites
+        run: python3 -B -S evals/run_linux_backend_check.py
+  self-tests:
+    name: ${{ matrix.os }} / Python ${{ matrix.python-version }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        # Exercise the supported floor and latest stable on every supported
+        # runner so path and filesystem assumptions remain portable.
+        python-version: ['3.9', '3.x']
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          # Keep every matrix result bound to the same submitted commit. For
+          # pull requests, do not mix GitHub's temporary merge ref with the
+          # contributor commit embedded in the runtime manifest.
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Validate audit and release-report contract
+        run: python -S scripts/validate_audit_contract.py
+
+      - name: Run source-only release and deterministic evaluation tests
+        run: python -S scripts/run_source_tests.py
+
+      - name: Build committed runtime archive
+        run: python -S scripts/package_skill.py build --revision HEAD --output dist/skill-forge.zip
+
+      - name: Verify archive integrity, source proof, and canonical profiles
+        run: python -S scripts/package_skill.py verify dist/skill-forge.zip --json --source-repo .
+
+      - name: Extract verified runtime archive
+        run: python -S -m zipfile -e dist/skill-forge.zip extracted
+
+      - name: Run regression tests from the extracted runtime
+        run: python -S extracted/skill-forge/scripts/run_self_tests.py
