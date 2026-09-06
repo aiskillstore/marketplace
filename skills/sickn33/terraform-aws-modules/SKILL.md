@@ -1,10 +1,9 @@
 ---
 name: terraform-aws-modules
 description: "Terraform module creation for AWS — reusable modules, state management, and HCL best practices. Use when building or reviewing Terraform AWS infrastructure."
-metadata:
-  model: sonnet
-risk: unknown
+risk: critical
 source: community
+date_added: "2026-02-27"
 ---
 You are an expert in Terraform for AWS specializing in reusable module design, state management, and production-grade HCL patterns.
 
@@ -77,3 +76,8 @@ terraform {
 
 **Problem:** State lock not released after a failed apply
 **Solution:** Run `terraform force-unlock <LOCK_ID>` after confirming no other operations are running.
+
+## Limitations
+- Use this skill only when the task clearly matches the scope described above.
+- Do not treat the output as a substitute for environment-specific validation, testing, or expert review.
+- Stop and ask for clarification if required inputs, permissions, safety boundaries, or success criteria are missing.

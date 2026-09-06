@@ -1,11 +1,10 @@
 ---
 name: terraform-infrastructure
 description: "Terraform infrastructure as code workflow for provisioning cloud resources, creating reusable modules, and managing infrastructure at scale."
-source: personal
-risk: safe
-domain: cloud-devops
 category: granular-workflow-bundle
-version: 1.0.0
+risk: safe
+source: personal
+date_added: "2026-02-27"
 ---
 
 # Terraform Infrastructure Workflow
@@ -162,3 +161,8 @@ Use @secrets-management to secure Terraform secrets
 - `cloud-devops` - Cloud/DevOps
 - `kubernetes-deployment` - Kubernetes
 - `aws-infrastructure` - AWS specific
+
+## Limitations
+- Use this skill only when the task clearly matches the scope described above.
+- Do not treat the output as a substitute for environment-specific validation, testing, or expert review.
+- Stop and ask for clarification if required inputs, permissions, safety boundaries, or success criteria are missing.

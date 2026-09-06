@@ -1,6 +1,9 @@
 ---
 name: tdd-workflows-tdd-cycle
 description: "Use when working with tdd workflows tdd cycle"
+risk: critical
+source: community
+date_added: "2026-02-27"
 ---
 
 ## Use this skill when
@@ -219,3 +222,14 @@ Track and report:
 - Tests should be independent and isolated
 
 TDD implementation for: $ARGUMENTS
+
+## Example
+
+**User request:**
+
+> Implement this behavior with a red-green-refactor cycle and show the failing test, minimal fix, and final passing checks.
+
+## Limitations
+- Use this skill only when the task clearly matches the scope described above.
+- Do not treat the output as a substitute for environment-specific validation, testing, or expert review.
+- Stop and ask for clarification if required inputs, permissions, safety boundaries, or success criteria are missing.
