@@ -1,0 +1,65 @@
+# STOW task-packet: a worked example, and a valid instance of task-packet.schema.json.
+# A task-packet is the machine-readable payload an orchestrator dispatches to a
+# subagent and the subagent returns. Raw YAML region: no prose wrapper, no fence.
+# Cold-reader rule: every field a fresh subagent needs is carried here; nothing
+# depends on transcript state the packet does not itself state.
+#
+# The scenario is a fictional service, cart-session-store. Every path is illustrative.
+
+schema_version: 1
+profile: technical-clarity
+packet_id: TP-dualwrite-coverage-audit
+parent_id: null
+goal: >-
+  Confirm every code path that creates or updates a session in cart-session-store
+  goes through the dual-write wrapper, and report any writer that bypasses it.
+
+inputs:
+  - ref: services/cart-session-store/
+    role: service source whose session writers must be audited
+  - ref: services/cart-session-store/writer.py
+    role: the dual-write wrapper every writer must call
+
+permissions:
+  read_only: true
+  write_scope: []
+  forbidden:
+    - edit any repository file
+    - deploy or toggle a feature flag
+    - run the backfill
+
+expected_output:
+  content_type: application/yaml
+  schema_id: null
+
+acceptance:
+  - id: AC-1
+    predicate: every session create or update calls the dual-write wrapper
+    method: parse
+    expected: zero direct-store writers outside the wrapper
+  - id: AC-2
+    predicate: each bypassing writer is reported with its file and line
+    method: review
+    expected: a list of locators, empty when none bypass
+  - id: AC-3
+    predicate: the count of audited writers is printed
+    method: command
+    expected: one integer printed
+
+done_definition: >-
+  Every session writer is accounted for, any writer that bypasses the dual-write
+  wrapper is listed with a resolvable locator, and the audited-writer count is
+  printed.
+
+# ---- Return block (the subagent fills this in on completion) ------------------
+# status is one of {done, blocked, failed, partial}. When status is done, evidence
+# is non-empty and every acceptance id has a matching evidence entry (for: AC-n).
+result_ref: runs/cart-session-store/dualwrite-coverage-audit.md
+status: done
+evidence:
+  - for: AC-1
+    locator: "command: grep -rn 'session_store.put' services/cart-session-store/"
+  - for: AC-2
+    locator: "file-line: services/cart-session-store/writer.py:120"
+  - for: AC-3
+    locator: "command: grep -rl 'def .*session' services/cart-session-store/ | wc -l"
