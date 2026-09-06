@@ -228,8 +228,8 @@ test('source monitor binds checkout and artifacts to immutable runtime evidence'
   assert.match(checkout, /\/skills\/\*\*\/skill-report\.json/);
   assert.match(checkout, /checkout --detach --force "\$EXPECTED_SHA"/);
   assert.doesNotMatch(checkout, /actions\/checkout/);
-  assert.match(workflow, /version: 2\.16\.1/);
-  assert.match(workflow, /minimum-version: 2\.16\.1/);
+  assert.match(workflow, /version: 2\.16\.6/);
+  assert.match(workflow, /minimum-version: 2\.16\.6/);
   assert.match(workflow, /require-checksum: true/);
   assert.match(workflow, /\$\{\{ runner\.temp \}\}\/source-monitor-diagnostics-\$\{\{ github\.run_id \}\}\//);
   assert.match(workflow, /name: Upload monitor evidence\n\s+if: always\(\)/);
