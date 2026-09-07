@@ -1,67 +1,95 @@
 ---
 name: zapier-make-patterns
-description: "No-code automation democratizes workflow building. Zapier and Make (formerly Integromat) let non-developers automate business processes without writing code. But no-code doesn't mean no-complexity - these platforms have their own patterns, pitfalls, and breaking points.  This skill covers when to use which platform, how to build reliable automations, and when to graduate to code-based solutions. Key insight: Zapier optimizes for simplicity and integrations (7000+ apps), Make optimizes for power "
+description: No-code automation democratizes workflow building. Zapier and Make
+  (formerly Integromat) let non-developers automate business processes without
+  writing code. But no-code doesn't mean no-complexity - these platforms have
+  their own patterns, pitfalls, and breaking points.
+risk: critical
 source: vibeship-spawner-skills (Apache 2.0)
+date_added: 2026-02-27
 ---
 
 # Zapier & Make Patterns
 
-You are a no-code automation architect who has built thousands of Zaps and
-Scenarios for businesses of all sizes. You've seen automations that save
-companies 40% of their time, and you've debugged disasters where bad data
-flowed through 12 connected apps.
+No-code automation democratizes workflow building. Zapier and Make (formerly
+Integromat) let non-developers automate business processes without writing
+code. But no-code doesn't mean no-complexity - these platforms have their
+own patterns, pitfalls, and breaking points.
 
-Your core insight: No-code is powerful but not unlimited. You know exactly
-when a workflow belongs in Zapier (simple, fast, maximum integrations),
-when it belongs in Make (complex branching, data transformation, budget),
-and when it needs to g
+This skill covers when to use which platform, how to build reliable
+automations, and when to graduate to code-based solutions. Key insight:
+Zapier optimizes for simplicity and integrations (7000+ apps), Make
+optimizes for power and cost-efficiency (visual branching, operations-based
+pricing).
 
-## Capabilities
+Critical distinction: No-code works until it doesn't. Know the limits.
 
-- zapier
-- make
-- integromat
-- no-code-automation
-- zaps
-- scenarios
-- workflow-builders
-- business-process-automation
+## Detailed Guide
 
-## Patterns
+Read [the detailed guide](references/detailed-guide.md) before executing this skill. It retains the complete procedure and reference material. Treat its safety, prerequisites, and validation requirements as mandatory. For focused work, load the relevant sections; for end-to-end work, read the guide completely.
 
-### Basic Trigger-Action Pattern
+## Zapier Example
+"""
+Zap Name: "Gmail New Email → Todoist Task"
 
-Single trigger leads to one or more actions
+TRIGGER: Gmail - New Email
+  - From: specific-sender@example.com
+  - Has attachment: yes
+
+ACTION: Todoist - Create Task
+  - Project: Inbox
+  - Content: {{Email Subject}}
+  - Description: From: {{Email From}}
+  - Due date: Tomorrow
+"""
+
+## Make Example
+"""
+Scenario: "Gmail to Todoist"
+
+[Gmail: Watch Emails] → [Todoist: Create a Task]
+
+Gmail Module:
+  - Folder: INBOX
+  - From: specific-sender@example.com
+
+Todoist Module:
+  - Project ID: (select from dropdown)
+  - Content: {{1.subject}}
+  - Due String: tomorrow
+"""
+
+### Best Practices:
+- Use descriptive Zap/Scenario names
+- Test with real sample data
+- Use filters to prevent unwanted runs
 
 ### Multi-Step Sequential Pattern
 
 Chain of actions executed in order
 
-### Conditional Branching Pattern
+**When to use**: Multi-app workflows, data enrichment pipelines
 
-Different actions based on conditions
+# MULTI-STEP SEQUENTIAL:
 
-## Anti-Patterns
+"""
+[Trigger] → [Action 1] → [Action 2] → [Action 3]
+Each step's output available to subsequent steps
+"""
 
-### ❌ Text in Dropdown Fields
+## When to Use
+- User mentions or implies: zapier
+- User mentions or implies: make
+- User mentions or implies: integromat
+- User mentions or implies: zap
+- User mentions or implies: scenario
+- User mentions or implies: no-code automation
+- User mentions or implies: trigger action
+- User mentions or implies: workflow automation
+- User mentions or implies: connect apps
+- User mentions or implies: automate
 
-### ❌ No Error Handling
-
-### ❌ Hardcoded Values
-
-## ⚠️ Sharp Edges
-
-| Issue | Severity | Solution |
-|-------|----------|----------|
-| Issue | critical | # ALWAYS use dropdowns to select, don't type |
-| Issue | critical | # Prevention: |
-| Issue | high | # Understand the math: |
-| Issue | high | # When a Zap breaks after app update: |
-| Issue | high | # Immediate fix: |
-| Issue | medium | # Handle duplicates: |
-| Issue | medium | # Understand operation counting: |
-| Issue | medium | # Best practices: |
-
-## Related Skills
-
-Works well with: `workflow-automation`, `agent-tool-builder`, `backend`, `api-designer`
+## Limitations
+- Use this skill only when the task clearly matches the scope described above.
+- Do not treat the output as a substitute for environment-specific validation, testing, or expert review.
+- Stop and ask for clarification if required inputs, permissions, safety boundaries, or success criteria are missing.

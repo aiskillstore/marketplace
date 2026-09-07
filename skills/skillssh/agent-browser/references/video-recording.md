@@ -20,22 +20,22 @@ Enable video recording when opening a session:
 
 ```bash
 # Start with recording enabled
-SESSION=$(infsh app run agent-browser --function open --session new --input '{
+SESSION=$(belt app run agent-browser --function open --session new --input '{
   "url": "https://example.com",
   "record_video": true
 }' | jq -r '.session_id')
 
 # Perform actions
-infsh app run agent-browser --function interact --session $SESSION --input '{
+belt app run agent-browser --function interact --session $SESSION --input '{
   "action": "click", "ref": "@e1"
 }'
 
-infsh app run agent-browser --function interact --session $SESSION --input '{
+belt app run agent-browser --function interact --session $SESSION --input '{
   "action": "fill", "ref": "@e2", "text": "test input"
 }'
 
 # Close to get the video
-RESULT=$(infsh app run agent-browser --function close --session $SESSION --input '{}')
+RESULT=$(belt app run agent-browser --function close --session $SESSION --input '{}')
 VIDEO=$(echo $RESULT | jq -r '.video')
 echo "Video file: $VIDEO"
 ```
@@ -45,7 +45,7 @@ echo "Video file: $VIDEO"
 For demos and documentation, show a visible cursor that follows mouse movements:
 
 ```bash
-SESSION=$(infsh app run agent-browser --function open --session new --input '{
+SESSION=$(belt app run agent-browser --function open --session new --input '{
   "url": "https://example.com",
   "record_video": true,
   "show_cursor": true
@@ -84,13 +84,13 @@ The video captures:
 #!/bin/bash
 # Record automation for debugging
 
-SESSION=$(infsh app run agent-browser --function open --session new --input '{
+SESSION=$(belt app run agent-browser --function open --session new --input '{
   "url": "https://app.example.com",
   "record_video": true
 }' | jq -r '.session_id')
 
 # Run automation
-RESULT=$(infsh app run agent-browser --function interact --session $SESSION --input '{
+RESULT=$(belt app run agent-browser --function interact --session $SESSION --input '{
   "action": "click", "ref": "@e1"
 }')
 
@@ -100,12 +100,12 @@ if [ "$SUCCESS" != "true" ]; then
   echo "Message: $(echo $RESULT | jq -r '.message')"
 
   # Get video for debugging
-  CLOSE_RESULT=$(infsh app run agent-browser --function close --session $SESSION --input '{}')
+  CLOSE_RESULT=$(belt app run agent-browser --function close --session $SESSION --input '{}')
   echo "Debug video: $(echo $CLOSE_RESULT | jq -r '.video')"
   exit 1
 fi
 
-infsh app run agent-browser --function close --session $SESSION --input '{}'
+belt app run agent-browser --function close --session $SESSION --input '{}'
 ```
 
 ### Documentation Generation
@@ -116,7 +116,7 @@ Record workflows for user documentation:
 #!/bin/bash
 # Record how-to video
 
-SESSION=$(infsh app run agent-browser --function open --session new --input '{
+SESSION=$(belt app run agent-browser --function open --session new --input '{
   "url": "https://app.example.com/settings",
   "record_video": true,
   "width": 1920,
@@ -124,36 +124,36 @@ SESSION=$(infsh app run agent-browser --function open --session new --input '{
 }' | jq -r '.session_id')
 
 # Add pauses for clarity
-infsh app run agent-browser --function interact --session $SESSION --input '{
+belt app run agent-browser --function interact --session $SESSION --input '{
   "action": "wait", "wait_ms": 1000
 }'
 
 # Step 1: Click settings
-infsh app run agent-browser --function interact --session $SESSION --input '{
+belt app run agent-browser --function interact --session $SESSION --input '{
   "action": "click", "ref": "@e5"
 }'
-infsh app run agent-browser --function interact --session $SESSION --input '{
+belt app run agent-browser --function interact --session $SESSION --input '{
   "action": "wait", "wait_ms": 500
 }'
 
 # Step 2: Change setting
-infsh app run agent-browser --function interact --session $SESSION --input '{
+belt app run agent-browser --function interact --session $SESSION --input '{
   "action": "click", "ref": "@e10"
 }'
-infsh app run agent-browser --function interact --session $SESSION --input '{
+belt app run agent-browser --function interact --session $SESSION --input '{
   "action": "wait", "wait_ms": 500
 }'
 
 # Step 3: Save
-infsh app run agent-browser --function interact --session $SESSION --input '{
+belt app run agent-browser --function interact --session $SESSION --input '{
   "action": "click", "ref": "@e15"
 }'
-infsh app run agent-browser --function interact --session $SESSION --input '{
+belt app run agent-browser --function interact --session $SESSION --input '{
   "action": "wait", "wait_ms": 1000
 }'
 
 # Get the video
-RESULT=$(infsh app run agent-browser --function close --session $SESSION --input '{}')
+RESULT=$(belt app run agent-browser --function close --session $SESSION --input '{}')
 echo "Documentation video: $(echo $RESULT | jq -r '.video')"
 ```
 
@@ -165,7 +165,7 @@ echo "Documentation video: $(echo $RESULT | jq -r '.video')"
 
 TEST_NAME="${1:-e2e-test}"
 
-SESSION=$(infsh app run agent-browser --function open --session new --input '{
+SESSION=$(belt app run agent-browser --function open --session new --input '{
   "url": "'"$TEST_URL"'",
   "record_video": true
 }' | jq -r '.session_id')
@@ -175,7 +175,7 @@ run_test_steps $SESSION
 TEST_RESULT=$?
 
 # Always get video
-CLOSE_RESULT=$(infsh app run agent-browser --function close --session $SESSION --input '{}')
+CLOSE_RESULT=$(belt app run agent-browser --function close --session $SESSION --input '{}')
 VIDEO=$(echo $CLOSE_RESULT | jq -r '.video')
 
 # Save to artifacts
@@ -194,7 +194,7 @@ exit $TEST_RESULT
 
 TASK_ID=$(date +%Y%m%d-%H%M%S)
 
-SESSION=$(infsh app run agent-browser --function open --session new --input '{
+SESSION=$(belt app run agent-browser --function open --session new --input '{
   "url": "https://admin.example.com",
   "record_video": true
 }' | jq -r '.session_id')
@@ -203,7 +203,7 @@ SESSION=$(infsh app run agent-browser --function open --session new --input '{
 # ... automation steps ...
 
 # Save recording
-RESULT=$(infsh app run agent-browser --function close --session $SESSION --input '{}')
+RESULT=$(belt app run agent-browser --function close --session $SESSION --input '{}')
 VIDEO=$(echo $RESULT | jq -r '.video')
 
 # Archive for audit
@@ -236,7 +236,7 @@ Always retrieve video even on failure:
 ```bash
 cleanup() {
   if [ -n "$SESSION" ]; then
-    infsh app run agent-browser --function close --session $SESSION --input '{}' 2>/dev/null
+    belt app run agent-browser --function close --session $SESSION --input '{}' 2>/dev/null
   fi
 }
 trap cleanup EXIT
@@ -251,7 +251,7 @@ Use screenshots for key frames, video for flow:
 '{"record_video": true}'
 
 # Capture key states
-infsh app run agent-browser --function screenshot --session $SESSION --input '{
+belt app run agent-browser --function screenshot --session $SESSION --input '{
   "full_page": true
 }'
 ```
