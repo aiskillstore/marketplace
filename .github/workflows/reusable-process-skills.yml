@@ -151,6 +151,8 @@ jobs:
       existing_targets: ${{ steps.targets.outputs.existing_targets }}
       update_targets: ${{ steps.targets.outputs.update_targets }}
       update_snapshots: ${{ steps.targets.outputs.update_snapshots }}
+      pending_update_targets: ${{ steps.targets.outputs.pending_update_targets }}
+      pending_update_snapshots: ${{ steps.targets.outputs.pending_update_snapshots }}
     steps:
       - name: Clear inherited discovery checkout
         run: |
@@ -455,6 +457,8 @@ jobs:
           EXISTING_TARGETS=$(jq -er '.existingTargets | join(",")' <<< "$CLASSIFICATION")
           UPDATE_TARGETS=$(jq -cer '.updateTargets' <<< "$CLASSIFICATION")
           UPDATE_SNAPSHOTS=$(jq -cer '.updateSnapshots // []' <<< "$CLASSIFICATION")
+          PENDING_UPDATE_TARGETS=$(jq -cer '.pendingUpdateTargets // []' <<< "$CLASSIFICATION")
+          PENDING_UPDATE_SNAPSHOTS=$(jq -cer '.pendingUpdateSnapshots // []' <<< "$CLASSIFICATION")
           echo "disposition=$DISPOSITION" >> "$GITHUB_OUTPUT"
           echo "reason_code=$REASON_CODE" >> "$GITHUB_OUTPUT"
           echo "processing_plan=$PROCESSING_PLAN" >> "$GITHUB_OUTPUT"
@@ -462,6 +466,8 @@ jobs:
           echo "existing_targets=$EXISTING_TARGETS" >> "$GITHUB_OUTPUT"
           echo "update_targets=$UPDATE_TARGETS" >> "$GITHUB_OUTPUT"
           echo "update_snapshots=$UPDATE_SNAPSHOTS" >> "$GITHUB_OUTPUT"
+          echo "pending_update_targets=$PENDING_UPDATE_TARGETS" >> "$GITHUB_OUTPUT"
+          echo "pending_update_snapshots=$PENDING_UPDATE_SNAPSHOTS" >> "$GITHUB_OUTPUT"
           if [ "$DISPOSITION" = "all_existing" ]; then
             echo "::notice title=SUBMISSION_ALREADY_PUBLISHED::All $EXISTING_COUNT selected targets already exist; skipping CLI, AI, shards, artifacts, branch, and PR"
           fi
@@ -901,6 +907,8 @@ jobs:
           SHARD_MATRIX: ${{ needs.discover-and-plan.outputs.matrix }}
           UPDATE_TARGETS: ${{ needs.discover-and-plan.outputs.update_targets }}
           UPDATE_SNAPSHOTS: ${{ needs.discover-and-plan.outputs.update_snapshots }}
+          PENDING_UPDATE_TARGETS: ${{ needs.discover-and-plan.outputs.pending_update_targets }}
+          PENDING_UPDATE_SNAPSHOTS: ${{ needs.discover-and-plan.outputs.pending_update_snapshots }}
         run: |
           set -euo pipefail
 
@@ -1024,13 +1032,48 @@ jobs:
           is_update_target() {
             jq -e --arg targetDir "$1" 'index($targetDir) != null' <<< "$UPDATE_TARGETS" >/dev/null
           }
+          jq -e --argjson targets "$PENDING_UPDATE_TARGETS" '
+            (map(.pendingDir) | sort) == ($targets | sort)
+            and (map(.pendingDir) | unique | length) == length
+            and ($targets | unique | length) == ($targets | length)
+          ' <<< "$PENDING_UPDATE_SNAPSHOTS" >/dev/null || {
+            echo "::error::Pending update target and snapshot sets do not match"
+            exit 1
+          }
+          is_pending_update_target() {
+            jq -e --arg pendingDir "$1" 'index($pendingDir) != null' <<< "$PENDING_UPDATE_TARGETS" >/dev/null
+          }
           for pending_dir in "${SUBMISSION_PATHS[@]}"; do
-            test ! -e "$WORK_DIR/$pending_dir" || {
-              echo "::error::Pending path already exists on main: $pending_dir"
-              exit 1
-            }
             target_dir=$(jq -r --arg pendingDir "$pending_dir" \
               '.skills[] | select(.pendingDir == $pendingDir) | .targetDir' "$APPROVAL_PLAN")
+            if is_pending_update_target "$pending_dir"; then
+              test -d "$WORK_DIR/$pending_dir" && test ! -L "$WORK_DIR/$pending_dir" || {
+                echo "::error::Frozen pending update target is missing or unsafe: $pending_dir"
+                exit 1
+              }
+              SNAPSHOT=$(jq -cer --arg pendingDir "$pending_dir" \
+                '[.[] | select(.pendingDir == $pendingDir)] | if length == 1 then .[0] else error("missing pending update snapshot") end' \
+                <<< "$PENDING_UPDATE_SNAPSHOTS")
+              EXPECTED_PENDING_TREE_HASH=$(jq -er '.treeHash' <<< "$SNAPSHOT")
+              EXPECTED_PENDING_SOURCE_REF=$(jq -er '.sourceRef' <<< "$SNAPSHOT")
+              CURRENT_PENDING_REPORT="$WORK_DIR/$pending_dir/skill-report.json"
+              CURRENT_PENDING_TREE_HASH=$(node "$GITHUB_WORKSPACE/scripts/resolve-approved-submission.mjs" \
+                --tree-hash-at-commit \
+                --repo-root "$WORK_DIR" \
+                --commit HEAD \
+                --skill-dir "$pending_dir")
+              jq -e --arg sourceRef "$EXPECTED_PENDING_SOURCE_REF" '.meta.source_ref == $sourceRef' \
+                "$CURRENT_PENDING_REPORT" >/dev/null && [ "$CURRENT_PENDING_TREE_HASH" = "$EXPECTED_PENDING_TREE_HASH" ] || {
+                  echo "::error::Pending update target changed after classification: $pending_dir"
+                  exit 1
+                }
+              rm -rf -- "$WORK_DIR/$pending_dir"
+            else
+              test ! -e "$WORK_DIR/$pending_dir" || {
+                echo "::error::Pending path already exists on main: $pending_dir"
+                exit 1
+              }
+            fi
             if is_update_target "$target_dir"; then
               test -d "$WORK_DIR/$target_dir" && test ! -L "$WORK_DIR/$target_dir" || {
                 echo "::error::Frozen update target is missing or unsafe: $target_dir"

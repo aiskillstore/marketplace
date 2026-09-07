@@ -476,4 +476,10 @@ test('existing-target classification is a pre-CLI gate with a handled rejection 
   assert.match(reusable, /\[ "\$CURRENT_TREE_HASH" = "\$EXPECTED_TREE_HASH" \]/);
   assert.match(reusable, /previous_tree_hash = \$treeHash/);
   assert.match(reusable, /previous_source_ref = \$sourceRef/);
+  assert.match(reusable, /pending_update_targets:/);
+  assert.match(reusable, /pending_update_snapshots:/);
+  assert.match(reusable, /PENDING_UPDATE_TARGETS: \$\{\{ needs\.discover-and-plan\.outputs\.pending_update_targets \}\}/);
+  assert.match(reusable, /Pending update target and snapshot sets do not match/);
+  assert.match(reusable, /Frozen pending update target is missing or unsafe/);
+  assert.match(reusable, /Pending update target changed after classification/);
 });
