@@ -7,7 +7,7 @@ Complete reference for all agent-browser functions. For quick start, see [SKILL.
 All commands follow this pattern:
 
 ```bash
-infsh app run agent-browser --function <function> --session <session_id|new> --input '<json>'
+belt app run agent-browser --function <function> --session <session_id|new> --input '<json>'
 ```
 
 - `--function`: Function to call (open, snapshot, interact, screenshot, execute, close)
@@ -21,7 +21,7 @@ infsh app run agent-browser --function <function> --session <session_id|new> --i
 Navigate to URL and configure browser. This is the entry point for all sessions.
 
 ```bash
-infsh app run agent-browser --function open --session new --input '{
+belt app run agent-browser --function open --session new --input '{
   "url": "https://example.com",
   "width": 1280,
   "height": 720,
@@ -66,7 +66,7 @@ infsh app run agent-browser --function open --session new --input '{
 Re-fetch page state with `@e` refs. Call after navigation or DOM changes.
 
 ```bash
-infsh app run agent-browser --function snapshot --session $SESSION_ID --input '{}'
+belt app run agent-browser --function snapshot --session $SESSION_ID --input '{}'
 ```
 
 **Output:** Same as `open` (url, title, elements, elements_text, screenshot)
@@ -76,7 +76,7 @@ infsh app run agent-browser --function snapshot --session $SESSION_ID --input '{
 Perform actions on the page using `@e` refs.
 
 ```bash
-infsh app run agent-browser --function interact --session $SESSION_ID --input '{
+belt app run agent-browser --function interact --session $SESSION_ID --input '{
   "action": "click",
   "ref": "@e1"
 }'
@@ -138,7 +138,7 @@ infsh app run agent-browser --function interact --session $SESSION_ID --input '{
 Take a screenshot of the current page.
 
 ```bash
-infsh app run agent-browser --function screenshot --session $SESSION_ID --input '{
+belt app run agent-browser --function screenshot --session $SESSION_ID --input '{
   "full_page": true
 }'
 ```
@@ -164,7 +164,7 @@ infsh app run agent-browser --function screenshot --session $SESSION_ID --input 
 Run JavaScript code on the page.
 
 ```bash
-infsh app run agent-browser --function execute --session $SESSION_ID --input '{
+belt app run agent-browser --function execute --session $SESSION_ID --input '{
   "code": "document.title"
 }'
 ```
@@ -212,7 +212,7 @@ infsh app run agent-browser --function execute --session $SESSION_ID --input '{
 Close the browser session. Returns video if recording was enabled.
 
 ```bash
-infsh app run agent-browser --function close --session $SESSION_ID --input '{}'
+belt app run agent-browser --function close --session $SESSION_ID --input '{}'
 ```
 
 **Output:**

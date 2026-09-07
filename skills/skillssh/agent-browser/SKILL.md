@@ -1,8 +1,10 @@
 ---
 name: agent-browser
 description: "Browser automation for AI agents via inference.sh. Navigate web pages, interact with elements using @e refs, take screenshots, record video. Capabilities: web scraping, form filling, clicking, typing, drag-drop, file upload, JavaScript execution. Use for: web automation, data extraction, testing, agent browsing, research. Triggers: browser, web automation, scrape, navigate, click, fill form, screenshot, browse web, playwright, headless browser, web agent, surf internet, record video"
-allowed-tools: Bash(infsh *)
+allowed-tools: Bash(belt *)
 ---
+
+> **Install the belt CLI skill:** `npx skills add belt-sh/cli`
 
 # Agentic Browser
 
@@ -12,13 +14,13 @@ Browser automation for AI agents via [inference.sh](https://inference.sh). Uses 
 
 ## Quick Start
 
-> Requires inference.sh CLI (`infsh`). [Install instructions](https://raw.githubusercontent.com/inference-sh/skills/refs/heads/main/cli-install.md)
+> Requires inference.sh CLI (`belt`). [Install instructions](https://raw.githubusercontent.com/inference-sh/skills/refs/heads/main/cli-install.md)
 
 ```bash
-infsh login
+belt login
 
 # Open a page and get interactive elements
-infsh app run agent-browser --function open --input '{"url": "https://example.com"}' --session new
+belt app run agent-browser --function open --input '{"url": "https://example.com"}' --session new
 ```
 
 
@@ -33,28 +35,28 @@ Every browser automation follows this pattern:
 
 ```bash
 # 1. Start session
-RESULT=$(infsh app run agent-browser --function open --session new --input '{
+RESULT=$(belt app run agent-browser --function open --session new --input '{
   "url": "https://example.com/login"
 }')
 SESSION_ID=$(echo $RESULT | jq -r '.session_id')
 # Elements: @e1 [input] "Email", @e2 [input] "Password", @e3 [button] "Sign In"
 
 # 2. Fill and submit
-infsh app run agent-browser --function interact --session $SESSION_ID --input '{
+belt app run agent-browser --function interact --session $SESSION_ID --input '{
   "action": "fill", "ref": "@e1", "text": "user@example.com"
 }'
-infsh app run agent-browser --function interact --session $SESSION_ID --input '{
+belt app run agent-browser --function interact --session $SESSION_ID --input '{
   "action": "fill", "ref": "@e2", "text": "password123"
 }'
-infsh app run agent-browser --function interact --session $SESSION_ID --input '{
+belt app run agent-browser --function interact --session $SESSION_ID --input '{
   "action": "click", "ref": "@e3"
 }'
 
 # 3. Re-snapshot after navigation
-infsh app run agent-browser --function snapshot --session $SESSION_ID --input '{}'
+belt app run agent-browser --function snapshot --session $SESSION_ID --input '{}'
 
 # 4. Close when done
-infsh app run agent-browser --function close --session $SESSION_ID --input '{}'
+belt app run agent-browser --function close --session $SESSION_ID --input '{}'
 ```
 
 ## Functions
@@ -113,7 +115,7 @@ Record browser sessions for debugging or documentation:
 
 ```bash
 # Start with recording enabled (optionally show cursor indicator)
-SESSION=$(infsh app run agent-browser --function open --session new --input '{
+SESSION=$(belt app run agent-browser --function open --session new --input '{
   "url": "https://example.com",
   "record_video": true,
   "show_cursor": true
@@ -122,7 +124,7 @@ SESSION=$(infsh app run agent-browser --function open --session new --input '{
 # ... perform actions ...
 
 # Close to get the video file
-infsh app run agent-browser --function close --session $SESSION --input '{}'
+belt app run agent-browser --function close --session $SESSION --input '{}'
 # Returns: {"success": true, "video": <File>}
 ```
 
@@ -131,7 +133,7 @@ infsh app run agent-browser --function close --session $SESSION --input '{}'
 Show a visible cursor in screenshots and video (useful for demos):
 
 ```bash
-infsh app run agent-browser --function open --session new --input '{
+belt app run agent-browser --function open --session new --input '{
   "url": "https://example.com",
   "show_cursor": true,
   "record_video": true
@@ -145,7 +147,7 @@ The cursor appears as a red dot that follows mouse movements and shows click fee
 Route traffic through a proxy server:
 
 ```bash
-infsh app run agent-browser --function open --session new --input '{
+belt app run agent-browser --function open --session new --input '{
   "url": "https://example.com",
   "proxy_url": "http://proxy.example.com:8080",
   "proxy_username": "user",
@@ -158,7 +160,7 @@ infsh app run agent-browser --function open --session new --input '{
 Upload files to file inputs:
 
 ```bash
-infsh app run agent-browser --function interact --session $SESSION --input '{
+belt app run agent-browser --function interact --session $SESSION --input '{
   "action": "upload",
   "ref": "@e5",
   "file_paths": ["/path/to/file.pdf"]
@@ -170,7 +172,7 @@ infsh app run agent-browser --function interact --session $SESSION --input '{
 Drag elements to targets:
 
 ```bash
-infsh app run agent-browser --function interact --session $SESSION --input '{
+belt app run agent-browser --function interact --session $SESSION --input '{
   "action": "drag",
   "ref": "@e1",
   "target_ref": "@e2"
@@ -182,7 +184,7 @@ infsh app run agent-browser --function interact --session $SESSION --input '{
 Run custom JavaScript:
 
 ```bash
-infsh app run agent-browser --function execute --session $SESSION --input '{
+belt app run agent-browser --function execute --session $SESSION --input '{
   "code": "document.querySelectorAll(\"h2\").length"
 }'
 # Returns: {"result": "5", "screenshot": <File>}
@@ -212,51 +214,51 @@ infsh app run agent-browser --function execute --session $SESSION --input '{
 ### Form Submission
 
 ```bash
-SESSION=$(infsh app run agent-browser --function open --session new --input '{
+SESSION=$(belt app run agent-browser --function open --session new --input '{
   "url": "https://example.com/contact"
 }' | jq -r '.session_id')
 
 # Get elements: @e1 [input] "Name", @e2 [input] "Email", @e3 [textarea], @e4 [button] "Send"
 
-infsh app run agent-browser --function interact --session $SESSION --input '{"action": "fill", "ref": "@e1", "text": "John Doe"}'
-infsh app run agent-browser --function interact --session $SESSION --input '{"action": "fill", "ref": "@e2", "text": "john@example.com"}'
-infsh app run agent-browser --function interact --session $SESSION --input '{"action": "fill", "ref": "@e3", "text": "Hello!"}'
-infsh app run agent-browser --function interact --session $SESSION --input '{"action": "click", "ref": "@e4"}'
+belt app run agent-browser --function interact --session $SESSION --input '{"action": "fill", "ref": "@e1", "text": "John Doe"}'
+belt app run agent-browser --function interact --session $SESSION --input '{"action": "fill", "ref": "@e2", "text": "john@example.com"}'
+belt app run agent-browser --function interact --session $SESSION --input '{"action": "fill", "ref": "@e3", "text": "Hello!"}'
+belt app run agent-browser --function interact --session $SESSION --input '{"action": "click", "ref": "@e4"}'
 
-infsh app run agent-browser --function snapshot --session $SESSION --input '{}'
-infsh app run agent-browser --function close --session $SESSION --input '{}'
+belt app run agent-browser --function snapshot --session $SESSION --input '{}'
+belt app run agent-browser --function close --session $SESSION --input '{}'
 ```
 
 ### Search and Extract
 
 ```bash
-SESSION=$(infsh app run agent-browser --function open --session new --input '{
+SESSION=$(belt app run agent-browser --function open --session new --input '{
   "url": "https://google.com"
 }' | jq -r '.session_id')
 
-infsh app run agent-browser --function interact --session $SESSION --input '{"action": "fill", "ref": "@e1", "text": "weather today"}'
-infsh app run agent-browser --function interact --session $SESSION --input '{"action": "press", "text": "Enter"}'
-infsh app run agent-browser --function interact --session $SESSION --input '{"action": "wait", "wait_ms": 2000}'
+belt app run agent-browser --function interact --session $SESSION --input '{"action": "fill", "ref": "@e1", "text": "weather today"}'
+belt app run agent-browser --function interact --session $SESSION --input '{"action": "press", "text": "Enter"}'
+belt app run agent-browser --function interact --session $SESSION --input '{"action": "wait", "wait_ms": 2000}'
 
-infsh app run agent-browser --function snapshot --session $SESSION --input '{}'
-infsh app run agent-browser --function close --session $SESSION --input '{}'
+belt app run agent-browser --function snapshot --session $SESSION --input '{}'
+belt app run agent-browser --function close --session $SESSION --input '{}'
 ```
 
 ### Screenshot with Video
 
 ```bash
-SESSION=$(infsh app run agent-browser --function open --session new --input '{
+SESSION=$(belt app run agent-browser --function open --session new --input '{
   "url": "https://example.com",
   "record_video": true
 }' | jq -r '.session_id')
 
 # Take full page screenshot
-infsh app run agent-browser --function screenshot --session $SESSION --input '{
+belt app run agent-browser --function screenshot --session $SESSION --input '{
   "full_page": true
 }'
 
 # Close and get video
-RESULT=$(infsh app run agent-browser --function close --session $SESSION --input '{}')
+RESULT=$(belt app run agent-browser --function close --session $SESSION --input '{}')
 echo $RESULT | jq '.video'
 ```
 

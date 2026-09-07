@@ -32,8 +32,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### 🔗 Related
 
-- Identified by Codex automated review in antigravity-awesome-skills PR #62
-- Also fixed in antigravity-awesome-skills fork
+- Identified by Codex automated review in agentic-awesome-skills PR #62
+- Also fixed in the agentic-awesome-skills fork
 
 ---
 

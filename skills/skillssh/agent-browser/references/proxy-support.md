@@ -19,7 +19,7 @@ Proxy configuration for geo-testing, privacy, and corporate environments.
 Set proxy when opening a session:
 
 ```bash
-SESSION=$(infsh app run agent-browser --function open --session new --input '{
+SESSION=$(belt app run agent-browser --function open --session new --input '{
   "url": "https://example.com",
   "proxy_url": "http://proxy.example.com:8080"
 }' | jq -r '.session_id')
@@ -32,7 +32,7 @@ All traffic for this session routes through the proxy.
 For proxies requiring username/password:
 
 ```bash
-SESSION=$(infsh app run agent-browser --function open --session new --input '{
+SESSION=$(belt app run agent-browser --function open --session new --input '{
   "url": "https://example.com",
   "proxy_url": "http://proxy.example.com:8080",
   "proxy_username": "myuser",
@@ -62,21 +62,21 @@ for entry in "${PROXIES[@]}"; do
 
   echo "Testing from: $REGION"
 
-  SESSION=$(infsh app run agent-browser --function open --session new --input '{
+  SESSION=$(belt app run agent-browser --function open --session new --input '{
     "url": "https://mysite.com",
     "proxy_url": "'"$PROXY"'"
   }' | jq -r '.session_id')
 
   # Take screenshot
-  infsh app run agent-browser --function screenshot --session $SESSION --input '{
+  belt app run agent-browser --function screenshot --session $SESSION --input '{
     "full_page": true
   }' > "${REGION}-screenshot.json"
 
   # Get page content
-  RESULT=$(infsh app run agent-browser --function snapshot --session $SESSION --input '{}')
+  RESULT=$(belt app run agent-browser --function snapshot --session $SESSION --input '{}')
   echo $RESULT | jq '.elements_text' > "${REGION}-elements.txt"
 
-  infsh app run agent-browser --function close --session $SESSION --input '{}'
+  belt app run agent-browser --function close --session $SESSION --input '{}'
 done
 
 echo "Geo-testing complete"
@@ -110,18 +110,18 @@ for i in "${!URLS[@]}"; do
 
   echo "Fetching $URL via proxy $((PROXY_INDEX + 1))"
 
-  SESSION=$(infsh app run agent-browser --function open --session new --input '{
+  SESSION=$(belt app run agent-browser --function open --session new --input '{
     "url": "'"$URL"'",
     "proxy_url": "'"$PROXY"'"
   }' | jq -r '.session_id')
 
   # Extract data
-  RESULT=$(infsh app run agent-browser --function execute --session $SESSION --input '{
+  RESULT=$(belt app run agent-browser --function execute --session $SESSION --input '{
     "code": "document.body.innerText"
   }')
   echo $RESULT | jq -r '.result' > "page-$i.txt"
 
-  infsh app run agent-browser --function close --session $SESSION --input '{}'
+  belt app run agent-browser --function close --session $SESSION --input '{}'
 
   # Polite delay
   sleep 1
@@ -134,7 +134,7 @@ Access sites through corporate proxy:
 
 ```bash
 # Use corporate proxy for external sites
-SESSION=$(infsh app run agent-browser --function open --session new --input '{
+SESSION=$(belt app run agent-browser --function open --session new --input '{
   "url": "https://external-vendor.com",
   "proxy_url": "http://corpproxy.company.com:8080",
   "proxy_username": "'"$CORP_USER"'",
@@ -147,7 +147,7 @@ SESSION=$(infsh app run agent-browser --function open --session new --input '{
 Route through privacy-focused proxy:
 
 ```bash
-SESSION=$(infsh app run agent-browser --function open --session new --input '{
+SESSION=$(belt app run agent-browser --function open --session new --input '{
   "url": "https://whatismyip.com",
   "proxy_url": "socks5://privacy-proxy.example.com:1080"
 }' | jq -r '.session_id')
@@ -183,18 +183,18 @@ SESSION=$(infsh app run agent-browser --function open --session new --input '{
 Check that traffic routes through proxy:
 
 ```bash
-SESSION=$(infsh app run agent-browser --function open --session new --input '{
+SESSION=$(belt app run agent-browser --function open --session new --input '{
   "url": "https://httpbin.org/ip",
   "proxy_url": "http://proxy.example.com:8080"
 }' | jq -r '.session_id')
 
 # Get the IP shown
-RESULT=$(infsh app run agent-browser --function execute --session $SESSION --input '{
+RESULT=$(belt app run agent-browser --function execute --session $SESSION --input '{
   "code": "document.body.innerText"
 }')
 echo "IP via proxy: $(echo $RESULT | jq -r '.result')"
 
-infsh app run agent-browser --function close --session $SESSION --input '{}'
+belt app run agent-browser --function close --session $SESSION --input '{}'
 ```
 
 The IP should be the proxy's IP, not your real IP.
@@ -264,7 +264,7 @@ curl -x "$PROXY_URL" https://httpbin.org/ip
 ```bash
 # Retry with different proxy on failure
 for PROXY in "${PROXIES[@]}"; do
-  SESSION=$(infsh app run agent-browser --function open --session new --input '{
+  SESSION=$(belt app run agent-browser --function open --session new --input '{
     "url": "'"$URL"'",
     "proxy_url": "'"$PROXY"'"
   }' 2>&1)

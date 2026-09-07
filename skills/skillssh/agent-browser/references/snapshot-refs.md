@@ -31,7 +31,7 @@ The snapshot extracts interactive elements and assigns short `@e` refs, reducing
 ## Snapshot Output Format
 
 ```bash
-infsh app run agent-browser --function snapshot --session $SESSION --input '{}'
+belt app run agent-browser --function snapshot --session $SESSION --input '{}'
 ```
 
 **Response `elements_text`:**
@@ -92,16 +92,16 @@ Once you have refs, interact directly:
 
 ```bash
 # Get initial snapshot
-infsh app run agent-browser --function snapshot --session $SESSION --input '{}'
+belt app run agent-browser --function snapshot --session $SESSION --input '{}'
 # @e1 [button] "Next"
 
 # Click triggers page change
-infsh app run agent-browser --function interact --session $SESSION --input '{
+belt app run agent-browser --function interact --session $SESSION --input '{
   "action": "click", "ref": "@e1"
 }'
 
 # MUST re-snapshot to get new refs!
-infsh app run agent-browser --function snapshot --session $SESSION --input '{}'
+belt app run agent-browser --function snapshot --session $SESSION --input '{}'
 # @e1 [h1] "Page 2"  <- Different element now!
 ```
 
@@ -121,7 +121,7 @@ The `interact` function returns a fresh snapshot in its response, so you can oft
 
 ```bash
 # CORRECT: Use snapshot from previous response
-RESULT=$(infsh app run agent-browser --function interact --session $SESSION --input '{
+RESULT=$(belt app run agent-browser --function interact --session $SESSION --input '{
   "action": "click", "ref": "@e1"
 }')
 # Use elements from $RESULT.snapshot for next action
@@ -133,7 +133,7 @@ RESULT=$(infsh app run agent-browser --function interact --session $SESSION --in
 ### 2. Check Success Before Continuing
 
 ```bash
-RESULT=$(infsh app run agent-browser --function interact --session $SESSION --input '{
+RESULT=$(belt app run agent-browser --function interact --session $SESSION --input '{
   "action": "click", "ref": "@e5"
 }')
 
@@ -209,7 +209,7 @@ Non-interactive or hidden elements are filtered out.
 **Solution**: Re-snapshot. The page changed and refs are stale.
 
 ```bash
-infsh app run agent-browser --function snapshot --session $SESSION --input '{}'
+belt app run agent-browser --function snapshot --session $SESSION --input '{}'
 # Now use the new refs
 ```
 

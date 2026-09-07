@@ -21,7 +21,7 @@ Standard username/password login:
 #!/bin/bash
 
 # Start session
-SESSION=$(infsh app run agent-browser --function open --session new --input '{
+SESSION=$(belt app run agent-browser --function open --session new --input '{
   "url": "https://app.example.com/login"
 }' | jq -r '.session_id')
 
@@ -29,26 +29,26 @@ SESSION=$(infsh app run agent-browser --function open --session new --input '{
 # Expected: @e1 [input type="email"], @e2 [input type="password"], @e3 [button] "Sign In"
 
 # Fill credentials
-infsh app run agent-browser --function interact --session $SESSION --input '{
+belt app run agent-browser --function interact --session $SESSION --input '{
   "action": "fill", "ref": "@e1", "text": "user@example.com"
 }'
 
-infsh app run agent-browser --function interact --session $SESSION --input '{
+belt app run agent-browser --function interact --session $SESSION --input '{
   "action": "fill", "ref": "@e2", "text": "'"$PASSWORD"'"
 }'
 
 # Submit
-infsh app run agent-browser --function interact --session $SESSION --input '{
+belt app run agent-browser --function interact --session $SESSION --input '{
   "action": "click", "ref": "@e3"
 }'
 
 # Wait for redirect
-infsh app run agent-browser --function interact --session $SESSION --input '{
+belt app run agent-browser --function interact --session $SESSION --input '{
   "action": "wait", "wait_ms": 2000
 }'
 
 # Verify login succeeded
-RESULT=$(infsh app run agent-browser --function snapshot --session $SESSION --input '{}')
+RESULT=$(belt app run agent-browser --function snapshot --session $SESSION --input '{}')
 URL=$(echo $RESULT | jq -r '.url')
 
 if [[ "$URL" == *"/login"* ]]; then
@@ -67,52 +67,52 @@ For OAuth redirects (Google, GitHub, etc.):
 ```bash
 #!/bin/bash
 
-SESSION=$(infsh app run agent-browser --function open --session new --input '{
+SESSION=$(belt app run agent-browser --function open --session new --input '{
   "url": "https://app.example.com/auth/google"
 }' | jq -r '.session_id')
 
 # Wait for redirect to Google
-infsh app run agent-browser --function interact --session $SESSION --input '{
+belt app run agent-browser --function interact --session $SESSION --input '{
   "action": "wait", "wait_ms": 3000
 }'
 
 # Snapshot to see Google login form
-RESULT=$(infsh app run agent-browser --function snapshot --session $SESSION --input '{}')
+RESULT=$(belt app run agent-browser --function snapshot --session $SESSION --input '{}')
 echo $RESULT | jq '.elements_text'
 
 # Fill Google email
-infsh app run agent-browser --function interact --session $SESSION --input '{
+belt app run agent-browser --function interact --session $SESSION --input '{
   "action": "fill", "ref": "@e1", "text": "user@gmail.com"
 }'
 
 # Click Next
-infsh app run agent-browser --function interact --session $SESSION --input '{
+belt app run agent-browser --function interact --session $SESSION --input '{
   "action": "click", "ref": "@e2"
 }'
 
 # Wait and snapshot for password field
-infsh app run agent-browser --function interact --session $SESSION --input '{
+belt app run agent-browser --function interact --session $SESSION --input '{
   "action": "wait", "wait_ms": 2000
 }'
-RESULT=$(infsh app run agent-browser --function snapshot --session $SESSION --input '{}')
+RESULT=$(belt app run agent-browser --function snapshot --session $SESSION --input '{}')
 
 # Fill password
-infsh app run agent-browser --function interact --session $SESSION --input '{
+belt app run agent-browser --function interact --session $SESSION --input '{
   "action": "fill", "ref": "@e1", "text": "'"$GOOGLE_PASSWORD"'"
 }'
 
 # Click Sign in
-infsh app run agent-browser --function interact --session $SESSION --input '{
+belt app run agent-browser --function interact --session $SESSION --input '{
   "action": "click", "ref": "@e2"
 }'
 
 # Wait for redirect back to app
-infsh app run agent-browser --function interact --session $SESSION --input '{
+belt app run agent-browser --function interact --session $SESSION --input '{
   "action": "wait", "wait_ms": 5000
 }'
 
 # Verify we're back on the app
-RESULT=$(infsh app run agent-browser --function snapshot --session $SESSION --input '{}')
+RESULT=$(belt app run agent-browser --function snapshot --session $SESSION --input '{}')
 URL=$(echo $RESULT | jq -r '.url')
 echo "Final URL: $URL"
 ```
@@ -125,7 +125,7 @@ For 2FA, you may need human intervention or TOTP generation:
 
 ```bash
 # After password, check for 2FA prompt
-RESULT=$(infsh app run agent-browser --function snapshot --session $SESSION --input '{}')
+RESULT=$(belt app run agent-browser --function snapshot --session $SESSION --input '{}')
 ELEMENTS=$(echo $RESULT | jq -r '.elements_text')
 
 if echo "$ELEMENTS" | grep -qi "verification\|2fa\|authenticator"; then
@@ -133,12 +133,12 @@ if echo "$ELEMENTS" | grep -qi "verification\|2fa\|authenticator"; then
   TOTP_CODE=$(oathtool --totp -b "$TOTP_SECRET")
 
   # Fill 2FA code
-  infsh app run agent-browser --function interact --session $SESSION --input '{
+  belt app run agent-browser --function interact --session $SESSION --input '{
     "action": "fill", "ref": "@e1", "text": "'"$TOTP_CODE"'"
   }'
 
   # Submit
-  infsh app run agent-browser --function interact --session $SESSION --input '{
+  belt app run agent-browser --function interact --session $SESSION --input '{
     "action": "click", "ref": "@e2"
   }'
 fi
@@ -150,7 +150,7 @@ For SMS or hardware token 2FA:
 
 ```bash
 # Record video so user can see the 2FA prompt
-SESSION=$(infsh app run agent-browser --function open --session new --input '{
+SESSION=$(belt app run agent-browser --function open --session new --input '{
   "url": "https://app.example.com/login",
   "record_video": true
 }' | jq -r '.session_id')
@@ -161,7 +161,7 @@ SESSION=$(infsh app run agent-browser --function open --session new --input '{
 echo "2FA code sent. Enter the code:"
 read -r CODE
 
-infsh app run agent-browser --function interact --session $SESSION --input '{
+belt app run agent-browser --function interact --session $SESSION --input '{
   "action": "fill", "ref": "@e1", "text": "'"$CODE"'"
 }'
 ```
@@ -176,7 +176,7 @@ Since sessions maintain cookies, you can reuse authenticated sessions:
 
 # Login once
 login() {
-  SESSION=$(infsh app run agent-browser --function open --session new --input '{
+  SESSION=$(belt app run agent-browser --function open --session new --input '{
     "url": "https://app.example.com/login"
   }' | jq -r '.session_id')
 
@@ -190,12 +190,12 @@ do_work() {
   local SESSION=$1
 
   # Navigate to protected page
-  infsh app run agent-browser --function interact --session $SESSION --input '{
+  belt app run agent-browser --function interact --session $SESSION --input '{
     "action": "goto", "url": "https://app.example.com/dashboard"
   }'
 
   # Extract data
-  infsh app run agent-browser --function snapshot --session $SESSION --input '{}'
+  belt app run agent-browser --function snapshot --session $SESSION --input '{}'
 }
 
 # Main
@@ -203,7 +203,7 @@ SESSION=$(login)
 do_work $SESSION
 
 # Don't close if you want to reuse!
-# infsh app run agent-browser --function close --session $SESSION --input '{}'
+# belt app run agent-browser --function close --session $SESSION --input '{}'
 ```
 
 ## Cookie Extraction
@@ -212,14 +212,14 @@ Extract cookies for use in other tools:
 
 ```bash
 # Get cookies via JavaScript
-RESULT=$(infsh app run agent-browser --function execute --session $SESSION --input '{
+RESULT=$(belt app run agent-browser --function execute --session $SESSION --input '{
   "code": "document.cookie"
 }')
 COOKIES=$(echo $RESULT | jq -r '.result')
 echo "Cookies: $COOKIES"
 
 # Get all cookies including httpOnly (more complete)
-RESULT=$(infsh app run agent-browser --function execute --session $SESSION --input '{
+RESULT=$(belt app run agent-browser --function execute --session $SESSION --input '{
   "code": "JSON.stringify(performance.getEntriesByType(\"resource\").map(r => r.name))"
 }')
 ```
@@ -260,7 +260,7 @@ echo "Password: $PASSWORD"  # Never do this!
 
 ```bash
 # Always clean up
-trap 'infsh app run agent-browser --function close --session $SESSION --input "{}" 2>/dev/null' EXIT
+trap 'belt app run agent-browser --function close --session $SESSION --input "{}" 2>/dev/null' EXIT
 ```
 
 ### 5. Use Video Recording for Debugging Only
