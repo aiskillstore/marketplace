@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+import { createHash } from 'node:crypto';
 import {
   lstatSync,
   readFileSync,
@@ -9,10 +10,11 @@ import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { validateSlugAliasRegistry } from './discover-submission-skills.mjs';
 import { calculateCanonicalTreeHash } from './resolve-approved-submission.mjs';
+import { calculatePendingGitTreeOidAtCommit } from './replace-pending-submission.mjs';
 import { parseSelectionPlan, validateSelectionPlan } from './submission-selection-plan.mjs';
 
 const SOURCE_TYPES = new Set(['community', 'official']);
-// Must stay aligned with the exact CLI 2.15.7 trust allowlist pinned by the workflow.
+// Must stay aligned with the exact CLI 2.16.5 trust allowlist pinned by the workflow.
 const OFFICIAL_REPOSITORIES = new Set([
   'aiskillstore/marketplace',
   'anthropics/skills',
@@ -391,6 +393,10 @@ export function classifySubmissionTargets({
         pendingUpdateSnapshots.push({
           pendingDir: pendingTarget.relativePath,
           treeHash: calculateCanonicalTreeHash(root, pendingTarget.relativePath),
+          reportHash: createHash('sha256')
+            .update(readFileSync(join(pendingTarget.directory, 'skill-report.json')))
+            .digest('hex'),
+          gitTreeOid: calculatePendingGitTreeOidAtCommit(root, 'HEAD', pendingTarget.relativePath),
           sourceRef: pendingTarget.sourceRef,
         });
       }

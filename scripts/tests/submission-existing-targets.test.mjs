@@ -1,16 +1,20 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import {
   mkdirSync,
   mkdtempSync,
+  readFileSync,
   rmSync,
   symlinkSync,
   writeFileSync,
 } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { spawnSync } from 'node:child_process';
 import { test } from 'node:test';
 import { classifySubmissionTargets } from '../classify-submission-targets.mjs';
 import { calculateCanonicalTreeHash } from '../resolve-approved-submission.mjs';
+import { calculatePendingGitTreeOidAtCommit } from '../replace-pending-submission.mjs';
 
 const SOURCE_COMMIT = '1'.repeat(40);
 
@@ -108,6 +112,20 @@ function writeTarget(root, slug, {
     writeFileSync(join(directory, 'skill-report.json'), `${JSON.stringify(report)}\n`);
   }
   return directory;
+}
+
+function git(root, ...args) {
+  const result = spawnSync('git', args, { cwd: root, encoding: 'utf8' });
+  assert.equal(result.status, 0, result.stderr);
+  return result.stdout.trim();
+}
+
+function commitMarketplace(root) {
+  git(root, 'init', '-q');
+  git(root, 'config', 'user.email', 'test@example.com');
+  git(root, 'config', 'user.name', 'Test');
+  git(root, 'add', '-A');
+  git(root, 'commit', '-qm', 'fixture');
 }
 
 function classify(root, plan = selectionPlan()) {
@@ -338,6 +356,7 @@ test('same-source pending follow-up is processable and binds the prior snapshot'
     rootDirectory: 'pending',
     sourceRef: previousRef,
   });
+  commitMarketplace(root);
   const plan = selectionPlan([{ slug: 'alpha', path: 'skills/alpha' }]);
   const result = classify(root, plan);
   assert.equal(result.disposition, 'processable');
@@ -347,6 +366,10 @@ test('same-source pending follow-up is processable and binds the prior snapshot'
   assert.deepEqual(result.pendingUpdateSnapshots, [{
     pendingDir: 'pending/example/alpha',
     treeHash: calculateCanonicalTreeHash(root, 'pending/example/alpha'),
+    reportHash: createHash('sha256')
+      .update(readFileSync(join(root, 'pending/example/alpha/skill-report.json')))
+      .digest('hex'),
+    gitTreeOid: calculatePendingGitTreeOidAtCommit(root, 'HEAD', 'pending/example/alpha'),
     sourceRef: previousRef,
   }]);
 }));

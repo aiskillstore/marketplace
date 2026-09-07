@@ -113,6 +113,7 @@ env:
     /scripts/resolve-submission-source.mjs
     /scripts/discover-submission-skills.mjs
     /scripts/classify-submission-targets.mjs
+    /scripts/replace-pending-submission.mjs
     /scripts/process-submission-shard.mjs
     /scripts/submission-selection-plan.mjs
     /scripts/submission-shard-contract.mjs
@@ -213,6 +214,7 @@ jobs:
             "scripts/resolve-submission-source.mjs"
             "scripts/discover-submission-skills.mjs"
             "scripts/classify-submission-targets.mjs"
+            "scripts/replace-pending-submission.mjs"
             "scripts/process-submission-shard.mjs"
             "scripts/submission-selection-plan.mjs"
             "scripts/submission-shard-contract.mjs"
@@ -657,6 +659,7 @@ jobs:
             "scripts/resolve-submission-source.mjs"
             "scripts/discover-submission-skills.mjs"
             "scripts/classify-submission-targets.mjs"
+            "scripts/replace-pending-submission.mjs"
             "scripts/process-submission-shard.mjs"
             "scripts/submission-selection-plan.mjs"
             "scripts/submission-shard-contract.mjs"
@@ -860,6 +863,7 @@ jobs:
             "scripts/resolve-submission-source.mjs"
             "scripts/discover-submission-skills.mjs"
             "scripts/classify-submission-targets.mjs"
+            "scripts/replace-pending-submission.mjs"
             "scripts/process-submission-shard.mjs"
             "scripts/submission-selection-plan.mjs"
             "scripts/submission-shard-contract.mjs"
@@ -1055,19 +1059,17 @@ jobs:
                 '[.[] | select(.pendingDir == $pendingDir)] | if length == 1 then .[0] else error("missing pending update snapshot") end' \
                 <<< "$PENDING_UPDATE_SNAPSHOTS")
               EXPECTED_PENDING_TREE_HASH=$(jq -er '.treeHash' <<< "$SNAPSHOT")
+              EXPECTED_PENDING_REPORT_HASH=$(jq -er '.reportHash' <<< "$SNAPSHOT")
+              EXPECTED_PENDING_GIT_TREE_OID=$(jq -er '.gitTreeOid' <<< "$SNAPSHOT")
               EXPECTED_PENDING_SOURCE_REF=$(jq -er '.sourceRef' <<< "$SNAPSHOT")
-              CURRENT_PENDING_REPORT="$WORK_DIR/$pending_dir/skill-report.json"
-              CURRENT_PENDING_TREE_HASH=$(node "$GITHUB_WORKSPACE/scripts/resolve-approved-submission.mjs" \
-                --tree-hash-at-commit \
-                --repo-root "$WORK_DIR" \
-                --commit HEAD \
-                --skill-dir "$pending_dir")
-              jq -e --arg sourceRef "$EXPECTED_PENDING_SOURCE_REF" '.meta.source_ref == $sourceRef' \
-                "$CURRENT_PENDING_REPORT" >/dev/null && [ "$CURRENT_PENDING_TREE_HASH" = "$EXPECTED_PENDING_TREE_HASH" ] || {
-                  echo "::error::Pending update target changed after classification: $pending_dir"
-                  exit 1
-                }
-              rm -rf -- "$WORK_DIR/$pending_dir"
+              node "$GITHUB_WORKSPACE/scripts/replace-pending-submission.mjs" \
+                --repository-root "$WORK_DIR" \
+                --merged-results "$MERGED_RESULTS" \
+                --pending-dir "$pending_dir" \
+                --expected-tree-hash "$EXPECTED_PENDING_TREE_HASH" \
+                --expected-report-hash "$EXPECTED_PENDING_REPORT_HASH" \
+                --expected-git-tree-oid "$EXPECTED_PENDING_GIT_TREE_OID" \
+                --expected-source-ref "$EXPECTED_PENDING_SOURCE_REF"
             else
               test ! -e "$WORK_DIR/$pending_dir" || {
                 echo "::error::Pending path already exists on main: $pending_dir"
@@ -1101,8 +1103,10 @@ jobs:
                 exit 1
               }
             fi
-            mkdir -p "$WORK_DIR/$(dirname "$pending_dir")"
-            cp -R "$MERGED_RESULTS/$pending_dir" "$WORK_DIR/$pending_dir"
+            if ! is_pending_update_target "$pending_dir"; then
+              mkdir -p "$WORK_DIR/$(dirname "$pending_dir")"
+              cp -R "$MERGED_RESULTS/$pending_dir" "$WORK_DIR/$pending_dir"
+            fi
             if is_update_target "$target_dir"; then
               REPORT="$WORK_DIR/$pending_dir/skill-report.json"
               TEMP_REPORT="${REPORT}.tmp"
