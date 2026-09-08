@@ -396,7 +396,10 @@ jobs:
           # Advance the baseline when the provider step itself succeeded, even if a
           # later callback/status step failed. Conversely, a failed provider step is
           # an unknown partial effect and blocks automatic replay for inspection.
-          RUNS=$(gh api "repos/${{ github.repository }}/actions/workflows/sync-to-supabase.yml/runs?status=completed&event=push&per_page=100")
+          # The server-side status filter can omit newly completed runs. Fetch
+          # the recent collection and filter locally before sorting; sorting an
+          # incomplete response alone still regresses the baseline.
+          RUNS=$(gh api "repos/${{ github.repository }}/actions/workflows/sync-to-supabase.yml/runs?per_page=100")
           LAST_SHA=''
           LAST_CREATED_AT=''
           while IFS=$'\t' read -r run_id head_sha created_at run_conclusion; do
@@ -432,6 +435,7 @@ jobs:
           # successful run can move the baseline backwards and replay every
           # later publication.
           done < <(jq -r '.workflow_runs
+            | map(select(.event == "push" and .status == "completed"))
             | sort_by(.created_at) | reverse[]
             | [.id, .head_sha, .created_at, .conclusion] | @tsv' <<< "$RUNS")
 
