@@ -231,6 +231,59 @@ test('resolves a report-only official re-audit', () => withRepository((root) => 
   assert.equal(plan.skills[0].publicationMode, 'report-only');
 }));
 
+test('exact history parses only merge parent headers, never commit-message text', () => withRepository((root) => {
+  const pendingDir = 'pending/owner/skill';
+  const oldRef = '1'.repeat(40);
+  const newRef = '2'.repeat(40);
+  const spoofedParent = 'a'.repeat(40);
+  addSkill(root, pendingDir, { slug: 'owner-skill', sourceRef: oldRef });
+  git(root, 'init', '-q');
+  git(root, 'config', 'user.email', 'test@example.com');
+  git(root, 'config', 'user.name', 'Test');
+  git(root, 'add', '.');
+  git(root, 'commit', '-qm', 'prior pending submission');
+  const baseBranch = git(root, 'branch', '--show-current');
+  const baseCommit = git(root, 'rev-parse', 'HEAD');
+  const updateReport = () => {
+    const reportPath = join(root, pendingDir, 'skill-report.json');
+    const report = JSON.parse(readFileSync(reportPath, 'utf8'));
+    report.meta.source_ref = newRef;
+    report.meta.source_url = report.meta.source_url.replace(oldRef, newRef);
+    writeFileSync(reportPath, `${JSON.stringify(report)}\n`);
+  };
+
+  updateReport();
+  git(root, 'add', '.');
+  git(root, 'commit', '-m', 'not a merge', '-m', `parent ${spoofedParent}`);
+  const nonMergeCommit = git(root, 'rev-parse', 'HEAD');
+  assert.throws(
+    () => resolveApprovedSubmission({
+      repositoryRoot: root,
+      changedFiles: [`${pendingDir}/skill-report.json`],
+      reportOnlyBaseCommit: baseCommit,
+      reportOnlyMergeCommit: nonMergeCommit,
+    }),
+    /publication base is not the exact first parent of the merge commit/,
+  );
+
+  git(root, 'checkout', '-q', '--force', baseCommit);
+  git(root, 'branch', '-f', baseBranch, baseCommit);
+  git(root, 'checkout', '-qb', 'reaudit');
+  updateReport();
+  git(root, 'add', '.');
+  git(root, 'commit', '-qm', 're-audit report');
+  git(root, 'checkout', '-q', baseBranch);
+  git(root, 'merge', '--no-ff', '-m', `merge re-audit\n\nparent ${spoofedParent}`, 'reaudit');
+  const mergeCommit = git(root, 'rev-parse', 'HEAD');
+  const plan = resolveApprovedSubmission({
+    repositoryRoot: root,
+    changedFiles: [`${pendingDir}/skill-report.json`],
+    reportOnlyBaseCommit: baseCommit,
+    reportOnlyMergeCommit: mergeCommit,
+  });
+  assert.equal(plan.skills[0].publicationMode, 'report-only');
+}));
+
 test('partial re-audit admits omitted unchanged files, mode changes, additions, and legal deletions', () => withRepository((root) => {
   const pendingDir = 'pending/owner/skill';
   const { baseCommit, mergeCommit, changedFiles } = commitPartialReauditHistory(root, pendingDir);

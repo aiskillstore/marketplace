@@ -364,12 +364,14 @@ export function resolveApprovedSubmission({
     if (!/^[0-9a-f]{40}$/.test(reportOnlyBaseCommit) || !/^[0-9a-f]{40}$/.test(reportOnlyMergeCommit)) {
       fail('publication history requires exact lowercase 40-hex commit identities');
     }
-    const mergeParents = gitBuffer(root, ['cat-file', '-p', reportOnlyMergeCommit])
-      .toString('utf8')
+    const mergeCommitObject = gitBuffer(root, ['cat-file', '-p', reportOnlyMergeCommit]).toString('utf8');
+    const mergeHeaders = mergeCommitObject.split(/\r?\n\r?\n/, 1)[0];
+    const mergeParents = mergeHeaders
       .split(/\r?\n/)
       .filter((line) => line.startsWith('parent '))
       .map((line) => line.slice('parent '.length));
-    if (mergeParents.length !== 2 || mergeParents[0] !== reportOnlyBaseCommit) {
+    if (mergeParents.length !== 2 || mergeParents.some((parent) => !/^[0-9a-f]{40}$/.test(parent))
+      || mergeParents[0] !== reportOnlyBaseCommit) {
       fail('publication base is not the exact first parent of the merge commit');
     }
     const actualChangedPaths = gitChangedPaths(root, reportOnlyBaseCommit, reportOnlyMergeCommit);
