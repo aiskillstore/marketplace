@@ -156,9 +156,12 @@ function verifyReportOnlyReaudit({ repositoryRoot, pendingDir, baseCommit, merge
     fail(`${pendingDir} report-only publication requires exact prior and merged commit identities`);
   }
 
-  const mergeLine = gitBuffer(repositoryRoot, ['rev-list', '--parents', '-n', '1', mergeCommit])
-    .toString('utf8').trim().split(/\s+/);
-  if (mergeLine.length !== 3 || mergeLine[0] !== mergeCommit || mergeLine[1] !== baseCommit) {
+  const mergeParents = gitBuffer(repositoryRoot, ['cat-file', '-p', mergeCommit])
+    .toString('utf8')
+    .split(/\r?\n/)
+    .filter((line) => line.startsWith('parent '))
+    .map((line) => line.slice('parent '.length));
+  if (mergeParents.length !== 2 || mergeParents[0] !== baseCommit) {
     fail(`${pendingDir} report-only publication base is not the exact first parent of the merge commit`);
   }
 

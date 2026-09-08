@@ -186,6 +186,40 @@ test('report-only CLI accepts the exact workflow commit arguments', () => withRe
   assert.equal(JSON.parse(readFileSync(outputPath, 'utf8')).skills[0].publicationMode, 'report-only');
 }));
 
+test('report-only CLI verifies merge parents after workflow-shaped depth-1 fetches', () => withRepository((root) => {
+  const pendingDir = 'pending/owner/skill';
+  addSkill(root, pendingDir, { slug: 'owner-skill', sourceRef: '1'.repeat(40) });
+  const { baseCommit, mergeCommit } = commitReportOnlyHistory(root, pendingDir);
+  write(root, 'README.md', '# Current main\n');
+  git(root, 'add', 'README.md');
+  git(root, 'commit', '-qm', 'advance main after merge');
+
+  const shallowRoot = mkdtempSync(join(tmpdir(), 'approved-submission-shallow-'));
+  try {
+    const clone = join(shallowRoot, 'clone');
+    const cloneResult = spawnSync('git', ['clone', '--depth=1', `file://${root}`, clone], { encoding: 'utf8' });
+    assert.equal(cloneResult.status, 0, cloneResult.stderr);
+    git(clone, 'fetch', '--no-tags', '--depth=1', 'origin', baseCommit, mergeCommit);
+    assert.equal(git(clone, 'rev-list', '--parents', '-n', '1', mergeCommit), mergeCommit);
+
+    const filesPath = join(shallowRoot, 'pr-files.txt');
+    const outputPath = join(shallowRoot, 'approval-plan.json');
+    writeFileSync(filesPath, `${pendingDir}/skill-report.json\n`);
+    const result = spawnSync(process.execPath, [
+      join(process.cwd(), 'scripts/resolve-approved-submission.mjs'),
+      '--repo-root', clone,
+      '--files', filesPath,
+      '--output', outputPath,
+      '--report-only-base-commit', baseCommit,
+      '--report-only-merge-commit', mergeCommit,
+    ], { encoding: 'utf8' });
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(JSON.parse(readFileSync(outputPath, 'utf8')).skills[0].publicationMode, 'report-only');
+  } finally {
+    rmSync(shallowRoot, { recursive: true, force: true });
+  }
+}));
+
 test('report-only re-audit is admitted only when the exact prior pending content and provenance are unchanged', () => withRepository((root) => {
   const pendingDir = 'pending/owner/skill';
   const oldRef = '1'.repeat(40);
