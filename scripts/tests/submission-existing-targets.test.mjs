@@ -53,6 +53,7 @@ function writeTarget(root, slug, {
   malformed = false,
   targetOwner = 'example',
   skillName = slug,
+  author = null,
   sourceUrl = null,
   schemaValid = true,
 } = {}) {
@@ -80,7 +81,7 @@ function writeTarget(root, slug, {
       },
       skill: {
         name: skillName,
-        author: layout === 'community' ? targetOwner : owner,
+        author: author ?? (layout === 'community' ? targetOwner : owner),
         description: 'fixture',
         supported_tools: ['codex'],
       },
@@ -372,6 +373,29 @@ test('same-source pending follow-up is processable and binds the prior snapshot'
     gitTreeOid: calculatePendingGitTreeOidAtCommit(root, 'HEAD', 'pending/example/alpha'),
     sourceRef: previousRef,
   }]);
+}));
+
+test('same-source pending follow-up accepts a display author with the repository owner handle', () => withMarketplace((root) => {
+  writeTarget(root, 'alpha', {
+    rootDirectory: 'pending',
+    sourceRef: '2'.repeat(40),
+    author: 'Example Person (example)',
+  });
+  commitMarketplace(root);
+  const result = classify(root, selectionPlan([{ slug: 'alpha', path: 'skills/alpha' }]));
+  assert.equal(result.reasonCode, 'all_selected_targets_are_pending_updates');
+}));
+
+test('pending display author without the repository owner handle remains fail-closed', () => withMarketplace((root) => {
+  writeTarget(root, 'alpha', {
+    rootDirectory: 'pending',
+    sourceRef: '2'.repeat(40),
+    author: 'Unrelated Author',
+  });
+  assert.throws(
+    () => classify(root, selectionPlan([{ slug: 'alpha', path: 'skills/alpha' }])),
+    /pending target author mismatch/,
+  );
 }));
 
 test('same-source pending commit is an idempotent no-op', () => withMarketplace((root) => {
