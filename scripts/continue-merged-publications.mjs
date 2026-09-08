@@ -89,7 +89,11 @@ export function main() {
     const refs = api(`repos/${repo}/git/matching-refs/tags/agentcrew-dispatch-outbox/publication/${digest}/`);
     const statuses = pages(`repos/${repo}/commits/${pr.merge_commit_sha}/statuses`);
     const choice = chooseAttempt({ refs, statuses, digest, merge: pr.merge_commit_sha, now: Date.now() });
-    if (choice.wait) { console.log(`#${pr.number}: ${choice.wait}`); continue; }
+    if (choice.wait) {
+      // Oldest-first is a safety boundary: a missing or non-terminal effect
+      // blocks later publications until its exact correlation is reconciled.
+      return console.log(`#${pr.number}: ${choice.wait}`);
+    }
     if (!live) { console.log(`Would dispatch #${pr.number}: ${correlation}`); return; }
     const ref = `refs/tags/agentcrew-dispatch-outbox/publication/${digest}/${choice.attempt}`;
     api(`repos/${repo}/git/refs`, { ref, sha: pr.merge_commit_sha });
