@@ -212,11 +212,12 @@ function listRegularFiles(repositoryRoot, directory) {
   return files.sort();
 }
 
-function rootFromSkillFile(path) {
+function rootFromPublicationIdentityFile(path) {
   const segments = path.split('/');
-  if (segments.at(-1) !== 'SKILL.md' || segments[0] !== 'pending') return null;
+  const basename = segments.at(-1);
+  if ((basename !== 'SKILL.md' && basename !== 'skill-report.json') || segments[0] !== 'pending') return null;
   if (segments.length !== 3 && segments.length !== 4) {
-    fail(`pending SKILL.md must be pending/<skill>/SKILL.md or pending/<owner>/<skill>/SKILL.md: ${path}`);
+    fail(`pending publication identity must be pending/<skill>/{SKILL.md,skill-report.json} or pending/<owner>/<skill>/{SKILL.md,skill-report.json}: ${path}`);
   }
   for (const [index, segment] of segments.slice(1, -1).entries()) {
     validateSegment(segment, `pending path segment ${index + 1}`);
@@ -227,11 +228,15 @@ function rootFromSkillFile(path) {
 export function resolveApprovedSubmission({ repositoryRoot, changedFiles }) {
   const root = realpathSync(repositoryRoot);
   const normalizedFiles = [...new Set(changedFiles.map(normalizeFrozenPath).filter(Boolean))].sort();
-  const pendingFiles = normalizedFiles.filter((path) => path === 'pending' || path.startsWith('pending/'));
+  const nonPendingFiles = normalizedFiles.filter((path) => path !== 'pending' && !path.startsWith('pending/'));
+  if (nonPendingFiles.length > 0) {
+    fail(`submission contains file(s) outside pending: ${nonPendingFiles.slice(0, 5).join(', ')}`);
+  }
+  const pendingFiles = normalizedFiles;
   if (pendingFiles.length === 0) fail('submission contains no pending files');
 
-  const pendingRoots = [...new Set(pendingFiles.map(rootFromSkillFile).filter(Boolean))].sort();
-  if (pendingRoots.length === 0) fail('submission contains no canonical pending SKILL.md');
+  const pendingRoots = [...new Set(pendingFiles.map(rootFromPublicationIdentityFile).filter(Boolean))].sort();
+  if (pendingRoots.length === 0) fail('submission contains no canonical pending publication identity file');
 
   for (const path of pendingFiles) {
     const absolutePath = resolve(root, ...path.split('/'));
@@ -244,13 +249,25 @@ export function resolveApprovedSubmission({ repositoryRoot, changedFiles }) {
   }
 
   for (const path of pendingFiles) {
-    if (!pendingRoots.some((pendingRoot) => path === pendingRoot || path.startsWith(`${pendingRoot}/`))) {
+    if (!pendingRoots.some((pendingRoot) => path.startsWith(`${pendingRoot}/`))) {
       fail(`pending file is outside the frozen skill set: ${path}`);
     }
   }
 
   const frozenFileSet = new Set(pendingFiles);
+  const publicationModeByRoot = new Map();
   for (const pendingRoot of pendingRoots) {
+    const changedInRoot = pendingFiles.filter((path) => path.startsWith(`${pendingRoot}/`));
+    const skillPath = `${pendingRoot}/SKILL.md`;
+    const reportPath = `${pendingRoot}/skill-report.json`;
+    if (!frozenFileSet.has(skillPath)) {
+      if (changedInRoot.length !== 1 || changedInRoot[0] !== reportPath) {
+        fail(`${pendingRoot} report-only publication may change only skill-report.json`);
+      }
+      publicationModeByRoot.set(pendingRoot, 'report-only');
+      continue;
+    }
+    publicationModeByRoot.set(pendingRoot, 'full');
     const unfrozen = listRegularFiles(root, pendingRoot).filter((path) => !frozenFileSet.has(path));
     if (unfrozen.length > 0) {
       fail(`${pendingRoot} contains file(s) outside the frozen PR/artifact set: ${unfrozen.slice(0, 5).join(', ')}`);
@@ -348,6 +365,7 @@ export function resolveApprovedSubmission({ repositoryRoot, changedFiles }) {
       duplicate,
       treeHash: actualTreeHash,
       pendingDir,
+      publicationMode: publicationModeByRoot.get(pendingDir),
       reportSlug: report.meta.slug,
       sourceType,
       targetDir,

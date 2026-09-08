@@ -12,6 +12,10 @@ on:
         description: Exact idempotency correlation bound to the merged PR identity
         required: true
         type: string
+      outbox_attempt:
+        description: Exact immutable outbox attempt suffix (<13-digit timestamp>-<positive sequence>)
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -87,35 +91,59 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           CORRELATION_ID: ${{ inputs.correlation_id }}
+          OUTBOX_ATTEMPT: ${{ inputs.outbox_attempt }}
           MERGE_COMMIT_SHA: ${{ steps.freeze_pr.outputs.merge_commit_sha }}
           REPOSITORY: ${{ github.repository }}
         run: |
           set -euo pipefail
+          [[ "$OUTBOX_ATTEMPT" =~ ^[0-9]{13}-[1-9][0-9]*$ ]] || {
+            echo "::error::Publication recovery requires one exact canonical outbox attempt"
+            exit 1
+          }
           DIGEST=$(printf '%s' "$CORRELATION_ID" | sha256sum | awk '{print $1}')
           OUTBOX_PREFIX="tags/agentcrew-dispatch-outbox/publication/$DIGEST/"
+          EXACT_OUTBOX_REF="refs/${OUTBOX_PREFIX}${OUTBOX_ATTEMPT}"
           CONTEXT="agentcrew/publication/$DIGEST"
+          ATTEMPT_CONTEXT="agentcrew/publication-attempt/$DIGEST/$OUTBOX_ATTEMPT"
           OUTBOX=$(gh api "repos/$REPOSITORY/git/matching-refs/$OUTBOX_PREFIX")
-          jq -e --arg prefix "refs/$OUTBOX_PREFIX" --arg merge_sha "$MERGE_COMMIT_SHA" '
+          jq -e --arg prefix "refs/$OUTBOX_PREFIX" --arg exact_ref "$EXACT_OUTBOX_REF" --arg merge_sha "$MERGE_COMMIT_SHA" '
             length > 0 and length <= 8 and
+            any(.[]; .ref == $exact_ref) and
             all(.[];
               (.ref | startswith($prefix)) and
               ((.ref | ltrimstr($prefix)) | test("^[0-9]{13}-[1-9][0-9]*$")) and
               .object.type == "commit" and
               .object.sha == $merge_sha)
           ' <<< "$OUTBOX" >/dev/null || {
-            echo "::error::Durable publication dispatch outbox does not bind the exact merge commit"
+            echo "::error::Durable publication dispatch outbox does not bind the exact merge commit and attempt"
             exit 1
           }
           STATUSES=$(gh api --paginate "repos/$REPOSITORY/commits/$MERGE_COMMIT_SHA/statuses?per_page=100" | jq -s 'add')
-          if jq -e --arg context "$CONTEXT" 'any(.[]; .context == $context)' <<< "$STATUSES" >/dev/null; then
-            echo "::error::Existing durable publication status refuses duplicate execution"
+          if jq -e --arg context "$ATTEMPT_CONTEXT" 'any(.[]; .context == $context)' <<< "$STATUSES" >/dev/null; then
+            echo "::error::Existing durable publication attempt status refuses duplicate execution"
             exit 1
           fi
+          CORRELATION_STATE=$(jq -r --arg context "$CONTEXT" '[.[] | select(.context == $context)][0].state // ""' <<< "$STATUSES")
+          if [ "$CORRELATION_STATE" = success ]; then
+            echo "::error::Authoritative publication success refuses retry"
+            exit 1
+          fi
+          if [ "$CORRELATION_STATE" = pending ]; then
+            echo "::error::Existing in-flight publication refuses unknown-effect replay"
+            exit 1
+          fi
+          gh api --method POST "repos/$REPOSITORY/statuses/$MERGE_COMMIT_SHA" \
+            -f state=pending -f context="$ATTEMPT_CONTEXT" \
+            -f description='Exact publication attempt is running' \
+            -f target_url="https://github.com/$REPOSITORY/actions/runs/${{ github.run_id }}"
           gh api --method POST "repos/$REPOSITORY/statuses/$MERGE_COMMIT_SHA" \
             -f state=pending -f context="$CONTEXT" \
             -f description='Correlated publication is running' \
             -f target_url="https://github.com/$REPOSITORY/actions/runs/${{ github.run_id }}"
-          echo "owns_reservation=true" >> "$GITHUB_OUTPUT"
+          {
+            echo "owns_reservation=true"
+            echo "attempt_context=$ATTEMPT_CONTEXT"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Generate GitHub App Token
         id: app-token
@@ -161,12 +189,12 @@ jobs:
 
           mapfile -t MATERIALIZE_PENDING_PATHS < <(
             awk -F/ '
-              $1 == "pending" && $NF == "SKILL.md" && NF == 3 { print $1 "/" $2 }
-              $1 == "pending" && $NF == "SKILL.md" && NF == 4 { print $1 "/" $2 "/" $3 }
+              $1 == "pending" && ($NF == "SKILL.md" || $NF == "skill-report.json") && NF == 3 { print $1 "/" $2 }
+              $1 == "pending" && ($NF == "SKILL.md" || $NF == "skill-report.json") && NF == 4 { print $1 "/" $2 "/" $3 }
             ' "$PR_FILES" | LC_ALL=C sort -u
           )
           test "${#MATERIALIZE_PENDING_PATHS[@]}" -gt 0 || {
-            echo "::error::Merged PR contains no canonical pending SKILL.md"
+            echo "::error::Merged PR contains no canonical pending publication identity file"
             exit 1
           }
           MATERIALIZE_TARGET_PATHS=()
@@ -461,6 +489,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           CORRELATION_ID: ${{ inputs.correlation_id }}
+          ATTEMPT_CONTEXT: ${{ steps.publication_claim.outputs.attempt_context }}
           MERGE_COMMIT_SHA: ${{ steps.freeze_pr.outputs.merge_commit_sha }}
           PROVIDER_SYNC_REQUIRED: ${{ steps.publish.outputs.provider_sync_required }}
           REPOSITORY: ${{ github.repository }}
@@ -470,11 +499,19 @@ jobs:
           CONTEXT="agentcrew/publication/$(printf '%s' "$CORRELATION_ID" | sha256sum | awk '{print $1}')"
           if [ "$JOB_STATUS" != success ]; then
             gh api --method POST "repos/$REPOSITORY/statuses/$MERGE_COMMIT_SHA" \
+              -f state=failure -f context="$ATTEMPT_CONTEXT" \
+              -f description='Exact publication attempt failed' \
+              -f target_url="https://github.com/$REPOSITORY/actions/runs/${{ github.run_id }}"
+            gh api --method POST "repos/$REPOSITORY/statuses/$MERGE_COMMIT_SHA" \
               -f state=failure -f context="$CONTEXT" \
               -f description='Correlated publication failed; inspection required' \
               -f target_url="https://github.com/$REPOSITORY/actions/runs/${{ github.run_id }}"
             exit 0
           fi
+          gh api --method POST "repos/$REPOSITORY/statuses/$MERGE_COMMIT_SHA" \
+            -f state=success -f context="$ATTEMPT_CONTEXT" \
+            -f description='Exact publication attempt completed' \
+            -f target_url="https://github.com/$REPOSITORY/actions/runs/${{ github.run_id }}"
           if [ "$PROVIDER_SYNC_REQUIRED" != true ]; then
             gh api --method POST "repos/$REPOSITORY/statuses/$MERGE_COMMIT_SHA" \
               -f state=success -f context="$CONTEXT" \

@@ -108,6 +108,80 @@ test('supports an official flat pending skill', () => withRepository((root) => {
   assert.equal(plan.skills[0].targetDir, 'skills/official-skill');
 }));
 
+test('resolves a report-only community re-audit without scanning unrelated pending roots', () => withRepository((root) => {
+  addSkill(root, 'pending/owner/skill', { slug: 'owner-skill', withReference: true });
+  addSkill(root, 'pending/other/unrelated', { slug: 'other-unrelated' });
+
+  const plan = resolveApprovedSubmission({
+    repositoryRoot: root,
+    changedFiles: ['pending/owner/skill/skill-report.json'],
+  });
+
+  assert.deepEqual(plan.skills.map(({ pendingDir, targetDir, publicationMode }) => ({
+    pendingDir,
+    targetDir,
+    publicationMode,
+  })), [{
+    pendingDir: 'pending/owner/skill',
+    targetDir: 'skills/owner/skill',
+    publicationMode: 'report-only',
+  }]);
+}));
+
+test('resolves a report-only official re-audit', () => withRepository((root) => {
+  addSkill(root, 'pending/official-skill', { slug: 'official-skill', sourceType: 'official' });
+  const plan = resolveApprovedSubmission({
+    repositoryRoot: root,
+    changedFiles: ['pending/official-skill/skill-report.json'],
+  });
+  assert.equal(plan.skills[0].targetDir, 'skills/official-skill');
+  assert.equal(plan.skills[0].publicationMode, 'report-only');
+}));
+
+test('report-only re-audit rejects additional changed payload files', () => withRepository((root) => {
+  addSkill(root, 'pending/owner/skill', { slug: 'owner-skill', withReference: true });
+  assert.throws(
+    () => resolveApprovedSubmission({
+      repositoryRoot: root,
+      changedFiles: [
+        'pending/owner/skill/skill-report.json',
+        'pending/owner/skill/references/note.md',
+      ],
+    }),
+    /report-only.*only.*skill-report\.json/,
+  );
+  write(root, 'README.md', '# Unrelated\n');
+  assert.throws(
+    () => resolveApprovedSubmission({
+      repositoryRoot: root,
+      changedFiles: ['pending/owner/skill/skill-report.json', 'README.md'],
+    }),
+    /outside pending/,
+  );
+}));
+
+test('report-only re-audit requires a regular SKILL.md bound by report hashes', () => withRepository((root) => {
+  addSkill(root, 'pending/owner/skill', { slug: 'owner-skill', withReference: true });
+  rmSync(join(root, 'pending/owner/skill/SKILL.md'));
+  assert.throws(
+    () => resolveApprovedSubmission({
+      repositoryRoot: root,
+      changedFiles: ['pending/owner/skill/skill-report.json'],
+    }),
+    /SKILL\.md is missing/,
+  );
+
+  addSkill(root, 'pending/owner/skill', { slug: 'owner-skill', withReference: true });
+  write(root, 'pending/owner/skill/SKILL.md', '# Drifted\n');
+  assert.throws(
+    () => resolveApprovedSubmission({
+      repositoryRoot: root,
+      changedFiles: ['pending/owner/skill/skill-report.json'],
+    }),
+    /content_hash does not match/,
+  );
+}));
+
 test('authorizes a reviewed same-repository update when the source path moves', () => withRepository((root) => {
   const oldCommit = '1'.repeat(40);
   const newCommit = '2'.repeat(40);
