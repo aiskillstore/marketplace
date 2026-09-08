@@ -89,6 +89,10 @@ test('batch and individual receivers share one writer lock and sync reads the ex
   assert.match(sync,/\[ "\$\{#CORRELATIONS\[@\]\}" -le 25 \]/);
 });
 
+test('owner wait covers the batch callback wall-clock budget', () => {
+  assert.match(readFileSync('.github/workflows/sync-to-supabase.yml', 'utf8'), /for attempt in \{1\.\.360\}/);
+});
+
 const bashMajor=Number(execFileSync('bash',['--version'],{encoding:'utf8'}).match(/version (\d+)/)?.[1]);
 test('actual sync shell validates every batch owner and closes every provider correlation', {skip:bashMajor<4?'Workflow requires Linux Bash 4+; exercised in CI':false}, () => {
   const temp=mkdtempSync(join(tmpdir(),'batch-provider-'));

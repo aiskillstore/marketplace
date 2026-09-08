@@ -1,17 +1,13 @@
-import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { existsSync, lstatSync, mkdirSync, renameSync, rmSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { publicationIdentity, chooseAttempt } from './continue-merged-publications.mjs';
+import { publicationIdentity, chooseAttempt, batchIdentity } from './continue-merged-publications.mjs';
 import { resolveApprovedSubmission } from './resolve-approved-submission.mjs';
 
+export { batchIdentity } from './continue-merged-publications.mjs';
+
 const repository = 'aiskillstore/marketplace';
-export function batchIdentity(correlations) {
-  if (!correlations.length || correlations.length > 25 || new Set(correlations).size !== correlations.length) throw new Error('Batch requires 1..25 unique correlations');
-  for (const value of correlations) if (!/^submission-pr-[1-9][0-9]*-[a-f0-9]{40}-[a-f0-9]{40}$/.test(value)) throw new Error('Invalid batch correlation');
-  return createHash('sha256').update([...correlations].sort().join('\n')).digest('hex');
-}
 export function validateBatchPlans(rows) {
   const roots = new Set();
   for (const { plan } of rows) for (const skill of plan.skills) {

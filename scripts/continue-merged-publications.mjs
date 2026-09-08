@@ -15,6 +15,12 @@ export function publicationIdentity(pr) {
   return { correlation, digest: createHash('sha256').update(correlation).digest('hex') };
 }
 
+export function batchIdentity(correlations) {
+  if (!correlations.length || correlations.length > 25 || new Set(correlations).size !== correlations.length) throw new Error('Batch requires 1..25 unique correlations');
+  for (const value of correlations) if (!/^submission-pr-[1-9][0-9]*-[a-f0-9]{40}-[a-f0-9]{40}$/.test(value)) throw new Error('Invalid batch correlation');
+  return createHash('sha256').update([...correlations].sort().join('\n')).digest('hex');
+}
+
 // This continuation never merges PRs or interprets advisory audit risk fields.
 // Existing receiver remains the authority for immutable source/tree validation.
 export function chooseAttempt({ refs, statuses, digest, merge, now }) {
@@ -65,12 +71,14 @@ export function main(request = api) {
     .map(t => [`pending/${t.path}`, t.sha]));
   if (!reports.size) return console.log('No pending skills');
   const owners = new Map();
+  const skillCounts = new Map();
   // Stop when every CURRENT pending report has an exact merged owner. Scanning
   // the entire closed-PR history first always hits the 1000-item bound here.
   for (let page = 1; page <= 10 && owners.size < reports.size; page++) {
     const batch = request(`repos/${repo}/pulls?state=closed&sort=updated&direction=desc&per_page=100&page=${page}`);
     for (const pr of batch.filter(trustedMerged).sort((a, b) => b.merged_at.localeCompare(a.merged_at))) {
       const files = pages(`repos/${repo}/pulls/${pr.number}/files`, request);
+      skillCounts.set(pr.number, files.filter(f => f.filename.endsWith('/skill-report.json')).length);
       for (const file of files) {
         if (reports.get(file.filename) === file.sha && !owners.has(file.filename)) {
           owners.set(file.filename, pr);
@@ -97,7 +105,14 @@ export function main(request = api) {
   }
   const publicationRuns = request(`repos/${repo}/actions/workflows/on-pr-merge.yml/runs?per_page=100`).workflow_runs;
   if (publicationRuns.some(r => r.status !== 'completed')) return console.log('Waiting for publication receiver');
+  const batchRuns = request(`repos/${repo}/actions/workflows/publish-approved-batch.yml/runs?per_page=100`).workflow_runs;
+  if (batchRuns.some(r => r.status !== 'completed')) return console.log('Waiting for batch publication receiver');
+  const selected = [];
+  let skillCount = 0;
   for (const candidate of candidates) {
+    const count = skillCounts.get(candidate.number);
+    if (!count || count > 25) throw new Error('Submission exceeds bounded batch capacity');
+    if (skillCount + count > 25 || selected.length === 25) break;
     const pr = request(`repos/${repo}/pulls/${candidate.number}`);
     const { correlation, digest } = publicationIdentity(pr);
     const refs = request(`repos/${repo}/git/matching-refs/tags/agentcrew-dispatch-outbox/publication/${digest}/`);
@@ -108,15 +123,13 @@ export function main(request = api) {
       // blocks later publications until its exact correlation is reconciled.
       return console.log(`#${pr.number}: ${choice.wait}`);
     }
-    if (!live) { console.log(`Would dispatch #${pr.number}: ${correlation}`); return; }
-    const ref = `refs/tags/agentcrew-dispatch-outbox/publication/${digest}/${choice.attempt}`;
-    request(`repos/${repo}/git/refs`, { ref, sha: pr.merge_commit_sha });
-    const readback = request(`repos/${repo}/git/ref/${ref.slice(5)}`);
-    if (readback.object.sha !== pr.merge_commit_sha) throw new Error('Outbox readback mismatch');
-    request(`repos/${repo}/actions/workflows/on-pr-merge.yml/dispatches`, {
-      ref: 'main', inputs: { pr_number: String(pr.number), correlation_id: correlation, outbox_attempt: choice.attempt },
-    });
-    console.log(`Dispatched #${pr.number}: ${correlation}; receiver status is the completion evidence`);
+    selected.push({ number: pr.number, correlation });
+    skillCount += count;
+  }
+  if (selected.length) {
+    const inputs = { pr_numbers: selected.map(p => p.number).join(','), batch_id: batchIdentity(selected.map(p => p.correlation)) };
+    if (live) request(`repos/${repo}/actions/workflows/publish-approved-batch.yml/dispatches`, { ref: 'main', inputs });
+    console.log(`${live ? 'Dispatched' : 'Would dispatch'} ${skillCount} skills: ${JSON.stringify(inputs)}; receiver owns durable reservations`);
     return;
   }
   if (reports.size) throw new Error('Remaining pending skills require inspection; no safe fresh dispatch');
