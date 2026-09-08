@@ -6,6 +6,8 @@ import urllib.parse
 import urllib.request
 from typing import Any, Callable
 
+from .http import UnsafeURL, _trusted_proxy_enabled, validate_public_url
+
 
 class BrowserUnavailable(RuntimeError):
     pass
@@ -40,6 +42,8 @@ def fetch_public_json_response(
         launch_kwargs["executable_path"] = executable
 
     proxy = _proxy_config(page_url)
+    trust_proxy = bool(proxy)
+    validate_public_url(page_url, resolve_dns=not trust_proxy)
     if proxy:
         launch_kwargs["proxy"] = proxy
 
@@ -58,7 +62,8 @@ def fetch_public_json_response(
                 ) from exc
 
             try:
-                context = browser.new_context(locale="en-US")
+                context = browser.new_context(locale="en-US", service_workers="block")
+                _install_public_request_guard(context, trust_proxy=trust_proxy)
                 page = context.new_page()
 
                 def on_response(response) -> None:
@@ -71,6 +76,7 @@ def fetch_public_json_response(
 
                 page.on("response", on_response)
                 page.goto(page_url, wait_until="domcontentloaded", timeout=timeout_ms)
+                validate_public_url(page.url, resolve_dns=not trust_proxy)
 
                 deadline = time.monotonic() + timeout
                 while not found and time.monotonic() < deadline:
@@ -130,6 +136,8 @@ def fetch_public_rendered_snapshot(
         launch_kwargs["executable_path"] = executable
 
     proxy = _proxy_config(page_url)
+    trust_proxy = bool(proxy)
+    validate_public_url(page_url, resolve_dns=not trust_proxy)
     if proxy:
         launch_kwargs["proxy"] = proxy
 
@@ -146,13 +154,15 @@ def fetch_public_rendered_snapshot(
                     "Run playwright install chromium or set SHAREXTRACT_BROWSER_EXECUTABLE."
                 ) from exc
             try:
-                context = browser.new_context(locale=locale)
+                context = browser.new_context(locale=locale, service_workers="block")
+                _install_public_request_guard(context, trust_proxy=trust_proxy)
                 page = context.new_page()
                 page.goto(
                     page_url,
                     wait_until="domcontentloaded",
                     timeout=timeout_ms,
                 )
+                validate_public_url(page.url, resolve_dns=not trust_proxy)
                 if wait_selector:
                     page.wait_for_selector(wait_selector, timeout=timeout_ms)
                 if settle_ms:
@@ -179,7 +189,32 @@ def fetch_public_rendered_snapshot(
         ) from exc
 
 
+def _validate_browser_request_url(url: str, *, trust_proxy: bool = False) -> str:
+    parsed = urllib.parse.urlsplit(url)
+    if parsed.scheme in {"about", "blob", "data"}:
+        return url
+    return validate_public_url(url, resolve_dns=not trust_proxy)
+
+
+def _install_public_request_guard(context, *, trust_proxy: bool) -> None:
+    def guard(route) -> None:
+        try:
+            _validate_browser_request_url(
+                route.request.url,
+                trust_proxy=trust_proxy,
+            )
+        except UnsafeURL:
+            route.abort("blockedbyclient")
+            return
+        route.continue_()
+
+    context.route("**/*", guard)
+
+
 def _proxy_config(url: str) -> dict[str, str] | None:
+    if not _trusted_proxy_enabled():
+        return None
+
     scheme = urllib.parse.urlsplit(url).scheme.lower()
     try:
         proxies = urllib.request.getproxies()

@@ -517,6 +517,14 @@ playwright install chromium
 export SHAREXTRACT_BROWSER_EXECUTABLE="/path/to/chrome"
 ```
 
+出于 SSRF 安全边界考虑，ShareXtract 不会自动信任系统 / Browser Proxy 去处理不可信公开 URL。如果你明确依赖一个**可信的出站代理**，并且该代理负责远端 DNS 解析，可以显式开启：
+
+```bash
+export SHAREXTRACT_TRUST_PROXY=1
+```
+
+只有在你信任该代理能继续保证“仅访问公网目标”的前提下才应开启。完整威胁模型见 [SECURITY.md](SECURITY.md)。
+
 ### 安装全部可选能力
 
 ```bash

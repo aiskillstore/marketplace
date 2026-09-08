@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+import http.client
 import ipaddress
 import json
+import os
 import socket
-import urllib.error
+import ssl
 import urllib.parse
-import urllib.request
 from dataclasses import dataclass
 
 from .version import __version__
@@ -36,6 +37,15 @@ class HttpResponse:
             return self.body.decode("utf-8", errors="replace")
 
 
+def _trusted_proxy_enabled() -> bool:
+    return os.environ.get("SHAREXTRACT_TRUST_PROXY", "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+
 def validate_public_url(url: str, *, resolve_dns: bool | None = None) -> str:
     parsed = urllib.parse.urlsplit(url)
     if parsed.scheme not in {"http", "https"}:
@@ -45,7 +55,11 @@ def validate_public_url(url: str, *, resolve_dns: bool | None = None) -> str:
 
     host = parsed.hostname.strip().rstrip(".")
     lowered = host.lower()
-    if lowered in {"localhost", "localhost.localdomain"} or lowered.endswith(".localhost") or lowered.endswith(".local"):
+    if (
+        lowered in {"localhost", "localhost.localdomain"}
+        or lowered.endswith(".localhost")
+        or lowered.endswith(".local")
+    ):
         raise UnsafeURL("Localhost/local-network hostnames are blocked.")
 
     literal_ip = _parse_ip(host)
@@ -54,23 +68,20 @@ def validate_public_url(url: str, *, resolve_dns: bool | None = None) -> str:
         return url
 
     if resolve_dns is None:
-        # urllib respects environment and OS proxy settings. With a configured
-        # HTTP(S) proxy, local DNS may intentionally return a fake-IP range
-        # (for example Clash/Surge 198.18.0.0/15). In that mode the proxy, not
-        # this process, resolves the real destination, so pre-resolution would
-        # create false positives. Literal private IPs remain blocked above.
-        resolve_dns = not _has_proxy_for_url(url)
+        resolve_dns = True
 
     if not resolve_dns:
+        if not _trusted_proxy_enabled():
+            raise UnsafeURL(
+                "Skipping local DNS validation requires SHAREXTRACT_TRUST_PROXY=1 "
+                "and a trusted outbound proxy."
+            )
         return url
 
-    try:
-        addresses = socket.getaddrinfo(host, parsed.port or (443 if parsed.scheme == "https" else 80))
-    except socket.gaierror as exc:
-        raise UnsafeURL(f"Could not resolve host: {host}") from exc
-
-    for entry in addresses:
-        _reject_non_public_ip(ipaddress.ip_address(entry[4][0]))
+    _resolve_public_endpoints(
+        host,
+        parsed.port or (443 if parsed.scheme == "https" else 80),
+    )
     return url
 
 
@@ -93,19 +104,80 @@ def _reject_non_public_ip(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> 
         raise UnsafeURL(f"Non-public destination is blocked: {ip}")
 
 
-def _has_proxy_for_url(url: str) -> bool:
-    scheme = urllib.parse.urlsplit(url).scheme.lower()
+def _resolve_public_endpoints(
+    host: str,
+    port: int,
+) -> list[tuple[int, int, int, tuple]]:
+    """Resolve once and return only public TCP endpoints.
+
+    The returned socket addresses are later used directly for the connection so
+    DNS cannot be resolved a second time between validation and connect.
+    """
+
     try:
-        proxies = urllib.request.getproxies()
-    except Exception:
-        return False
-    return bool(proxies.get(scheme) or proxies.get("all"))
+        addresses = socket.getaddrinfo(
+            host,
+            port,
+            type=socket.SOCK_STREAM,
+        )
+    except socket.gaierror as exc:
+        raise UnsafeURL(f"Could not resolve host: {host}") from exc
+
+    endpoints: list[tuple[int, int, int, tuple]] = []
+    seen: set[tuple[int, str, int]] = set()
+    for family, socktype, proto, _canonname, sockaddr in addresses:
+        ip = ipaddress.ip_address(sockaddr[0])
+        _reject_non_public_ip(ip)
+        key = (family, str(ip), int(sockaddr[1]))
+        if key in seen:
+            continue
+        seen.add(key)
+        endpoints.append((family, socktype, proto, sockaddr))
+
+    if not endpoints:
+        raise UnsafeURL(f"Host resolved to no usable public TCP endpoints: {host}")
+    return endpoints
 
 
-class _SafeRedirectHandler(urllib.request.HTTPRedirectHandler):
-    def redirect_request(self, req, fp, code, msg, headers, newurl):
-        validate_public_url(newurl)
-        return super().redirect_request(req, fp, code, msg, headers, newurl)
+def _connect_public_socket(host: str, port: int, timeout: float) -> socket.socket:
+    endpoints = _resolve_public_endpoints(host, port)
+    last_error: OSError | None = None
+
+    for family, socktype, proto, sockaddr in endpoints:
+        sock = socket.socket(family, socktype, proto)
+        sock.settimeout(timeout)
+        try:
+            sock.connect(sockaddr)
+            peer_ip = ipaddress.ip_address(sock.getpeername()[0])
+            _reject_non_public_ip(peer_ip)
+            return sock
+        except UnsafeURL:
+            sock.close()
+            raise
+        except OSError as exc:
+            last_error = exc
+            sock.close()
+
+    if last_error is not None:
+        raise FetchError(f"Could not connect to public endpoint for {host}: {last_error}")
+    raise FetchError(f"Could not connect to public endpoint for {host}.")
+
+
+class _PinnedHTTPConnection(http.client.HTTPConnection):
+    def connect(self) -> None:
+        self.sock = _connect_public_socket(self.host, self.port, self.timeout)
+
+
+class _PinnedHTTPSConnection(http.client.HTTPSConnection):
+    def connect(self) -> None:
+        raw_sock = _connect_public_socket(self.host, self.port, self.timeout)
+        try:
+            self.sock = self._context.wrap_socket(raw_sock, server_hostname=self.host)
+            peer_ip = ipaddress.ip_address(self.sock.getpeername()[0])
+            _reject_non_public_ip(peer_ip)
+        except Exception:
+            raw_sock.close()
+            raise
 
 
 class SafeHttpClient:
@@ -114,12 +186,68 @@ class SafeHttpClient:
         *,
         timeout: float = 20.0,
         max_bytes: int = 8 * 1024 * 1024,
+        max_redirects: int = 5,
         user_agent: str = f"ShareXtract/{__version__} (+https://github.com/wuaishare/sharextract)",
     ) -> None:
         self.timeout = timeout
         self.max_bytes = max_bytes
+        self.max_redirects = max_redirects
         self.user_agent = user_agent
-        self._opener = urllib.request.build_opener(_SafeRedirectHandler())
+
+    def _request_once(
+        self,
+        url: str,
+        *,
+        method: str,
+        headers: dict[str, str],
+        data: bytes | None,
+    ) -> tuple[int, str, str | None, str, bytes]:
+        validate_public_url(url)
+        parsed = urllib.parse.urlsplit(url)
+        assert parsed.hostname is not None
+
+        port = parsed.port or (443 if parsed.scheme == "https" else 80)
+        if parsed.scheme == "https":
+            connection: http.client.HTTPConnection = _PinnedHTTPSConnection(
+                parsed.hostname,
+                port,
+                timeout=self.timeout,
+                context=ssl.create_default_context(),
+            )
+        else:
+            connection = _PinnedHTTPConnection(
+                parsed.hostname,
+                port,
+                timeout=self.timeout,
+            )
+
+        target = urllib.parse.urlunsplit(
+            ("", "", parsed.path or "/", parsed.query, "")
+        )
+        try:
+            connection.request(method, target, body=data, headers=headers)
+            response = connection.getresponse()
+            body = response.read(self.max_bytes + 1)
+            if len(body) > self.max_bytes:
+                raise FetchError(f"Response exceeded {self.max_bytes} bytes.")
+            return (
+                response.status,
+                response.reason or "",
+                response.getheader("Location"),
+                response.getheader("Content-Type", ""),
+                body,
+            )
+        except FetchError:
+            raise
+        except (
+            OSError,
+            ssl.SSLError,
+            http.client.HTTPException,
+            TimeoutError,
+        ) as exc:
+            raise FetchError(f"{method} failed for {url}: {exc}") from exc
+        finally:
+            connection.close()
 
     def _request(
         self,
@@ -129,30 +257,54 @@ class SafeHttpClient:
         headers: dict[str, str] | None = None,
         data: bytes | None = None,
     ) -> HttpResponse:
-        validate_public_url(url)
+        current_url = validate_public_url(url)
+        current_method = method.upper()
+        current_data = data
         request_headers = {"User-Agent": self.user_agent, "Accept": "*/*"}
         if headers:
             request_headers.update(headers)
-        req = urllib.request.Request(
-            url,
-            data=data,
-            headers=request_headers,
-            method=method,
-        )
-        try:
-            with self._opener.open(req, timeout=self.timeout) as resp:
-                final_url = resp.geturl()
-                validate_public_url(final_url)
-                body = resp.read(self.max_bytes + 1)
-                if len(body) > self.max_bytes:
-                    raise FetchError(f"Response exceeded {self.max_bytes} bytes.")
-                return HttpResponse(
-                    url=final_url,
-                    content_type=resp.headers.get("Content-Type", ""),
-                    body=body,
+
+        for redirect_index in range(self.max_redirects + 1):
+            status, reason, location, content_type, body = self._request_once(
+                current_url,
+                method=current_method,
+                headers=request_headers,
+                data=current_data,
+            )
+
+            if status in {301, 302, 303, 307, 308} and location:
+                if redirect_index >= self.max_redirects:
+                    raise FetchError(
+                        f"{method} exceeded {self.max_redirects} redirects for {url}."
+                    )
+                next_url = urllib.parse.urljoin(current_url, location)
+                validate_public_url(next_url)
+
+                if status == 303 or (
+                    status in {301, 302}
+                    and current_method not in {"GET", "HEAD"}
+                ):
+                    current_method = "GET"
+                    current_data = None
+                    request_headers = dict(request_headers)
+                    request_headers.pop("Content-Type", None)
+                    request_headers.pop("Content-Length", None)
+
+                current_url = next_url
+                continue
+
+            if status >= 400:
+                raise FetchError(
+                    f"{current_method} failed for {current_url}: HTTP {status} {reason}".rstrip()
                 )
-        except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError) as exc:
-            raise FetchError(f"{method} failed for {url}: {exc}") from exc
+
+            return HttpResponse(
+                url=current_url,
+                content_type=content_type,
+                body=body,
+            )
+
+        raise FetchError(f"{method} failed for {url}: redirect handling exhausted.")
 
     def get(self, url: str, headers: dict[str, str] | None = None) -> HttpResponse:
         return self._request(url, method="GET", headers=headers)
@@ -211,18 +363,7 @@ class SafeHttpClient:
         url: str,
         headers: dict[str, str] | None = None,
     ) -> str:
-        validate_public_url(url)
-        request_headers = {"User-Agent": self.user_agent, "Accept": "*/*"}
-        if headers:
-            request_headers.update(headers)
-        req = urllib.request.Request(url, headers=request_headers, method="GET")
-        try:
-            with self._opener.open(req, timeout=self.timeout) as resp:
-                final_url = resp.geturl()
-                validate_public_url(final_url)
-                return final_url
-        except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError) as exc:
-            raise FetchError(f"GET failed for {url}: {exc}") from exc
+        return self._request(url, method="GET", headers=headers).url
 
     def get_text(self, url: str, headers: dict[str, str] | None = None) -> HttpResponse:
         return self.get(url, headers=headers)
@@ -232,4 +373,6 @@ class SafeHttpClient:
         try:
             return response, json.loads(response.text)
         except json.JSONDecodeError as exc:
-            raise FetchError(f"Expected JSON from {url}, got {response.content_type or 'unknown type'}.") from exc
+            raise FetchError(
+                f"Expected JSON from {url}, got {response.content_type or 'unknown type'}."
+            ) from exc
