@@ -73,7 +73,7 @@ function resolveExactCommit(repositoryRoot, commit) {
   return resolvedCommit;
 }
 
-function reportEntriesAtCommit(repositoryRoot, commit) {
+function reportEntriesAtCommit(repositoryRoot, commit, skillPaths) {
   const output = git(repositoryRoot, [
     'ls-tree',
     '-r',
@@ -81,7 +81,7 @@ function reportEntriesAtCommit(repositoryRoot, commit) {
     '--full-tree',
     commit,
     '--',
-    'skills',
+    ...skillPaths.map((skillPath) => `skills/${skillPath}/skill-report.json`),
   ]).toString('utf8');
   const reports = new Map();
 
@@ -125,7 +125,7 @@ function hashMaterializedReports(repositoryRoot, reportPaths) {
 export function materializeChangedSkills({ repositoryRoot = '.', commit, skills }) {
   const exactCommit = resolveExactCommit(repositoryRoot, commit);
   const skillPaths = Array.isArray(skills) ? parseChangedSkillPaths(skills.join(' ')) : parseChangedSkillPaths(skills);
-  const treeReports = reportEntriesAtCommit(repositoryRoot, exactCommit);
+  const treeReports = reportEntriesAtCommit(repositoryRoot, exactCommit, skillPaths);
   const targets = skillPaths.map((skillPath) => {
     const directory = `skills/${skillPath}`;
     const reportPath = `${directory}/skill-report.json`;
