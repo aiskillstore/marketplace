@@ -49,6 +49,7 @@ test('current pending inventory stops after its exact owners; fresh A prevents d
   const b = makePr(2, '2026-09-02T00:00:00Z', 'c');
   const { digest } = publicationIdentity(a);
   const calls = [];
+  let syncRuns = [];
   const request = (endpoint, data) => {
     calls.push(endpoint);
     assert.equal(data, undefined, 'fresh earlier outbox must prevent every write');
@@ -60,7 +61,7 @@ test('current pending inventory stops after its exact owners; fresh A prevents d
     }
     if (endpoint.includes('/pulls/1/files')) return [{ filename: 'pending/owner/a/skill-report.json', sha: 'ra' }];
     if (endpoint.includes('/pulls/2/files')) return [{ filename: 'pending/owner/b/skill-report.json', sha: 'rb' }];
-    if (endpoint.includes('/actions/workflows/')) return { workflow_runs: [] };
+    if (endpoint.includes('/actions/workflows/')) return { workflow_runs: endpoint.includes('sync-to-supabase') ? syncRuns : [] };
     if (endpoint.endsWith('/pulls/1')) return a;
     if (endpoint.includes('/git/matching-refs/')) return [{ ref: `refs/tags/agentcrew-dispatch-outbox/publication/${digest}/${Date.now()}-1`, object: { type: 'commit', sha: a.merge_commit_sha } }];
     if (endpoint.includes('/statuses?')) return [];
@@ -68,4 +69,6 @@ test('current pending inventory stops after its exact owners; fresh A prevents d
   };
   main(request);
   assert.ok(!calls.some(p => p.endsWith('/pulls/2')));
+  syncRuns = [{ id: 12, event: 'push', status: 'completed', conclusion: 'failure', created_at: '2026-09-08T00:00:00Z' }];
+  assert.throws(() => main(request), /Previous push sync 12 is failure/);
 });

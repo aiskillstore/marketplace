@@ -88,6 +88,13 @@ export function main(request = api) {
   // close before creating the next publication push, including Cody's dispatches.
   const syncRuns = request(`repos/${repo}/actions/workflows/sync-to-supabase.yml/runs?per_page=100`).workflow_runs;
   if (syncRuns.some(r => r.status !== 'completed')) return console.log('Waiting for provider sync');
+  const lastPush = syncRuns.filter(r => r.event === 'push')
+    .sort((a, b) => b.created_at.localeCompare(a.created_at))[0];
+  // Publication already removed its pending report before provider/cache work.
+  // Its absence cannot hide a failed downstream run and release the next item.
+  if (lastPush && !['success', 'skipped'].includes(lastPush.conclusion)) {
+    throw new Error(`Previous push sync ${lastPush.id} is ${lastPush.conclusion}; reconcile before continuing`);
+  }
   const publicationRuns = request(`repos/${repo}/actions/workflows/on-pr-merge.yml/runs?per_page=100`).workflow_runs;
   if (publicationRuns.some(r => r.status !== 'completed')) return console.log('Waiting for publication receiver');
   for (const candidate of candidates) {
