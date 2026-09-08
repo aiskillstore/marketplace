@@ -160,3 +160,27 @@ test('selected report lookup does not enumerate or validate unrelated report tre
     assert.equal(readFileSync(join(repositoryRoot, 'skills/owner/demo/skill-report.json'), 'utf8'), '{"revision":2}\n');
   } finally { rmSync(repositoryRoot, { recursive: true, force: true }); }
 });
+
+test('partial clone prefetches selected blobs together and preserves unrelated sparse content', () => {
+  const { repositoryRoot: source, commit } = makeRepository();
+  const clone = mkdtempSync(join(tmpdir(), 'materialize-partial-'));
+  try {
+    git(source, ['config', 'uploadpack.allowFilter', 'true']);
+    git(source, ['config', 'uploadpack.allowAnySHA1InWant', 'true']);
+    git(clone, ['clone', '--filter=blob:none', '--no-checkout', `file://${source}`, '.']);
+    git(clone, ['sparse-checkout', 'set', '--no-cone', '/README.md']);
+    git(clone, ['checkout', 'main']);
+    const beforeHead = git(clone, ['rev-parse', 'HEAD']);
+    const trace = join(tmpdir(), `materialize-fetch-${process.pid}.jsonl`);
+    const previous = process.env.GIT_TRACE2_EVENT;
+    process.env.GIT_TRACE2_EVENT = trace;
+    try { materializeChangedSkills({repositoryRoot:clone,commit,skills:['owner/demo']}); }
+    finally { if(previous === undefined)delete process.env.GIT_TRACE2_EVENT;else process.env.GIT_TRACE2_EVENT=previous; }
+    const commands=readFileSync(trace,'utf8').trim().split('\n').map(JSON.parse).filter(e=>e.event==='start').map(e=>e.argv);
+    rmSync(trace,{force:true});
+    assert.equal(commands.filter(args=>args.includes('fetch')).length,1,'one bulk fetch; restore must not trigger per-blob fetches');
+    assert.equal(readFileSync(join(clone,'skills/owner/demo/SKILL.md'),'utf8'),'# Demo v2\n');
+    assert.equal(existsSync(join(clone,'skills/owner/untouched/SKILL.md')),false);
+    assert.equal(git(clone,['rev-parse','HEAD']),beforeHead);
+  } finally { rmSync(source,{recursive:true,force:true});rmSync(clone,{recursive:true,force:true}); }
+});

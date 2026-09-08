@@ -73,7 +73,7 @@ function resolveExactCommit(repositoryRoot, commit) {
   return resolvedCommit;
 }
 
-function reportEntriesAtCommit(repositoryRoot, commit, skillPaths) {
+function selectedEntriesAtCommit(repositoryRoot, commit, skillPaths) {
   const output = git(repositoryRoot, [
     'ls-tree',
     '-r',
@@ -81,9 +81,10 @@ function reportEntriesAtCommit(repositoryRoot, commit, skillPaths) {
     '--full-tree',
     commit,
     '--',
-    ...skillPaths.map((skillPath) => `skills/${skillPath}/skill-report.json`),
+    ...skillPaths.map((skillPath) => `skills/${skillPath}`),
   ]).toString('utf8');
   const reports = new Map();
+  const blobs = new Set();
 
   for (const record of output.split('\0')) {
     if (!record) continue;
@@ -92,13 +93,14 @@ function reportEntriesAtCommit(repositoryRoot, commit, skillPaths) {
 
     const [mode, type, oid] = record.slice(0, tabIndex).split(' ');
     const treePath = record.slice(tabIndex + 1);
+    if (type === 'blob') blobs.add(oid);
     if (treePath.endsWith('/skill-report.json')) {
       publishedSkillDirectory(treePath);
       reports.set(treePath, { mode, type, oid });
     }
   }
 
-  return reports;
+  return { reports, blobs };
 }
 
 function assertSafeRemoval(repositoryRoot, repositoryPath) {
@@ -125,7 +127,7 @@ function hashMaterializedReports(repositoryRoot, reportPaths) {
 export function materializeChangedSkills({ repositoryRoot = '.', commit, skills }) {
   const exactCommit = resolveExactCommit(repositoryRoot, commit);
   const skillPaths = Array.isArray(skills) ? parseChangedSkillPaths(skills.join(' ')) : parseChangedSkillPaths(skills);
-  const treeReports = reportEntriesAtCommit(repositoryRoot, exactCommit, skillPaths);
+  const { reports: treeReports, blobs } = selectedEntriesAtCommit(repositoryRoot, exactCommit, skillPaths);
   const targets = skillPaths.map((skillPath) => {
     const directory = `skills/${skillPath}`;
     const reportPath = `${directory}/skill-report.json`;
@@ -137,6 +139,15 @@ export function materializeChangedSkills({ repositoryRoot = '.', commit, skills 
 
     return { directory, reportPath, reportOid: report.oid };
   });
+
+  // Partial-clone restore otherwise fetches missing blobs one at a time. Fetch
+  // only the exact selected tree's objects in one native request before removal.
+  const promisor = git(repositoryRoot, ['config', '--type=bool', '--default=false', '--get', 'remote.origin.promisor'], { encoding: 'utf8' }).trim();
+  if (promisor === 'true') {
+    git(repositoryRoot, ['fetch', '--no-tags', '--no-write-fetch-head', '--recurse-submodules=no', '--stdin', 'origin'], {
+      input: `${[...blobs].join('\n')}\n`, encoding: 'utf8',
+    });
+  }
 
   // Remove only the selected directories first so stale untracked files from a
   // mutable self-hosted workspace cannot leak into the sync payload.
