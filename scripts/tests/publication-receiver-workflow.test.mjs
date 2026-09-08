@@ -16,16 +16,41 @@ test('post-merge publication accepts the exact bot merger and binds dispatch cor
   assert.match(source, /\[ "\$CORRELATION_ID" = "\$EXPECTED_CORRELATION_ID" \]/);
 });
 
-test('publication receiver serializes one correlation and verifies the durable outbox before writes', () => {
+test('publication receiver serializes one correlation and verifies the exact durable outbox attempt before writes', () => {
   assert.equal(workflow.concurrency.group, 'publication-${{ inputs.correlation_id }}');
   assert.equal(workflow.concurrency['cancel-in-progress'], false);
+  assert.equal(workflow.on.workflow_dispatch.inputs.outbox_attempt.required, true);
   const outboxGuard = source.indexOf('Verify durable publication dispatch outbox');
   const appToken = source.indexOf('Generate GitHub App Token');
   assert.ok(outboxGuard > 0 && outboxGuard < appToken);
   assert.match(source, /agentcrew-dispatch-outbox\/publication/);
   assert.match(source, /length > 0 and length <= 8/);
   assert.match(source, /object\.sha == \$merge_sha/);
-  assert.match(source, /Existing durable publication status refuses duplicate execution/);
+  assert.match(source, /EXACT_OUTBOX_REF=.*OUTBOX_ATTEMPT/);
+  assert.match(source, /ATTEMPT_CONTEXT="agentcrew\/publication-attempt\/\$DIGEST\/\$OUTBOX_ATTEMPT"/);
+  assert.match(source, /Existing durable publication attempt status refuses duplicate execution/);
+  assert.match(source, /case "\$CORRELATION_STATE" in/);
+  assert.match(source, /Authoritative publication success refuses retry/);
+  assert.match(source, /Existing in-flight publication refuses unknown-effect replay/);
+  assert.match(source, /failure\|error\)/);
+  assert.match(source, /10#\$OUTBOX_ATTEMPT_MS <= FAILURE_AT_MS/);
+  assert.match(source, /Recovery outbox attempt must be created after the latest terminal failure/);
+  assert.match(source, /Unknown durable publication state refuses recovery/);
+  assert.match(source, /-f state=failure -f context="\$ATTEMPT_CONTEXT"/);
+  assert.match(source, /-f state=success -f context="\$ATTEMPT_CONTEXT"/);
   assert.match(source, /steps\.publication_claim\.outputs\.owns_reservation == 'true'/);
   assert.match(source, /Idempotency-Key: publication-resolved-/);
+});
+
+test('publication receiver materializes report-only roots only after exact prior-content and provenance verification', () => {
+  assert.match(source, /BASE_COMMIT_SHA=\$\(jq -er '\.base\.sha'/);
+  const fetchCommits = source.indexOf('git fetch --no-tags --depth=1 origin "$BASE_COMMIT_SHA" "$MERGE_COMMIT_SHA"');
+  const resolvePlan = source.indexOf('node scripts/resolve-approved-submission.mjs');
+  assert.ok(fetchCommits > 0 && fetchCommits < resolvePlan);
+  assert.match(source, /--report-only-base-commit "\$BASE_COMMIT_SHA"/);
+  assert.match(source, /--report-only-merge-commit "\$MERGE_COMMIT_SHA"/);
+  assert.match(source, /\$NF == "SKILL\.md" \|\| \$NF == "skill-report\.json"/);
+  assert.match(source, /Merged PR contains no canonical pending publication identity file/);
+  assert.match(source, /git diff --quiet "\$MERGE_COMMIT_SHA" HEAD -- "\$PENDING_DIR"/);
+  assert.doesNotMatch(source, /find pending/);
 });
