@@ -27,7 +27,7 @@ test('only authoritative merged submissions continue; unknown effects never auto
 test('merged-only continuation runs trusted main code and reuses the existing receiver', () => {
   const source = readFileSync('.github/workflows/continue-merged-publications.yml', 'utf8');
   const workflow = parse(source);
-  assert.deepEqual(workflow.on.pull_request_target.types, ['closed']);
+  assert.deepEqual(workflow.on.push.branches, ['main']);
   assert.ok(workflow.on.schedule.length);
   assert.equal(workflow.jobs.continue.steps[0].with.ref, 'main');
   assert.equal(workflow.jobs.continue.steps[0].with['persist-credentials'], false);
