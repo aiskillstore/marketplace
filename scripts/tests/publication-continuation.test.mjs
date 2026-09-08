@@ -41,3 +41,31 @@ test('sync baseline selection sorts workflow runs newest first', () => {
   const source = readFileSync('.github/workflows/sync-to-supabase.yml', 'utf8');
   assert.match(source, /sort_by\(\.created_at\) \| reverse\[\]/);
 });
+
+test('current pending inventory stops after its exact owners; fresh A prevents dispatching B', async () => {
+  const { main } = await import('../continue-merged-publications.mjs');
+  const makePr = (number, date, sha) => ({ number, merged_at: date, base: { ref: 'main' }, user: { id: 254047988, login: 'ai-skill-store[bot]' }, head: { repo: { full_name: 'aiskillstore/marketplace' }, ref: 'submission/test', sha: 'a'.repeat(40) }, merge_commit_sha: sha.repeat(40) });
+  const a = makePr(1, '2026-09-01T00:00:00Z', 'b');
+  const b = makePr(2, '2026-09-02T00:00:00Z', 'c');
+  const { digest } = publicationIdentity(a);
+  const calls = [];
+  const request = (endpoint, data) => {
+    calls.push(endpoint);
+    assert.equal(data, undefined, 'fresh earlier outbox must prevent every write');
+    if (endpoint.endsWith('/git/trees/main')) return { tree: [{ path: 'pending', sha: 'tree' }] };
+    if (endpoint.includes('/git/trees/tree?')) return { tree: [{ path: 'owner/a/skill-report.json', sha: 'ra' }, { path: 'owner/b/skill-report.json', sha: 'rb' }] };
+    if (endpoint.includes('/pulls?')) {
+      assert.ok(endpoint.endsWith('page=1'), 'do not scan 1000 old PRs after finding all current owners');
+      return [b, a, ...Array(98).fill({ merged_at: null })];
+    }
+    if (endpoint.includes('/pulls/1/files')) return [{ filename: 'pending/owner/a/skill-report.json', sha: 'ra' }];
+    if (endpoint.includes('/pulls/2/files')) return [{ filename: 'pending/owner/b/skill-report.json', sha: 'rb' }];
+    if (endpoint.includes('/actions/workflows/')) return { workflow_runs: [] };
+    if (endpoint.endsWith('/pulls/1')) return a;
+    if (endpoint.includes('/git/matching-refs/')) return [{ ref: `refs/tags/agentcrew-dispatch-outbox/publication/${digest}/${Date.now()}-1`, object: { type: 'commit', sha: a.merge_commit_sha } }];
+    if (endpoint.includes('/statuses?')) return [];
+    throw new Error(`Unexpected request: ${endpoint}`);
+  };
+  main(request);
+  assert.ok(!calls.some(p => p.endsWith('/pulls/2')));
+});

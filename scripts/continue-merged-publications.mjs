@@ -43,35 +43,42 @@ function api(endpoint, data) {
   });
   return output.trim() ? JSON.parse(output) : null;
 }
-function pages(endpoint) {
+function pages(endpoint, request = api) {
   const values = [];
   // ponytail: bounded GitHub inventory; fail visibly at 1000 rather than silently
   // omit older pending work. Increase pagination only if this ceiling is reached.
   for (let page = 1; page <= 10; page++) {
-    const batch = api(`${endpoint}${endpoint.includes('?') ? '&' : '?'}per_page=100&page=${page}`);
+    const batch = request(`${endpoint}${endpoint.includes('?') ? '&' : '?'}per_page=100&page=${page}`);
     values.push(...batch);
     if (batch.length < 100) return values;
   }
   throw new Error(`Inventory limit reached: ${endpoint}`);
 }
-export function main() {
+export function main(request = api) {
   const live = process.argv.includes('--apply');
-  const prs = pages(`repos/${repo}/pulls?state=closed&sort=updated&direction=desc`).filter(trustedMerged);
-  const tree = api(`repos/${repo}/git/trees/main`);
+  const tree = request(`repos/${repo}/git/trees/main`);
   const pending = tree.tree.find(t => t.path === 'pending');
   if (!pending) return console.log('No pending skills');
-  const inventory = api(`repos/${repo}/git/trees/${pending.sha}?recursive=1`);
+  const inventory = request(`repos/${repo}/git/trees/${pending.sha}?recursive=1`);
   if (inventory.truncated) throw new Error('Truncated pending inventory');
   const reports = new Map(inventory.tree.filter(t => t.path.endsWith('/skill-report.json'))
     .map(t => [`pending/${t.path}`, t.sha]));
+  if (!reports.size) return console.log('No pending skills');
   const owners = new Map();
-  for (const pr of prs.sort((a, b) => b.merged_at.localeCompare(a.merged_at))) {
-    const files = pages(`repos/${repo}/pulls/${pr.number}/files`);
-    for (const file of files) {
-      if (reports.has(file.filename) && reports.get(file.filename) === file.sha && !owners.has(file.filename)) {
-        owners.set(file.filename, pr);
+  // Stop when every CURRENT pending report has an exact merged owner. Scanning
+  // the entire closed-PR history first always hits the 1000-item bound here.
+  for (let page = 1; page <= 10 && owners.size < reports.size; page++) {
+    const batch = request(`repos/${repo}/pulls?state=closed&sort=updated&direction=desc&per_page=100&page=${page}`);
+    for (const pr of batch.filter(trustedMerged).sort((a, b) => b.merged_at.localeCompare(a.merged_at))) {
+      const files = pages(`repos/${repo}/pulls/${pr.number}/files`, request);
+      for (const file of files) {
+        if (reports.get(file.filename) === file.sha && !owners.has(file.filename)) {
+          owners.set(file.filename, pr);
+        }
       }
+      if (owners.size === reports.size) break;
     }
+    if (batch.length < 100) break;
   }
   const unmatched = [...reports.keys()].filter(p => !owners.has(p));
   if (unmatched.length) console.error(`::warning::Pending reports need provenance inspection: ${unmatched.join(', ')}`);
@@ -79,15 +86,15 @@ export function main() {
   console.log(JSON.stringify({ pending: reports.size, candidates: candidates.map(p => p.number), unmatched }));
   // GitHub's concurrency group only preserves one pending run. Let each push sync
   // close before creating the next publication push, including Cody's dispatches.
-  const syncRuns = api(`repos/${repo}/actions/workflows/sync-to-supabase.yml/runs?per_page=100`).workflow_runs;
+  const syncRuns = request(`repos/${repo}/actions/workflows/sync-to-supabase.yml/runs?per_page=100`).workflow_runs;
   if (syncRuns.some(r => r.status !== 'completed')) return console.log('Waiting for provider sync');
-  const publicationRuns = api(`repos/${repo}/actions/workflows/on-pr-merge.yml/runs?per_page=100`).workflow_runs;
+  const publicationRuns = request(`repos/${repo}/actions/workflows/on-pr-merge.yml/runs?per_page=100`).workflow_runs;
   if (publicationRuns.some(r => r.status !== 'completed')) return console.log('Waiting for publication receiver');
   for (const candidate of candidates) {
-    const pr = api(`repos/${repo}/pulls/${candidate.number}`);
+    const pr = request(`repos/${repo}/pulls/${candidate.number}`);
     const { correlation, digest } = publicationIdentity(pr);
-    const refs = api(`repos/${repo}/git/matching-refs/tags/agentcrew-dispatch-outbox/publication/${digest}/`);
-    const statuses = pages(`repos/${repo}/commits/${pr.merge_commit_sha}/statuses`);
+    const refs = request(`repos/${repo}/git/matching-refs/tags/agentcrew-dispatch-outbox/publication/${digest}/`);
+    const statuses = pages(`repos/${repo}/commits/${pr.merge_commit_sha}/statuses`, request);
     const choice = chooseAttempt({ refs, statuses, digest, merge: pr.merge_commit_sha, now: Date.now() });
     if (choice.wait) {
       // Oldest-first is a safety boundary: a missing or non-terminal effect
@@ -96,10 +103,10 @@ export function main() {
     }
     if (!live) { console.log(`Would dispatch #${pr.number}: ${correlation}`); return; }
     const ref = `refs/tags/agentcrew-dispatch-outbox/publication/${digest}/${choice.attempt}`;
-    api(`repos/${repo}/git/refs`, { ref, sha: pr.merge_commit_sha });
-    const readback = api(`repos/${repo}/git/ref/${ref.slice(5)}`);
+    request(`repos/${repo}/git/refs`, { ref, sha: pr.merge_commit_sha });
+    const readback = request(`repos/${repo}/git/ref/${ref.slice(5)}`);
     if (readback.object.sha !== pr.merge_commit_sha) throw new Error('Outbox readback mismatch');
-    api(`repos/${repo}/actions/workflows/on-pr-merge.yml/dispatches`, {
+    request(`repos/${repo}/actions/workflows/on-pr-merge.yml/dispatches`, {
       ref: 'main', inputs: { pr_number: String(pr.number), correlation_id: correlation, outbox_attempt: choice.attempt },
     });
     console.log(`Dispatched #${pr.number}: ${correlation}; receiver status is the completion evidence`);
