@@ -42,6 +42,11 @@ rerun the provider-free preview. Do not bypass the preview or interpret a previe
 failure as provider rejection. If using a narrow provider-scope policy, recompute and
 review its unified transmission SHA after any content or policy change.
 
+The scope policy itself must be a current-user, regular, unlinked `0600` file at its
+resolved path. Recreate it if it is group/world-readable, read-only, a symlink,
+hardlinked, replaced, or changed during the bound read; do not weaken the policy-file
+boundary to recover a preview.
+
 ## Preflight fails before provider launch
 
 Tell the user that the task was not sent to AGY. Keep the caller's model, effort,
@@ -76,6 +81,16 @@ For a candidate-free failure, consult `available_actions`. A mechanically eligib
 `resume` keeps the exact stored conversation; a fresh `restart` requires explicit user
 direction. Both require the current state SHA and a new provider notice.
 
+## Boost preflight or contract failed
+
+The first `--boost` invocation without approval exits before provider launch and prints
+the exact job-bound `--approve-boost-risk-sha`. Review the warning and rerun only for
+that same intended job and transmission. An invalid or stale digest, broader workflow,
+more than one cycle, persona, plan mode, or enabled slash commands is rejected before
+launch. After launch, a missing or mismatched Boost agent or `request-review`
+permission mode produces `failure_stage=boost_contract`. Do not resume, restart, or
+continue that job; a further attempt requires a new job and fresh approvals.
+
 ## A provider error or cancellation still has a candidate
 
 A structurally valid `ERROR` candidate is reviewable. Retrieve `result`, inspect the
@@ -87,12 +102,26 @@ finalization, or an explicitly directed fresh restart. It is never resumed or
 continued. Local cancellation proves local process closure only; report remote
 cancellation as unverified unless independently established.
 
+## Scoped native launch is unavailable
+
+Explicit `--provider-isolation native` requires supported macOS scoped containment.
+New jobs use the existing AGY session by default. A general
+`doctor` readiness result does not qualify that native launch or authentication.
+If launch reports `status_unavailable`, inspect the host and bound executable/profile
+before changing the task. Do not retry a provider call or silently switch execution
+or transmission modes: that changes the exposure approved by the user. Keep the
+candidate and identify the failed prerequisite in the handoff.
+
 ## State approval is stale
 
 Mutating lifecycle commands require the current `state_sha256`; `wait` uses
 `--after-state-sha`. Read `status` again, understand what changed, rebuild any
 candidate-bound evidence, and use the newly reported approval only if the intended
 action remains available. Never copy a stale digest forward blindly.
+
+Refreshing this mechanical state binding does not by itself require another human
+approval. Reuse the approved job scope when the action remains covered; request new
+authority only when its scope, transmission, destination, or budget materially changes.
 
 For facade finalization of a bound dispatch, use `dispatch.state_sha256` as
 `--approve-dispatch-sha`. It is distinct from a convenient current facade state hash.
@@ -108,8 +137,9 @@ candidate, inspect it read-only, and create a new isolated verification copy.
 
 The copy fails closed for source drift, an existing or non-private destination,
 outward/broken/Git-administration symlinks, or an invalid destination boundary. A
-failed copy is not usable evidence. Preserve the original candidate and report the
-unresolved failure.
+failed copy is not usable evidence. A non-`0700` immediate-parent diagnostic is emitted
+only when its bounded inspection is small enough; otherwise the failure stays an invalid
+destination boundary. Preserve the original candidate and report the unresolved failure.
 
 ## The gate rejects scope or verifier input
 

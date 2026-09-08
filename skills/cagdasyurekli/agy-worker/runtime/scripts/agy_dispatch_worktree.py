@@ -13,6 +13,7 @@ import json
 import os
 from pathlib import Path
 import posixpath
+import re
 import selectors
 import shutil
 import signal
@@ -79,6 +80,59 @@ def _manifest_binding(info: os.stat_result) -> tuple[int, ...]:
         info.st_mtime_ns,
         info.st_ctime_ns,
     )
+
+
+def _read_provider_scope_file(
+    path: str | Path, limit: int,
+) -> tuple[str, bytes, os.stat_result]:
+    """Read a stable, owner-private provider-scope policy without aliases."""
+    try:
+        path_text = os.fsdecode(path)
+        if "\0" in path_text or os.path.islink(path_text):
+            raise DispatchError("provider scope path is invalid")
+        resolved = os.path.realpath(path_text)
+        if not os.path.isabs(resolved) or os.path.islink(resolved):
+            raise DispatchError("provider scope path is invalid")
+        named_before = os.lstat(resolved)
+        if not stat.S_ISREG(named_before.st_mode):
+            raise DispatchError("provider scope authority is invalid")
+        descriptor = os.open(resolved, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+    except (OSError, TypeError, UnicodeError, ValueError) as exc:
+        if isinstance(exc, DispatchError):
+            raise
+        raise DispatchError("provider scope is unavailable") from exc
+    try:
+        before = os.fstat(descriptor)
+        if (
+            not stat.S_ISREG(before.st_mode)
+            or before.st_uid != os.getuid()
+            or before.st_nlink != 1
+            or stat.S_IMODE(before.st_mode) != 0o600
+            or _manifest_binding(before) != _manifest_binding(named_before)
+        ):
+            raise DispatchError("provider scope authority is invalid")
+        chunks: list[bytes] = []
+        total = 0
+        while total <= limit:
+            chunk = os.read(descriptor, min(65536, limit + 1 - total))
+            if not chunk:
+                break
+            chunks.append(chunk)
+            total += len(chunk)
+        after = os.fstat(descriptor)
+    finally:
+        os.close(descriptor)
+    try:
+        named_after = os.lstat(resolved)
+    except OSError as exc:
+        raise DispatchError("provider scope changed during read") from exc
+    if (
+        total > limit
+        or _manifest_binding(before) != _manifest_binding(after)
+        or _manifest_binding(after) != _manifest_binding(named_after)
+    ):
+        raise DispatchError("provider scope changed during read")
+    return resolved, b"".join(chunks), after
 
 
 def _read_bound_control_file(path: str, limit: int = 4096) -> tuple[bytes, tuple[int, ...]]:
@@ -229,6 +283,8 @@ def _bounded_git_worktree_list(root: str) -> bytes:
         selector.close()
         if child is not None:
             _stop_preview_child(child)
+            if child.stdout is not None:
+                child.stdout.close()
 
 
 def _registered_worktree_authority(root: str, head_text: str) -> tuple[str, str]:
@@ -525,6 +581,8 @@ def _manifest_digest(manifest: Any) -> str:
 def _preview_main(argv: list[str]) -> int:
     workdir: str | None = None
     scope_path: str | None = None
+    provider_isolation = "session"
+    provider_isolation_seen = False
     format_opt = "json"
     idx = 0
     while idx < len(argv):
@@ -541,6 +599,13 @@ def _preview_main(argv: list[str]) -> int:
                 return 64
             scope_path = argv[idx + 1]
             idx += 2
+        elif arg == "--provider-isolation":
+            if idx + 1 >= len(argv) or provider_isolation_seen:
+                print("agy-worker.sh: transmission preview unavailable", file=sys.stderr)
+                return 64
+            provider_isolation = argv[idx + 1]
+            provider_isolation_seen = True
+            idx += 2
         elif arg == "--format":
             if idx + 1 >= len(argv) or argv[idx + 1] != "json":
                 print("agy-worker.sh: transmission preview unavailable", file=sys.stderr)
@@ -553,55 +618,45 @@ def _preview_main(argv: list[str]) -> int:
     if workdir is None:
         print("agy-worker.sh: transmission preview unavailable", file=sys.stderr)
         return 64
+    if provider_isolation not in {"session", "native"} or (
+        provider_isolation == "native" and scope_path is None
+    ):
+        print("agy-worker.sh: transmission preview unavailable", file=sys.stderr)
+        return 64
     try:
         result = readable_path_manifest(workdir)
+        result["provider_isolation"] = provider_isolation
+        result["provider_authority"] = (
+            "normal same-user filesystem and network authority; selected scope is staging and reconciliation, not host confinement"
+            if provider_isolation == "session" else
+            "native scoped provider containment with private HOME, Seatbelt, and AGY sandbox"
+        )
         if scope_path is not None:
-            resolved_scope = os.path.realpath(scope_path)
-            if not os.path.isabs(resolved_scope) or os.path.islink(scope_path):
-                raise ReadableManifestError("provider scope path is invalid")
-            descriptor = os.open(
-                resolved_scope, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0),
+            _resolved_scope, raw_scope, _scope_info = _read_provider_scope_file(
+                scope_path, 512 * 1024,
             )
-            try:
-                before = os.fstat(descriptor)
-                if (
-                    not stat.S_ISREG(before.st_mode)
-                    or before.st_uid != os.geteuid()
-                    or before.st_nlink != 1
-                ):
-                    raise ReadableManifestError("provider scope authority is invalid")
-                chunks: list[bytes] = []
-                total = 0
-                while total <= 512 * 1024:
-                    chunk = os.read(descriptor, min(65536, 512 * 1024 + 1 - total))
-                    if not chunk:
-                        break
-                    chunks.append(chunk)
-                    total += len(chunk)
-                after = os.fstat(descriptor)
-            finally:
-                os.close(descriptor)
-            named = os.lstat(resolved_scope)
-            if (
-                total > 512 * 1024
-                or _manifest_binding(before) != _manifest_binding(after)
-                or _manifest_binding(after) != _manifest_binding(named)
-            ):
-                raise ReadableManifestError("provider scope changed during preview")
-            raw_scope = b"".join(chunks)
             scope = _parse_provider_scope(raw_scope)
             _validate_scope_against_worktree(scope, workdir, result["manifest"]["entries"])
             selected_manifest = _build_selected_content_manifest(workdir, scope)
             selected_sha = _selected_content_digest(selected_manifest)
             policy_sha = _canonical_digest(scope)
             manifest_sha = result["manifest_sha256"]
-            transmission_sha = _compute_transmission_sha256(policy_sha, manifest_sha, selected_sha)
+            base_transmission_sha = _compute_transmission_sha256(policy_sha, manifest_sha, selected_sha)
+            transmission_sha = _compute_provider_launch_approval_sha256(
+                provider_isolation, manifest_sha, base_transmission_sha,
+            )
             result["provider_scope"] = scope
             result["contents_read"] = True
             result["policy_sha256"] = policy_sha
             result["selected_content_manifest"] = selected_manifest
             result["selected_content_sha256"] = selected_sha
             result["transmission_sha256"] = transmission_sha
+        result["launch_approval_sha256"] = (
+            result["transmission_sha256"] if scope_path is not None else
+            _compute_provider_launch_approval_sha256(
+                provider_isolation, result["manifest_sha256"],
+            )
+        )
     except (OSError, UnicodeError, ValueError, OverflowError, RecursionError):
         print("agy-worker.sh: transmission preview unavailable", file=sys.stderr)
         return 20
@@ -1746,6 +1801,26 @@ def _worktree_snapshot(
                 return value
             return stat.S_IFMT(value[2]), stat.S_IMODE(value[2])
 
+        def open_listed_parent(parts: list[bytes]) -> int:
+            """Open a listed path's parent, or return -1 when it was deleted."""
+            parent_fd = os.dup(root_fd)
+            try:
+                for component in parts[:-1]:
+                    try:
+                        next_fd = os.open(
+                            component, os.O_RDONLY | directory | nofollow,
+                            dir_fd=parent_fd,
+                        )
+                    except FileNotFoundError:
+                        os.close(parent_fd)
+                        return -1
+                    os.close(parent_fd)
+                    parent_fd = next_fd
+                return parent_fd
+            except BaseException:
+                os.close(parent_fd)
+                raise
+
         root_binding = binding(root_info)
         if binding(os.lstat(workdir)) != root_binding:
             return None
@@ -2310,60 +2385,63 @@ def _worktree_snapshot(
                     observation.update(entry[1])
             index_changed = indexed != head_entry
             is_other = relative in other or relative in ignored
-            parent_fd = os.dup(root_fd)
+            parent_fd = open_listed_parent(parts)
             try:
-                for component in parts[:-1]:
-                    next_fd = os.open(component, os.O_RDONLY | directory | nofollow, dir_fd=parent_fd)
-                    os.close(parent_fd); parent_fd = next_fd
                 name = parts[-1]
-                try:
-                    before = os.stat(name, dir_fd=parent_fd, follow_symlinks=False)
-                except FileNotFoundError:
+                if parent_fd < 0:
                     observation.update(b"missing\0")
                     observed_paths[relative] = (b"missing",)
                     differs = indexed is not None
                 else:
-                    metadata = binding(before); observation.update(canonical(list(persistent_metadata(metadata))))
-                    if stat.S_ISLNK(before.st_mode):
-                        target_raw = os.fsencode(os.readlink(name, dir_fd=parent_fd))
-                        content_bytes += len(target_raw)
-                        if content_bytes > MAX_STREAM_BYTES or binding(os.stat(name, dir_fd=parent_fd, follow_symlinks=False)) != metadata:
-                            return None
-                        observation.update(b"symlink\0"); observation.update(len(target_raw).to_bytes(8, "big")); observation.update(target_raw)
-                        observed_paths[relative] = (b"symlink", metadata, target_raw)
-                        differs = indexed is None or indexed[0] != 0o120000 or target_raw != objects[indexed[1]]
-                    elif stat.S_ISREG(before.st_mode):
-                        descriptor = os.open(name, os.O_RDONLY | nofollow, dir_fd=parent_fd)
-                        try:
-                            opened = os.fstat(descriptor)
-                            if (opened.st_dev, opened.st_ino) != (before.st_dev, before.st_ino):
-                                return None
-                            content = hashlib.sha256()
-                            while True:
-                                piece = os.read(descriptor, 65536)
-                                if not piece:
-                                    break
-                                content_bytes += len(piece)
-                                if content_bytes > MAX_STREAM_BYTES:
-                                    return None
-                                content.update(piece)
-                            after = os.fstat(descriptor)
-                        finally:
-                            os.close(descriptor)
-                        if binding(after) != metadata or binding(os.stat(name, dir_fd=parent_fd, follow_symlinks=False)) != metadata:
-                            return None
-                        content_digest = content.digest()
-                        observation.update(b"file\0"); observation.update(content_digest)
-                        observed_paths[relative] = (b"file", metadata, content_digest)
-                        differs = indexed is None or indexed[0] not in {0o100644, 0o100755} or bool(before.st_mode & 0o111) != bool(indexed[0] & 0o111) or before.st_size != len(objects[indexed[1]]) or content_digest != hashlib.sha256(objects[indexed[1]]).digest()
+                    try:
+                        before = os.stat(name, dir_fd=parent_fd, follow_symlinks=False)
+                    except FileNotFoundError:
+                        observation.update(b"missing\0")
+                        observed_paths[relative] = (b"missing",)
+                        differs = indexed is not None
                     else:
-                        observation.update(b"special\0")
-                        observed_paths[relative] = (b"special", metadata)
-                        differs = True
+                        metadata = binding(before); observation.update(canonical(list(persistent_metadata(metadata))))
+                        if stat.S_ISLNK(before.st_mode):
+                            target_raw = os.fsencode(os.readlink(name, dir_fd=parent_fd))
+                            content_bytes += len(target_raw)
+                            if content_bytes > MAX_STREAM_BYTES or binding(os.stat(name, dir_fd=parent_fd, follow_symlinks=False)) != metadata:
+                                return None
+                            observation.update(b"symlink\0"); observation.update(len(target_raw).to_bytes(8, "big")); observation.update(target_raw)
+                            observed_paths[relative] = (b"symlink", metadata, target_raw)
+                            differs = indexed is None or indexed[0] != 0o120000 or target_raw != objects[indexed[1]]
+                        elif stat.S_ISREG(before.st_mode):
+                            descriptor = os.open(name, os.O_RDONLY | nofollow, dir_fd=parent_fd)
+                            try:
+                                opened = os.fstat(descriptor)
+                                if (opened.st_dev, opened.st_ino) != (before.st_dev, before.st_ino):
+                                    return None
+                                content = hashlib.sha256()
+                                while True:
+                                    piece = os.read(descriptor, 65536)
+                                    if not piece:
+                                        break
+                                    content_bytes += len(piece)
+                                    if content_bytes > MAX_STREAM_BYTES:
+                                        return None
+                                    content.update(piece)
+                                after = os.fstat(descriptor)
+                            finally:
+                                os.close(descriptor)
+                            if binding(after) != metadata or binding(os.stat(name, dir_fd=parent_fd, follow_symlinks=False)) != metadata:
+                                return None
+                            content_digest = content.digest()
+                            observation.update(b"file\0"); observation.update(content_digest)
+                            observed_paths[relative] = (b"file", metadata, content_digest)
+                            differs = indexed is None or indexed[0] not in {0o100644, 0o100755} or bool(before.st_mode & 0o111) != bool(indexed[0] & 0o111) or before.st_size != len(objects[indexed[1]]) or content_digest != hashlib.sha256(objects[indexed[1]]).digest()
+                        else:
+                            observation.update(b"special\0")
+                            observed_paths[relative] = (b"special", metadata)
+                            differs = True
                 if is_other or index_changed or differs:
                     changed += 1
             finally:
-                os.close(parent_fd)
+                if parent_fd >= 0:
+                    os.close(parent_fd)
         initial_directory_observation = directory_manifest()
         if initial_directory_observation is None:
             return None
@@ -2375,57 +2453,58 @@ def _worktree_snapshot(
         revalidated_bytes = 0
         for relative, expected in observed_paths.items():
             parts = relative.split(b"/")
-            parent_fd = os.dup(root_fd)
+            parent_fd = open_listed_parent(parts)
             try:
-                for component in parts[:-1]:
-                    next_fd = os.open(component, os.O_RDONLY | directory | nofollow, dir_fd=parent_fd)
-                    os.close(parent_fd); parent_fd = next_fd
                 name = parts[-1]
-                try:
-                    before = os.stat(name, dir_fd=parent_fd, follow_symlinks=False)
-                except FileNotFoundError:
+                if parent_fd < 0:
                     current: tuple[Any, ...] = (b"missing",)
                 else:
-                    metadata = binding(before)
-                    if stat.S_ISLNK(before.st_mode):
-                        target_raw = os.fsencode(os.readlink(name, dir_fd=parent_fd))
-                        revalidated_bytes += len(target_raw)
-                        if (
-                            revalidated_bytes > MAX_STREAM_BYTES
-                            or binding(os.stat(name, dir_fd=parent_fd, follow_symlinks=False)) != metadata
-                        ):
-                            return None
-                        current = (b"symlink", metadata, target_raw)
-                    elif stat.S_ISREG(before.st_mode):
-                        descriptor = os.open(name, os.O_RDONLY | nofollow, dir_fd=parent_fd)
-                        try:
-                            opened = os.fstat(descriptor)
-                            if (opened.st_dev, opened.st_ino) != (before.st_dev, before.st_ino):
-                                return None
-                            content = hashlib.sha256()
-                            while True:
-                                piece = os.read(descriptor, 65536)
-                                if not piece:
-                                    break
-                                revalidated_bytes += len(piece)
-                                if revalidated_bytes > MAX_STREAM_BYTES:
-                                    return None
-                                content.update(piece)
-                            after = os.fstat(descriptor)
-                        finally:
-                            os.close(descriptor)
-                        if (
-                            binding(after) != metadata
-                            or binding(os.stat(name, dir_fd=parent_fd, follow_symlinks=False)) != metadata
-                        ):
-                            return None
-                        current = (b"file", metadata, content.digest())
+                    try:
+                        before = os.stat(name, dir_fd=parent_fd, follow_symlinks=False)
+                    except FileNotFoundError:
+                        current = (b"missing",)
                     else:
-                        current = (b"special", metadata)
+                        metadata = binding(before)
+                        if stat.S_ISLNK(before.st_mode):
+                            target_raw = os.fsencode(os.readlink(name, dir_fd=parent_fd))
+                            revalidated_bytes += len(target_raw)
+                            if (
+                                revalidated_bytes > MAX_STREAM_BYTES
+                                or binding(os.stat(name, dir_fd=parent_fd, follow_symlinks=False)) != metadata
+                            ):
+                                return None
+                            current = (b"symlink", metadata, target_raw)
+                        elif stat.S_ISREG(before.st_mode):
+                            descriptor = os.open(name, os.O_RDONLY | nofollow, dir_fd=parent_fd)
+                            try:
+                                opened = os.fstat(descriptor)
+                                if (opened.st_dev, opened.st_ino) != (before.st_dev, before.st_ino):
+                                    return None
+                                content = hashlib.sha256()
+                                while True:
+                                    piece = os.read(descriptor, 65536)
+                                    if not piece:
+                                        break
+                                    revalidated_bytes += len(piece)
+                                    if revalidated_bytes > MAX_STREAM_BYTES:
+                                        return None
+                                    content.update(piece)
+                                after = os.fstat(descriptor)
+                            finally:
+                                os.close(descriptor)
+                            if (
+                                binding(after) != metadata
+                                or binding(os.stat(name, dir_fd=parent_fd, follow_symlinks=False)) != metadata
+                            ):
+                                return None
+                            current = (b"file", metadata, content.digest())
+                        else:
+                            current = (b"special", metadata)
                 if current != expected:
                     return None
             finally:
-                os.close(parent_fd)
+                if parent_fd >= 0:
+                    os.close(parent_fd)
         third = listings()
         if (
             third is None
@@ -2803,6 +2882,30 @@ def _compute_transmission_sha256(
     }
     raw = json.dumps(payload, ensure_ascii=True, sort_keys=True, separators=(",", ":")).encode("ascii") + b"\n"
     return hashlib.sha256(raw).hexdigest()
+
+
+def _compute_provider_launch_approval_sha256(
+    provider_isolation: str, readable_manifest_sha256: str,
+    transmission_sha256: str | None = None,
+) -> str:
+    """Bind a preview approval to the selected provider execution authority."""
+
+    if provider_isolation not in {"session", "native"}:
+        raise ValueError("provider isolation is invalid")
+    if not isinstance(readable_manifest_sha256, str) or re.fullmatch(r"[0-9a-f]{64}", readable_manifest_sha256) is None:
+        raise ValueError("readable manifest digest is invalid")
+    if transmission_sha256 is not None and (
+        not isinstance(transmission_sha256, str)
+        or re.fullmatch(r"[0-9a-f]{64}", transmission_sha256) is None
+    ):
+        raise ValueError("transmission digest is invalid")
+    payload = {
+        "kind": "agy-worker-provider-launch-approval-v1",
+        "provider_isolation": provider_isolation,
+        "readable_manifest_sha256": readable_manifest_sha256,
+        "transmission_sha256": transmission_sha256,
+    }
+    return hashlib.sha256(_canonical_json(payload)).hexdigest()
 
 
 def _materialize_stage(
@@ -3262,6 +3365,46 @@ def _reconciliation_root_identity(info: os.stat_result) -> list[int]:
     return [info.st_dev, info.st_ino, info.st_uid, info.st_gid, info.st_mode]
 
 
+def _reconciliation_directory_stable_identity(
+    binding: Any, current: os.stat_result,
+) -> bool:
+    """Keep directory authority while owned child operations change metadata."""
+    return bool(
+        isinstance(binding, list)
+        and len(binding) == 9
+        and stat.S_ISDIR(current.st_mode)
+        and not stat.S_ISLNK(current.st_mode)
+        and (
+            current.st_dev, current.st_ino, current.st_mode,
+            current.st_uid, current.st_gid,
+        ) == (binding[0], binding[1], binding[2], binding[4], binding[5])
+    )
+
+
+def _refresh_reconciliation_directory_ancestors(
+    root_fd: int, operations: list[dict[str, Any]], operation_index: int,
+    *, operation: str, identity_key: str, candidates: range,
+) -> None:
+    """Advance only known ancestor bindings after an owned child mutation."""
+    changed_path = operations[operation_index]["path"]
+    for candidate_index in candidates:
+        candidate = operations[candidate_index]
+        if (
+            candidate["op"] != operation
+            or candidate["kind"] != "directory"
+            or not changed_path.startswith(candidate["path"] + "/")
+        ):
+            continue
+        current = _reconciliation_stat(
+            root_fd, _reconciliation_parts(candidate["path"]),
+        )
+        if current is None or not _reconciliation_directory_stable_identity(
+            candidate.get(identity_key), current,
+        ):
+            raise DispatchError("reconciliation ancestor directory authority changed")
+        candidate[identity_key] = list(_manifest_binding(current))
+
+
 def _reconciliation_parent(root_fd: int, parts: list[str]) -> int:
     directory_flag = getattr(os, "O_DIRECTORY", 0)
     nofollow = getattr(os, "O_NOFOLLOW", 0)
@@ -3377,6 +3520,12 @@ def _restore_reconciliation_prior(
             os.fsync(parent)
         finally:
             os.close(parent)
+        _refresh_reconciliation_directory_ancestors(
+            src_root_fd, operations, index,
+            operation="create", identity_key="post_identity",
+            candidates=range(index),
+        )
+        _persist_reconciliation_ledger(job_fd, ledger)
 
     # Restore deleted empty directories shallow-first, preserving their mode.
     for rel in sorted(directory_backups, key=lambda item: (item.count("/"), item)):
@@ -3693,20 +3842,41 @@ def _reconcile_stage_to_source(
 
         backups: dict[str, dict[str, Any]] = {}
         directory_backups: dict[str, dict[str, Any]] = {}
+        created_directory_indexes = {
+            op["path"]: index
+            for index, op in enumerate(operation_manifest)
+            if op["op"] == "create" and op["kind"] == "directory"
+        }
         for index, op in enumerate(operation_manifest):
             parts = _reconciliation_parts(op["path"])
             curr_src = os.dup(src_root_fd)
+            deferred_parent = False
             try:
-                for comp in parts[:-1]:
-                    next_src = os.open(
-                        comp, os.O_RDONLY | directory_flag | nofollow, dir_fd=curr_src,
-                    )
+                for parent_index, comp in enumerate(parts[:-1], start=1):
+                    try:
+                        next_src = os.open(
+                            comp, os.O_RDONLY | directory_flag | nofollow, dir_fd=curr_src,
+                        )
+                    except FileNotFoundError:
+                        parent_path = "/".join(parts[:parent_index])
+                        creator = created_directory_indexes.get(parent_path)
+                        if op["op"] != "create" or creator is None or creator >= index:
+                            raise DispatchError("reconciliation parent is unavailable")
+                        # Stage mutation generation orders parent directory
+                        # creates before descendants. A missing source parent
+                        # therefore has no prior target to bind; the normal
+                        # apply loop will create and descriptor-rebind it.
+                        deferred_parent = True
+                        break
                     os.close(curr_src)
                     curr_src = next_src
-                try:
-                    prior = os.stat(parts[-1], dir_fd=curr_src, follow_symlinks=False)
-                except FileNotFoundError:
+                if deferred_parent:
                     prior = None
+                else:
+                    try:
+                        prior = os.stat(parts[-1], dir_fd=curr_src, follow_symlinks=False)
+                    except FileNotFoundError:
+                        prior = None
             finally:
                 os.close(curr_src)
             if op["op"] == "create":
@@ -3924,6 +4094,11 @@ def _reconcile_stage_to_source(
                     if post is None or stat.S_ISLNK(post.st_mode):
                         raise DispatchError("reconciliation post target is unavailable")
                     op["post_identity"] = list(_manifest_binding(post))
+                _refresh_reconciliation_directory_ancestors(
+                    src_root_fd, operation_manifest, operation_index,
+                    operation="delete", identity_key="prior_identity",
+                    candidates=range(operation_index + 1, len(operation_manifest)),
+                )
                 ledger["applied_operations"] = operation_index + 1
                 ledger.pop("active_operation", None)
                 persist_ledger()
@@ -4022,12 +4197,14 @@ _IMPLEMENTATION_FUNCTIONS = frozenset({
     "_scan_readable_worktree",
     "_validate_manifest",
     "_manifest_digest",
+    "_read_provider_scope_file",
     "_parse_provider_scope",
     "_validate_scope_against_worktree",
     "_build_selected_content_manifest",
     "_canonical_digest",
     "_selected_content_digest",
     "_compute_transmission_sha256",
+    "_compute_provider_launch_approval_sha256",
     "_materialize_stage",
     "_scan_stage_mutations",
     "_recover_reconciliation",

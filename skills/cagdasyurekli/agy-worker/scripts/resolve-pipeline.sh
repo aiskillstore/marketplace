@@ -26,7 +26,7 @@ is_pipeline() {
     fi
     pipeline_runtime_complete "$runtime_root" || return 1
 
-    for required in workflow.sh agy-worker.sh qa-gate.sh verify-job.sh evidence-report.sh benchmark.sh swebench-workflow-study.sh persona-evidence.sh profile.sh model-recommendation.sh model-selection.sh doctor.sh feedback-triage.sh model-intelligence.sh model-evidence-campaign.sh delegation-policy.sh; do
+    for required in workflow.sh agy-worker.sh qa-gate.sh verify-job.sh evidence-report.sh benchmark.sh swebench-workflow-study.sh model-recommendation.sh model-selection.sh doctor.sh ground-truth.sh feedback-triage.sh model-intelligence.sh model-evidence-campaign.sh delegation-policy.sh; do
         [[ -f "$pipeline_root/$required" && -x "$pipeline_root/$required" \
             && ! -L "$pipeline_root/$required" ]] || return 1
     done
@@ -39,7 +39,7 @@ pipeline_runtime_complete() {
     [[ -d "$runtime_root" && ! -L "$runtime_root" ]] || return 1
     runtime_canonical="$(CDPATH= cd -- "$runtime_root" 2>/dev/null && pwd -P)" \
         || return 1
-    for parent in scripts agents schemas compat benchmarks profiles; do
+    for parent in scripts agents schemas compat benchmarks; do
         [[ -d "$runtime_canonical/$parent" \
             && ! -L "$runtime_canonical/$parent" ]] || return 1
         parent_canonical="$(CDPATH= cd -- "$runtime_canonical/$parent" \
@@ -59,11 +59,10 @@ pipeline_runtime_complete() {
         evidence-report.sh \
         benchmark.sh \
         swebench-workflow-study.sh \
-        persona-evidence.sh \
-        profile.sh \
         model-recommendation.sh \
         model-selection.sh \
         doctor.sh \
+        ground-truth.sh \
         feedback-triage.sh \
         model-intelligence.sh \
         model-evidence-campaign.sh \
@@ -74,14 +73,13 @@ pipeline_runtime_complete() {
         scripts/evidence_report.py \
         scripts/benchmark.py \
         scripts/swebench_workflow_study.py \
-        scripts/persona_registry.py \
-        scripts/workload_profiles.py \
         scripts/recommendation_record.py \
         scripts/model-recommendation.py \
         scripts/model_selection.py \
         scripts/compatibility.py \
         scripts/candidate_state.py \
         scripts/agy_dispatch.py \
+        scripts/legacy_dispatch_state.py \
         scripts/job_lifecycle.py \
         scripts/doctor-metadata.py \
         scripts/feedback-triage.py \
@@ -106,6 +104,8 @@ pipeline_runtime_complete() {
 
     for required in \
         scripts/agy_dispatch_worktree.py \
+        scripts/agy_dispatch_containment.py \
+        scripts/agy_dispatch_verification.py \
         schemas/workflow-state.schema.json \
         scripts/version_manifest_engine.py \
         schemas/worker-result.schema.json \
@@ -129,21 +129,6 @@ pipeline_runtime_complete() {
         schemas/model-evidence-campaign-advisory-summary.schema.json \
         schemas/model-evidence-campaign-advisory-preview.schema.json \
         schemas/delegation-policy.schema.json \
-        schemas/persona-dispatch.schema.json \
-        schemas/persona-human-review.schema.json \
-        schemas/persona-run-evidence.schema.json \
-        schemas/persona-run-manifest.schema.json \
-        schemas/persona-tool-attestation.schema.json \
-        schemas/persona-transition-approval.schema.json \
-        schemas/persona-verifier.schema.json \
-        schemas/persona-version-attestation.schema.json \
-        schemas/workload-profile.schema.json \
-        compat/persona-evidence.schema.json \
-        compat/persona-registry.schema.json \
-        compat/personas/manifest.json \
-        compat/personas/bulk-test-writer.json \
-        compat/personas/diff-reviewer.json \
-        compat/personas/repo-inventory.json \
         compat/model-intelligence/dataset.v1.json \
         benchmarks/v1/manifest.json \
         benchmarks/v1/portable-source.json \
@@ -151,10 +136,6 @@ pipeline_runtime_complete() {
         benchmarks/v1/tasks/exact-edit/candidate.txt \
         benchmarks/v1/tasks/exact-edit/envelope.json \
         benchmarks/v1/variants/bulk.json \
-        profiles/v1/manifest.json \
-        profiles/v1/bounded-test-backfill.json \
-        profiles/v1/diff-review.json \
-        profiles/v1/repository-inventory.json \
         agents/bulk-test-writer.md \
         agents/repo-inventory.md \
         agents/diff-reviewer.md \

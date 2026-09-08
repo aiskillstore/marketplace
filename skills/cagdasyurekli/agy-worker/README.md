@@ -35,6 +35,18 @@ selection, obtain any missing provider-transmission approval, and ensure secrets
 denied paths, and unrelated private files are absent from the disposable worktree.
 Installation alone grants none of those permissions.
 
+Prefer selected-content `--provider-scope` for bounded jobs. Whole-worktree dispatch
+remains an explicit manifest-bound exception, and neither the ordinary facade nor the
+advanced raw initial launch has an implicit transmission mode.
+
+For an explicitly accepted higher-authority experiment, the advanced raw dispatcher
+supports one-cycle `--boost` task mode. Its first provider-free invocation prints the
+job-bound risk digest required by `--approve-boost-risk-sha`; review the warning before
+rerunning. Boost may invoke provider-side subagents and protected tools, but the digest
+does not grant permissions, widen the approved transmission, or authorize Git or
+publication. Boost results require a matching provider init identity and are never
+eligible for resume, restart, or continuation.
+
 ## Resolve the bundled runtime
 
 The skill instructions receive the package root as `SKILL_ROOT`. Resolve the runtime

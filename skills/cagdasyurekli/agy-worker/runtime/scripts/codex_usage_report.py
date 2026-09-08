@@ -738,7 +738,7 @@ def query_app_server(
             "method": "initialize",
             "params": {
                 "capabilities": {"experimentalApi": True},
-                "clientInfo": {"name": "codex-agy-worker", "version": "0.13.0"},
+                "clientInfo": {"name": "codex-agy-worker", "version": "0.17.0"},
             },
         })
         read_responses()

@@ -1,6 +1,6 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "title": "agy-worker workflow state v1/v2",
+  "title": "agy-worker workflow state v1-v4",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -20,7 +20,7 @@
     "receipt_path"
   ],
   "properties": {
-    "schema_version": {"type": "integer", "enum": [1, 2]},
+    "schema_version": {"type": "integer", "enum": [1, 2, 3, 4]},
     "kind": {"type": "string", "enum": ["agy-worker-workflow-state"]},
     "job_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$"},
     "repo_path": {"type": "string", "pattern": "^/[^\\r\\n]*$"},
@@ -35,16 +35,85 @@
     "job_state_path": {"anyOf": [{"type": "string", "pattern": "^/[^\\r\\n]*$"}, {"type": "null"}]},
     "receipt_path": {"anyOf": [{"type": "string", "pattern": "^/[^\\r\\n]*$"}, {"type": "null"}]},
     "origin": {"type": "string", "enum": ["workflow-facade"]},
-    "job_state_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+    "job_state_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "provider_isolation": {
+      "anyOf": [
+        {"type": "string", "enum": ["session", "native"]},
+        {"type": "null"}
+      ]
+    },
+    "provider_execution": {
+      "anyOf": [
+        {"type": "null"},
+        {"$ref": "#/definitions/legacy_provider_execution"}
+      ]
+    }
   },
   "oneOf": [
     {
       "properties": {"schema_version": {"const": 1}},
-      "not": {"anyOf": [{"required": ["origin"]}, {"required": ["job_state_sha256"]}]}
+      "not": {
+        "anyOf": [
+          {"required": ["origin"]},
+          {"required": ["job_state_sha256"]},
+          {"required": ["provider_isolation"]},
+          {"required": ["provider_execution"]}
+        ]
+      }
     },
     {
       "properties": {"schema_version": {"const": 2}},
-      "required": ["origin", "job_state_sha256"]
+      "required": ["origin", "job_state_sha256"],
+      "not": {
+        "anyOf": [
+          {"required": ["provider_isolation"]},
+          {"required": ["provider_execution"]}
+        ]
+      }
+    },
+    {
+      "properties": {"schema_version": {"const": 3}},
+      "required": ["provider_isolation", "provider_execution"],
+      "not": {
+        "anyOf": [{"required": ["origin"]}, {"required": ["job_state_sha256"]}]
+      },
+      "oneOf": [
+        {
+          "properties": {
+            "provider_isolation": {"enum": ["session", "native"]},
+            "provider_execution": {"type": "null"}
+          }
+        },
+        {
+          "properties": {
+            "provider_isolation": {"type": "null"},
+            "provider_execution": {"$ref": "#/definitions/legacy_provider_execution"}
+          }
+        }
+      ]
+    },
+    {
+      "properties": {"schema_version": {"const": 4}},
+      "required": [
+        "origin",
+        "job_state_sha256",
+        "provider_isolation",
+        "provider_execution"
+      ],
+      "oneOf": [
+        {
+          "properties": {
+            "provider_isolation": {"enum": ["session", "native"]},
+            "provider_execution": {"type": "null"}
+          }
+        },
+        {
+          "properties": {
+            "provider_isolation": {"type": "null"},
+            "provider_execution": {"$ref": "#/definitions/legacy_provider_execution"}
+          }
+        }
+      ]
     }
   ],
   "definitions": {
@@ -58,6 +127,24 @@
         "mode": {"type": "integer", "minimum": 0},
         "uid": {"type": "integer", "minimum": 0},
         "gid": {"type": "integer", "minimum": 0}
+      }
+    },
+    "legacy_provider_execution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["legacy", "scope", "agy_sandbox", "native_containment"],
+      "properties": {
+        "legacy": {"const": true},
+        "scope": {"type": "string", "enum": ["provider-scope", "whole-worktree"]},
+        "agy_sandbox": {"const": true},
+        "native_containment": {"type": "boolean"}
+      },
+      "not": {
+        "properties": {
+          "scope": {"const": "whole-worktree"},
+          "native_containment": {"const": true}
+        },
+        "required": ["scope", "native_containment"]
       }
     }
   }

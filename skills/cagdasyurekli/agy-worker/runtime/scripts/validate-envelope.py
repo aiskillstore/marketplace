@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import math
+import re
 import sys
 from pathlib import Path
 from typing import Any
@@ -17,7 +18,7 @@ from typing import Any
 SUPPORTED_KEYS = {
     "$schema", "title", "description", "type", "additionalProperties",
     "required", "properties", "items", "enum", "minLength", "maxLength",
-    "minimum", "maximum",
+    "minimum", "maximum", "pattern", "maxItems", "uniqueItems",
 }
 MAX_JSON_BYTES = 1024 * 1024
 
@@ -77,6 +78,24 @@ def preflight_schema(schema: Any, location: str = "$") -> None:
         preflight_schema(child, f"{location}.properties.{key}")
     if "items" in schema:
         preflight_schema(schema["items"], f"{location}.items")
+    if "pattern" in schema:
+        if not isinstance(schema["pattern"], str):
+            raise ValidationError(f"schema pattern at {location} is not a string")
+        try:
+            re.compile(schema["pattern"])
+        except re.error as exc:
+            raise ValidationError(f"schema pattern at {location} is invalid") from exc
+    if "maxItems" in schema and (
+        type(schema["maxItems"]) is not int or schema["maxItems"] < 0
+    ):
+        raise ValidationError(f"schema maxItems at {location} is invalid")
+    if "uniqueItems" in schema and type(schema["uniqueItems"]) is not bool:
+        raise ValidationError(f"schema uniqueItems at {location} is not a boolean")
+    if schema.get("uniqueItems") is True:
+        items = schema.get("items")
+        if not isinstance(items, dict) or items.get("type") != "string":
+            raise ValidationError(
+                f"schema uniqueItems at {location} requires string items")
 
 
 def validate(value: Any, schema: dict[str, Any], location: str = "$") -> None:
@@ -91,6 +110,8 @@ def validate(value: Any, schema: dict[str, Any], location: str = "$") -> None:
             raise ValidationError(f"{location}: string is too short")
         if len(value) > schema.get("maxLength", len(value)):
             raise ValidationError(f"{location}: string is too long")
+        if "pattern" in schema and re.search(schema["pattern"], value) is None:
+            raise ValidationError(f"{location}: string does not match pattern")
 
     if type(value) in (int, float):
         if "minimum" in schema and value < schema["minimum"]:
@@ -98,9 +119,14 @@ def validate(value: Any, schema: dict[str, Any], location: str = "$") -> None:
         if "maximum" in schema and value > schema["maximum"]:
             raise ValidationError(f"{location}: number is above maximum")
 
-    if isinstance(value, list) and "items" in schema:
-        for index, item in enumerate(value):
-            validate(item, schema["items"], f"{location}[{index}]")
+    if isinstance(value, list):
+        if "maxItems" in schema and len(value) > schema["maxItems"]:
+            raise ValidationError(f"{location}: array has too many items")
+        if "items" in schema:
+            for index, item in enumerate(value):
+                validate(item, schema["items"], f"{location}[{index}]")
+        if schema.get("uniqueItems") is True and len(set(value)) != len(value):
+            raise ValidationError(f"{location}: array items are not unique")
 
     if isinstance(value, dict):
         required = set(schema.get("required", []))
