@@ -332,20 +332,30 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           PUSH_MESSAGE: ${{ github.event.head_commit.message }}
+          PUSH_BEFORE: ${{ github.event.before }}
+          PUSH_SHA: ${{ github.sha }}
           REPOSITORY: ${{ github.repository }}
         run: |
           set -euo pipefail
+          [[ "$PUSH_BEFORE" =~ ^[0-9a-f]{40}$ ]] && [[ "$PUSH_SHA" =~ ^[0-9a-f]{40}$ ]]
+          git merge-base --is-ancestor "$PUSH_BEFORE" "$PUSH_SHA"
+          # One atomic batch push contains one original submission per commit.
+          PUSH_MESSAGE=$(git log --format=%B "$PUSH_BEFORE..$PUSH_SHA")
           mapfile -t CORRELATIONS < <(
             sed -nE 's/^AgentCrew-Publication: (submission-pr-[1-9][0-9]*-[0-9a-f]{40}-[0-9a-f]{40})$/\1/p' <<< "$PUSH_MESSAGE"
           )
           if [ "${#CORRELATIONS[@]}" -eq 0 ]; then
             exit 0
           fi
-          [ "${#CORRELATIONS[@]}" -eq 1 ] || {
-            echo "::error::Publication push has multiple correlation trailers"
+          [ "${#CORRELATIONS[@]}" -le 25 ] || {
+            echo "::error::Publication push exceeds 25 correlation limit"
             exit 1
           }
-          CORRELATION_ID="${CORRELATIONS[0]}"
+          [ "$(printf '%s\n' "${CORRELATIONS[@]}" | sort -u | wc -l)" -eq "${#CORRELATIONS[@]}" ]
+          CORRELATIONS_JSON=$(printf '%s\n' "${CORRELATIONS[@]}" | jq -Rsc 'split("\n")[:-1]')
+          echo "correlations=$CORRELATIONS_JSON" >> "$GITHUB_OUTPUT"
+          BATCH_DIGEST=$(jq -jr 'sort | join("\n")' <<< "$CORRELATIONS_JSON" | sha256sum | awk '{print $1}')
+          for CORRELATION_ID in "${CORRELATIONS[@]}"; do
           [[ "$CORRELATION_ID" =~ ^submission-pr-([1-9][0-9]*)-([0-9a-f]{40})-([0-9a-f]{40})$ ]]
           MERGE_COMMIT_SHA="${BASH_REMATCH[3]}"
           echo "correlation_id=$CORRELATION_ID" >> "$GITHUB_OUTPUT"
@@ -359,15 +369,19 @@ jobs:
           }
           OWNER_RUN_ID="${BASH_REMATCH[1]}"
           PUBLICATION_RUN=''
-          for attempt in {1..60}; do
+          # Batch callbacks finish after the atomic push. Match the publisher's
+          # 30-minute wall-clock budget instead of failing after five minutes.
+          for attempt in {1..360}; do
             PUBLICATION_RUN=$(gh api "repos/$REPOSITORY/actions/runs/$OWNER_RUN_ID")
             if [ "$(jq -r '.status // ""' <<< "$PUBLICATION_RUN")" = completed ]; then
               break
             fi
-            [ "$attempt" -eq 60 ] || sleep 5
+            [ "$attempt" -eq 360 ] || sleep 5
           done
-          jq -e --arg title "Publication $CORRELATION_ID" --arg repository "$REPOSITORY" '
-            .display_title == $title and .head_branch == "main" and .head_repository.full_name == $repository
+          jq -e --arg title "Publication $CORRELATION_ID" --arg batch_title "Publication batch $BATCH_DIGEST" --arg repository "$REPOSITORY" '
+            ((.display_title == $title and .path == ".github/workflows/on-pr-merge.yml") or
+             (.display_title == $batch_title and .path == ".github/workflows/publish-approved-batch.yml")) and
+            .head_branch == "main" and .head_repository.full_name == $repository
           ' <<< "$PUBLICATION_RUN" >/dev/null || {
             echo "::error::Publication reservation owner does not match the exact correlation"
             exit 1
@@ -377,6 +391,7 @@ jobs:
               echo "::error::Correlated publication failed or completion is unknown"
               exit 1
             }
+          done
 
       - name: Generate GitHub App Token
         id: app-token
@@ -1144,6 +1159,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           CORRELATION_ID: ${{ steps.publication-correlation.outputs.correlation_id }}
+          CORRELATION_IDS: ${{ steps.publication-correlation.outputs.correlations }}
           MERGE_COMMIT_SHA: ${{ steps.publication-correlation.outputs.merge_commit_sha }}
           REPOSITORY: ${{ github.repository }}
           JOB_STATUS: ${{ job.status }}
@@ -1152,6 +1168,10 @@ jobs:
           if [ -z "$CORRELATION_ID" ] || [ -z "$MERGE_COMMIT_SHA" ]; then
             exit 0
           fi
+          mapfile -t CORRELATIONS < <(jq -r '.[]' <<< "$CORRELATION_IDS")
+          for CORRELATION_ID in "${CORRELATIONS[@]}"; do
+          [[ "$CORRELATION_ID" =~ ^submission-pr-([1-9][0-9]*)-([0-9a-f]{40})-([0-9a-f]{40})$ ]]
+          MERGE_COMMIT_SHA="${BASH_REMATCH[3]}"
           CONTEXT="agentcrew/publication/$(printf '%s' "$CORRELATION_ID" | sha256sum | awk '{print $1}')"
           STATUSES=$(gh api --paginate "repos/$REPOSITORY/commits/$MERGE_COMMIT_SHA/statuses?per_page=100" | jq -s 'add')
           CURRENT=$(jq -c --arg context "$CONTEXT" '[.[] | select(.context == $context)][0] // {}' <<< "$STATUSES")
@@ -1163,9 +1183,9 @@ jobs:
             exit 1
           }
           if [ "$CURRENT_STATE" = failure ] \
-            && [ "$CURRENT_DESCRIPTION" = 'Correlated publication failed; inspection required' ]; then
+            && { [ "$CURRENT_DESCRIPTION" = 'Correlated publication failed; inspection required' ] || [[ "$CURRENT_DESCRIPTION" == 'Batch publication '* ]]; }; then
             echo "::notice::Upstream publication failure is authoritative; refusing to overwrite it"
-            exit 0
+            continue
           fi
           STATE=failure
           DESCRIPTION='Correlated provider sync failed; inspection required'
@@ -1176,6 +1196,7 @@ jobs:
           gh api --method POST "repos/$REPOSITORY/statuses/$MERGE_COMMIT_SHA" \
             -f state="$STATE" -f context="$CONTEXT" -f description="$DESCRIPTION" \
             -f target_url="$CURRENT_TARGET_URL"
+          done
 
       - name: Record durable correlated manual sync result
         if: >-

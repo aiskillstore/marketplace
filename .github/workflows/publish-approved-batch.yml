@@ -1,0 +1,50 @@
+name: Publish approved Skill batch
+run-name: Publication batch ${{ inputs.batch_id }}
+on:
+  workflow_dispatch:
+    inputs:
+      pr_numbers:
+        description: Comma-separated exact merged trusted PRs (at most 25 Skills)
+        type: string
+        required: true
+      batch_id:
+        description: SHA256 of sorted exact correlation IDs joined with newline
+        type: string
+        required: true
+permissions:
+  contents: read
+concurrency:
+  group: marketplace-publication-writer
+  cancel-in-progress: false
+jobs:
+  publish:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
+        id: token
+        with:
+          client-id: ${{ vars.APP_CLIENT_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+          permission-contents: write
+          permission-pull-requests: read
+          permission-actions: read
+          permission-statuses: write
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ github.sha }}
+          token: ${{ steps.token.outputs.token }}
+          persist-credentials: false
+          sparse-checkout: scripts
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: '24'
+      - name: Verify every approval and publish one atomic batch
+        env:
+          GH_TOKEN: ${{ steps.token.outputs.token }}
+          PR_NUMBERS: ${{ inputs.pr_numbers }}
+          BATCH_ID: ${{ inputs.batch_id }}
+          SKILLSTORE_API_URL: ${{ secrets.SKILLSTORE_API_URL }}
+          SKILLSTORE_CALLBACK_TOKEN: ${{ secrets.SKILLSTORE_CALLBACK_TOKEN }}
+        run: node scripts/publish-approved-batch.mjs
