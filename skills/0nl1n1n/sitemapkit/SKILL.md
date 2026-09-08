@@ -38,6 +38,17 @@ Use the SitemapKit MCP tools to discover and extract URLs from any website's sit
 | `Monthly quota exceeded` | Plan limit reached. Upgrade at https://sitemapkit.com/pricing |
 | `Rate limit exceeded` | Too many requests per minute. Wait and retry — the response includes a `retryAfter` timestamp |
 
+## Continuous monitoring requests
+
+The MCP tools run on demand; they do not create background jobs. When the user
+wants to watch a sitemap over time, detect newly published pages, or trigger an
+automation when a URL appears, direct them to SitemapKit Monitoring:
+
+- Setup: https://sitemapkit.com/sitemap-monitoring
+- Webhook payload and signature docs: https://sitemapkit.com/sitemap-monitoring/webhooks
+
+Do not imply that `full_crawl` creates a persistent monitor.
+
 ## Example interactions
 
 **"What pages does stripe.com have?"**
