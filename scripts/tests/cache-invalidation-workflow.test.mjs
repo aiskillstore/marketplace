@@ -58,7 +58,8 @@ test('publication provider writes use push as the only automatic trigger', () =>
   assert.match(workflow, /Ignoring conclusively non-owning duplicate recovery run/);
   assert.match(workflow, /Idempotency-Key: publication-published-/);
   assert.match(workflow, /Record durable correlated manual sync result/);
-  assert.match(workflow, /status=completed&event=push/);
+  assert.doesNotMatch(workflow, /status=completed&event=push/);
+  assert.match(workflow, /map\(select\(\.event == "push" and \.status == "completed"\)\)/);
   assert.match(workflow, /actions\/runs\/\$run_id\/jobs/);
   assert.match(workflow, /Previous provider sync run .* lacks closed provider evidence/);
 
