@@ -32,7 +32,7 @@ test('merged-only continuation runs trusted main code and reuses the existing re
   assert.equal(workflow.jobs.continue.steps[0].with.ref, 'main');
   assert.equal(workflow.jobs.continue.steps[0].with['persist-credentials'], false);
   const script = readFileSync('scripts/continue-merged-publications.mjs', 'utf8');
-  assert.match(script, /on-pr-merge.yml\/dispatches/);
+  assert.match(script, /publish-approved-batch.yml\/dispatches/);
   assert.match(script, /syncRuns.some\(r => r.status !== 'completed'\)/);
   assert.doesNotMatch(script, /\/merge['`"]|update-branch|safe_to_publish|is_blocked|risk_level/);
 });
@@ -71,4 +71,28 @@ test('current pending inventory stops after its exact owners; fresh A prevents d
   assert.ok(!calls.some(p => p.endsWith('/pulls/2')));
   syncRuns = [{ id: 12, event: 'push', status: 'completed', conclusion: 'failure', created_at: '2026-09-08T00:00:00Z' }];
   assert.throws(() => main(request), /Previous push sync 12 is failure/);
+});
+
+test('automatic continuation dispatches at most 25 skills and leaves reservations to the receiver', async () => {
+  const { main, batchIdentity } = await import('../continue-merged-publications.mjs');
+  const prs = Array.from({length:26}, (_,i) => ({number:i+1, merged_at:`2026-09-01T00:00:${String(i).padStart(2,'0')}Z`, base:{ref:'main'}, user:{id:254047988,login:'ai-skill-store[bot]'}, head:{repo:{full_name:'aiskillstore/marketplace'},ref:'submission/test',sha:'a'.repeat(40)},merge_commit_sha:(i+1).toString(16).padStart(40,'0')}));
+  const writes=[];
+  const request=(endpoint,data)=>{
+    if(data){writes.push({endpoint,data});return;}
+    if(endpoint.endsWith('/git/trees/main'))return {tree:[{path:'pending',sha:'tree'}]};
+    if(endpoint.includes('/git/trees/tree?'))return {tree:prs.map(p=>({path:`owner/s${p.number}/skill-report.json`,sha:`r${p.number}`}))};
+    if(endpoint.includes('/pulls?'))return prs;
+    const file=endpoint.match(/\/pulls\/(\d+)\/files/);
+    if(file)return [{filename:`pending/owner/s${file[1]}/skill-report.json`,sha:`r${file[1]}`}];
+    const pr=endpoint.match(/\/pulls\/(\d+)$/);
+    if(pr)return prs[Number(pr[1])-1];
+    if(endpoint.includes('/actions/workflows/'))return {workflow_runs:[]};
+    if(endpoint.includes('/git/matching-refs/')||endpoint.includes('/statuses?'))return [];
+    throw new Error(`Unexpected ${endpoint}`);
+  };
+  process.argv.push('--apply');
+  try{main(request);}finally{process.argv.pop();}
+  assert.equal(writes.length,1);
+  assert.match(writes[0].endpoint,/publish-approved-batch.yml\/dispatches$/);
+  assert.deepEqual(writes[0].data,{ref:'main',inputs:{pr_numbers:prs.slice(0,25).map(p=>p.number).join(','),batch_id:batchIdentity(prs.slice(0,25).map(p=>publicationIdentity(p).correlation))}});
 });

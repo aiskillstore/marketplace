@@ -17,7 +17,7 @@ test('post-merge publication accepts the exact bot merger and binds dispatch cor
 });
 
 test('publication receiver serializes one correlation and verifies the exact durable outbox attempt before writes', () => {
-  assert.equal(workflow.concurrency.group, 'publication-${{ inputs.correlation_id }}');
+  assert.equal(workflow.concurrency.group, 'marketplace-publication-writer');
   assert.equal(workflow.concurrency['cancel-in-progress'], false);
   assert.equal(workflow.on.workflow_dispatch.inputs.outbox_attempt.required, true);
   const outboxGuard = source.indexOf('Verify durable publication dispatch outbox');
