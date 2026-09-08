@@ -148,3 +148,15 @@ test('rejects reserved published identities before materialization', () => {
     rmSync(repositoryRoot, { recursive: true, force: true });
   }
 });
+
+test('selected report lookup does not enumerate or validate unrelated report trees', () => {
+  const { repositoryRoot } = makeRepository();
+  try {
+    write(repositoryRoot, 'skills/unrelated/nested/invalid/skill-report.json', '{}\n');
+    git(repositoryRoot, ['add', '.']);
+    git(repositoryRoot, ['commit', '-m', 'unrelated report outside canonical roots']);
+    const commit = git(repositoryRoot, ['rev-parse', 'HEAD']);
+    assert.deepEqual(materializeChangedSkills({ repositoryRoot, commit, skills: ['owner/demo'] }), ['skills/owner/demo']);
+    assert.equal(readFileSync(join(repositoryRoot, 'skills/owner/demo/skill-report.json'), 'utf8'), '{"revision":2}\n');
+  } finally { rmSync(repositoryRoot, { recursive: true, force: true }); }
+});

@@ -202,7 +202,8 @@ test('incremental detection subtracts only verified successful manual recovery a
   const detect = section(workflow, '      - name: Detect changed skills', '      - name: Download skillstore-cli');
 
   assert.match(lastSync, /if: inputs\.slugs == ''/);
-  assert.match(lastSync, /status=completed&event=push/);
+  assert.doesNotMatch(lastSync, /status=completed&event=push/);
+  assert.match(lastSync, /map\(select\(\.event == "push" and \.status == "completed"\)\)/);
   assert.match(lastSync, /Sync skills to Supabase/);
   assert.match(lastSync, /SYNC_CONCLUSION.*success/);
   assert.match(lastSync, /lacks closed provider evidence/);
