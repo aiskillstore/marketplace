@@ -29,17 +29,26 @@ test('publication receiver serializes one correlation and verifies the exact dur
   assert.match(source, /EXACT_OUTBOX_REF=.*OUTBOX_ATTEMPT/);
   assert.match(source, /ATTEMPT_CONTEXT="agentcrew\/publication-attempt\/\$DIGEST\/\$OUTBOX_ATTEMPT"/);
   assert.match(source, /Existing durable publication attempt status refuses duplicate execution/);
-  assert.match(source, /if \[ "\$CORRELATION_STATE" = success \]/);
+  assert.match(source, /case "\$CORRELATION_STATE" in/);
   assert.match(source, /Authoritative publication success refuses retry/);
-  assert.match(source, /if \[ "\$CORRELATION_STATE" = pending \]/);
   assert.match(source, /Existing in-flight publication refuses unknown-effect replay/);
+  assert.match(source, /failure\|error\)/);
+  assert.match(source, /10#\$OUTBOX_ATTEMPT_MS <= FAILURE_AT_MS/);
+  assert.match(source, /Recovery outbox attempt must be created after the latest terminal failure/);
+  assert.match(source, /Unknown durable publication state refuses recovery/);
   assert.match(source, /-f state=failure -f context="\$ATTEMPT_CONTEXT"/);
   assert.match(source, /-f state=success -f context="\$ATTEMPT_CONTEXT"/);
   assert.match(source, /steps\.publication_claim\.outputs\.owns_reservation == 'true'/);
   assert.match(source, /Idempotency-Key: publication-resolved-/);
 });
 
-test('publication receiver materializes report-only roots without scanning shared pending', () => {
+test('publication receiver materializes report-only roots only after exact prior-content and provenance verification', () => {
+  assert.match(source, /BASE_COMMIT_SHA=\$\(jq -er '\.base\.sha'/);
+  const fetchCommits = source.indexOf('git fetch --no-tags --depth=1 origin "$BASE_COMMIT_SHA" "$MERGE_COMMIT_SHA"');
+  const resolvePlan = source.indexOf('node scripts/resolve-approved-submission.mjs');
+  assert.ok(fetchCommits > 0 && fetchCommits < resolvePlan);
+  assert.match(source, /--report-only-base-commit "\$BASE_COMMIT_SHA"/);
+  assert.match(source, /--report-only-merge-commit "\$MERGE_COMMIT_SHA"/);
   assert.match(source, /\$NF == "SKILL\.md" \|\| \$NF == "skill-report\.json"/);
   assert.match(source, /Merged PR contains no canonical pending publication identity file/);
   assert.match(source, /git diff --quiet "\$MERGE_COMMIT_SHA" HEAD -- "\$PENDING_DIR"/);

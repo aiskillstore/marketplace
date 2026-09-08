@@ -61,6 +61,7 @@ jobs:
           }
 
           MERGE_COMMIT_SHA=$(jq -er '.merge_commit_sha' <<< "$PR")
+          BASE_COMMIT_SHA=$(jq -er '.base.sha' <<< "$PR")
           HEAD_SHA=$(jq -er '.head.sha' <<< "$PR")
           PR_URL=$(jq -er '.html_url' <<< "$PR")
           MERGED_BY=$(jq -er '.merged_by.login' <<< "$PR")
@@ -68,6 +69,7 @@ jobs:
             | grep -oE 'Submission ID.*`[0-9a-f-]{36}`' \
             | grep -oE '[0-9a-f-]{36}' || true)
           [[ "$MERGE_COMMIT_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$BASE_COMMIT_SHA" =~ ^[0-9a-f]{40}$ ]]
           [[ "$HEAD_SHA" =~ ^[0-9a-f]{40}$ ]]
           if [ "$EVENT_NAME" = workflow_dispatch ]; then
             EXPECTED_CORRELATION_ID="submission-pr-${PR_NUMBER}-${HEAD_SHA}-${MERGE_COMMIT_SHA}"
@@ -80,6 +82,7 @@ jobs:
           [[ "$MERGED_BY" =~ ^([A-Za-z0-9-]+|github-actions\[bot\])$ ]]
           {
             echo "pr_number=$PR_NUMBER"
+            echo "base_commit_sha=$BASE_COMMIT_SHA"
             echo "merge_commit_sha=$MERGE_COMMIT_SHA"
             echo "submission_id=$SUBMISSION_ID"
             echo "pr_url=$PR_URL"
@@ -123,15 +126,31 @@ jobs:
             echo "::error::Existing durable publication attempt status refuses duplicate execution"
             exit 1
           fi
-          CORRELATION_STATE=$(jq -r --arg context "$CONTEXT" '[.[] | select(.context == $context)][0].state // ""' <<< "$STATUSES")
-          if [ "$CORRELATION_STATE" = success ]; then
-            echo "::error::Authoritative publication success refuses retry"
-            exit 1
-          fi
-          if [ "$CORRELATION_STATE" = pending ]; then
-            echo "::error::Existing in-flight publication refuses unknown-effect replay"
-            exit 1
-          fi
+          CORRELATION_STATUS=$(jq -c --arg context "$CONTEXT" '[.[] | select(.context == $context)] | if length == 0 then {} else max_by(.created_at) end' <<< "$STATUSES")
+          CORRELATION_STATE=$(jq -r '.state // ""' <<< "$CORRELATION_STATUS")
+          case "$CORRELATION_STATE" in
+            '') ;;
+            success)
+              echo "::error::Authoritative publication success refuses retry"
+              exit 1
+              ;;
+            pending)
+              echo "::error::Existing in-flight publication refuses unknown-effect replay"
+              exit 1
+              ;;
+            failure|error)
+              FAILURE_AT_MS=$(jq -er '(.created_at | fromdateiso8601) * 1000 | floor' <<< "$CORRELATION_STATUS")
+              OUTBOX_ATTEMPT_MS="${OUTBOX_ATTEMPT%%-*}"
+              if (( 10#$OUTBOX_ATTEMPT_MS <= FAILURE_AT_MS )); then
+                echo "::error::Recovery outbox attempt must be created after the latest terminal failure"
+                exit 1
+              fi
+              ;;
+            *)
+              echo "::error::Unknown durable publication state refuses recovery"
+              exit 1
+              ;;
+          esac
           gh api --method POST "repos/$REPOSITORY/statuses/$MERGE_COMMIT_SHA" \
             -f state=pending -f context="$ATTEMPT_CONTEXT" \
             -f description='Exact publication attempt is running' \
@@ -162,6 +181,7 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           APP_TOKEN: ${{ steps.app-token.outputs.token }}
+          BASE_COMMIT_SHA: ${{ steps.freeze_pr.outputs.base_commit_sha }}
           MERGE_COMMIT_SHA: ${{ steps.freeze_pr.outputs.merge_commit_sha }}
           CORRELATION_ID: ${{ inputs.correlation_id }}
           PR_NUMBER: ${{ steps.freeze_pr.outputs.pr_number }}
@@ -286,10 +306,17 @@ jobs:
             }
 
           cd "$WORK_DIR"
+          [[ "$BASE_COMMIT_SHA" =~ ^[0-9a-f]{40}$ ]] && [[ "$MERGE_COMMIT_SHA" =~ ^[0-9a-f]{40}$ ]] || {
+            echo "::error::Merged PR has no exact base and merge commit identity"
+            exit 1
+          }
+          git fetch --no-tags --depth=1 origin "$BASE_COMMIT_SHA" "$MERGE_COMMIT_SHA"
           node scripts/resolve-approved-submission.mjs \
             --repo-root "$WORK_DIR" \
             --files "$PR_FILES" \
-            --output "$APPROVAL_PLAN"
+            --output "$APPROVAL_PLAN" \
+            --report-only-base-commit "$BASE_COMMIT_SHA" \
+            --report-only-merge-commit "$MERGE_COMMIT_SHA"
 
           mapfile -t SKILL_PATHS < <(jq -r '.skills[].pendingDir' "$APPROVAL_PLAN")
           mapfile -t TARGET_PATHS < <(jq -r '.skills[].targetDir' "$APPROVAL_PLAN")
@@ -300,11 +327,6 @@ jobs:
           test "${#SKILL_PATHS[@]}" -eq "${#TARGET_PATHS[@]}"
           echo "Frozen pending skills: ${SKILL_PATHS[*]}"
 
-          [[ "$MERGE_COMMIT_SHA" =~ ^[0-9a-f]{40}$ ]] || {
-            echo "::error::Merged PR has no exact merge commit identity"
-            exit 1
-          }
-          git fetch --no-tags --depth=1 origin "$MERGE_COMMIT_SHA"
           for PENDING_DIR in "${SKILL_PATHS[@]}"; do
             git diff --quiet "$MERGE_COMMIT_SHA" HEAD -- "$PENDING_DIR" || {
               echo "::error::Pending skill changed after the reviewed merge: $PENDING_DIR"
