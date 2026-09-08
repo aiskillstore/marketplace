@@ -1,0 +1,2810 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+DEFAULT_URL="https://app.revdoku.com"
+CREDENTIALS_PATH="${REVDOKU_CREDENTIALS:-${HOME}/.revdoku/credentials}"
+DEFAULT_BUCKET_PATH="${REVDOKU_DEFAULT_BUCKET_FILE:-${CREDENTIALS_PATH}.bucket}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+DEVICE_CODE_GRANT_TYPE="urn:ietf:params:oauth:grant-type:device_code"
+
+# Config dir + installed client version stamp (written by install.sh). Used for
+# `--version` and the non-blocking update notice.
+REVDOKU_CONFIG_DIR="$(dirname "$CREDENTIALS_PATH")"
+CLIENT_VERSION_FILE="${REVDOKU_CLIENT_VERSION_FILE:-${REVDOKU_CONFIG_DIR}/client_version}"
+UPDATE_CHECK_STAMP="${REVDOKU_CONFIG_DIR}/.update_check"
+
+installed_client_version() {
+  local v="unknown"
+  if [[ -f "$CLIENT_VERSION_FILE" ]]; then
+    v="$(tr -d '[:space:]' < "$CLIENT_VERSION_FILE" 2>/dev/null || true)"
+    [[ -n "$v" ]] || v="unknown"
+  fi
+  printf '%s' "$v"
+}
+
+BASE_URL="${REVDOKU_URL:-$DEFAULT_URL}"
+API_KEY="${REVDOKU_API_KEY:-}"
+TITLE="${REVDOKU_BUCKET_TITLE:-}"
+DESCRIPTION="${REVDOKU_BUCKET_DESCRIPTION:-}"
+UPLOAD_MODE="${REVDOKU_UPLOAD_MODE:-auto}"
+BUCKET_ID="${REVDOKU_BUCKET_ID:-}"
+METADATA_JSON="${REVDOKU_BUCKET_METADATA:-}"
+PUBLISH_ROOT_DIR="${REVDOKU_PUBLISH_FOLDER:-}"
+PUBLISH="${REVDOKU_PUBLISH:-false}"
+PUBLICATION_ACCESS_MODE="${REVDOKU_PUBLICATION_ACCESS_MODE:-}"
+PUBLICATION_PASSWORD="${REVDOKU_PUBLICATION_PASSWORD:-}"
+PUBLICATION_REGENERATE_PASSWORD="${REVDOKU_PUBLICATION_REGENERATE_PASSWORD:-false}"
+PUBLICATION_FORM_PRESET="${REVDOKU_PUBLICATION_FORM_PRESET:-}"
+PUBLICATION_ANALYTICS_ENABLED="${REVDOKU_PUBLICATION_ANALYTICS_ENABLED:-}"
+PUBLICATION_CLIENT_EVENTS_ENABLED="${REVDOKU_PUBLICATION_CLIENT_EVENTS_ENABLED:-}"
+PUBLICATION_TRACKING_ENABLED="${REVDOKU_PUBLICATION_TRACKING_ENABLED:-}"
+PUBLICATION_SITE_MODE="${REVDOKU_PUBLICATION_SITE_MODE:-}"
+RESTORE_VERSION_ID="${REVDOKU_RESTORE_VERSION_ID:-}"
+RESTORE_COMMENT="${REVDOKU_RESTORE_COMMENT:-}"
+BROWSER_LOGIN_PATH="${REVDOKU_BROWSER_LOGIN_PATH:-/buckets}"
+APPEND_TEXT_PATH="${REVDOKU_APPEND_TEXT_PATH:-}"
+APPEND_TEXT_CONTENT="${REVDOKU_APPEND_TEXT_CONTENT:-}"
+APPEND_TEXT_CONTENT_FILE="${REVDOKU_APPEND_TEXT_CONTENT_FILE:-}"
+APPEND_TEXT_NEWLINE_BEFORE="${REVDOKU_APPEND_TEXT_NEWLINE_BEFORE:-true}"
+GRANT_TOKEN=""
+TAG_PATHS=()
+AGENT_NAME="${REVDOKU_AGENT_NAME:-}"
+AGENT_CLIENT="${REVDOKU_AGENT_CLIENT:-revdoku}"
+AGENT_VERSION="${REVDOKU_AGENT_VERSION:-}"
+if [[ -z "$AGENT_VERSION" ]]; then
+  AGENT_VERSION="$(installed_client_version)"
+  [[ "$AGENT_VERSION" == "unknown" ]] && AGENT_VERSION="0.1.0"
+fi
+AGENT_RUN_ID="${REVDOKU_AGENT_RUN_ID:-}"
+AGENT_PROJECT="${REVDOKU_AGENT_PROJECT:-}"
+AGENT_TASK="${REVDOKU_AGENT_TASK:-}"
+BUCKET_UPLOAD_DESCRIPTOR_BATCH_SIZE="${REVDOKU_BUCKET_UPLOAD_DESCRIPTOR_BATCH_SIZE:-25}"
+BUCKET_UPLOAD_CLIENT_SESSION_KEY="${REVDOKU_BUCKET_UPLOAD_CLIENT_SESSION_KEY:-}"
+HTTP_TRANSIENT_MAX_ATTEMPTS="${REVDOKU_HTTP_TRANSIENT_MAX_ATTEMPTS:-5}"
+HTTP_RETRYABLE_CONFLICT_MAX_ATTEMPTS="${REVDOKU_HTTP_RETRYABLE_CONFLICT_MAX_ATTEMPTS:-12}"
+HTTP_LOCK_MAX_ATTEMPTS="${REVDOKU_HTTP_LOCK_MAX_ATTEMPTS:-3}"
+DIRECT_UPLOAD_MAX_ATTEMPTS="${REVDOKU_DIRECT_UPLOAD_MAX_ATTEMPTS:-5}"
+LOGIN="false"
+ACTION="store"
+PATH_TO_STORE=""
+PATH_EXPLICIT="false"
+READ_FILE_PATH=""
+OUTPUT_PATH=""
+NO_WAIT="${REVDOKU_NO_WAIT:-false}"
+DRAFT="false"
+OPEN_DASHBOARD="false"
+SHOW_PUBLISH_HINT="false"
+PREVIEW_AFTER_STORE="false"
+# Project-local binding (.revdoku): remembers the bucket so `revdoku p` keeps
+# updating the same site. Populated from the target dir, --bucket-id overrides.
+REVDOKU_PROJECT_FILE=""
+BOUND_BUCKET_ID=""
+BOUND_URL=""
+BOUND_SITE_MODE=""
+BINDING_EXISTED="false"
+LAST_PUBLISH_SESSION_BUCKET_ID=""
+LAST_HTTP_STATUS=""
+LAST_ERROR_CODE=""
+LAST_ERROR_MESSAGE=""
+LAST_ERROR_DETAILS_JSON=""
+
+die() {
+  echo "error: $1" >&2
+  exit 1
+}
+
+need_cmd() {
+  command -v "$1" >/dev/null 2>&1 || die "requires $1"
+}
+
+# Identify the AI agent or tool driving this CLI so uploads are attributed to
+# the real caller (claude-code, codex, ...) instead of a generic "cli".
+# Precedence: --agent flag / REVDOKU_AGENT_NAME override this entirely; this
+# function only runs as the fallback. Always degrades safely to "cli".
+detect_agent_name() {
+  if [[ -n "${CLAUDECODE:-}" || -n "${CLAUDE_CODE_ENTRYPOINT:-}" ]]; then
+    printf 'claude-code'
+  elif [[ -n "${CODEX_SANDBOX:-}" || -n "${CODEX_HOME:-}" ]]; then
+    printf 'codex'
+  elif [[ -n "${CURSOR_TRACE_ID:-}" ]]; then
+    printf 'cursor'
+  elif [[ -n "${AI_AGENT:-}" ]]; then
+    # Generic convention, e.g. AI_AGENT="claude-code_2-1-173_agent" -> "claude-code"
+    printf '%s' "${AI_AGENT%%_*}"
+  else
+    printf 'cli'
+  fi
+}
+
+usage() {
+  cat <<USAGE
+revdoku — publish a folder to the web in one command.
+
+Free plan available. Current limits: https://app.revdoku.com/pricing.json
+Preview first, then publish when ready.
+
+Usage: revdoku <command> [PATH] [options]
+
+Most-used commands (short alias, then full name — either works):
+  p,    publish [PATH]   Publish a folder (default: current dir) -> live URL.
+                         Opens browser sign-in when credentials are missing.
+                         Re-running updates the same site.
+  ls,   list             List your sites and buckets.
+  o,    open             Open this folder's live site in the browser (--dashboard for the dashboard).
+  i,    init [PATH]      Scaffold a starter static/SPA site + agent instructions here.
+  st,   status           Show connection and account status.
+        login            Sign in to an existing account in the browser.
+        grant TOKEN      Use a one-time connection token from the web app.
+  down, unpublish        Take this folder's site offline (keeps the URL for later).
+        preview          Preview the current private draft for 24 hours.
+
+Publish options:
+  --protected          Publish as a password-protected website (alias: --private).
+  --password PASSWORD  Set the protected-site password (never sent in a URL).
+  --generate-password  Generate/rotate the protected-site password.
+  --access-mode MODE   public, password, or require_email (verified email, no password).
+  --form-preset NAME   Enable a built-in form preset (or off).
+  --site-mode MODE     static or spa (SPA serves index.html for client-side routes).
+  --draft              Save a private draft instead of publishing live.
+  --no-wait            Return as soon as the URL is reserved (don't wait for the build).
+  --publish-folder DIR Publish ONLY this top-level folder as the site (its index.html
+                       becomes the root); other folders stay stored but unserved.
+  --title TEXT         --description TEXT     --tag-path LABEL     --metadata JSON
+  --no-tracking / --tracking, --no-analytics / --analytics, --no-client-events / --client-events
+
+More commands (no short alias):
+  files                List files in --bucket-id.
+  read PATH            Print a bucket file (--bucket-id; --output FILE to save).
+  versions             Show version history (--bucket-id).
+  restore ID           Restore a bucket version (--bucket-id; --restore-comment TEXT).
+  append PATH          Append text to a bucket file (--content TEXT | --content-file FILE).
+  archive | unarchive | delete    Manage a bucket (--bucket-id).
+  account              Account, plan, and storage status.
+  sites                List your public website URLs.
+  dashboard            Print the Revdoku dashboard URL (normal sign-in may be required).
+
+Global options:
+  --bucket-id ID       Act on a specific bucket (overrides the .revdoku binding).
+  --url URL            Revdoku app URL (default $DEFAULT_URL).
+  --api-key KEY        API key (default REVDOKU_API_KEY or $CREDENTIALS_PATH).
+  --agent NAME         Attribute uploads to this agent (default auto-detected).
+  --upload-mode MODE   auto or direct (default auto).
+  --version            Print the installed client version.
+  -h, --help           Show this help.
+
+Examples:
+  revdoku preview .         # recommended: review a temporary URL first
+  revdoku p                 # publish the current folder when ready
+  revdoku p ./dist          # publish another folder
+  revdoku p --protected     # password-protected site
+  revdoku init && revdoku p
+USAGE
+}
+
+# ---------------------------------------------------------------------------
+# Command parsing. The first non-option token is the verb (publish, ls, open …);
+# options may appear before or after it. A bare path (`revdoku .`) means publish;
+# no args at all shows status + a hint. The most common verb is the shortest.
+# ---------------------------------------------------------------------------
+VERB_SEEN="false"
+ORIGINAL_ARGC=$#
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --api-key)
+      [[ $# -ge 2 ]] || die "--api-key requires a value"
+      API_KEY="$2"
+      shift 2
+      ;;
+    --url)
+      [[ $# -ge 2 ]] || die "--url requires a value"
+      BASE_URL="$2"
+      shift 2
+      ;;
+    --title)
+      [[ $# -ge 2 ]] || die "--title requires a value"
+      TITLE="$2"
+      shift 2
+      ;;
+    --description)
+      [[ $# -ge 2 ]] || die "--description requires a value"
+      DESCRIPTION="$2"
+      shift 2
+      ;;
+    --tag-path)
+      [[ $# -ge 2 ]] || die "--tag-path requires a value"
+      TAG_PATHS+=("$2")
+      shift 2
+      ;;
+    --bucket-id)
+      [[ $# -ge 2 ]] || die "--bucket-id requires a value"
+      BUCKET_ID="$2"
+      shift 2
+      ;;
+    --metadata)
+      [[ $# -ge 2 ]] || die "--metadata requires a JSON object"
+      METADATA_JSON="$2"
+      shift 2
+      ;;
+    --publish-folder|--root)
+      [[ $# -ge 2 ]] || die "--publish-folder requires a folder name (e.g. website)"
+      PUBLISH_ROOT_DIR="$2"
+      shift 2
+      ;;
+    --agent)
+      [[ $# -ge 2 ]] || die "--agent requires a value"
+      AGENT_NAME="$2"
+      shift 2
+      ;;
+    --draft)
+      DRAFT="true"
+      shift
+      ;;
+    --no-wait)
+      NO_WAIT="true"
+      shift
+      ;;
+    --dashboard)
+      OPEN_DASHBOARD="true"
+      shift
+      ;;
+    --access-mode)
+      [[ $# -ge 2 ]] || die "--access-mode requires public, password, or require_email"
+      PUBLICATION_ACCESS_MODE="$2"
+      shift 2
+      ;;
+    --site-mode)
+      [[ $# -ge 2 ]] || die "--site-mode requires static or spa"
+      PUBLICATION_SITE_MODE="$2"
+      shift 2
+      ;;
+    --protected|--private)
+      PUBLICATION_ACCESS_MODE="password"
+      shift
+      ;;
+    --public)
+      PUBLICATION_ACCESS_MODE="public"
+      shift
+      ;;
+    --password)
+      [[ $# -ge 2 ]] || die "--password requires a value"
+      PUBLICATION_ACCESS_MODE="${PUBLICATION_ACCESS_MODE:-password}"
+      PUBLICATION_PASSWORD="$2"
+      shift 2
+      ;;
+    --generate-password)
+      PUBLICATION_ACCESS_MODE="${PUBLICATION_ACCESS_MODE:-password}"
+      PUBLICATION_REGENERATE_PASSWORD="true"
+      shift
+      ;;
+    --form-preset)
+      [[ $# -ge 2 ]] || die "--form-preset requires a predefined form name or off"
+      PUBLICATION_FORM_PRESET="$2"
+      shift 2
+      ;;
+    --tracking)
+      PUBLICATION_TRACKING_ENABLED="true"
+      shift
+      ;;
+    --no-tracking)
+      PUBLICATION_TRACKING_ENABLED="false"
+      shift
+      ;;
+    --analytics)
+      PUBLICATION_ANALYTICS_ENABLED="true"
+      shift
+      ;;
+    --no-analytics)
+      PUBLICATION_ANALYTICS_ENABLED="false"
+      shift
+      ;;
+    --client-events)
+      PUBLICATION_CLIENT_EVENTS_ENABLED="true"
+      shift
+      ;;
+    --no-client-events)
+      PUBLICATION_CLIENT_EVENTS_ENABLED="false"
+      shift
+      ;;
+    --output)
+      [[ $# -ge 2 ]] || die "--output requires a value"
+      OUTPUT_PATH="$2"
+      shift 2
+      ;;
+    --restore-comment)
+      [[ $# -ge 2 ]] || die "--restore-comment requires a value"
+      RESTORE_COMMENT="$2"
+      shift 2
+      ;;
+    --content)
+      [[ $# -ge 2 ]] || die "--content requires a value"
+      APPEND_TEXT_CONTENT="$2"
+      shift 2
+      ;;
+    --content-file)
+      [[ $# -ge 2 ]] || die "--content-file requires a local file path or -"
+      APPEND_TEXT_CONTENT_FILE="$2"
+      shift 2
+      ;;
+    --no-newline-before)
+      APPEND_TEXT_NEWLINE_BEFORE="false"
+      shift
+      ;;
+    --upload-mode)
+      [[ $# -ge 2 ]] || die "--upload-mode requires a value"
+      UPLOAD_MODE="$2"
+      shift 2
+      ;;
+    --version)
+      printf '%s\n' "$(installed_client_version)"
+      printf 'Latest is always at https://github.com/revdoku/revdoku (reinstall: curl -fsSL https://revdoku.com/install.sh | bash)\n' >&2
+      exit 0
+      ;;
+    --login)
+      # Compatibility with older public prompts. `revdoku login` is the
+      # canonical spelling, but existing copied instructions must keep working.
+      LOGIN="true"
+      shift
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    --)
+      shift
+      break
+      ;;
+    -*)
+      die "unknown option: $1 (run 'revdoku --help')"
+      ;;
+    *)
+      if [[ "$VERB_SEEN" == "true" ]]; then
+        PATH_TO_STORE="$1"
+        PATH_EXPLICIT="true"
+        shift
+      else
+        VERB_SEEN="true"
+        case "$1" in
+          p|publish)      PUBLISH="true"; shift ;;
+          ls|list)        ACTION="list_buckets"; shift ;;
+          o|open)         ACTION="open_site"; shift ;;
+          i|init)         ACTION="init_project"; shift ;;
+          st|status)      ACTION="connection_status"; shift ;;
+          login)          LOGIN="true"; shift ;;
+          grant)          [[ $# -ge 2 && "$2" != -* ]] || die "grant needs the one-time token right after it"; ACTION="exchange_grant"; GRANT_TOKEN="$2"; shift 2 ;;
+          down|unpublish) ACTION="unpublish_bucket"; shift ;;
+          preview)        ACTION="preview_bucket"; shift ;;
+          files)          ACTION="list_files"; shift ;;
+          read)           [[ $# -ge 2 && "$2" != -* ]] || die "read needs a bucket PATH right after it, e.g. revdoku read index.html --bucket-id ID"; ACTION="read_file"; READ_FILE_PATH="$2"; shift 2 ;;
+          versions)       ACTION="list_versions"; shift ;;
+          restore)        [[ $# -ge 2 && "$2" != -* ]] || die "restore needs a version id right after it, e.g. revdoku restore VERSION_ID --bucket-id ID"; ACTION="restore_version"; RESTORE_VERSION_ID="$2"; shift 2 ;;
+          append)         [[ $# -ge 2 && "$2" != -* ]] || die "append needs a bucket PATH right after it, e.g. revdoku append leads.csv --bucket-id ID --content-file new.csv"; ACTION="append_text_file"; APPEND_TEXT_PATH="$2"; shift 2 ;;
+          archive)        ACTION="archive_bucket"; shift ;;
+          unarchive)      ACTION="unarchive_bucket"; shift ;;
+          delete)         ACTION="delete_bucket"; shift ;;
+          account)        ACTION="account_status"; shift ;;
+          sites)          ACTION="list_public_buckets"; shift ;;
+          dashboard)      ACTION="open_site"; OPEN_DASHBOARD="true"; shift ;;
+          help)           usage; exit 0 ;;
+          version)        printf '%s\n' "$(installed_client_version)"; exit 0 ;;
+          *)
+            # Not a known verb: an existing or path-like token means "publish this".
+            if [[ -e "$1" || "$1" == .* || "$1" == /* || "$1" == \~* ]]; then
+              PUBLISH="true"
+              PATH_TO_STORE="$1"
+              PATH_EXPLICIT="true"
+              shift
+            else
+              die "unknown command: $1 (run 'revdoku --help')"
+            fi
+            ;;
+        esac
+      fi
+      ;;
+  esac
+done
+
+# No verb and no path token: bare `revdoku` shows status + a hint; other
+# options-only invocations default to publishing the current folder.
+if [[ "$VERB_SEEN" == "false" && "$ACTION" == "store" && "$PUBLISH" != "true" && "$LOGIN" != "true" ]]; then
+  if [[ "$ORIGINAL_ARGC" -eq 0 ]]; then
+    ACTION="connection_status"
+    SHOW_PUBLISH_HINT="true"
+  else
+    PUBLISH="true"
+  fi
+fi
+
+# --draft always wins over the publish verb, regardless of argument order.
+[[ "$DRAFT" == "true" ]] && PUBLISH="false"
+
+if [[ -z "$PATH_TO_STORE" ]]; then
+  if [[ -n "${1:-}" ]]; then
+    PATH_TO_STORE="$1"
+    PATH_EXPLICIT="true"
+  else
+    PATH_TO_STORE="."
+  fi
+fi
+BASE_URL="${BASE_URL%/}"
+[[ -n "$AGENT_NAME" ]] || AGENT_NAME="$(detect_agent_name)"
+
+# `init` only scaffolds local files — it needs none of the network/JSON tools, so
+# skip these checks for it (lets `revdoku init` run on a bare checkout).
+if [[ "$ACTION" != "init_project" ]]; then
+  need_cmd curl
+  need_cmd openssl
+  need_cmd base64
+  need_cmd find
+
+  if [[ -x "${SCRIPT_DIR}/jq" ]]; then
+    JQ_BIN="${SCRIPT_DIR}/jq"
+  elif command -v jq >/dev/null 2>&1; then
+    JQ_BIN="$(command -v jq)"
+  else
+    die "requires jq"
+  fi
+fi
+
+API_KEY_FROM_CREDENTIALS="false"
+if [[ -z "$API_KEY" && -f "$CREDENTIALS_PATH" ]]; then
+  API_KEY="$(tr -d '\r\n' < "$CREDENTIALS_PATH")"
+  API_KEY_FROM_CREDENTIALS="true"
+fi
+
+if [[ -z "$BUCKET_ID" && "$API_KEY_FROM_CREDENTIALS" == "true" && -f "$DEFAULT_BUCKET_PATH" ]]; then
+  BUCKET_ID="$(tr -d '\r\n' < "$DEFAULT_BUCKET_PATH")"
+fi
+
+# Project-local binding: a `.revdoku` file in the target folder remembers the
+# bucket so re-running `revdoku p` keeps updating the same site, and so `open`,
+# `unpublish`, etc. act on this folder's site without --bucket-id. An explicit
+# --bucket-id always wins. The file is never uploaded (safety-excluded).
+if [[ -d "$PATH_TO_STORE" || ! -e "$PATH_TO_STORE" ]]; then
+  REVDOKU_PROJECT_FILE="${PATH_TO_STORE%/}/.revdoku"
+else
+  REVDOKU_PROJECT_FILE="$(dirname "$PATH_TO_STORE")/.revdoku"
+fi
+if [[ -f "$REVDOKU_PROJECT_FILE" ]]; then
+  BINDING_EXISTED="true"
+  BOUND_BUCKET_ID="$(sed -n 's/^bucket_id=//p' "$REVDOKU_PROJECT_FILE" 2>/dev/null | head -n1 | tr -d '\r')"
+  BOUND_URL="$(sed -n 's/^url=//p' "$REVDOKU_PROJECT_FILE" 2>/dev/null | head -n1 | tr -d '\r')"
+  BOUND_SITE_MODE="$(sed -n 's/^site_mode=//p' "$REVDOKU_PROJECT_FILE" 2>/dev/null | head -n1 | tr -d '\r')"
+fi
+if [[ -z "$BUCKET_ID" && -n "$BOUND_BUCKET_ID" ]]; then
+  BUCKET_ID="$BOUND_BUCKET_ID"
+fi
+if [[ -z "$PUBLICATION_SITE_MODE" && -n "$BOUND_SITE_MODE" ]]; then
+  PUBLICATION_SITE_MODE="$BOUND_SITE_MODE"
+fi
+
+# Persist (or refresh) the .revdoku binding for a directory project after a
+# successful publish/store. Silent unless it is the first time we bind.
+write_project_binding() {
+  local bucket="$1" url="$2"
+  [[ "${REVDOKU_WRITE_BINDING:-true}" == "true" ]] || return 0
+  [[ -n "$bucket" && -n "$REVDOKU_PROJECT_FILE" ]] || return 0
+  [[ -d "$PATH_TO_STORE" ]] || return 0
+  {
+    printf '# Revdoku project binding — created by `revdoku publish`. Safe to commit or gitignore.\n'
+    printf 'bucket_id=%s\n' "$bucket"
+    [[ -n "$url" ]] && printf 'url=%s\n' "$url"
+    [[ -n "$PUBLICATION_SITE_MODE" ]] && printf 'site_mode=%s\n' "$PUBLICATION_SITE_MODE"
+  } > "$REVDOKU_PROJECT_FILE" 2>/dev/null || return 0
+  if [[ "$BINDING_EXISTED" != "true" ]]; then
+    echo "Bound this folder to $bucket (.revdoku). Next time just run: revdoku p" >&2
+    BINDING_EXISTED="true"
+  fi
+}
+
+if [[ -n "$METADATA_JSON" ]]; then
+  METADATA_JSON="$(printf "%s" "$METADATA_JSON" | "$JQ_BIN" -c 'if type == "object" then . else error("metadata must be a JSON object") end')" || die "--metadata must be a JSON object"
+else
+  METADATA_JSON="{}"
+fi
+
+case "$PUBLICATION_ACCESS_MODE" in
+  require-email)
+    PUBLICATION_ACCESS_MODE="require_email"
+    ;;
+  ""|public|password|require_email)
+    ;;
+  *)
+    die "--access-mode must be public, password, or require_email"
+    ;;
+esac
+
+case "$PUBLICATION_SITE_MODE" in
+  ""|static|spa)
+    ;;
+  *)
+    die "--site-mode must be static or spa"
+    ;;
+esac
+
+case "$PUBLICATION_FORM_PRESET" in
+  ""|off|booking|comments|contact|feedback|get_in_touch|information|quote|resource|support|waitlist)
+    ;;
+  *)
+    die "--form-preset must be off or a predefined form name"
+    ;;
+esac
+
+case "$PUBLICATION_REGENERATE_PASSWORD" in
+  true|false)
+    ;;
+  *)
+    die "REVDOKU_PUBLICATION_REGENERATE_PASSWORD must be true or false"
+    ;;
+esac
+
+normalize_optional_bool() {
+  local name="$1"
+  local value="$2"
+  [[ -n "$value" ]] || return 0
+  case "$value" in
+    true|1|yes|on)
+      printf "true"
+      ;;
+    false|0|no|off)
+      printf "false"
+      ;;
+    *)
+      die "$name must be true or false"
+      ;;
+  esac
+}
+
+PUBLICATION_ANALYTICS_ENABLED="$(normalize_optional_bool "REVDOKU_PUBLICATION_ANALYTICS_ENABLED" "$PUBLICATION_ANALYTICS_ENABLED")"
+PUBLICATION_CLIENT_EVENTS_ENABLED="$(normalize_optional_bool "REVDOKU_PUBLICATION_CLIENT_EVENTS_ENABLED" "$PUBLICATION_CLIENT_EVENTS_ENABLED")"
+PUBLICATION_TRACKING_ENABLED="$(normalize_optional_bool "REVDOKU_PUBLICATION_TRACKING_ENABLED" "$PUBLICATION_TRACKING_ENABLED")"
+APPEND_TEXT_NEWLINE_BEFORE="$(normalize_optional_bool "REVDOKU_APPEND_TEXT_NEWLINE_BEFORE" "$APPEND_TEXT_NEWLINE_BEFORE")"
+APPEND_TEXT_NEWLINE_BEFORE="${APPEND_TEXT_NEWLINE_BEFORE:-true}"
+
+if [[ "$ACTION" == "append_text_file" ]]; then
+  [[ -n "$BUCKET_ID" ]] || die "append requires --bucket-id"
+  [[ -n "$APPEND_TEXT_PATH" ]] || die "append requires a bucket-relative PATH"
+  if [[ -n "$APPEND_TEXT_CONTENT" && -n "$APPEND_TEXT_CONTENT_FILE" ]]; then
+    die "use either --content or --content-file with append, not both"
+  fi
+  if [[ -z "$APPEND_TEXT_CONTENT" && -z "$APPEND_TEXT_CONTENT_FILE" ]]; then
+    die "append requires --content or --content-file"
+  fi
+fi
+
+if [[ -n "$PUBLICATION_PASSWORD" || "$PUBLICATION_REGENERATE_PASSWORD" == "true" ]]; then
+  case "${PUBLICATION_ACCESS_MODE:-password}" in
+    password)
+      ;;
+    *)
+      die "--password or --generate-password requires --access-mode password"
+      ;;
+  esac
+  PUBLICATION_ACCESS_MODE="${PUBLICATION_ACCESS_MODE:-password}"
+fi
+
+if [[ -n "$PUBLICATION_PASSWORD" && "$PUBLICATION_REGENERATE_PASSWORD" == "true" ]]; then
+  die "use either --password or --generate-password, not both"
+fi
+
+if [[ "$PUBLISH" != "true" && "$ACTION" == "store" && ( -n "$PUBLICATION_ACCESS_MODE" || -n "$PUBLICATION_PASSWORD" || "$PUBLICATION_REGENERATE_PASSWORD" == "true" || -n "$PUBLICATION_FORM_PRESET" || -n "$PUBLICATION_ANALYTICS_ENABLED" || -n "$PUBLICATION_CLIENT_EVENTS_ENABLED" || -n "$PUBLICATION_TRACKING_ENABLED" || -n "$PUBLICATION_SITE_MODE" ) ]]; then
+  die "publication options apply when publishing; remove --draft (they don't apply to a draft)"
+fi
+
+api_url() {
+  printf "%s%s" "$BASE_URL" "$1"
+}
+
+json_string() {
+  "$JQ_BIN" -rn --arg value "$1" '$value'
+}
+
+http_status_success() {
+  local status="${1:-}"
+  [[ "$status" =~ ^[0-9]+$ ]] && (( status >= 200 && status < 300 ))
+}
+
+http_status_retryable() {
+  case "${1:-}" in
+    408|425|429|500|502|503|504)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+http_error_code_retryable() {
+  case "${1:-}" in
+    DATABASE_BUSY_RETRY|BUCKET_FILE_PATH_INDEX_BACKFILL_PENDING|BUCKET_DELETE_BUSY|BUCKET_DELETE_ENQUEUE_FAILED)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+retry_delay_for_attempt() {
+  local attempt="${1:-1}"
+  local retry_after="${2:-}"
+  local delay
+  if [[ "$retry_after" =~ ^[0-9]+$ && "$retry_after" -gt 0 ]]; then
+    echo "$retry_after"
+    return 0
+  fi
+  case "$attempt" in
+    1) delay=1 ;;
+    2) delay=2 ;;
+    3) delay=4 ;;
+    *) delay=8 ;;
+  esac
+  echo "$delay"
+}
+
+http_success_json_replay_allowed() {
+  local method="$1"
+  local path="$2"
+  case "$method:$path" in
+    GET:*)
+      return 0
+      ;;
+    POST:/api/v1/buckets)
+      return 0
+      ;;
+    POST:*/upload_sessions|POST:*/upload_sessions/*/uploads|POST:*/upload_sessions/*/finalize|POST:*/upload_sessions/*/finalize_batch)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+http_conflict_retry_allowed() {
+  local method="$1"
+  local path="$2"
+  case "$method:$path" in
+    GET:*)
+      return 0
+      ;;
+    POST:/api/v1/buckets)
+      return 0
+      ;;
+    POST:*/upload_sessions|POST:*/upload_sessions/*/uploads|POST:*/upload_sessions/*/finalize|POST:*/upload_sessions/*/finalize_batch)
+      return 0
+      ;;
+    DELETE:/api/v1/buckets/*)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+http_lock_retry_allowed() {
+  local method="$1"
+  local path="$2"
+  case "$method:$path" in
+    POST:*/files/append_text)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+lock_detail_summary() {
+  local details_json="${1:-{}}"
+  "$JQ_BIN" -r '
+    def present: select(. != null and . != "");
+    (.locked_by_api_key.label // .locked_by.name // .locked_by.email // .locked_by_api_key.id // .locked_by.id // "another actor") as $owner
+    | (.message // .kind // "" | tostring) as $message
+    | (.locked_until // "" | tostring) as $until
+    | "locked by " + $owner
+      + (if ($message | length) > 0 then " (" + $message + ")" else "" end)
+      + (if ($until | length) > 0 then " until " + $until else "" end)
+  ' <<<"$details_json" 2>/dev/null || printf 'locked by another actor'
+}
+
+agent_header_args() {
+  printf "%s\0" \
+    "-H" "User-Agent: Revdoku/${AGENT_VERSION} (${AGENT_CLIENT})" \
+    "-H" "X-Revdoku-Agent: ${AGENT_NAME}" \
+    "-H" "X-Revdoku-Agent-Client: ${AGENT_CLIENT}" \
+    "-H" "X-Revdoku-Agent-Version: ${AGENT_VERSION}"
+  [[ -n "$AGENT_RUN_ID" ]] && printf "%s\0" "-H" "X-Revdoku-Agent-Run-Id: ${AGENT_RUN_ID}"
+  [[ -n "$AGENT_PROJECT" ]] && printf "%s\0" "-H" "X-Revdoku-Agent-Project: ${AGENT_PROJECT}"
+  [[ -n "$AGENT_TASK" ]] && printf "%s\0" "-H" "X-Revdoku-Agent-Task: ${AGENT_TASK}"
+}
+
+http_json() {
+  local method="$1"
+  local path="$2"
+  local payload="$3"
+  local auth="${4:-true}"
+  local body_file status message code request_id retry_after details_json attempt curl_status delay agent_args=()
+  LAST_HTTP_STATUS=""
+  LAST_ERROR_CODE=""
+  LAST_ERROR_MESSAGE=""
+  LAST_ERROR_DETAILS_JSON=""
+  body_file="$(mktemp)"
+  attempt=0
+
+  while IFS= read -r -d '' value; do
+    agent_args+=("$value")
+  done < <(agent_header_args)
+
+  local args=(-sS -o "$body_file" -w "%{http_code}" -X "$method" "$(api_url "$path")" "${agent_args[@]}" -H "Content-Type: application/json")
+  if [[ "$auth" == "true" ]]; then
+    args+=(-H "Authorization: Bearer $API_KEY")
+  fi
+  args+=(--data "$payload")
+
+  while true; do
+    : > "$body_file"
+    if status="$(curl "${args[@]}")"; then
+      curl_status=0
+    else
+      curl_status=$?
+      if (( attempt < HTTP_TRANSIENT_MAX_ATTEMPTS )); then
+        attempt=$((attempt + 1))
+        delay="$(retry_delay_for_attempt "$attempt")"
+        echo "Network error while calling $path; retrying in ${delay}s (${attempt}/${HTTP_TRANSIENT_MAX_ATTEMPTS})..." >&2
+        sleep "$delay"
+        continue
+      fi
+      rm -f "$body_file"
+      LAST_HTTP_STATUS=""
+      LAST_ERROR_CODE=""
+      LAST_ERROR_MESSAGE="Network error while calling $path"
+      LAST_ERROR_DETAILS_JSON=""
+      echo "error: network error while calling $path (curl exit $curl_status)" >&2
+      return 1
+    fi
+
+    if http_status_success "$status"; then
+      if [[ "$status" != "204" ]] && ! "$JQ_BIN" -e . "$body_file" >/dev/null 2>&1; then
+        if http_success_json_replay_allowed "$method" "$path" && (( attempt < HTTP_TRANSIENT_MAX_ATTEMPTS )); then
+          attempt=$((attempt + 1))
+          delay="$(retry_delay_for_attempt "$attempt")"
+          echo "Invalid JSON response from $path after HTTP $status; retrying in ${delay}s (${attempt}/${HTTP_TRANSIENT_MAX_ATTEMPTS})..." >&2
+          sleep "$delay"
+          continue
+        fi
+        rm -f "$body_file"
+        LAST_HTTP_STATUS="$status"
+        LAST_ERROR_CODE="INVALID_JSON_RESPONSE"
+        LAST_ERROR_MESSAGE="Invalid JSON response from $path after HTTP $status"
+        LAST_ERROR_DETAILS_JSON=""
+        echo "error: invalid JSON response from $path after HTTP $status" >&2
+        return 1
+      fi
+      cat "$body_file"
+      rm -f "$body_file"
+      return 0
+    fi
+
+    message="$("$JQ_BIN" -r '.error.message // .error_description // .message // empty' "$body_file" 2>/dev/null || true)"
+    code="$("$JQ_BIN" -r '.error.code // .error // empty' "$body_file" 2>/dev/null || true)"
+    request_id="$("$JQ_BIN" -r '.error.request_id // .request_id // empty' "$body_file" 2>/dev/null || true)"
+    retry_after="$("$JQ_BIN" -r '.error.details.retry_after // empty' "$body_file" 2>/dev/null || true)"
+    details_json="$("$JQ_BIN" -c '.error.details // {}' "$body_file" 2>/dev/null || printf '{}')"
+
+    if [[ "$status" == "429" && "$attempt" -lt 20 ]]; then
+      [[ "$retry_after" =~ ^[0-9]+$ && "$retry_after" -gt 0 ]] || retry_after=5
+      attempt=$((attempt + 1))
+      echo "Rate limited while calling $path; retrying in ${retry_after}s..." >&2
+      sleep "$retry_after"
+      continue
+    fi
+
+    if [[ "$status" == "409" ]] && http_error_code_retryable "$code" && http_conflict_retry_allowed "$method" "$path" && (( attempt < HTTP_RETRYABLE_CONFLICT_MAX_ATTEMPTS )); then
+      attempt=$((attempt + 1))
+      delay="$(retry_delay_for_attempt "$attempt" "$retry_after")"
+      echo "Server is busy while calling $path; retrying in ${delay}s (${attempt}/${HTTP_RETRYABLE_CONFLICT_MAX_ATTEMPTS})..." >&2
+      sleep "$delay"
+      continue
+    fi
+
+    if [[ "$status" == "423" && ( "$code" == "BUCKET_LOCKED" || "$code" == "FILE_LOCKED" ) ]] && http_lock_retry_allowed "$method" "$path" && (( attempt < HTTP_LOCK_MAX_ATTEMPTS )); then
+      attempt=$((attempt + 1))
+      delay="$(retry_delay_for_attempt "$attempt" "$retry_after")"
+      echo "Locked while calling $path ($(lock_detail_summary "$details_json")); retrying in ${delay}s (${attempt}/${HTTP_LOCK_MAX_ATTEMPTS})..." >&2
+      sleep "$delay"
+      continue
+    fi
+
+    if http_status_retryable "$status" && (( attempt < HTTP_TRANSIENT_MAX_ATTEMPTS )); then
+      attempt=$((attempt + 1))
+      delay="$(retry_delay_for_attempt "$attempt")"
+      echo "Transient HTTP $status while calling $path; retrying in ${delay}s (${attempt}/${HTTP_TRANSIENT_MAX_ATTEMPTS})..." >&2
+      sleep "$delay"
+      continue
+    fi
+
+    rm -f "$body_file"
+    LAST_HTTP_STATUS="$status"
+    LAST_ERROR_CODE="$code"
+    LAST_ERROR_MESSAGE="$message"
+    LAST_ERROR_DETAILS_JSON="$details_json"
+    [[ -n "$message" ]] || message="HTTP $status"
+    [[ -n "$code" ]] && message="${message} (${code})"
+    [[ -n "$request_id" ]] && message="${message} request_id=${request_id}"
+    echo "error: $message" >&2
+    if [[ "$status" == "423" && ( "$code" == "BUCKET_LOCKED" || "$code" == "FILE_LOCKED" ) ]]; then
+      echo "Lock details: $(lock_detail_summary "$details_json")" >&2
+    fi
+    if [[ "$auth" == "true" ]]; then
+      if [[ "$code" == "ACCOUNT_ACCESS_UNAVAILABLE" ]]; then
+        echo "This connection uses bucket-scoped agent credentials, which cannot read account-level status. Verify the connection with 'revdoku status', or open Revdoku in a browser for account details." >&2
+      elif [[ "$status" == "401" || "$status" == "403" ]]; then
+        echo "Run 'revdoku login' to reconnect and save a fresh Revdoku API key." >&2
+      fi
+    fi
+    return 1
+  done
+}
+
+http_json_quiet() {
+  local method="$1"
+  local path="$2"
+  local payload="$3"
+  local body_file status message code agent_args=()
+  LAST_HTTP_STATUS=""
+  LAST_ERROR_CODE=""
+  LAST_ERROR_MESSAGE=""
+  LAST_ERROR_DETAILS_JSON=""
+  body_file="$(mktemp)"
+
+  while IFS= read -r -d '' value; do
+    agent_args+=("$value")
+  done < <(agent_header_args)
+
+  if ! status="$(curl -sS -o "$body_file" -w "%{http_code}" -X "$method" "$(api_url "$path")" "${agent_args[@]}" -H "Content-Type: application/json" --data "$payload")"; then
+    rm -f "$body_file"
+    LAST_HTTP_STATUS=""
+    LAST_ERROR_CODE="NETWORK_ERROR"
+    LAST_ERROR_MESSAGE="Network error while calling $path"
+    LAST_ERROR_DETAILS_JSON=""
+    return 1
+  fi
+
+  if http_status_success "$status"; then
+    cat "$body_file"
+    rm -f "$body_file"
+    return 0
+  fi
+
+  message="$("$JQ_BIN" -r 'if (.error | type) == "object" then (.error.message // empty) else (.error_description // .message // empty) end' "$body_file" 2>/dev/null || true)"
+  code="$("$JQ_BIN" -r 'if (.error | type) == "object" then (.error.code // empty) else (.error // empty) end' "$body_file" 2>/dev/null || true)"
+  LAST_HTTP_STATUS="$status"
+  LAST_ERROR_CODE="$code"
+  LAST_ERROR_MESSAGE="$message"
+  LAST_ERROR_DETAILS_JSON="$("$JQ_BIN" -c 'if (.error | type) == "object" then (.error.details // {}) else {} end' "$body_file" 2>/dev/null || printf '{}')"
+  rm -f "$body_file"
+  return 1
+}
+
+prompt_read() {
+  local prompt="$1"
+  local value
+  if [[ -t 0 ]]; then
+    printf "%s" "$prompt" >&2
+    IFS= read -r value
+  elif { exec 3<>/dev/tty; } 2>/dev/null; then
+    printf "%s" "$prompt" >&3
+    IFS= read -r value <&3
+    exec 3>&-
+  else
+    die "Browser login could not start, and the email-code fallback needs an interactive terminal. Retry 'revdoku login' in a terminal."
+  fi
+  printf "%s" "$value"
+}
+
+save_api_key() {
+  local key="$1"
+  [[ -n "$key" ]] || die "API key is required"
+  mkdir -p "$(dirname "$CREDENTIALS_PATH")"
+  umask 077
+  printf "%s\n" "$key" > "$CREDENTIALS_PATH"
+  rm -f "$DEFAULT_BUCKET_PATH"
+  echo "Saved Revdoku API key to $CREDENTIALS_PATH" >&2
+  echo "This is a one-time setup. Future runs will reuse the saved key automatically." >&2
+  API_KEY="$key"
+}
+
+open_browser_url() {
+  local url="$1"
+  [[ -n "$url" ]] || return 1
+  if command -v open >/dev/null 2>&1; then
+    open "$url" >/dev/null 2>&1 && return 0
+  fi
+  if command -v xdg-open >/dev/null 2>&1; then
+    xdg-open "$url" >/dev/null 2>&1 && return 0
+  fi
+  if command -v wslview >/dev/null 2>&1; then
+    wslview "$url" >/dev/null 2>&1 && return 0
+  fi
+  return 1
+}
+
+# `open` / `dashboard`: open this folder's live site (or the dashboard) in a
+# browser. Prefers the URL remembered in .revdoku; falls back to looking up the
+# bound bucket's publication. Prints the URL on stdout.
+open_site() {
+  if [[ "${OPEN_DASHBOARD:-false}" == "true" ]]; then
+    if [[ -n "$BUCKET_ID" ]]; then
+      BROWSER_LOGIN_PATH="/buckets/view?id=$BUCKET_ID"
+    else
+      BROWSER_LOGIN_PATH="/buckets"
+    fi
+    browser_login_link
+    return 0
+  fi
+
+  local url="$BOUND_URL"
+  if [[ -z "$url" && -n "$BUCKET_ID" ]]; then
+    # Resolve the live URL the same way unpublish does: the publications
+    # list, matched by bucket id (the bucket GET payload is not relied upon).
+    local publications_response
+    publications_response="$(http_json GET "/api/v1/publications?include_manifest=false" "{}")" || die "could not look up published sites"
+    url="$("$JQ_BIN" -r --arg bucket_id "$BUCKET_ID" '
+      [ (.data.publications // [])
+        | .[]
+        | select(.bucket_id == $bucket_id)
+        | select((.kind // "bucket_bundle") == "bucket_bundle")
+        | select((.lifecycle_active == true) or (.active == true))
+      ]
+      | sort_by(.updated_at // .created_at // "")
+      | last
+      | .public_url // empty
+    ' <<<"$publications_response" 2>/dev/null || true)"
+  fi
+  [[ -n "$url" ]] || die "no published site found for this folder. Publish first with: revdoku p"
+  echo "Opening: $url" >&2
+  open_browser_url "$url" || echo "Could not open a browser automatically. Visit: $url" >&2
+  printf "%s\n" "$url"
+}
+
+# Write heredoc (stdin) to a file, but never clobber an existing one.
+init_write_file() {
+  local dest="$1"
+  if [[ -e "$dest" ]]; then
+    cat >/dev/null
+    echo "Kept existing $dest" >&2
+    return 0
+  fi
+  mkdir -p "$(dirname "$dest")"
+  cat > "$dest"
+  echo "Created $dest" >&2
+}
+
+init_scaffold_static() {
+  local target="$1"
+  init_write_file "$target/index.html" <<'HTML'
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>My Revdoku site</title>
+  <style>
+    :root { color-scheme: light dark; }
+    body { font-family: system-ui, -apple-system, sans-serif; max-width: 40rem; margin: 4rem auto; padding: 0 1rem; line-height: 1.6; }
+    h1 { font-size: 2rem; }
+    a { color: #4f46e5; }
+  </style>
+</head>
+<body>
+  <h1>Hello from Revdoku 👋</h1>
+  <p>Edit <code>index.html</code>, run <code>revdoku preview</code>, then publish when ready.</p>
+</body>
+</html>
+HTML
+  init_write_file "$target/AGENTS.md" <<'MD'
+# Working in this folder with Revdoku
+
+This folder publishes to the web with Revdoku. The whole site is just static
+files (HTML/CSS/JS/assets) in this directory.
+
+## Publish / update
+- `revdoku preview`      — recommended first: review a temporary noindex URL.
+- `revdoku p`            — publish this folder when ready, print the live URL.
+- `revdoku p --protected --generate-password`  — password-protected site.
+- `revdoku open`         — open the live site. `revdoku status` — check the connection.
+
+Re-running `revdoku p` updates the SAME site (the bucket is remembered in the
+`.revdoku` file — do not delete it). `index.html` is the entry point; a folder
+with no `index.html` gets an auto-generated index page.
+
+MD
+}
+
+
+# `init`: scaffold a starter site + agent instructions in this folder.
+init_project() {
+  local target="${PATH_TO_STORE:-.}"
+  [[ -n "$target" ]] || target="."
+
+  mkdir -p "$target"
+  init_scaffold_static "$target"
+
+  echo "" >&2
+  echo "Revdoku project ready in: $target" >&2
+  echo "Next: edit your files, then preview:  revdoku preview" >&2
+}
+
+request_device_agent_key() {
+  local payload response response_file client_id device_code user_code verification_uri_complete expires_in interval deadline now token_payload key
+
+  payload="$("$JQ_BIN" -nc --arg grant "$DEVICE_CODE_GRANT_TYPE" '{client_name:"Revdoku CLI", redirect_uris:[], grant_types:[$grant,"refresh_token"], response_types:[], token_endpoint_auth_method:"none"}')"
+  response="$(http_json_quiet POST "/oauth/register" "$payload")" || return 1
+  client_id="$("$JQ_BIN" -r '.client_id // empty' <<<"$response")"
+  [[ -n "$client_id" ]] || return 1
+
+  payload="$("$JQ_BIN" -nc --arg client_id "$client_id" --arg resource "${BASE_URL%/}/mcp" '{client_id:$client_id, scope:"revdoku:mcp", resource:$resource}')"
+  response="$(http_json_quiet POST "/oauth/device_authorization" "$payload")" || return 1
+  device_code="$("$JQ_BIN" -r '.device_code // empty' <<<"$response")"
+  user_code="$("$JQ_BIN" -r '.user_code // empty' <<<"$response")"
+  verification_uri_complete="$("$JQ_BIN" -r '.verification_uri_complete // .verification_uri // empty' <<<"$response")"
+  expires_in="$("$JQ_BIN" -r '.expires_in // 600' <<<"$response")"
+  interval="$("$JQ_BIN" -r '.interval // 5' <<<"$response")"
+  [[ -n "$device_code" && -n "$user_code" && -n "$verification_uri_complete" ]] || return 1
+  [[ "$expires_in" =~ ^[0-9]+$ && "$expires_in" -gt 0 ]] || expires_in=600
+  [[ "$interval" =~ ^[0-9]+$ && "$interval" -gt 0 ]] || interval=5
+
+  echo "Open this Revdoku link to connect:" >&2
+  echo "$verification_uri_complete" >&2
+  echo "Connection ID is $user_code" >&2
+  echo "This is a safety check. Make sure the same ID appears in the top-right of Revdoku, then select Confirm Connection." >&2
+  if open_browser_url "$verification_uri_complete"; then
+    echo "Opened the approval page in your browser." >&2
+  else
+    echo "Could not open a browser automatically; paste the link above into your browser." >&2
+  fi
+  echo "Waiting for browser approval..." >&2
+
+  deadline=$(( $(date +%s) + expires_in ))
+  response_file="$(mktemp)"
+  while true; do
+    now="$(date +%s)"
+    if [[ "$now" =~ ^[0-9]+$ && "$now" -ge "$deadline" ]]; then
+      rm -f "$response_file"
+      die "device login expired; run 'revdoku login' again"
+    fi
+
+    sleep "$interval"
+    token_payload="$("$JQ_BIN" -nc --arg grant "$DEVICE_CODE_GRANT_TYPE" --arg client_id "$client_id" --arg device_code "$device_code" --arg resource "${BASE_URL%/}/mcp" '{grant_type:$grant, client_id:$client_id, device_code:$device_code, resource:$resource}')"
+    : > "$response_file"
+    # Keep http_json_quiet in this shell. Command substitution would run it in a
+    # subshell and discard LAST_ERROR_CODE, turning the expected
+    # authorization_pending response into a false legacy-login fallback.
+    if http_json_quiet POST "/oauth/token" "$token_payload" > "$response_file"; then
+      response="$(cat "$response_file")"
+      key="$("$JQ_BIN" -r '.revdoku_api_key // empty' <<<"$response")"
+      [[ -n "$key" ]] || die "device login did not return a Revdoku API key"
+      save_api_key "$key"
+      rm -f "$response_file"
+      return 0
+    fi
+
+    case "$LAST_ERROR_CODE" in
+      authorization_pending)
+        ;;
+      slow_down)
+        interval=$((interval + 5))
+        ;;
+      access_denied)
+        rm -f "$response_file"
+        die "Revdoku connection was denied in the browser"
+        ;;
+      expired_token)
+        rm -f "$response_file"
+        die "device login expired; run 'revdoku login' again"
+        ;;
+      *)
+        rm -f "$response_file"
+        return 1
+        ;;
+    esac
+  done
+}
+
+request_email_agent_key() {
+  local email code payload response key
+
+  while true; do
+    email="$(prompt_read "Email: ")"
+    [[ -n "$email" ]] || die "email is required"
+
+    payload="$("$JQ_BIN" -nc --arg email "$email" '{email:$email}')"
+    if http_json POST "/api/v1/agent_auth/request_code" "$payload" false >/dev/null; then
+      break
+    fi
+
+    die "could not start email verification"
+  done
+
+  echo "If $email can receive Revdoku sign-in codes, a verification code was sent." >&2
+  echo "If no code arrives, sign in at ${BASE_URL%/}/users/sign_in or retry browser device sign-in with 'revdoku login'." >&2
+
+  code="$(prompt_read "Code: ")"
+  [[ -n "$code" ]] || die "code is required"
+
+  payload="$("$JQ_BIN" -nc --arg email "$email" --arg code "$code" '{email:$email, code:$code, label:"Revdoku bucket client"}')"
+  if ! response="$(http_json POST "/api/v1/agent_auth/verify_code" "$payload" false)"; then
+    die "Could not verify the code. If no code arrived or the code is rejected, use 'revdoku login' and complete browser device sign-in."
+  fi
+  key="$("$JQ_BIN" -r '.data.api_key // empty' <<<"$response")"
+  [[ -n "$key" ]] || die "verification did not return an API key. Use 'revdoku login' and complete browser device sign-in."
+
+  save_api_key "$key"
+}
+
+request_agent_key() {
+  if request_device_agent_key; then
+    return
+  fi
+
+  echo "Browser device login is unavailable on this Revdoku server; using legacy email-code fallback." >&2
+  request_email_agent_key
+}
+
+exchange_agent_grant() {
+  local token="$1" payload response key account_id account_name
+  [[ -n "$token" ]] || die "one-time connection token is required"
+  payload="$("$JQ_BIN" -nc --arg grant_token "$token" --arg label "${AGENT_NAME} connection" '{grant_token:$grant_token,label:$label}')"
+  response="$(http_json POST "/api/v1/agent_auth/exchange_grant" "$payload" false)" \
+    || die "connection token is invalid, expired, or already used"
+  key="$("$JQ_BIN" -r '.data.api_key // empty' <<<"$response")"
+  account_id="$("$JQ_BIN" -r '.data.account_id // empty' <<<"$response")"
+  account_name="$("$JQ_BIN" -r '.data.account_name // empty' <<<"$response")"
+  [[ -n "$key" ]] || die "connection response did not include an API key"
+  save_api_key "$key"
+  echo "Connected to Revdoku${account_name:+: $account_name}." >&2
+  [[ -n "$account_id" ]] && echo "Account: $account_id" >&2
+}
+
+# `init` scaffolds locally and `open` via a saved binding both work offline —
+# run them before the auth gate so they never force a login.
+if [[ "$ACTION" == "init_project" ]]; then
+  init_project
+  exit 0
+fi
+if [[ "$ACTION" == "open_site" && "$OPEN_DASHBOARD" != "true" && -n "$BOUND_URL" ]]; then
+  open_site
+  exit 0
+fi
+
+if [[ "$ACTION" == "exchange_grant" ]]; then
+  exchange_agent_grant "$GRANT_TOKEN"
+  echo "Connection complete. You can return to your AI agent." >&2
+  exit 0
+fi
+
+# Bare `revdoku` with no saved credentials: show a friendly hint instead of
+# forcing the interactive login flow.
+if [[ "$ACTION" == "connection_status" && "$SHOW_PUBLISH_HINT" == "true" && -z "$API_KEY" ]]; then
+  echo "Revdoku CLI — not signed in yet." >&2
+  echo "  Sign in:   revdoku login" >&2
+  echo "  Preview:   revdoku preview .  (recommended before publishing)" >&2
+  echo "  Publish:   revdoku p          (Free available; current plan limits apply)" >&2
+  echo "  Commands:  revdoku --help" >&2
+  exit 0
+fi
+
+if [[ "$LOGIN" == "true" || -z "$API_KEY" ]]; then
+  request_agent_key
+fi
+
+if [[ "$LOGIN" == "true" && "$ACTION" == "store" && "$PATH_EXPLICIT" == "false" ]]; then
+  echo "Login complete. Credentials saved to $CREDENTIALS_PATH." >&2
+  echo "Next: preview an existing site with 'revdoku preview .', start one with 'revdoku init my-site', or choose a dashboard sample with 'revdoku dashboard'." >&2
+  echo "Publish live only when ready: revdoku p" >&2
+  exit 0
+fi
+
+[[ -n "$API_KEY" ]] || die "REVDOKU_API_KEY is required"
+case "$UPLOAD_MODE" in
+  auto|direct) ;;
+  *) die "--upload-mode must be auto or direct" ;;
+esac
+case "$PUBLISH" in
+  true|false) ;;
+  *) die "REVDOKU_PUBLISH must be true or false" ;;
+esac
+list_buckets() {
+  local active_response archived_response
+  active_response="$(http_json GET "/api/v1/buckets" "{}")"
+  archived_response="$(http_json GET "/api/v1/buckets?archived=true" "{}")"
+  "$JQ_BIN" -nc \
+    --argjson active "$active_response" \
+    --argjson archived "$archived_response" \
+    '
+      ($active.data.buckets // []) as $active_buckets
+      | ($archived.data.buckets // []) as $archived_buckets
+      | ($active_buckets + $archived_buckets | unique_by(.id)) as $buckets
+      | $active + {
+          data: ($active.data + {
+            buckets: $buckets,
+            active_buckets_count: ($active_buckets | length),
+            archived_buckets_count: ($archived_buckets | length),
+            includes_archived: true
+          })
+        }
+    '
+}
+
+list_versions() {
+  [[ -n "$BUCKET_ID" ]] || die "versions requires --bucket-id"
+  http_json GET "/api/v1/buckets/${BUCKET_ID}/versions" "{}"
+}
+
+list_files() {
+  [[ -n "$BUCKET_ID" ]] || die "files requires --bucket-id (or a remembered selected bucket)"
+  http_json GET "/api/v1/buckets/${BUCKET_ID}/files" "{}"
+}
+
+# Read a bucket file's content by its bucket-relative path. Uses the by_path
+# endpoint, which 302-redirects to a short-lived signed blob URL; curl -L follows
+# it (and drops the bearer on the cross-host hop, as intended).
+read_file() {
+  [[ -n "$BUCKET_ID" ]] || die "read requires --bucket-id (or a remembered selected bucket)"
+  [[ -n "$READ_FILE_PATH" ]] || die "read requires a bucket-relative PATH"
+  [[ -n "$API_KEY" ]] || die "No Revdoku API key. Run 'revdoku login' first."
+
+  local encoded url body_file status message
+  encoded="$("$JQ_BIN" -rn --arg s "$READ_FILE_PATH" '$s|@uri')"
+  url="$(api_url "/api/v1/buckets/${BUCKET_ID}/files/by_path?path=${encoded}&disposition=inline")"
+  body_file="$(mktemp 2>/dev/null || mktemp -t revdoku)"
+
+  status="$(curl -sSL --max-time 120 -o "$body_file" -w "%{http_code}" \
+    -H "Authorization: Bearer $API_KEY" -H "Accept: */*" "$url" 2>/dev/null || echo "000")"
+
+  if [[ "$status" == 2* ]]; then
+    if [[ -n "$OUTPUT_PATH" ]]; then
+      mv "$body_file" "$OUTPUT_PATH"
+      echo "Saved $READ_FILE_PATH to $OUTPUT_PATH" >&2
+    else
+      cat "$body_file"
+      rm -f "$body_file"
+    fi
+    return 0
+  fi
+
+  message="$("$JQ_BIN" -r '.error.message // .message // empty' "$body_file" 2>/dev/null || true)"
+  rm -f "$body_file"
+  case "$status" in
+    401|403) die "Not authorized to read '$READ_FILE_PATH'${message:+: $message}" ;;
+    404) die "File not found at path '$READ_FILE_PATH' in bucket $BUCKET_ID" ;;
+    000) die "Network error while reading '$READ_FILE_PATH'" ;;
+    *) die "Failed to read '$READ_FILE_PATH' (HTTP ${status})${message:+: $message}" ;;
+  esac
+}
+
+restore_version() {
+  local payload
+  [[ -n "$BUCKET_ID" ]] || die "restore requires --bucket-id"
+  [[ -n "$RESTORE_VERSION_ID" ]] || die "restore requires a bucket version id"
+  payload="$("$JQ_BIN" -nc \
+    --arg version_id "$RESTORE_VERSION_ID" \
+    --arg comment "$RESTORE_COMMENT" \
+    '{version_id:$version_id} + (if $comment != "" then {comment:$comment} else {} end)')"
+  http_json POST "/api/v1/buckets/${BUCKET_ID}/versions/restore" "$payload"
+}
+
+append_text_file() {
+  local content_file tmp_content payload response path
+  [[ -n "$BUCKET_ID" ]] || die "append requires --bucket-id"
+  [[ -n "$APPEND_TEXT_PATH" ]] || die "append requires a bucket-relative PATH"
+
+  tmp_content=""
+  if [[ -n "$APPEND_TEXT_CONTENT_FILE" ]]; then
+    if [[ "$APPEND_TEXT_CONTENT_FILE" == "-" ]]; then
+      tmp_content="$(mktemp)"
+      cat > "$tmp_content"
+      content_file="$tmp_content"
+    else
+      [[ -f "$APPEND_TEXT_CONTENT_FILE" ]] || die "--content-file does not exist: $APPEND_TEXT_CONTENT_FILE"
+      content_file="$APPEND_TEXT_CONTENT_FILE"
+    fi
+  else
+    tmp_content="$(mktemp)"
+    printf "%s" "$APPEND_TEXT_CONTENT" > "$tmp_content"
+    content_file="$tmp_content"
+  fi
+
+  if [[ ! -s "$content_file" ]]; then
+    [[ -z "$tmp_content" ]] || rm -f "$tmp_content"
+    die "append content must not be empty"
+  fi
+
+  path="$APPEND_TEXT_PATH"
+  payload="$("$JQ_BIN" -Rs \
+    --arg path "$path" \
+    --argjson newline_before "$APPEND_TEXT_NEWLINE_BEFORE" \
+    '{path:$path, content: ., newline_before:$newline_before}' < "$content_file")"
+  if ! response="$(http_json POST "/api/v1/buckets/${BUCKET_ID}/files/append_text" "$payload")"; then
+    [[ -z "$tmp_content" ]] || rm -f "$tmp_content"
+    return 1
+  fi
+  [[ -z "$tmp_content" ]] || rm -f "$tmp_content"
+  printf "%s\n" "$response"
+}
+
+unpublish_bucket() {
+  [[ -n "$BUCKET_ID" ]] || die "unpublish requires --bucket-id"
+  local response publication_id publish_state status final_response
+  response="$(http_json DELETE "/api/v1/buckets/${BUCKET_ID}/publication" "{}")" || return 1
+  publication_id="$("$JQ_BIN" -r '.data.publication.id // empty' <<<"$response" 2>/dev/null || true)"
+  publish_state="$("$JQ_BIN" -r '.data.publication.publish_state // empty' <<<"$response" 2>/dev/null || true)"
+  status="$("$JQ_BIN" -r '.data.publication.status // empty' <<<"$response" 2>/dev/null || true)"
+  if [[ -n "$publication_id" && ( "$publish_state" == "unpublishing" || "$status" == "unpublishing" ) ]]; then
+    final_response="$(wait_for_publication_unpublished "$publication_id")" || return 1
+    response="$final_response"
+  fi
+  "$JQ_BIN" -c '
+    .data.publication as $publication
+    | {
+        success: (.success // true),
+        data: {
+          publication: $publication,
+          bucket_id: $publication.bucket_id,
+          public_slug: $publication.public_slug,
+          public_url: $publication.public_url,
+          status: $publication.status,
+          revoked_at: $publication.revoked_at,
+          guidance: "The public site is unpublished. Republish this same bucket to restore the same URL."
+        }
+      }' <<<"$response"
+}
+
+preview_bucket() {
+  [[ -n "$BUCKET_ID" ]] || die "preview requires --bucket-id (or a folder bound via .revdoku)"
+  local payload access_payload response publication_id publish_state final_response
+  access_payload="$(publication_access_json)"
+  payload="$("$JQ_BIN" -nc --argjson access "$access_payload" '$access')"
+  response="$(http_json POST "/api/v1/buckets/${BUCKET_ID}/publication/preview" "$payload")" || return 1
+  publication_id="$("$JQ_BIN" -r '.data.publication.id // empty' <<<"$response" 2>/dev/null || true)"
+  publish_state="$("$JQ_BIN" -r '.data.publication.publish_state // "ready"' <<<"$response" 2>/dev/null || true)"
+  if [[ -n "$publication_id" && "$publish_state" != "ready" && "$publish_state" != "null" && -n "$publish_state" ]]; then
+    final_response="$(wait_for_publication_ready "$publication_id")" || return 1
+    response="$final_response"
+  fi
+  "$JQ_BIN" -c '
+    .data.publication as $p
+    | {
+        success: (.success // true),
+        data: {
+          publication: $p,
+          public_url: $p.public_url,
+          expires_at: $p.expires_at,
+          guidance: "Temporary preview is live for 24 hours. Paid settings work here for evaluation. Current Free limits: https://app.revdoku.com/pricing.json. Publish for real with: revdoku p"
+        }
+      }' <<<"$response"
+}
+
+archive_bucket() {
+  [[ -n "$BUCKET_ID" ]] || die "archive requires --bucket-id"
+  http_json POST "/api/v1/buckets/${BUCKET_ID}/archive" "{}"
+}
+
+unarchive_bucket() {
+  [[ -n "$BUCKET_ID" ]] || die "unarchive requires --bucket-id"
+  http_json POST "/api/v1/buckets/${BUCKET_ID}/unarchive" "{}"
+}
+
+delete_bucket() {
+  local bucket_response allowed required_action confirmation payload response deletion_started total_items phase
+  [[ -n "$BUCKET_ID" ]] || die "delete requires --bucket-id"
+  bucket_response="$(http_json GET "/api/v1/buckets/${BUCKET_ID}" "{}")"
+  allowed="$("$JQ_BIN" -r '.data.bucket.delete.allowed // false' <<<"$bucket_response")"
+  required_action="$("$JQ_BIN" -r '.data.bucket.delete.required_action // empty' <<<"$bucket_response")"
+  confirmation="$("$JQ_BIN" -r '.data.bucket.delete.confirmation // empty' <<<"$bucket_response")"
+
+  if [[ "$allowed" != "true" || -z "$confirmation" ]]; then
+    case "$required_action" in
+      unpublish_first)
+        die "bucket must be unpublished before permanent delete; run 'revdoku down' first after confirmation"
+        ;;
+      archive_first)
+        die "bucket must be archived before permanent delete; run 'revdoku archive' first"
+        ;;
+      *)
+        die "bucket cannot be permanently deleted with this connection"
+        ;;
+    esac
+  fi
+
+  payload="$("$JQ_BIN" -nc --arg confirmation "$confirmation" '{confirmation:$confirmation}')"
+  response="$(http_json DELETE "/api/v1/buckets/${BUCKET_ID}" "$payload")" || return 1
+  deletion_started="$("$JQ_BIN" -r '.data.bucket.deletion_started // false' <<<"$response")"
+  if [[ "$deletion_started" == "true" ]]; then
+    phase="$("$JQ_BIN" -r '.data.delete_progress.phase // "queued"' <<<"$response")"
+    total_items="$("$JQ_BIN" -r '.data.delete_progress.total_items // empty' <<<"$response")"
+    if [[ -n "$total_items" ]]; then
+      echo "Bucket deletion ${phase}; ${total_items} file/version items will be removed in the background. Poll 'revdoku ls' or bucket details for delete progress." >&2
+    else
+      echo "Bucket deletion ${phase}; removal will continue in the background. Poll 'revdoku ls' or bucket details for delete progress." >&2
+    fi
+  fi
+  printf "%s\n" "$response"
+}
+
+connection_status() {
+  http_json GET "/api/v1/status" "{}" | "$JQ_BIN" -c '{
+    success: (.success // true),
+    data: {
+      connected: (.data.connected // true),
+      account: .data.account,
+      connection: .data.connection,
+      publishing: .data.publishing
+    }
+  }'
+}
+
+account_status() {
+  http_json GET "/api/v1/account/credits" "{}" | "$JQ_BIN" -c '
+    .data.credits as $credits
+    | ($credits.account_limits // {}) as $limits
+    | {
+        success: (.success // true),
+        data: {
+          account: {
+            id: $credits.account_id,
+            name: $credits.account_name
+          },
+          plan: ($credits.plan // {}),
+          storage: {
+            used_bytes: $limits.used_storage_bytes,
+            used_human: $limits.used_storage_human,
+            available_bytes: $limits.available_storage_bytes,
+            available_human: $limits.available_storage_human,
+            max_mb: $limits.max_storage_mb,
+            max_human: $limits.max_storage_human,
+            max_file_size_mb: $limits.max_file_size_mb,
+            max_file_size_human: $limits.max_file_size_human
+          },
+          connections: {
+            max: $limits.max_account_connections,
+            max_account_members: $limits.max_account_members,
+            max_api_keys: $limits.max_api_keys,
+            max_agent_connections: $limits.max_agent_connections,
+            active_api_keys_count: $limits.active_api_keys_count,
+            active_agent_connections_count: $limits.active_agent_connections_count,
+            api_rate_limit_requests_per_minute: $limits.api_rate_limit_requests_per_minute
+          },
+          credits: {
+            balance: $credits.balance,
+            subscription: $credits.subscription,
+            purchased: $credits.purchased,
+            total: $credits.total,
+            purchased_expires_at: $credits.purchased_expires_at,
+            next_refill_at: $credits.next_refill_at,
+            one_time_credits_purchasable: $credits.one_time_credits_purchasable
+          }
+        }
+      }'
+}
+
+list_public_buckets() {
+  http_json GET "/api/v1/publications?include_manifest=false" "{}" | "$JQ_BIN" -c '
+    .data.publications
+    | map(select(.kind == "bucket_bundle" and (.public_url // "") != "" and ((.active == true) or ((has("active") | not) and .status == "published"))))
+    | group_by(.bucket_id)
+    | map({
+        bucket_id: .[0].bucket_id,
+        publications: map({
+          id,
+          public_slug,
+          title,
+          url: .public_url,
+          status,
+          permanent: (.expires_at == null),
+          expires_at,
+          created_at,
+          hits: (.analytics.hits_all_time // 0)
+        })
+      })
+    | {data:{public_buckets:., link_hint:"If opening links from a terminal, Cmd-click on macOS or Ctrl-click on Windows/Linux when supported."}}'
+}
+
+print_terminal_link_hint() {
+  if [[ -t 2 ]]; then
+    echo "Tip: Cmd-click the link on macOS, or Ctrl-click it on Windows/Linux, if your terminal supports clickable links." >&2
+  fi
+}
+
+print_acceptable_use_hint() {
+  echo "Published content is subject to the Acceptable Use Policy: https://revdoku.com/acceptable-use" >&2
+}
+
+print_publish_next_steps_hint() {
+  echo "Next: revdoku o (open site) | revdoku st (status) | revdoku dashboard" >&2
+}
+
+# Publishing is asynchronous: POST /publication and publish-session finalize
+# return 202 with a publication whose build runs in the background. Poll the
+# publication until its publish_state is terminal so we never print a live URL
+# that 404s while the bundle is still building. Echoes the final publication
+# response JSON on success (publish_state ready); non-zero on failed/timeout.
+wait_for_publication_ready() {
+  local publication_id="$1"
+  local response state err attempts=0
+  local max_attempts="${REVDOKU_PUBLISH_WAIT_MAX_ATTEMPTS:-450}"  # ~15 min at 2s
+  [[ -n "$publication_id" ]] || return 1
+  while :; do
+    response="$(http_json GET "/api/v1/publications/${publication_id}?include_manifest=false" "{}")" || return 1
+    state="$("$JQ_BIN" -r '.data.publication.publish_state // "ready"' <<<"$response")"
+    case "$state" in
+      ready|"")
+        printf '%s' "$response"
+        return 0
+        ;;
+      failed)
+        err="$("$JQ_BIN" -r '.data.publication.publish_error // "Publishing failed."' <<<"$response")"
+        echo "Publishing failed: $err" >&2
+        echo "Retry with: revdoku p (or POST /api/v1/buckets/<bucket>/publication/retry)" >&2
+        return 2
+        ;;
+      *)
+        attempts=$((attempts + 1))
+        if (( attempts > max_attempts )); then
+          echo "Timed out waiting for the publish to finish. It may still complete in the background." >&2
+          return 3
+        fi
+        if (( attempts == 1 || attempts % 5 == 0 )); then
+          echo "Publishing… (${state})" >&2
+        fi
+        sleep 2
+        ;;
+    esac
+  done
+}
+
+wait_for_publication_unpublished() {
+  local publication_id="$1"
+  local response state status err attempts=0
+  local max_attempts="${REVDOKU_UNPUBLISH_WAIT_MAX_ATTEMPTS:-150}"  # ~5 min at 2s
+  [[ -n "$publication_id" ]] || return 1
+  while :; do
+    response="$(http_json GET "/api/v1/publications/${publication_id}?include_manifest=false" "{}")" || return 1
+    state="$("$JQ_BIN" -r '.data.publication.publish_state // "ready"' <<<"$response")"
+    status="$("$JQ_BIN" -r '.data.publication.status // empty' <<<"$response")"
+    if [[ "$state" == "failed" ]]; then
+      err="$("$JQ_BIN" -r '.data.publication.publish_error // "Unpublishing failed."' <<<"$response")"
+      echo "Unpublishing failed: $err" >&2
+      return 2
+    fi
+    if [[ "$status" == "unpublished" && "$state" != "unpublishing" ]]; then
+      printf '%s' "$response"
+      return 0
+    fi
+
+    attempts=$((attempts + 1))
+    if (( attempts > max_attempts )); then
+      echo "Timed out waiting for unpublish to finish. It may still complete in the background." >&2
+      return 3
+    fi
+    if (( attempts == 1 || attempts % 5 == 0 )); then
+      echo "Unpublishing… (${state})" >&2
+    fi
+    sleep 2
+  done
+}
+
+# If the given publish response is a queued/processing async publication, block
+# until it is ready and echo the ready response; otherwise echo it unchanged.
+resolve_async_publication_response() {
+  local response="$1"
+  local publication_id publish_state early_url ready_response
+  publication_id="$("$JQ_BIN" -r '.data.publication.id // empty' <<<"$response" 2>/dev/null || true)"
+  publish_state="$("$JQ_BIN" -r '.data.publication.publish_state // "ready"' <<<"$response" 2>/dev/null || true)"
+  if [[ -n "$publication_id" && "$publish_state" != "ready" && "$publish_state" != "null" && -n "$publish_state" ]]; then
+    # The reserved public URL is already known while the build runs — surface it
+    # immediately so it feels instant, then either return now (--no-wait) or poll.
+    early_url="$("$JQ_BIN" -r '.data.publication.public_url // empty' <<<"$response" 2>/dev/null || true)"
+    if [[ "${NO_WAIT:-false}" == "true" ]]; then
+      [[ -n "$early_url" ]] && echo "Site URL (provisioning in the background): $early_url" >&2
+      printf '%s' "$response"
+      return 0
+    fi
+    [[ -n "$early_url" ]] && echo "Building your site… it will be live at: $early_url" >&2
+    ready_response="$(wait_for_publication_ready "$publication_id")" || return 1
+    printf '%s' "$ready_response"
+  else
+    printf '%s' "$response"
+  fi
+}
+
+print_publication_access_hint_from_response() {
+  local response="$1"
+  local access_mode password url share_text
+  access_mode="$("$JQ_BIN" -r '.data.publication.access_mode // empty' <<<"$response" 2>/dev/null || true)"
+  [[ "$access_mode" == "password" || "$access_mode" == "require_email" ]] || return 0
+
+  url="$("$JQ_BIN" -r '.data.publication.public_url // .data.publication.site_url // empty' <<<"$response" 2>/dev/null || true)"
+  password="$("$JQ_BIN" -r '.data.publication.access_password // .data.publication.generated_password // empty' <<<"$response" 2>/dev/null || true)"
+  share_text="$("$JQ_BIN" -r '.data.publication.share_text // empty' <<<"$response" 2>/dev/null || true)"
+  if [[ "$access_mode" == "require_email" ]]; then
+    [[ -n "$url" ]] && echo "Require Email website URL: $url" >&2
+    echo "Visitors verify their email with a one-time code. No site password is used." >&2
+    [[ -n "$share_text" ]] && echo "Share text: $share_text" >&2
+    return 0
+  fi
+  if [[ -n "$password" ]]; then
+    [[ -n "$url" ]] && echo "Protected website URL: $url" >&2
+    echo "Protected website password: $password" >&2
+    echo "Visitors will enter this password. The password is not included in the URL." >&2
+    [[ -n "$share_text" ]] && echo "Share text: $share_text" >&2
+  else
+    echo "Protected website password is stored, but this API key cannot view it. Use an owner publish key to retrieve or regenerate it." >&2
+  fi
+}
+
+browser_login_link() {
+  local payload response url redirect_path
+  payload="$("$JQ_BIN" -nc --arg redirect_path "$BROWSER_LOGIN_PATH" '{redirect_path:$redirect_path}')"
+  response="$(http_json POST "/api/v1/agent_auth/browser_login_link" "$payload")"
+  url="$("$JQ_BIN" -r '.data.url // empty' <<<"$response")"
+  redirect_path="$("$JQ_BIN" -r '.data.redirect_path // empty' <<<"$response")"
+  [[ -n "$url" ]] || die "browser login response did not include url"
+  echo "Open Revdoku: $url" >&2
+  [[ -n "$redirect_path" ]] && echo "Destination: $redirect_path" >&2
+  echo "Sign in normally if your browser does not already have a Revdoku session." >&2
+  print_terminal_link_hint
+  printf "%s\n" "$url"
+}
+
+# Best-effort, throttled (~24h), never-blocking notice when the server advertises
+# a newer client/connector version than the one install.sh stamped. Compares the
+# server's /api/v1/status client_version against ~/.revdoku/client_version and
+# only nudges when the server version is strictly newer (numeric compare via jq;
+# avoids relying on `sort -V`, which is unavailable on busybox/older BSD sort).
+maybe_notify_update() {
+  [[ -n "$API_KEY" ]] || return 0
+  command -v "$JQ_BIN" >/dev/null 2>&1 || return 0
+
+  local now last installed latest body
+  now="$(date +%s 2>/dev/null || echo 0)"
+  if [[ -f "$UPDATE_CHECK_STAMP" ]]; then
+    last="$(cat "$UPDATE_CHECK_STAMP" 2>/dev/null || echo 0)"
+    if [[ "$now" -gt 0 && "$last" =~ ^[0-9]+$ && $((now - last)) -lt 86400 ]]; then
+      return 0
+    fi
+  fi
+  mkdir -p "$REVDOKU_CONFIG_DIR" 2>/dev/null || true
+  printf '%s' "$now" > "$UPDATE_CHECK_STAMP" 2>/dev/null || true
+
+  installed="$(installed_client_version)"
+  [[ "$installed" != "unknown" ]] || return 0
+  body="$(curl -fsS --max-time 5 "$(api_url "/api/v1/status")" -H "Authorization: Bearer $API_KEY" -H "Accept: application/json" 2>/dev/null || true)"
+  [[ -n "$body" ]] || return 0
+  latest="$("$JQ_BIN" -r '.data.client_version // empty' <<<"$body" 2>/dev/null || true)"
+  [[ -n "$latest" && "$latest" != "$installed" ]] || return 0
+  if "$JQ_BIN" -ne --arg inst "$installed" --arg lat "$latest" \
+    '($inst | split(".") | map(tonumber? // 0)) < ($lat | split(".") | map(tonumber? // 0))' >/dev/null 2>&1; then
+    echo "Revdoku CLI update available (${installed} → ${latest}). Reinstall: curl -fsSL https://revdoku.com/install.sh | bash — latest is always at https://github.com/revdoku/revdoku" >&2
+  fi
+}
+
+maybe_notify_update || true
+
+case "$ACTION" in
+  list_buckets)
+    list_buckets
+    exit 0
+    ;;
+  list_files)
+    list_files
+    exit 0
+    ;;
+  read_file)
+    read_file
+    exit 0
+    ;;
+  list_versions)
+    list_versions
+    exit 0
+    ;;
+  restore_version)
+    restore_version
+    exit 0
+    ;;
+  append_text_file)
+    append_text_file
+    exit 0
+    ;;
+  unpublish_bucket)
+    unpublish_bucket
+    exit 0
+    ;;
+  preview_bucket)
+    # An explicit path means "upload these files, then preview them". A first
+    # preview with no existing project/default bucket does the same for the
+    # current folder. With only --bucket-id (or a bound folder), preview the
+    # already-saved server draft without re-uploading local files.
+    if [[ "$PATH_EXPLICIT" == "true" || -z "$BUCKET_ID" ]]; then
+      PREVIEW_AFTER_STORE="true"
+      ACTION="store"
+    else
+      preview_bucket
+      exit 0
+    fi
+    ;;
+  archive_bucket)
+    archive_bucket
+    exit 0
+    ;;
+  unarchive_bucket)
+    unarchive_bucket
+    exit 0
+    ;;
+  delete_bucket)
+    delete_bucket
+    exit 0
+    ;;
+  list_public_buckets)
+    list_public_buckets
+    exit 0
+    ;;
+  account_status)
+    account_status
+    exit 0
+    ;;
+  connection_status)
+    connection_status
+    if [[ "$SHOW_PUBLISH_HINT" == "true" ]]; then
+      echo "Tip: run 'revdoku p' to publish this folder, or 'revdoku --help' for all commands." >&2
+    fi
+    exit 0
+    ;;
+  open_site)
+    open_site
+    exit 0
+    ;;
+esac
+
+[[ -e "$PATH_TO_STORE" ]] || die "$PATH_TO_STORE does not exist"
+
+abs_path() {
+  local path="$1"
+  if [[ -d "$path" ]]; then
+    (cd "$path" && pwd)
+  else
+    local dir base
+    dir="$(dirname "$path")"
+    base="$(basename "$path")"
+    printf "%s/%s" "$(cd "$dir" && pwd)" "$base"
+  fi
+}
+
+ROOT_PATH="$(abs_path "$PATH_TO_STORE")"
+
+default_title() {
+  # ROOT_PATH is absolute. Use the folder name, but if it's a generic build
+  # output dir (docs/dist/build/...), use the project (parent) dir name instead,
+  # so e.g. ~/projects/localhost3000.love/docs -> "localhost3000.love".
+  local name parent
+  name="$(basename "$ROOT_PATH")"
+  if [[ -d "$ROOT_PATH" ]]; then
+    case "$name" in
+      docs|dist|build|public|out|_site|site|www|html|htdocs|wwwroot|public_html|_public)
+        parent="$(basename "$(dirname "$ROOT_PATH")")"
+        [[ -n "$parent" && "$parent" != "/" && "$parent" != "." ]] && name="$parent"
+        ;;
+    esac
+  fi
+  printf '%s\n' "$name"
+}
+
+effective_metadata_json() {
+  # An explicit --publish-folder wins: publish ONLY that folder of the upload as
+  # the site; everything else stays stored but unserved.
+  if [[ -n "$PUBLISH_ROOT_DIR" ]]; then
+    local root_clean
+    root_clean="$(printf "%s" "$PUBLISH_ROOT_DIR" | sed -E 's#^/+##; s#/+$##')"
+    "$JQ_BIN" -nc \
+      --arg root "$root_clean" \
+      --argjson metadata "$METADATA_JSON" \
+      '$metadata + {publication_root_directory: $root}'
+  elif [[ -d "$ROOT_PATH" ]]; then
+    "$JQ_BIN" -nc \
+      --arg root "$(basename "$ROOT_PATH")" \
+      --argjson metadata "$METADATA_JSON" \
+      '$metadata | if has("publication_root_directory") then . else . + {publication_root_directory: $root} end'
+  else
+    printf "%s" "$METADATA_JSON"
+  fi
+}
+
+publication_access_json() {
+  "$JQ_BIN" -nc \
+    --arg access_mode "$PUBLICATION_ACCESS_MODE" \
+    --arg password "$PUBLICATION_PASSWORD" \
+    --arg regenerate_password "$PUBLICATION_REGENERATE_PASSWORD" \
+    --arg analytics_enabled "$PUBLICATION_ANALYTICS_ENABLED" \
+    --arg client_events_enabled "$PUBLICATION_CLIENT_EVENTS_ENABLED" \
+    --arg tracking_enabled "$PUBLICATION_TRACKING_ENABLED" \
+    --arg site_mode "$PUBLICATION_SITE_MODE" \
+    --arg form_preset "$PUBLICATION_FORM_PRESET" \
+    '{}
+    + (if $access_mode != "" then {access_mode: $access_mode} else {} end)
+    + (if $password != "" then {password: $password} else {} end)
+    + (if $regenerate_password == "true" then {regenerate_password: true} else {} end)
+    + (if $analytics_enabled != "" then {publication_analytics_enabled: ($analytics_enabled == "true")} else {} end)
+    + (if $client_events_enabled != "" then {publication_client_events_enabled: ($client_events_enabled == "true")} else {} end)
+    + (if $tracking_enabled != "" then {tracking_enabled: ($tracking_enabled == "true")} else {} end)
+    + (if $site_mode != "" then {site_mode: $site_mode} else {} end)
+    + (if $form_preset != "" then {floating_form: $form_preset} else {} end)'
+}
+
+has_index_file() {
+  if [[ -f "$ROOT_PATH" ]]; then
+    [[ "$(basename "$ROOT_PATH")" == "index.html" ]]
+  else
+    [[ -f "$ROOT_PATH/index.html" ]]
+  fi
+}
+
+content_type_for() {
+  local file="$1"
+  local lower="${file##*.}"
+  lower="$(printf "%s" "$lower" | tr '[:upper:]' '[:lower:]')"
+  case "$lower" in
+    html|htm) echo "text/html" ;;
+    css|csss|scss|sass|less|styl|stylus) echo "text/css" ;;
+    js|mjs|cjs) echo "text/javascript" ;;
+    map) echo "application/json" ;;
+    webmanifest) echo "application/manifest+json" ;;
+    json) echo "application/json" ;;
+    txt) echo "text/plain" ;;
+    md) echo "text/markdown" ;;
+    png) echo "image/png" ;;
+    apng) echo "image/apng" ;;
+    jpg|jpe|jpeg|jfif|pjp|pjpeg) echo "image/jpeg" ;;
+    webp) echo "image/webp" ;;
+    gif) echo "image/gif" ;;
+    avif) echo "image/avif" ;;
+    bmp) echo "image/bmp" ;;
+    ico|cur) echo "image/x-icon" ;;
+    heic|heics) echo "image/heic" ;;
+    heif|heifs) echo "image/heif" ;;
+    jp2) echo "image/jp2" ;;
+    svg) echo "image/svg+xml" ;;
+    woff) echo "font/woff" ;;
+    woff2) echo "font/woff2" ;;
+    ttf) echo "font/ttf" ;;
+    otf) echo "font/otf" ;;
+    wasm) echo "application/wasm" ;;
+    pdf) echo "application/pdf" ;;
+    xml) echo "application/xml" ;;
+    rss) echo "application/rss+xml" ;;
+    atom) echo "application/atom+xml" ;;
+    mp4) echo "video/mp4" ;;
+    mov) echo "video/quicktime" ;;
+    webm) echo "video/webm" ;;
+    m4v) echo "video/x-m4v" ;;
+    ogv) echo "video/ogg" ;;
+    avi) echo "video/x-msvideo" ;;
+    mkv) echo "video/x-matroska" ;;
+    mpg|mpeg) echo "video/mpeg" ;;
+    ts) echo "video/mp2t" ;;
+    m3u8) echo "application/vnd.apple.mpegurl" ;;
+    mp3) echo "audio/mpeg" ;;
+    ogg|oga) echo "audio/ogg" ;;
+    wav) echo "audio/wav" ;;
+    m4a) echo "audio/mp4" ;;
+    aac) echo "audio/aac" ;;
+    flac) echo "audio/flac" ;;
+    opus) echo "audio/opus" ;;
+    *) echo "application/octet-stream" ;;
+  esac
+}
+
+file_size() {
+  wc -c < "$1" | tr -d '[:space:]'
+}
+
+md5_base64() {
+  openssl dgst -md5 -binary "$1" | base64 | tr -d '\r\n'
+}
+
+sha256_file() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$1" | awk '{print $1}'
+  elif command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 "$1" | awk '{print $1}'
+  else
+    openssl dgst -sha256 "$1" | awk '{print $2}'
+  fi
+}
+
+relative_path_for() {
+  local file="$1"
+  if [[ -f "$ROOT_PATH" ]]; then
+    basename "$file"
+  else
+    printf "%s/%s" "$(basename "$ROOT_PATH")" "${file#"$ROOT_PATH"/}"
+  fi
+}
+
+local_file_for_relative_path() {
+  local rel="$1"
+  local root_name
+  if [[ -f "$ROOT_PATH" ]]; then
+    printf "%s" "$ROOT_PATH"
+    return
+  fi
+
+  root_name="$(basename "$ROOT_PATH")"
+  if [[ "$rel" == "$root_name/"* ]]; then
+    printf "%s/%s" "$ROOT_PATH" "${rel#"$root_name"/}"
+  else
+    printf "%s/%s" "$ROOT_PATH" "$rel"
+  fi
+}
+
+create_bucket() {
+  local title payload response id
+  title="$TITLE"
+  [[ -n "$title" ]] || title="$(default_title)"
+  payload="$(bucket_payload "$title")"
+  response="$(http_json POST "/api/v1/buckets" "$payload")" || die "bucket create failed"
+  id="$("$JQ_BIN" -r '.data.bucket.id // empty' <<<"$response")"
+  [[ -n "$id" ]] || die "bucket create response did not include id"
+  printf "%s" "$id"
+}
+
+tag_paths_json() {
+  if [[ "${#TAG_PATHS[@]}" -eq 0 ]]; then
+    printf "[]"
+  else
+    "$JQ_BIN" -nc '$ARGS.positional' --args "${TAG_PATHS[@]}"
+  fi
+}
+
+bucket_payload() {
+  local title="$1"
+  local tag_paths metadata client_create_key
+  tag_paths="$(tag_paths_json)"
+  metadata="$(effective_metadata_json)"
+  client_create_key="$(bucket_client_create_key "$title" "$metadata" "$tag_paths")"
+  "$JQ_BIN" -nc \
+    --arg title "$title" \
+    --arg description "$DESCRIPTION" \
+    --arg client_create_key "$client_create_key" \
+    --argjson metadata "$metadata" \
+    --argjson tag_paths "$tag_paths" \
+    '{
+      bucket: (
+        {title: $title, metadata: ($metadata + {"_revdoku_client_create_key": $client_create_key})}
+        + (if $description != "" then {description: $description} else {} end)
+        + (if ($tag_paths | length) > 0 then {tag_paths: $tag_paths} else {} end)
+      )
+    }'
+}
+
+bucket_client_create_key() {
+  local title="$1"
+  local metadata="$2"
+  local tag_paths="$3"
+  local digest
+  digest="$(printf "%s\n%s\n%s\n%s\n%s" "$title" "$ROOT_PATH" "$metadata" "$tag_paths" "$AGENT_RUN_ID" | openssl dgst -sha256 -hex | awk '{print $2}')"
+  printf "cli:%s" "$digest"
+}
+
+bucket_update_payload() {
+  local tag_paths
+  tag_paths="$(tag_paths_json)"
+  "$JQ_BIN" -nc \
+    --arg title "$TITLE" \
+    --arg description "$DESCRIPTION" \
+    --argjson metadata "$METADATA_JSON" \
+    --argjson tag_paths "$tag_paths" \
+    '{
+      bucket: (
+        {}
+        + (if $title != "" then {title: $title} else {} end)
+        + (if $description != "" then {description: $description} else {} end)
+        + (if ($metadata | length) > 0 then {metadata: $metadata} else {} end)
+        + (if ($tag_paths | length) > 0 then {tag_paths: $tag_paths} else {} end)
+      )
+    }'
+}
+
+bucket_update_needed() {
+  [[ "$METADATA_JSON" != "{}" || -n "$DESCRIPTION" || "${#TAG_PATHS[@]}" -gt 0 ]]
+}
+
+put_direct_upload() {
+  local upload_json="$1"
+  local file="$2"
+  local url header_args=() body_file status curl_status attempt delay
+  LAST_DIRECT_UPLOAD_STATUS=""
+  url="$("$JQ_BIN" -r '.url // empty' <<<"$upload_json")"
+  [[ -n "$url" ]] || return 1
+
+  while IFS=$'\t' read -r key value; do
+    [[ -n "$key" ]] || continue
+    header_args+=(-H "${key}: ${value}")
+  done < <("$JQ_BIN" -r '.headers // {} | to_entries[] | [.key, .value] | @tsv' <<<"$upload_json")
+
+  attempt=0
+  while true; do
+    body_file="$(mktemp)"
+    if status="$(curl -sS -o "$body_file" -w "%{http_code}" -X PUT "${header_args[@]}" --data-binary "@${file}" "$url")"; then
+      curl_status=0
+    else
+      curl_status=$?
+    fi
+
+    if [[ "$curl_status" == "0" ]] && http_status_success "$status"; then
+      LAST_DIRECT_UPLOAD_STATUS="$status"
+      rm -f "$body_file"
+      return 0
+    fi
+
+    if (( attempt < DIRECT_UPLOAD_MAX_ATTEMPTS )) && { [[ "$curl_status" != "0" ]] || http_status_retryable "$status"; }; then
+      attempt=$((attempt + 1))
+      delay="$(retry_delay_for_attempt "$attempt")"
+      if [[ "$curl_status" != "0" ]]; then
+        echo "Direct upload network error; retrying in ${delay}s (${attempt}/${DIRECT_UPLOAD_MAX_ATTEMPTS})..." >&2
+      else
+        echo "Direct upload HTTP $status; retrying in ${delay}s (${attempt}/${DIRECT_UPLOAD_MAX_ATTEMPTS})..." >&2
+      fi
+      rm -f "$body_file"
+      sleep "$delay"
+      continue
+    fi
+
+    if [[ "$curl_status" != "0" ]]; then
+      LAST_DIRECT_UPLOAD_STATUS=""
+      echo "error: direct upload failed (curl exit $curl_status)" >&2
+    else
+      LAST_DIRECT_UPLOAD_STATUS="$status"
+      echo "error: direct upload failed (HTTP $status)" >&2
+      if [[ -s "$body_file" ]]; then
+        cat "$body_file" >&2
+      fi
+    fi
+    rm -f "$body_file"
+    return 1
+  done
+}
+
+put_publish_session_upload() {
+  local session_id="$1"
+  local rel="$2"
+  local upload_json="$3"
+  local file="$4"
+  local refresh_response refreshed_upload
+
+  if put_direct_upload "$upload_json" "$file"; then
+    return 0
+  fi
+
+  echo "Upload URL failed for $rel; refreshing upload URL and retrying." >&2
+  refresh_response="$(http_json POST "/api/v1/publish_sessions/${session_id}/uploads/refresh" "{}")" || return 1
+  refreshed_upload="$("$JQ_BIN" -c --arg path "$rel" '.data.publish_session.uploads[]? | select(.path == $path) | .upload' <<<"$refresh_response" | head -n 1)"
+  if [[ -z "$refreshed_upload" || "$refreshed_upload" == "null" ]]; then
+    echo "Upload for $rel was already accepted by Revdoku." >&2
+    return 0
+  fi
+
+  put_direct_upload "$refreshed_upload" "$file"
+}
+
+publish_session_retryable_error() {
+  case "${LAST_ERROR_CODE:-}" in
+    PUBLISH_SESSION_STALE|PUBLISH_SESSION_EXPIRED|PUBLISH_SESSION_NOT_PENDING)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+publication_limit_error() {
+  [[ "${LAST_ERROR_CODE:-}" == "PUBLICATION_LIMIT_REACHED" ]]
+}
+
+private_publication_limit_error() {
+  [[ "${LAST_ERROR_CODE:-}" == "PRIVATE_PUBLICATION_LIMIT_REACHED" ]]
+}
+
+publication_upgrade_required_error() {
+  [[ "${LAST_ERROR_CODE:-}" == "PUBLICATION_UPGRADE_REQUIRED" ]]
+}
+
+publish_session_fallback_allowed() {
+  case "${LAST_HTTP_STATUS:-}" in
+    401|403)
+      return 1
+      ;;
+  esac
+
+  case "${LAST_ERROR_CODE:-}" in
+    PUBLICATION_LIMIT_REACHED|PRIVATE_PUBLICATION_LIMIT_REACHED|PUBLICATION_UPGRADE_REQUIRED|PUBLIC_STORAGE_NOT_CONFIGURED|PRIVATE_PUBLICATION_STORAGE_NOT_CONFIGURED|UNAUTHORIZED|FORBIDDEN|BUCKET_ACCESS_DENIED|BUCKET_PERMISSION_DENIED|BUCKET_LIMIT_REACHED|STORAGE_QUOTA_EXCEEDED)
+      return 1
+      ;;
+    *)
+      return 0
+      ;;
+  esac
+}
+
+print_publication_limit_guidance() {
+  echo "Live public site limit reached for this account." >&2
+  if [[ -n "$LAST_PUBLISH_SESSION_BUCKET_ID" ]]; then
+    echo "Private bucket storage is still available: $LAST_PUBLISH_SESSION_BUCKET_ID" >&2
+  fi
+  echo "To update an existing public site, rerun with --bucket-id for that public bucket; republishing keeps the same URL and does not use another live-site slot." >&2
+  echo "To publish a new site, list current public buckets with 'revdoku sites', then ask before unpublishing one with 'revdoku down'. To change plan capacity, visit Revdoku in the browser." >&2
+}
+
+print_private_publication_limit_guidance() {
+  echo "Protected website limit reached for this account." >&2
+  if [[ -n "$LAST_PUBLISH_SESSION_BUCKET_ID" ]]; then
+    echo "Private bucket storage is still available: $LAST_PUBLISH_SESSION_BUCKET_ID" >&2
+  fi
+  echo "Protected websites require available protected-site capacity on the account. Publish publicly, unpublish another protected website, or update the plan." >&2
+}
+
+print_publication_upgrade_guidance() {
+  local bucket_id="${LAST_PUBLISH_SESSION_BUCKET_ID:-${BUCKET_ID:-}}"
+  local access_flag=""
+  case "${PUBLICATION_ACCESS_MODE:-}" in
+    password)
+      access_flag=" --protected"
+      ;;
+    require_email)
+      access_flag=" --access-mode require_email"
+      ;;
+  esac
+  echo "This permanent website uses paid publishing settings. Upgrade the account, then try again." >&2
+  if [[ -n "$bucket_id" ]]; then
+    echo "Preview it with the same access settings: revdoku preview --bucket-id $bucket_id$access_flag" >&2
+  else
+    echo "Use 'revdoku preview' to review the requested settings, or open Revdoku to upgrade." >&2
+  fi
+  echo "Upgrade: https://app.revdoku.com/pricing" >&2
+  echo "Do not switch protected content to Public unless you explicitly intend to make it public." >&2
+}
+
+upload_file_direct() {
+  local bucket_id="$1"
+  local file="$2"
+  local file_list
+  file_list="$(mktemp)"
+  printf "%s\0" "$file" > "$file_list"
+  store_bucket_session_upload "$bucket_id" "$file_list"
+  local status=$?
+  rm -f "$file_list"
+  return "$status"
+}
+
+upload_file() {
+  local bucket_id="$1"
+  local file="$2"
+  local rel
+  rel="$(relative_path_for "$file")"
+  echo "Uploading $rel" >&2
+
+  upload_file_direct "$bucket_id" "$file"
+}
+
+bucket_upload_session_manifest_json() {
+  publish_session_manifest_json "$1"
+}
+
+bucket_upload_session_client_key() {
+  local bucket_id="$1"
+  local manifest_json="$2"
+  local delete_missing="${3:-false}"
+  local digest
+  if [[ -n "$BUCKET_UPLOAD_CLIENT_SESSION_KEY" ]]; then
+    printf "%s" "$BUCKET_UPLOAD_CLIENT_SESSION_KEY"
+    return 0
+  fi
+  digest="$(printf "%s:%s:%s" "$bucket_id" "$manifest_json" "$delete_missing" | openssl dgst -sha256 -hex | awk '{print $2}')"
+  printf "cli:%s:%s" "$bucket_id" "$digest"
+}
+
+bucket_upload_session_payload() {
+  local client_session_key="$1"
+  local expected_file_count="$2"
+  local delete_missing="${3:-false}"
+  "$JQ_BIN" -nc \
+    --arg client_session_key "$client_session_key" \
+    --argjson expected_file_count "$expected_file_count" \
+    --arg delete_missing "$delete_missing" \
+    '{
+      client_session_key: $client_session_key,
+      expected_file_count: $expected_file_count
+    }
+    + (if $delete_missing == "true" then {delete_missing: true} else {} end)'
+}
+
+prepare_bucket_upload_descriptors() {
+  local bucket_id="$1"
+  local session_id="$2"
+  local batch_json="$3"
+  local payload
+  payload="$("$JQ_BIN" -nc --argjson files "$batch_json" '{files: $files}')"
+  http_json POST "/api/v1/buckets/${bucket_id}/upload_sessions/${session_id}/uploads" "$payload"
+}
+
+finalize_bucket_upload_session() {
+  local bucket_id="$1"
+  local session_id="$2"
+  local complete="${3:-true}"
+  local payload response pending attempts=0 remaining
+  local max_attempts="${REVDOKU_FINALIZE_MAX_ATTEMPTS:-1000}"
+  [[ -n "$session_id" ]] || return 0
+  "$JQ_BIN" -nc --argjson complete "$complete" '{complete:$complete}' | {
+    payload="$(cat)"
+    while :; do
+      response="$(http_json POST "/api/v1/buckets/${bucket_id}/upload_sessions/${session_id}/finalize" "$payload")" || return 1
+      pending="$("$JQ_BIN" -r '.data.finalize_pending // false' <<<"$response")"
+      [[ "$pending" == "true" && "$complete" == "true" ]] || return 0
+      attempts=$((attempts + 1))
+      remaining="$("$JQ_BIN" -r '.data.remaining_files_count // .data.bucket_upload_session.remaining_files_count // empty' <<<"$response" 2>/dev/null || true)"
+      if (( attempts == 1 || attempts % 5 == 0 )); then
+        if [[ -n "$remaining" && "$remaining" != "null" ]]; then
+          echo "Still finalizing ${remaining} file(s)… (attempt ${attempts})" >&2
+        else
+          echo "Still finalizing files… (attempt ${attempts})" >&2
+        fi
+      fi
+      if (( attempts >= max_attempts )); then
+        echo "Timed out finalizing the upload session after ${attempts} attempts (~$((attempts * 2 / 60)) min)." >&2
+        echo "Files may still be processing in the background; re-run the command to resume." >&2
+        return 1
+      fi
+      sleep 2
+    done
+  }
+}
+
+finalize_bucket_upload_session_batch() {
+  local bucket_id="$1"
+  local session_id="$2"
+  local limit="${3:-100}"
+  local attempts=0 missing_entry_json missing_path
+  [[ -n "$session_id" ]] || return 0
+  "$JQ_BIN" -nc --argjson limit "$limit" '{limit:$limit}' | {
+    local payload
+    payload="$(cat)"
+    while :; do
+      if http_json POST "/api/v1/buckets/${bucket_id}/upload_sessions/${session_id}/finalize_batch" "$payload" >/dev/null; then
+        return 0
+      fi
+
+      if [[ "${LAST_ERROR_CODE:-}" == "DIRECT_UPLOAD_NOT_FOUND" && "$attempts" -lt "$BUCKET_UPLOAD_DESCRIPTOR_BATCH_SIZE" ]]; then
+        missing_entry_json="$LAST_ERROR_DETAILS_JSON"
+        missing_path="$("$JQ_BIN" -r '.path // empty' <<<"$missing_entry_json" 2>/dev/null || true)"
+        if [[ -n "$missing_path" ]] && upload_bucket_session_missing_entry "$bucket_id" "$session_id" "$missing_entry_json"; then
+          attempts=$((attempts + 1))
+          echo "Retrying bucket upload batch finalize after refreshing $missing_path." >&2
+          continue
+        fi
+      fi
+
+      return 1
+    done
+  }
+}
+
+upload_bucket_session_missing_entry() {
+  local bucket_id="$1"
+  local session_id="$2"
+  local entry_json="$3"
+  local rel file response upload_json
+
+  rel="$("$JQ_BIN" -r '.path // empty' <<<"$entry_json" 2>/dev/null || true)"
+  [[ -n "$rel" ]] || return 1
+  file="$(local_file_for_relative_path "$rel")"
+  [[ -f "$file" ]] || {
+    echo "error: upload session asked to refresh unknown upload path: $rel" >&2
+    return 1
+  }
+
+  echo "Refreshing missing direct upload for $rel." >&2
+  response="$(prepare_bucket_upload_descriptors "$bucket_id" "$session_id" "[$entry_json]")" || return 1
+  upload_json="$("$JQ_BIN" -c '.data.uploads[0].upload // empty' <<<"$response")"
+  [[ -n "$upload_json" && "$upload_json" != "null" ]] || return 1
+
+  echo "Uploading $rel" >&2
+  put_direct_upload "$upload_json" "$file"
+}
+
+store_bucket_session_upload() {
+  local bucket_id="$1"
+  local file_list="$2"
+  local delete_missing="${3:-false}"
+  local manifest_json payload response session_id upload_line rel upload_json file batch_json batch_response expected_file_count client_session_key failed=0 finalized=0 entry_json refresh_response uploaded_index=0
+  manifest_json="$(bucket_upload_session_manifest_json "$file_list")"
+  expected_file_count="$("$JQ_BIN" -r 'length' <<<"$manifest_json")"
+  client_session_key="$(bucket_upload_session_client_key "$bucket_id" "$manifest_json" "$delete_missing")"
+  payload="$(bucket_upload_session_payload "$client_session_key" "$expected_file_count" "$delete_missing")"
+  response="$(http_json POST "/api/v1/buckets/${bucket_id}/upload_sessions" "$payload")" || return 1
+  session_id="$("$JQ_BIN" -r '.data.bucket_upload_session.id // empty' <<<"$response")"
+  [[ -n "$session_id" ]] || die "bucket upload session response did not include id"
+  echo "Bucket upload session: $session_id" >&2
+
+  while IFS= read -r batch_json; do
+    [[ -n "$batch_json" && "$batch_json" != "[]" ]] || continue
+    batch_response="$(prepare_bucket_upload_descriptors "$bucket_id" "$session_id" "$batch_json")" || {
+      failed=1
+      break
+    }
+    while IFS= read -r upload_line; do
+      [[ -n "$upload_line" ]] || continue
+      rel="$("$JQ_BIN" -r '.path' <<<"$upload_line")"
+      upload_json="$("$JQ_BIN" -c '.upload' <<<"$upload_line")"
+      file="$(local_file_for_relative_path "$rel")"
+      [[ -f "$file" ]] || {
+        echo "error: upload session asked for unknown upload path: $rel" >&2
+        failed=1
+        break
+      }
+      uploaded_index=$((uploaded_index + 1))
+      echo "Uploading ${uploaded_index}/${expected_file_count}: $rel" >&2
+      if ! put_direct_upload "$upload_json" "$file"; then
+        if [[ "${LAST_DIRECT_UPLOAD_STATUS:-}" == "403" || "${LAST_DIRECT_UPLOAD_STATUS:-}" == "404" ]]; then
+          entry_json="$("$JQ_BIN" -c --arg rel "$rel" 'map(select(.path == $rel))[0] // empty' <<<"$batch_json")"
+          if [[ -n "$entry_json" ]] && refresh_response="$(prepare_bucket_upload_descriptors "$bucket_id" "$session_id" "[$entry_json]")"; then
+            upload_json="$("$JQ_BIN" -c '.data.uploads[0].upload // empty' <<<"$refresh_response")"
+            if [[ -n "$upload_json" ]] && put_direct_upload "$upload_json" "$file"; then
+              continue
+            fi
+          fi
+        fi
+        echo "error: upload failed for $rel" >&2
+        failed=1
+        break
+      fi
+    done < <("$JQ_BIN" -c '.data.uploads[]?' <<<"$batch_response")
+    [[ "$failed" == "0" ]] || break
+
+    if [[ "$delete_missing" != "true" ]] && ! finalize_bucket_upload_session_batch "$bucket_id" "$session_id" "$BUCKET_UPLOAD_DESCRIPTOR_BATCH_SIZE"; then
+      failed=1
+      break
+    fi
+  done < <("$JQ_BIN" -c --argjson size "$BUCKET_UPLOAD_DESCRIPTOR_BATCH_SIZE" 'range(0; length; $size) as $i | .[$i:($i + $size)]' <<<"$manifest_json")
+
+  if [[ "$failed" == "0" ]] && finalize_bucket_upload_session "$bucket_id" "$session_id" true; then
+    finalized=1
+  else
+    failed=1
+  fi
+  if [[ "$finalized" != "1" ]]; then
+    finalize_bucket_upload_session "$bucket_id" "$session_id" false >/dev/null 2>&1 || true
+  fi
+  return "$failed"
+}
+
+publish_bucket() {
+  local bucket_id="$1"
+  local payload response response_file url metadata access
+  metadata="$(effective_metadata_json)"
+  access="$(publication_access_json)"
+  payload="$("$JQ_BIN" -nc --argjson metadata "$metadata" --argjson access "$access" '{metadata:$metadata} + $access')"
+  response_file="$(mktemp)"
+  if ! http_json POST "/api/v1/buckets/${bucket_id}/publication" "$payload" > "$response_file"; then
+    rm -f "$response_file"
+    if [[ "${LAST_ERROR_CODE:-}" == "PUBLIC_STORAGE_NOT_CONFIGURED" ]]; then
+      echo "Public publishing is not configured for this Revdoku deployment." >&2
+      echo "Private bucket storage is still available: $bucket_id" >&2
+    elif [[ "${LAST_ERROR_CODE:-}" == "PRIVATE_PUBLICATION_STORAGE_NOT_CONFIGURED" ]]; then
+      echo "Protected website publishing is not configured for this Revdoku deployment." >&2
+      echo "Private bucket storage is still available: $bucket_id" >&2
+    elif publication_limit_error; then
+      LAST_PUBLISH_SESSION_BUCKET_ID="$bucket_id"
+      print_publication_limit_guidance
+    elif private_publication_limit_error; then
+      LAST_PUBLISH_SESSION_BUCKET_ID="$bucket_id"
+      print_private_publication_limit_guidance
+    elif publication_upgrade_required_error; then
+      LAST_PUBLISH_SESSION_BUCKET_ID="$bucket_id"
+      print_publication_upgrade_guidance
+    fi
+    die "bucket publish failed"
+  fi
+  response="$(cat "$response_file")"
+  rm -f "$response_file"
+  response="$(resolve_async_publication_response "$response")" || die "bucket publish did not finish"
+  url="$("$JQ_BIN" -r '.data.publication.public_url // empty' <<<"$response")"
+  [[ -n "$url" ]] || die "publish response did not include url"
+  print_publication_access_hint_from_response "$response"
+  printf "%s\n" "$url"
+}
+
+publish_session_manifest_json() {
+  local file_list="$1"
+  local manifest_lines rel filename content_type size checksum sha256
+  manifest_lines="$(mktemp)"
+  while IFS= read -r -d '' file; do
+    rel="$(relative_path_for "$file")"
+    filename="$(basename "$file")"
+    content_type="$(content_type_for "$file")"
+    size="$(file_size "$file")"
+    checksum="$(md5_base64 "$file")"
+    sha256="$(sha256_file "$file")"
+    "$JQ_BIN" -nc \
+      --arg path "$rel" \
+      --argjson byte_size "$size" \
+      --arg content_type "$content_type" \
+      --arg checksum "$checksum" \
+      --arg sha256 "$sha256" \
+      '{path:$path, byte_size:$byte_size, content_type:$content_type, checksum:$checksum, sha256:$sha256}' >> "$manifest_lines"
+  done < "$file_list"
+  "$JQ_BIN" -sc '.' "$manifest_lines"
+  rm -f "$manifest_lines"
+}
+
+publish_session_payload() {
+  local manifest_json="$1"
+  local title tag_paths metadata access
+  title="$TITLE"
+  [[ -n "$title" ]] || title="$(default_title)"
+  tag_paths="$(tag_paths_json)"
+  metadata="$(effective_metadata_json)"
+  access="$(publication_access_json)"
+  "$JQ_BIN" -nc \
+    --arg title "$title" \
+    --arg description "$DESCRIPTION" \
+    --arg bucket_id "$BUCKET_ID" \
+    --argjson metadata "$metadata" \
+    --argjson access "$access" \
+    --argjson tag_paths "$tag_paths" \
+    --argjson files "$manifest_json" \
+    '{
+      title: $title,
+      bucket_title: $title,
+      metadata: $metadata,
+      delete_missing: true,
+      files: $files
+    }
+    + (if $bucket_id != "" then {bucket_id: $bucket_id} else {} end)
+    + (if $description != "" then {bucket_description: $description} else {} end)
+    + (if ($tag_paths | length) > 0 then {bucket_tag_paths: $tag_paths} else {} end)
+    + $access'
+}
+
+publish_session_file_for_path() {
+  local rel="$1"
+  local_file_for_relative_path "$rel"
+}
+
+publish_bucket_session_attempt() {
+  local file_list="$1"
+  local manifest_json payload response response_file session_id bucket_id upload_line rel upload_json file finalize_url final_response final_response_file url
+  manifest_json="$(publish_session_manifest_json "$file_list")"
+  payload="$(publish_session_payload "$manifest_json")"
+  response_file="$(mktemp)"
+  if ! http_json POST "/api/v1/publish_sessions" "$payload" > "$response_file"; then
+    rm -f "$response_file"
+    return 1
+  fi
+  response="$(cat "$response_file")"
+  rm -f "$response_file"
+
+  session_id="$("$JQ_BIN" -r '.data.publish_session.id // empty' <<<"$response")"
+  bucket_id="$("$JQ_BIN" -r '.data.publish_session.bucket_id // empty' <<<"$response")"
+  LAST_PUBLISH_SESSION_BUCKET_ID="$bucket_id"
+  [[ -n "$session_id" ]] || {
+    die "publish session response did not include id"
+  }
+  [[ -n "$bucket_id" ]] && {
+    echo "Bucket: $bucket_id" >&2
+    echo "Saved draft bucket before live publish: $bucket_id" >&2
+  }
+  echo "Publish session: $session_id" >&2
+
+  local upload_total upload_index=0
+  upload_total="$("$JQ_BIN" -r '[.data.publish_session.uploads[]?] | length' <<<"$response")"
+  [[ -n "$upload_total" && "$upload_total" != "null" ]] || upload_total=0
+  while IFS= read -r upload_line; do
+    [[ -n "$upload_line" ]] || continue
+    rel="$("$JQ_BIN" -r '.path' <<<"$upload_line")"
+    upload_json="$("$JQ_BIN" -c '.upload' <<<"$upload_line")"
+    file="$(publish_session_file_for_path "$rel")"
+    [[ -f "$file" ]] || {
+      die "publish session asked for unknown upload path: $rel"
+    }
+    upload_index=$((upload_index + 1))
+    echo "Uploading ${upload_index}/${upload_total}: $rel" >&2
+    if ! put_publish_session_upload "$session_id" "$rel" "$upload_json" "$file"; then
+      return 1
+    fi
+  done < <("$JQ_BIN" -c '.data.publish_session.uploads[]?' <<<"$response")
+
+  finalize_url="$("$JQ_BIN" -r '.data.finalize.url // empty' <<<"$response")"
+  [[ -n "$finalize_url" ]] || {
+    die "publish session response did not include finalize URL"
+  }
+  final_response_file="$(mktemp)"
+  if ! http_json POST "$finalize_url" "{}" > "$final_response_file"; then
+    rm -f "$final_response_file"
+    return 1
+  fi
+  final_response="$(cat "$final_response_file")"
+  rm -f "$final_response_file"
+  final_response="$(resolve_async_publication_response "$final_response")" || return 1
+
+  url="$("$JQ_BIN" -r '.data.publication.public_url // empty' <<<"$final_response")"
+  [[ -n "$url" ]] || die "publish response did not include url"
+  print_publication_access_hint_from_response "$final_response"
+  printf "%s\n" "$url"
+}
+
+publish_bucket_session() {
+  local file_list publish_url publish_url_file
+  file_list="$(mktemp)"
+  if ! collect_files > "$file_list"; then
+    rm -f "$file_list"
+    return 1
+  fi
+  if [[ ! -s "$file_list" ]]; then
+    rm -f "$file_list"
+    die "no files found to publish after safety exclusions"
+  fi
+
+  publish_url_file="$(mktemp)"
+  if publish_bucket_session_attempt "$file_list" > "$publish_url_file"; then
+    publish_url="$(cat "$publish_url_file")"
+    rm -f "$publish_url_file"
+    rm -f "$file_list"
+    printf "%s\n" "$publish_url"
+    return 0
+  fi
+
+  if publish_session_retryable_error; then
+    echo "Publish session became stale or expired; starting a fresh publish session." >&2
+    if publish_bucket_session_attempt "$file_list" > "$publish_url_file"; then
+      publish_url="$(cat "$publish_url_file")"
+      rm -f "$publish_url_file"
+      rm -f "$file_list"
+      printf "%s\n" "$publish_url"
+      return 0
+    fi
+  fi
+
+  rm -f "$publish_url_file"
+  rm -f "$file_list"
+  return 1
+}
+
+bucket_id_for_storage() {
+  if [[ -n "$BUCKET_ID" ]]; then
+    if bucket_update_needed; then
+      local payload
+      payload="$(bucket_update_payload)"
+      http_json PATCH "/api/v1/buckets/${BUCKET_ID}" "$payload" >/dev/null
+    fi
+    printf "%s" "$BUCKET_ID"
+  else
+    create_bucket
+  fi
+}
+
+store_bucket() {
+  local bucket_id bucket_id_file file_list
+  file_list="$(mktemp)"
+  if ! collect_files > "$file_list"; then
+    rm -f "$file_list"
+    return 1
+  fi
+  if [[ ! -s "$file_list" ]]; then
+    rm -f "$file_list"
+    die "no files found to store after safety exclusions"
+  fi
+
+  bucket_id_file="$(mktemp)"
+  if ! bucket_id_for_storage > "$bucket_id_file"; then
+    rm -f "$bucket_id_file" "$file_list"
+    return 1
+  fi
+  bucket_id="$(cat "$bucket_id_file")"
+  rm -f "$bucket_id_file"
+  [[ -n "$bucket_id" ]] || {
+    rm -f "$file_list"
+    die "bucket id is required before uploading files"
+  }
+  echo "Bucket: $bucket_id" >&2
+  echo "Saved draft bucket: $bucket_id" >&2
+  store_bucket_session_upload "$bucket_id" "$file_list" "$PUBLISH" || {
+    rm -f "$file_list"
+    return 1
+  }
+  rm -f "$file_list"
+  printf "%s" "$bucket_id"
+}
+
+verify_published_url() {
+  local url="$1"
+  curl -fsSL --max-time 15 "$url" -o /dev/null || {
+    echo "error: published URL was created but did not respond: $url" >&2
+    return 1
+  }
+}
+
+collect_files() {
+  if [[ -f "$ROOT_PATH" ]]; then
+    if should_skip_storage_path "$ROOT_PATH"; then
+      die "refusing to store file from Revdoku upload safety list: $(basename "$ROOT_PATH")"
+    fi
+    printf "%s\0" "$ROOT_PATH"
+    return
+  fi
+
+  find "$ROOT_PATH" \
+    \( -type d \( -name ".git" -o -name ".hg" -o -name ".svn" -o -name ".revdoku" -o -name ".terraform" -o -name ".cache" -o -name ".parcel-cache" -o -name ".turbo" -o -name ".vite" -o -name "node_modules" \) -prune \) \
+    -o -type f -print0 |
+    while IFS= read -r -d '' file; do
+      if should_skip_storage_path "$file"; then
+        echo "Skipping file from Revdoku upload safety list: $(relative_path_for "$file")" >&2
+        continue
+      fi
+      printf "%s\0" "$file"
+    done
+}
+
+should_skip_storage_path() {
+  local file="$1"
+  local rel name lower_rel lower_name part extension
+  rel="$(relative_path_for "$file")"
+  name="$(basename "$file")"
+  lower_rel="$(printf "%s" "$rel" | tr '[:upper:]' '[:lower:]')"
+  lower_name="$(printf "%s" "$name" | tr '[:upper:]' '[:lower:]')"
+
+  # The pattern lines below are GENERATED from apps/web/config/upload_safety.json by
+  # scripts/generate-cli-upload-safety.rb so the CLI's local skip-list never drifts
+  # from the server policy (the server is the hard gate; this is a local-UX mirror).
+  # Edit the JSON and re-run the generator — do not hand-edit between the markers.
+  IFS='/' read -r -a path_parts <<< "$lower_rel"
+  for part in "${path_parts[@]}"; do
+    case "$part" in
+      # >>> revdoku:generated local_only_basenames
+      .ds_store|__macosx|.localized|.appledouble|.lsoverride|.documentrevisions-v100|.fseventsd|.spotlight-v100|.temporaryitems|.trashes|.volumeicon.icns|.appledb|.appledesktop|.apdisk|network\ trash\ folder|temporary\ items|thumbs.db|thumbs.db:encryptable|ehthumbs.db|ehthumbs_vista.db|desktop.ini|\$recycle.bin|system\ volume\ information|.directory|.trash|lost+found|.git|.hg|.svn|.revdoku|.terraform|.cache|.parcel-cache|.turbo|.vite|node_modules)
+      # <<< revdoku:generated local_only_basenames
+        return 0
+        ;;
+      # >>> revdoku:generated local_only_name_globs
+      ._*|.trash-*|.fuse_hidden*|.nfs*)
+      # <<< revdoku:generated local_only_name_globs
+        return 0
+        ;;
+      agents.md|claude.md)
+        # Agent-instruction files (e.g. created by `revdoku init`) are dev meta,
+        # not website content — never publish them. (Not generated; CLI-specific.)
+        return 0
+        ;;
+      # >>> revdoku:generated prohibited_basenames
+      .env|.npmrc|.pypirc|.netrc|id_rsa|id_rsa.pub|id_dsa|id_dsa.pub|id_ecdsa|id_ecdsa.pub|id_ed25519|id_ed25519.pub)
+      # <<< revdoku:generated prohibited_basenames
+        return 0
+        ;;
+      # >>> revdoku:generated prohibited_name_globs
+      .env.*|env.local|env.production|env.staging|env.development|env.test|*.pem|*.key|*.p12|*.pfx|*.crt|*.cer|*.der|*.kdb|*.jks|*.mobileprovision|api-token.*|api_key.*|credentials.*|credential.*|secrets.*|secret.*|*.secret|*.secrets|private-key.*|private_key.*)
+      # <<< revdoku:generated prohibited_name_globs
+        return 0
+        ;;
+    esac
+  done
+
+  extension="${lower_name##*.}"
+  if [[ "$lower_name" == *.* && "$extension" != "$lower_name" ]]; then
+    case ".${extension}" in
+      # >>> revdoku:generated prohibited_extensions
+      .exe|.com|.scr|.pif|.cpl|.dll|.sys|.drv|.msi|.msp|.app|.dmg|.pkg|.deb|.rpm|.apk|.ipa|.jar|.jnlp|.run|.bin|.lnk|.pem|.key|.p12|.pfx|.crt|.cer|.der|.kdb|.jks|.mobileprovision|.zip|.zipx|.tar|.rar|.gz|.gzip|.tgz|.bz2|.tbz|.tbz2|.xz|.txz|.7z|.z|.lz|.lzma|.lz4|.zst|.zstd|.cab|.arj|.lzh|.lha|.war|.ear|.iso|.img|.vhd|.vhdx|.vmdk)
+      # <<< revdoku:generated prohibited_extensions
+        return 0
+        ;;
+    esac
+  fi
+
+  return 1
+}
+
+publish_url_file=""
+bucket_id_file=""
+
+if [[ "$PUBLISH" == "true" ]]; then
+  if ! has_index_file; then
+    echo "No index.html found; Revdoku will publish an Auto-Index Page." >&2
+  fi
+  publish_url_file="$(mktemp)"
+  if publish_bucket_session > "$publish_url_file"; then
+    publish_url="$(cat "$publish_url_file")"
+    rm -f "$publish_url_file"
+    if [[ "$NO_WAIT" == "true" ]]; then
+      echo "Provisioning in the background — it will be live shortly: $publish_url" >&2
+    else
+      verify_published_url "$publish_url"
+      echo "Published live: $publish_url" >&2
+    fi
+    write_project_binding "$LAST_PUBLISH_SESSION_BUCKET_ID" "$publish_url"
+    print_terminal_link_hint
+    print_acceptable_use_hint
+    print_publish_next_steps_hint
+    printf "%s\n" "$publish_url"
+    exit 0
+  fi
+  rm -f "$publish_url_file"
+  if publication_limit_error && [[ -z "$BUCKET_ID" && -n "$LAST_PUBLISH_SESSION_BUCKET_ID" ]]; then
+    BUCKET_ID="$LAST_PUBLISH_SESSION_BUCKET_ID"
+  fi
+  if [[ "$UPLOAD_MODE" == "direct" ]]; then
+    publication_limit_error && print_publication_limit_guidance
+    private_publication_limit_error && print_private_publication_limit_guidance
+    publication_upgrade_required_error && print_publication_upgrade_guidance
+    die "direct publish session failed"
+  fi
+  if ! publish_session_fallback_allowed; then
+    publication_limit_error && print_publication_limit_guidance
+    private_publication_limit_error && print_private_publication_limit_guidance
+    publication_upgrade_required_error && print_publication_upgrade_guidance
+    [[ "${LAST_ERROR_CODE:-}" == "PRIVATE_PUBLICATION_STORAGE_NOT_CONFIGURED" ]] && echo "Protected website publishing is not configured for this Revdoku deployment." >&2
+    die "direct publish session failed"
+  fi
+  echo "Direct publish session failed; retrying with bucket upload session." >&2
+fi
+
+bucket_id_file="$(mktemp)"
+if ! store_bucket > "$bucket_id_file"; then
+  rm -f "$bucket_id_file"
+  die "bucket store failed"
+fi
+bucket_id="$(cat "$bucket_id_file")"
+rm -f "$bucket_id_file"
+echo "Saved draft bucket: $bucket_id" >&2
+
+if [[ "$PREVIEW_AFTER_STORE" == "true" ]]; then
+  BUCKET_ID="$bucket_id"
+  preview_response_file="$(mktemp)"
+  if ! preview_bucket > "$preview_response_file"; then
+    rm -f "$preview_response_file"
+    die "bucket preview failed"
+  fi
+  preview_response="$(cat "$preview_response_file")"
+  rm -f "$preview_response_file"
+  write_project_binding "$bucket_id" ""
+  print_terminal_link_hint
+  print_acceptable_use_hint
+  printf "%s\n" "$preview_response"
+elif [[ "$PUBLISH" == "true" ]]; then
+  publish_url_file="$(mktemp)"
+  if ! publish_bucket "$bucket_id" > "$publish_url_file"; then
+    rm -f "$publish_url_file"
+    die "bucket publish failed"
+  fi
+  publish_url="$(cat "$publish_url_file")"
+  rm -f "$publish_url_file"
+  if [[ "$NO_WAIT" == "true" ]]; then
+    echo "Provisioning in the background — it will be live shortly: $publish_url" >&2
+  else
+    verify_published_url "$publish_url"
+    echo "Published live: $publish_url" >&2
+  fi
+  echo "Manage in Revdoku: $BASE_URL/buckets/view?id=$bucket_id" >&2
+  write_project_binding "$bucket_id" "$publish_url"
+  print_terminal_link_hint
+  print_acceptable_use_hint
+  print_publish_next_steps_hint
+  printf "%s\n" "$publish_url"
+else
+  # Show the owner a clickable dashboard link, not just the bkt_ id. stdout stays
+  # the bucket id so scripts and --bucket-id reuse keep working.
+  echo "View in Revdoku: $BASE_URL/buckets/view?id=$bucket_id" >&2
+  write_project_binding "$bucket_id" ""
+  print_terminal_link_hint
+  printf "%s\n" "$bucket_id"
+fi
