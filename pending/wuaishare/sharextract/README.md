@@ -206,6 +206,12 @@ For public browser fallbacks:
 
 You can point browser fallbacks at an existing Chromium/Chrome binary with SHAREXTRACT_BROWSER_EXECUTABLE. Browser fallbacks never import account cookies or logged-in profiles.
 
+For SSRF safety, system/browser proxy settings are not trusted automatically for untrusted public URLs. If you intentionally rely on a trusted outbound proxy that performs remote DNS resolution, opt in explicitly:
+
+    export SHAREXTRACT_TRUST_PROXY=1
+
+Only enable this when you trust that proxy to preserve the public-network boundary. See [SECURITY.md](SECURITY.md) for the threat model.
+
 
 ## CLI
 
