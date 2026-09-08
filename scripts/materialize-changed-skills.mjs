@@ -83,6 +83,7 @@ function selectedEntriesAtCommit(repositoryRoot, commit, skillPaths) {
     '--',
     ...skillPaths.map((skillPath) => `skills/${skillPath}`),
   ]).toString('utf8');
+  const expectedReports = new Set(skillPaths.map(p => `skills/${p}/skill-report.json`));
   const reports = new Map();
   const blobs = new Set();
 
@@ -94,7 +95,7 @@ function selectedEntriesAtCommit(repositoryRoot, commit, skillPaths) {
     const [mode, type, oid] = record.slice(0, tabIndex).split(' ');
     const treePath = record.slice(tabIndex + 1);
     if (type === 'blob') blobs.add(oid);
-    if (treePath.endsWith('/skill-report.json')) {
+    if (expectedReports.has(treePath)) {
       publishedSkillDirectory(treePath);
       reports.set(treePath, { mode, type, oid });
     }

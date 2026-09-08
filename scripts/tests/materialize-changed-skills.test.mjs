@@ -33,6 +33,7 @@ function makeRepository() {
   git(repositoryRoot, ['config', 'user.email', 'test@skillstore.local']);
 
   write(repositoryRoot, 'skills/owner/demo/SKILL.md', '# Demo v1\n');
+  write(repositoryRoot, 'skills/owner/demo/examples/skill-report.json', '{"example":true}\n');
   write(repositoryRoot, 'skills/owner/demo/skill-report.json', '{"revision":1}\n');
   write(repositoryRoot, 'skills/owner/untouched/SKILL.md', '# Untouched\n');
   write(repositoryRoot, 'skills/owner/untouched/skill-report.json', '{"revision":1}\n');
