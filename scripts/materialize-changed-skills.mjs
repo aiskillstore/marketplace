@@ -145,7 +145,7 @@ export function materializeChangedSkills({ repositoryRoot = '.', commit, skills 
   // only the exact selected tree's objects in one native request before removal.
   const promisor = git(repositoryRoot, ['config', '--type=bool', '--default=false', '--get', 'remote.origin.promisor'], { encoding: 'utf8' }).trim();
   if (promisor === 'true') {
-    git(repositoryRoot, ['fetch', '--no-tags', '--no-write-fetch-head', '--recurse-submodules=no', '--stdin', 'origin'], {
+    git(repositoryRoot, ['-c', 'fetch.negotiationAlgorithm=noop', 'fetch', '--no-tags', '--no-write-fetch-head', '--recurse-submodules=no', '--stdin', 'origin'], {
       input: `${[...blobs].join('\n')}\n`, encoding: 'utf8',
     });
   }

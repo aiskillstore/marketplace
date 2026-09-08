@@ -171,6 +171,8 @@ test('partial clone prefetches selected blobs together and preserves unrelated s
     git(clone, ['clone', '--filter=blob:none', '--no-checkout', `file://${source}`, '.']);
     git(clone, ['sparse-checkout', 'set', '--no-cone', '/README.md']);
     git(clone, ['checkout', 'main']);
+    // Frozen preflight may have already downloaded some selected blobs.
+    git(clone, ['cat-file', '-p', `${commit}:skills/owner/demo/SKILL.md`]);
     const beforeHead = git(clone, ['rev-parse', 'HEAD']);
     const trace = join(tmpdir(), `materialize-fetch-${process.pid}.jsonl`);
     const previous = process.env.GIT_TRACE2_EVENT;
@@ -179,6 +181,7 @@ test('partial clone prefetches selected blobs together and preserves unrelated s
     finally { if(previous === undefined)delete process.env.GIT_TRACE2_EVENT;else process.env.GIT_TRACE2_EVENT=previous; }
     const commands=readFileSync(trace,'utf8').trim().split('\n').map(JSON.parse).filter(e=>e.event==='start').map(e=>e.argv);
     rmSync(trace,{force:true});
+    assert.ok(commands.find(args=>args.includes('fetch'))?.includes('fetch.negotiationAlgorithm=noop'), 'blob wants must not enter commit negotiation');
     assert.equal(commands.filter(args=>args.includes('fetch')).length,1,'one bulk fetch; restore must not trigger per-blob fetches');
     assert.equal(readFileSync(join(clone,'skills/owner/demo/SKILL.md'),'utf8'),'# Demo v2\n');
     assert.equal(existsSync(join(clone,'skills/owner/untouched/SKILL.md')),false);
