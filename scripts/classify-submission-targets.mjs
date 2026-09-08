@@ -238,9 +238,10 @@ function validateCandidate(candidate, identity, targetLabel = 'published target'
     if (report.meta.source_type !== 'community') {
       fail(`namespaced published target must be community at ${reportPath}`);
     }
-    if (typeof report?.skill?.author !== 'string'
-      || report.skill.author.toLowerCase() !== identity.owner.toLowerCase()) {
-      fail(`published target author mismatch at ${reportPath}: expected ${identity.owner}`);
+    const author = report?.skill?.author?.toLowerCase();
+    const owner = identity.owner.toLowerCase();
+    if (typeof author !== 'string' || (author !== owner && !author.endsWith(`(${owner})`))) {
+      fail(`${targetLabel} author mismatch at ${reportPath}: expected ${identity.owner}`);
     }
   } else if (report.meta.source_type !== 'official') {
     fail(`flat published target must be official at ${reportPath}`);
