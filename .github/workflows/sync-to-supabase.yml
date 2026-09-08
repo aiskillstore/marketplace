@@ -427,7 +427,13 @@ jobs:
             fi
             echo "::error::Previous provider sync run $run_id lacks closed provider evidence ($SYNC_CONCLUSION); inspection is required before replay"
             exit 1
-          done < <(jq -r '.workflow_runs[] | [.id, .head_sha, .created_at, .conclusion] | @tsv' <<< "$RUNS")
+          # The API does not guarantee that the returned collection is ordered
+          # by creation time. Always inspect newest first; otherwise an older
+          # successful run can move the baseline backwards and replay every
+          # later publication.
+          done < <(jq -r '.workflow_runs
+            | sort_by(.created_at) | reverse[]
+            | [.id, .head_sha, .created_at, .conclusion] | @tsv' <<< "$RUNS")
 
           if [ -z "$LAST_SHA" ] || [ -z "$LAST_CREATED_AT" ]; then
             echo "::error::No provider-complete push sync baseline found; refusing an incomplete fallback"
