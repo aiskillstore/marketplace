@@ -17,6 +17,7 @@ import { test } from 'node:test';
 const reusable = readFileSync('.github/workflows/reusable-process-skills.yml', 'utf8');
 const caller = readFileSync('.github/workflows/process-submission.yml', 'utf8');
 const approvalCaller = readFileSync('.github/workflows/approve-submission.yml', 'utf8');
+const validationWorkflow = readFileSync('.github/workflows/validate-marketplace.yml', 'utf8');
 const publicationProvenance = readFileSync('.github/workflows/publication-provenance.yml', 'utf8');
 const cliCompatibilityDescription =
   'Reserved compatibility input; submission processing is pinned to CLI 2.16.5';
@@ -28,6 +29,7 @@ const runtimeFiles = [
   'scripts/resolve-submission-source.mjs',
   'scripts/discover-submission-skills.mjs',
   'scripts/classify-submission-targets.mjs',
+  'scripts/replace-pending-submission.mjs',
   'scripts/process-submission-shard.mjs',
   'scripts/submission-selection-plan.mjs',
   'scripts/submission-shard-contract.mjs',
@@ -118,6 +120,7 @@ function createFixture() {
     'scripts/resolve-submission-source.mjs': 'export const source = true;\n',
     'scripts/discover-submission-skills.mjs': 'export const discover = true;\n',
     'scripts/classify-submission-targets.mjs': 'export const classify = true;\n',
+    'scripts/replace-pending-submission.mjs': 'export const replace = true;\n',
     'scripts/process-submission-shard.mjs': 'export const process = true;\n',
     'scripts/submission-selection-plan.mjs': 'export const selectionPlan = true;\n',
     'scripts/submission-shard-contract.mjs': 'export const contract = true;\n',
@@ -476,4 +479,14 @@ test('existing-target classification is a pre-CLI gate with a handled rejection 
   assert.match(reusable, /\[ "\$CURRENT_TREE_HASH" = "\$EXPECTED_TREE_HASH" \]/);
   assert.match(reusable, /previous_tree_hash = \$treeHash/);
   assert.match(reusable, /previous_source_ref = \$sourceRef/);
+  assert.match(reusable, /pending_update_targets:/);
+  assert.match(reusable, /pending_update_snapshots:/);
+  assert.match(reusable, /PENDING_UPDATE_TARGETS: \$\{\{ needs\.discover-and-plan\.outputs\.pending_update_targets \}\}/);
+  assert.match(reusable, /Pending update target and snapshot sets do not match/);
+  assert.match(reusable, /Frozen pending update target is missing or unsafe/);
+  assert.match(reusable, /scripts\/replace-pending-submission\.mjs/);
+  assert.match(reusable, /--expected-report-hash "\$EXPECTED_PENDING_REPORT_HASH"/);
+  assert.match(reusable, /--expected-git-tree-oid "\$EXPECTED_PENDING_GIT_TREE_OID"/);
+  assert.doesNotMatch(reusable, /--skill-dir "\$pending_dir"/);
+  assert.match(validationWorkflow, /scripts\/tests\/replace-pending-submission\.test\.mjs/);
 });

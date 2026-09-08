@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+import { createHash } from 'node:crypto';
 import {
   lstatSync,
   readFileSync,
@@ -9,10 +10,11 @@ import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { validateSlugAliasRegistry } from './discover-submission-skills.mjs';
 import { calculateCanonicalTreeHash } from './resolve-approved-submission.mjs';
+import { calculatePendingGitTreeOidAtCommit } from './replace-pending-submission.mjs';
 import { parseSelectionPlan, validateSelectionPlan } from './submission-selection-plan.mjs';
 
 const SOURCE_TYPES = new Set(['community', 'official']);
-// Must stay aligned with the exact CLI 2.15.7 trust allowlist pinned by the workflow.
+// Must stay aligned with the exact CLI 2.16.5 trust allowlist pinned by the workflow.
 const OFFICIAL_REPOSITORIES = new Set([
   'aiskillstore/marketplace',
   'anthropics/skills',
@@ -184,7 +186,7 @@ function sourceMismatch(message) {
   throw new SourceIdentityMismatchError(message);
 }
 
-function assertSourceIdentity(report, { repository }, reportPath) {
+function assertSourceIdentity(report, { repository }, reportPath, targetLabel = 'published target') {
   const sourceUrl = report?.meta?.source_url;
   const reportRef = report?.meta?.source_ref;
   if (typeof sourceUrl !== 'string' || typeof reportRef !== 'string' || reportRef === '') {
@@ -194,7 +196,7 @@ function assertSourceIdentity(report, { repository }, reportPath) {
   const segments = decodedSegments(sourceUrl);
   const [owner, repo, kind, actualRef, ...actualPathSegments] = segments;
   if (`${owner ?? ''}/${repo ?? ''}`.toLowerCase() !== repository || kind !== 'tree') {
-    sourceMismatch(`published target source repository mismatch at ${reportPath}: expected ${repository}`);
+    sourceMismatch(`${targetLabel} source repository mismatch at ${reportPath}: expected ${repository}`);
   }
   if (actualRef === undefined) {
     fail(`published target source_url has no source ref at ${reportPath}`);
@@ -216,7 +218,7 @@ function assertSourceIdentity(report, { repository }, reportPath) {
   return { sourcePath, sourceRef: reportRef };
 }
 
-function validateCandidate(candidate, identity) {
+function validateCandidate(candidate, identity, targetLabel = 'published target') {
   assertSafeTree(candidate.directory, 'published skill target');
   assertRegularFile(join(candidate.directory, 'SKILL.md'), 'published SKILL.md');
   const reportPath = join(candidate.directory, 'skill-report.json');
@@ -244,7 +246,7 @@ function validateCandidate(candidate, identity) {
     fail(`flat published target must be official at ${reportPath}`);
   }
 
-  const sourceIdentity = assertSourceIdentity(report, identity, reportPath);
+  const sourceIdentity = assertSourceIdentity(report, identity, reportPath, targetLabel);
   return {
     directory: candidate.directory,
     relativePath: candidate.relativePath,
@@ -281,6 +283,9 @@ export function classifySubmissionTargets({
   const sameRevisionTargets = [];
   const updateTargets = [];
   const updateSnapshots = [];
+  const pendingUpdateTargets = [];
+  const pendingUpdateSnapshots = [];
+  const pendingSameRevisionTargets = [];
   const processingSkills = [];
   const newTargets = [];
 
@@ -289,7 +294,6 @@ export function classifySubmissionTargets({
     if (alias && alias.baseSlug !== skill.slug) {
       fail(`slug alias does not match planned slug for ${skill.path}: expected ${alias.baseSlug}`);
     }
-    assertNoPendingCollision(root, owner, skill.slug);
     const identity = {
       repository: plan.repository,
       sourceRef,
@@ -298,6 +302,24 @@ export function classifySubmissionTargets({
       slug: skill.slug,
       expectedName: alias?.expectedName ?? skill.slug,
     };
+    // Only the canonical community pending path can be superseded. Flat pending
+    // paths remain reserved for official submissions and must not be repurposed.
+    const pendingPath = `pending/${owner}/${skill.slug}`;
+    const flatPendingPath = `pending/${skill.slug}`;
+    const pendingState = pathState(root, pendingPath, 'pending target');
+    const flatPendingState = pathState(root, flatPendingPath, 'pending target');
+    if (expectedLayout !== 'community' || flatPendingState !== null) {
+      assertNoPendingCollision(root, owner, skill.slug);
+    }
+    let pendingTarget = null;
+    if (pendingState !== null) {
+      pendingTarget = validateCandidate({
+        layout: 'community',
+        relativePath: pendingPath,
+        directory: join(root, 'pending', owner, skill.slug),
+      }, identity, 'pending target');
+    }
+
     const candidates = [
       {
         layout: 'community',
@@ -338,6 +360,9 @@ export function classifySubmissionTargets({
     if (expectedTarget !== null && alternateExact !== null) {
       fail(`ambiguous published target identity for ${skill.slug}: ${expectedTarget.relativePath}, ${alternateExact.relativePath}`);
     }
+    if (pendingTarget !== null && (expectedTarget !== null || alternateExact !== null)) {
+      fail(`pending target collision with published target for ${skill.slug}: ${pendingTarget.relativePath}`);
+    }
     if (expectedTarget === null && alternateExact !== null) {
       fail(`published target identity for ${skill.slug} exists at unexpected path: ${alternateExact.relativePath}`);
     }
@@ -357,6 +382,26 @@ export function classifySubmissionTargets({
       }
       continue;
     }
+    if (pendingTarget !== null) {
+      existingTargets.push(pendingTarget.relativePath);
+      if (pendingTarget.sourceRef === sourceRef && pendingTarget.sourcePath === skill.path) {
+        sameRevisionTargets.push(pendingTarget.relativePath);
+        pendingSameRevisionTargets.push(pendingTarget.relativePath);
+      } else {
+        pendingUpdateTargets.push(pendingTarget.relativePath);
+        processingSkills.push(skill);
+        pendingUpdateSnapshots.push({
+          pendingDir: pendingTarget.relativePath,
+          treeHash: calculateCanonicalTreeHash(root, pendingTarget.relativePath),
+          reportHash: createHash('sha256')
+            .update(readFileSync(join(pendingTarget.directory, 'skill-report.json')))
+            .digest('hex'),
+          gitTreeOid: calculatePendingGitTreeOidAtCommit(root, 'HEAD', pendingTarget.relativePath),
+          sourceRef: pendingTarget.sourceRef,
+        });
+      }
+      continue;
+    }
     newTargets.push(expectedCandidate.relativePath);
     processingSkills.push(skill);
   }
@@ -365,10 +410,17 @@ export function classifySubmissionTargets({
     ? 'all_existing'
     : 'processable';
   let reasonCode = 'no_selected_targets_already_published';
-  if (disposition === 'all_existing') reasonCode = 'all_selected_targets_already_published';
+  if (disposition === 'all_existing') {
+    reasonCode = pendingSameRevisionTargets.length > 0
+      ? 'all_selected_targets_already_processed'
+      : 'all_selected_targets_already_published';
+  }
   else if (updateTargets.length === plan.skills.length) reasonCode = 'all_selected_targets_are_updates';
+  else if (pendingUpdateTargets.length === plan.skills.length) reasonCode = 'all_selected_targets_are_pending_updates';
   else if (updateTargets.length > 0 && newTargets.length > 0) reasonCode = 'selected_targets_include_new_and_updates';
+  else if (pendingUpdateTargets.length > 0 && newTargets.length > 0) reasonCode = 'selected_targets_include_new_and_pending_updates';
   else if (updateTargets.length > 0) reasonCode = 'selected_targets_include_updates';
+  else if (pendingUpdateTargets.length > 0) reasonCode = 'selected_targets_include_pending_updates';
   else if (newTargets.length < plan.skills.length) reasonCode = 'selected_targets_include_new';
   const result = {
     schemaVersion: 1,
@@ -381,6 +433,8 @@ export function classifySubmissionTargets({
     updateTargets: updateTargets.sort((left, right) => left.localeCompare(right, 'en')),
   };
   if (updateSnapshots.length > 0) result.updateSnapshots = updateSnapshots;
+  if (pendingUpdateTargets.length > 0) result.pendingUpdateTargets = pendingUpdateTargets;
+  if (pendingUpdateSnapshots.length > 0) result.pendingUpdateSnapshots = pendingUpdateSnapshots;
   return result;
 }
 
