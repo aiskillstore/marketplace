@@ -151,29 +151,88 @@ function gitPathBytes(repositoryRoot, commit, path) {
   return gitBuffer(repositoryRoot, ['show', `${commit}:${path}`]);
 }
 
-function verifyReportOnlyReaudit({ repositoryRoot, pendingDir, baseCommit, mergeCommit, report }) {
-  if (!/^[0-9a-f]{40}$/.test(baseCommit ?? '') || !/^[0-9a-f]{40}$/.test(mergeCommit ?? '')) {
-    fail(`${pendingDir} report-only publication requires exact prior and merged commit identities`);
+function gitTreeManifest(repositoryRoot, commit, directory) {
+  const listing = gitBuffer(repositoryRoot, [
+    'ls-tree', '-rz', '-r', '--full-tree', commit, '--', directory,
+  ]);
+  let listingText;
+  try {
+    listingText = new TextDecoder('utf-8', { fatal: true }).decode(listing);
+  } catch {
+    fail(`committed pending tree contains a non-UTF-8 path: ${directory}`);
   }
-
-  const mergeParents = gitBuffer(repositoryRoot, ['cat-file', '-p', mergeCommit])
-    .toString('utf8')
-    .split(/\r?\n/)
-    .filter((line) => line.startsWith('parent '))
-    .map((line) => line.slice('parent '.length));
-  if (mergeParents.length !== 2 || mergeParents[0] !== baseCommit) {
-    fail(`${pendingDir} report-only publication base is not the exact first parent of the merge commit`);
+  const entries = new Map();
+  for (const record of listingText.split('\0').filter(Boolean)) {
+    const tab = record.indexOf('\t');
+    const [mode, type, object] = record.slice(0, tab).split(' ');
+    const path = record.slice(tab + 1);
+    if (tab < 0 || type !== 'blob' || !['100644', '100755'].includes(mode)
+      || !/^[0-9a-f]{40,64}$/.test(object) || !path.startsWith(`${directory}/`)) {
+      fail(`committed pending tree contains an unsupported entry: ${path || directory}`);
+    }
+    entries.set(path, { mode, object });
   }
+  return entries;
+}
 
+function sameGitEntry(left, right) {
+  return left?.mode === right?.mode && left?.object === right?.object;
+}
+
+function changedPathsBetween(baseEntries, mergeEntries) {
+  return [...new Set([...baseEntries.keys(), ...mergeEntries.keys()])]
+    .filter((path) => !sameGitEntry(baseEntries.get(path), mergeEntries.get(path)))
+    .sort();
+}
+
+function gitChangedPaths(repositoryRoot, baseCommit, mergeCommit) {
+  const output = gitBuffer(repositoryRoot, [
+    'diff', '--name-only', '-z', '--no-renames', baseCommit, mergeCommit, '--', 'pending',
+  ]);
+  let text;
+  try {
+    text = new TextDecoder('utf-8', { fatal: true }).decode(output);
+  } catch {
+    fail('merged PR contains a non-UTF-8 pending path');
+  }
+  return text.split('\0').filter(Boolean).map(normalizeFrozenPath).sort();
+}
+
+function assertSameCommittedTree(pendingDir, expectedEntries, actualEntries, label) {
+  if (expectedEntries.size !== actualEntries.size
+    || [...expectedEntries.keys()].some((path) => !actualEntries.has(path))) {
+    fail(`${pendingDir} ${label} pending subtree path set drifted after the reviewed merge`);
+  }
+  for (const [path, expected] of expectedEntries) {
+    if (!sameGitEntry(expected, actualEntries.get(path))) {
+      fail(`${pendingDir} ${label} pending subtree blob or mode drifted after the reviewed merge: ${path}`);
+    }
+  }
+}
+
+function assertExactCurrentTree(repositoryRoot, pendingDir, mergeEntries) {
+  const currentMainEntries = gitTreeManifest(repositoryRoot, 'HEAD', pendingDir);
+  assertSameCommittedTree(pendingDir, mergeEntries, currentMainEntries, 'current main');
+
+  const currentFiles = listRegularFiles(repositoryRoot, pendingDir);
+  if (currentFiles.length !== currentMainEntries.size
+    || currentFiles.some((path) => !currentMainEntries.has(path))) {
+    fail(`${pendingDir} current pending subtree path set drifted after the reviewed merge`);
+  }
+  for (const path of currentFiles) {
+    const absolutePath = resolve(repositoryRoot, ...path.split('/'));
+    const stat = lstatSync(absolutePath);
+    const mode = (stat.mode & 0o111) === 0 ? '100644' : '100755';
+    const expected = currentMainEntries.get(path);
+    if (mode !== expected.mode || !readFileSync(absolutePath).equals(gitBuffer(repositoryRoot, ['cat-file', 'blob', expected.object]))) {
+      fail(`${pendingDir} current pending subtree blob or mode drifted after the reviewed merge: ${path}`);
+    }
+  }
+}
+
+function verifyPendingReaudit({ repositoryRoot, pendingDir, baseCommit, mergeCommit, report, publicationMode }) {
   const skillPath = `${pendingDir}/SKILL.md`;
   const reportPath = `${pendingDir}/skill-report.json`;
-  const priorSkill = gitPathBytes(repositoryRoot, baseCommit, skillPath);
-  const mergedSkill = gitPathBytes(repositoryRoot, mergeCommit, skillPath);
-  const currentSkill = readFileSync(resolve(repositoryRoot, ...skillPath.split('/')));
-  if (!priorSkill.equals(mergedSkill) || !priorSkill.equals(currentSkill)) {
-    fail(`${pendingDir} prior pending SKILL.md content changed`);
-  }
-
   const mergedReport = gitPathBytes(repositoryRoot, mergeCommit, reportPath);
   const currentReport = readFileSync(resolve(repositoryRoot, ...reportPath.split('/')));
   if (!mergedReport.equals(currentReport)) {
@@ -185,13 +244,20 @@ function verifyReportOnlyReaudit({ repositoryRoot, pendingDir, baseCommit, merge
   const currentIdentity = sourceIdentity(report, `${pendingDir}/skill-report.json`);
   if (currentIdentity.repository !== priorIdentity.repository || currentIdentity.path !== priorIdentity.path
     || report.meta.source_type !== priorReport?.meta?.source_type
-    || report.meta.slug !== priorReport?.meta?.slug
-    || report.meta.content_hash !== priorReport?.meta?.content_hash
-    || report.meta.tree_hash !== priorReport?.meta?.tree_hash) {
+    || report.meta.slug !== priorReport?.meta?.slug) {
     fail(`${pendingDir} source provenance does not match the trusted prior pending report`);
   }
   if (!/^[0-9a-f]{40}$/.test(currentIdentity.ref) || currentIdentity.ref === priorIdentity.ref) {
-    fail(`${pendingDir} report-only re-audit must reference a new immutable source commit`);
+    fail(`${pendingDir} re-audit must reference a new immutable source commit`);
+  }
+  if (publicationMode === 'report-only') {
+    const priorSkill = gitPathBytes(repositoryRoot, baseCommit, skillPath);
+    const mergedSkill = gitPathBytes(repositoryRoot, mergeCommit, skillPath);
+    if (!priorSkill.equals(mergedSkill)
+      || report.meta.content_hash !== priorReport?.meta?.content_hash
+      || report.meta.tree_hash !== priorReport?.meta?.tree_hash) {
+      fail(`${pendingDir} report-only re-audit changed prior pending content`);
+    }
   }
 }
 
@@ -280,7 +346,9 @@ export function resolveApprovedSubmission({
   reportOnlyMergeCommit = null,
 }) {
   const root = realpathSync(repositoryRoot);
-  const normalizedFiles = [...new Set(changedFiles.map(normalizeFrozenPath).filter(Boolean))].sort();
+  const normalizedInput = changedFiles.map(normalizeFrozenPath).filter(Boolean);
+  const normalizedFiles = [...new Set(normalizedInput)].sort();
+  if (normalizedFiles.length !== normalizedInput.length) fail('submission contains duplicate changed-file evidence');
   const nonPendingFiles = normalizedFiles.filter((path) => path !== 'pending' && !path.startsWith('pending/'));
   if (nonPendingFiles.length > 0) {
     fail(`submission contains file(s) outside pending: ${nonPendingFiles.slice(0, 5).join(', ')}`);
@@ -288,19 +356,30 @@ export function resolveApprovedSubmission({
   const pendingFiles = normalizedFiles;
   if (pendingFiles.length === 0) fail('submission contains no pending files');
 
-  const pendingRoots = [...new Set(pendingFiles.map(rootFromPublicationIdentityFile).filter(Boolean))].sort();
-  if (pendingRoots.length === 0) fail('submission contains no canonical pending publication identity file');
-
-  for (const path of pendingFiles) {
-    const absolutePath = resolve(root, ...path.split('/'));
-    ensureInsideRoot(root, absolutePath, path);
-    if (!existsSync(absolutePath)) fail(`frozen pending file is missing after merge: ${path}`);
-    const fileStat = lstatSync(absolutePath);
-    if (!fileStat.isFile() || fileStat.isSymbolicLink()) {
-      fail(`frozen pending path is not a regular file: ${path}`);
+  const hasBaseCommit = reportOnlyBaseCommit !== null;
+  const hasMergeCommit = reportOnlyMergeCommit !== null;
+  if (hasBaseCommit !== hasMergeCommit) fail('publication history requires both exact base and merge commit identities');
+  const exactHistory = hasBaseCommit && hasMergeCommit;
+  if (exactHistory) {
+    if (!/^[0-9a-f]{40}$/.test(reportOnlyBaseCommit) || !/^[0-9a-f]{40}$/.test(reportOnlyMergeCommit)) {
+      fail('publication history requires exact lowercase 40-hex commit identities');
+    }
+    const mergeParents = gitBuffer(root, ['cat-file', '-p', reportOnlyMergeCommit])
+      .toString('utf8')
+      .split(/\r?\n/)
+      .filter((line) => line.startsWith('parent '))
+      .map((line) => line.slice('parent '.length));
+    if (mergeParents.length !== 2 || mergeParents[0] !== reportOnlyBaseCommit) {
+      fail('publication base is not the exact first parent of the merge commit');
+    }
+    const actualChangedPaths = gitChangedPaths(root, reportOnlyBaseCommit, reportOnlyMergeCommit);
+    if (JSON.stringify(actualChangedPaths) !== JSON.stringify(pendingFiles)) {
+      fail('merged PR changed-file evidence does not match the exact first-parent pending diff');
     }
   }
 
+  const pendingRoots = [...new Set(pendingFiles.map(rootFromPublicationIdentityFile).filter(Boolean))].sort();
+  if (pendingRoots.length === 0) fail('submission contains no canonical pending publication identity file');
   for (const path of pendingFiles) {
     if (!pendingRoots.some((pendingRoot) => path.startsWith(`${pendingRoot}/`))) {
       fail(`pending file is outside the frozen skill set: ${path}`);
@@ -309,21 +388,70 @@ export function resolveApprovedSubmission({
 
   const frozenFileSet = new Set(pendingFiles);
   const publicationModeByRoot = new Map();
-  for (const pendingRoot of pendingRoots) {
-    const changedInRoot = pendingFiles.filter((path) => path.startsWith(`${pendingRoot}/`));
-    const skillPath = `${pendingRoot}/SKILL.md`;
-    const reportPath = `${pendingRoot}/skill-report.json`;
-    if (!frozenFileSet.has(skillPath)) {
-      if (changedInRoot.length !== 1 || changedInRoot[0] !== reportPath) {
-        fail(`${pendingRoot} report-only publication may change only skill-report.json`);
+  const reauditRoots = new Set();
+  if (exactHistory) {
+    for (const pendingRoot of pendingRoots) {
+      const changedInRoot = pendingFiles.filter((path) => path.startsWith(`${pendingRoot}/`));
+      const changedInRootSet = new Set(changedInRoot);
+      const baseEntries = gitTreeManifest(root, reportOnlyBaseCommit, pendingRoot);
+      const mergeEntries = gitTreeManifest(root, reportOnlyMergeCommit, pendingRoot);
+      const rootDiff = changedPathsBetween(baseEntries, mergeEntries);
+      if (JSON.stringify(rootDiff) !== JSON.stringify(changedInRoot)) {
+        fail(`${pendingRoot} changed-file evidence does not match its exact Git tree delta`);
       }
-      publicationModeByRoot.set(pendingRoot, 'report-only');
-      continue;
+      const skillPath = `${pendingRoot}/SKILL.md`;
+      const reportPath = `${pendingRoot}/skill-report.json`;
+      if (!mergeEntries.has(skillPath) || !mergeEntries.has(reportPath)) {
+        fail(`${pendingRoot} exact merged tree is missing a publication identity file`);
+      }
+      if (baseEntries.size === 0) {
+        publicationModeByRoot.set(pendingRoot, 'full');
+      } else {
+        if (!baseEntries.has(skillPath) || !baseEntries.has(reportPath)) {
+          fail(`${pendingRoot} prior pending tree has an incomplete publication identity`);
+        }
+        reauditRoots.add(pendingRoot);
+        const reportOnly = changedInRoot.length === 1 && changedInRoot[0] === reportPath;
+        const omittedCurrentFiles = [...mergeEntries.keys()]
+          .filter((path) => !changedInRootSet.has(path));
+        if (reportOnly) {
+          publicationModeByRoot.set(pendingRoot, 'report-only');
+        } else if (omittedCurrentFiles.length === 0) {
+          publicationModeByRoot.set(pendingRoot, 'full');
+        } else {
+          if (!changedInRootSet.has(skillPath) || !changedInRootSet.has(reportPath)) {
+            fail(`${pendingRoot} partial re-audit must change both SKILL.md and skill-report.json`);
+          }
+          publicationModeByRoot.set(pendingRoot, 'partial-reaudit');
+        }
+      }
+      assertExactCurrentTree(root, pendingRoot, mergeEntries);
     }
-    publicationModeByRoot.set(pendingRoot, 'full');
-    const unfrozen = listRegularFiles(root, pendingRoot).filter((path) => !frozenFileSet.has(path));
-    if (unfrozen.length > 0) {
-      fail(`${pendingRoot} contains file(s) outside the frozen PR/artifact set: ${unfrozen.slice(0, 5).join(', ')}`);
+  } else {
+    for (const path of pendingFiles) {
+      const absolutePath = resolve(root, ...path.split('/'));
+      ensureInsideRoot(root, absolutePath, path);
+      if (!existsSync(absolutePath)) fail(`frozen pending file is missing after merge: ${path}`);
+      const fileStat = lstatSync(absolutePath);
+      if (!fileStat.isFile() || fileStat.isSymbolicLink()) {
+        fail(`frozen pending path is not a regular file: ${path}`);
+      }
+    }
+    for (const pendingRoot of pendingRoots) {
+      const changedInRoot = pendingFiles.filter((path) => path.startsWith(`${pendingRoot}/`));
+      const skillPath = `${pendingRoot}/SKILL.md`;
+      const reportPath = `${pendingRoot}/skill-report.json`;
+      if (!frozenFileSet.has(skillPath)) {
+        if (changedInRoot.length !== 1 || changedInRoot[0] !== reportPath) {
+          fail(`${pendingRoot} report-only publication may change only skill-report.json`);
+        }
+        fail(`${pendingRoot} report-only publication requires exact prior and merged commit identities`);
+      }
+      publicationModeByRoot.set(pendingRoot, 'full');
+      const unfrozen = listRegularFiles(root, pendingRoot).filter((path) => !frozenFileSet.has(path));
+      if (unfrozen.length > 0) {
+        fail(`${pendingRoot} contains file(s) outside the frozen PR/artifact set: ${unfrozen.slice(0, 5).join(', ')}`);
+      }
     }
   }
 
@@ -341,13 +469,15 @@ export function resolveApprovedSubmission({
     }
 
     const report = readJson(reportPath, `${pendingDir}/skill-report.json`);
-    if (publicationModeByRoot.get(pendingDir) === 'report-only') {
-      verifyReportOnlyReaudit({
+    const publicationMode = publicationModeByRoot.get(pendingDir);
+    if (reauditRoots.has(pendingDir)) {
+      verifyPendingReaudit({
         repositoryRoot: root,
         pendingDir,
         baseCommit: reportOnlyBaseCommit,
         mergeCommit: reportOnlyMergeCommit,
         report,
+        publicationMode,
       });
     }
     if (report?.meta?.source_type !== sourceType) {
