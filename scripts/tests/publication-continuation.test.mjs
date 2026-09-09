@@ -71,6 +71,8 @@ test('current pending inventory stops after its exact owners; fresh A prevents d
   assert.ok(!calls.some(p => p.endsWith('/pulls/2')));
   syncRuns = [{ id: 12, event: 'push', status: 'completed', conclusion: 'failure', created_at: '2026-09-08T00:00:00Z' }];
   assert.throws(() => main(request), /Previous push sync 12 is failure/);
+  syncRuns = [{id:13,status:'pending',created_at:new Date(Date.now()-3_600_001).toISOString()}];
+  assert.throws(() => main(request), /stalled over 60 minutes: 13/);
 });
 
 test('automatic continuation dispatches at most 25 skills and leaves reservations to the receiver', async () => {

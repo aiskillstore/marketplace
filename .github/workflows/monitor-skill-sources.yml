@@ -6,6 +6,10 @@ on:
     - cron: '30 6 * * *'
   workflow_dispatch:
     inputs:
+      observe_only:
+        description: 'Only persist up to 100 oldest source observations without AI or PRs; requires dry_run=false'
+        type: boolean
+        default: false
       slugs:
         description: 'Optional skill slugs to scan, comma or space separated'
         required: false
@@ -80,6 +84,7 @@ on:
 permissions:
   contents: write
   pull-requests: write
+  actions: read
 
 concurrency:
   # Full scans stay singleton. Manual slug-scoped batches can run in parallel
@@ -88,15 +93,69 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  admission:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      allowed: ${{ steps.admit.outputs.allowed }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+        with:
+          persist-credentials: false
+          sparse-checkout: scripts/source-monitor-admission.mjs
+          sparse-checkout-cone-mode: false
+      - name: Give publications priority
+        id: admit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/source-monitor-admission.mjs
+
+  observe:
+    needs: admission
+    if: (github.event_name == 'schedule' || (inputs.observe_only == true && inputs.dry_run == false)) && needs.admission.outputs.allowed == 'true'
+    runs-on: self-hosted
+    timeout-minutes: 10
+    concurrency:
+      group: production-skill-score-writes
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            .github/actions/download-skillstore-cli
+            scripts/source-monitor-admission.mjs
+            scripts/observe-source-status.mjs
+      - uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
+        id: app-token
+        with:
+          client-id: ${{ vars.APP_CLIENT_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+          repositories: marketplace,skillstore
+      - uses: ./.github/actions/download-skillstore-cli
+        with:
+          version: 2.16.6
+          minimum-version: 2.16.6
+          require-checksum: true
+          token: ${{ steps.app-token.outputs.token }}
+          cache-dir: /home/runner/_work/_cache/skillstore-cli
+      - name: Persist a bounded source observation batch without AI audits
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: node scripts/observe-source-status.mjs
+
   scan:
     name: Source accuracy scan
+    needs: admission
+    if: needs.admission.outputs.allowed == 'true' && inputs.observe_only != true
     runs-on: self-hosted
-    timeout-minutes: 1440
+    timeout-minutes: ${{ github.event_name == 'schedule' && 120 || 30 }}
     concurrency:
-      # Source monitoring writes Skill projections and can invalidate a frozen
-      # governance CAS even when it creates no artifact. Share the exact writer
-      # mutex used by governance and scoring instead of overlapping them.
-      group: production-skill-score-writes
+      # Scheduled refresh only changes a local checkout/PR. Only explicit manual
+      # database mutations share the governance mutex; scheduled AI never holds it.
+      group: ${{ (github.event_name == 'schedule' || inputs.dry_run == true || (inputs.slugs != '' && inputs.create_pr == true && inputs.archive_missing != true)) && 'source-monitor-refresh' || 'production-skill-score-writes' }}
       cancel-in-progress: false
 
     steps:
@@ -264,7 +323,7 @@ jobs:
           LIMIT: ${{ inputs.limit || 0 }}
           CONCURRENCY: ${{ inputs.concurrency || 8 }}
           WRITE_CONCURRENCY: ${{ inputs.write_concurrency || 2 }}
-          MAX_UPDATES_PER_RUN: ${{ inputs.max_updates_per_run || 25 }}
+          MAX_UPDATES_PER_RUN: ${{ github.event_name == 'schedule' && 1 || inputs.max_updates_per_run || 25 }}
           CHECKOUT_CACHE_DIR: ${{ inputs.checkout_cache_dir || '/home/runner/_work/_cache/skill-source-monitor' }}
           DRY_RUN: ${{ github.event_name == 'schedule' && 'false' || inputs.dry_run }}
           CREATE_PR: ${{ github.event_name == 'schedule' && 'true' || inputs.create_pr }}
@@ -326,7 +385,10 @@ jobs:
             CMD+=(--limit "$LIMIT")
           fi
 
-          if [ "$DRY_RUN" != "true" ]; then
+          if [ "$DRY_RUN" != "true" ] && [ "${GITHUB_EVENT_NAME:-}" = "schedule" ]; then
+            # Scheduled observation writes run separately, without AI refresh.
+            CMD+=(--updateLocal)
+          elif [ "$DRY_RUN" != "true" ]; then
             if [ "$CREATE_PR" = "true" ] && [ -n "$SLUGS" ]; then
               if [ -z "$EXPECTED_UPSTREAM_COMMIT" ]; then
                 echo "::error::A slug-scoped update PR requires expected_upstream_commit"
@@ -591,12 +653,12 @@ jobs:
           SLUGS: ${{ inputs.slugs || '' }}
           CONCURRENCY: ${{ inputs.concurrency || 8 }}
           WRITE_CONCURRENCY: ${{ inputs.write_concurrency || 2 }}
-          MAX_UPDATES_PER_RUN: ${{ inputs.max_updates_per_run || 25 }}
+          MAX_UPDATES_PER_RUN: ${{ github.event_name == 'schedule' && 1 || inputs.max_updates_per_run || 25 }}
           CHECKOUT_CACHE_DIR: ${{ inputs.checkout_cache_dir || '/home/runner/_work/_cache/skill-source-monitor' }}
           ARCHIVE_MISSING: ${{ inputs.archive_missing || false }}
           DELETE_ARCHIVED: ${{ inputs.delete_archived || false }}
         run: |
-          if [ "$DRY_RUN" != "true" ] && { [ "$CREATE_PR" != "true" ] || [ -z "$SLUGS" ]; }; then
+          if [ "$DRY_RUN" != "true" ] && [ "${GITHUB_EVENT_NAME:-}" != "schedule" ] && { [ "$CREATE_PR" != "true" ] || [ -z "$SLUGS" ]; }; then
             WRITES="enabled"
           else
             WRITES="disabled"
