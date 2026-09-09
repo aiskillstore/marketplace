@@ -95,7 +95,13 @@ export function main(request = api) {
   // GitHub's concurrency group only preserves one pending run. Let each push sync
   // close before creating the next publication push, including Cody's dispatches.
   const syncRuns = request(`repos/${repo}/actions/workflows/sync-to-supabase.yml/runs?per_page=100`).workflow_runs;
-  if (syncRuns.some(r => r.status !== 'completed')) return console.log('Waiting for provider sync');
+  if (syncRuns.some(r => r.status !== 'completed')) {
+    const active = syncRuns.filter(r => r.status !== 'completed');
+    if (active.some(r => Date.now() - Date.parse(r.created_at) > 60 * 60_000)) {
+      throw new Error(`Provider sync stalled over 60 minutes: ${active.map(r => r.id).join(', ')}; inspect scoring locks and unfinished stages`);
+    }
+    return console.log(`Waiting for provider sync: ${active.map(r => `${r.id} (${r.status})`).join(', ')}`);
+  }
   const lastPush = syncRuns.filter(r => r.event === 'push')
     .sort((a, b) => b.created_at.localeCompare(a.created_at))[0];
   // Publication already removed its pending report before provider/cache work.
