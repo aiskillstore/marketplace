@@ -29,9 +29,13 @@ const runtimeFiles = [
   'scripts/verify-source-monitor-update.mjs',
 ];
 
-test('source monitor shares the production governance writer mutex', () => {
-  assert.match(workflow, /scan:\n(?:.*\n){0,8}\s+concurrency:\n\s+# Source monitoring[\s\S]{0,260}group: production-skill-score-writes/);
-  assert.match(workflow, /group: production-skill-score-writes\n\s+cancel-in-progress: false/);
+test('scheduled AI work is outside the production mutex; observation writes stay bounded and locked', async () => {
+  const {parse}=await import('yaml');const jobs=parse(workflow).jobs;
+  assert.equal(jobs.observe.concurrency.group,'production-skill-score-writes');
+  assert.equal(jobs.observe['timeout-minutes'],10);
+  assert.match(jobs.scan.concurrency.group,/github.event_name == 'schedule'.*source-monitor-refresh/);
+  assert.equal(jobs.observe.needs,'admission');assert.equal(jobs.scan.needs,'admission');
+  assert.match(jobs.scan.if,/outputs.allowed/);
 });
 
 function run(command, args, options = {}) {
@@ -401,7 +405,7 @@ test('source monitor commits upstream files hidden by a copied skill .gitignore'
   }
 });
 
-test('final summary reports scoped local updates as no-write while scheduled scans keep writes enabled', () => {
+test('final summary distinguishes scheduled refresh from manual observation writes', () => {
   const summary = extractRunBlock('Final summary').replaceAll('${{ github.run_id }}', '1234');
   const cases = [
     {
@@ -410,9 +414,9 @@ test('final summary reports scoped local updates as no-write while scheduled sca
       expected: '- Supabase writes: disabled',
     },
     {
-      name: 'scheduled full scan',
-      env: { DRY_RUN: 'false', CREATE_PR: 'true', SLUGS: '' },
-      expected: '- Supabase writes: enabled',
+      name: 'scheduled refresh',
+      env: { DRY_RUN: 'false', CREATE_PR: 'true', SLUGS: '', GITHUB_EVENT_NAME: 'schedule' },
+      expected: '- Supabase writes: disabled',
     },
   ];
 
@@ -540,6 +544,9 @@ SUMMARY
     assert.notEqual(rejected.status, 0);
     assert.match(rejected.stdout + rejected.stderr, /requires expected_upstream_commit/);
     assert.equal(existsSync(argsFile), false, 'CLI must not execute without the expected commit');
+
+    run('bash', ['-c', monitor], {cwd:workspace,env:{...baseEnv,GITHUB_EVENT_NAME:'schedule',SLUGS:'',EXPECTED_UPSTREAM_COMMIT:''}});
+    assert.doesNotMatch(readFileSync(argsFile,'utf8'), /(^|\s)--write(\s|$)|--archiveMissing|--deleteArchived/);
 
     const helperArgs = [
       join(workspace, 'scripts', 'verify-source-monitor-selection.mjs'),
