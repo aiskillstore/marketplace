@@ -1,0 +1,161 @@
+{
+  "schema_version": 18,
+  "description": "Runtime normalization and validation rules for Wind MCP tool calls.",
+  "kline_period_map": {
+    "1min": "1",
+    "5min": "3",
+    "10min": "4",
+    "15min": "5",
+    "30min": "6",
+    "60min": "7",
+    "120min": "8",
+    "240min": "9",
+    "1d": "10",
+    "1w": "11",
+    "1mo": "12",
+    "1y": "13",
+    "1q": "14",
+    "6mo": "15"
+  },
+  "tool_by_domain": {
+    "price": {
+      "stock_data": "get_stock_price_indicators",
+      "fund_data": "get_fund_price_indicators",
+      "index_data": "get_index_price_indicators"
+    },
+    "kline": {
+      "stock_data": "get_stock_kline",
+      "fund_data": "get_fund_kline",
+      "index_data": "get_index_kline"
+    },
+    "quote": {
+      "stock_data": "get_stock_quote",
+      "fund_data": "get_fund_quote",
+      "index_data": "get_index_quote"
+    }
+  },
+  "basic": {
+    "string_keys": [
+      "question",
+      "query",
+      "windcode",
+      "indexes",
+      "observation",
+      "begin_date",
+      "end_date",
+      "begin",
+      "end",
+      "beginDate",
+      "endDate",
+      "date",
+      "tradeDate",
+      "afdate"
+    ]
+  },
+  "tool_rules": [
+    {
+      "name": "question_required",
+      "label": "自然语言",
+      "tools": [
+        "search_stocks",
+        "get_stock_basicinfo",
+        "get_stock_fundamentals",
+        "get_stock_equity_holders",
+        "get_stock_events",
+        "get_stock_technicals",
+        "get_risk_metrics",
+        "search_funds",
+        "get_fund_info",
+        "get_fund_financials",
+        "get_fund_holdings",
+        "get_fund_performance",
+        "get_fund_holders",
+        "get_fund_company_info",
+        "get_index_basicinfo",
+        "get_index_fundamentals",
+        "get_index_technicals",
+        "get_bond_basicinfo",
+        "get_bond_issuer_info",
+        "get_bond_market_data",
+        "get_bond_financial_data",
+        "get_financial_data"
+      ],
+      "required": ["question"]
+    },
+    {
+      "name": "financial_docs_query_required",
+      "label": "金融文档",
+      "tools": ["get_company_announcements", "get_financial_news"],
+      "required": ["query"]
+    },
+    {
+      "name": "kline",
+      "label": "K 线",
+      "tools": ["get_stock_kline", "get_fund_kline", "get_index_kline"],
+      "required": ["windcode", "begin_date", "end_date"],
+      "ordered_dates": [["begin_date", "end_date"]],
+      "enum_fields": {
+        "period": {
+          "values_from": "kline_period_map",
+          "message": "字段 'period' 只能是 ${values}，日 K 请传 '1d'"
+        },
+        "aftype": {
+          "values": ["0", "1", "2"],
+          "message": "字段 'aftype' 只能是 '0'（前复权）、'1'（后复权）或 '2'（不复权）"
+        },
+        "issusp": {
+          "values": ["0", "1"],
+          "message": "字段 'issusp' 只能是 '0' 或 '1'"
+        }
+      },
+      "patterns": {
+        "count": {
+          "pattern": "^-?\\d+$",
+          "message": "字段 'count' 只能是整数：正数从开始日期往后取 N 条，负数从结束日期往前取 N 条，0 取区间全部"
+        }
+      }
+    },
+    {
+      "name": "quote",
+      "label": "分钟行情",
+      "tools": ["get_stock_quote", "get_fund_quote", "get_index_quote"],
+      "required": ["windcode"],
+      "ordered_dates": [["begin", "end"]],
+      "patterns": {
+        "count": {
+          "pattern": "^-?\\d+$",
+          "message": "字段 'count' 只能是整数：正数从 begin 往后取 N 条，负数从 end 往前取 N 条，0 取区间全部"
+        }
+      }
+    },
+    {
+      "name": "economic_search",
+      "label": "宏观 EDB 搜索指标",
+      "tools": ["search_economic_indicator"],
+      "allowed": ["question"],
+      "required": ["question"]
+    },
+    {
+      "name": "economic_query",
+      "label": "宏观 EDB 取数",
+      "tools": ["query_economic_indicator_data"],
+      "allowed": ["question", "beginDate", "endDate", "observation"],
+      "required": ["question"],
+      "paired": [["beginDate", "endDate"]],
+      "mutually_exclusive": [["observation", "beginDate"], ["observation", "endDate"]],
+      "ordered_dates": [["beginDate", "endDate"]],
+      "patterns": {
+        "observation": {
+          "pattern": "^\\d+$",
+          "message": "字段 'observation' 只能是数字字符串（近 N 期）"
+        }
+      },
+      "required_one_of": [
+        {
+          "one_of": [["observation"], ["beginDate", "endDate"]],
+          "message": "query_economic_indicator_data 必须显式提供 observation 或 beginDate/endDate（不能只给 question）"
+        }
+      ]
+    }
+  ]
+}
