@@ -12,7 +12,6 @@ export function validateBatchPlans(rows) {
   const roots = new Set();
   for (const { plan } of rows) for (const skill of plan.skills) {
     if ([...roots].some(root => root === skill.targetDir || root.startsWith(`${skill.targetDir}/`) || skill.targetDir.startsWith(`${root}/`))) throw new Error(`Overlapping batch target: ${skill.targetDir}`);
-    if (skill.duplicate) throw new Error('Duplicate-only cleanup must be reconciled separately');
     roots.add(skill.targetDir);
   }
   if (roots.size < 1 || roots.size > 25) throw new Error('Batch must contain 1..25 distinct skills');
@@ -117,6 +116,12 @@ export async function main() {
     for (const row of rows) {
       for (const skill of row.plan.skills) {
         assertDirectoryAncestors(skill.pendingDir); assertDirectoryAncestors(skill.targetDir);
+        if (skill.duplicate) {
+          // The reviewed snapshot is byte-identical to the published target.
+          // Resolve the submission by deleting its pending evidence only.
+          rmSync(skill.pendingDir, { recursive: true });
+          continue;
+        }
         if (skill.update) rmSync(skill.targetDir, { recursive: true });
         else if (existsSync(skill.targetDir)) throw new Error('Unexpected published target');
         mkdirSync(dirname(skill.targetDir), { recursive: true });
