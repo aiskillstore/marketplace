@@ -43,8 +43,12 @@ function assertDirectoryAncestors(path) {
 }
 async function callback(row) {
   if (!row.submissionId) return;
-  const payload = { submission_id: row.submissionId, event: 'merged', pr_number: row.pr.number,
-    pr_url: row.pr.html_url, merged_by: row.pr.merged_by.login,
+  const duplicateOnly = row.plan.skills.every(skill => skill.duplicate);
+  const payload = { submission_id: row.submissionId, event: duplicateOnly ? 'rejected' : 'merged', pr_number: row.pr.number,
+    pr_url: row.pr.html_url,
+    ...(duplicateOnly ? { rejected_by: row.pr.merged_by.login,
+      reason: 'All reviewed skills already exist at the same immutable source and canonical tree.' }
+      : { merged_by: row.pr.merged_by.login }),
     workflow_run_id: Number(process.env.GITHUB_RUN_ID), workflow_run_url: row.owner };
   for (let attempt = 0; attempt < 3; attempt++) {
     const response = await fetch(`${process.env.SKILLSTORE_API_URL}/api/submit/callback`, {
@@ -117,7 +121,7 @@ export async function main() {
       for (const skill of row.plan.skills) {
         assertDirectoryAncestors(skill.pendingDir); assertDirectoryAncestors(skill.targetDir);
         if (skill.duplicate) {
-          // The reviewed snapshot is byte-identical to the published target.
+          // Canonical content and immutable source match the published target.
           // Resolve the submission by deleting its pending evidence only.
           rmSync(skill.pendingDir, { recursive: true });
           continue;
@@ -132,6 +136,7 @@ export async function main() {
         '-m', `AgentCrew-Publication: ${row.correlation}`]);
     }
     const published = git(['rev-parse', 'HEAD']);
+    const providerSyncRequired = git(['diff', '--name-only', base, published, '--', 'skills/']) !== '';
     // No rebase/force: any concurrent main change rejects the whole atomic push.
     if (git(['ls-remote', 'origin', 'refs/heads/main']).split(/\s/)[0] !== base) throw new Error('Main advanced; re-preflight required');
     git(['push', 'origin', 'HEAD:main']);
@@ -140,6 +145,11 @@ export async function main() {
     pushed = true;
     for (const row of rows) await callback(row);
     for (const row of rows) setStatus(row, row.attemptContext, 'success', 'Exact publication attempt completed');
+    // Pending-only deletion cannot trigger the skills/** push workflow. Match
+    // the single receiver's terminal no-provider-change result in that case.
+    if (!providerSyncRequired) for (const row of rows) {
+      setStatus(row, row.context, 'success', 'Publication completed; no provider changes required');
+    }
     console.log(JSON.stringify({ published, batch: process.env.BATCH_ID, prs: numbers, skills: rows.flatMap(r => r.plan.skills.map(s => s.reportSlug)) }));
   } catch (error) {
     for (const row of claimed) {
