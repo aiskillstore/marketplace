@@ -1,0 +1,61 @@
+name: Public package checks
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install public dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Check HTML runtime
+        run: python scripts/environment_check.py --target html
+      - name: Generate and inspect synthetic workbook
+        shell: bash
+        run: |
+          python scripts/generate_sample.py --output-dir generated-sample --write-xlsx
+          sample="$(find generated-sample -maxdepth 1 -type f -name '*.xlsx' -print -quit)"
+          test -n "$sample"
+          python scripts/sheet_to_report.py --inspect "$sample" > generated-sample/inspect.json
+      - name: Check public repository hygiene
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+          import subprocess
+
+          root = Path('.')
+          skill = (root / 'SKILL.md').read_text(encoding='utf-8')
+          match = re.match(r'^---\n(.*?)\n---\n', skill, re.S)
+          if not match:
+              raise SystemExit('SKILL.md frontmatter is missing')
+          top = []
+          for line in match.group(1).splitlines():
+              if line and not line.startswith((' ', '\t')) and ':' in line:
+                  top.append(line.split(':', 1)[0])
+          allowed = {'name', 'description', 'license', 'compatibility', 'metadata', 'allowed-tools'}
+          extra = sorted(set(top) - allowed)
+          if extra:
+              raise SystemExit(f'Unsupported top-level SKILL.md fields: {extra}')
+          tracked = [Path(item) for item in subprocess.check_output(
+              ['git', 'ls-files'], text=True
+          ).splitlines()]
+          forbidden = []
+          for path in tracked:
+              if path.name == '.env' or path.suffix.lower() in {'.pyc', '.pyo'} or '__pycache__' in path.parts:
+                  forbidden.append(path.as_posix())
+          if forbidden:
+              raise SystemExit(f'Forbidden generated or secret-like files: {forbidden}')
+          print('public repository hygiene: passed')
+          PY
