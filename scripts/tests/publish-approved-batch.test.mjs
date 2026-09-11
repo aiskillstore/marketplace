@@ -19,10 +19,10 @@ test('batch identity and distinct Skill limits fail closed', () => {
   assert.throws(() => batchIdentity([correlation(1), correlation(1)]));
   assert.throws(() => batchIdentity(Array.from({length:26}, (_, i) => correlation(i + 1))));
   assert.throws(() => validateBatchPlans([{plan:{skills:[{targetDir:'skills/a'}, {targetDir:'skills/a/b'}]}}]));
-  assert.throws(() => validateBatchPlans([{plan:{skills:[{targetDir:'skills/a',duplicate:true}]}}]));
+  assert.equal(validateBatchPlans([{plan:{skills:[{targetDir:'skills/a',duplicate:true}]}}]).size, 1);
 });
 
-test('two frozen approvals publish together once, retaining exact commits, callbacks, and reservations', async () => {
+for (const duplicates of [[], [1], [1, 2]]) test(`two frozen approvals publish once with duplicate skills ${duplicates.join(',') || 'none'}`, async () => {
   const temp = mkdtempSync(join(tmpdir(), 'publish-batch-'));
   const root = join(temp, 'work'), remote = join(temp, 'remote.git'), bin = join(temp, 'bin');
   mkdirSync(root); mkdirSync(bin);
@@ -33,7 +33,15 @@ test('two frozen approvals publish together once, retaining exact commits, callb
   try {
     git(['init','-b','main']);git(['config','user.name','Test']);git(['config','user.email','test@example.com']);
     writeFileSync(join(root,'README.md'),'fixture');git(['add','.']);git(['commit','-m','base']);
-    const prs=[],files={};
+    const prs=[],files={},publishedReports={};
+    for (const n of duplicates) {
+      const target=`skills/owner/skill${n}`;mkdirSync(join(root,target),{recursive:true});
+      const content=`# Skill ${n}\n`;writeFileSync(join(root,target,'SKILL.md'),content);
+      const report=JSON.stringify({meta:{slug:`owner-skill${n}`,source_type:'community',source_ref:'a'.repeat(40),source_url:`https://github.com/owner/source/tree/${'a'.repeat(40)}/skill${n}`,content_hash:createHash('sha256').update(content).digest('hex'),tree_hash:calculateCanonicalTreeHash(root,target)},security_audit:{safe_to_publish:false},publishedEvidence:'preserve this report'});
+      writeFileSync(join(root,target,'skill-report.json'),report);publishedReports[n]=report;
+    }
+    if (duplicates.length) {git(['add','.']);git(['commit','-m','already published immutable skills']);}
+
     for (const number of [1,2]) {
       const base=git(['rev-parse','HEAD']), pending=`pending/owner/skill${number}`;
       git(['checkout','-b',`submission/${number}`]);mkdirSync(join(root,pending),{recursive:true});
@@ -68,12 +76,18 @@ fs.writeFileSync(process.env.TEST_STATE,JSON.stringify(state));process.stdout.wr
     assert.equal(git(['ls-remote','origin','refs/heads/main']).split(/\s/)[0],git(['rev-parse','HEAD']));
     assert.equal(git(['rev-list','--count',`${before}..HEAD`]),'2');
     for(const n of [1,2]){assert.equal(existsSync(join(root,`pending/owner/skill${n}`)),false);assert.ok(existsSync(join(root,`skills/owner/skill${n}/skill-report.json`)));}
+    for (const n of duplicates) {
+      assert.equal(readFileSync(join(root,`skills/owner/skill${n}/skill-report.json`),'utf8'),publishedReports[n],'duplicate cleanup preserves the published report');
+      assert.equal(git(['diff', '--name-only', before, 'HEAD', '--', `skills/owner/skill${n}`]), '');
+    }
     assert.equal(callbacks.length,2);
+    assert.deepEqual(callbacks.map(c=>c.body.event),[1,2].map(n=>duplicates.includes(n)?'rejected':'merged'));
+    for (const c of callbacks.filter(c=>c.body.event==='rejected')) assert.match(c.body.reason,/same immutable source/);
     assert.deepEqual(callbacks.map(c=>c.body.pr_number),[1,2]);
     const evidence=JSON.parse(readFileSync(state));
     assert.equal(Object.keys(evidence.refs).length,2);
     assert.equal(evidence.writes.filter(w=>w.body.context?.startsWith('agentcrew/publication-attempt/')&&w.body.state==='success').length,2);
-    assert.equal(evidence.writes.filter(w=>w.body.context?.startsWith('agentcrew/publication/')&&w.body.state==='success').length,0,'only provider may complete correlation');
+    assert.equal(evidence.writes.filter(w=>w.body.context?.startsWith('agentcrew/publication/')&&w.body.state==='success').length,duplicates.length===2?2:0,'only pending-only batches may close without provider sync');
     const prior=git(['rev-parse','HEAD']);const replay=await run();assert.notEqual(replay.code,0);assert.equal(git(['ls-remote','origin','refs/heads/main']).split(/\s/)[0],prior,'replay cannot change main');
   } finally { server.close();rmSync(temp,{recursive:true,force:true}); }
 });
