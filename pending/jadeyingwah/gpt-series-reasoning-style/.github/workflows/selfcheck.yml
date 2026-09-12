@@ -1,0 +1,67 @@
+name: selfcheck
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  selfcheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2 (SHA-pinned)
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0 (SHA-pinned)
+        with:
+          python-version: "3.9"
+      - name: Static selfcheck (SB1..SB22, tiered bilingual)
+        run: python scripts/selfcheck.py
+      - name: selfcheck --out smoke (report path works)
+        run: |
+          python scripts/selfcheck.py --out docs/tmp-selfcheck.md
+          test -f docs/tmp-selfcheck.md && rm docs/tmp-selfcheck.md
+      - name: Install uv (runs the pinned skilllint below)
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1 (SHA-pinned)
+      - name: Official skilllint (agentskills.io spec, pinned 1.19.2 — `check .` trips FM010 on this version, so lint from the parent dir where the repo dir name exists)
+        run: cd .. && uvx skilllint@1.19.2 check gpt-series-reasoning-style
+      - name: openai.yaml parses
+        run: |
+          python -m pip install pyyaml==6.0.2 --quiet
+          python -c "import yaml; yaml.safe_load(open('agents/openai.yaml', encoding='utf-8')); print('yaml ok')"
+      - name: Checker CLIs respond to --help
+        run: |
+          python scripts/claim-check.py --help > /dev/null
+          python scripts/artifact-check.py --help > /dev/null
+      # Security-layer behaviour regression (batch 44): --help only proves the CLI
+      # imports. The interpreter default-deny was bypassed three times
+      # (python3.13 / quoted path / wrapper prefix) while every CI step stayed
+      # green, because nothing asserted the block actually fires. This step runs a
+      # fixture claims file and requires BOTH layers to block, and one ordinary
+      # command to still execute (a fail-open refactor fails here, loudly).
+      - name: claim-check security layers fire (interpreter deny + blacklist)
+        run: |
+          set +e
+          python scripts/claim-check.py scripts/examples/claim-check-guard.md . > /tmp/claim-check.out 2>&1
+          code=$?
+          set -e
+          cat /tmp/claim-check.out
+          test "$code" -eq 1
+          grep -q "command: \`git --version\` exit=0" /tmp/claim-check.out
+          grep -q "interpreter-indirect" /tmp/claim-check.out
+          grep -q "dangerous pattern" /tmp/claim-check.out
+          # Batch 47: the backtick-wrapped inline-code form used to sail past
+          # the interpreter layer entirely (first token carried a backtick,
+          # missed the family set, 15/15 executed, saw 0 blocked). The fixture
+          # now carries that form too -- three BLOCKED entries or this regressed.
+          grep -q "saw 3 blocked" /tmp/claim-check.out
+      - name: artifact-check empty-dir is not a false pass
+        run: python scripts/artifact-check.py . | grep -q "NO governance artifacts found"
+      - name: Probe scenarios parse
+        run: python probes/probe-runner.py list > /dev/null
+      - name: Self-test sheet parses (77 cases)
+        run: python scripts/selftest-runner.py list > /dev/null
+      - name: Judgement sheet writes (schema smoke, Python 3.9 safe)
+        run: python scripts/selftest-runner.py schema > /dev/null
+      - name: mutation-kill CLI + in-repo example manifest
+        run: |
+          python scripts/mutation-kill.py --help > /dev/null
+          python -c "import json; json.load(open('scripts/examples/mutation-kill-demo.manifest.json', encoding='utf-8')); print('manifest ok')"
