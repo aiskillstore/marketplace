@@ -1,6 +1,9 @@
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
+import { publicationValidatorRevision } from './resolve-approved-submission.mjs';
+
+export const preflightContext = digest => `agentcrew/publication-preflight/${digest}/${publicationValidatorRevision}`;
 
 const repo = 'aiskillstore/marketplace';
 export function trustedMerged(pr) {
@@ -114,6 +117,7 @@ export function main(request = api) {
   const batchRuns = request(`repos/${repo}/actions/workflows/publish-approved-batch.yml/runs?per_page=100`).workflow_runs;
   if (batchRuns.some(r => r.status !== 'completed')) return console.log('Waiting for batch publication receiver');
   const selected = [];
+  const rejected = [];
   let skillCount = 0;
   for (const candidate of candidates) {
     const count = skillCounts.get(candidate.number);
@@ -129,6 +133,13 @@ export function main(request = api) {
       // blocks later publications until its exact correlation is reconciled.
       return console.log(`#${pr.number}: ${choice.wait}`);
     }
+    // Only validation that failed BEFORE any reservation/mutation may be
+    // isolated. Unknown publication effects above still stop the entire queue.
+    if (statuses.find(s => s.context === preflightContext(digest))?.state === 'failure') {
+      rejected.push(pr.number);
+      console.error(`::error::#${pr.number}: frozen publication preflight rejected; inspect its status. Other independent approvals can continue.`);
+      continue;
+    }
     selected.push({ number: pr.number, correlation });
     skillCount += count;
   }
@@ -138,6 +149,6 @@ export function main(request = api) {
     console.log(`${live ? 'Dispatched' : 'Would dispatch'} ${skillCount} skills: ${JSON.stringify(inputs)}; receiver owns durable reservations`);
     return;
   }
-  if (reports.size) throw new Error('Remaining pending skills require inspection; no safe fresh dispatch');
+  if (reports.size) throw new Error(`Remaining pending skills require inspection; no safe fresh dispatch. Preflight rejected PRs: ${rejected.join(', ')}`);
 }
 if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) main();

@@ -166,7 +166,7 @@ test('supports an official flat pending skill', () => withRepository((root) => {
   assert.equal(plan.skills[0].targetDir, 'skills/official-skill');
 }));
 
-test('exact-history initial submission still requires and resolves the complete artifact', () => withRepository((root) => {
+for (const method of ['merge', 'squash', 'rebase']) test(`exact-history ${method} submission resolves the complete artifact, including shallow history`, () => withRepository((root) => {
   git(root, 'init', '-q');
   git(root, 'config', 'user.email', 'test@example.com');
   git(root, 'config', 'user.name', 'Test');
@@ -179,8 +179,11 @@ test('exact-history initial submission still requires and resolves the complete 
   addSkill(root, 'pending/owner/skill', { slug: 'owner-skill', withReference: true });
   git(root, 'add', '.');
   git(root, 'commit', '-qm', 'initial pending submission');
+  if (method === 'rebase') git(root, 'commit', '--allow-empty', '-qm', 'second reviewed commit');
   git(root, 'checkout', '-q', baseBranch);
-  git(root, 'merge', '--no-ff', '-qm', 'merge initial submission', 'initial-submission');
+  if (method === 'merge') git(root, 'merge', '--no-ff', '-qm', 'merge initial submission', 'initial-submission');
+  else if (method === 'squash') { git(root, 'merge', '--squash', 'initial-submission'); git(root, 'commit', '-qm', 'squash initial submission'); }
+  else git(root, 'merge', '--ff-only', 'initial-submission');
   const mergeCommit = git(root, 'rev-parse', 'HEAD');
   const changedFiles = git(root, 'diff', '--name-only', '--no-renames', baseCommit, mergeCommit, '--', 'pending')
     .split('\n').filter(Boolean).sort();
@@ -191,6 +194,19 @@ test('exact-history initial submission still requires and resolves the complete 
     reportOnlyMergeCommit: mergeCommit,
   });
   assert.equal(plan.skills[0].publicationMode, 'full');
+  const clone = mkdtempSync(join(tmpdir(), 'shallow-publication-'));
+  try {
+    git(clone, 'clone', '--depth=1', `file://${root}`, '.');
+    git(clone, 'fetch', '--depth=1', 'origin', baseCommit);
+    assert.equal(resolveApprovedSubmission({repositoryRoot:clone, changedFiles,
+      reportOnlyBaseCommit:baseCommit,reportOnlyMergeCommit:mergeCommit}).skills[0].publicationMode,'full');
+  } finally { rmSync(clone,{recursive:true,force:true}); }
+  // Files hidden from the purported PR list may never be smuggled through a
+  // linear range that otherwise contains the expected pending artifact.
+  write(root,'unreviewed-script.mjs','throw new Error("unreviewed")');
+  git(root,'add','.');git(root,'commit','-qm','extra unreviewed change');
+  assert.throws(()=>resolveApprovedSubmission({repositoryRoot:root,changedFiles,
+    reportOnlyBaseCommit:baseCommit,reportOnlyMergeCommit:git(root,'rev-parse','HEAD')}),/changed-file evidence/);
 }));
 
 test('resolves a report-only community re-audit without scanning unrelated pending roots', () => withRepository((root) => {
@@ -260,7 +276,7 @@ test('exact history parses only merge parent headers, never commit-message text'
     () => resolveApprovedSubmission({
       repositoryRoot: root,
       changedFiles: [`${pendingDir}/skill-report.json`],
-      reportOnlyBaseCommit: baseCommit,
+      reportOnlyBaseCommit: spoofedParent,
       reportOnlyMergeCommit: nonMergeCommit,
     }),
     /publication base is not the exact first parent of the merge commit/,
