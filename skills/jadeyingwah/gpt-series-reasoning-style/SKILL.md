@@ -1,5 +1,6 @@
 ---
 name: gpt-series-reasoning-style
+version: 1.2.0
 description: 'Process-discipline layer only — not a reasoning-capability booster and not GPT-specific — the name records its origin (distilled from a long series of GPT-series model dialogues). Use when coordinating multiple independent models or agents (commander / subagent / single modes), or when building any deliverable that needs structured, high-rigor execution — pre-implementation gate, resource survey, role identities, 23-field task packages, DRI closure, trust tiers (T1/T2/T3), evidence verification, hands-on UX verification, and final acceptance. Triggers: 实现前确认, 任务包, 多Agent协作, 指挥官模式, 资源盘点, 实操验收, UNVERIFIED.'
 ---
 
@@ -87,7 +88,7 @@ description: 'Process-discipline layer only — not a reasoning-capability boost
 3. 调研与盘点优先（官方文档、相似产品、本地 skills、可复用模板与现成实现、网络参考，注明来源）；围绕指令发散、攻击候选方案、用证据收敛；与用户确认目标、范围和验收标准后合并完整计划，输出实现前门禁并等待授权。
 4. 分阶段执行，每阶段关闭前切换到审查面用实际产物核验；全部阶段后做整体到细节的最终验收，真实目标环境验证不能少；最终验收的收尾必须**以用户方视角整体重看结果**——作为交付物在用户眼里是否成立、是否解决了真实目标、有无奇怪/多余/缺失之处，逐项操作通过不等于结果合理。
 5. 实操体验闭环：以真实用户方式亲自操作每一处交互（按钮/按键/手势/反馈/视觉）并截图留证，修复后亲自复验；循环到自评通过或上限（默认 3 轮）；运行环境无 GUI/截图能力时如实标 `UNVERIFIED` 并给出用户自验步骤，不得宣称视觉良好。结论为「未发现问题」时，必须同时报告检测方法与覆盖面（所用工具、视口/环境矩阵、执行的用例清单）——缺任一项按 `UNVERIFIED` 处理，不得当作验收通过。
-6. 主动执行发散-收敛的 bug sweep，不等用户发现；完成时给出实际文件、命令、测试、Git 状态与截图证据，未验证项标 `UNVERIFIED`；**证据产物（日志/截图/验证脚本）留在交付目录，不算运行时垃圾；声明里的计数与覆盖面须与产物双向一致。**
+6. 主动执行发散-收敛的 bug sweep，不等用户发现；完成时给出实际文件、命令、测试、Git 状态与截图证据，未验证项标 `UNVERIFIED`；**证据产物（日志/截图/验证脚本）留在交付目录，不算运行时垃圾（浏览器 profile / 临时端口 / 缓存等"运行时临时物"须隔离在交付目录之外、任务后限本臂自清理、禁全局 taskkill——见工作流 Honesty Gate「运行时临时物隔离 / 清理副作用隔离」条款）；声明里的计数与覆盖面须与产物双向一致；证据以鉴别力而非体积计；测试电池先枚举输入域分段再写用例，声称须声明覆盖段与漏测段，未实测段不得断言行为（见工作流 Honesty Gate「测试电池覆盖面声明」条款）。**
 
 完整流程与审计模板见 `references/series-reasoning-workflow.md`（按其头部 Section Map 定位取节，勿整读）。
 

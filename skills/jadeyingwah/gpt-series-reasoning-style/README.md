@@ -361,6 +361,7 @@ flowchart TD
 
 - 永远不会被宿主加载的面：`self-test.md`（13.4k，维护者自测专用，明确不在任务路径）与英文镜像 `series-reasoning-workflow-en.md`（中文宿主不读）——上表"单份"含它们，实际任务面更小。
 - 琐碎任务走轻通道：不进门禁、不写治理产物，成本就是常驻面 + 一句证据报告。
+- **行为成本（A/B 双臂实测，cycle3 + cycle4 合并口径，n=1/格）**：中等任务全周期 **A−B 增量 +14K–21K tokens**，几乎 100% 落在对话（行为成本，非装载成本）；装载面增量 ≤1.6K。覆盖面条款落地后的复跑床回到区间下沿（+13.8K）——纪律生效时步数变少，行为成本不随条款增多而上涨。
 
 ### 直观对比 / What that actually feels like
 
@@ -377,6 +378,7 @@ flowchart TD
 | 收益 | 证据 | 强度 |
 | --- | --- | --- |
 | **返工减少** | A/B R2/R3：位置违规 6+ 起 → **0**；声称失实 3 → 1 → 1；T12 完成门弧线 5 → 3 → 8 | 实测（每格 n=1，不外推） |
+| **条款有效性闭环（RED→GREEN）** | 床3 A 臂 3/8（电池漏段→误诊改契约）→ 第五十六批覆盖面条款 → A5 复跑 **8/8**，翻正恰落在败因上 | 实测（n=1，判分为作者，噪声不排除） |
 | **交付质量** | 端到端 16 分制 16/16 × 2；bug sweep 抓到 4 个边界缺陷；「测试全绿 ≠ 功能正确」实例入册 | 实测（n=1） |
 | **安全面** | 审查面强制攻击信任边界（注入 / 密钥 / 权限 / AI-LLM 风险）；实测中指挥官层抓到执行者未发现的 P0 | 机制 + 个案 |
 | **开发时间** | **未实测**。机制上：每拦下一次「假完成」就省一整轮返工来回——R2/R3 的分差主要来自返工减少 | 机制推断（如实标注） |
@@ -468,10 +470,10 @@ skill 应加载 `SKILL.md`；references 仅在当前阶段需要时按需读取�
 
 ```text
 gpt-series-reasoning-style/
-├── SKILL.md                 # 入口：加载证明、协作架构、门禁、工作流、References 索引（≈113 行 / ≈4k tok）
+├── SKILL.md                 # 入口：加载证明、协作架构、门禁、工作流、References 索引（≈114 行 / ≈4k tok）
 ├── VERSION                  # 1.2.0 —— 加载证明只需要 SKILL.md + VERSION
 ├── AGENTS.md                # 跨运行时入口别名（Codex / Gemini CLI / Copilot CLI）——只指路，权威仍在 SKILL.md
-├── README.md / LICENSE / CHANGELOG.md / INTERNAL-HISTORY.md
+├── README.md / LICENSE / CHANGELOG.md / INTERNAL-HISTORY.md / SECURITY.md
 ├── agents/
 │   └── openai.yaml          # OpenAI/Codex 兼容面的可选 UI 元数据（display_name / default_prompt）
 ├── identities/              # 21 个内置角色身份（双语）+ _template.md
@@ -525,7 +527,7 @@ gpt-series-reasoning-style/
 | `scripts/selfcheck.py` | **SB1–SB22 静态自检**：版本/编号一致性、结构完整性、交叉引用、围栏配对、身份与 references 计数、门禁字段多表面同步、语言策略锚点、agentskills.io 规范子集、身份计数跨面一致、写入点换行策略、**散文计数与其来源一致**等。`--out` 输出留痕报告。 | 只验证字面层；语义漂移、逐条双语对齐等**已知盲区在 docstring 里写明**。绿色 = 字面层完好，仅此而已。 |
 | `scripts/selftest-runner.py` | **77 条行为自测**的操作化：`list` 导出逐条提示词；`schema` 生成判定表（判定列留给人填）；`archive` 统计 + 内容指纹出可复现报表。 | 待判定项计作"未运行"而非"通过"；**工具永不自判 PASS**。 |
 | `scripts/mutation-kill.py` | **变异杀伤检验**：把产物自带的自检当被测对象，注入单点变异体、与**基线（未变异）**判定比对、逐错误类别统计**区分率**（= 判定与基线不同的变异体 / 该类有效变异体）。原产物只读；**需要且只需要一个基线变异体**，缺基线直接拒绝（exit 2）；ERROR 不计入分母；示例见 `scripts/examples/`。 | 报告的是**自检自己的判定**，不是产物正确性；工具永不自判 PASS。区分率 0% = 该类证据为零；区分率 ≠ 命中期望，两者是不同的数。 |
-| `scripts/claim-check.py` | **完成声明机械核验**：`## Files` 存在性 / `## Commands` fresh 实跑 + 期望退出码 / `## Hashes` sha256 内容 pin。 | 声明文件按**不可信输入**处理，默认双层拦截（`--allow-dangerous` 人工复核后解锁）：**25 类破坏性命令黑名单** + **解释器间接执行默认拒**（首词是 python/py/pypy/node/nodejs/shell 家族等即拦，`-c/-e/脚本` 载荷命令行上不可审计；窄白名单放行 `-m unittest|pytest`、`--version`）；打印实际执行数供审计。两层都不是沙箱。 |
+| `scripts/claim-check.py` | **完成声明机械核验**：`## Files` 存在性 / `## Commands` fresh 实跑 + 期望退出码 / `## Hashes` sha256 内容 pin。 | 声明文件按**不可信输入**处理，默认双层拦截（`--allow-dangerous` 人工复核后解锁）：**25 类破坏性命令黑名单** + **解释器间接执行默认拒**（首词是 python/py/pypy/node/nodejs/shell 家族等即拦，`-c/-e/脚本` 载荷命令行上不可审计；窄白名单放行 `-m unittest|pytest`、`--version`）；打印实际执行数供审计。两层都不是沙箱。完整安全模型见 `SECURITY.md`。 |
 | `scripts/artifact-check.py` | **项目治理产物结构校验**：`docs/gate/*.md` 十一字段标签与状态机、派发台账非空、发现账本逐轮四字段。 | 结构合规 ≠ 内容真实——授权是否真的发生过，仍靠人核证据。 |
 | `probes/probe-runner.py` | **3 轮对抗探针**的可重跑回归仪器：`list` / `report` / `archive`（append-only 留痕）/ `verify`（机械预检）。 | `verify` 只能把 fail_pattern 命中判 FAIL，**永不自动判 PASS**；pass/fail 由人读宿主输出决定。`probes/last-run.md` 被 git 追踪：跑一次 `archive` 工作树就会变脏，**属预期**（追加式留痕）。 |
 | `generate-banner.py` | 渲染社交预览图 `social-preview.png`（跨平台 CJK 字体回退链）。 | — |
@@ -553,6 +555,7 @@ gpt-series-reasoning-style/
 | **A/B 基线评测三轮**（12 任务 × 双臂 × 3 轮） | 总分 **81 vs 84 → 89 vs 87 → 93 vs 86**；位置违规 6+ → **0**；T12 完成门弧线 5 → 3 → **8** | R1 未跑赢（环境噪声）→ Resume Check 5→7 项；R2 首次跑赢；R3 三轮最大分差。完成门假完成 → 三条款 + claim-check |
 | 77 条行为自测全量执行（独立会话 ×77 + 带预置工程复跑 10 格） | R1 逐格判定 39 PASS / 35 PARTIAL / 3 FAIL；10 格复跑 8/2/0 | 装备缺口 → 增 `Fixture:` 声明；Test 9/19 期望按授权纪律修订；反哺 SB19/SB20 |
 | 鹈鹕骑车创意 A/B（同模型双臂） | 抓到**创意压制**：单一推荐方案被一字回复锁死方向、已装设计 skill 被无理由弃用 | 催生"方向并列 / 可逆冒险 / 盘点默认用 / 让位"四条款；v5 复跑验证方向质量反转（[判读表](docs/field-tests/pelican-ab-2026-09-11/report.md)） |
+| **A/B 有效性 cycle4 + A5 复跑**（3 床 × 双臂 + 复跑，同模型 Hy3） | 床1 证据鉴别力平手（B 臂被本机用户级 skill 污染）；床2 交付质量 **B 37 vs A 35** 首次破天花板；床3 真 RED→GREEN **A 3/8 vs B 8/8**——skill 臂首次明确落败（电池无一例 ≥3600 → 虚假确认 → 误诊 → 擅改契约）→ 覆盖面条款落地 → **A5 复跑 8/8 翻正**，协议用例 5/5 | 实锤「纪律形式执行」失败模式：实测给虚假确认、未实测段被断言行为 → 第五十五/五十六批条款；A5 为覆盖面条款**首个 GREEN 证据**（[报告](docs/field-tests/ab-cycle4-effectiveness/report.md)） |
 
 **A/B 协议**：12 个自包含任务 × 双臂（A 带 skill / B 同宿主同模型不带）× 3 轮；裁判人工逐格核验证据（diff/实跑/运行时验证），不采信被测 AI 自我声明；四维判分（流程/证据/诚实/结果，各 0–2）。详见
 [`docs/field-tests/ab-baseline/`](docs/field-tests/ab-baseline/)。
@@ -586,7 +589,7 @@ gpt-series-reasoning-style/
 
 为防"规则越写越多、检查越加越重"的失控，本仓库给自己立了预算：
 
-- **`SKILL.md` ≤ 250 行**（当前约 113 行 / 实测 3,843 tokens 常驻，o200k_base）——入口只保留决策点，细节下沉到按需的 references；
+- **`SKILL.md` ≤ 250 行**（当前约 114 行 / 实测 3,843 tokens 常驻，o200k_base）——入口只保留决策点，细节下沉到按需的 references；
 - **静态检查上限 22 项（SB1–SB22）**：新增第 23 项必须先证明它抓到过**真实缺陷**（可指认提交哈希）——SB18/19/20/21/22 均按此准入立项；
 - **77 条行为自测冻结**：只做"旧测失去鉴别力 → 替换"，不再扩容；
 - **收敛优先于加码**：版本对外固定 `1.2.0` 基线，post-1.2.0 增量以 CHANGELOG 的 Unreleased 批次计价，引用时注明批次。

@@ -30,6 +30,8 @@ Most skills are designed and shipped. This one is designed, shipped, **attacked,
 | 7 | A/B baseline eval round 2 基线评测二轮（同简报复测，skill 含 Resume Check ⑤⑥） | Full skill 全量 skill | 1.1.0 + Unreleased 第四批 | Total **89 vs 87 /96 — first round won by the skill arm**; position violations 6+ → **0**; evidence-engineering gap（18-item self-built verify suite / 200-run batch self-check / failing-test pinning）总分 89 vs 87——**skill 臂首次跑赢**；位置违规归零；证据工程代差 | Completion gate (T12) failed twice in a row in the skill arm: false-completion claim with zero disk writes（scored 3/8, possibly confounded by host framework）完成门连续两轮失守：假完成（磁盘零改动却宣称完成，记 3/8；可能含宿主框架因素） | Candidate rule hardening（pending adjudication）: completion claims must attach a disk self-check list（files + key diff + run output）候选规则硬化（待裁决）：完成声明必须附磁盘自检清单 |
 | 8 | A/B baseline eval round 3 基线评测三轮（同简报，skill 含完成门三条款 + claim-check 工具） | Full skill 全量 skill | 1.1.0 + Unreleased 第七批 | Total **93 vs 86 /96 — largest gap across three rounds**; T12 arc 5 → 3 → **8**（completion-gate clauses effective; disk self-check list format appeared in claims）; A-arm false claims 3 → 1 → **1**（T4-A headline contradicted its own log） 总分 93 vs 86——三轮最大分差；T12 完成门弧线 5→3→8，三条款实战有效；A 臂声称失实 1 起（T4-A 头条与自有日志矛盾，裁判深读后更正） | T6 mobile check: A-arm reported "no visual issues" in BOTH rounds while B-arm found and fixed real issues twice — systematic blind spot; T5 tension between scope-restraint and goal-related defects T6 移动端检查 A 臂两轮系统性漏检（B 臂两轮均找到真问题）；T5 范围克制与目标相关缺陷的规则张力 | Candidate refinements（pending adjudication）: visual-task "no issues" claims must state detection method & coverage; goal-related defects are not "unrelated issues" 候选细化（待裁决）：视觉类"未发现问题"须附检测方法与覆盖面；目标相关缺陷不算无关问题 |
 | 9 | Single-agent backbone end-to-end 单 Agent 主干端到端实测 | Single-Agent backbone 单 Agent 主干 | v1.1.0 (local `56a338a`) | 16/16 触发项通过；4 个边界缺陷被 bug sweep 抓到并修复（含 `clear()` 语义错误——38/38 全绿时仍存在） | Testing-green ≠ functionally correct: `clear()` case | Claims 表补‘功能正确’行；工作流补 Non-GUI 分档与资源盘点第四档 |
+| 10 | A/B effectiveness cycle 4 有效性三轴（3 床 × 双臂 × 同模型 Hy3） | Full skill 全量 skill 1.2.0 | 1.2.0 | Bed1 evidence discrimination tie 5/5 vs 5/5（B 臂被本机用户级 skill 污染 W1）；Bed2 delivery quality **B 37 vs A 35** 首次破天花板、方向不利；Bed3 true RED→GREEN **A 3/8 vs B 8/8**——skill 臂首次明确落败（电池无一例 ≥3600 → 虚假确认 → 误诊 → 擅改契约）；成本 A−B +14~21K/任务，~100% 在 Conversation | 「纪律形式执行」：先实测被执行但电池漏段，实测给虚假确认且事后自省未识别（规则缺陷在 skill）；对照臂非干净对照（方法学） | Batch 55（运行时临时物隔离/清理副作用隔离/验证成本闸门）+ Batch 56（测试电池覆盖面声明条款） |
+| 11 | A5 rerun of bed 3 A arm 床3 A 臂复跑（同任务同模型，装载含第五十六批条款） | Full skill 全量 skill 1.2.0 + Unreleased 第五十六批 | 1.2.0 | **A 臂 8/8 满分**：静态锁定 ≥3600 段 → 执行式 RED（修复前实跑 3661→`1h61m1s`）→ 一行修复契约不动 → 八段电池（含 3599/3600/3661）→ 报告带覆盖声明；判分方亲跑协议用例 5/5；成本 A−B +13.8K 回区间下沿 | —（翻正恰落在败因上，n=1 抽样噪声不排除） | 第五十六批条款获**首个 GREEN 证据** |
 
 \* Pre-release internal versions, all consolidated into public **1.1.0** — see [INTERNAL-HISTORY](../../INTERNAL-HISTORY.md). / 均为发布前内部版本，已全部合并入公开版 **1.1.0**，见 INTERNAL-HISTORY。
 
@@ -46,6 +48,7 @@ Earlier handover field tests (versions also consolidated into 1.1.0) validated t
 - [A/B baseline eval rounds 1-3 · 12 tasks × 2 arms × 3 rounds · 2026-09-10 / A/B 基线评测三轮 · 2026-09-10](ab-baseline/judgement-sheet.md)
 - [Behavioural self-test 77/77 full run · 2026-09-10 / 77 条行为自测全量执行 · 2026-09-10](selftest-run-2026-09-10/report.md)
 - [Pelican creative A/B · same model, both arms · 2026-09-11 / 鹈鹕骑车创意 A/B · 同模型双臂 · 2026-09-11](pelican-ab-2026-09-11/report.md)
+- [A/B effectiveness cycle 4 + A5 rerun · 2026-09-12 / A/B 有效性三轴 cycle4 与 A5 复跑 · 2026-09-12](ab-cycle4-effectiveness/report.md)
 
 ## Honesty & hygiene rules for these reports / 本目录的报告纪律
 
@@ -64,5 +67,9 @@ Earlier handover field tests (versions also consolidated into 1.1.0) validated t
 **判定一句**：缺陷数下降、且 token 增幅在你可接受的范围内，才值得留；只降缺陷但 token 成倍增长要先权衡；缺陷没降则直接不留。
 
 **天花板效应警告（2026-09-09 二次盲测实证）**：当任务小而自明、正确性可机械核验且两臂都做对时，缺陷数会出现 0 vs 0——这**不代表纪律无效**，只是这批任务没有区分空间。要测出缺陷差，任务必须含真实误解陷阱（模糊需求、多交付物高压、中途改需求）；否则 0:0 只能当「流程轴无信息」，不能当「纪律无效」的证据。
+
+**对照臂污染警告（2026-09-12 cycle4 床1 实证）**：在本机跑双臂时，**「无 skill 对照」并不干净**——宿主的用户级 skill 生态（已装的其他 skill）对两臂同样可见；cycle4 床1 的 B 臂就自行加载了本机一个验证类 skill 并凭其拿了 T3 高分，使「平手」实际读作「本 skill 相对本机生态无增量」而非「skill 无用」。判定 skill 增量前必须先盘点对照臂可用的用户级 skill 清单；要测裸差需用禁用用户级 skill 的环境。
+
+**token 口径（cycle3 + cycle4 合并实测，n=1/格）**：装载面增量很小（≤1.6K tokens）；行为增量几乎全部落在对话（Conversation），实测 **A−B +14K–21K tokens/任务**。覆盖率条款落地后的复跑床回到区间下沿（+13.8K）——步数变少、行为成本不涨。
 
 只想吃最小收益时，用 `docs/minimal-discipline.md` 的三条常驻规则即可，不必装完整 skill。

@@ -349,6 +349,26 @@ def main() -> int:
         try:
             # H2: explicit UTF-8 — text=True alone uses the Windows locale
             # (cp936) and garbles UTF-8 command output (seen live in R3).
+            #
+            # SECURITY (H1): shell=True is intentional and required — the
+            # tool's core function is re-running commands from an untrusted
+            # claims file, which may contain pipes, && chaining, and
+            # redirection. Removing shell=True would break the core function
+            # (evaluated and rejected in batch 32, 2026-09-11).
+            #
+            # Before reaching this line, every command passes three layers:
+            #   1. destructive-command blacklist (25 patterns, DANGEROUS_RES)
+            #   2. interpreter default-deny (37+ shells/interpreters; narrow
+            #      allowlist for `python -m unittest/pytest` and --version)
+            #   2b. wrapper unwrap (env/nice/timeout/call/... → re-apply layer
+            #       2 to the effective command; sudo/doas/xargs block on sight)
+            # All three are overridden only by --allow-dangerous (human review).
+            #
+            # NOT a sandbox: allowlist still runs project code (conftest.py
+            # may contain payloads); exec-style tools outside the interpreter
+            # family (go run, cargo run, make, uv, npm, ...) are blacklist-only.
+            # Real trust boundary = trusted claims source + human review of every
+            # entry. Full model: ../../SECURITY.md (repo root).
             proc = subprocess.run(cmd, shell=True, cwd=str(root),
                                   capture_output=True, text=True,
                                   encoding="utf-8", errors="replace",
