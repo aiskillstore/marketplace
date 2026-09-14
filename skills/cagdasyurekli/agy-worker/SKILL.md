@@ -5,7 +5,7 @@ license: MIT
 compatibility: Requires OpenAI Codex CLI, Bash, Python 3, git, and agy with provider network access. Claude and Claude Code hosts are not supported.
 metadata:
   author: cagdasyurekli
-  version: "0.17.0"
+  version: "0.18.0"
 ---
 
 # Delegate repository work and verify the result

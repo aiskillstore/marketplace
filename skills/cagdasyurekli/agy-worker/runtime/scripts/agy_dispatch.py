@@ -1796,7 +1796,9 @@ def _continue_from_facts(value: dict[str, Any], now: float) -> bool:
         # authority for this frozen job.  Keep its bound candidate available
         # for result review/finalization, but never reuse the selection through
         # another same-conversation continuation.
-        and value["reason"] != "selection_preflight_failed"
+        # A provider-reported permission denial likewise preserves the candidate
+        # for review, but is not authority for an automatic continuation.
+        and value["reason"] not in {"selection_preflight_failed", "permission_required"}
         and value["candidate_recognized"]
         and value["result_available"]
         and value["candidate_source"] != "provider_cancelled"
@@ -2555,6 +2557,8 @@ def _bind_workspace_prompt(
         "- File tools require absolute paths. Begin by listing that exact root. For each "
         "task-relative path, use an absolute child path beneath that root; never pass the "
         "relative path alone and never guess or search for another root.\n"
+        "- In the final schema envelope, report each files_changed[].path relative to this "
+        "workspace (for example, candidate.py), never as an absolute stage path.\n"
         f"- This is {workspace_shape}. {authority_note} Do not inspect its parent, HOME, "
         "`~/.gemini`, or any other directory. Do not call shell or terminal tools.\n"
         + (
@@ -2598,9 +2602,51 @@ def _provider_environment(command: dict[str, Any]) -> dict[str, str]:
     raise DispatchError("dispatch provider isolation is invalid")
 
 
+def _stage_relative_declared_path(path: str, stage_dir: Path) -> str | None:
+    """Accept a canonical absolute report only when it names this exact stage."""
+    if not path or "\x00" in path:
+        return None
+    if os.path.isabs(path):
+        root = str(stage_dir)
+        if (
+            not os.path.isabs(root)
+            or os.path.normpath(root) != root
+            or not path.startswith(root + os.sep)
+        ):
+            return None
+        path = path[len(root) + 1:]
+    if (
+        not path
+        or os.path.normpath(path) != path
+        or any(part in {"", ".", ".."} for part in path.split(os.sep))
+    ):
+        return None
+    return path
+
+
+def _canonicalize_scoped_report_paths(value: dict[str, Any], stage_dir: Path) -> dict[str, Any]:
+    """Canonicalize only exact stage-child claims before envelope binding."""
+    declared = value.get("files_changed")
+    if not isinstance(declared, list):
+        return value
+    normalized: list[Any] = []
+    for item in declared:
+        if not isinstance(item, dict):
+            normalized.append(item)
+            continue
+        rewritten = dict(item)
+        path = rewritten.get("path")
+        if isinstance(path, str) and os.path.isabs(path):
+            relative_path = _stage_relative_declared_path(path, stage_dir)
+            if relative_path is not None:
+                rewritten["path"] = relative_path
+        normalized.append(rewritten)
+    return {**value, "files_changed": normalized}
+
+
 def _declared_scoped_mutations_match(
     envelope: Path, binding: tuple[str, tuple[int, int, int, int, int]],
-    operations: list[dict[str, Any]],
+    operations: list[dict[str, Any]], stage_dir: Path,
 ) -> bool:
     """Require an envelope to declare exactly the staged operations to reconcile."""
     try:
@@ -2638,7 +2684,10 @@ def _declared_scoped_mutations_match(
         path, change = item.get("path"), item.get("change")
         if not isinstance(path, str) or not isinstance(change, str):
             return False
-        key = (path, change)
+        relative_path = _stage_relative_declared_path(path, stage_dir)
+        if relative_path is None:
+            return False
+        key = (relative_path, change)
         if key in observed:
             return False
         observed.add(key)
@@ -4164,6 +4213,19 @@ def _quota_terminal_failure(stream: Path, version: str) -> tuple[str, int | None
     return "provider_quota_exhausted", retry
 
 
+def _has_1_1_27_denied_actions(stream: Path, version: str) -> bool:
+    """Recognize only the documented 1.1.27 top-level denial signal.
+
+    Its payload is provider-owned and deliberately never interpreted or copied
+    into public state. Call this only after the terminal envelope has passed
+    schema validation, so presence cannot turn an invalid report into a candidate.
+    """
+    if version != "1.1.27":
+        return False
+    result = _terminal_result(stream, strict=True)
+    return isinstance(result, dict) and "denied_actions" in result
+
+
 def _boost_stream_is_bound(stream: Path) -> bool:
     """Require provider-observed Boost identity before accepting a result."""
     try:
@@ -4177,6 +4239,7 @@ def _boost_stream_is_bound(stream: Path) -> bool:
 
 def _validate_terminal_envelope(
     stream: Path, envelope: Path, provider_schema: Path, canonical_schema: Path, *, boost: bool = False,
+    stage_dir: Path | None = None,
 ) -> tuple[tuple[str, tuple[int, int, int, int, int]] | None, str | None, str | None]:
     """Keep framing, provider status, extraction, and canonical validation distinct."""
     if boost and not _boost_stream_is_bound(stream):
@@ -4196,6 +4259,8 @@ def _validate_terminal_envelope(
     value = dict(value)
     for field in ("commands_run", "tests_run"):
         value.setdefault(field, [])
+    if stage_dir is not None:
+        value = _canonicalize_scoped_report_paths(value, stage_dir)
     raw = json.dumps(value, ensure_ascii=True, indent=2).encode("ascii") + b"\n"
     if len(raw) > 1024 * 1024:
         return None, outer_status, "schema_rejection"
@@ -4922,10 +4987,19 @@ def controller(job: Path, ownership_fd: int) -> int:
                         schema_paths = _bound_schemas(command, state)
                         result_binding, outer_status, failure_stage = _validate_terminal_envelope(
                             stream_path, envelope_path, schema_paths[0], schema_paths[1],
-                            boost=bool(command.get("boost")),
+                            boost=bool(command.get("boost")), stage_dir=stage_dir,
                         )
                         if result_binding is None and reason is None:
                             reason = "invalid_envelope"
+                        elif (
+                            reason is None
+                            and result_binding is not None
+                            and _has_1_1_27_denied_actions(
+                                stream_path,
+                                command["agy_version"] if command["agy_version_observed"] else "",
+                            )
+                        ):
+                            reason = "permission_required"
                         elif reason is None and outer_status == "ERROR":
                             reason = "provider_terminal_error"
                         elif reason is None and outer_status == "CANCELLED":
@@ -4988,7 +5062,7 @@ def controller(job: Path, ownership_fd: int) -> int:
                         )
                     mutations, op_manifest = _scan_stage_mutations(stage_dir, scope, selected_manifest)
                     if result_binding is not None and not _declared_scoped_mutations_match(
-                        envelope_path, result_binding, mutations,
+                        envelope_path, result_binding, mutations, stage_dir,
                     ):
                         raise DispatchError(
                             "worker files_changed does not match scoped stage mutations"
@@ -5348,7 +5422,7 @@ def controller(job: Path, ownership_fd: int) -> int:
                             "assurance": "pending",
                             "continue_available": bool(
                                 final_status in {"succeeded", "failed"}
-                                and reason != "selection_preflight_failed"
+                                and reason not in {"selection_preflight_failed", "permission_required"}
                                 and candidate_source != "provider_cancelled"
                                 and current["conversation_id"] and not is_boost
                                 and current["attempt"] < current["max_cycles"]
