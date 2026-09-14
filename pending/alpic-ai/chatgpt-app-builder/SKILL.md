@@ -1,0 +1,54 @@
+---
+name: chatgpt-app-builder
+description: |
+  Guide developers through creating and updating ChatGPT apps.
+  Covers the full lifecycle: brainstorming ideas against UX guidelines, bootstrapping projects, implementing tools/views, debugging, running dev servers, deploying and connecting apps to ChatGPT.
+  Use when a user wants to create or update a ChatGPT app / MCP server for ChatGPT, or use the Skybridge framework.
+---
+
+# Creating Apps For LLMs
+
+ChatGPT apps are conversational experiences that extend ChatGPT through tools and custom UI views. They're built as MCP servers invoked during conversations.
+
+⚠️ The app is consumed by two users at once: the **human** and the **ChatGPT LLM**. They collaborate through the view—the human interacts with it, the LLM sees its state. Internalize this before writing code: the view is your shared surface.
+
+SPEC.md keeps track of the app's requirements and design decisions. Keep it up to date as you work on the app.
+
+**Building an ecommerce app?** → Read [ecommerce.md](references/ecommerce.md) first.
+
+**No SPEC.md?** → Read [discover.md](references/discover.md) first. Nothing else until SPEC.md exists.
+
+**SPEC.md exists?** → Read SPEC.md, then follow [architecture.md](references/architecture.md) to design the change. Update SPEC.md, then read the relevant Implementation references below before writing code.
+
+**Migrating from Skybridge `< 0.36.x`?** → Read [migrate-to-v1.md](references/migrate-to-v1.md) first. Users may reference `skybridge >= 0.36.x` as v1.
+
+**Migrating from Skybridge `1.x` to `2.x`?** → Fetch the [v2.0.0 release notes](https://github.com/alpic-ai/skybridge/releases/tag/v2.0.0) first and follow them.
+
+## Setup
+
+1. **Copy template** → [copy-template.md](references/copy-template.md): when starting a new project with ready SPEC.md
+2. **Run locally** → [run-locally.md](references/run-locally.md): when ready to test, need dev server or ChatGPT connection
+3. **Evals** → [evals.md](references/evals.md): when checking that a real model reaches the right tools from natural prompts, in a test
+
+## Architecture
+
+Design or evolve UX flows and API shape → [architecture.md](references/architecture.md)
+
+## Implementation
+
+- **Fetch and render data** → [fetch-and-render-data.md](references/fetch-and-render-data.md): when implementing server handlers and view data fetching
+- **State and context** → [state-and-context.md](references/state-and-context.md): when persisting view UI state and updating LLM context
+- **Prompt LLM** → [prompt-llm.md](references/prompt-llm.md): when view needs to trigger LLM response
+- **UI guidelines** → [ui-guidelines.md](references/ui-guidelines.md): display modes, layout constraints, theme, device, and locale
+- **External links** → [open-external-links.md](references/open-external-links.md): when redirecting to external URLs or setting "open in app" target
+- **OAuth** → [oauth.md](references/oauth.md): when tools need user authentication to access user-specific data
+- **CSP** → [csp.md](references/csp.md): when declaring allowed domains for fetch, assets, redirects, or iframes
+
+## Deploy
+
+- **Ship to production** → [deploy.md](references/deploy.md): when ready to deploy via Alpic
+- **Publish to ChatGPT Directory** → [publish.md](references/publish.md): when ready to submit for review
+
+Full API docs: [https://docs.skybridge.tech/api-reference.md](https://docs.skybridge.tech/api-reference.md)
+
+Release notes & changelog: [https://skybridge.tech/changelog.md](https://skybridge.tech/changelog.md)
