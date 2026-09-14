@@ -2,8 +2,8 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, lstatSync, mkdirSync, renameSync, rmSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { publicationIdentity, chooseAttempt, batchIdentity } from './continue-merged-publications.mjs';
-import { resolveApprovedSubmission } from './resolve-approved-submission.mjs';
+import { publicationIdentity, chooseAttempt, batchIdentity, preflightContext } from './continue-merged-publications.mjs';
+import { resolveApprovedSubmission, PublicationValidationError } from './resolve-approved-submission.mjs';
 
 export { batchIdentity } from './continue-merged-publications.mjs';
 
@@ -35,10 +35,10 @@ function assertDirectoryAncestors(path) {
     const partial = pieces.slice(0, i).join('/');
     if (existsSync(partial)) {
       const stat = lstatSync(partial);
-      if (stat.isSymbolicLink() || !stat.isDirectory()) throw new Error(`Unsafe publication ancestor: ${partial}`);
+      if (stat.isSymbolicLink() || !stat.isDirectory()) throw new PublicationValidationError(`Unsafe publication ancestor: ${partial}`);
     }
     const entry = git(['ls-tree', 'HEAD', '--', partial]);
-    if (entry && !/^040000 tree /.test(entry)) throw new Error(`Unsafe Git publication ancestor: ${partial}`);
+    if (entry && !/^040000 tree /.test(entry)) throw new PublicationValidationError(`Unsafe Git publication ancestor: ${partial}`);
   }
 }
 async function callback(row) {
@@ -86,11 +86,29 @@ export async function main() {
   // Runtime code is already imported from the immutable workflow checkout.
   git(['checkout', '--detach', base]);
   const paths = rows.flatMap(r => r.roots.flatMap(p => [p, p.replace(/^pending\//, 'skills/')]));
-  for (const path of paths) assertDirectoryAncestors(path);
+  const rejected = [];
+  const rejectPreflight = (row, error) => {
+    if (!(error instanceof PublicationValidationError)) throw error;
+    api(`statuses/${row.pr.merge_commit_sha}`, { context: preflightContext(row.digest), state: 'failure',
+      description: `No publication mutations: ${error.message}`.slice(0, 140), target_url: row.owner });
+    console.error(`::error::#${row.pr.number}: ${error.message}`);
+    rejected.push(row.pr.number);
+  };
+  for (const row of rows) {
+    try {
+      for (const path of row.roots.flatMap(p => [p, p.replace(/^pending\//, 'skills/')])) assertDirectoryAncestors(path);
+    } catch (error) { rejectPreflight(row, error); }
+  }
+  if (rejected.length) throw new Error(`Unsafe publication paths for PRs ${rejected.join(', ')}; no reservations or publication writes`);
   git(['sparse-checkout', 'set', '--no-cone', '--stdin'], ['/scripts/', ...paths.map(p => `/${p}/`)].join('\n') + '\n');
   for (const row of rows) {
-    row.plan = resolveApprovedSubmission({ repositoryRoot: process.cwd(), changedFiles: row.files,
-      reportOnlyBaseCommit: row.pr.base.sha, reportOnlyMergeCommit: row.pr.merge_commit_sha });
+    try {
+      row.plan = resolveApprovedSubmission({ repositoryRoot: process.cwd(), changedFiles: row.files,
+        reportOnlyBaseCommit: row.pr.base.sha, reportOnlyMergeCommit: row.pr.merge_commit_sha });
+    } catch (error) {
+      rejectPreflight(row, error);
+      continue;
+    }
     const refs = api(`git/matching-refs/tags/agentcrew-dispatch-outbox/publication/${row.digest}/`);
     const statuses = all(`commits/${row.pr.merge_commit_sha}/statuses?per_page=100`);
     const decision = chooseAttempt({ refs, statuses, digest: row.digest, merge: row.pr.merge_commit_sha, now: Date.now() });
@@ -99,6 +117,9 @@ export async function main() {
     row.context = `agentcrew/publication/${row.digest}`;
     row.attemptContext = `agentcrew/publication-attempt/${row.digest}/${row.attempt}`;
   }
+  // Preserve the exact batch identity and single atomic push. The next
+  // continuation dispatch excludes these conclusively unmodified failures.
+  if (rejected.length) throw new Error(`Preflight rejected PRs ${rejected.join(', ')}; no reservations or publication writes. Continue independent approvals in a new exact batch.`);
   validateBatchPlans(rows);
   const claimed = [];
   let pushed = false;

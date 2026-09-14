@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { createHash } from 'node:crypto';
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, existsSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, existsSync, symlinkSync } from 'node:fs';
 import { execFileSync, spawn } from 'node:child_process';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
@@ -22,18 +22,23 @@ test('batch identity and distinct Skill limits fail closed', () => {
   assert.equal(validateBatchPlans([{plan:{skills:[{targetDir:'skills/a',duplicate:true}]}}]).size, 1);
 });
 
-for (const duplicates of [[], [1], [1, 2]]) test(`two frozen approvals publish once with duplicate skills ${duplicates.join(',') || 'none'}`, async () => {
+for (const {duplicates, rejectFirst = false, callbackFailure = false, unsafeFirst = false} of [{duplicates:[]}, {duplicates:[1]}, {duplicates:[1,2]}, {duplicates:[],rejectFirst:true}, {duplicates:[],callbackFailure:true}, {duplicates:[],rejectFirst:true,unsafeFirst:true}]) test(`batch covers squash, duplicates ${duplicates}, preflight rejection ${rejectFirst}, callback failure ${callbackFailure}, unsafe path ${unsafeFirst}`, async () => {
   const temp = mkdtempSync(join(tmpdir(), 'publish-batch-'));
   const root = join(temp, 'work'), remote = join(temp, 'remote.git'), bin = join(temp, 'bin');
   mkdirSync(root); mkdirSync(bin);
   const git = args => execFileSync('git', args, { cwd: root, encoding:'utf8', stdio:['pipe','pipe','pipe'] }).trim();
   const callbacks=[];
-  const server = createServer((req,res) => { let body=''; req.on('data', x=>body+=x); req.on('end',()=> { callbacks.push({headers:req.headers,body:JSON.parse(body)});res.writeHead(200);res.end('{}'); }); });
+  const server = createServer((req,res) => { let body=''; req.on('data', x=>body+=x); req.on('end',()=> { callbacks.push({headers:req.headers,body:JSON.parse(body)});res.writeHead(callbackFailure?500:200);res.end('{}'); }); });
   server.listen(0,'127.0.0.1'); await once(server,'listening');
   try {
     git(['init','-b','main']);git(['config','user.name','Test']);git(['config','user.email','test@example.com']);
     writeFileSync(join(root,'README.md'),'fixture');git(['add','.']);git(['commit','-m','base']);
     const prs=[],files={},publishedReports={};
+    if(unsafeFirst){
+      mkdirSync(join(root,'skills/owner'),{recursive:true});
+      symlinkSync('../outside',join(root,'skills/owner/skill1'));
+      git(['add','.']);git(['commit','-m','unsafe published ancestor']);
+    }
     for (const n of duplicates) {
       const target=`skills/owner/skill${n}`;mkdirSync(join(root,target),{recursive:true});
       const content=`# Skill ${n}\n`;writeFileSync(join(root,target,'SKILL.md'),content);
@@ -46,9 +51,12 @@ for (const duplicates of [[], [1], [1, 2]]) test(`two frozen approvals publish o
       const base=git(['rev-parse','HEAD']), pending=`pending/owner/skill${number}`;
       git(['checkout','-b',`submission/${number}`]);mkdirSync(join(root,pending),{recursive:true});
       const content=`# Skill ${number}\n`;writeFileSync(join(root,pending,'SKILL.md'),content);
-      writeFileSync(join(root,pending,'skill-report.json'),JSON.stringify({meta:{slug:`owner-skill${number}`,source_type:'community',source_ref:'a'.repeat(40),source_url:`https://github.com/owner/source/tree/${'a'.repeat(40)}/skill${number}`,content_hash:createHash('sha256').update(content).digest('hex'),tree_hash:calculateCanonicalTreeHash(root,pending)},security_audit:{safe_to_publish:false}}));
+      writeFileSync(join(root,pending,'skill-report.json'),JSON.stringify({meta:{slug:`owner-skill${number}`,source_type:'community',source_ref:'a'.repeat(40),source_url:`https://github.com/owner/source/tree/${'a'.repeat(40)}/skill${number}`,content_hash:rejectFirst&&number===1?'0'.repeat(64):createHash('sha256').update(content).digest('hex'),tree_hash:calculateCanonicalTreeHash(root,pending)},security_audit:{safe_to_publish:false}}));
       git(['add','.']);git(['commit','-m','audited skill']);const head=git(['rev-parse','HEAD']);
-      git(['checkout','main']);git(['merge','--no-ff','-m','merge approval',`submission/${number}`]);const merge=git(['rev-parse','HEAD']);
+      git(['checkout','main']);
+      if(number===1){git(['merge','--squash',`submission/${number}`]);git(['commit','-m','squashed approval']);}
+      else git(['merge','--no-ff','-m','merge approval',`submission/${number}`]);
+      const merge=git(['rev-parse','HEAD']);
       prs.push({number,merged_at:'2026-09-08T00:00:00Z',base:{ref:'main',sha:base},user:{id:254047988,login:'ai-skill-store[bot]'},head:{ref:`submission/${number}`,sha:head,repo:{full_name:'aiskillstore/marketplace'}},merge_commit_sha:merge,html_url:`https://github.com/aiskillstore/marketplace/pull/${number}`,merged_by:{login:'test'},body:`Submission ID: \`${number.toString().padStart(8,'0')}-0000-0000-0000-000000000000\``});
       files[number]=git(['diff','--name-only',base,merge]).split('\n').map(filename=>({filename}));
     }
@@ -68,11 +76,31 @@ else if(endpoint.startsWith('commits/'))out=state.statuses[endpoint.split('/')[1
 else throw new Error(endpoint);
 fs.writeFileSync(process.env.TEST_STATE,JSON.stringify(state));process.stdout.write(JSON.stringify(args.includes('--slurp')?[out]:out));
 `,{mode:0o755});
-    const run = () => new Promise(resolveRun => {
-      const child=spawn(process.execPath,[script],{cwd:root,env:{...process.env,PATH:`${bin}:${process.env.PATH}`,TEST_STATE:state,PR_NUMBERS:'1,2',BATCH_ID:batchIdentity(prs.map(p=>publicationIdentity(p).correlation)),GITHUB_REF:'refs/heads/main',GITHUB_REPOSITORY:'aiskillstore/marketplace',GITHUB_RUN_ID:'123',SKILLSTORE_API_URL:`http://127.0.0.1:${server.address().port}`,SKILLSTORE_CALLBACK_TOKEN:'test-only'}});
+    const run = (selected=prs) => new Promise(resolveRun => {
+      const child=spawn(process.execPath,[script],{cwd:root,env:{...process.env,PATH:`${bin}:${process.env.PATH}`,TEST_STATE:state,PR_NUMBERS:selected.map(p=>p.number).join(','),BATCH_ID:batchIdentity(selected.map(p=>publicationIdentity(p).correlation)),GITHUB_REF:'refs/heads/main',GITHUB_REPOSITORY:'aiskillstore/marketplace',GITHUB_RUN_ID:'123',SKILLSTORE_API_URL:`http://127.0.0.1:${server.address().port}`,SKILLSTORE_CALLBACK_TOKEN:'test-only'}});
       let output='';child.stdout.on('data',s=>output+=s);child.stderr.on('data',s=>output+=s);child.on('close',code=>resolveRun({code,output}));
     });
-    const result=await run();assert.equal(result.code,0,result.output);
+    const result=await run();
+    if(rejectFirst){
+      assert.notEqual(result.code,0);assert.match(result.output,unsafeFirst?/#1: Unsafe .*publication ancestor/:/#1: .*content_hash/);
+      assert.equal(git(['ls-remote','origin','refs/heads/main']).split(/\s/)[0],before);
+      const rejected=JSON.parse(readFileSync(state));assert.equal(Object.keys(rejected.refs).length,0);
+      assert.equal(rejected.writes.length,1);assert.match(rejected.writes[0].body.context,/^agentcrew\/publication-preflight\//);
+      assert.equal(callbacks.length,0,'preflight failure cannot claim publication or reject a user submission');
+      const next=await run([prs[1]]);assert.equal(next.code,0,next.output);
+      assert.equal(git(['rev-parse','HEAD:pending/owner/skill1']),git(['rev-parse',`${before}:pending/owner/skill1`]),'invalid snapshot remains identical in Git, even outside sparse checkout');
+      assert.equal(existsSync(join(root,'pending/owner/skill2')),false);
+      assert.equal(existsSync(join(root,'skills/owner/skill2/SKILL.md')),true);
+      return;
+    }
+    if(callbackFailure){
+      assert.notEqual(result.code,0);assert.notEqual(git(['ls-remote','origin','refs/heads/main']).split(/\s/)[0],before);
+      const failed=JSON.parse(readFileSync(state));assert.equal(failed.writes.filter(w=>w.body.context?.startsWith('agentcrew/publication-preflight/')).length,0);
+      assert.equal(failed.writes.filter(w=>w.body.context?.startsWith('agentcrew/publication/')&&w.body.state==='failure').length,2);
+      const replay=await run();assert.notEqual(replay.code,0,'unknown effects must not automatically replay');
+      return;
+    }
+    assert.equal(result.code,0,result.output);
     assert.equal(git(['ls-remote','origin','refs/heads/main']).split(/\s/)[0],git(['rev-parse','HEAD']));
     assert.equal(git(['rev-list','--count',`${before}..HEAD`]),'2');
     for(const n of [1,2]){assert.equal(existsSync(join(root,`pending/owner/skill${n}`)),false);assert.ok(existsSync(join(root,`skills/owner/skill${n}/skill-report.json`)));}

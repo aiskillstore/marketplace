@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFileSync } from 'node:fs';
 import { parse } from 'yaml';
-import { trustedMerged, publicationIdentity, chooseAttempt } from '../continue-merged-publications.mjs';
+import { trustedMerged, publicationIdentity, chooseAttempt, preflightContext } from '../continue-merged-publications.mjs';
 
 test('only authoritative merged submissions continue; unknown effects never auto-replay', () => {
   const pr = { number: 12, merged_at: '2026-09-08T00:00:00Z', base: { ref: 'main' }, user: { id: 254047988, login: 'ai-skill-store[bot]' }, head: { repo: { full_name: 'aiskillstore/marketplace' }, ref: 'submission/test', sha: 'a'.repeat(40) }, merge_commit_sha: 'b'.repeat(40) };
@@ -10,6 +10,7 @@ test('only authoritative merged submissions continue; unknown effects never auto
   assert.equal(Boolean(trustedMerged({ ...pr, merged_at: null })), false);
   assert.equal(Boolean(trustedMerged({ ...pr, user: { id: 1 } })), false);
   const { digest, correlation } = publicationIdentity(pr);
+  assert.ok(preflightContext(digest).length <= 100);
   assert.equal(correlation, `submission-pr-12-${'a'.repeat(40)}-${'b'.repeat(40)}`);
   const input = { refs: [], statuses: [], digest, merge: pr.merge_commit_sha, now: 1788800000000 };
   assert.equal(chooseAttempt(input).attempt, '1788800000000-1');
@@ -79,6 +80,7 @@ test('automatic continuation dispatches at most 25 skills and leaves reservation
   const { main, batchIdentity } = await import('../continue-merged-publications.mjs');
   const prs = Array.from({length:26}, (_,i) => ({number:i+1, merged_at:`2026-09-01T00:00:${String(i).padStart(2,'0')}Z`, base:{ref:'main'}, user:{id:254047988,login:'ai-skill-store[bot]'}, head:{repo:{full_name:'aiskillstore/marketplace'},ref:'submission/test',sha:'a'.repeat(40)},merge_commit_sha:(i+1).toString(16).padStart(40,'0')}));
   const writes=[];
+  let preflightStatus = null, receiverStatus = null;
   const request=(endpoint,data)=>{
     if(data){writes.push({endpoint,data});return;}
     if(endpoint.endsWith('/git/trees/main'))return {tree:[{path:'pending',sha:'tree'}]};
@@ -89,7 +91,8 @@ test('automatic continuation dispatches at most 25 skills and leaves reservation
     const pr=endpoint.match(/\/pulls\/(\d+)$/);
     if(pr)return prs[Number(pr[1])-1];
     if(endpoint.includes('/actions/workflows/'))return {workflow_runs:[]};
-    if(endpoint.includes('/git/matching-refs/')||endpoint.includes('/statuses?'))return [];
+    if(endpoint.includes('/statuses?'))return endpoint.includes(prs[0].merge_commit_sha)?[preflightStatus,receiverStatus].filter(Boolean):[];
+    if(endpoint.includes('/git/matching-refs/'))return [];
     throw new Error(`Unexpected ${endpoint}`);
   };
   process.argv.push('--apply');
@@ -97,4 +100,15 @@ test('automatic continuation dispatches at most 25 skills and leaves reservation
   assert.equal(writes.length,1);
   assert.match(writes[0].endpoint,/publish-approved-batch.yml\/dispatches$/);
   assert.deepEqual(writes[0].data,{ref:'main',inputs:{pr_numbers:prs.slice(0,25).map(p=>p.number).join(','),batch_id:batchIdentity(prs.slice(0,25).map(p=>publicationIdentity(p).correlation))}});
+  preflightStatus={context:preflightContext(publicationIdentity(prs[0]).digest),state:'failure'};
+  writes.length=0;process.argv.push('--apply');try{main(request);}finally{process.argv.pop();}
+  assert.equal(writes[0].data.inputs.pr_numbers,prs.slice(1).map(p=>p.number).join(','),'invalid first item must not consume capacity or poison later approvals');
+  assert.equal(writes[0].data.inputs.batch_id,batchIdentity(prs.slice(1).map(p=>publicationIdentity(p).correlation)));
+  receiverStatus={context:`agentcrew/publication/${publicationIdentity(prs[0]).digest}`,state:'failure'};
+  writes.length=0;process.argv.push('--apply');try{main(request);}finally{process.argv.pop();}
+  assert.equal(writes.length,0,'receiver evidence overrides a preflight rejection; unknown effects still block');
+  receiverStatus=null;preflightStatus={...preflightStatus,context:preflightStatus.context.replace(/[^/]+$/, 'old-validator')};
+  writes.length=0;process.argv.push('--apply');try{main(request);}finally{process.argv.pop();}
+  assert.match(writes[0].data.inputs.pr_numbers,/^1,/,'a new validator must recheck previous preflight failures');
+
 });

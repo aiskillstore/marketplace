@@ -6,9 +6,12 @@ import { existsSync, lstatSync, readFileSync, readdirSync, realpathSync, writeFi
 import { posix, relative, resolve, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-function fail(message) {
-  throw new Error(message);
-}
+export class PublicationValidationError extends Error {}
+function fail(message) { throw new PublicationValidationError(message); }
+// Bind preflight rejection to this validator version. A deployed validation fix
+// rechecks old failures without replaying a receiver that already made changes.
+export const publicationValidatorRevision = createHash('sha256')
+  .update(readFileSync(new URL(import.meta.url))).digest('hex');
 
 function readOption(args, name, { required = true } = {}) {
   const index = args.indexOf(name);
@@ -142,7 +145,7 @@ function gitBuffer(repositoryRoot, args) {
     maxBuffer: 100 * 1024 * 1024,
   });
   if (result.status !== 0) {
-    fail(`git ${args.join(' ')} failed: ${result.stderr.toString('utf8').trim()}`);
+    throw new Error(`git ${args.join(' ')} failed: ${result.stderr.toString('utf8').trim()}`);
   }
   return result.stdout;
 }
@@ -187,7 +190,7 @@ function changedPathsBetween(baseEntries, mergeEntries) {
 
 function gitChangedPaths(repositoryRoot, baseCommit, mergeCommit) {
   const output = gitBuffer(repositoryRoot, [
-    'diff', '--name-only', '-z', '--no-renames', baseCommit, mergeCommit, '--', 'pending',
+    'diff', '--name-only', '-z', '--no-renames', baseCommit, mergeCommit,
   ]);
   let text;
   try {
@@ -364,16 +367,26 @@ export function resolveApprovedSubmission({
     if (!/^[0-9a-f]{40}$/.test(reportOnlyBaseCommit) || !/^[0-9a-f]{40}$/.test(reportOnlyMergeCommit)) {
       fail('publication history requires exact lowercase 40-hex commit identities');
     }
-    const mergeCommitObject = gitBuffer(root, ['cat-file', '-p', reportOnlyMergeCommit]).toString('utf8');
-    const mergeHeaders = mergeCommitObject.split(/\r?\n\r?\n/, 1)[0];
-    const mergeParents = mergeHeaders
-      .split(/\r?\n/)
-      .filter((line) => line.startsWith('parent '))
-      .map((line) => line.slice('parent '.length));
-    if (mergeParents.length !== 2 || mergeParents.some((parent) => !/^[0-9a-f]{40}$/.test(parent))
-      || mergeParents[0] !== reportOnlyBaseCommit) {
-      fail('publication base is not the exact first parent of the merge commit');
+    // Read immutable headers instead of revision walking: checkout/fetch may be
+    // shallow. Normal merges bind their first parent; squash/rebase may be linear.
+    let cursor = reportOnlyMergeCommit;
+    let reachedBase = false;
+    // ponytail: GitHub PR history capped at 250 commits; larger histories require review.
+    for (let count = 0; count < 250; count++) {
+      if (cursor !== reportOnlyMergeCommit
+        && spawnSync('git', ['-C', root, 'cat-file', '-e', `${cursor}^{commit}`], { stdio: 'ignore' }).status !== 0) {
+        gitBuffer(root, ['fetch', '--no-tags', '--depth=1', 'origin', cursor]);
+      }
+      const headers = gitBuffer(root, ['cat-file', '-p', cursor]).toString('utf8').split(/\r?\n\r?\n/, 1)[0];
+      const parents = headers.split(/\r?\n/).filter(line => line.startsWith('parent ')).map(line => line.slice(7));
+      if (![1, 2].includes(parents.length) || parents.some(parent => !/^[0-9a-f]{40}$/.test(parent))) break;
+      if (parents[0] === reportOnlyBaseCommit) { reachedBase = true; break; }
+      // A linear rebase may span multiple commits; do not accept an unrelated
+      // merge-base or cross a merge that did not use this exact reviewed base.
+      if (parents.length !== 1) break;
+      cursor = parents[0];
     }
+    if (!reachedBase) fail('publication base is not the exact first parent of the merge commit or its linear rebase');
     const actualChangedPaths = gitChangedPaths(root, reportOnlyBaseCommit, reportOnlyMergeCommit);
     if (JSON.stringify(actualChangedPaths) !== JSON.stringify(pendingFiles)) {
       fail('merged PR changed-file evidence does not match the exact first-parent pending diff');
