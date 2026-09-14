@@ -3,7 +3,8 @@ import { execFileSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
 import { publicationValidatorRevision } from './resolve-approved-submission.mjs';
 
-export const preflightContext = digest => `agentcrew/publication-preflight/${digest}/${publicationValidatorRevision}`;
+export const preflightContext = digest => `agentcrew/publication-preflight/${createHash('sha256')
+  .update(`${digest}:${publicationValidatorRevision}`).digest('hex')}`;
 
 const repo = 'aiskillstore/marketplace';
 export function trustedMerged(pr) {

@@ -10,6 +10,7 @@ test('only authoritative merged submissions continue; unknown effects never auto
   assert.equal(Boolean(trustedMerged({ ...pr, merged_at: null })), false);
   assert.equal(Boolean(trustedMerged({ ...pr, user: { id: 1 } })), false);
   const { digest, correlation } = publicationIdentity(pr);
+  assert.ok(preflightContext(digest).length <= 100);
   assert.equal(correlation, `submission-pr-12-${'a'.repeat(40)}-${'b'.repeat(40)}`);
   const input = { refs: [], statuses: [], digest, merge: pr.merge_commit_sha, now: 1788800000000 };
   assert.equal(chooseAttempt(input).attempt, '1788800000000-1');

@@ -35,10 +35,10 @@ function assertDirectoryAncestors(path) {
     const partial = pieces.slice(0, i).join('/');
     if (existsSync(partial)) {
       const stat = lstatSync(partial);
-      if (stat.isSymbolicLink() || !stat.isDirectory()) throw new Error(`Unsafe publication ancestor: ${partial}`);
+      if (stat.isSymbolicLink() || !stat.isDirectory()) throw new PublicationValidationError(`Unsafe publication ancestor: ${partial}`);
     }
     const entry = git(['ls-tree', 'HEAD', '--', partial]);
-    if (entry && !/^040000 tree /.test(entry)) throw new Error(`Unsafe Git publication ancestor: ${partial}`);
+    if (entry && !/^040000 tree /.test(entry)) throw new PublicationValidationError(`Unsafe Git publication ancestor: ${partial}`);
   }
 }
 async function callback(row) {
@@ -86,19 +86,27 @@ export async function main() {
   // Runtime code is already imported from the immutable workflow checkout.
   git(['checkout', '--detach', base]);
   const paths = rows.flatMap(r => r.roots.flatMap(p => [p, p.replace(/^pending\//, 'skills/')]));
-  for (const path of paths) assertDirectoryAncestors(path);
-  git(['sparse-checkout', 'set', '--no-cone', '--stdin'], ['/scripts/', ...paths.map(p => `/${p}/`)].join('\n') + '\n');
   const rejected = [];
+  const rejectPreflight = (row, error) => {
+    if (!(error instanceof PublicationValidationError)) throw error;
+    api(`statuses/${row.pr.merge_commit_sha}`, { context: preflightContext(row.digest), state: 'failure',
+      description: `No publication mutations: ${error.message}`.slice(0, 140), target_url: row.owner });
+    console.error(`::error::#${row.pr.number}: ${error.message}`);
+    rejected.push(row.pr.number);
+  };
+  for (const row of rows) {
+    try {
+      for (const path of row.roots.flatMap(p => [p, p.replace(/^pending\//, 'skills/')])) assertDirectoryAncestors(path);
+    } catch (error) { rejectPreflight(row, error); }
+  }
+  if (rejected.length) throw new Error(`Unsafe publication paths for PRs ${rejected.join(', ')}; no reservations or publication writes`);
+  git(['sparse-checkout', 'set', '--no-cone', '--stdin'], ['/scripts/', ...paths.map(p => `/${p}/`)].join('\n') + '\n');
   for (const row of rows) {
     try {
       row.plan = resolveApprovedSubmission({ repositoryRoot: process.cwd(), changedFiles: row.files,
         reportOnlyBaseCommit: row.pr.base.sha, reportOnlyMergeCommit: row.pr.merge_commit_sha });
     } catch (error) {
-      if (!(error instanceof PublicationValidationError)) throw error;
-      api(`statuses/${row.pr.merge_commit_sha}`, { context: preflightContext(row.digest), state: 'failure',
-        description: `No publication mutations: ${error.message}`.slice(0, 140), target_url: row.owner });
-      console.error(`::error::#${row.pr.number}: ${error.message}`);
-      rejected.push(row.pr.number);
+      rejectPreflight(row, error);
       continue;
     }
     const refs = api(`git/matching-refs/tags/agentcrew-dispatch-outbox/publication/${row.digest}/`);

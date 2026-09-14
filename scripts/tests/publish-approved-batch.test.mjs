@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { createHash } from 'node:crypto';
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, existsSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, existsSync, symlinkSync } from 'node:fs';
 import { execFileSync, spawn } from 'node:child_process';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
@@ -22,7 +22,7 @@ test('batch identity and distinct Skill limits fail closed', () => {
   assert.equal(validateBatchPlans([{plan:{skills:[{targetDir:'skills/a',duplicate:true}]}}]).size, 1);
 });
 
-for (const {duplicates, rejectFirst = false, callbackFailure = false} of [{duplicates:[]}, {duplicates:[1]}, {duplicates:[1,2]}, {duplicates:[],rejectFirst:true}, {duplicates:[],callbackFailure:true}]) test(`batch covers squash, duplicates ${duplicates}, preflight rejection ${rejectFirst}, callback failure ${callbackFailure}`, async () => {
+for (const {duplicates, rejectFirst = false, callbackFailure = false, unsafeFirst = false} of [{duplicates:[]}, {duplicates:[1]}, {duplicates:[1,2]}, {duplicates:[],rejectFirst:true}, {duplicates:[],callbackFailure:true}, {duplicates:[],rejectFirst:true,unsafeFirst:true}]) test(`batch covers squash, duplicates ${duplicates}, preflight rejection ${rejectFirst}, callback failure ${callbackFailure}, unsafe path ${unsafeFirst}`, async () => {
   const temp = mkdtempSync(join(tmpdir(), 'publish-batch-'));
   const root = join(temp, 'work'), remote = join(temp, 'remote.git'), bin = join(temp, 'bin');
   mkdirSync(root); mkdirSync(bin);
@@ -34,6 +34,11 @@ for (const {duplicates, rejectFirst = false, callbackFailure = false} of [{dupli
     git(['init','-b','main']);git(['config','user.name','Test']);git(['config','user.email','test@example.com']);
     writeFileSync(join(root,'README.md'),'fixture');git(['add','.']);git(['commit','-m','base']);
     const prs=[],files={},publishedReports={};
+    if(unsafeFirst){
+      mkdirSync(join(root,'skills/owner'),{recursive:true});
+      symlinkSync('../outside',join(root,'skills/owner/skill1'));
+      git(['add','.']);git(['commit','-m','unsafe published ancestor']);
+    }
     for (const n of duplicates) {
       const target=`skills/owner/skill${n}`;mkdirSync(join(root,target),{recursive:true});
       const content=`# Skill ${n}\n`;writeFileSync(join(root,target,'SKILL.md'),content);
@@ -77,7 +82,7 @@ fs.writeFileSync(process.env.TEST_STATE,JSON.stringify(state));process.stdout.wr
     });
     const result=await run();
     if(rejectFirst){
-      assert.notEqual(result.code,0);assert.match(result.output,/#1: .*content_hash/);
+      assert.notEqual(result.code,0);assert.match(result.output,unsafeFirst?/#1: Unsafe .*publication ancestor/:/#1: .*content_hash/);
       assert.equal(git(['ls-remote','origin','refs/heads/main']).split(/\s/)[0],before);
       const rejected=JSON.parse(readFileSync(state));assert.equal(Object.keys(rejected.refs).length,0);
       assert.equal(rejected.writes.length,1);assert.match(rejected.writes[0].body.context,/^agentcrew\/publication-preflight\//);
