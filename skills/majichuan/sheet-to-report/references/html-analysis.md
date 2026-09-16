@@ -13,6 +13,13 @@
 7. 章节含 `id/role/claim_type/title/body/meaning/limitations/evidence_ids/charts`，可选 `nav_title` 使用一至十二字符的业务短名片段数组。role 可为 background/diagnostic/supporting；claim_type 可为 fact/structural/hypothesis。背景无需行动。图表含 `evidence_id/kind/x/y/title/limit`（limit不超过24），kind 支持 line/bar/paired/contribution。可选 `order=source/descending/absolute`、`emphasis=primary/supporting`；paired 额外指定 `y2`，同一对象同序显示两指标，各用独立标尺和单位。contribution 使用全部证据行显示首要拉动对象、其余对象合计与全体净变动，limit 不裁掉尾部抵减；仅用于可加总的金额/数量变化，禁止对去重人数、单均和比例求和。不接受自行提供图数据。summary 项含 `chapter_ids/headline/text`；action 项含 `chapter_ids/title/target/basis/steps/success_signal/boundary`。`sufficiency` 每项含 `question/evidence_ids/decision/reason`，decision 区分 sufficient/followed_up/data_limit/implementation_gap/budget_stop。
 8. `--html-analysis --finalize <生成的story文件> --output <运行>`。只读冻结证据和提案，不读原表、不补算；生成新最终目录。不编辑 report_model 或 HTML。修复计算/提案/渲染后重新生成，旧结果保留。
 
+## 完成检查与用户交付
+
+- `html-chapters/1` 的结构和证据检查由本流程的 `finalize` 结果及对应 `html_qa.json` 承担。只支持旧 `analysis_chapters` 的 `html_qa.py` 不得读取新版模型；入口必须明确拒绝，不能输出误导性的失败或空成功。
+- 结构、内容、证据和文件封印通过后，仍要区分 `visual=passed` 与 `visual=not_verified`。未实际查看桌面、手机基础可用性和打印结果时，不得写成视觉已通过。
+- HTML 完成后先提供真实可打开的报告入口，并用普通语言列明已经完成、尚未完成的检查。用户未排除 PPT 时，说明可回复“生成 PPT”继续；用户明确只要 HTML 时到此结束，不重复推荐。
+- 交付说明优先包含一条与汇报目标相关且已绑定证据的发现。不得只扔出文件，也不得向用户展示内部 evidence ID、合同版本或调试堆栈。
+
 第七步中的四类无 version 图只供旧快照兼容。新快照声明 `capabilities.chart_spec_version=chart-spec/1`，每张图必须遵循该版本规格；错误版本或非法图型组合直接失败，不静默回退。章节、摘要、行动、范围和数值插值的合同不变。
 
 ## 新版图表的宿主决策

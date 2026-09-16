@@ -36,9 +36,13 @@ A passing environment check verifies declared package versions for the chosen ta
 
 ## Start an analysis
 
-Give the AI tool one structured Excel or CSV file and a business goal. For example:
+For a first run, ask the agent to confirm a short plan:
 
-> Use sheet-to-report to create a monthly business review for an operations lead. Inspect the fields first, confirm any definition that could change the conclusion, then generate an evidence-linked HTML report with key judgments, charts, limitations, and next actions.
+> Use sheet-to-report to analyze this Excel file for a monthly review aimed at business leaders. Inspect the data first, then give me a short plan covering the recommended time range, the business questions worth answering, and any definitions I need to confirm. Wait for my confirmation before generating the HTML report. When it is complete, tell me how to continue to an editable PPT.
+
+When the goal and definitions are already clear, request direct analysis:
+
+> Use sheet-to-report to analyze this Excel file directly for a monthly review aimed at business leaders. Inspect the fields and time range first; ask only when an ambiguity could change the conclusion. Generate the HTML report first, then tell me how to continue to an editable PPT.
 
 The agent may inspect the input with:
 
@@ -63,11 +67,13 @@ The standard deck uses the accepted report model and chapter projection. It is w
 Theme behavior is consistent across hosts:
 
 - An explicitly requested or previously accepted theme wins.
-- If no theme is specified and the user has not delegated the choice, show candidate directions with a real cover page and chart page for each direction.
+- If no theme is specified and the user has not delegated the choice, recommend Clear Business first and show up to two other verified full-deck directions, each with a real cover page and chart page rendered from the actual PPTX.
 - If the user explicitly delegates the decision, use the `clean` / clear-business default.
 - The full chapter deck currently accepts the verified `clean`, `corporate`, and `warm` configurations. An unverified full-deck theme must fail clearly rather than being advertised as supported.
 
 After export, render and inspect the complete deck in PowerPoint or WPS. Fix authoring logic when text is clipped, objects overlap, or information is missing; do not hand-edit a final file to hide a generator defect.
+
+If the host cannot render the PPTX, say so before theme selection and offer either a written theme direction or explicit authorization to use Clear Business. Do not present color swatches, webpage mockups, or source SVG as final PPT previews, and do not infer a choice from silence. Only label links as full-deck preview or editable download when they open in the current host.
 
 ## Optional SlideViber refinement
 

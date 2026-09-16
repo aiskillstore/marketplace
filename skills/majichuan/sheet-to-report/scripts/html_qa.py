@@ -244,6 +244,11 @@ def _business_experience_violations(
 
 
 def qa_html(path: Path, model: dict[str, Any]) -> dict[str, Any]:
+    if model.get("contract_version") == "html-chapters/1":
+        raise ValueError(
+            "html_qa.py only supports the legacy analysis_chapters model; "
+            "use html_analysis.py finalize and its html_qa.json for html-chapters/1."
+        )
     document = Path(path).read_text(encoding="utf-8")
     engineering_regression = str(
         model.get("request", {}).get("analysis_intent") or ""
@@ -370,7 +375,19 @@ def main() -> int:
     parser.add_argument("--output", required=True, type=Path)
     args = parser.parse_args()
     model = json.loads(args.model.read_text(encoding="utf-8"))
-    result = qa_html(args.html, model)
+    try:
+        result = qa_html(args.html, model)
+    except ValueError as error:
+        result = {
+            "status": "unsupported",
+            "reason": str(error),
+        }
+        args.output.parent.mkdir(parents=True, exist_ok=True)
+        args.output.write_text(
+            json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+        print(json.dumps(result, ensure_ascii=False))
+        return 2
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(
         json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8"

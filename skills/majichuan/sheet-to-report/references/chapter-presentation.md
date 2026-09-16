@@ -20,9 +20,12 @@ SlideViber场景作者只需Python基础分析依赖与Node；实际PPT导出须
    最终运行 `chapter_presentation_qa.py` 时同样传 `--story presentation-story.json`，从独立输入重新验证映射、概况及可见眉题；随后实际查看最终PPT，核对图表标题、结论对应关系、阅读顺序与长文本。机器封印和字段检查不能替代语义与视觉验收。
 3. 标准作者通过 `chapter_pptx_export.py` 再核对源模型/主题/投影与场景，输出draft.pptx、draft.qa.json和来源回执；包含中文字体脚本及换行声明，不再需要宿主私有最终化工具。核对来源/几何/原生图表数据与嵌入工作簿后，用当前可用的PowerPoint、WPS或其他实际PPT渲染器查看完整稿，再另存正式文件。没有可用的实际渲染能力时保留待验状态，不用SVG示意或出文件成功代替。新原生图表工作簿只作为冻结数值快照，不冒充原表公式。SlideViber 先实际 preview 检查 SVG，再调用其 export；若导出未声明中文字体，使用 `python scripts/chapter_pptx_prepare.py --input draft.pptx --output font-ready.pptx --font SELECTED_FONT` 补全所选字体的文字脚本声明，然后最终化。此步骤只处理候选字体，不改文本、图形坐标或数值。作者使用实际1920×1080坐标，避免转换器对文字与图形的祖先缩放处理不一致。
 4. `python scripts/chapter_presentation_qa.py --model report_model.json --selection selection.json --projection presentation.json --pptx FINAL.pptx --output NEW_QA.json`。核对完整文本、系列名称、类别顺序、原生图表数值／数值横坐标。两种目标都应增加 `--scene NEW_BUILD_DIR/scene.json`；SlideViber缺少scene必须失败。核对文字和图形的最终几何及来源值；没有场景不能通过。该脚本通过不等于视觉通过，必须实看最终页。
-5. 交付实际文件、编辑能力和残余限制，遵守当前任务的人工作品验收门禁，不把内部通过自动写成用户认可。
+5. 交付实际文件、编辑能力和残余限制，遵守当前任务的人工作品验收门禁，不把内部通过自动写成用户认可。小样优先交付由受测PPTX真实渲染的图片；完整稿同时提供逐页阅读入口和独立可编辑PPTX。只有链接在当前宿主实际可打开时才标为“预览完整稿”或“下载可编辑PPT”。
+6. 标准稿完成后，若用户未拒绝美化，用普通文字说明可回复“制作美化版”继续，并明确SlideViber需单独安装、标准稿会保留、图表编辑方式可能与标准版不同。美化是可选视觉优化，不得暗示标准稿不合格；用户已拒绝时不重复提示。
 
 ## 能力边界与失败
+
+真实预览依赖宿主可调用的PPT渲染能力。若受测PPTX无法导入当前渲染器或宿主不能展示图片，保留源PPTX并在主题选择前说明：用户可以按文字方向选择，或明确授权使用推荐的清晰商务。不得静默使用默认主题，也不得把失败渲染器产生的空白页、SVG源文件或重新绘制的网页示意当成PPT预览。该降级不代表预览体验验收通过。
 
 ### 有来源的设计表达
 
