@@ -1,56 +1,40 @@
-# Security Model
+# Security Model / 安全模型
 
-This skill contains a command-execution tool (`scripts/claim-check.py`). This document explains its security model, what is covered, what is not, and how to use it safely.
+> 本文档描述**当前形态（v1.4.x 极简线）**的安全模型。v1.2.x 时代围绕 `scripts/claim-check.py`
+> 的完整威胁模型已随该工具下线而移除，原文见 git 历史（batch 32, 2026-09-11 前后）。
+> The document below covers the **current form (v1.4.x minimal line)**. The full threat model for the
+> v1.2.x-era `claim-check.py` tool was removed along with the tool; see git history.
 
-## The tool and why it executes commands
+## Runtime surface / 运行时面
 
-`claim-check.py` mechanically verifies an AI agent's completion claim by re-running the commands the agent claims to have run. Its core function **requires** executing arbitrary commands — that is the entire point of the tool. It is not a side effect; it is the feature.
+The skill's runtime surface is **text only**:
 
-Because commands may contain pipes (`|`), chaining (`&&`, `;`), and redirection (`>`, `>>`), the tool uses `subprocess.run(..., shell=True)`. Removing `shell=True` would break the tool's core function (evaluated and rejected in batch 32, 2026-09-11).
+- Loading reads exactly two files: `SKILL.md` and `VERSION`. Both are plain Markdown/text.
+- `references/multi-agent.md` and `templates/*.md` are on-demand **text** instructions — no code executes.
+- The skill contains **no command-execution tool, no network calls, no telemetry, no auto-triggered scripts**.
+  加载与执行全程不运行任何代码、不发起网络请求、不上报任何数据。
 
-## Trust model
+## scripts/ — what runs and what it touches / 脚本目录
 
-The claims file (markdown input listing files/commands/hashes) is **untrusted input** — it is authored by the agent whose completion is being judged. A hostile claims file is, by definition, arbitrary code execution when run through this tool.
+The only script in this repository is `scripts/selfcheck.py`, a **repository consistency self-check**
+— it is a development utility, **not** part of the skill's load path:
 
-This is stated explicitly in the tool's docstring (lines 15–37) and is not hidden.
+- Reads only files inside this repository (SKILL.md, VERSION, references/, templates/).
+- No network access, no `shell=True`, no arbitrary-command execution, no writes outside stdout.
+- 仓库自检脚本：只读仓库内文件做一致性核对，无网络、无 shell 拼接、无任意命令执行、不写文件。
 
-## Mitigation layers (with CI regression coverage)
+## Historical note / 历史说明
 
-The tool applies three layers before executing any command:
+`scripts/claim-check.py` (v1.2.x) mechanically re-ran commands from an agent-authored claims file and
+therefore required `shell=True` arbitrary-command execution, with a three-layer mitigation pipeline
+(destructive-pattern blacklist / interpreter default-deny / wrapper unwrap). That tool was **not carried
+forward** into the 1.4.x minimal line. Should a claim-verification tool return, this file must regain a
+full threat-model section **before** the tool ships — not after.
 
-| Layer | What it blocks | Coverage |
-|---|---|---|
-| 1. Destructive-command blacklist | `rm -rf`, `git push --force`, `git reset --hard`, `format`, `mkfs`, `curl|sh`, `Invoke-Expression`, `reg add/delete`, `schtasks`, etc. (25 patterns) | Best-effort pattern match; not a sandbox |
-| 2. Interpreter default-deny | Any command whose first token is an interpreter/shell (python, node, deno, bun, perl, ruby, php, powershell, cmd, bash, sh, zsh, npx, uvx, pipx, and 33+ variants — 37 total) is blocked unless it matches a narrow allowlist | Allowlist: `python -m unittest/pytest`, `python --version` (with absolute paths, quoted paths, version suffixes, wrapper prefixes) |
-| 2b. Wrapper unwrap | `env python -c`, `nice python -c`, `timeout 5 python -c`, `call python -c` etc. are unwrapped and the same default-deny re-applied to the effective command | `sudo`/`doas`/`xargs` blocked on sight; unknown wrapper arg shapes fail closed |
+历史工具 `claim-check.py`（v1.2.x）因需 `shell=True` 执行任意命令而带完整三层防御；该工具未随 1.4.x
+极简线保留。未来若恢复此类工具，必须**先**在本文档重建完整威胁模型，再发布工具本身。
 
-All three layers are overridden only by the explicit `--allow-dangerous` flag, which is intended for use after human review of every command.
+## Reporting / 报告
 
-CI (`.github/workflows/selfcheck.yml`, step 14) runs a dedicated fixture (`scripts/examples/claim-check-guard.md`) that asserts all three layers actually trigger — not just that the CLI can import. This prevents silent fail-open regressions.
-
-## Honest limits (NOT a sandbox)
-
-The following are **documented, intentional limitations** — not bugs to be fixed silently:
-
-1. **Allowlist still runs project code**: `python -m pytest` executes the project's test suite, including `conftest.py` and imported test modules. Those are project code and could contain payloads.
-2. **Exec-style tools outside the interpreter family**: `go run`, `cargo run`, `make`, `uv`, `npm` and similar compile-or-download-and-run tools are not in the interpreter family and are covered only by the destructive-command blacklist.
-3. **The blacklist is best-effort**: PowerShell aliases (`ri`, `del -Recursion`), long options (`--recursive --force`), and other undetected spellings are not covered.
-4. **No sandbox, no container, no privilege reduction**: commands run with the full privileges of the user invoking the tool.
-
-The real trust boundary remains: **a trusted claims source plus human review of every entry**.
-
-## Usage recommendations
-
-- **Always review the claims file before running** — especially the `## Commands` section.
-- **Run without `--allow-dangerous` by default** — let the layers block what they can, then review each blocked command individually.
-- **Run in a disposable environment** (container, VM, or a clean checkout) when the claims source is not fully trusted.
-- **Do not run on a claims file you did not generate or review** — the tool's job is to verify claims, not to sanitize them.
-- **The `--timeout` flag** (default 600s) limits per-command runtime but does not limit what a command can do in that window.
-
-## Evolution history
-
-This security model has been through 8 iterations (batches 10, 22, 32, 35, 39, 44, 45, 48), including 4 live RED confirmations (one of which deleted a sacrificial directory). The current model is the result of those iterations, not an initial design. Details are in `CHANGELOG.md`.
-
-## Reporting security issues
-
-If you find a bypass of any layer, or a gap in the documented limits, please open an issue or contact the maintainer. Bypass reports that include a working RED reproduction (a claims file that executes a payload despite the layers) are especially valuable.
+Open a GitHub issue in this repository. MIT licensed — no security SLA, best-effort maintenance.
+漏洞请开 GitHub issue。本项目为 MIT 许可的尽力维护项目，无安全响应 SLA。
