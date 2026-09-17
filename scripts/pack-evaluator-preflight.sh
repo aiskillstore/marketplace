@@ -418,7 +418,7 @@ for ATTEMPT in 1 2; do
     --evaluator-gid "$(id -g packeval)" \
     --task "$PREFLIGHT_TASK" \
     --model sonnet \
-    --judge-model gpt-5.5 \
+    --judge-model gpt-5.6-terra \
     --agent-timeout-ms "$AGENT_TIMEOUT_MS" \
     --timeout-ms 360000 \
     --idle-timeout-ms 240000 \

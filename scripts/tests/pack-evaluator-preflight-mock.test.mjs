@@ -55,7 +55,7 @@ test('mock serves protocol-complete Messages and Responses streams without retai
     method: 'POST',
     headers,
     body: JSON.stringify({
-      model: 'gpt-5.5',
+      model: 'gpt-5.6-terra',
       stream: true,
       max_output_tokens: 4096,
       input: 'sensitive mock prompt',
@@ -75,7 +75,7 @@ test('mock serves protocol-complete Messages and Responses streams without retai
     })),
     [
       { path: '/v1/messages', model: 'sonnet', stream: true, maxTokens: 16384 },
-      { path: '/v1/responses', model: 'gpt-5.5', stream: true, maxTokens: 4096 },
+      { path: '/v1/responses', model: 'gpt-5.6-terra', stream: true, maxTokens: 4096 },
     ],
   );
   const serialized = JSON.stringify(activities);
@@ -105,7 +105,7 @@ test('verify mode can return the strict Codex judge schema required by skill ver
         authorization: `Bearer ${LOCAL_TOKEN}`,
         'content-type': 'application/json',
       },
-      body: JSON.stringify({ model: 'gpt-5.5', stream: true, input: 'private judge prompt' }),
+      body: JSON.stringify({ model: 'gpt-5.6-terra', stream: true, input: 'private judge prompt' }),
     });
     const body = await response.text();
     assert.equal(response.status, 200);

@@ -1898,7 +1898,7 @@ function workflowContext(args, generationId, scenarioId, cli, version, checksum,
     cliVersion: version,
     cliSha256: checksum,
     model: args.model ?? 'sonnet',
-    judgeModel: args['judge-model'] ?? 'gpt-5.5',
+    judgeModel: args['judge-model'] ?? 'gpt-5.6-terra',
   };
 }
 
@@ -2253,7 +2253,7 @@ export async function executorPreflight(args) {
       'pack', 'executor-preflight',
       '--manifest', manifestFile,
       '--model', args.model ?? 'sonnet',
-      '--judge-model', args['judge-model'] ?? 'gpt-5.5',
+      '--judge-model', args['judge-model'] ?? 'gpt-5.6-terra',
       '--agent-timeout-ms', String(agentTimeoutMs),
       '--agent-max-retries', '1',
     ], {
