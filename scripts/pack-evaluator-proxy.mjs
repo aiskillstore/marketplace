@@ -47,7 +47,7 @@ const DEFAULT_ALLOWED_MODELS = new Set([
   'claude-sonnet-4-6',
   'claude-sonnet-5',
   'sonnet',
-  'gpt-5.5',
+  'gpt-5.6-terra',
 ]);
 
 function fail(message) {

@@ -195,7 +195,8 @@ export function verifySourceMetadata({ source, attempt, workflow, comparison, wo
   if (!/^name:\s*Generate Pack\s*$/m.test(workflowSource)) fail('Source workflow name contract is missing');
   const cliVersion = workflowSource.match(/^\s*PACK_PRODUCTION_CLI_VERSION:\s*'([0-9]+\.[0-9]+\.[0-9]+)'\s*$/m)?.[1];
   if (!cliVersion) fail('Source workflow does not pin a stable Pack production CLI');
-  if (!/--model sonnet(?:\s|\\|$)/.test(workflowSource) || !/--judge-model gpt-5\.5(?:\s|\\|$)/.test(workflowSource)) {
+  const judgeModel = workflowSource.match(/--judge-model (gpt-5\.5|gpt-5\.6-terra)(?:\s|\\|$)/)?.[1];
+  if (!/--model sonnet(?:\s|\\|$)/.test(workflowSource) || !judgeModel) {
     fail('Source workflow evaluator model identities differ from the recovery contract');
   }
   if (
@@ -203,7 +204,7 @@ export function verifySourceMetadata({ source, attempt, workflow, comparison, wo
     || !/\.scenarios\[0\]\.generationId = \$generationId/.test(workflowSource)
     || !/\.workflowBinding = \{/.test(workflowSource)
   ) fail('Source workflow lacks immutable generation and workflow binding');
-  return { cliVersion, workflowSourceSha256: sha256(workflowSource) };
+  return { cliVersion, judgeModel, workflowSourceSha256: sha256(workflowSource) };
 }
 
 function artifactRun(artifact, source) {
@@ -583,7 +584,7 @@ export async function prepareCancellationRecovery({
     cliVersion: cliIdentity.version,
     cliSha256: cliIdentity.sha256,
     model: 'sonnet',
-    judgeModel: 'gpt-5.5',
+    judgeModel: sourceVerification.judgeModel,
   };
   const evaluation = buildInfrastructureApiEvaluation({
     scenario,

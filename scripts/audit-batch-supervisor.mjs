@@ -12,7 +12,7 @@ const getArg = (name, fallback = '') => {
 
 const repo = process.env.REPO || 'aiskillstore/marketplace';
 const worktree = process.env.WORKTREE || process.cwd();
-const model = process.env.MODEL || 'gpt-5.5:high';
+const model = process.env.MODEL || 'gpt-5.6-terra:high';
 const cliVersion = process.env.CLI_VERSION || getArg('--cli-version', 'latest');
 const riskLevelFilter = (process.env.RISK_LEVEL || getArg('--risk-level', ''))
   .split(',')

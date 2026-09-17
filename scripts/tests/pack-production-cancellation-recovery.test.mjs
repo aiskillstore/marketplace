@@ -88,7 +88,7 @@ jobs:
     steps:
       - run: |
           command --model sonnet \\
-            --judge-model gpt-5.5 \\
+            --judge-model gpt-5.6-terra \\
           GENERATION_ID=$(node -e "process.stdout.write(require('node:crypto').randomUUID())")
           jq '.scenarios[0].generationId = $generationId | .workflowBinding = {' plan.json
 `,
@@ -184,6 +184,17 @@ test('workflow_run inspection accepts only exact cancelled main workflow_run/dis
     ...event(),
     repository: { full_name: 'attacker/fork' },
   }), /trusted Marketplace repository/);
+});
+
+test('recovery preserves the model from either supported source workflow', async () => {
+  for (const judgeModel of ['gpt-5.5', 'gpt-5.6-terra']) {
+    const input = createInput();
+    input.workflowSource = input.workflowSource.replace('gpt-5.6-terra', judgeModel);
+    const result = await prepareCancellationRecovery(input);
+    assert.equal(result.outcome, 'candidate_null_prepared');
+    const evaluation = JSON.parse(readFileSync(join(input.outputDir, 'candidate-null.evaluation.json')));
+    assert.equal(evaluation.evaluator.judgeModel, judgeModel);
+  }
 });
 
 test('immutable plan generation id produces a sanitized v4 candidate-null recovery', async () => {

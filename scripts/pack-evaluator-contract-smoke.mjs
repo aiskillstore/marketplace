@@ -189,9 +189,9 @@ const CONTRACTS = [
   {
     name: 'codex_responses',
     path: '/v1/responses',
-    model: 'gpt-5.5',
+    model: 'gpt-5.6-terra',
     payload: {
-      model: 'gpt-5.5',
+      model: 'gpt-5.6-terra',
       max_output_tokens: 16,
       stream: true,
       input: 'Reply with exactly PACK_EVALUATOR_READY and nothing else.',
