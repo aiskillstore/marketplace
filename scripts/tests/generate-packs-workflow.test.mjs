@@ -182,8 +182,8 @@ test('pre-publication runtime acceptance executes one staged result as the isola
   assert.match(evaluate, /sudo -u packeval env -i[\s\S]*skillstore-cli pack runtime-accept/);
   assert.match(evaluate, /--identity-file "\$RUNTIME_ROOT\/identities\.json"/);
   assert.match(evaluate, /runtime-acceptance\.json/);
-  assert.match(generate, /PACK_PRODUCTION_CLI_VERSION: '2\.16\.0'/);
-  assert.match(generate, /PACK_PRODUCTION_CLI_SHA256: 'af5d54e0db3524e33e97a538bb84da2c4d36113ec72823a3f5530a111d2f467f'/);
+  assert.match(generate, /PACK_PRODUCTION_CLI_VERSION: '2\.16\.7'/);
+  assert.match(generate, /PACK_PRODUCTION_CLI_SHA256: 'ba61a3198f7f5d470794c7184ed6fea5c423dac7ed005e45fc17bd119e09e0f7'/);
   assert.doesNotMatch(generate, /__SET_AFTER_/);
 });
 

@@ -128,7 +128,7 @@ test('hard-clamps requested request and concurrency limits to the cumulative bud
   const request = () => fetch(`${url}/v1/responses`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${LOCAL_TOKEN}`, 'content-type': 'application/json' },
-    body: JSON.stringify({ model: 'gpt-5.5', max_output_tokens: 1, input: 'bounded' }),
+    body: JSON.stringify({ model: 'gpt-5.6-terra', max_output_tokens: 1, input: 'bounded' }),
   });
   try {
     for (let index = 0; index < 160; index += 1) assert.equal((await request()).status, 200);
@@ -162,7 +162,7 @@ test('replaces local credentials with the bounded upstream credential', async ()
       'x-api-key': LOCAL_TOKEN,
       'content-type': 'application/json',
     },
-    body: JSON.stringify({ model: 'gpt-5.5', input: 'ok' }),
+    body: JSON.stringify({ model: 'gpt-5.6-terra', input: 'ok' }),
   });
   assert.equal(response.status, 200);
   assert.deepEqual(await response.json(), {
@@ -173,7 +173,7 @@ test('replaces local credentials with the bounded upstream credential', async ()
   assert.equal(observed.url, '/v1/responses?trace=1');
   assert.equal(observed.authorization, `Bearer ${UPSTREAM_KEY}`);
   assert.equal(observed.apiKey, undefined);
-  assert.match(observed.body, /gpt-5\.5/);
+  assert.match(observed.body, /gpt-5\.6-terra/);
   assert.equal(response.headers.has('set-cookie'), false);
   assert.equal(JSON.parse(observed.body).max_output_tokens, 16384);
   assert.deepEqual(
@@ -190,8 +190,8 @@ test('replaces local credentials with the bounded upstream credential', async ()
     },
     {
       path: '/v1/responses',
-      model: 'gpt-5.5',
-      requestBytes: Buffer.byteLength(JSON.stringify({ model: 'gpt-5.5', input: 'ok' })),
+      model: 'gpt-5.6-terra',
+      requestBytes: Buffer.byteLength(JSON.stringify({ model: 'gpt-5.6-terra', input: 'ok' })),
       stream: false,
       status: 200,
     },
@@ -223,14 +223,14 @@ test('accounts cumulative usage and fails closed when USD cost is unavailable', 
   const request = () => fetch(`${url}/v1/responses`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${LOCAL_TOKEN}`, 'content-type': 'application/json' },
-    body: JSON.stringify({ model: 'gpt-5.5', max_output_tokens: 8, input: 'bounded' }),
+    body: JSON.stringify({ model: 'gpt-5.6-terra', max_output_tokens: 8, input: 'bounded' }),
   });
   try {
     assert.equal((await request()).status, 200);
     assert.deepEqual(recorded.find((activity) => activity.phase === 'budget'), {
       phase: 'budget', status: 'within', reason: null, modelRequests: 1,
       inputTokens: 11, outputTokens: 3, costUsd: 0.25,
-      reservedCostUsd: 0.001485, billable: true,
+      reservedCostUsd: 0.001575, billable: true,
     });
     assert.equal((await request()).status, 200);
     assert.equal(recorded.filter((activity) => activity.phase === 'budget').at(-1).status, 'unbillable');
@@ -297,7 +297,7 @@ test('reserves worst-case cost before forwarding any inference request', async (
     const response = await fetch(`http://127.0.0.1:${bounded.address().port}/v1/responses`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${LOCAL_TOKEN}`, 'content-type': 'application/json' },
-      body: JSON.stringify({ model: 'gpt-5.5', max_output_tokens: 8, input: 'bounded' }),
+      body: JSON.stringify({ model: 'gpt-5.6-terra', max_output_tokens: 8, input: 'bounded' }),
     });
     assert.equal(response.status, 429);
     assert.equal(upstreamCalls, 0);
@@ -324,7 +324,7 @@ test('rejects protocol-irrelevant output limits before cost reservation', async 
     const response = await fetch(`http://127.0.0.1:${bounded.address().port}/v1/responses`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${LOCAL_TOKEN}`, 'content-type': 'application/json' },
-      body: JSON.stringify({ model: 'gpt-5.5', max_tokens: 1, input: 'x' }),
+      body: JSON.stringify({ model: 'gpt-5.6-terra', max_tokens: 1, input: 'x' }),
     });
     assert.equal(response.status, 400);
     assert.equal(upstreamCalls, 0);
@@ -519,7 +519,7 @@ test('rejects models and token requests outside the evaluator budget', async () 
   const authorized = await fetch(`${proxyUrl}/v1/responses`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${LOCAL_TOKEN}`, 'content-type': 'application/json' },
-    body: JSON.stringify({ model: 'gpt-5.5', input: 'allowed after policy rejection' }),
+    body: JSON.stringify({ model: 'gpt-5.6-terra', input: 'allowed after policy rejection' }),
   });
   assert.equal(authorized.status, 200);
   const nextStarted = activities.slice(activityStart + policyActivities.length)
@@ -563,12 +563,12 @@ test('policy rejections use monotonic activity ids without spending the forwardi
   assert.equal((await fetch(`${url}/v1/responses`, {
     method: 'POST',
     headers,
-    body: JSON.stringify({ model: 'gpt-5.5', input: 'forward exactly once' }),
+    body: JSON.stringify({ model: 'gpt-5.6-terra', input: 'forward exactly once' }),
   })).status, 200);
   assert.equal((await fetch(`${url}/v1/responses`, {
     method: 'POST',
     headers,
-    body: JSON.stringify({ model: 'gpt-5.5', input: 'budget exhausted' }),
+    body: JSON.stringify({ model: 'gpt-5.6-terra', input: 'budget exhausted' }),
   })).status, 429);
 
   assert.equal(upstreamCalls, 1);
@@ -606,13 +606,13 @@ test('enforces request, concurrency, and TTL limits', async () => {
   const first = fetch(`${url}/v1/responses`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${LOCAL_TOKEN}`, 'content-type': 'application/json' },
-    body: JSON.stringify({ model: 'gpt-5.5', input: 'one' }),
+    body: JSON.stringify({ model: 'gpt-5.6-terra', input: 'one' }),
   });
   await new Promise((resolve) => setTimeout(resolve, 10));
   const second = await fetch(`${url}/v1/responses`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${LOCAL_TOKEN}`, 'content-type': 'application/json' },
-    body: JSON.stringify({ model: 'gpt-5.5', input: 'two' }),
+    body: JSON.stringify({ model: 'gpt-5.6-terra', input: 'two' }),
   });
   assert.equal(second.status, 429);
   release(new Response('{"ok":true}', { status: 200, headers: { 'content-type': 'application/json' } }));
@@ -621,7 +621,7 @@ test('enforces request, concurrency, and TTL limits', async () => {
   const expired = await fetch(`${url}/v1/responses`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${LOCAL_TOKEN}`, 'content-type': 'application/json' },
-    body: JSON.stringify({ model: 'gpt-5.5', input: 'late' }),
+    body: JSON.stringify({ model: 'gpt-5.6-terra', input: 'late' }),
   });
   assert.equal(expired.status, 403);
   await new Promise((resolve) => limited.close(resolve));
@@ -659,7 +659,7 @@ test('aborts an in-flight upstream request when the evaluator disconnects', asyn
     },
   });
   request.on('error', () => {});
-  request.end(JSON.stringify({ model: 'gpt-5.5', input: 'hang' }));
+  request.end(JSON.stringify({ model: 'gpt-5.6-terra', input: 'hang' }));
   await started;
   request.destroy();
   await aborted;
