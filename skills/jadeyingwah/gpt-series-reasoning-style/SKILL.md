@@ -1,29 +1,20 @@
 ---
 name: gpt-series-reasoning-style
-version: 1.5.0
-description: 交付验收与多智能体协作纪律。Use when 涉及数字验算、代码交付、多Agent协作、需要防假完成的任务；or when user says "做完了帮我查/看看对不对/验收"、派发子任务或多个AI分工。小改/一句话问答不加载。
+version: 1.5.6
+description: 交付验收与多智能体协作纪律（防假完成）。Use when 涉及数字验算、代码交付、多Agent协作、需要防假完成的任务；or when user says "做完了帮我查/看看对不对/验收"、派发子任务或多个AI分工。约束交付是否真实，不单独设定创意质量满意标准（见 DISCIPLINE 完成档位 C1/C2）。小改/一句话问答不加载。
+license: MIT
+compatibility: "Works with any model or client supporting the Agent Skills SKILL.md convention (Claude Code, Codex, Cursor, etc.)."
+metadata:
+  author: JadeYingWah
 ---
 
-# 交付纪律
+# 强制门禁
 
-## 五阶段流程
+本文件不含交付纪律。**纪律全文在 `DISCIPLINE.md`**——它只能在**你即将动手做事或回答用户的前一刻**被读取。
 
-接到交付型任务后，按以下顺序推进。每个阶段的退出条件明确，到了就进下一阶段，不要卡在中间。
+**「前一刻」= 下列动作里最早发生的那个之前**：①创建/修改交付物相关文件（含脚手架）；②输出施工级方案并要用户确认；③跑构建/测试等产线命令；④以「做完了」口径声称交付。
 
-| 阶段 | 名称 | 做什么 | 退出条件 |
-|------|------|--------|----------|
-| 1 | 自由构想 | 凭你自己去想清楚。 | 你能一句话说清楚你接下来需要做什么，不再问自己"我到底要做什么"。 |
-| 2 | 规则规划 | **去读 `references/plan-rules.md`**，按里面的规则做规划。 | 见 plan-rules.md 内的退出条件。 |
-| 3 | 执行 | 凭你的能力去做。 | 你觉得可以了，没有正在调试的bug或问题。 |
-| 4 | 直觉检查 | 凭常识重新检查你自己的答案/物品/项目，快速扫一遍交付物。 | 没有"等等，这里好像有问题"的卡住感。 |
-| 5 | 纪律检查 | **去读 `references/review-rules.md`**，严格过一遍。 | 见 review-rules.md 内的退出条件。 |
+创意/视觉类：在上述动作之前，允许一轮**不读** DISCIPLINE 的方向构想；**任务里有你不认识的专名/概念时，仍须先问用户或搜索**（此时不读 DISCIPLINE，但要完成确认）。
 
-## 任务结束后
-
-整个任务交付完了、用户回复新的内容之前，**彻底忘记 plan-rules.md、review-rules.md 和 multi-agent.md 的具体内容**。你只需要记住：有五个阶段，到哪个阶段读哪个文件。规则长什么样，下次需要的时候再读。
-
-## 边界
-只改完成任务必须改的地方；发现会让交付物坏着交的问题顺手修掉，其余不碰。
-
-## 加载
-平时只读本文件和 VERSION。阶段2才读 plan-rules.md，阶段5才读 review-rules.md。多智能体场景另读 multi-agent.md。
+- 在前一刻之前，**禁止读取** `DISCIPLINE.md`，禁止凭记忆引用它的任何内容，禁止提前预览任何流程；禁止读取 `plan-rules.md` / `review-rules.md` / `multi-agent.md`。
+- 到了前一刻，读取 `DISCIPLINE.md`，然后**严格按其中内容执行任务**。

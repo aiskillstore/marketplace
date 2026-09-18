@@ -58,15 +58,19 @@ def main():
     check("templates/executor.md 存在", (REPO_ROOT / "templates/executor.md").exists())
     check("templates/reviewer.md 存在", (REPO_ROOT / "templates/reviewer.md").exists())
 
-    # 3. 结构完整（五阶段 + 文件级渐进加载点 + 任务后遗忘）
+    # 3. 结构完整（SKILL.md=纯门禁；DISCIPLINE.md 承载五阶段纪律）
+    DISCIPLINE_MD = REPO_ROOT / "DISCIPLINE.md"
+    check("DISCIPLINE.md 存在", DISCIPLINE_MD.exists())
     if SKILL_MD.exists():
         text = SKILL_MD.read_text(encoding="utf-8")
 
         check("有 frontmatter", text.startswith("---\n"))
-        check("有五阶段流程", "五阶段" in text)
-        check("阶段2 指向 plan-rules.md", "plan-rules.md" in text)
-        check("阶段5 指向 review-rules.md", "review-rules.md" in text)
-        check("任务后遗忘规则内容", "彻底忘记" in text)
+        check("SKILL.md 是纯门禁（引用 DISCIPLINE.md）", "DISCIPLINE.md" in text)
+        check("门禁含前一刻语义", "前一刻" in text)
+        check("门禁无流程内容泄漏（不含五阶段字样）", "五阶段" not in text)
+        check("门禁含动作化最晚点", "产线命令" in text or "施工级方案" in text)
+        check("门禁含创意构想例外", "方向构想" in text)
+        check("门禁禁提前读规则文件", "plan-rules" in text)
 
         # 4. 代码块配对
         fence_count = len(re.findall(r"^```", text, re.MULTILINE))
@@ -76,12 +80,32 @@ def main():
         line_count = len(text.splitlines())
         passes.append(f"  ℹ SKILL.md 共 {line_count} 行")
 
+    if DISCIPLINE_MD.exists():
+        dtext = DISCIPLINE_MD.read_text(encoding="utf-8")
+        check("DISCIPLINE 有五阶段流程", "五阶段" in dtext)
+        check("DISCIPLINE 阶段2 指向 plan-rules.md", "plan-rules.md" in dtext)
+        check("DISCIPLINE 阶段5 指向 review-rules.md", "review-rules.md" in dtext)
+        check("DISCIPLINE 任务后遗忘规则", "彻底忘记" in dtext)
+        check("DISCIPLINE 含完成档位 C1/C2", "C1" in dtext and "C2" in dtext)
+        check("DISCIPLINE 阶段1 禁读规则", "不读" in dtext and "plan-rules" in dtext)
+        check("DISCIPLINE 阶段3 双出口", "完整路径" in dtext)
+    else:
+        check("DISCIPLINE 内容可读", False, "DISCIPLINE.md 不存在")
+
     # 6. 八条纪律（规则已下沉到 review-rules.md）
     if REVIEW.exists():
         rtext = REVIEW.read_text(encoding="utf-8")
         for kw in ("真打开看一眼", "未验证标注", "交付声明对得上", "失败两次换路",
                    "全绿不算证据", "关键数字重算", "临时物隔离", "防死循环"):
             check(f"纪律：{kw}", kw in rtext)
+        check("review-rules 含第9条完成档位", "完成档位如实" in rtext)
+        check("review-rules C2 不可自封", "不得标 C2" in rtext or "禁止" in rtext and "C2" in rtext)
+
+    PLAN_MD = REPO_ROOT / "references" / "plan-rules.md"
+    if PLAN_MD.exists():
+        ptext = PLAN_MD.read_text(encoding="utf-8")
+        check("plan-rules A档不锁质量上限", "不锁定质量上限" in ptext)
+        check("plan-rules 创意质量预算", "质量预算" in ptext or "打磨" in ptext)
     else:
         check("纪律文件可读", False, "review-rules.md 不存在")
 
