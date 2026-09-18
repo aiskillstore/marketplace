@@ -10,8 +10,8 @@
 
 ![Version](https://img.shields.io/badge/version-1.5.6-blue)
 ![License: MIT](https://img.shields.io/badge/license-MIT-green)
-![Size](https://img.shields.io/badge/SKILL.md-1.5KB·20行门禁-orange)
-![Experiments](https://img.shields.io/badge/A%2FB_实验-233_次-success)
+![Size](https://img.shields.io/badge/SKILL.md-3180%E5%AD%97%E8%8A%82%C2%B733%E8%A1%8C%E9%97%A8%E7%A6%81-orange)
+![Experiments](https://img.shields.io/badge/A%2FB%20%E4%B8%8E%E5%AE%9E%E6%B5%8B-300%2B%20%E8%87%82%E6%AC%A1-success)
 ![Runtime](https://img.shields.io/badge/按需加载-纯文本-blueviolet)
 ![CI](https://github.com/JadeYingWah/gpt-series-reasoning-style/actions/workflows/ci.yml/badge.svg)
 
@@ -39,11 +39,11 @@ It is therefore **not** a model-specific add-on. What is distilled is **behavior
 
 **通用性 / It is safe to keep on, in any task**
 
-> **它不挑场景。** 执行阶段规则文件根本不加载——挂着它的边际成本在执行期趋近于零：不打断思路、不占上下文、不把流程塞给你。小且可逆的任务自动降级为"直接做、做完扫一眼"，不触发调研和方案确认。233 次 A/B 实验中，**没有任何一类任务测出"带 skill 比不带更差"**；稳定的正向收益集中在交付可信度（敢不敢直接用、有没有假完成），而不是逼你走流程。
+> **它不挑场景。** 执行阶段规则文件根本不加载——挂着它的边际成本在执行期趋近于零：不打断思路、不占上下文、不把流程塞给你。小且可逆的任务自动降级为"直接做、做完扫一眼"，不触发调研和方案确认。在**历史 A/B（233 轮：任务×臂×轮）**与后续实测（experiments 脚本口径 ≥286 臂次/53 批至 09-17 素材，另加 09-17 八组床与 09-18 四场 v1.5.6 单臂包）中，**没有任何一类任务测出"带 skill 比不带更差"**；稳定的正向收益集中在交付可信度（敢不敢直接用、有没有假完成），而不是逼你走流程。
 >
 > 代码、写作、设计、分析、日常问答——都可以挂着它。它唯一的"代价"是交付前多看一眼；如果你明确要最快出活，说一声"别管验收"即可。
 
-> **It does not pick its battles.** During execution the rule files are not loaded at all — the marginal cost of keeping it on is effectively zero at execution time: no thought interruption, no context tax, no workflow shoved in your face. Small and reversible tasks auto-degrade to "just do it, glance at the end" — no research, no plan approval. Across 233 A/B runs, **no task category showed the skill making things worse**; the consistent gain is in delivery trustworthiness (will it actually work, is it faked-done), not in forcing a pipeline.
+> **It does not pick its battles.** During execution the rule files are not loaded at all — the marginal cost of keeping it on is effectively zero at execution time: no thought interruption, no context tax, no workflow shoved in your face. Small and reversible tasks auto-degrade to "just do it, glance at the end" — no research, no plan approval. Across the **historical A/B line (233 task×arm×round)** plus later beds (script count ≥286 arms / 53 batches through 09-17 materials, plus 09-17 eight desktop beds and 09-18 four v1.5.6 single-arm field packs), **no task category showed the skill making things worse**; the consistent gain is in delivery trustworthiness, not in forcing a pipeline.
 >
 > Code, writing, design, analysis, everyday Q\&A — keep it on. Its only "cost" is one extra look before you ship; if you want raw speed, just say so.
 
@@ -173,7 +173,7 @@ AI agent 最贵的失败，从来不是“不会做”，而是**没验过就说
 本 skill 把隔离做到**两层物理级**：
 
 1. **执行者与审查者窗口不加载本 skill**——他们的全部行为规范来自身份文件与任务包（自包含），指挥官职权条款（五阶段、形态判断、配置确认）**物理上不在他们的上下文里**；
-2. **指挥官自己的 SKILL.md 也只是一道门禁**（1579 字节 / 20 行）——纪律全文（DISCIPLINE.md）在**动手或回答的前一刻**才被放行。
+2. **指挥官自己的 SKILL.md 也只是一道门禁**（3180 字节 / 33 行）——纪律全文（DISCIPLINE.md，3185 字节 / 33 行）在**动手做事的前一刻**才被放行。
 
 
 
@@ -188,7 +188,7 @@ AI agent 最贵的失败，从来不是“不会做”，而是**没验过就说
 装上后**无需任何特殊指令**。当 agent 接到交付型任务（写代码、算数据、做页面、多 Agent 分工），SKILL.md 的纯门禁会在**动手前一刻**放行纪律全文，然后进入**五阶段时序**：
 
 ```text
-┌─ 门禁（SKILL.md · 20 行纯门禁）——「前一刻」= 写交付物/施工确认/产线命令/宣布交付 中最早者
+┌─ 门禁（SKILL.md · 33 行纯门禁）——「前一刻」= 写交付物/施工确认/产线命令/宣布交付 中最早者
 │         创意类可有一轮不读 DISCIPLINE 的方向构想；陌生专名仍先问/搜
 │
 ┌─ 阶段1 · 自由构想（不读 plan/review/multi-agent，不建治理目录）——凭你自己想清楚要做什么
@@ -310,7 +310,13 @@ AI agent 最贵的失败，从来不是“不会做”，而是**没验过就说
 <details>
 <summary><b>历史实验档案</b>（口径与旧数字，点开备查）</summary>
 
-- 历史累计：**233 轮**（= 重版本线 207 + 极简线 26；口径：一次「任务 × 臂 × 轮」计一次）——结论沉淀为现行极简结构：规则越少越好，但核心那几条不能少。
+- 历史累计口径（勿混用）：
+  - **叙事 A/B 轮次 233**（= 重版本线 207 + 极简线 26；一次「任务 × 臂 × 轮」计一次）；
+  - **experiments 分支脚本口径**：≥ **286 臂次 / 53 批**（正则覆盖臂目录，下限值；素材约 3250 文件，含 v1.2.x 与 09-17 前素材）；
+  - **2026-09-17**：8 组桌面对照/形态床（菲比/三游戏×2/4399×2/番茄钟/财务套件/三txt）；
+  - **2026-09-18**：4 场 v1.5.6 实测包（鸣潮验算表、星光接取、3D 钓鱼口供、Neon Void 证据层）。
+- 结论沉淀：规则越少越好，但核心那几条不能少；**C1/C2 把诚信完成与产品满意拆开**。
+- Harness 本机另有 ab-* 目录若干，**未全部入 experiments 分支**，不计入上述公开数字。
 - 可引用硬数字（v1.2.x 时代对照实验）：软维度提升 **+20~24**（P1-5）；反例验证执行率 **带 skill 100% vs 无 skill 33%**（P1-1）；自我校准缺口 **100% → 33%**（P1-2）。
 - 实验原始数据（约 70 MB / 3066+ 文件）在 [`experiments` 分支](https://github.com/JadeYingWah/gpt-series-reasoning-style/tree/experiments)；主仓库只含 skill 本体。
 
@@ -345,7 +351,7 @@ AI agent 最贵的失败，从来不是“不会做”，而是**没验过就说
 
 
 
-- **规则越少越好，但核心那几条不能少**——233 次实验的最终结论；
+- **规则越少越好，但核心那几条不能少**——历史 A/B（233 轮）+ 后续实测的最终结论；
 - **创作是创作，检查是检查**——忘/想交替的全部理由；
 - **证据高于声称**——全绿不算证据，断言红过才算验过；
 - **责任不随委派转移**——子智能体交回后，主 Agent 仍是 DRI。
@@ -431,11 +437,11 @@ python scripts/selfcheck.py    # 可选：38 项静态自检，退出码 0=全�
 
 | 项目         | 实测值                                                          |
 | ---------- | ------------------------------------------------------------ |
-| `SKILL.md` | **1579 字节 / 20 行**（常驻约 0.3k token）——**纯门禁**，纪律全文在 `DISCIPLINE.md`（2923 字节/31 行，动手前一刻才读） |
+| `SKILL.md` | **3180 字节 / 33 行**（常驻约 0.6k token）——**纯门禁**，纪律全文在 `DISCIPLINE.md`（3185 字节/33 行，动手前一刻才读） |
 | 阶段 2 按需   | `references/plan-rules.md`（5442 字节）——仅在规则规划阶段读入        |
 | 阶段 5 按需   | `references/review-rules.md`（5041 字节）——仅在纪律检查阶段读入      |
 | 多智能体按需  | `references/multi-agent.md`（5718 字节）——仅叠加形态二三时读入       |
-| 加载路径      | 平时只读 `SKILL.md`（20 行门禁）+ `VERSION`；**动手/回答前一刻**读 `DISCIPLINE.md`（纪律全文）；阶段 2 读 plan-rules、阶段 5 读 review-rules、多智能体场景另读 `multi-agent.md`；**任务结束后规则内容全部遗忘** |
+| 加载路径      | 平时只读 `SKILL.md`（33 行门禁）+ `VERSION`；**动手/回答前一刻**读 `DISCIPLINE.md`（纪律全文）；阶段 2 读 plan-rules、阶段 5 读 review-rules、多智能体场景另读 `multi-agent.md`；**任务结束后规则内容全部遗忘** |
 | 峰值常驻文本   | 任一时刻上下文里的规则文本不超过一份（规划或审查，二者不同时在场）              |
 
 **对比 v1.2.5 重版本**：38.7 KB / 179 行 / ~12k token —— 已由实验证明是更差的选择（见「实测与证据」）。
@@ -445,7 +451,7 @@ python scripts/selfcheck.py    # 可选：38 项静态自检，退出码 0=全�
 
 | 文件                               | 角色                                                     |
 | -------------------------------- | ------------------------------------------------------ |
-| `SKILL.md`                       | **强制门禁**（20 行）。不含纪律正文；「前一刻」动作化 + 创意构想例外            |
+| `SKILL.md`                       | **门禁**（33 行）。不含纪律正文；「前一刻」动作化 + 创意构想例外            |
 | `DISCIPLINE.md`                  | **纪律全文**（31 行）。五阶段 + **完成档位 C1/C2** + 任务后遗忘 + 边界 + 加载规则 |
 | `references/plan-rules.md`       | **阶段 2 专用**：规划规则（构想实质保留、形态裁定、A档不锁质量上限、创意质量预算） |
 | `references/review-rules.md`     | **阶段 5 专用**：8 条纪律（★三条轻任务必做）+ **第9条完成档位** + 退出条件    |
