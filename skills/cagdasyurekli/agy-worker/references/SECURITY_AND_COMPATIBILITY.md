@@ -92,11 +92,29 @@ dispatch retains its separate, explicit authority and does not acquire containme
 
 The native profile permits the fresh selected stage, private persistent provider HOME,
 per-attempt TMP, the exact agy executable, the bound result-schema file as read-only
-input, and reviewed system runtime/tool paths. It denies access to the original
-checkout, Git administration, and ambient HOME. The
+input, and reviewed system runtime/tool paths. The bound provider image also receives
+metadata and existence access to its executable's exact parent directory so Core
+Foundation can construct the main bundle and SSL policy. It also receives metadata
+access to the ancestor chain of private HOME, which SQLite walks when opening a
+conversation database. These rules grant no directory listing, sibling-file access,
+or ancestor file data; a different executed image loses them. Self-verification
+receives no such exception. Apart from the named runtime
+exceptions, the profile denies access to the original checkout, Git administration,
+and ambient HOME. The
 whole stage is writable; the write subset is a controller reconciliation boundary,
 not an OS file-by-file permission list. Fresh copies and prelaunch identity/content
 checks reject hardlinks and stage drift.
+
+Native provider preparation also generates a private AGY settings file from the
+approved scope: staged reads and the exact file/tree write selectors for the job's
+bounded attempts. This adds application-level allow rules, without copying or
+changing the user's settings or granting commands, URLs, MCP tools, or ambient
+paths. The current attempt's native profile still denies access to other stages.
+Settings bytes and identity are bound before launch and reused unchanged for repair;
+missing or changed settings stop preparation instead of being overwritten. The
+profile denies writes to the exact settings file. This is not tamper resistance
+against a malicious provider binary or trusted same-user processes. Session mode and
+self-verification receive no generated AGY permission settings.
 
 Only the bound agy process image receives non-local TCP 443, DNS resolution through
 the local mDNSResponder socket, and local TCP bind/listen permissions. It also receives
@@ -106,9 +124,18 @@ agy image can expose a listener to the local network. Outbound connections to lo
 TCP services remain denied. This is neither a Google recipient allowlist nor
 TLS protocol enforcement. A fork without exec retains that image privilege; exec to
 a different program removes its network authority. The exact `/usr/bin/security`
-helper also receives the same five reviewed Keychain/trust Mach services so AGY can
-reuse its saved account session. It receives no additional network or filesystem
-access. Seatbelt cannot limit helper arguments, operations, or Keychain items: this
+helper also receives the same five reviewed Keychain/trust Mach services and
+read-only access to the exact bound default Keychain file. The driver discovers that
+file through a bounded, read-only default-Keychain lookup, checks its owner and stable
+file identity without reading or hashing its contents, and creates a minimal
+`DefaultKeychain` preference in the private provider HOME. It copies no owner
+preferences or credential bytes. Prelaunch checks bind the generated preference and
+Keychain identity; repair reuses the exact preference without overwriting drift.
+Discovery or binding failure stops before AGY starts. This mechanism does not prove
+that a usable AGY token exists or that its access controls permit silent login.
+The file rule applies only to `/usr/bin/security`; it grants no provider or other
+executable access, parent-directory access, file writes, or additional network access.
+Seatbelt cannot limit helper arguments, operations, or Keychain items: this
 permits broader same-user Keychain reads, additions, changes, and deletions where
 the OS allows them, not only an AGY-token lookup. Other executable images receive
 neither exception. Local self-verification has no network or Keychain access.

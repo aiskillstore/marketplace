@@ -158,7 +158,7 @@ Exit codes: 0 ok · 2 no prompt · 3 empty output · 4 schema invalid · 5 uncla
             6 permission gate · 7 compatibility review · 8 compatibility evidence unavailable
             9 idle timeout · 16 hard deadline · 17-19 reserved for version-bound
             provider/auth evidence · 20 status, binding, or verification-copy runtime unavailable · 21 resume failed
-            22 cancelled · 23 output oversized · 24 quota exhausted · 25 provider error with preserved report
+            22 cancelled · 23 output oversized · 24 quota exhausted · 25 provider terminal error
             26 direct-selection preflight failed
             64 invalid usage
 

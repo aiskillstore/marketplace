@@ -69,7 +69,13 @@ PY
 fi
 echo
 cat <<'EOF'
-## verified behavioural facts (empirical, 2026-08-01, agy 1.1.9)
+## historical behavioural observations (2026-08-01, agy 1.1.9)
+
+These observations belong to the stated version, not the installed version above.
+Revalidate version-sensitive behavior before relying on it. In particular, AGY
+1.2.2 deprecates `unsandboxed` rules in favor of `command` rules; this report does
+not change account permissions. Do not automatically retry authentication,
+permission, quota, or environment blockers.
 
 - The prompt is `--print`'s ARGUMENT VALUE. agy ignores stdin in print mode. With
   `--print` placed before other flags, agy reads the NEXT FLAG as the message.
@@ -79,9 +85,9 @@ cat <<'EOF'
   appears only on stderr. Always check stripped stdout content, never just $?.
 - Under `--sandbox`, running a shell command needs an `unsandboxed(<target>)`
   allow-rule. A `command(<name>)` rule alone is NOT sufficient.
-- Authentication is INTERMITTENT: a run may fail with an interactive OAuth prompt
-  and the identical next run succeeds. Bounded retry handles this; do not conclude
-  from a single failure that agy is unauthenticated.
+- Authentication was observed to be intermittent: an interactive OAuth failure
+  was followed by a successful identical invocation. That observation does not
+  authorize retrying an account or authentication blocker.
 - `stream-json` event shape: {"event":"...","init":...}, then repeated
   {"event":"step_update",...}, then exactly one {"event":"result","result":{...}}.
   The schema-validated answer is at result.structured_output.

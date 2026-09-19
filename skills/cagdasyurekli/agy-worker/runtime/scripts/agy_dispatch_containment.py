@@ -23,19 +23,30 @@ from __future__ import annotations
 import ctypes
 import dataclasses
 import hashlib
+import json
 import os
 from pathlib import Path
 import platform
+import plistlib
+import posixpath
+import pwd
 import signal
+import select
 import stat
+import subprocess
 import sys
 import time
 from typing import Mapping, Sequence
+import uuid
 
 
 SANDBOX_EXEC = Path("/usr/bin/sandbox-exec")
+SECURITY_HELPER = Path("/usr/bin/security")
 MAX_EXECUTABLE_BYTES = 512 * 1024 * 1024
 MAX_PROFILE_BYTES = 64 * 1024
+MAX_KEYCHAIN_LOCATOR_BYTES = 4096
+KEYCHAIN_LOCATOR_DEADLINE_SECONDS = 5
+KEYCHAIN_LOCATOR_TERM_GRACE_SECONDS = 1
 MAX_GROUP_MEMBERS = 4096
 PROCESS_GROUP_CLEANUP_SCOPE = "bound-process-group-only"
 ROLE_PROVIDER = "provider"
@@ -78,6 +89,17 @@ class DirectoryBinding:
 
 
 @dataclasses.dataclass(frozen=True)
+class KeychainBinding:
+    """Metadata-only identity for the database used by Security.framework."""
+
+    path: str
+    device: int
+    inode: int
+    uid: int
+    mode: int
+
+
+@dataclasses.dataclass(frozen=True)
 class ProcessIdentity:
     pid: int
     parent_pid: int
@@ -98,6 +120,9 @@ class PreparedContainedLaunch:
     target: FileBinding
     profile: FileBinding
     read_only_inputs: tuple[FileBinding, ...]
+    keychain: KeychainBinding | None
+    keychain_preferences: FileBinding | None
+    provider_settings: FileBinding | None
     stage: DirectoryBinding
     private_home: DirectoryBinding
     attempt_tmp: DirectoryBinding
@@ -223,6 +248,140 @@ def _bind_file(
         os.close(descriptor)
 
 
+def _bind_keychain(path: str | Path) -> KeychainBinding:
+    """Bind a default Keychain by metadata without opening its database."""
+    candidate = _canonical_existing(path)
+    try:
+        before = os.lstat(candidate)
+        after = os.lstat(candidate)
+    except OSError as exc:
+        raise ContainmentError("native provider authentication is unavailable") from exc
+    mode = stat.S_IMODE(before.st_mode)
+    stable_identity = lambda item: (
+        item.st_dev, item.st_ino, item.st_uid,
+        stat.S_IFMT(item.st_mode), stat.S_IMODE(item.st_mode),
+    )
+    if (
+        stable_identity(before) != stable_identity(after)
+        or stat.S_ISLNK(before.st_mode)
+        or not stat.S_ISREG(before.st_mode)
+        or before.st_uid != os.getuid()
+        or mode & 0o022
+    ):
+        raise ContainmentError("native provider authentication is unavailable")
+    return KeychainBinding(
+        str(candidate), before.st_dev, before.st_ino, before.st_uid, mode,
+    )
+
+
+def _terminate_locator(
+    process: subprocess.Popen[bytes], root: ProcessIdentity,
+) -> None:
+    """Reap a bounded locator without leaving a child process group behind."""
+    try:
+        if not process_group_is_quiescent(root):
+            terminate_bound_process_group(root, signal.SIGTERM)
+            deadline = time.monotonic() + KEYCHAIN_LOCATOR_TERM_GRACE_SECONDS
+            while not process_group_is_quiescent(root) and time.monotonic() < deadline:
+                time.sleep(0.01)
+            if not process_group_is_quiescent(root):
+                terminate_bound_process_group(root, signal.SIGKILL)
+                deadline = time.monotonic() + KEYCHAIN_LOCATOR_TERM_GRACE_SECONDS
+                while not process_group_is_quiescent(root) and time.monotonic() < deadline:
+                    time.sleep(0.01)
+        if process.poll() is None:
+            process.wait(timeout=KEYCHAIN_LOCATOR_TERM_GRACE_SECONDS)
+        if not process_group_is_quiescent(root):
+            raise ContainmentError("native provider authentication is unavailable")
+    except (ContainmentError, OSError, subprocess.TimeoutExpired) as exc:
+        raise ContainmentError("native provider authentication is unavailable") from exc
+
+
+def _discover_default_keychain() -> KeychainBinding:
+    """Discover exactly one default database under the passwd-resolved owner HOME."""
+    try:
+        owner_home = _canonical_existing(pwd.getpwuid(os.getuid()).pw_dir)
+        owner = os.lstat(owner_home)
+        if not stat.S_ISDIR(owner.st_mode) or owner.st_uid != os.getuid():
+            raise ContainmentError("native provider authentication is unavailable")
+        helper = _bind_file(SECURITY_HELPER, modes={0o755}, executable=True)
+        process = subprocess.Popen(
+            [helper.path, "default-keychain", "-d", "user"],
+            cwd=str(owner_home),
+            env={
+                "HOME": str(owner_home), "PATH": "/usr/bin:/bin",
+                "LANG": "C", "LC_ALL": "C",
+            },
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+            close_fds=True,
+        )
+        try:
+            locator_root = bind_new_process_group(process.pid)
+        except ContainmentError:
+            # The direct child is still ours, but without a bound session
+            # identity we deliberately do not signal a process group.
+            if process.poll() is None:
+                process.kill()
+                process.wait(timeout=KEYCHAIN_LOCATOR_TERM_GRACE_SECONDS)
+            raise
+    except (ContainmentError, OSError, KeyError) as exc:
+        raise ContainmentError("native provider authentication is unavailable") from exc
+    assert process.stdout is not None
+    descriptor = process.stdout.fileno()
+    os.set_blocking(descriptor, False)
+    output = bytearray()
+    deadline = time.monotonic() + KEYCHAIN_LOCATOR_DEADLINE_SECONDS
+    try:
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise ContainmentError("native provider authentication is unavailable")
+            readable, _, _ = select.select([descriptor], [], [], remaining)
+            if readable:
+                chunk = os.read(descriptor, 4096)
+                if not chunk:
+                    break
+                output.extend(chunk)
+                if len(output) > MAX_KEYCHAIN_LOCATOR_BYTES:
+                    raise ContainmentError("native provider authentication is unavailable")
+            elif process.poll() is not None:
+                # Polling alone cannot prove stdout is drained, so let select
+                # observe EOF within the remaining fixed deadline.
+                continue
+        if process.wait(timeout=max(0.01, deadline - time.monotonic())) != 0:
+            raise ContainmentError("native provider authentication is unavailable")
+        if not process_group_is_quiescent(locator_root):
+            _terminate_locator(process, locator_root)
+            raise ContainmentError("native provider authentication is unavailable")
+    except (ContainmentError, OSError, subprocess.TimeoutExpired) as exc:
+        if "locator_root" in locals():
+            _terminate_locator(process, locator_root)
+        raise ContainmentError("native provider authentication is unavailable") from exc
+    finally:
+        process.stdout.close()
+    try:
+        text = bytes(output).decode("utf-8", "strict")
+        line = text[:-1] if text.endswith("\n") else ""
+        quoted = line.lstrip(" \t")
+        if (
+            text.count("\n") != 1
+            or not text.endswith("\n")
+            or len(quoted) < 3
+            or not quoted.startswith('"')
+            or not quoted.endswith('"')
+        ):
+            raise ValueError("invalid locator output")
+        path = quoted[1:-1]
+        if '"' in path:
+            raise ValueError("invalid locator output")
+        return _bind_keychain(path)
+    except (ContainmentError, UnicodeError, ValueError) as exc:
+        raise ContainmentError("native provider authentication is unavailable") from exc
+
+
 def _bind_directory(path: str | Path) -> DirectoryBinding:
     candidate = _canonical_existing(path)
     nofollow = getattr(os, "O_NOFOLLOW", 0)
@@ -293,6 +452,217 @@ def _publish_profile(path: Path, payload: bytes) -> FileBinding:
     return _bind_file(path, modes={0o400}, limit=MAX_PROFILE_BYTES)
 
 
+def _publish_private_file(path: Path, payload: bytes) -> FileBinding:
+    """Publish a small owner-private internal artifact without replacement."""
+    if not payload or len(payload) > MAX_PROFILE_BYTES:
+        raise ContainmentError("native provider authentication is unavailable")
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        descriptor = os.open(path, flags, 0o600)
+    except OSError as exc:
+        raise ContainmentError("native provider authentication is unavailable") from exc
+    try:
+        try:
+            view = memoryview(payload)
+            while view:
+                written = os.write(descriptor, view)
+                if written <= 0:
+                    raise ContainmentError("native provider authentication is unavailable")
+                view = view[written:]
+            os.fsync(descriptor)
+            os.fchmod(descriptor, 0o600)
+        except OSError as exc:
+            raise ContainmentError("native provider authentication is unavailable") from exc
+    finally:
+        try:
+            os.close(descriptor)
+        except OSError as exc:
+            raise ContainmentError("native provider authentication is unavailable") from exc
+    return _bind_file(path, modes={0o600}, limit=MAX_PROFILE_BYTES)
+
+
+def _default_keychain_preferences_payload(keychain: KeychainBinding) -> bytes:
+    """Create the minimal private DefaultKeychain preference from Security's GUID."""
+    try:
+        framework = ctypes.CDLL("/System/Library/Frameworks/Security.framework/Security")
+        guid = (ctypes.c_ubyte * 16).in_dll(framework, "gGuidAppleCSPDL")
+        value = {
+            "DefaultKeychain": [{
+                "GUID": "{" + str(uuid.UUID(bytes=bytes(guid))).upper() + "}",
+                "SubserviceId": 0,
+                "SubserviceType": 6,
+                "MajorVersion": 0,
+                "MinorVersion": 0,
+                "DbName": keychain.path,
+            }],
+        }
+        return plistlib.dumps(value, fmt=plistlib.FMT_XML, sort_keys=True)
+    except (AttributeError, OSError, ValueError) as exc:
+        raise ContainmentError("native provider authentication is unavailable") from exc
+
+
+def _file_binding_record(binding: FileBinding) -> bytes:
+    return (json.dumps(dataclasses.asdict(binding), sort_keys=True, separators=(",", ":")) + "\n").encode("ascii")
+
+
+def _load_file_binding_record(path: Path) -> FileBinding:
+    try:
+        sidecar = _bind_file(path, modes={0o600}, limit=MAX_PROFILE_BYTES)
+        descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+        try:
+            raw = os.read(descriptor, MAX_PROFILE_BYTES + 1)
+        finally:
+            os.close(descriptor)
+        if len(raw) > MAX_PROFILE_BYTES:
+            raise ValueError("sidecar too large")
+        value = json.loads(raw.decode("ascii", "strict"))
+        if set(value) != {field.name for field in dataclasses.fields(FileBinding)}:
+            raise ValueError("sidecar schema")
+        binding = FileBinding(**value)
+        if not isinstance(binding.path, str) or not binding.path.startswith("/"):
+            raise ValueError("sidecar path")
+        # Bind after read: sidecar bytes and identity must be stable.
+        if _bind_file(path, modes={0o600}, limit=MAX_PROFILE_BYTES) != sidecar:
+            raise ValueError("sidecar changed")
+        return binding
+    except (ContainmentError, OSError, UnicodeError, ValueError, TypeError, json.JSONDecodeError) as exc:
+        raise ContainmentError("native provider authentication is unavailable") from exc
+
+
+def _prepare_keychain_preferences(
+    job: Path, home: Path, keychain: KeychainBinding,
+) -> FileBinding:
+    """Create once, then only reuse the exact private preference identity."""
+    preferences_dir = home / "Library" / "Preferences"
+    _ensure_private_directory(home / "Library", existing_ok=True)
+    _ensure_private_directory(preferences_dir, existing_ok=True)
+    preferences = preferences_dir / "com.apple.security.plist"
+    sidecar = job / ".provider-keychain-preferences.binding"
+    payload = _default_keychain_preferences_payload(keychain)
+    if os.path.lexists(sidecar):
+        prior = _load_file_binding_record(sidecar)
+        try:
+            current = _bind_file(preferences, modes={0o600}, limit=MAX_PROFILE_BYTES)
+        except ContainmentError as exc:
+            raise ContainmentError("native provider authentication is unavailable") from exc
+        if current != prior or current.sha256 != hashlib.sha256(payload).hexdigest():
+            raise ContainmentError("native provider authentication is unavailable")
+        return current
+    if os.path.lexists(preferences):
+        raise ContainmentError("native provider authentication is unavailable")
+    created = _publish_private_file(preferences, payload)
+    try:
+        _publish_private_file(sidecar, _file_binding_record(created))
+    except ContainmentError:
+        # Never overwrite or accept a partly-created preference without its
+        # protected identity record on a later repair attempt.
+        raise
+    return created
+
+
+def _validate_provider_write_selectors(
+    selectors: Sequence[Mapping[str, str]],
+) -> tuple[tuple[str, str], ...]:
+    """Accept only the closed, already-validated scope selector shape."""
+    if isinstance(selectors, (str, bytes)):
+        raise ContainmentError("native provider permission settings are unavailable")
+    result: list[tuple[str, str]] = []
+    previous: str | None = None
+    forbidden = frozenset("()[]{}*?\\\"'")
+    for entry in selectors:
+        if not isinstance(entry, Mapping) or set(entry) != {"kind", "path"}:
+            raise ContainmentError("native provider permission settings are unavailable")
+        kind, path = entry["kind"], entry["path"]
+        if (
+            kind not in {"file", "tree"}
+            or not isinstance(path, str)
+            or not path
+            or path.startswith("/")
+            or path.endswith("/")
+            or "\x00" in path
+            or any(character in forbidden for character in path)
+        ):
+            raise ContainmentError("native provider permission settings are unavailable")
+        normalized = posixpath.normpath(path)
+        parts = normalized.split("/")
+        if (
+            normalized != path
+            or normalized in {"", ".", ".."}
+            or normalized.startswith("../")
+            or any(part in {"", ".", "..", ".git", ".agy-worker-control"} for part in parts)
+            or previous is not None and path <= previous
+        ):
+            raise ContainmentError("native provider permission settings are unavailable")
+        previous = path
+        result.append((kind, path))
+    return tuple(result)
+
+
+def _provider_settings_payload(
+    job: Path, max_cycles: int, selectors: tuple[tuple[str, str], ...],
+) -> bytes:
+    if type(max_cycles) is not int or not 1 <= max_cycles <= 5:
+        raise ContainmentError("native provider permission settings are unavailable")
+    forbidden = frozenset("()[]{}*?\\\"'")
+
+    def rule_target(path: Path) -> str:
+        value = str(path)
+        if (
+            not path.is_absolute()
+            or "\x00" in value
+            or "\r" in value
+            or "\n" in value
+            or any(character in forbidden for character in value)
+        ):
+            raise ContainmentError("native provider permission settings are unavailable")
+        return value
+
+    job_target = rule_target(job)
+    if Path(os.path.realpath(job_target)) != job:
+        raise ContainmentError("native provider permission settings are unavailable")
+    allowed: list[str] = []
+    for cycle in range(1, max_cycles + 1):
+        stage = job / f"stage-{cycle:03d}"
+        allowed.append(f"read_file({rule_target(stage)})")
+        allowed.extend(
+            f"write_file({rule_target(stage / path)})" for _kind, path in selectors
+        )
+    payload = json.dumps(
+        {"permissions": {"allow": allowed}},
+        sort_keys=True, separators=(",", ":"),
+    ).encode("utf-8")
+    if not payload or len(payload) > MAX_PROFILE_BYTES:
+        raise ContainmentError("native provider permission settings are unavailable")
+    return payload
+
+
+def _prepare_provider_settings(
+    job: Path, home: Path, max_cycles: int,
+    selectors: tuple[tuple[str, str], ...],
+) -> FileBinding:
+    """Create once and then exactly rebind the private provider policy."""
+    settings_parent = home / ".gemini" / "antigravity-cli"
+    _ensure_private_directory(home / ".gemini", existing_ok=True)
+    _ensure_private_directory(settings_parent, existing_ok=True)
+    settings = settings_parent / "settings.json"
+    sidecar = job / ".provider-antigravity-settings.binding"
+    payload = _provider_settings_payload(job, max_cycles, selectors)
+    if os.path.lexists(sidecar):
+        prior = _load_file_binding_record(sidecar)
+        try:
+            current = _bind_file(settings, modes={0o600}, limit=MAX_PROFILE_BYTES)
+        except ContainmentError as exc:
+            raise ContainmentError("native provider permission settings are unavailable") from exc
+        if current != prior or current.sha256 != hashlib.sha256(payload).hexdigest():
+            raise ContainmentError("native provider permission settings are unavailable")
+        return current
+    if os.path.lexists(settings):
+        raise ContainmentError("native provider permission settings are unavailable")
+    created = _publish_private_file(settings, payload)
+    _publish_private_file(sidecar, _file_binding_record(created))
+    return created
+
+
 def _scheme_string(value: str) -> str:
     if "\0" in value:
         raise ContainmentError("sandbox profile value contains NUL")
@@ -304,6 +674,7 @@ def _scheme_string(value: str) -> str:
 def render_profile(
     *, target_executable: str, role: str, network_policy: str,
     allow_keychain: bool, read_only_inputs: Sequence[str] = (),
+    keychain_path: str | None = None, provider_settings_path: str | None = None,
 ) -> bytes:
     """Render the fixed default-deny profile; dynamic paths use ``-D`` params."""
     if role not in _ROLES:
@@ -314,6 +685,16 @@ def render_profile(
         raise ContainmentError("only provider launches may use provider TLS")
     if role != ROLE_PROVIDER and allow_keychain:
         raise ContainmentError("only provider launches may access the keychain")
+    if (allow_keychain and (
+        not isinstance(keychain_path, str) or not keychain_path.startswith("/")
+    )) or (not allow_keychain and keychain_path is not None):
+        raise ContainmentError("containment keychain input is invalid")
+    if provider_settings_path is not None and (
+        not allow_keychain
+        or not isinstance(provider_settings_path, str)
+        or not provider_settings_path.startswith("/")
+    ):
+        raise ContainmentError("containment provider settings input is invalid")
     if len(read_only_inputs) > 8 or any(
         not isinstance(path, str) or not path.startswith("/") for path in read_only_inputs
     ):
@@ -323,6 +704,17 @@ def render_profile(
         runtime_reads = "\n(allow file-read*\n" + "".join(
             f"  (literal {_scheme_string(path)})\n" for path in read_only_inputs
         ) + ")\n"
+    provider_parent_metadata = ""
+    if role == ROLE_PROVIDER:
+        # Core Foundation needs the executable directory's metadata to build
+        # its main bundle and SSL policy. Keep contents and exec helpers denied.
+        provider_parent_metadata = f"""
+(with-filter (process-path {_scheme_string(target_executable)})
+  (allow file-read-metadata file-test-existence
+    (literal {_scheme_string(str(Path(target_executable).parent))}))
+  ; SQLite resolves every ancestor before opening its private conversation DB.
+  (allow file-read-metadata (path-ancestors (param "HOME"))))
+"""
     keychain = ""
     if allow_keychain:
         # A fork retains the target image and its exact service authority. An
@@ -342,7 +734,9 @@ def render_profile(
     (global-name "com.apple.securityd.xpc")
     (global-name "com.apple.securityd.general")
     (global-name "com.apple.trustd")
-    (global-name "com.apple.trustd.agent")))
+    (global-name "com.apple.trustd.agent"))
+  (allow file-read*
+    (literal {_scheme_string(keychain_path)})))
 """
     network = ""
     if network_policy == NETWORK_PROVIDER_TLS:
@@ -360,6 +754,12 @@ def render_profile(
   (allow network-bind network-inbound (local tcp "localhost:*"))
   (allow mach-lookup (global-name "com.apple.mDNSResponder")))
 (deny network-outbound (remote ip "localhost:*"))
+"""
+    provider_settings = ""
+    if provider_settings_path is not None:
+        provider_settings = f"""
+(deny file-write*
+  (literal {_scheme_string(provider_settings_path)}))
 """
     profile_text = f"""(version 1)
 (deny default)
@@ -419,7 +819,7 @@ def render_profile(
   (subpath (param "HOME"))
   (subpath (param "TMPDIR")))
 
-{runtime_reads}{keychain}{network}"""
+{runtime_reads}{provider_parent_metadata}{keychain}{network}{provider_settings}"""
     return profile_text.encode("utf-8")
 
 
@@ -445,6 +845,8 @@ def prepare_contained_launch(
     child_environment: Mapping[str, str],
     allow_keychain: bool = False,
     read_only_inputs: Sequence[str | Path] = (),
+    provider_max_cycles: int | None = None,
+    provider_write_selectors: Sequence[Mapping[str, str]] = (),
 ) -> PreparedContainedLaunch:
     """Create and bind one native selected-content launch envelope."""
     require_supported_host()
@@ -456,6 +858,12 @@ def prepare_contained_launch(
         raise ContainmentError("only provider launches may use provider TLS")
     if role != ROLE_PROVIDER and allow_keychain:
         raise ContainmentError("only provider launches may access the keychain")
+    if allow_keychain and provider_max_cycles is None:
+        raise ContainmentError("native provider permission settings are unavailable")
+    if not allow_keychain and (
+        provider_max_cycles is not None or tuple(provider_write_selectors)
+    ):
+        raise ContainmentError("containment provider settings are invalid")
     if type(attempt) is not int or not 1 <= attempt <= 999:
         raise ContainmentError("containment attempt is invalid")
     if not target_argv or any(
@@ -473,6 +881,8 @@ def prepare_contained_launch(
     stage = _bind_directory(stage_dir)
     if Path(stage.path).parent != Path(job_binding.path):
         raise ContainmentError("scoped stage must be an immediate job child")
+    if allow_keychain and Path(stage.path) != Path(job_binding.path) / f"stage-{attempt:03d}":
+        raise ContainmentError("native provider permission settings are unavailable")
     launcher = _bind_file(SANDBOX_EXEC, modes={0o755}, executable=True)
     target = _bind_target(target_executable)
     if target_argv[0] != target.path:
@@ -490,6 +900,33 @@ def prepare_contained_launch(
         raise ContainmentError("containment read-only inputs are repeated")
     stem = "provider" if role == ROLE_PROVIDER else "self-verify"
     home = _ensure_private_directory(job / f"{stem}-home", existing_ok=True)
+    keychain: KeychainBinding | None = None
+    keychain_preferences: FileBinding | None = None
+    provider_settings: FileBinding | None = None
+    if allow_keychain:
+        try:
+            assert provider_max_cycles is not None
+            selectors = _validate_provider_write_selectors(provider_write_selectors)
+            if type(provider_max_cycles) is not int or not attempt <= provider_max_cycles <= 5:
+                raise ContainmentError("native provider permission settings are unavailable")
+        except ContainmentError as exc:
+            raise ContainmentError("native provider permission settings are unavailable") from exc
+        try:
+            keychain = _discover_default_keychain()
+            keychain_preferences = _prepare_keychain_preferences(
+                job, Path(home.path), keychain,
+            )
+        except ContainmentError as exc:
+            raise ContainmentError("native provider authentication is unavailable") from exc
+        try:
+            provider_settings = _prepare_provider_settings(
+                job, Path(home.path), provider_max_cycles, selectors,
+            )
+            # Creating the private preference subtree changes the directory's
+            # link count; bind the final provider HOME, not an earlier shape.
+            home = _bind_directory(home.path)
+        except ContainmentError as exc:
+            raise ContainmentError("native provider permission settings are unavailable") from exc
     attempt_tmp = _ensure_private_directory(
         job / f"{stem}-tmp-{attempt:03d}", existing_ok=False,
     )
@@ -499,6 +936,10 @@ def prepare_contained_launch(
         network_policy=network_policy,
         allow_keychain=allow_keychain,
         read_only_inputs=tuple(item.path for item in bound_inputs),
+        keychain_path=keychain.path if keychain is not None else None,
+        provider_settings_path=(
+            provider_settings.path if provider_settings is not None else None
+        ),
     )
     profile_binding = _publish_profile(
         job / f"{stem}-sandbox-{attempt:03d}.sb", profile_payload,
@@ -523,7 +964,8 @@ def prepare_contained_launch(
     })
     return PreparedContainedLaunch(
         role, network_policy, platform.release(), platform.version(), launcher,
-        target, profile_binding, bound_inputs, stage, home, attempt_tmp, tuple(target_argv),
+        target, profile_binding, bound_inputs, keychain, keychain_preferences, provider_settings,
+        stage, home, attempt_tmp, tuple(target_argv),
         tuple(sorted(environment.items())), bool(allow_keychain),
     )
 
@@ -556,6 +998,27 @@ def confirm_contained_launch(
         for item in prepared.read_only_inputs
     ):
         raise ContainmentError("containment read-only input changed before launch")
+    if prepared.allow_keychain:
+        if prepared.keychain is None or prepared.keychain_preferences is None:
+            raise ContainmentError("native provider authentication is unavailable")
+        if _bind_keychain(prepared.keychain.path) != prepared.keychain:
+            raise ContainmentError("native provider authentication is unavailable")
+        if _bind_file(
+            prepared.keychain_preferences.path, modes={0o600}, limit=MAX_PROFILE_BYTES,
+        ) != prepared.keychain_preferences:
+            raise ContainmentError("native provider authentication is unavailable")
+        try:
+            if prepared.provider_settings is None or _bind_file(
+                prepared.provider_settings.path, modes={0o600}, limit=MAX_PROFILE_BYTES,
+            ) != prepared.provider_settings:
+                raise ContainmentError("native provider permission settings are unavailable")
+        except ContainmentError as exc:
+            raise ContainmentError("native provider permission settings are unavailable") from exc
+    elif (
+        prepared.keychain is not None or prepared.keychain_preferences is not None
+        or prepared.provider_settings is not None
+    ):
+        raise ContainmentError("native provider authentication is unavailable")
     if _bind_directory(prepared.stage.path) != prepared.stage:
         raise ContainmentError("scoped stage changed before launch")
     if _bind_directory(prepared.private_home.path) != prepared.private_home:

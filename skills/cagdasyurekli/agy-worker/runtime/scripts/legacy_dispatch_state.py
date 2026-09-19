@@ -194,7 +194,12 @@ def upgrade(
         "worktree_reconciliation": "available",
         "worktree_changes_present": snapshot["entries"] > 0,
         "worktree_changed_since_dispatch": False,
-        "resume_available": bool(value["conversation_id"] and not value["candidate_recognized"] and value["status"] == "failed"),
+        "resume_available": bool(
+            value["conversation_id"]
+            and not value["candidate_recognized"]
+            and value["status"] == "failed"
+            and value.get("reason") not in {"selection_preflight_failed", "permission_required"}
+        ),
         "selection_sha256": command.get("selection_sha256"),
         "selection_identity": command.get("selection_identity"),
         "worktree_root_identity": root_identity,
