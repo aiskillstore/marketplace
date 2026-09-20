@@ -58,7 +58,7 @@ Add a plausible attack surface that can be disproved quickly.
 
 **Bad:** multiple rabbit holes, fake flags, destructive traps, rate-limit punishment, or misleading evidence that costs substantial time.
 
-For v0.1, use at most one semantic decoy.
+Use at most one semantic decoy.
 
 **Typical human cost:** one failed hypothesis.
 

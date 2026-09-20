@@ -1,7 +1,10 @@
 ---
 name: nice-try-gpt
-description: Analyze an authorized CTF challenge, reproduce its intended solve, identify cheap LLM shortcuts, apply minimal human-friendly transformations, and verify the result end-to-end. Use when reviewing or adapting CTFs to reduce pattern-matching shortcuts without materially increasing human difficulty.
-version: 0.2.0
+description: Analyzes authorized CTF challenges by reproducing intended solves, identifying cheap LLM shortcuts, applying minimal human-friendly transformations, and verifying results end-to-end. Appropriate when reviewing or adapting CTFs to reduce pattern-matching shortcuts without materially increasing human difficulty.
+license: GPL-3.0-only
+metadata:
+  author: aleff-github
+  version: "0.2.0"
 ---
 
 # NiceTryGPT
@@ -121,7 +124,7 @@ A meaningful action is an interaction that materially advances or rejects a hypo
 For semantic decoys:
 
 - default to zero;
-- if useful, add only one in v0.1;
+- if useful, add only one semantic decoy;
 - make it dismissible in 1–2 normal interactions;
 - never use fake flags, destructive traps, or punishment.
 
