@@ -90,6 +90,9 @@ COMMAND_V9_FIELDS = COMMAND_V8_FIELDS | {
     "self_verification_manifest_sha256", "self_verification_manifest_identity",
 }
 COMMAND_V10_FIELDS = COMMAND_V9_FIELDS | {"provider_isolation"}
+COMMAND_V11_FIELDS = COMMAND_V10_FIELDS | {
+    "whole_worktree_content_sha256", "native_grant_profile",
+}
 SCOPED_REPAIR_POLICY_TEXT = (
     "Scoped repair may transmit only controller-reconciled descendants under the "
     "unchanged initial scope, selection, workflow, provider environment, cycle, and time limits."
@@ -137,8 +140,9 @@ STATE_V12_FIELDS = {
     "self_verification_return_phase",
 }
 STATE_V13_FIELDS = {"provider_isolation"}
+STATE_V14_FIELDS = {"whole_worktree_content_sha256", "native_grant_profile"}
 PUBLIC_LAUNCHER = '"$PIPELINE/agy-worker.sh"'
-CURRENT_STATE_SCHEMA = 13
+CURRENT_STATE_SCHEMA = 14
 WORKTREE_SNAPSHOT_LEGACY_V6 = "legacy-v6"
 WORKTREE_SNAPSHOT_SEMANTIC_V1 = "semantic-v1"
 CURRENT_WORKTREE_SNAPSHOT_ALGORITHM = WORKTREE_SNAPSHOT_SEMANTIC_V1
@@ -259,7 +263,7 @@ def _provider_isolation_for_command(command: dict[str, Any]) -> str:
     if isinstance(schema, int) and schema <= 8:
         return "session"
     mode = command.get("provider_isolation")
-    if schema != 10 or mode not in {"session", "native"}:
+    if schema not in {10, 11} or mode not in {"session", "native"}:
         raise DispatchError("dispatch provider isolation is invalid")
     return mode
 
@@ -291,8 +295,10 @@ def scoped_repair_authority_sha256(
         "max_seconds": command.get("max_seconds"),
         "verification_binding_sha256": verification_binding_sha256,
     }
-    if command.get("schema_version") == 10:
+    if command.get("schema_version") in {10, 11}:
         payload["provider_isolation"] = command.get("provider_isolation")
+    if command.get("schema_version") == 11:
+        payload["native_grant_profile"] = command.get("native_grant_profile")
     return digest(canonical(payload))
 
 
@@ -679,7 +685,15 @@ def load_command(job: Path) -> tuple[dict[str, Any], bytes, tuple[int, int, int,
             raise DispatchError("dispatch command is not canonical")
         value = dict(value)
         value["provider_isolation"] = "native"
-    elif set(value) != COMMAND_V10_FIELDS or value.get("schema_version") != 10:
+    elif set(value) == COMMAND_V10_FIELDS and value.get("schema_version") == 10:
+        if raw != canonical(value):
+            raise DispatchError("dispatch command is not canonical")
+        value = dict(value)
+        value.update({
+            "whole_worktree_content_sha256": None,
+            "native_grant_profile": "baseline",
+        })
+    elif set(value) != COMMAND_V11_FIELDS or value.get("schema_version") != 11:
         raise DispatchError("dispatch command fields are invalid")
     elif raw != canonical(value):
         raise DispatchError("dispatch command is not canonical")
@@ -706,6 +720,10 @@ def load_command(job: Path) -> tuple[dict[str, Any], bytes, tuple[int, int, int,
     if "provider_isolation" not in value:
         value = dict(value)
         value["provider_isolation"] = "native" if value["schema_version"] == 9 else "session"
+    if "native_grant_profile" not in value:
+        value = dict(value)
+        value["native_grant_profile"] = "baseline"
+        value["whole_worktree_content_sha256"] = None
     if value["kind"] != "agy-worker-dispatch-command":
         raise DispatchError("dispatch command version is invalid")
     if (
@@ -785,7 +803,7 @@ def load_command(job: Path) -> tuple[dict[str, Any], bytes, tuple[int, int, int,
         or not isinstance(approved_sha, str) or SHA_RE.fullmatch(approved_sha) is None
     ):
         raise DispatchError("dispatch provider scope binding is invalid")
-    if value["schema_version"] in {7, 8, 9, 10}:
+    if value["schema_version"] in {7, 8, 9, 10, 11}:
         if scope_path is None:
             if not isinstance(approved_whole_sha, str) or SHA_RE.fullmatch(approved_whole_sha) is None:
                 raise DispatchError("dispatch whole-worktree approval binding is invalid")
@@ -796,7 +814,21 @@ def load_command(job: Path) -> tuple[dict[str, Any], bytes, tuple[int, int, int,
     provider_isolation = value["provider_isolation"]
     if provider_isolation not in {"session", "native"}:
         raise DispatchError("dispatch provider isolation is invalid")
-    if value["schema_version"] == 10:
+    native_grant_profile = value["native_grant_profile"]
+    if not isinstance(native_grant_profile, str) or native_grant_profile not in {"baseline", "A", "B", "AB"} or (
+        provider_isolation == "session" and native_grant_profile != "baseline"
+    ):
+        raise DispatchError("dispatch native grant profile is invalid")
+    whole_content_sha = value["whole_worktree_content_sha256"]
+    if value["schema_version"] == 11:
+        if scope_path is None:
+            if not isinstance(whole_content_sha, str) or SHA_RE.fullmatch(whole_content_sha) is None:
+                raise DispatchError("dispatch V11 whole-worktree content binding is invalid")
+        elif whole_content_sha is not None:
+            raise DispatchError("scoped V11 dispatch cannot carry whole-worktree content")
+    elif whole_content_sha is not None:
+        raise DispatchError("legacy dispatch cannot carry V11 whole-worktree content")
+    if value["schema_version"] in {10, 11}:
         sandbox_count = value["argv"].count("--sandbox")
         if provider_isolation == "session" and sandbox_count != 0:
             raise DispatchError("session dispatch cannot request AGY sandbox")
@@ -839,7 +871,7 @@ def load_command(job: Path) -> tuple[dict[str, Any], bytes, tuple[int, int, int,
         if any(item is not None for item in self_verification_fields):
             raise DispatchError("disabled self-verification cannot carry a manifest")
     elif (
-        value["schema_version"] not in {9, 10}
+        value["schema_version"] not in {9, 10, 11}
         or value["workflow"] not in {"task", "project"}
         or value["boost"]
         or not isinstance(self_verification_fields[0], str)
@@ -913,6 +945,7 @@ def validate_state(value: Any) -> dict[str, Any]:
     fields |= STATE_V11_FIELDS
     fields |= STATE_V12_FIELDS
     fields |= STATE_V13_FIELDS
+    fields |= STATE_V14_FIELDS
     projected = LEGACY.project_for_read(LEGACY_API, value, fields)
     if projected is not None:
         value = projected
@@ -922,16 +955,25 @@ def validate_state(value: Any) -> dict[str, Any]:
         raise DispatchError("dispatch state version is invalid")
     if value["provider_isolation"] not in {"session", "native"}:
         raise DispatchError("dispatch provider isolation state is invalid")
-    if value["schema_version"] in {9, 10, 11, 12, CURRENT_STATE_SCHEMA} and (
+    if not isinstance(value.get("native_grant_profile"), str) or value.get("native_grant_profile") not in {"baseline", "A", "B", "AB"} or (
+        value["provider_isolation"] == "session" and value.get("native_grant_profile") != "baseline"
+    ):
+        raise DispatchError("dispatch native grant profile state is invalid")
+    whole_content_sha = value.get("whole_worktree_content_sha256")
+    if whole_content_sha is not None and (
+        not isinstance(whole_content_sha, str) or SHA_RE.fullmatch(whole_content_sha) is None
+    ):
+        raise DispatchError("dispatch whole-worktree content state is invalid")
+    if value["schema_version"] in {9, 10, 11, 12, 13, CURRENT_STATE_SCHEMA} and (
         value["worktree_snapshot_algorithm"] != CURRENT_WORKTREE_SNAPSHOT_ALGORITHM
     ):
         raise DispatchError("dispatch worktree snapshot algorithm is invalid")
-    if value["schema_version"] in {10, 11, 12, CURRENT_STATE_SCHEMA} and (
+    if value["schema_version"] in {10, 11, 12, 13, CURRENT_STATE_SCHEMA} and (
         value.get("provider_terminal_status") not in {"unknown", "success", "error", "cancelled"}
     ):
         raise DispatchError("dispatch provider terminal status is invalid")
     root_identity = value.get("worktree_root_identity")
-    if value["schema_version"] in {9, 10, 11, 12, CURRENT_STATE_SCHEMA}:
+    if value["schema_version"] in {9, 10, 11, 12, 13, CURRENT_STATE_SCHEMA}:
         def valid_authority(authority: Any, *, directory: bool | None = None) -> bool:
             if not isinstance(authority, dict) or set(authority) != {
                 "dev", "ino", "type", "mode", "uid", "gid",
@@ -1395,7 +1437,7 @@ def initial_state(
     explain_worktree_rejection: bool = False,
     repair_authority_state: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    if state_schema not in {6, 7, 8, 9, 10, 11, 12, CURRENT_STATE_SCHEMA}:
+    if state_schema not in {6, 7, 8, 9, 10, 11, 12, 13, CURRENT_STATE_SCHEMA}:
         raise DispatchError("dispatch state schema is invalid")
     now = time.time()
     workflow = command.get("workflow", "legacy")
@@ -1560,10 +1602,22 @@ def initial_state(
         else:
             approved_whole_sha = command.get("approved_whole_worktree_sha256")
             if approved_whole_sha is not None and origin == "initial":
-                readable_manifest = _scan_readable_worktree(command["workdir"])
-                expected_approval = _compute_provider_launch_approval_sha256(
-                    _provider_isolation_for_command(command), _manifest_digest(readable_manifest),
-                ) if command["schema_version"] == 10 else _manifest_digest(readable_manifest)
+                if command["schema_version"] == 11:
+                    content = whole_worktree_content_manifest(command["workdir"])
+                    content_sha = content["manifest_sha256"]
+                    readable_manifest = _scan_readable_worktree(command["workdir"])
+                    expected_approval = _compute_v11_launch_approval_sha256(
+                        _provider_isolation_for_command(command), command["native_grant_profile"],
+                        whole_worktree_content_sha256=content_sha,
+                        readable_manifest_sha256=_manifest_digest(readable_manifest),
+                    )
+                    if content_sha != command["whole_worktree_content_sha256"]:
+                        raise DispatchError("whole-worktree content binding changed")
+                else:
+                    readable_manifest = _scan_readable_worktree(command["workdir"])
+                    expected_approval = _compute_provider_launch_approval_sha256(
+                        _provider_isolation_for_command(command), _manifest_digest(readable_manifest),
+                    ) if command["schema_version"] == 10 else _manifest_digest(readable_manifest)
                 if expected_approval != approved_whole_sha:
                     raise DispatchError(
                         "approved whole-worktree manifest does not match current worktree"
@@ -1582,6 +1636,9 @@ def initial_state(
                 "provider_stage_manifest_sha256": None,
                 "reconciliation_manifest_sha256": None,
             })
+    if state_schema >= 14:
+        state["whole_worktree_content_sha256"] = command.get("whole_worktree_content_sha256")
+        state["native_grant_profile"] = command.get("native_grant_profile", "baseline")
     return state
 
 
@@ -1631,6 +1688,10 @@ def _transition_locked(
         # A cheap active control must write the old generation's exact field
         # shape back, not accidentally persist a partial migration.
         omitted = set(STATE_V12_FIELDS)
+        if value["schema_version"] < 14:
+            omitted |= set(STATE_V14_FIELDS)
+        if value["schema_version"] < 13:
+            omitted |= set(STATE_V13_FIELDS)
         if value["schema_version"] < 11:
             omitted |= set(STATE_V11_FIELDS)
         if value["schema_version"] < 10:
@@ -2298,7 +2359,7 @@ def public_status(value: dict[str, Any], sha: str, *, job: Path | None = None) -
             provider_execution = None
     public_provider_isolation = (
         None
-        if job is None and value["schema_version"] < CURRENT_STATE_SCHEMA else
+        if job is None and value["schema_version"] < 13 else
         value["provider_isolation"]
         if job is None else
         None
@@ -3098,6 +3159,25 @@ def _compute_provider_launch_approval_sha256(
     )
 
 
+def whole_worktree_content_manifest(worktree: str | Path) -> dict[str, Any]:
+    return _worktree_call("whole_worktree_content_manifest", worktree)
+
+
+def _compute_v11_launch_approval_sha256(
+    provider_isolation: str, native_grant_profile: str, *,
+    whole_worktree_content_sha256: str | None = None,
+    readable_manifest_sha256: str | None = None,
+    transmission_sha256: str | None = None,
+) -> str:
+    return _worktree_call(
+        "_compute_v11_launch_approval_sha256",
+        provider_isolation, native_grant_profile,
+        whole_worktree_content_sha256=whole_worktree_content_sha256,
+        readable_manifest_sha256=readable_manifest_sha256,
+        transmission_sha256=transmission_sha256,
+    )
+
+
 def _bound_transmission_sha256(
     command: dict[str, Any], policy_sha256: str,
     readable_manifest_sha256: str, selected_content_sha256: str,
@@ -3107,8 +3187,13 @@ def _bound_transmission_sha256(
     base = _compute_transmission_sha256(
         policy_sha256, readable_manifest_sha256, selected_content_sha256,
     )
-    if command["schema_version"] != 10:
+    if command["schema_version"] < 10:
         return base
+    if command["schema_version"] == 11:
+        return _compute_v11_launch_approval_sha256(
+            _provider_isolation_for_command(command), command["native_grant_profile"],
+            transmission_sha256=base,
+        )
     return _compute_provider_launch_approval_sha256(
         _provider_isolation_for_command(command), readable_manifest_sha256, base,
     )
@@ -3347,7 +3432,7 @@ def _bound_candidate_worktree(state: dict[str, Any], command: dict[str, Any]) ->
     # same V9 extractor used by lifecycle recovery is repeated here so a
     # direct candidate-binding caller cannot turn a substituted Git boundary
     # into a content-only comparison.
-    if state.get("schema_version") in {9, 10, 11, 12, CURRENT_STATE_SCHEMA} and (
+    if state.get("schema_version") in {9, 10, 11, 12, 13, CURRENT_STATE_SCHEMA} and (
         _git_boundary_identity(command["workdir"])
         != state.get("worktree_root_identity")
     ):
@@ -3827,12 +3912,19 @@ def _bound_lifecycle_inputs(
         checked["provider_isolation"] != _provider_isolation_for_command(command)
     ):
         raise DispatchError("dispatch provider isolation binding changed")
+    if checked["schema_version"] >= 14 and (
+        checked["native_grant_profile"]
+        != command.get("native_grant_profile", "baseline")
+        or checked["whole_worktree_content_sha256"]
+        != command.get("whole_worktree_content_sha256")
+    ):
+        raise DispatchError("dispatch V11 authority binding changed")
     root = Path(command["workdir"])
     try:
         root_info = root.lstat()
     except OSError as exc:
         raise DispatchError("dispatch worktree root is unavailable") from exc
-    if checked["schema_version"] in {9, 10, 11, 12, CURRENT_STATE_SCHEMA}:
+    if checked["schema_version"] in {9, 10, 11, 12, 13, CURRENT_STATE_SCHEMA}:
         root_identity = _dispatch_root_identity(command["workdir"])
         if (
             root_identity is None
@@ -3858,7 +3950,7 @@ def _bound_lifecycle_inputs(
     _load_bound_selection(
         command, checked, legacy_command_binding=read_legacy,
     )
-    if checked["schema_version"] in {9, 10, 11, 12, CURRENT_STATE_SCHEMA}:
+    if checked["schema_version"] in {9, 10, 11, 12, 13, CURRENT_STATE_SCHEMA}:
         _bound_schemas(command, checked)
     elif not read_legacy or _schema_paths(command) is None:
         raise DispatchError("legacy dispatch schema binding cannot be proved")
@@ -4818,12 +4910,29 @@ def controller(job: Path, ownership_fd: int) -> int:
                     approved_whole_sha = command.get("approved_whole_worktree_sha256")
                     if (
                         approved_whole_sha is not None
-                        and state["attempt_origin"] == "initial"
+                        and (
+                            state["attempt_origin"] == "initial"
+                            or (
+                                command["schema_version"] == 11
+                                and state.get("conversation_id") is None
+                            )
+                        )
                     ):
                         readable_manifest = _scan_readable_worktree(command["workdir"])
-                        expected_approval = _compute_provider_launch_approval_sha256(
-                            _provider_isolation_for_command(command), _manifest_digest(readable_manifest),
-                        ) if command["schema_version"] == 10 else _manifest_digest(readable_manifest)
+                        if command["schema_version"] == 11:
+                            content = whole_worktree_content_manifest(command["workdir"])
+                            content_sha = content["manifest_sha256"]
+                            if content_sha != command["whole_worktree_content_sha256"]:
+                                raise DispatchError("whole-worktree content binding changed")
+                            expected_approval = _compute_v11_launch_approval_sha256(
+                                _provider_isolation_for_command(command), command["native_grant_profile"],
+                                whole_worktree_content_sha256=content_sha,
+                                readable_manifest_sha256=_manifest_digest(readable_manifest),
+                            )
+                        else:
+                            expected_approval = _compute_provider_launch_approval_sha256(
+                                _provider_isolation_for_command(command), _manifest_digest(readable_manifest),
+                            ) if command["schema_version"] == 10 else _manifest_digest(readable_manifest)
                         if expected_approval != approved_whole_sha:
                             raise DispatchError("whole-worktree transmission binding changed")
                 _bind_workspace_prompt(
@@ -4860,6 +4969,7 @@ def controller(job: Path, ownership_fd: int) -> int:
                         read_only_inputs=(contained_argv[schema_index],),
                         provider_max_cycles=command["max_cycles"],
                         provider_write_selectors=scope["write"],
+                        grant_profile=command["native_grant_profile"],
                     )
                 # The prior attempt budget is still a hard stop, but bounded
                 # controller-local proofs do not become a provider timeout.

@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Read and approval-gated migration support for retired dispatch-state formats.
 
-The active dispatcher owns only the current V13 controller.  This adapter keeps
-V1–V12 records readable and performs their already-approved one-way migration
+The active dispatcher owns only the current V14 controller.  This adapter keeps
+V1–V13 records readable and performs their already-approved one-way migration
 without letting old state shape leak into ordinary controller transitions.
 """
 
@@ -18,25 +18,27 @@ def is_legacy(state: dict[str, Any], api: Any) -> bool:
 
 
 def project_for_read(api: Any, value: Any, fields: set[str]) -> dict[str, Any] | None:
-    """Validate and project a V1–V12 record into the read-only current view."""
+    """Validate and project a V1–V13 record into the read-only current view."""
     if not isinstance(value, dict):
         raise api.DispatchError("dispatch state fields are invalid")
     version = value.get("schema_version")
     if version == api.CURRENT_STATE_SCHEMA:
         return None
-    legacy_fields = fields - api.STATE_PROJECT_FIELDS - {"provider_retry_after_seconds", "provider_retry_observed_epoch"} - api.STATE_V5_FIELDS - api.STATE_V6_FIELDS - api.STATE_V8_FIELDS - api.STATE_V9_FIELDS - api.STATE_V10_FIELDS - api.STATE_V11_FIELDS - api.STATE_V12_FIELDS - api.STATE_V13_FIELDS
-    v3_fields = fields - {"provider_retry_after_seconds", "provider_retry_observed_epoch"} - api.STATE_V5_FIELDS - api.STATE_V6_FIELDS - api.STATE_V8_FIELDS - api.STATE_V9_FIELDS - api.STATE_V10_FIELDS - api.STATE_V11_FIELDS - api.STATE_V12_FIELDS - api.STATE_V13_FIELDS
-    v4_fields = fields - api.STATE_V5_FIELDS - api.STATE_V6_FIELDS - api.STATE_V8_FIELDS - api.STATE_V9_FIELDS - api.STATE_V10_FIELDS - api.STATE_V11_FIELDS - api.STATE_V12_FIELDS - api.STATE_V13_FIELDS
-    v5_fields = fields - api.STATE_V6_FIELDS - api.STATE_V8_FIELDS - api.STATE_V9_FIELDS - api.STATE_V10_FIELDS - api.STATE_V11_FIELDS - api.STATE_V12_FIELDS - api.STATE_V13_FIELDS
+    prior_fields = fields - api.STATE_V14_FIELDS
+    legacy_fields = prior_fields - api.STATE_PROJECT_FIELDS - {"provider_retry_after_seconds", "provider_retry_observed_epoch"} - api.STATE_V5_FIELDS - api.STATE_V6_FIELDS - api.STATE_V8_FIELDS - api.STATE_V9_FIELDS - api.STATE_V10_FIELDS - api.STATE_V11_FIELDS - api.STATE_V12_FIELDS - api.STATE_V13_FIELDS
+    v3_fields = prior_fields - {"provider_retry_after_seconds", "provider_retry_observed_epoch"} - api.STATE_V5_FIELDS - api.STATE_V6_FIELDS - api.STATE_V8_FIELDS - api.STATE_V9_FIELDS - api.STATE_V10_FIELDS - api.STATE_V11_FIELDS - api.STATE_V12_FIELDS - api.STATE_V13_FIELDS
+    v4_fields = prior_fields - api.STATE_V5_FIELDS - api.STATE_V6_FIELDS - api.STATE_V8_FIELDS - api.STATE_V9_FIELDS - api.STATE_V10_FIELDS - api.STATE_V11_FIELDS - api.STATE_V12_FIELDS - api.STATE_V13_FIELDS
+    v5_fields = prior_fields - api.STATE_V6_FIELDS - api.STATE_V8_FIELDS - api.STATE_V9_FIELDS - api.STATE_V10_FIELDS - api.STATE_V11_FIELDS - api.STATE_V12_FIELDS - api.STATE_V13_FIELDS
     expected = {
         1: legacy_fields, 3: v3_fields, 4: v4_fields, 5: v5_fields,
-        6: fields - api.STATE_V8_FIELDS - api.STATE_V9_FIELDS - api.STATE_V10_FIELDS - api.STATE_V11_FIELDS - api.STATE_V12_FIELDS - api.STATE_V13_FIELDS,
-        7: fields - api.STATE_V8_FIELDS - api.STATE_V9_FIELDS - api.STATE_V10_FIELDS - api.STATE_V11_FIELDS - api.STATE_V12_FIELDS - api.STATE_V13_FIELDS,
-        8: fields - api.STATE_V9_FIELDS - api.STATE_V10_FIELDS - api.STATE_V11_FIELDS - api.STATE_V12_FIELDS - api.STATE_V13_FIELDS,
-        9: fields - api.STATE_V10_FIELDS - api.STATE_V11_FIELDS - api.STATE_V12_FIELDS - api.STATE_V13_FIELDS,
-        10: fields - api.STATE_V11_FIELDS - api.STATE_V12_FIELDS - api.STATE_V13_FIELDS,
-        11: fields - api.STATE_V12_FIELDS - api.STATE_V13_FIELDS,
-        12: fields - api.STATE_V13_FIELDS,
+        6: prior_fields - api.STATE_V8_FIELDS - api.STATE_V9_FIELDS - api.STATE_V10_FIELDS - api.STATE_V11_FIELDS - api.STATE_V12_FIELDS - api.STATE_V13_FIELDS,
+        7: prior_fields - api.STATE_V8_FIELDS - api.STATE_V9_FIELDS - api.STATE_V10_FIELDS - api.STATE_V11_FIELDS - api.STATE_V12_FIELDS - api.STATE_V13_FIELDS,
+        8: prior_fields - api.STATE_V9_FIELDS - api.STATE_V10_FIELDS - api.STATE_V11_FIELDS - api.STATE_V12_FIELDS - api.STATE_V13_FIELDS,
+        9: prior_fields - api.STATE_V10_FIELDS - api.STATE_V11_FIELDS - api.STATE_V12_FIELDS - api.STATE_V13_FIELDS,
+        10: prior_fields - api.STATE_V11_FIELDS - api.STATE_V12_FIELDS - api.STATE_V13_FIELDS,
+        11: prior_fields - api.STATE_V12_FIELDS - api.STATE_V13_FIELDS,
+        12: prior_fields - api.STATE_V13_FIELDS,
+        13: prior_fields,
     }.get(version)
     if expected is None or set(value) != expected:
         raise api.DispatchError("dispatch state fields are invalid")
@@ -75,6 +77,8 @@ def project_for_read(api: Any, value: Any, fields: set[str]) -> dict[str, Any] |
         "self_verification_started_epoch": None,
         "self_verification_return_phase": None,
         "provider_isolation": "native",
+        "whole_worktree_content_sha256": None,
+        "native_grant_profile": "baseline",
     }
     if version == 1:
         value.update({
@@ -108,6 +112,8 @@ def project_for_read(api: Any, value: Any, fields: set[str]) -> dict[str, Any] |
         "self_verification_started_epoch": None,
         "self_verification_return_phase": None,
         "provider_isolation": "native",
+        "whole_worktree_content_sha256": None,
+        "native_grant_profile": "baseline",
     }.items():
         value.setdefault(key, default)
     return value
@@ -120,14 +126,50 @@ def upgrade(
     *,
     migration_facts: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Prepare an eligible V1–V12 state for one atomic approved V13 write."""
+    """Prepare an eligible V1–V13 state for one atomic approved V14 write."""
     if not is_legacy(state, api):
         return state
     if state["schema_version"] == 1:
         raise api.DispatchError("legacy dispatch state has no migration authority")
     if state["schema_version"] in {3, 4} and migration_facts is None:
         raise api.DispatchError("legacy migration approval is required")
+    if command["schema_version"] >= 11:
+        raise api.DispatchError("legacy state cannot acquire a new command authority")
     value = dict(state)
+    if value["schema_version"] == 13:
+        # V13 already has the scoped transmission, repair, and verification
+        # contracts.  Their persisted values are evidence, not migration
+        # defaults: check immutable command bindings before adding V14 fields.
+        if value["workdir"] != command["workdir"]:
+            raise api.DispatchError("dispatch worktree root binding changed")
+        for key, expected in api._schema_bindings(command).items():
+            if value[key] != expected:
+                raise api.DispatchError("dispatch schema binding changed")
+        for key in ("selection_sha256", "selection_identity"):
+            if value[key] != command.get(key):
+                raise api.DispatchError("dispatch selection binding changed")
+        if value["provider_isolation"] != api._provider_isolation_for_command(command):
+            raise api.DispatchError("dispatch provider isolation binding changed")
+        for key in (
+            "provider_scope_path", "provider_scope_sha256",
+            "provider_scope_identity", "approved_transmission_sha256",
+        ):
+            if value[key] != command.get(key):
+                raise api.DispatchError("dispatch transmission authority changed")
+        if (
+            value["allow_scoped_repair"] != command.get("allow_scoped_repair", False)
+            or value["repair_authority_sha256"] != api._repair_authority_for_command(command)
+        ):
+            raise api.DispatchError("dispatch scoped repair authority changed")
+        if value["allow_self_verification"] != command.get("allow_self_verification", False):
+            raise api.DispatchError("dispatch self-verification authority changed")
+        value.update({
+            "schema_version": api.CURRENT_STATE_SCHEMA,
+            "whole_worktree_content_sha256": None,
+            "native_grant_profile": "baseline",
+        })
+        api.validate_state(value)
+        return value
     if value["phase"] == "provider-failed":
         value["phase"] = "attempt-failed"
     if value["workflow"] == "legacy":
@@ -228,6 +270,8 @@ def upgrade(
         "self_verification_started_epoch": None,
         "self_verification_return_phase": None,
         "provider_isolation": api._provider_isolation_for_command(command),
+        "whole_worktree_content_sha256": None,
+        "native_grant_profile": "baseline",
     })
     if value["candidate_recognized"]:
         value["candidate_worktree_sha256"] = snapshot["sha256"]

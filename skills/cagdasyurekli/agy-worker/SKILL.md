@@ -5,7 +5,7 @@ license: MIT
 compatibility: Requires OpenAI Codex CLI, Bash, Python 3, git, and agy with provider network access. Claude and Claude Code hosts are not supported.
 metadata:
   author: cagdasyurekli
-  version: "0.20.0"
+  version: "0.21.0"
 ---
 
 # Delegate repository work and verify the result
@@ -43,7 +43,7 @@ preflight on each launch; add no cache or alternate controller. Ordinary jobs re
 neither hand-authored JSON nor Goal as a prerequisite (Goal remains an ordinary-use opt-in).
 
 Prefer `--provider-scope FILE --approve-transmission-sha SHA256` for bounded jobs. It binds exact reviewed read entries, their selected-content digest, and a write subset, then stages only selected entries in a fresh owner-private mode-`0700` Gitless provider cwd.
-Whole-worktree dispatch remains an explicit exception. Treat the entire disposable worktree passed as `--workdir` as worker-readable and potentially transmissible to Google/Gemini, regardless of requested edit paths; `--add-dir`, prompt denylist instructions, `qa-gate --only`, and `--allow` do not narrow that read boundary.
+Whole-worktree dispatch remains an explicit exception. New approvals bind content, kinds, permissions, symlink targets, and execution mode; the controller rechecks this binding before provider start. Legacy records keep their original contracts. Treat the entire disposable worktree passed as `--workdir` as worker-readable and potentially transmissible to Google/Gemini, regardless of requested edit paths; `--add-dir`, prompt denylist instructions, `qa-gate --only`, and `--allow` do not narrow that read boundary.
 Neither `workflow.sh run` nor the advanced `agy-worker.sh` initial dispatch has an implicit transmission mode: launch requires either `--approve-whole-worktree LAUNCH_APPROVAL_SHA256` or the scoped pair above. The deprecated facade-only `--approve-preview-sha` spelling cannot launch by itself and remains temporarily available only with `--legacy-preview-approval`.
 New jobs default to `--provider-isolation session`, which uses the existing AGY session without AGY sandbox or native host containment. AGY has normal user filesystem/network authority; selected-file staging and reconciliation are not host isolation. Include this execution mode in the initial approval alongside task/content, then reuse that approval while its scope remains unchanged. Explicit `--provider-isolation native` retains supported macOS scoped containment with private HOME/TMP and reviewed network/Keychain access; it never falls back to session mode. The native `/usr/bin/security` exception allows broader same-user Keychain operations, and its listener rule permits wildcard binds. Read [Security and compatibility](references/SECURITY_AND_COMPATIBILITY.md) for those limits. Preserve the job's selected mode across continuation and repair.
 Provider-scope approval grants neither provider execution, Git action, driver acceptance, nor publication.

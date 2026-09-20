@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import contextlib
 import hashlib
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -24,6 +25,16 @@ import time
 import unicodedata
 from typing import Any, Mapping
 
+_CONTAINMENT_SPEC = importlib.util.spec_from_file_location(
+    "agy_dispatch_containment_for_worktree",
+    Path(__file__).resolve().with_name("agy_dispatch_containment.py"),
+)
+if _CONTAINMENT_SPEC is None or _CONTAINMENT_SPEC.loader is None:
+    raise RuntimeError("native containment helper is unavailable")
+CONTAINMENT = importlib.util.module_from_spec(_CONTAINMENT_SPEC)
+sys.modules[_CONTAINMENT_SPEC.name] = CONTAINMENT
+_CONTAINMENT_SPEC.loader.exec_module(CONTAINMENT)
+
 
 READABLE_MANIFEST_MAX_ENTRIES = 100000
 READABLE_MANIFEST_MAX_BYTES = 32 * 1024 * 1024
@@ -31,6 +42,10 @@ READABLE_MANIFEST_MAX_DEPTH = 128
 READABLE_MANIFEST_SCAN_SECONDS = 5.0
 READABLE_MANIFEST_KIND = "agy-worker-readable-path-manifest"
 READABLE_MANIFEST_ALGORITHM = "agy-worker-readable-path-manifest-v1"
+WHOLE_CONTENT_MANIFEST_KIND = "agy-worker-whole-worktree-content-manifest"
+WHOLE_CONTENT_MANIFEST_ALGORITHM = "agy-worker-whole-worktree-content-manifest-v1"
+WHOLE_CONTENT_MAX_BYTES = 512 * 1024 * 1024
+WHOLE_CONTENT_SCAN_SECONDS = 30.0
 READABLE_MANIFEST_GIT = "/usr/bin/git"
 READABLE_MANIFEST_GIT_BYTES = 1024 * 1024
 READABLE_MANIFEST_GIT_SECONDS = 3.0
@@ -529,6 +544,219 @@ def _scan_readable_worktree(worktree: str | Path) -> list[dict[str, str]]:
     return readable_path_manifest(str(worktree))["manifest"]["entries"]
 
 
+def whole_worktree_content_manifest(workdir: str | Path) -> dict[str, Any]:
+    """Return a twice-stable, descriptor-relative whole-worktree content binding.
+
+    This is deliberately distinct from the older readable-path manifest: V11
+    launch authority must bind file bytes, link literals, and permission bits.
+    """
+    root = str(workdir)
+    if (
+        not root or "\0" in root or not os.path.isabs(root)
+        or os.path.normpath(root) != root or os.path.realpath(root) != root
+        or os.path.islink(root)
+    ):
+        raise ReadableManifestError("worktree path is not canonical")
+    root_named = os.lstat(root)
+    if not stat.S_ISDIR(root_named.st_mode):
+        raise ReadableManifestError("worktree root is not a directory")
+
+    deadline = time.monotonic() + WHOLE_CONTENT_SCAN_SECONDS
+
+    def timely_outer() -> None:
+        if time.monotonic() > deadline:
+            raise ReadableManifestError("content scan deadline exceeded")
+
+    def scan_once() -> tuple[list[dict[str, Any]], tuple[Any, ...]]:
+        nofollow = getattr(os, "O_NOFOLLOW", 0)
+        directory_flag = getattr(os, "O_DIRECTORY", 0)
+        root_fd = os.open(root, os.O_RDONLY | directory_flag | nofollow)
+        entries: list[dict[str, Any]] = []
+        observed: list[tuple[Any, ...]] = []
+        seen_casefold: set[str] = set()
+        total_bytes = 0
+        enumerated_names = 0
+
+        def timely() -> None:
+            if time.monotonic() > deadline:
+                raise ReadableManifestError("content scan deadline exceeded")
+
+        def path_text(raw: bytes) -> str:
+            value = _decode_manifest_path(raw)
+            if (
+                not value or value.startswith("/") or value.endswith("/")
+                or posixpath.normpath(value) != value
+            ):
+                raise ReadableManifestError("content manifest path is invalid")
+            value = unicodedata.normalize("NFC", value)
+            folded = value.casefold()
+            if folded in seen_casefold:
+                raise ReadableManifestError("content manifest path collision")
+            seen_casefold.add(folded)
+            return value
+
+        def append(entry: dict[str, Any], binding: tuple[int, ...]) -> None:
+            if len(entries) >= READABLE_MANIFEST_MAX_ENTRIES:
+                raise ReadableManifestError("entry limit exceeded")
+            entries.append(entry)
+            observed.append((entry, binding))
+
+        def read_exact(fd: int, binding: tuple[int, ...]) -> tuple[str, int]:
+            nonlocal total_bytes
+            digest = hashlib.sha256()
+            size = 0
+            while True:
+                timely()
+                chunk = os.read(fd, 65536)
+                if not chunk:
+                    break
+                size += len(chunk)
+                total_bytes += len(chunk)
+                if total_bytes > WHOLE_CONTENT_MAX_BYTES:
+                    raise ReadableManifestError("content byte limit exceeded")
+                digest.update(chunk)
+            if _manifest_binding(os.fstat(fd)) != binding:
+                raise ReadableManifestError("file changed during content scan")
+            return digest.hexdigest(), size
+
+        def walk(parent_fd: int, prefix: bytes, depth: int) -> None:
+            nonlocal enumerated_names, total_bytes
+            timely()
+            if depth > READABLE_MANIFEST_MAX_DEPTH:
+                raise ReadableManifestError("depth limit exceeded")
+            parent_before = os.fstat(parent_fd)
+            if not stat.S_ISDIR(parent_before.st_mode):
+                raise ReadableManifestError("directory changed type")
+            listing_fd = os.dup(parent_fd)
+            try:
+                with os.scandir(listing_fd) as scanned:
+                    children: list[tuple[bytes, str]] = []
+                    for item in scanned:
+                        timely()
+                        enumerated_names += 1
+                        if enumerated_names > READABLE_MANIFEST_MAX_ENTRIES:
+                            raise ReadableManifestError("entry limit exceeded")
+                        children.append((os.fsencode(item.name), item.name))
+            finally:
+                os.close(listing_fd)
+            children.sort(key=lambda item: item[0])
+            listing: list[bytes] = []
+            for name, entry_name in children:
+                timely()
+                if not name or b"\0" in name:
+                    raise ReadableManifestError("invalid path")
+                relative_raw = name if not prefix else prefix + b"/" + name
+                if relative_raw.count(b"/") + 1 > READABLE_MANIFEST_MAX_DEPTH:
+                    raise ReadableManifestError("depth limit exceeded")
+                if name.lower() == b".git":
+                    if not prefix and name == b".git":
+                        continue
+                    raise ReadableManifestError("nested Git marker")
+                path = path_text(relative_raw)
+                info = os.stat(entry_name, dir_fd=parent_fd, follow_symlinks=False)
+                binding = _manifest_binding(info)
+                mode = info.st_mode & 0o7777
+                listing.append(name)
+                if stat.S_ISDIR(info.st_mode):
+                    entry = {"kind": "directory", "mode": mode, "path": path}
+                    append(entry, binding)
+                    child_fd = os.open(entry_name, os.O_RDONLY | directory_flag | nofollow, dir_fd=parent_fd)
+                    try:
+                        if _manifest_binding(os.fstat(child_fd)) != binding:
+                            raise ReadableManifestError("directory changed during content scan")
+                        walk(child_fd, relative_raw, depth + 1)
+                        if _manifest_binding(os.fstat(child_fd)) != binding:
+                            raise ReadableManifestError("directory changed during content scan")
+                    finally:
+                        os.close(child_fd)
+                elif stat.S_ISREG(info.st_mode):
+                    if info.st_nlink != 1:
+                        raise ReadableManifestError("regular-file hardlink")
+                    fd = os.open(
+                        entry_name,
+                        os.O_RDONLY | nofollow | getattr(os, "O_NONBLOCK", 0),
+                        dir_fd=parent_fd,
+                    )
+                    try:
+                        if _manifest_binding(os.fstat(fd)) != binding:
+                            raise ReadableManifestError("file changed during content scan")
+                        sha, size = read_exact(fd, binding)
+                    finally:
+                        os.close(fd)
+                    if _manifest_binding(os.stat(entry_name, dir_fd=parent_fd, follow_symlinks=False)) != binding:
+                        raise ReadableManifestError("file changed during content scan")
+                    append({"kind": "file", "mode": mode, "path": path, "sha256": sha, "size": size}, binding)
+                elif stat.S_ISLNK(info.st_mode):
+                    if info.st_nlink != 1:
+                        raise ReadableManifestError("symlink hardlink")
+                    target_raw = os.fsencode(os.readlink(entry_name, dir_fd=parent_fd))
+                    try:
+                        target_raw.decode("utf-8")
+                    except UnicodeDecodeError as exc:
+                        raise ReadableManifestError("symlink target is not UTF-8") from exc
+                    total_bytes += len(target_raw)
+                    if total_bytes > WHOLE_CONTENT_MAX_BYTES:
+                        raise ReadableManifestError("content byte limit exceeded")
+                    resolved = os.path.realpath(
+                        os.path.join(root, os.fsdecode(relative_raw))
+                    )
+                    try:
+                        contained = os.path.commonpath([root, resolved]) == root
+                    except ValueError:
+                        contained = False
+                    if (
+                        not contained or not os.path.exists(resolved)
+                        or any(piece.casefold() == ".git" for piece in Path(os.path.relpath(resolved, root)).parts)
+                        or _manifest_binding(os.stat(entry_name, dir_fd=parent_fd, follow_symlinks=False)) != binding
+                    ):
+                        raise ReadableManifestError("symlink boundary changed")
+                    append({"kind": "symlink", "mode": mode, "path": path,
+                            "target_sha256": hashlib.sha256(target_raw).hexdigest(),
+                            "target_size": len(target_raw)}, binding)
+                else:
+                    raise ReadableManifestError("special node")
+            if _manifest_binding(os.fstat(parent_fd)) != _manifest_binding(parent_before):
+                raise ReadableManifestError("directory changed during content scan")
+            observed.append(("listing", prefix, tuple(listing), _manifest_binding(parent_before)))
+
+        try:
+            root_before = _manifest_binding(os.fstat(root_fd))
+            walk(root_fd, b"", 0)
+            if _manifest_binding(os.fstat(root_fd)) != root_before:
+                raise ReadableManifestError("root changed during content scan")
+        finally:
+            os.close(root_fd)
+        entries.sort(key=lambda entry: entry["path"].encode("utf-8"))
+        return entries, tuple(observed)
+
+    timely_outer()
+    authority_before = _preview_worktree_authority(root)
+    timely_outer()
+    first, first_observed = scan_once()
+    second, second_observed = scan_once()
+    timely_outer()
+    authority_after = _preview_worktree_authority(root)
+    timely_outer()
+    if (
+        first != second or first_observed != second_observed
+        or authority_before != authority_after
+        or _manifest_binding(os.lstat(root)) != _manifest_binding(root_named)
+    ):
+        raise ReadableManifestError("worktree changed during content preview")
+    manifest = {
+        "algorithm": WHOLE_CONTENT_MANIFEST_ALGORITHM,
+        "entries": first,
+        "entry_count": len(first),
+        "kind": WHOLE_CONTENT_MANIFEST_KIND,
+        "schema_version": 1,
+    }
+    raw = _canonical_json(manifest)
+    timely_outer()
+    if len(raw) > READABLE_MANIFEST_MAX_BYTES:
+        raise ReadableManifestError("content manifest byte limit exceeded")
+    return {"manifest": manifest, "manifest_sha256": hashlib.sha256(raw).hexdigest()}
+
+
 def _validate_manifest(manifest: Any) -> list[dict[str, str]]:
     """Validate and normalize a canonical readable-path entry list."""
 
@@ -625,7 +853,12 @@ def _preview_main(argv: list[str]) -> int:
         return 64
     try:
         result = readable_path_manifest(workdir)
+        native_grant_profile = (
+            "baseline" if provider_isolation == "session"
+            else CONTAINMENT.NEW_NATIVE_GRANT_PROFILE
+        )
         result["provider_isolation"] = provider_isolation
+        result["native_grant_profile"] = native_grant_profile
         result["provider_authority"] = (
             "normal same-user filesystem and network authority; selected scope is staging and reconciliation, not host confinement"
             if provider_isolation == "session" else
@@ -642,8 +875,9 @@ def _preview_main(argv: list[str]) -> int:
             policy_sha = _canonical_digest(scope)
             manifest_sha = result["manifest_sha256"]
             base_transmission_sha = _compute_transmission_sha256(policy_sha, manifest_sha, selected_sha)
-            transmission_sha = _compute_provider_launch_approval_sha256(
-                provider_isolation, manifest_sha, base_transmission_sha,
+            transmission_sha = _compute_v11_launch_approval_sha256(
+                provider_isolation, native_grant_profile,
+                transmission_sha256=base_transmission_sha,
             )
             result["provider_scope"] = scope
             result["contents_read"] = True
@@ -651,12 +885,75 @@ def _preview_main(argv: list[str]) -> int:
             result["selected_content_manifest"] = selected_manifest
             result["selected_content_sha256"] = selected_sha
             result["transmission_sha256"] = transmission_sha
-        result["launch_approval_sha256"] = (
-            result["transmission_sha256"] if scope_path is not None else
-            _compute_provider_launch_approval_sha256(
-                provider_isolation, result["manifest_sha256"],
+        if scope_path is None:
+            content = whole_worktree_content_manifest(workdir)
+            result["contents_read"] = True
+            result["content_manifest"] = content["manifest"]
+            result["content_manifest_sha256"] = content["manifest_sha256"]
+            result["launch_approval_sha256"] = _compute_v11_launch_approval_sha256(
+                provider_isolation, native_grant_profile,
+                whole_worktree_content_sha256=result["content_manifest_sha256"],
+                readable_manifest_sha256=result["manifest_sha256"],
             )
-        )
+        else:
+            result["launch_approval_sha256"] = result["transmission_sha256"]
+        summary = {
+            "local_review_only": True,
+            "contents_read": result.get("contents_read", False),
+            "network_used": result.get("network_used", False),
+            "provider_launched": result.get("provider_launched", False),
+            "provider_review_authority": False,
+            "content_binding_kind": (
+                "whole-worktree-content-v1" if scope_path is None
+                else "scoped-selected-content"
+            ),
+            "scope_boundary": (
+                "whole-worktree: all non-.git entries in the registered worktree are approval-bound"
+                if scope_path is None else
+                "provider-scope: only selected content is staged; writes remain limited to reviewed selectors"
+            ),
+            "provider_isolation": provider_isolation,
+            "native_grant_profile": native_grant_profile,
+            "manifest_sha256": result["manifest_sha256"],
+            "launch_approval_sha256": result["launch_approval_sha256"],
+            "provider_authority": result["provider_authority"],
+        }
+        if provider_isolation == "session":
+            summary.update({
+                "host_filesystem_authority": "normal same-user host access; scope is not filesystem confinement",
+                "keychain_authority": "normal user-session authority; not isolated by this preview",
+                "network_authority": "normal user-session network authority; no network activity occurred during preview",
+            })
+        else:
+            summary.update({
+                "host_filesystem_authority": "native scoped containment binds the staged workspace and runtime inputs; same-user/OS administrators remain outside this boundary",
+                "keychain_authority": (
+                    "direct provider Keychain access plus the bound security helper; same-user item/service operations remain broad"
+                    if native_grant_profile in {"baseline", "B"}
+                    else "bound security helper only; same-user item/service operations remain broad"
+                ),
+                "network_authority": (
+                    "outbound remote tcp/443 plus DNS/mDNS; local and wildcard listeners are permitted"
+                    if native_grant_profile in {"baseline", "A"}
+                    else "outbound remote tcp/443 plus DNS/mDNS; local listeners are denied"
+                ),
+            })
+        if scope_path is not None:
+            summary["policy_sha256"] = result["policy_sha256"]
+            summary["selected_content_sha256"] = result["selected_content_sha256"]
+            summary["transmission_sha256"] = result["transmission_sha256"]
+        else:
+            summary["content_manifest_sha256"] = result["content_manifest_sha256"]
+        result["authority_summary"] = summary
+    except ReadableManifestError:
+        if scope_path is None:
+            print(
+                "agy-worker.sh: whole-worktree content preview failed its bounded local scan; use --provider-scope for selected content",
+                file=sys.stderr,
+            )
+        else:
+            print("agy-worker.sh: transmission preview unavailable", file=sys.stderr)
+        return 20
     except (OSError, UnicodeError, ValueError, OverflowError, RecursionError):
         print("agy-worker.sh: transmission preview unavailable", file=sys.stderr)
         return 20
@@ -2908,6 +3205,40 @@ def _compute_provider_launch_approval_sha256(
     return hashlib.sha256(_canonical_json(payload)).hexdigest()
 
 
+def _compute_v11_launch_approval_sha256(
+    provider_isolation: str, native_grant_profile: str,
+    *, whole_worktree_content_sha256: str | None = None,
+    readable_manifest_sha256: str | None = None,
+    transmission_sha256: str | None = None,
+) -> str:
+    """Bind V11 authority to content (whole) or selected content (scoped)."""
+    if provider_isolation not in {"session", "native"}:
+        raise ValueError("provider isolation is invalid")
+    if not isinstance(native_grant_profile, str) or native_grant_profile not in {"baseline", "A", "B", "AB"}:
+        raise ValueError("native grant profile is invalid")
+    if provider_isolation == "session" and native_grant_profile != "baseline":
+        raise ValueError("session grant profile is invalid")
+    bindings = (whole_worktree_content_sha256, transmission_sha256)
+    if sum(value is not None for value in bindings) != 1 or any(
+        value is not None and (not isinstance(value, str) or re.fullmatch(r"[0-9a-f]{64}", value) is None)
+        for value in bindings
+    ):
+        raise ValueError("V11 launch content binding is invalid")
+    if whole_worktree_content_sha256 is not None:
+        if not isinstance(readable_manifest_sha256, str) or re.fullmatch(r"[0-9a-f]{64}", readable_manifest_sha256) is None:
+            raise ValueError("V11 readable manifest binding is invalid")
+    elif readable_manifest_sha256 is not None:
+        raise ValueError("scoped V11 launch cannot carry readable manifest binding")
+    return hashlib.sha256(_canonical_json({
+        "kind": "agy-worker-provider-launch-approval-v2",
+        "native_grant_profile": native_grant_profile,
+        "provider_isolation": provider_isolation,
+        "readable_manifest_sha256": readable_manifest_sha256,
+        "transmission_sha256": transmission_sha256,
+        "whole_worktree_content_sha256": whole_worktree_content_sha256,
+    })).hexdigest()
+
+
 def _materialize_stage(
     source_root: str | Path, stage_dir: str | Path, scope: dict[str, Any], selected_manifest: list[dict[str, Any]],
 ) -> tuple[tuple[int, int, int, int, int], str]:
@@ -4195,6 +4526,7 @@ _IMPLEMENTATION_FUNCTIONS = frozenset({
     "_git_boundary_identity",
     "_worktree_snapshot",
     "_scan_readable_worktree",
+    "whole_worktree_content_manifest",
     "_validate_manifest",
     "_manifest_digest",
     "_read_provider_scope_file",
@@ -4205,6 +4537,7 @@ _IMPLEMENTATION_FUNCTIONS = frozenset({
     "_selected_content_digest",
     "_compute_transmission_sha256",
     "_compute_provider_launch_approval_sha256",
+    "_compute_v11_launch_approval_sha256",
     "_materialize_stage",
     "_scan_stage_mutations",
     "_recover_reconciliation",

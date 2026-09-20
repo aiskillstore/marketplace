@@ -33,6 +33,8 @@ import agy_dispatch as DISPATCH
 
 SCHEMA_VERSION = 3
 FACADE_SCHEMA_VERSION = 4
+BOUND_SCHEMA_VERSION = 5
+BOUND_FACADE_SCHEMA_VERSION = 6
 JOB_STATE_SCHEMA_VERSION = 2
 KIND_WORKFLOW_STATE = "agy-worker-workflow-state"
 KIND_WORKFLOW_STATUS = "agy-worker-workflow-status"
@@ -243,15 +245,21 @@ def validate_workflow_state(state: dict[str, Any]) -> dict[str, Any]:
     base_keys = legacy_base_keys | {"provider_isolation", "provider_execution"}
     legacy_facade_keys = legacy_base_keys | {"origin", "job_state_sha256"}
     facade_keys = base_keys | {"origin", "job_state_sha256"}
+    bound_keys = base_keys | {
+        "preview_content_sha256", "preview_launch_approval_sha256", "native_grant_profile",
+    }
+    bound_facade_keys = bound_keys | {"origin", "job_state_sha256"}
     expected_keys = {
         1: legacy_base_keys,
         2: legacy_facade_keys,
         SCHEMA_VERSION: base_keys,
         FACADE_SCHEMA_VERSION: facade_keys,
+        BOUND_SCHEMA_VERSION: bound_keys,
+        BOUND_FACADE_SCHEMA_VERSION: bound_facade_keys,
     }.get(state.get("schema_version"))
     if set(state.keys()) != expected_keys:
         raise WorkflowError("workflow state fields mismatch")
-    if state["schema_version"] not in {1, 2, SCHEMA_VERSION, FACADE_SCHEMA_VERSION}:
+    if state["schema_version"] not in {1, 2, SCHEMA_VERSION, FACADE_SCHEMA_VERSION, BOUND_SCHEMA_VERSION, BOUND_FACADE_SCHEMA_VERSION}:
         raise WorkflowError("workflow state schema_version is invalid")
     if state["kind"] != KIND_WORKFLOW_STATE:
         raise WorkflowError("workflow state kind is invalid")
@@ -295,7 +303,7 @@ def validate_workflow_state(state: dict[str, Any]) -> dict[str, Any]:
             or "\0" in value
         ):
             raise WorkflowError(f"workflow state {label} is invalid")
-    if state["schema_version"] in {2, FACADE_SCHEMA_VERSION}:
+    if state["schema_version"] in {2, FACADE_SCHEMA_VERSION, BOUND_FACADE_SCHEMA_VERSION}:
         if state["origin"] != FACADE_ORIGIN:
             raise WorkflowError("workflow state origin is invalid")
         if state["job_state_path"] is None:
@@ -305,7 +313,7 @@ def validate_workflow_state(state: dict[str, Any]) -> dict[str, Any]:
             or SHA_RE.fullmatch(state["job_state_sha256"]) is None
         ):
             raise WorkflowError("workflow state job_state_sha256 is invalid")
-    if state["schema_version"] in {SCHEMA_VERSION, FACADE_SCHEMA_VERSION}:
+    if state["schema_version"] in {SCHEMA_VERSION, FACADE_SCHEMA_VERSION, BOUND_SCHEMA_VERSION, BOUND_FACADE_SCHEMA_VERSION}:
         provider_isolation = state["provider_isolation"]
         provider_execution = state["provider_execution"]
         if provider_isolation in {"session", "native"}:
@@ -316,6 +324,17 @@ def validate_workflow_state(state: dict[str, Any]) -> dict[str, Any]:
                 raise WorkflowError("workflow state legacy provider execution is invalid")
         else:
             raise WorkflowError("workflow state provider isolation is invalid")
+    if state["schema_version"] in {BOUND_SCHEMA_VERSION, BOUND_FACADE_SCHEMA_VERSION}:
+        if state["provider_isolation"] not in {"session", "native"} or state["provider_execution"] is not None:
+            raise WorkflowError("bound workflow provider execution is invalid")
+        for label in ("preview_content_sha256", "preview_launch_approval_sha256"):
+            if not isinstance(state[label], str) or SHA_RE.fullmatch(state[label]) is None:
+                raise WorkflowError(f"workflow state {label} is invalid")
+        profile = state["native_grant_profile"]
+        if not isinstance(profile, str) or profile not in {"baseline", "A", "B", "AB"} or (
+            state["provider_isolation"] != "native" and profile != "baseline"
+        ):
+            raise WorkflowError("workflow state native grant profile is invalid")
     return state
 
 
@@ -578,7 +597,10 @@ def canonical_transmission_preview(
             stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
-            timeout=15.0,
+            # The helper may spend up to 16s on two readable-path/Git checks,
+            # then 30s on the bounded content scan. Keep one finite margin for
+            # process startup and canonical JSON output.
+            timeout=60.0,
             check=False,
         )
     except (OSError, subprocess.TimeoutExpired) as exc:
@@ -590,11 +612,15 @@ def canonical_transmission_preview(
         raise WorkflowError("transmission preview contract is invalid")
     manifest_sha = value.get("manifest_sha256")
     manifest = value.get("manifest")
+    native_grant_profile = value.get("native_grant_profile")
     if (
         not isinstance(manifest_sha, str)
         or SHA_RE.fullmatch(manifest_sha) is None
         or not isinstance(manifest, dict)
         or value.get("provider_isolation") != provider_isolation
+        or not isinstance(native_grant_profile, str)
+        or native_grant_profile not in {"baseline", "A", "B", "AB"}
+        or (provider_isolation != "native" and native_grant_profile != "baseline")
         or not isinstance(value.get("provider_authority"), str)
         or not isinstance(value.get("launch_approval_sha256"), str)
         or SHA_RE.fullmatch(value["launch_approval_sha256"]) is None
@@ -603,14 +629,41 @@ def canonical_transmission_preview(
         raise WorkflowError("transmission preview contract is invalid")
     if provider_scope is not None:
         transmission_sha = value.get("transmission_sha256")
+        selected_sha = value.get("selected_content_sha256")
         if (
             not isinstance(transmission_sha, str)
             or SHA_RE.fullmatch(transmission_sha) is None
+            or transmission_sha != value["launch_approval_sha256"]
+            or not isinstance(selected_sha, str)
+            or SHA_RE.fullmatch(selected_sha) is None
             or value.get("provider_scope") is None
             or value.get("selected_content_manifest") is None
         ):
             raise WorkflowError("scoped transmission preview contract is invalid")
+    else:
+        content_sha = value.get("content_manifest_sha256")
+        if (
+            not isinstance(content_sha, str)
+            or SHA_RE.fullmatch(content_sha) is None
+            or value.get("content_manifest") is None
+        ):
+            raise WorkflowError("whole-worktree content preview contract is invalid")
     return proc.stdout, value
+
+
+def preview_binding_fields(
+    preview_data: dict[str, Any], *, scoped: bool,
+) -> dict[str, str]:
+    """Persist the content and authority actually selected by this preview."""
+
+    return {
+        "preview_content_sha256": (
+            preview_data["selected_content_sha256"] if scoped
+            else preview_data["content_manifest_sha256"]
+        ),
+        "preview_launch_approval_sha256": preview_data["launch_approval_sha256"],
+        "native_grant_profile": preview_data["native_grant_profile"],
+    }
 
 
 def transmission_choice(
@@ -1153,6 +1206,9 @@ def _explicit_run(args: argparse.Namespace, repo: Path) -> int:
             provider_isolation=args.provider_isolation,
         )
         manifest_sha = preview_data["manifest_sha256"]
+        preview_bindings = preview_binding_fields(
+            preview_data, scoped=bool(args.provider_scope),
+        )
         mode, approved_sha, expected_sha, approval_hint, legacy = (
             transmission_choice(args, preview_data)
         )
@@ -1190,7 +1246,7 @@ def _explicit_run(args: argparse.Namespace, repo: Path) -> int:
             )
         created_state_sha = store.create(
             {
-                "schema_version": SCHEMA_VERSION,
+                "schema_version": BOUND_SCHEMA_VERSION,
                 "kind": KIND_WORKFLOW_STATE,
                 "job_id": args.job_id,
                 "repo_path": str(repo),
@@ -1203,6 +1259,7 @@ def _explicit_run(args: argparse.Namespace, repo: Path) -> int:
                 "provider_isolation": args.provider_isolation,
                 "provider_execution": None,
                 "preview_manifest_sha256": manifest_sha,
+                **preview_bindings,
                 "dispatch_job_dir": str(dispatch_job_dir),
                 "job_state_path": args.job_state,
                 "receipt_path": None,
@@ -1313,6 +1370,9 @@ def _ordinary_run(args: argparse.Namespace, repo: Path) -> int:
                 )
             raise
         manifest_sha = preview_data["manifest_sha256"]
+        preview_bindings = preview_binding_fields(
+            preview_data, scoped=bool(args.provider_scope),
+        )
         if store.value is not None and store.value["schema_version"] in {1, 2}:
             if store.value["preview_manifest_sha256"] != manifest_sha:
                 raise WorkflowError("legacy workflow binding or preview changed")
@@ -1325,7 +1385,7 @@ def _ordinary_run(args: argparse.Namespace, repo: Path) -> int:
         if store.value is None:
             state_sha = store.create(
                 {
-                    "schema_version": FACADE_SCHEMA_VERSION,
+                    "schema_version": BOUND_FACADE_SCHEMA_VERSION,
                     "kind": KIND_WORKFLOW_STATE,
                     "origin": FACADE_ORIGIN,
                     "job_id": args.job_id,
@@ -1339,6 +1399,7 @@ def _ordinary_run(args: argparse.Namespace, repo: Path) -> int:
                     "provider_isolation": args.provider_isolation,
                     "provider_execution": None,
                     "preview_manifest_sha256": manifest_sha,
+                    **preview_bindings,
                     "dispatch_job_dir": str(dispatch_job_dir),
                     "job_state_path": str(job_state_path),
                     "job_state_sha256": job_sha,
@@ -1362,11 +1423,13 @@ def _ordinary_run(args: argparse.Namespace, repo: Path) -> int:
                 "job_state_path": str(job_state_path),
                 "preview_manifest_sha256": manifest_sha,
             }
-            if state["schema_version"] == FACADE_SCHEMA_VERSION:
+            if state["schema_version"] in {FACADE_SCHEMA_VERSION, BOUND_FACADE_SCHEMA_VERSION}:
                 expected.update({
                     "origin": FACADE_ORIGIN,
                     "job_state_sha256": job_sha,
                 })
+            if state["schema_version"] in {BOUND_SCHEMA_VERSION, BOUND_FACADE_SCHEMA_VERSION}:
+                expected.update(preview_bindings)
             if any(state.get(key) != value for key, value in expected.items()):
                 raise WorkflowError("facade workflow binding or preview changed")
             state_sha = store.sha256
@@ -1522,6 +1585,12 @@ def _workflow_status(args: argparse.Namespace) -> int:
                 "use job.sh or agy-worker.sh directly only for advanced recovery."
             ),
         }
+        if state["schema_version"] in {BOUND_SCHEMA_VERSION, BOUND_FACADE_SCHEMA_VERSION}:
+            status_result.update({
+                "preview_content_sha256": state["preview_content_sha256"],
+                "preview_launch_approval_sha256": state["preview_launch_approval_sha256"],
+                "native_grant_profile": state["native_grant_profile"],
+            })
 
         if args.format == "json":
             sys.stdout.buffer.write(canonical_json(status_result) + b"\n")

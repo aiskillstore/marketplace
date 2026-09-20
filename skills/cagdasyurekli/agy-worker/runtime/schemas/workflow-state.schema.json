@@ -1,6 +1,6 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "title": "agy-worker workflow state v1-v4",
+  "title": "agy-worker workflow state v1-v6",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -20,7 +20,7 @@
     "receipt_path"
   ],
   "properties": {
-    "schema_version": {"type": "integer", "enum": [1, 2, 3, 4]},
+    "schema_version": {"type": "integer", "enum": [1, 2, 3, 4, 5, 6]},
     "kind": {"type": "string", "enum": ["agy-worker-workflow-state"]},
     "job_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$"},
     "repo_path": {"type": "string", "pattern": "^/[^\\r\\n]*$"},
@@ -31,6 +31,9 @@
     "branch_ref": {"type": "string", "pattern": "^refs/heads/[^\\r\\n]+$"},
     "base": {"type": "string", "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"},
     "preview_manifest_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "preview_content_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "preview_launch_approval_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "native_grant_profile": {"type": "string", "enum": ["baseline", "A", "B", "AB"]},
     "dispatch_job_dir": {"anyOf": [{"type": "string", "pattern": "^/[^\\r\\n]*$"}, {"type": "null"}]},
     "job_state_path": {"anyOf": [{"type": "string", "pattern": "^/[^\\r\\n]*$"}, {"type": "null"}]},
     "receipt_path": {"anyOf": [{"type": "string", "pattern": "^/[^\\r\\n]*$"}, {"type": "null"}]},
@@ -49,6 +52,18 @@
       ]
     }
   },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "schema_version": {"enum": [5, 6]},
+          "provider_isolation": {"const": "session"}
+        },
+        "required": ["schema_version", "provider_isolation"]
+      },
+      "then": {"properties": {"native_grant_profile": {"const": "baseline"}}}
+    }
+  ],
   "oneOf": [
     {
       "properties": {"schema_version": {"const": 1}},
@@ -57,7 +72,10 @@
           {"required": ["origin"]},
           {"required": ["job_state_sha256"]},
           {"required": ["provider_isolation"]},
-          {"required": ["provider_execution"]}
+          {"required": ["provider_execution"]},
+          {"required": ["preview_content_sha256"]},
+          {"required": ["preview_launch_approval_sha256"]},
+          {"required": ["native_grant_profile"]}
         ]
       }
     },
@@ -67,7 +85,10 @@
       "not": {
         "anyOf": [
           {"required": ["provider_isolation"]},
-          {"required": ["provider_execution"]}
+          {"required": ["provider_execution"]},
+          {"required": ["preview_content_sha256"]},
+          {"required": ["preview_launch_approval_sha256"]},
+          {"required": ["native_grant_profile"]}
         ]
       }
     },
@@ -75,7 +96,13 @@
       "properties": {"schema_version": {"const": 3}},
       "required": ["provider_isolation", "provider_execution"],
       "not": {
-        "anyOf": [{"required": ["origin"]}, {"required": ["job_state_sha256"]}]
+        "anyOf": [
+          {"required": ["origin"]},
+          {"required": ["job_state_sha256"]},
+          {"required": ["preview_content_sha256"]},
+          {"required": ["preview_launch_approval_sha256"]},
+          {"required": ["native_grant_profile"]}
+        ]
       },
       "oneOf": [
         {
@@ -100,6 +127,13 @@
         "provider_isolation",
         "provider_execution"
       ],
+      "not": {
+        "anyOf": [
+          {"required": ["preview_content_sha256"]},
+          {"required": ["preview_launch_approval_sha256"]},
+          {"required": ["native_grant_profile"]}
+        ]
+      },
       "oneOf": [
         {
           "properties": {
@@ -114,6 +148,31 @@
           }
         }
       ]
+    },
+    {
+      "required": [
+        "provider_isolation", "provider_execution", "preview_content_sha256",
+        "preview_launch_approval_sha256", "native_grant_profile"
+      ],
+      "not": {
+        "anyOf": [{"required": ["origin"]}, {"required": ["job_state_sha256"]}]
+      },
+      "properties": {
+        "schema_version": {"const": 5},
+        "provider_isolation": {"enum": ["session", "native"]},
+        "provider_execution": {"type": "null"}
+      }
+    },
+    {
+      "required": [
+        "origin", "job_state_sha256", "provider_isolation", "provider_execution",
+        "preview_content_sha256", "preview_launch_approval_sha256", "native_grant_profile"
+      ],
+      "properties": {
+        "schema_version": {"const": 6},
+        "provider_isolation": {"enum": ["session", "native"]},
+        "provider_execution": {"type": "null"}
+      }
     }
   ],
   "definitions": {

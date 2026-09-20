@@ -53,6 +53,16 @@ ROLE_PROVIDER = "provider"
 ROLE_SELF_VERIFY = "self-verify"
 NETWORK_DENY_ALL = "deny-all"
 NETWORK_PROVIDER_TLS = "provider-tls"
+GRANT_PROFILE_BASELINE = "baseline"
+GRANT_PROFILE_A = "A"
+GRANT_PROFILE_B = "B"
+GRANT_PROFILE_AB = "AB"
+# Only new command/preview construction reads this policy choice. Legacy callers
+# retain the literal baseline defaults on render and prepare.
+NEW_NATIVE_GRANT_PROFILE = "baseline"
+_GRANT_PROFILES = frozenset({
+    GRANT_PROFILE_BASELINE, GRANT_PROFILE_A, GRANT_PROFILE_B, GRANT_PROFILE_AB,
+})
 _ROLES = frozenset({ROLE_PROVIDER, ROLE_SELF_VERIFY})
 _PROC_PIDTBSDINFO = 3
 _MAXCOMLEN = 16
@@ -114,6 +124,7 @@ class ProcessIdentity:
 class PreparedContainedLaunch:
     role: str
     network_policy: str
+    grant_profile: str
     darwin_release: str
     darwin_version: str
     launcher: FileBinding
@@ -671,10 +682,24 @@ def _scheme_string(value: str) -> str:
     return f'"{escaped}"'
 
 
+def _validate_grant_profile(
+    grant_profile: str, role: str, network_policy: str, allow_keychain: bool,
+) -> None:
+    if type(grant_profile) is not str or grant_profile not in _GRANT_PROFILES:
+        raise ContainmentError("native grant profile is invalid")
+    if role != ROLE_PROVIDER and grant_profile != GRANT_PROFILE_BASELINE:
+        raise ContainmentError("only provider launches may select native grants")
+    if grant_profile in {GRANT_PROFILE_A, GRANT_PROFILE_AB} and not allow_keychain:
+        raise ContainmentError("native grant profile requires provider keychain")
+    if grant_profile in {GRANT_PROFILE_B, GRANT_PROFILE_AB} and network_policy != NETWORK_PROVIDER_TLS:
+        raise ContainmentError("native grant profile requires provider TLS")
+
+
 def render_profile(
     *, target_executable: str, role: str, network_policy: str,
     allow_keychain: bool, read_only_inputs: Sequence[str] = (),
     keychain_path: str | None = None, provider_settings_path: str | None = None,
+    grant_profile: str = "baseline",
 ) -> bytes:
     """Render the fixed default-deny profile; dynamic paths use ``-D`` params."""
     if role not in _ROLES:
@@ -685,6 +710,7 @@ def render_profile(
         raise ContainmentError("only provider launches may use provider TLS")
     if role != ROLE_PROVIDER and allow_keychain:
         raise ContainmentError("only provider launches may access the keychain")
+    _validate_grant_profile(grant_profile, role, network_policy, allow_keychain)
     if (allow_keychain and (
         not isinstance(keychain_path, str) or not keychain_path.startswith("/")
     )) or (not allow_keychain and keychain_path is not None):
@@ -720,15 +746,15 @@ def render_profile(
         # A fork retains the target image and its exact service authority. An
         # exec normally loses that authority; /usr/bin/security is the sole
         # Keychain-helper exception and inherits every other profile boundary.
-        keychain = f"""
-(with-filter (process-path {_scheme_string(target_executable)})
+        direct_keychain = f"""(with-filter (process-path {_scheme_string(target_executable)})
   (allow mach-lookup
     (global-name "com.apple.SecurityServer")
     (global-name "com.apple.securityd.xpc")
     (global-name "com.apple.securityd.general")
     (global-name "com.apple.trustd")
     (global-name "com.apple.trustd.agent")))
-(with-filter (process-path {_scheme_string("/usr/bin/security")})
+"""
+        helper_keychain = f"""(with-filter (process-path {_scheme_string("/usr/bin/security")})
   (allow mach-lookup
     (global-name "com.apple.SecurityServer")
     (global-name "com.apple.securityd.xpc")
@@ -738,6 +764,10 @@ def render_profile(
   (allow file-read*
     (literal {_scheme_string(keychain_path)})))
 """
+        keychain = "\n"
+        if grant_profile not in {GRANT_PROFILE_A, GRANT_PROFILE_AB}:
+            keychain += direct_keychain
+        keychain += helper_keychain
     network = ""
     if network_policy == NETWORK_PROVIDER_TLS:
         # Apple's localhost token was qualified against owned IPv4, IPv6, and
@@ -751,8 +781,10 @@ def render_profile(
     (require-all (remote tcp "*:443")
       (require-not (remote ip "localhost:*"))))
   (allow network-outbound (literal "/private/var/run/mDNSResponder"))
-  (allow network-bind network-inbound (local tcp "localhost:*"))
-  (allow mach-lookup (global-name "com.apple.mDNSResponder")))
+"""
+        if grant_profile not in {GRANT_PROFILE_B, GRANT_PROFILE_AB}:
+            network += '  (allow network-bind network-inbound (local tcp "localhost:*"))\n'
+        network += """  (allow mach-lookup (global-name "com.apple.mDNSResponder")))
 (deny network-outbound (remote ip "localhost:*"))
 """
     provider_settings = ""
@@ -847,6 +879,7 @@ def prepare_contained_launch(
     read_only_inputs: Sequence[str | Path] = (),
     provider_max_cycles: int | None = None,
     provider_write_selectors: Sequence[Mapping[str, str]] = (),
+    grant_profile: str = "baseline",
 ) -> PreparedContainedLaunch:
     """Create and bind one native selected-content launch envelope."""
     require_supported_host()
@@ -858,6 +891,7 @@ def prepare_contained_launch(
         raise ContainmentError("only provider launches may use provider TLS")
     if role != ROLE_PROVIDER and allow_keychain:
         raise ContainmentError("only provider launches may access the keychain")
+    _validate_grant_profile(grant_profile, role, network_policy, allow_keychain)
     if allow_keychain and provider_max_cycles is None:
         raise ContainmentError("native provider permission settings are unavailable")
     if not allow_keychain and (
@@ -940,6 +974,7 @@ def prepare_contained_launch(
         provider_settings_path=(
             provider_settings.path if provider_settings is not None else None
         ),
+        grant_profile=grant_profile,
     )
     profile_binding = _publish_profile(
         job / f"{stem}-sandbox-{attempt:03d}.sb", profile_payload,
@@ -963,7 +998,7 @@ def prepare_contained_launch(
         "XDG_STATE_HOME": str(Path(home.path) / ".local" / "state"),
     })
     return PreparedContainedLaunch(
-        role, network_policy, platform.release(), platform.version(), launcher,
+        role, network_policy, grant_profile, platform.release(), platform.version(), launcher,
         target, profile_binding, bound_inputs, keychain, keychain_preferences, provider_settings,
         stage, home, attempt_tmp, tuple(target_argv),
         tuple(sorted(environment.items())), bool(allow_keychain),
@@ -990,6 +1025,20 @@ def confirm_contained_launch(
         prepared.profile.path, modes={0o400}, limit=MAX_PROFILE_BYTES,
     ) != prepared.profile:
         raise ContainmentError("sandbox profile changed before scoped launch")
+    expected_profile = render_profile(
+        target_executable=prepared.target.path,
+        role=prepared.role,
+        network_policy=prepared.network_policy,
+        allow_keychain=prepared.allow_keychain,
+        read_only_inputs=tuple(item.path for item in prepared.read_only_inputs),
+        keychain_path=prepared.keychain.path if prepared.keychain is not None else None,
+        provider_settings_path=(
+            prepared.provider_settings.path if prepared.provider_settings is not None else None
+        ),
+        grant_profile=prepared.grant_profile,
+    )
+    if hashlib.sha256(expected_profile).hexdigest() != prepared.profile.sha256:
+        raise ContainmentError("native grant profile changed before scoped launch")
     if any(
         _bind_file(
             item.path, modes={0o400, 0o444, 0o600, 0o644},

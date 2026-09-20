@@ -380,14 +380,14 @@ def command_self_verify(api: Any, job: Path, approve_sha: str, output_format: st
             state, raw, sha = api.load_state(job)
             if sha != approve_sha:
                 raise api.DispatchError("dispatch state changed before self-verification")
-            if (state["schema_version"] not in {12, 13}
+            if (state["schema_version"] not in {12, 13, 14}
                     or not state["allow_self_verification"]
                     or state["phase"] not in {"awaiting-verification", "repair-failed"}
                     or state["self_verification_run"] >= state["attempt"]):
                 raise api.DispatchError("self-verification is unavailable")
             command, candidate_raw = api._bound_current_candidate(job, state)
             if ((state["schema_version"], command["schema_version"])
-                    not in {(12, 9), (13, 9), (13, 10)}
+                    not in {(12, 9), (13, 9), (13, 10), (14, 9), (14, 10), (14, 11)}
                     or not command["allow_self_verification"]
                     or command["workflow"] not in {"task", "project"} or command["boost"]):
                 raise api.DispatchError("self-verification was not enabled for this job")

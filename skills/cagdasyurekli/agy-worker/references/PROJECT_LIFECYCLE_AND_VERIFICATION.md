@@ -55,7 +55,7 @@ The notice does not require another response while the existing approval applies
 8. Continue the same conversation for a bounded repair or finalize an honest
    disposition. Preserve useful partial work when the budget ends.
 
-Whole-worktree mode requires the preview’s `launch_approval_sha256`, binding the manifest and execution mode; requested paths
+Whole-worktree mode requires the preview’s `launch_approval_sha256`, binding content, kinds, permissions, symlink targets, and execution mode; requested paths
 and gate policies constrain writes or candidate acceptance, not provider reads.
 Provider-scope mode narrows staged content and reconciled writes. New jobs default
 to `--provider-isolation session`, retaining the existing AGY session and normal user
@@ -96,8 +96,9 @@ provider approval, obtain the canonical content-free preview:
   > "$STATE_DIR/preview.json"
 ```
 
-Review the preview, its execution mode, and its `launch_approval_sha256`. It lists path names and kinds,
-not file contents, starts no provider process, and grants no approval. After the user
+Review the preview, its authority summary, and its `launch_approval_sha256`. It reads
+content locally to bind the selected boundary without printing file contents or symlink
+target strings, starts no provider process, and grants no approval. After the user
 approves that exact boundary, capture the approved run's envelope in the owner-private
 state directory. Emit the required user-facing provider notice immediately before this
 attempt:
@@ -169,7 +170,7 @@ Legacy isolation labels remain null: use the bound execution facts, which preser
 scoped command V1–V8 behavior without native containment and V9 behavior with it.
 Unbound jobs may have no execution facts yet.
 
-Current V13 uses `dispatching` for an active initial, resume, or restart attempt;
+Current V14 uses `dispatching` for an active initial, resume, or restart attempt;
 `attempt-failed` for a pre-candidate failure; `awaiting-verification` for a recognized
 candidate; `repairing` for an active continuation; and `repair-failed` for a failed
 continuation. `self-verifying` denotes the optional local check action. Terminal controller phases are `completed` and `blocked`. Driver

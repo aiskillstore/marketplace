@@ -65,6 +65,10 @@ same-job resume or restart; create a new job only after the evidence is reviewed
 This can be valid CLI behavior. Parse `result.structured_output`; do not treat the
 echoed schema or empty display text as the worker result. If the structured report is
 missing or invalid, preserve the sanitized failure and do not invent an envelope.
+A command-permission denial can also produce empty output in headless mode;
+`accept-edits` grants no shell permission. Keep the selected model and authority
+unchanged, retain the actual controller failure, and do not silently retry or widen
+permissions. A file-tool-only prompt does not guarantee the worker avoids commands.
 
 ## Authentication, quota, timeout, or provider failure
 

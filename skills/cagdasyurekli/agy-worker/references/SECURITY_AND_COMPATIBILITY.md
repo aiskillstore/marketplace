@@ -66,14 +66,23 @@ command can still import and execute unreviewed candidate code, so do not expose
 credentials merely because the command itself is trusted.
 
 `agy-worker.sh transmission-preview --workdir ABSOLUTE_DISPOSABLE_WORKTREE` is a
-provider-free review surface. It double-scans a bounded no-follow path
-manifest, excludes the root `.git` marker, and uses fixed, bounded local
+provider-free review surface. Whole-worktree approval binds a twice-stable, bounded
+no-follow content manifest: path, kind, permissions, file bytes, and literal symlink
+targets. Output contains digests rather than file contents or target strings. It
+excludes the root `.git` marker and uses fixed, bounded local
 `/usr/bin/git worktree list` plumbing to require a real registered branch-backed linked
 worktree. With `--provider-scope FILE`, it evaluates the closed scope JSON against
 the worktree and computes the policy digest, complete readable path/kind manifest,
 selected-content manifest and digest, and unified `transmission_sha256`. It starts no
-`agy`, provider, or network process. It is not approval and does not bind a future
-provider launch. When dispatched with
+`agy`, provider, or network process. Preview is review evidence, not human approval.
+New whole-worktree launches require its content-bound `launch_approval_sha256` and
+recheck content immediately before provider start. Bounds or drift fail explicitly;
+there is no fallback to path-only approval. Content scans are bounded to 100,000
+entries, 512 MiB of file and symlink-target bytes, depth 128, and 30 seconds for
+the complete double scan. Use scoped mode if the complete worktree exceeds these limits. Legacy jobs keep their versioned approval and recovery
+semantics. The structured authority summary distinguishes session host access from
+native containment and reports the remaining network and Keychain grants.
+When dispatched with
 `--provider-scope FILE --approve-transmission-sha SHA256`, a fresh owner-private
 mode-`0700` Gitless stage is materialized with only selected entries. The write list
 must be a subset of the read list; after provider completion, only authorized staged

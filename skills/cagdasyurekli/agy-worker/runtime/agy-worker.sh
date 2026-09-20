@@ -1381,7 +1381,7 @@ selection_path, provider_scope_arg, approved_transmission_sha_arg, approved_whol
 if not isinstance(child_umask, str) or len(child_umask) not in (3, 4) or any(ch not in "01234567" for ch in child_umask):
     raise SystemExit(64)
 value = {
-    "schema_version": 10,
+    "schema_version": 11,
     "kind": "agy-worker-dispatch-command",
     "job_id": job_id,
     "workdir": workdir,
@@ -1423,6 +1423,11 @@ value = {
     "self_verification_manifest_sha256": None,
     "self_verification_manifest_identity": None,
     "provider_isolation": provider_isolation_arg,
+    "whole_worktree_content_sha256": None,
+    "native_grant_profile": (
+        "baseline" if provider_isolation_arg == "session"
+        else dispatch["CONTAINMENT"].NEW_NATIVE_GRANT_PROFILE
+    ),
 }
 descriptor = os.open(selection_path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
 try:
@@ -1457,6 +1462,16 @@ if provider_scope_arg:
     value["provider_scope_sha256"] = __import__("hashlib").sha256(sc_data).hexdigest()
     value["provider_scope_identity"] = list(identity(scope_info))
     value["approved_transmission_sha256"] = approved_transmission_sha_arg
+else:
+    try:
+        content = dispatch["whole_worktree_content_manifest"](workdir)
+    except Exception:
+        sys.stderr.write(
+            "agy-worker.sh: whole-worktree content binding failed its bounded local scan; "
+            "use --provider-scope for selected content\n"
+        )
+        raise SystemExit(20)
+    value["whole_worktree_content_sha256"] = content["manifest_sha256"]
 
 if self_verification_manifest_arg:
     manifest_path = Path(self_verification_manifest_arg)

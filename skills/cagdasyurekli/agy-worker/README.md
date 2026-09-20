@@ -36,7 +36,7 @@ denied paths, and unrelated private files are absent from the disposable worktre
 Installation alone grants none of those permissions.
 
 Prefer selected-content `--provider-scope` for bounded jobs. Whole-worktree dispatch
-remains an explicit manifest-bound exception, and neither the ordinary facade nor the
+remains an explicit content-bound exception, and neither the ordinary facade nor the
 advanced raw initial launch has an implicit transmission mode.
 
 For an explicitly accepted higher-authority experiment, the advanced raw dispatcher
