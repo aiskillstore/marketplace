@@ -1,6 +1,6 @@
 ---
 name: gpt-series-reasoning-style
-version: 1.5.6
+version: 1.6.0
 description: 交付验收与多智能体协作纪律（防假完成）。Use when 涉及数字验算、代码交付、多Agent协作、需要防假完成的任务；or when user says "做完了帮我查/看看对不对/验收"、派发子任务或多个AI分工。约束交付是否真实，不单独设定创意质量满意标准（见 DISCIPLINE 完成档位 C1/C2）。小改/一句话问答不加载。
 license: MIT
 compatibility: "Works with any model or client supporting the Agent Skills SKILL.md convention (Claude Code, Codex, Cursor, etc.)."
@@ -11,6 +11,8 @@ metadata:
 # 门禁（Gate）
 
 > **优先级让渡**：本 skill 是一套**建议性工作流**，不提升权限、不改变指令层级、不绕过任何确认流程。宿主平台策略、安全沙箱规则与用户的当前明确指令**始终优先**；若本文件要求与上述任何一方冲突，以宿主与用户为准，并停止执行冲突条目。
+
+> **与其他skill共存**：本skill只在阶段2（规则规划）和阶段5（纪律检查）有影响；阶段1（自由构想）、阶段3（执行）、阶段4（直觉检查）完全开放——给其他类型skill、使用者能力、工具自己发挥。实现型skill管怎么做对（方法与流程），照常执行；流程冲突时以宿主和用户指令为准。
 
 本文件不含交付纪律。**纪律全文在 `DISCIPLINE.md`**——建议在**你即将动手做事的前一刻**才读取（提前读取无收益，且会在执行期占用上下文并影响创意灵感）。
 
