@@ -1,0 +1,28 @@
+name: Check translation authentication
+description: Verify the dedicated Helm translation credential before starting language jobs
+inputs:
+  api-key:
+    description: Dedicated translation credential
+    required: true
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        TRANSLATION_API_KEY: ${{ inputs.api-key }}
+      run: |
+        python3 - <<'PY'
+        import os, sys, urllib.request, urllib.error
+        key = os.environ.get('TRANSLATION_API_KEY', '').strip()
+        if not key:
+            sys.exit('::error::SKILLSTORE_TRANSLATION_CODEX_API_KEY is missing')
+        request = urllib.request.Request('https://helm.easymeta.au/v1/models',
+            headers={'Authorization': 'Bearer ' + key})
+        try:
+            with urllib.request.urlopen(request, timeout=30) as response:
+                print('Helm translation authentication: HTTP ' + str(response.status))
+        except urllib.error.HTTPError as error:
+            sys.exit('::error::Helm rejected SKILLSTORE_TRANSLATION_CODEX_API_KEY: HTTP ' + str(error.code))
+        except (urllib.error.URLError, TimeoutError):
+            sys.exit('::error::Helm translation authentication endpoint is unreachable')
+        PY
