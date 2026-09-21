@@ -4,7 +4,7 @@ description: Use when a user wants to turn one structured Excel or CSV table int
 license: MIT
 compatibility: Requires Python 3.10+; standard PPT export also requires Node.js 18+ and python-pptx 1.0+; optional SlideViber is installed separately.
 metadata:
-  version: "0.2.5"
+  version: "0.2.6"
 ---
 
 # 数据分析&汇报小助手
@@ -20,6 +20,8 @@ metadata:
 - **能得到什么：** 一份可离线阅读的 HTML 分析简报；按需生成可编辑标准 PPT；还可选择单独安装 SlideViber 继续制作美化版。
 - **怎样配合：** 你负责提供数据和业务目标、确认必要口径；AI 负责检查、分析、组织结论和生成报告。
 - **实际效果：** [在线查看完整合成案例](https://majichuan.github.io/sheet-to-report/)，包括 HTML、标准 PPT 与 SlideViber 美化版的同源对照。
+
+**第一次试用？[跟着示例做一次](https://majichuan.github.io/sheet-to-report/guide.html)**：下载完全合成的10万行练习表，选择“直接分析”或“先确认方案”，照着步骤得到 HTML；需要汇报时再继续制作 PPT。
 
 ## 为什么选择 sheet-to-report
 

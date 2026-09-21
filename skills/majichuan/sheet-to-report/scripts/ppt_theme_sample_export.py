@@ -6,6 +6,7 @@ from pathlib import Path
 from ppt_theme_selection import validate_selection
 from chapter_pptx_export import render_deck,canonical
 from chapter_native_scene_qa import inspect_native_scene
+from chapter_pptx_readability import prepare_scene
 
 
 def export_sample(source_path,selection,manifest,out):
@@ -31,7 +32,9 @@ def export_sample(source_path,selection,manifest,out):
         pages.append([{**o,**({'id':'theme-chart'} if o['kind']=='chart' else {'fill':'#'+cfg['palette'][o['role']]})}
                       for o in objects])
     scene={'source':d['sha256'],'width':1280,'height':720,'purpose':'theme-preview','scene':pages}
+    scene=prepare_scene(d,scene)
     render_deck(d,scene,[1,2],out)
+    out.with_suffix('.scene.json').write_text(json.dumps(scene,ensure_ascii=False,indent=2),encoding='utf-8')
     errors,checks=inspect_native_scene(out,scene)
     if errors:raise ValueError('; '.join(errors))
     return {'purpose':'theme-preview','full_deck':False,'checks':checks,'source_model_sha256':source['source_model_sha256']}

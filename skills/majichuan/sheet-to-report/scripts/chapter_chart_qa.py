@@ -1,5 +1,6 @@
 """Source-based checks for extended chart geometry and native chart semantics."""
 import math
+from chart_axis_ids import axis_id_errors
 
 NS={'a':'http://schemas.openxmlformats.org/drawingml/2006/main','c':'http://schemas.openxmlformats.org/drawingml/2006/chart'}
 EXTENDED={'paired','stacked','donut','scatter','waterfall','histogram'}
@@ -127,7 +128,7 @@ def inspect_extended(view,scene,actual,colors,scale=1.5):
  return errors,checks
 
 def native_semantics(chart,view,series_index=None):
- errors=[];kind=view['kind']
+ errors=axis_id_errors(chart);kind=view['kind']
  expected='doughnutChart' if kind=='donut' else 'scatterChart' if kind=='scatter' or (kind=='line' and view['axes']['x']['scale']!='category') else 'lineChart' if kind=='line' else 'barChart'
  node=chart.find('.//c:'+expected,NS)
  if node is None:return ['native chart type differs: '+kind]

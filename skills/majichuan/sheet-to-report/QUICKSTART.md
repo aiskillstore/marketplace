@@ -1,5 +1,8 @@
 # Quick start
 
+**First run? [Follow the tutorial (Chinese)](https://majichuan.github.io/sheet-to-report/guide.html)**: download the fully synthetic 100,000-row practice workbook, choose direct analysis or plan-first, and follow the steps to HTML and optional PPT.
+
+
 ## 1. Prepare the data
 
 Use one well-structured Excel or CSV business table and state the question the review should answer. The current version processes one table per run.

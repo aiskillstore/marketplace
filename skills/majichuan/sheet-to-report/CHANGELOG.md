@@ -2,6 +2,15 @@
 
 All notable public changes to `sheet-to-report` are recorded here.
 
+## 0.2.6 - 2026-09-17
+
+- Added a step-by-step first-use tutorial alongside the existing output showcase, with downloadable fully synthetic 100,000-row Excel/CSV data and metric notes.
+- Put direct analysis first in the tutorial, separated both start modes into expandable sections, shortened prompts, and added clear HTML-to-PPT and own-data follow-ups.
+- Linked the tutorial from the Skill entrypoint, Chinese/English READMEs, and quick-start documents without moving execution rules into the user tutorial.
+- Normalized native chart axis IDs and cross-references during PPT export; QA now rejects invalid axis references.
+- Improved cover-title line breaks and added source-bound labels and exact values for negative horizontal bars while retaining editable native charts.
+- Added eight focused regression tests. Both analysis paths were checked through HTML and standard PPT; seven PPTX files (69 pages) were rendered and reviewed locally. PowerPoint/WPS application opening and editing remain unverified.
+
 ## 0.2.5 - 2026-09-16
 
 - Redesigned the first-run entry around a four-stage path from scope confirmation to HTML, standard PPT, and optional refinement.
