@@ -10,6 +10,9 @@
 
 [在线看完整案例](https://majichuan.github.io/sheet-to-report/) · [三步开始](QUICKSTART.zh-CN.md) · [常见问题](FAQ.md) · [安装与环境](INSTALL.md)
 
+**第一次试用？[跟着示例做一次](https://majichuan.github.io/sheet-to-report/guide.html)**：下载完全合成的10万行练习表，选择“直接分析”或“先确认方案”，照着步骤得到 HTML；需要汇报时再继续制作 PPT。
+
+
 ## 先看实际效果
 
 公开演示采用完全合成的 10 万行全渠道经营数据，覆盖 18 个月、11 个字段，不包含真实企业或个人信息。

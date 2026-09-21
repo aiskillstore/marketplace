@@ -11,6 +11,8 @@ from pptx.enum.text import MSO_AUTO_SIZE, MSO_ANCHOR
 from pptx.oxml.xmlchemy import OxmlElement
 from pptx.oxml.ns import qn
 from pptx.util import Emu, Pt
+from chart_axis_ids import normalize_chart_axis_ids
+from chapter_pptx_readability import prepare_scene
 
 PX=9525
 def emu(x): return Emu(round(x*PX))
@@ -134,6 +136,7 @@ def draw_chart(slide,o,v,config,series_indices=None):
             if lo==hi:lo-=max(1,abs(lo)*.05);hi+=max(1,abs(hi)*.05)
             xa.minimum_scale=lo;xa.maximum_scale=hi;xa.tick_labels.number_format='yyyy-mm' if v['axes']['x']['scale']=='time' else '0.00'
             if v['axes']['x']['scale']=='time':xa.major_unit=max(1,round((hi-lo)/6))
+    normalize_chart_axis_ids(cs)
     return {'id':v['id'],'kind':kind,'series_indices':si,'source_order':order}
 
 def render_deck(projection,scene,pages,out):
@@ -156,7 +159,9 @@ def render_deck(projection,scene,pages,out):
                 else:record['charts'].append(draw_chart(slide,o,view,config))
                 continue
             if kind=='text':
-                shape=slide.shapes.add_textbox(emu(o['x']),emu(o['y']),emu(o['w']),emu(o['h']));tf=shape.text_frame;tf.auto_size=MSO_AUTO_SIZE.NONE;tf.word_wrap=True;tf.vertical_anchor=MSO_ANCHOR.TOP;tf.text=o['t']
+                shape=slide.shapes.add_textbox(emu(o['x']),emu(o['y']),emu(o['w']),emu(o['h']));tf=shape.text_frame;tf.auto_size=MSO_AUTO_SIZE.NONE;tf.word_wrap=not o.get('explicit_wrap',False);tf.vertical_anchor=MSO_ANCHOR.TOP;tf.text=o['t']
+                if o.get('explicit_wrap'):
+                    tf.margin_left=tf.margin_right=tf.margin_top=tf.margin_bottom=0
                 for para in tf.paragraphs:
                     para.space_before=Pt(0);para.space_after=Pt(0)
                     para._p.get_or_add_pPr().set('eaLnBrk','1');para._p.get_or_add_pPr().set('hangingPunct','1')
@@ -182,6 +187,7 @@ def export_bound(model, selection, projection, scene, out, story=None):
     from chapter_presentation import validate_projection
     from chapter_presentation_qa import inspect
     validate_projection(projection, model, selection, story)
+    scene=prepare_scene(projection,scene)
     if selection['target'] != 'standard':
         raise ValueError('Standard export cannot substitute for SlideViber')
     purpose = scene.get('purpose')
@@ -203,6 +209,7 @@ def export_bound(model, selection, projection, scene, out, story=None):
     if len(scene['scene']) != len(indices):raise ValueError('Scene page count mismatch')
     # Renderer works on a subset while notes remain bound to full source pages.
     render_deck(projection, scene, [i+1 for i in indices], out)
+    out.with_suffix('.scene.json').write_text(json.dumps(scene,ensure_ascii=False,indent=2),encoding='utf-8')
     qa = inspect(out, projection, model, selection, scene, sample, story, review)
     from chapter_native_scene_qa import inspect_native_scene
     errors, checks = inspect_native_scene(out, scene)

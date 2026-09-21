@@ -10,6 +10,9 @@
 
 [Live demo](https://majichuan.github.io/sheet-to-report/) · [Quick start](QUICKSTART.md) · [FAQ](FAQ.en.md) · [Install](INSTALL.en.md)
 
+**First run? [Follow the tutorial (Chinese)](https://majichuan.github.io/sheet-to-report/guide.html)**: download the fully synthetic 100,000-row practice workbook, choose direct analysis or plan-first, and follow the steps to HTML and optional PPT.
+
+
 > v0.2 is Chinese-first. The full workflow has been accepted on several synthetic Chinese business scenarios; equivalent English-output acceptance is not yet complete.
 
 ## See it in action
