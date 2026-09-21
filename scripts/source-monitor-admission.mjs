@@ -2,7 +2,7 @@ import {execFileSync} from 'node:child_process';
 import {appendFileSync} from 'node:fs';
 import {pathToFileURL} from 'node:url';
 const repo='repos/aiskillstore/marketplace';
-const api=path=>JSON.parse(execFileSync('gh',['api',`${repo}/${path}`],{encoding:'utf8'}));
+const api=path=>JSON.parse(execFileSync('gh',['api',`${repo}/${path}`],{encoding:'utf8',maxBuffer:32*1024*1024}));
 export function admitMonitor(request=api) {
   const root=request('git/trees/main');
   const pending=root.tree.find(x=>x.path==='pending');
