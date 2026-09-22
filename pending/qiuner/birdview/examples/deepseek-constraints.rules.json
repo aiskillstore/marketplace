@@ -1,0 +1,97 @@
+{
+  "revision": "7a0b7682b6690f0aa2d93438c4d526b38ab45777",
+  "scope": "本轮提炼根指令、包级公共规则与防御模式中的核心要求；目录细则、任务技能及扩展引用仍需继续审查",
+  "groups": [
+    {"sourcePath":"docs/defensive-patterns.md","category":"lifecycle","topic":{"id":"termination","name":"退出与异步结果"},"rules":[
+      {"id":"rule-quiescence","targetRole":"backend","roleReason":"原文针对服务、插件运行时或进程执行；对应后端职责，不据此指定具体架构模块。","name":"清理必须等到退出","anchor":"A teardown that issues kills/aborts","condition":"取消、卸载或结束子工作时","explanation":"先关闭监听和通知入口，再请求终止并等待子工作真正退出。发出 kill 或 abort 不等于清理完成。","verification":"检查销毁后的子进程与迟到通知，验证清理完成后才返回。"},
+      {"id":"rule-independent-results","targetRole":"backend","roleReason":"原文针对服务、插件运行时或进程执行；对应后端职责，不据此指定具体架构模块。","name":"超时与退出分别报告","anchor":"A result can be several things at once","condition":"返回进程结果时","explanation":"timedOut、signal、exitCode 是独立事实。超时进程即使捕获信号后返回 0，也不能被描述成正常成功。","verification":"覆盖超时且退出码为 0 的组合，核对所有结果字段。"},
+      {"id":"rule-async-interval","targetRole":"queue","roleReason":"原文针对 followup 排队、后台工作与运行区间；对应任务与队列职责。","name":"空闲不等于消息完成","anchor":"`agent.followup()` has no per-message","condition":"自动化等待 followup 或后台工作时","explanation":"一次 running 区间可能混合多条消息。按持久化收件到整段 idle 定义所拥有的区间，并处理无工作可等待的情况。","verification":"检查排队、取消、插入消息及没有待执行工作的路径。"},
+      {"id":"rule-callback-errors","targetRole":"backend","roleReason":"原文针对服务、插件运行时或进程执行；对应后端职责，不据此指定具体架构模块。","name":"监听异常不得中断分发","anchor":"A user-supplied listener that throws","condition":"分发用户注册的回调时","explanation":"隔离并记录单个监听器的异常，后续监听器仍须执行，不能让核心生命周期随回调失败。","verification":"让首个监听器抛错，验证后续回调和生命周期继续运行。"}
+    ]},
+    {"sourcePath":"AGENTS.md","category":"lifecycle","topic":{"id":"registration","name":"注册与委托"},"rules":[
+      {"id":"rule-effect-registration","targetRole":"backend","roleReason":"原文针对服务、插件运行时或进程执行；对应后端职责，不据此指定具体架构模块。","name":"注册必须可释放","anchor":"**Registrations are effects","condition":"向注册表或事件系统添加贡献时","explanation":"通过 ctx.effect() 或 ctx.on() 注册；register() 返回释放函数，使插件卸载能回收贡献。","verification":"检查注册入口和 disposer，并验证卸载后贡献消失。"},
+      {"id":"rule-waterfall","targetRole":"backend","roleReason":"原文针对服务、插件运行时或进程执行；对应后端职责，不据此指定具体架构模块。","name":"瀑布监听必须委托","anchor":"**Waterfall listeners MUST call","condition":"实现瀑布事件监听器时","explanation":"用 next() 把执行交给下一个监听器；直接返回会截断后续链路，不能当作普通观察回调处理。","verification":"验证串联监听器的调用次序与明确的短路行为。"}
+    ]},
+    {"sourcePath":"packages/AGENTS.md","category":"lifecycle","topic":{"id":"ownership","name":"状态与资源归属"},"rules":[
+      {"id":"rule-one-lifecycle","name":"一次操作一个生命周期","anchor":"**Represent one asynchronous operation","condition":"设计异步操作状态时","explanation":"同一次操作使用一个生命周期控制器或事务；额外控制器需要独立所有者或完成点，并保留回滚、异常隔离和静止保证。","verification":"沿成功、失败、取消路径核对状态归属和清理时点。"},
+      {"id":"rule-publish-after-commit","name":"提交成功后才发布状态","anchor":"**Publish state only at its commit point","condition":"操作更新状态或发送通知时","explanation":"操作成功后才发通知、更新派生状态。缓存、UI、重放和查询从同一权威数据源派生。","verification":"模拟提交失败，检查没有提前通知或可见的半成品状态。"},
+      {"id":"rule-test-resources","name":"并发测试自己清理资源","anchor":"**Specs run concurrently","condition":"编写进程、端口、路径相关测试时","explanation":"测试与其他 worker 并发运行；获取的端口、路径和子进程由本测试负责释放。只能单独通过也是缺陷。","verification":"并发执行相关用例，检查冲突与残留资源。"}
+    ]},
+    {"sourcePath":"AGENTS.md","category":"interfaces","topic":{"id":"compatibility","name":"接口与持久数据"},"rules":[
+      {"id":"rule-update-consumers","name":"改接口同步所有调用方","anchor":"Public APIs are pre-stable;","condition":"更改公开 API 时","explanation":"公开 API 尚未稳定，可以修改，但必须追踪并更新全部消费者。不能由此推断全面向后兼容。","verification":"搜索调用方并运行相关类型与行为检查。"},
+      {"id":"rule-session-generations","targetRole":"database","roleReason":"原文针对持久会话数据的版本保留或日志重建；对应数据存储职责。","name":"已发布数据代际不可覆盖","anchor":"Public APIs are pre-stable;","condition":"迁移已发布 Session 数据时","explanation":"可以新增按版本命名的后继代际，但不能移动、覆盖或删除已提交代际；旧代际不意味着支持回退或降级。SQLite 模式版本单调递增。","verification":"核对迁移文件和已提交代际差异，检查版本递增。"},
+      {"id":"rule-model-log","targetRole":"database","roleReason":"原文针对持久会话数据的版本保留或日志重建；对应数据存储职责。","name":"模型输入必须可重建","anchor":"**Model-visible ⟺ logged","condition":"新增进入模型请求的内容时","explanation":"新增模型可见输入必须有会话事件，让请求能够从会话日志重建。普通调试日志不能替代会话记录。","verification":"比对原请求和会话重放结果。"},
+      {"id":"rule-branded-ids","name":"跨边界标识使用品牌类型","anchor":"**Opaque cross-boundary ids are branded","condition":"定义跨边界的不透明 ID 时","explanation":"使用 dsh-brand 的 Branded 类型，不以裸 string 混用不同含义的标识。","verification":"检查公开 ID 类型及传递位置，验证不同 ID 无法互换。"},
+      {"id":"rule-events-contract","name":"事件必须说明执行契约","anchor":"**Typed events use declaration merging","condition":"定义事件或扩展 SessionEventMap 时","explanation":"采用声明合并和可扩展事件映射，记录 @mode 与参数。未知必读事件必须拒绝读取；忽略机制和格式版本按会话机制处理。","verification":"检查事件 JSDoc、未知事件读取以及格式变更规则。"},
+      {"id":"rule-discriminants","name":"封闭联合必须穷尽处理","anchor":"**Switch on discriminant tags","condition":"处理判别联合时","explanation":"封闭联合以 assertNever 结束；允许合并扩展的联合保留有说明的默认分支。","verification":"增加一种分支，核对类型检查或扩展回退是否按契约工作。"}
+    ]},
+    {"sourcePath":"docs/defensive-patterns.md","category":"interfaces","topic":{"id":"errors","name":"错误与结果契约"},"rules":[
+      {"id":"rule-normalize-errors","targetRole":"backend","roleReason":"原文针对服务、插件运行时或进程执行；对应后端职责，不据此指定具体架构模块。","name":"公开结果两端保持一致","anchor":"When an implementation receives several","condition":"实现 LLM 运行时与适配器时","explanation":"适配器可抛错或产生错误结束事件；运行时对模型请求失败统一为终止块，中间件与消费者缺陷仍抛出，避免调用方猜测错误来源。","verification":"通过真实消费者覆盖不同来源形式的错误。"}
+    ]},
+    {"sourcePath":"packages/AGENTS.md","category":"interfaces","topic":{"id":"contracts","name":"服务与模型契约"},"rules":[
+      {"id":"rule-all-consumers","name":"服务定义兼顾所有消费者","anchor":"**Design Service Definitions for all current Consumers","condition":"设计共享能力接口时","explanation":"工具 Schema、UI、传输和供应商细节留在对应消费者或 Provider，不让单一消费者支配共享接口。","verification":"对照各消费者检查接口，识别只服务一个调用方的多余公共层。"},
+      {"id":"rule-model-facing","name":"模型契约只说任务信息","anchor":"**Write model-facing contracts from the model","condition":"编写提示、工具 Schema、结果和诊断时","explanation":"以模型完成任务所需的概念表达，避免暴露 UI、传输或实现术语。稳定文案和动态行为分别以快照或端到端覆盖。","verification":"审阅模型实际看到的输入输出，核对相关快照。"},
+      {"id":"rule-whole-bounds","name":"限制覆盖完整输出","anchor":"**Apply bounds to the complete result","condition":"限制字节、token、条目或时间时","explanation":"在包含封装和元数据的完整结果处执行限制，不能只限制内层片段。","verification":"覆盖极小、恰好边界、超大单块及多字节输入。"}
+    ]},
+    {"sourcePath":"AGENTS.md","category":"configuration","topic":{"id":"config","name":"可配置性"},"rules":[
+      {"id":"rule-config-tunables","targetRole":"backend","roleReason":"原文针对服务、插件运行时或进程执行；对应后端职责，不据此指定具体架构模块。","name":"可变参数必须可配置","anchor":"**No hardcoded tunables in plugins","condition":"引入随部署变化的选项时","explanation":"提供经校验、可由 cordis.yml 修改的 Config 字段。默认常量和测试钩子不等于配置能力；协议常量与安全不变量保持固定。","verification":"检查加载校验、覆盖值与无效值处理。"},
+      {"id":"rule-config-errors","targetRole":"backend","roleReason":"原文针对服务、插件运行时或进程执行；对应后端职责，不据此指定具体架构模块。","name":"错误配置尽早报错","anchor":"**Misconfiguration fails loud","condition":"加载或解析配置引用时","explanation":"能独立判断的错误在加载时报错，依赖运行时信息的在最早可判断处报错；不能静默跳过缺失对象。","verification":"输入非法值和缺失引用，检查错误时点和诊断。"},
+      {"id":"rule-explicit-defaults","name":"默认值在解析阶段确定","anchor":"**Explicit > implicit at package boundaries","condition":"跨包处理请求参数时","explanation":"由拥有实现的一方通过明确 resolve(request): Spec 步骤确定默认值，不把隐含回退藏在 run() 中。","verification":"检查请求到执行参数的转换以及默认值归属。"}
+    ]},
+    {"sourcePath":"AGENTS.md","category":"configuration","topic":{"id":"plugins","name":"插件与启动"},"rules":[
+      {"id":"rule-plugin-extension","targetRole":"backend","roleReason":"原文针对服务、插件运行时或进程执行；对应后端职责，不据此指定具体架构模块。","name":"新行为使用插件扩展点","anchor":"**Plugins, not loop changes","condition":"增加系统行为时","explanation":"优先使用文档定义的扩展点；确需修改 agent-loop 时，同步 docs/architecture.md。","verification":"核对所用扩展点和循环变更对应的架构文档。"},
+      {"id":"rule-capability-roles","name":"能力包含定义供应与消费","anchor":"**A capability seam comprises","condition":"新增或拆分能力时","explanation":"完整能力包含 Service Definition、Service Provider、Consumer；只有角色独立演进时才拆分，不以单个角色冒充完整能力。","verification":"列出三个角色及其连接，检查独立演进依据。"},
+      {"id":"rule-launch-profiles","targetRole":"backend","roleReason":"原文针对服务、插件运行时或进程执行；对应后端职责，不据此指定具体架构模块。","name":"应用只经配置档启动","anchor":"**Application launch.","condition":"增加受支持的 Node 应用入口时","explanation":"使用 dsh profiles 启动；禁止通过 package bin、demo 或公共 SDK argv 逃逸另建入口。","verification":"检查发布入口和 profile 启动路径。"},
+      {"id":"rule-maintained-deps","name":"依赖应减少自有实现","anchor":"**Prefer maintained dependencies over hand-rolling","condition":"决定引入第三方依赖时","explanation":"优先维护中的依赖，前提是它确实删减本项目拥有的实现和测试，不只增加包装层。","verification":"对比引入前后自有代码与测试，确认维护状态。"}
+    ]},
+    {"sourcePath":"packages/AGENTS.md","category":"configuration","topic":{"id":"wiring","name":"装配规则"},"rules":[
+      {"id":"rule-plugin-exports","targetRole":"backend","roleReason":"原文针对服务、插件运行时或进程执行；对应后端职责，不据此指定具体架构模块。","name":"插件导出形式不得混用","anchor":"**Plugin exports:","condition":"编写服务或函数插件时","explanation":"服务包默认导出服务类；函数插件具名导出 name、inject、Config、apply，不能再有默认导出，否则 Loader 可能丢弃命名空间。","verification":"通过真实 Loader 检查两类插件导出。"},
+      {"id":"rule-optional-services","targetRole":"backend","roleReason":"原文针对服务、插件运行时或进程执行；对应后端职责，不据此指定具体架构模块。","name":"可选服务显式查询","anchor":"**Optional services use `ctx.get(name)`","condition":"读取可选服务时","explanation":"用 ctx.get(name)；ctx.name 仅用于已声明注入。避免属性代理的拓扑差异导致查询错误。","verification":"在有无可选服务的装配下验证读取。"},
+      {"id":"rule-current-owner","name":"抽象必须有当前需求","anchor":"**Require a current owner and need","condition":"增加抽象、状态机、选项或兼容层时","explanation":"关联当前契约或生产消费者，将行为留在拥有它的插件或服务中。","verification":"指出现有消费者和所有者，检查是否仅为假设场景增加复杂度。"},
+      {"id":"rule-public-choice","name":"公开选项必须有依据","anchor":"**Require evidence for public choices","condition":"选择公共默认值或操作集合时","explanation":"可配置本身不是默认值和外部概念的依据；使用现有消费者证据或相关先例，否则要求显式值或延后选择。","verification":"逐项核对默认值、操作和格式的依据。"}
+    ]},
+    {"sourcePath":"docs/defensive-patterns.md","category":"security","topic":{"id":"process-files","name":"进程与文件"},"rules":[
+      {"id":"rule-scrub-env","targetRole":"security","roleReason":"原文针对信任校验、凭据、路径或权限执行；对应安全职责。","name":"子进程环境必须脱敏","anchor":"Spawned commands get a scrubbed env","condition":"执行不可信命令或产生溢出文件时","explanation":"子进程环境移除密钥、令牌、口令等变量。临时文件使用私有目录、随机名称和独占创建，避免凭据泄漏及符号链接竞争。","verification":"检查传入环境和临时文件权限，测试已有同名路径。"},
+      {"id":"rule-unlink-links","targetRole":"security","roleReason":"原文针对信任校验、凭据、路径或权限执行；对应安全职责。","name":"删除链接不得跟随目标","anchor":"A path that may be a symlink","condition":"删除可能是符号链接或 Windows junction 的路径时","explanation":"先以 lstat 判断链接，再用 unlink 删除链接本身；递归删除只用于已知真实目录。","verification":"构造目录链接，确认删除后目标目录内容仍在。"}
+    ]},
+    {"sourcePath":"AGENTS.md","category":"security","topic":{"id":"trust","name":"信任与凭据"},"rules":[
+      {"id":"rule-external-validation","targetRole":"security","roleReason":"原文针对信任校验、凭据、路径或权限执行；对应安全职责。","name":"外部边界必须校验","anchor":"**Trust TypeScript at typed same-process boundaries","condition":"处理配置、队列、模型 JSON、持久数据、进程或网络输入时","explanation":"在这些真实边界执行运行时校验；同进程有静态类型保证的位置不凭空增加敌意输入测试或防御回退。","verification":"区分输入来源，检查校验落点和可信内部类型。"},
+      {"id":"rule-never-commit-secrets","targetRole":"security","roleReason":"原文针对信任校验、凭据、路径或权限执行；对应安全职责。","name":"凭据不得进入仓库","anchor":"Real-API tests and demos read","condition":"配置真实 API 测试、demo 或环境变量时","explanation":"密钥来自环境和本地 .env，不提交凭据。无密钥时真实 API 测试按项目政策跳过，不能把跳过当作通过。","verification":"检查待提交内容和真实 API 测试的执行或跳过记录。"}
+    ]},
+    {"sourcePath":"packages/AGENTS.md","category":"security","topic":{"id":"enforcement","name":"执行授权"},"rules":[
+      {"id":"rule-enforce-executor","targetRole":"security","roleReason":"原文针对信任校验、凭据、路径或权限执行；对应安全职责。","name":"限制必须在执行处生效","anchor":"**Enforce a decision in the operation","condition":"增加权限或行为限制时","explanation":"隐藏 Schema、提示词或调整监听次序不能替代执行器检查；直接调用和替代入口也必须执行同样的限制。","verification":"绕过 UI 和提示层直接调用，验证执行器拒绝。"}
+    ]},
+    {"sourcePath":"AGENTS.md","category":"testing","topic":{"id":"evidence","name":"检查与证据"},"rules":[
+      {"id":"rule-honest-checks","name":"只报告实际运行的检查","anchor":"Run checks before pushes via","condition":"提交测试结论或准备推送时","explanation":"只报告执行过的命令；stack sync 后及时验证，检查通过前不合并。不能把建议运行的检查写成已通过。","verification":"核对命令、输出、退出码及跳过项。"},
+      {"id":"rule-focused-checks","name":"检查范围匹配改动","anchor":"- Match evidence to the surface:","condition":"选择本地验证方式时","explanation":"行为改动用相关测试，用户输出用快照，文档用 doc-sync，发布路径用构建冒烟，Provider 用真实 API e2e。","verification":"将每类改动与实际证据逐项对应。"},
+      {"id":"rule-ci-matrix","name":"完整矩阵交给持续集成","anchor":"- Never default to the full suite","condition":"普通局部改动验证时","explanation":"不默认全量跑所有套件，也不为提交推送重复已通过检查；完整覆盖与平台矩阵由 CI 负责，明确要求或必要情况除外。","verification":"核对选择的检查与范围，说明必须扩大验证的依据。"},
+      {"id":"rule-snapshots","name":"可见行为变化更新快照","anchor":"**Testing policy","condition":"非平凡的模型或产品可见行为改变时","explanation":"更新无密钥的录制会话快照。顶层 snapshots 只放会话驱动场景；跨平台修复夹具，不能靠归一化掩盖问题。","verification":"执行相关快照并检查真实输出差异。"},
+      {"id":"rule-both-sdks","name":"循环变化同步两个客户端","anchor":"**Both SDKs project the loop","condition":"修改循环、会话生命周期或 SessionEventMap 时","explanation":"同一 PR 更新 TypeScript 与 Python SDK 的预期输出；普通 pnpm test 不覆盖这两项。","verification":"分别运行两个 SDK 对应的检查。"},
+      {"id":"rule-behavior-tests","name":"测试描述可观察行为","anchor":"**Tests describe behavior, not correctness","condition":"行为变化使旧用例失效时","explanation":"把过时测试与行为一起更新，并在 PR 中解释预期变化，不把旧断言当作永久正确。","verification":"检查用例断言是否对应新的可观察行为。"}
+    ]},
+    {"sourcePath":"packages/AGENTS.md","category":"testing","topic":{"id":"integration","name":"真实装配验证"},"rules":[
+      {"id":"rule-real-composition","name":"产品插件测试真实装配","anchor":"**Product-visible plugins require","condition":"新增产品可见插件时","explanation":"通过 Loader 和真实应用或进程加载测试 cordis.yml。手工 ctx.plugin 的单元测试不够；只 mock 外部服务或非确定性输入。","verification":"检查测试从真实装配入口启动并断言用户、模型或持久输出。"},
+      {"id":"rule-hmr-disposal","targetRole":"backend","roleReason":"原文针对服务、插件运行时或进程执行；对应后端职责，不据此指定具体架构模块。","name":"热重载验证注册释放","anchor":"**Registry contributions prove disposal","condition":"测试注册表贡献时","explanation":"按 HMR 安全要求销毁 fiber，实际观察贡献从注册表中消失。","verification":"执行相关热重载安全测试并检查移除结果。"},
+      {"id":"rule-owned-invariant","name":"不变量必须检查真实关系","anchor":"**Publish `./invariant` only for diverging observations","condition":"新增 invariant 导出时","explanation":"只有独立观测可能分歧时才发布，检查所属关系；空安装器、固定示例或仅检查服务存在不构成有效不变量。","verification":"检查能触发的真实分歧，以及无此需求时 README 中的说明。"}
+    ]},
+    {"sourcePath":"AGENTS.md","category":"delivery","topic":{"id":"change-delivery","name":"变更交付"},"rules":[
+      {"id":"rule-agent-note","name":"非平凡改动附决策记录","anchor":"**Non-trivial changes MUST include an Agent Note","condition":"提交非机械、非局部改动时","explanation":"同一 PR 提交 Agent Note。归档笔记冻结，不修改，也不作为当前权威规则。","verification":"核对变更范围、同 PR 的记录和当前规范来源。"},
+      {"id":"rule-ui-locales","targetRole":"frontend","roleReason":"原文明确要求客户端 UI 文案通过本地化词典管理。","name":"界面文案归本地化管理","anchor":"**Client UI copy is locale-owned","condition":"增加客户端 UI 文案时","explanation":"通过类型化词典、t 或本地化 primitive 属性传递，不在业务组件中硬编码文字。","verification":"运行客户端文案检查，查看相关语言显示。"},
+      {"id":"rule-tool-presentation","name":"工具先设计可见呈现","anchor":"**Design each tool's UI presentation up front","condition":"新增工具时","explanation":"先定义 UI 呈现；Host presenter 保持纯函数，Web 卡片由原始事件和持久结果元数据派生。","verification":"检查模型输出、Host 展示和 Web 卡片是否共享真实数据。"},
+      {"id":"rule-safe-history","name":"历史重写使用安全租约","anchor":"**Choose PR history deliberately","condition":"管理独立或堆叠 PR 历史时","explanation":"独立变更拆分，先修引入问题的 PR。重写只用 force-with-lease，远端移动则停止，不使用裸 force。","verification":"核对分支基准、远端状态和选定的历史操作。"},
+      {"id":"rule-labels","name":"标签表达类型与影响面","anchor":"**Labels:","condition":"维护 PR 和 Issue 分类时","explanation":"PR 使用一个 kind 标签和所有实质相关的 area 标签；Issue 使用原生类型。","verification":"对照改动范围检查标签和 Issue 类型。"}
+    ]},
+    {"sourcePath":"AGENTS.md","category":"delivery","topic":{"id":"source-build","name":"代码与构建约定"},"rules":[
+      {"id":"rule-esm","name":"源码统一使用模块规范","anchor":"- ESM everywhere","condition":"增加模块或跨包导入时","explanation":"使用 ESM；跨包用包名，本地相对导入带 .ts。配置子进程按约定运行构建产物，源码启动遵循 tsx ESM 契约。","verification":"检查导入、发布导出和支持入口的启动方式。"},
+      {"id":"rule-source-artifacts","name":"源码检查与产物检查分开","anchor":"**Source plane vs artifact plane, never mixed","condition":"新增静态门禁或运行测试时","explanation":"静态门禁和源码测试通过 paths 指向 src，干净源码树可运行；依赖 lib 产物的检查明确声明构建依赖。","verification":"分别在无构建产物和已构建条件下执行相关检查。"},
+      {"id":"rule-compiler-faces","name":"编译配置明确区分宿主端","anchor":"**Keep compiler faces explicit","condition":"包同时包含 Host 和 Client 程序时","explanation":"为两个编译面提供叶配置和仅作 solution 的根配置，仓库级入口使用对应编译面。","verification":"核对项目引用和编译入口，避免重复或遗漏。"},
+      {"id":"rule-catch-reason","name":"吞掉异常必须说明原因","anchor":"**An empty `catch` names what it swallows","condition":"编写空 catch 时","explanation":"明确吞掉哪类异常及为什么不会进入其他异常；try 内仅保留一个语句。","verification":"审查异常来源和未预期异常的传播。"},
+      {"id":"rule-local-comments","name":"注释只解释附近必要事实","anchor":"**Keep comments local","condition":"增加代码注释时","explanation":"不重复代码、不解释远处行为，也不顺便扩展无关注释。","verification":"核对注释与附近实现是否一致且确有必要。"}
+    ]},
+    {"sourcePath":"packages/AGENTS.md","category":"delivery","topic":{"id":"package-docs","name":"包级文档"},"rules":[
+      {"id":"rule-sync-readme","name":"行为与文档同次更新","anchor":"- Update package README and JSDoc contracts","condition":"更改包的可观察行为时","explanation":"同一提交更新 README 和 JSDoc，并与实现核对；分组 README 指向权威子系统页面或给出豁免依据。","verification":"对照源码审查相关说明及链接。"},
+      {"id":"rule-model-experience","name":"说明模型与上下文成本","anchor":"- Package READMEs document model, token","condition":"维护包 README 时","explanation":"使用规定的 Model Experience 格式说明模型、token 与 KV-cache 影响。","verification":"核对影响说明是否完整且符合真实行为。"},
+      {"id":"rule-known-limitations","name":"长期限制明确记录","anchor":"- Package READMEs put durable consumer gaps","condition":"包存在长期消费者缺口或非显然限制时","explanation":"放在 Known Limitations and Deferred Work；普通清理留在 TODO 或 Agent Note，无限制时需有理由的豁免。","verification":"区分长期限制与普通待办并检查对应章节。"}
+    ]}
+  ]
+}
