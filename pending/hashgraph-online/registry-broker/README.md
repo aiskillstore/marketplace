@@ -1,0 +1,336 @@
+# HOL Registry
+
+| ![](https://github.com/hashgraph-online/standards-sdk/raw/main/Hashgraph-Online.png) | **AI agent skills for the Universal Agentic Registry.** Search live AI agent inventory, chat with any agent, register your own — consumable by Claude, Codex, Cursor, OpenClaw, and any AI coding assistant.<br><br>[Live Registry](https://hol.org/registry) &#124; [API Docs](https://hol.org/docs/registry-broker/) &#124; [SDK Docs](https://hol.org/docs/libraries/standards-sdk/) |
+| :-------------------------------------------- | :-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+
+[![npm version](https://img.shields.io/npm/v/@hol-org/registry?style=for-the-badge&logo=npm&logoColor=white&label=@hol-org/registry)](https://www.npmjs.com/package/@hol-org/registry)
+[![npm version](https://img.shields.io/npm/v/@hashgraphonline/standards-sdk?style=for-the-badge&logo=npm&logoColor=white&label=standards-sdk)](https://www.npmjs.com/package/@hashgraphonline/standards-sdk)
+[![DOI](https://img.shields.io/badge/DOI-10.5281%2Fzenodo.18748323-1682D4?style=for-the-badge&logo=zenodo&logoColor=white)](https://doi.org/10.5281/zenodo.18748323)
+[![HOL Registry](https://img.shields.io/badge/HOL-Registry-5599FE?style=for-the-badge)](https://hol.org/registry)
+[![HOL Registry skill badge](https://img.shields.io/endpoint?url=https%3A%2F%2Fhol.org%2Fapi%2Fregistry%2Fbadges%2Fskill%2Fregistry-broker%3Fmetric%3Dversion%26style%3Dfor-the-badge%26label%3Dregistry-broker)](https://hol.org/registry/skills/registry-broker)
+[![Run in Postman](https://img.shields.io/badge/Run_in-Postman-FF6C37?style=for-the-badge&logo=postman&logoColor=white)](https://app.getpostman.com/run-collection/51598040-f1ef77fd-ae05-4edb-8663-efa52b0d1e99?action=collection%2Ffork&source=rip_markdown&collection-url=entityId%3D51598040-f1ef77fd-ae05-4edb-8663-efa52b0d1e99%26entityType%3Dcollection%26workspaceId%3Dfb06c3a9-4aab-4418-8435-cf73197beb57)
+[![Import in Insomnia](https://img.shields.io/badge/Import_in-Insomnia-4000BF?style=for-the-badge&logo=insomnia&logoColor=white)](https://insomnia.rest/run/?label=Universal%20Agentic%20Registry&uri=https%3A%2F%2Fhol.org%2Fregistry%2Fapi%2Fv1%2Fopenapi.json)
+[![OpenAPI Spec](https://img.shields.io/badge/OpenAPI-3.1.0-6BA539?style=for-the-badge&logo=openapiinitiative&logoColor=white)](https://hol.org/registry/api/v1/openapi.json)
+[![skill.json schema](https://img.shields.io/badge/skill.json-JSON_Schema-2563EB?style=for-the-badge&logo=json&logoColor=white)](./schemas/skill.schema.json)
+
+## What is this?
+
+This repository contains **skill definitions** for the [Universal Agentic Registry](https://hol.org/registry) — the connectivity layer for the autonomous web. Skills are instruction files that teach AI coding assistants how to interact with the Registry Broker API.
+
+It is designed for developer-intent discovery around:
+- MCP server registry and MCP server discovery
+- Agent skills registry and skill package publishing
+- Agent directory CLI workflows and API-first integration
+
+The `SKILL.md` file can be consumed by:
+- **Claude Code / Claude Desktop** — via MCP or direct skill loading
+- **OpenAI Codex / ChatGPT** — as context instructions
+- **Cursor** — as project instructions
+- **OpenClaw / ClawHub** — native skill format
+- **Any AI coding assistant** — universal markdown format
+
+## Share & Embed
+
+Use these snippets in your README, docs, or release notes to link canonical skill surfaces:
+
+```md
+[![Listed on Universal Agentic Registry](https://img.shields.io/badge/Listed_on-HOL_Registry-5599FE?style=for-the-badge)](https://hol.org/registry/skills)
+[![Publish with skill-publish](https://img.shields.io/badge/Publish-skill--publish-7C3AED?style=for-the-badge)](https://github.com/hashgraph-online/skill-publish)
+```
+
+Direct references:
+- Skills index: `https://hol.org/registry/skills`
+- Product docs: `https://hol.org/docs/registry-broker/`
+- Interactive API docs: `https://hol.org/registry/docs`
+- OpenAPI schema: `https://hol.org/registry/api/v1/openapi.json`
+- Live stats endpoint: `https://hol.org/registry/api/v1/dashboard/stats`
+- Skill publishing action: `https://github.com/hashgraph-online/skill-publish`
+
+## Schema & Validation
+
+- Canonical manifest schema: [`schemas/skill.schema.json`](./schemas/skill.schema.json)
+- SchemaStore submission kit: [`references/SCHEMASTORE-SUBMISSION.md`](./references/SCHEMASTORE-SUBMISSION.md)
+- Syndication kit: [`references/SYNDICATION-KIT.md`](./references/SYNDICATION-KIT.md)
+- APIs metadata: [`apis.json`](./apis.json)
+- LLM index: [`llms.txt`](./llms.txt)
+
+## DOI Readiness
+
+- Zenodo metadata: [`.zenodo.json`](./.zenodo.json)
+- Citation metadata: [`CITATION.cff`](./CITATION.cff)
+
+## What is the Universal Registry?
+
+One standards-compliant API to access live AI agent inventory from:
+
+| Protocol | Description |
+|----------|-------------|
+| **AgentVerse** | Fetch.ai autonomous agents |
+| **Virtuals** | Tokenized AI agents |
+| **A2A** | Google's Agent-to-Agent protocol |
+| **MCP** | Anthropic's Model Context Protocol |
+| **ERC-8004** | On-chain agent verification |
+| **x402 Bazaar** | Agent payment rails |
+| **OpenRouter** | LLM gateway |
+| **NANDA** | Decentralized AI |
+| **Near AI** | Near Protocol agents |
+| **OpenConvAI** | Conversational AI standard |
+| **XMTP** | Decentralized messaging |
+| **ANS** | Agent Name Service |
+| **PulseMCP** | MCP server registry |
+| **HCS-10** | Hedera Consensus Service agents |
+
+## Quick Start
+
+### Option 1: NPX CLI (quickest)
+
+```bash
+# Search for agents
+npx @hol-org/registry search "trading bot"
+
+# Get platform statistics
+npx @hol-org/registry stats
+
+# Resolve a UAID to agent details
+npx @hol-org/registry resolve uaid:aid:fetchai:agent123
+
+# Start a chat (requires API key, uses XMTP by default)
+export REGISTRY_BROKER_API_KEY="your-key"
+npx @hol-org/registry chat uaid:aid:fetchai:agent123 "Hello!"
+
+# Verify Moltbook agent ownership (required to send as agent; also unlocks broker registration)
+MOLTBOOK_API_KEY="mb_xxxxx" npx @hol-org/registry claim
+
+# Mark a verified Moltbook agent as "registered" in the broker (directory benefits)
+npx @hol-org/registry register uaid:aid:moltbook:yourAgent --description "Updated description"
+
+# Check credit balance
+npx @hol-org/registry balance
+
+# Skill registry (publish/find decentralized skills)
+export REGISTRY_BROKER_API_KEY="your-key"
+npx @hol-org/registry skills config
+npx @hol-org/registry skills init --dir ./my-skill --name "my-skill" --version 0.1.0
+npx @hol-org/registry skills lint --dir ./my-skill
+npx @hol-org/registry skills list --name "my-skill" --limit 5
+npx @hol-org/registry skills verify --name "my-skill" --tier basic --account-id 0.0.1234
+npx @hol-org/registry skills verification-status --name "my-skill" --account-id 0.0.1234
+npx @hol-org/registry skills quote --dir ./path/to/skill --account-id 0.0.1234
+npx @hol-org/registry skills publish --dir ./path/to/skill --account-id 0.0.1234
+npx @hol-org/registry skills job <jobId> --account-id 0.0.1234
+
+# Get skill file URL
+npx @hol-org/registry skill
+```
+
+### Option 2: Use the Skill File
+
+Copy `SKILL.md` to your project or reference it in your AI assistant's context.
+
+### Option 3: MCP Server (recommended for Claude/Cursor)
+
+```bash
+npx @hol-org/hashnet-mcp up --transport sse --port 3333
+```
+
+### Option 4: TypeScript SDK
+
+```bash
+npm install @hashgraphonline/standards-sdk
+```
+
+```typescript
+import { RegistryBrokerClient } from "@hashgraphonline/standards-sdk";
+
+const client = new RegistryBrokerClient();
+
+// Search for AI agents
+const results = await client.search({ q: "trading bot" });
+
+// Chat with an agent
+const session = await client.createChatSession({ uaid: "uaid:aid:..." });
+const response = await client.sendMessage({ 
+  sessionId: session.sessionId, 
+  message: "Hello!" 
+});
+```
+
+### Option 5: Direct API (curl)
+
+```bash
+# Get API key at https://hol.org/registry
+export REGISTRY_BROKER_API_KEY="your-key"
+
+# Search for agents
+curl "https://hol.org/registry/api/v1/search?q=trading+bot&limit=5"
+
+# Create chat session
+curl -X POST "https://hol.org/registry/api/v1/chat/session" \
+  -H "Content-Type: application/json" \
+  -H "x-api-key: $REGISTRY_BROKER_API_KEY" \
+  -d '{"uaid": "uaid:aid:..."}'
+```
+
+## Repository Contents
+
+```
+registry-broker-skills/
+├── SKILL.md              # Universal skill definition (main instruction file)
+├── README.md             # This file
+├── LICENSE               # Apache-2.0
+├── scripts/              # Helper bash scripts
+│   ├── search.sh         # Search for agents
+│   ├── chat.sh           # Start a chat session
+│   ├── resolve.sh        # Resolve UAID to details
+│   ├── stats.sh          # Get platform statistics
+│   └── balance.sh        # Check credit balance
+├── examples/             # Code examples
+│   ├── search-and-chat.js    # Search and chat workflow
+│   ├── register-agent.js     # Agent registration
+│   └── ledger-auth.js        # Wallet authentication
+├── references/           # API documentation + submission kits
+│   ├── API.md            # Complete API reference
+│   ├── PROTOCOLS.md      # Supported protocols
+│   ├── MCP.md            # MCP server reference
+│   ├── SCHEMASTORE-SUBMISSION.md
+│   └── SYNDICATION-KIT.md
+└── schemas/
+    └── skill.schema.json # JSON Schema for skill.json
+```
+
+### Scripts
+
+Quick bash scripts for common operations:
+
+```bash
+# Search for agents
+./scripts/search.sh "trading bot" 5
+
+# Resolve a UAID
+./scripts/resolve.sh "uaid:aid:fetchai:agent123"
+
+# Start a chat session (requires API key)
+export REGISTRY_BROKER_API_KEY="your-key"
+./scripts/chat.sh "uaid:aid:fetchai:agent123" "Hello!"
+
+# Check platform stats
+./scripts/stats.sh
+
+# Check credit balance
+./scripts/balance.sh
+```
+
+## API Capabilities
+
+### Discovery
+- **Keyword Search** — Find agents by name, description, capabilities
+- **Vector/Semantic Search** — Natural language agent discovery
+- **Capability Search** — Filter by specific agent capabilities
+- **Agent Details** — Full profile, metadata, trust scores
+- **Similar Agents** — Find related agents
+
+### Chat
+- **Create Session** — Start conversation with any agent
+- **Send Messages** — Real-time chat with streaming support
+- **History** — Retrieve conversation history
+- **Compact** — Summarize history for context window management
+
+### Registration
+- **Quote** — Get credit cost estimate
+- **Register** — Add your agent to the registry
+- **Update** — Modify agent profile
+- **Unregister** — Remove agent
+
+### Credits & Payments
+- **Balance** — Check credit balance
+- **HBAR Payments** — Purchase credits with HBAR
+- **Stripe Payments** — Purchase credits with card
+- **X402 (EVM)** — Purchase credits via EVM wallets
+
+### Authentication
+- **API Key** — Traditional API key auth
+- **Ledger Auth** — Wallet-based authentication (Hedera, Ethereum, Base, Polygon)
+
+## API & Documentation
+
+| Resource | Link |
+|----------|------|
+| **Live Registry** | [hol.org/registry](https://hol.org/registry) |
+| **API Documentation** | [hol.org/docs/registry-broker](https://hol.org/docs/registry-broker/) |
+| **Interactive API Docs** | [hol.org/registry/docs](https://hol.org/registry/docs) |
+| **SDK Documentation** | [hol.org/docs/libraries/standards-sdk](https://hol.org/docs/libraries/standards-sdk/) |
+| **Postman Collection** | [Run in Postman](https://app.getpostman.com/run-collection/51598040-f1ef77fd-ae05-4edb-8663-efa52b0d1e99) |
+| **Insomnia** | [Import OpenAPI](https://insomnia.rest/run/?label=Universal%20Agentic%20Registry&uri=https%3A%2F%2Fhol.org%2Fregistry%2Fapi%2Fv1%2Fopenapi.json) |
+| **OpenAPI Spec** | [openapi.json](https://hol.org/registry/api/v1/openapi.json) |
+| **Live Stats Endpoint** | [dashboard/stats](https://hol.org/registry/api/v1/dashboard/stats) |
+
+## Related Repositories
+
+| Repository | Description |
+|------------|-------------|
+| [`hashnet-mcp-js`](https://github.com/hashgraph-online/hashnet-mcp-js) | MCP server for Registry Broker |
+| [`standards-sdk`](https://github.com/hashgraph-online/standards-sdk) | TypeScript/JavaScript SDK |
+| [`universal-registry-quickstart`](https://github.com/hashgraph-online/universal-registry-quickstart) | Quickstart example project |
+| [`skill-publish`](https://github.com/hashgraph-online/skill-publish) | GitHub Action for quote/publish/poll skill release workflows |
+
+## Using with AI Assistants
+
+### Claude Code / Claude Desktop
+
+Add to your Claude configuration:
+
+```json
+{
+  "mcpServers": {
+    "hashnet": {
+      "command": "npx",
+      "args": ["@hol-org/hashnet-mcp@latest", "up", "--transport", "stdio"]
+    }
+  }
+}
+```
+
+Or reference `SKILL.md` directly in your conversation.
+
+### Cursor
+
+Copy `SKILL.md` to your project root, or add to `.cursor/rules/`.
+
+### OpenClaw / ClawHub
+
+The `SKILL.md` file uses OpenClaw's native YAML frontmatter format and is directly compatible.
+
+### Codex / ChatGPT
+
+Reference the skill file in your system prompt or paste its contents as context.
+
+## Score HOL Points
+
+Contribute to this repository and score [HOL Points](https://hol.org/points)!
+
+- Fix bugs or improve documentation
+- Add new features or examples
+- Submit pull requests to score points
+
+Points can be used across the HOL ecosystem. [Learn more](https://hol.org/points)
+
+## License
+
+Apache-2.0
+
+## Cite this repository
+
+If you reference this project in documentation, reports, or research, use the metadata in [`CITATION.cff`](./CITATION.cff).
+
+## CI/CD: Publish from GitHub
+
+This repository supports one-step HCS-26 publishing from GitHub using the first-party action [`hashgraph-online/skill-publish@v1`](https://github.com/hashgraph-online/skill-publish).
+
+- Workflow: `.github/workflows/skills-publish.yml`
+- Triggered on `release: published`, `push` to `main`, and manual dispatch
+- Automatically validates package files, gets quote, publishes, polls job status, and posts on-chain references back to release notes/PR comments
+- Automatically stamps `repo` and `commit` metadata into the published skill payload
+
+Required repository secret:
+
+- `RB_API_KEY`
