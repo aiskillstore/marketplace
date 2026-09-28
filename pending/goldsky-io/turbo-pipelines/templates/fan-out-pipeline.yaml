@@ -1,0 +1,62 @@
+# Fan-Out Pipeline Example
+# Pattern: source → multiple transforms → multiple sinks
+# Use case: Send different views of the same data to different destinations
+
+name: example-fan-out-balances
+resource_size: m
+
+sources:
+  latest_balances:
+    type: kafka
+    topic: base.raw.latest_balances_v2
+
+transforms:
+  # View 1: Fungible token balances for analytics
+  fungible_balances:
+    type: sql
+    primary_key: id
+    sql: |
+      SELECT
+        CONCAT('base', '-', COALESCE(balance.contract_address, ''), '-', balance.owner_address) AS id,
+        'base' AS chain,
+        balance.owner_address,
+        balance.contract_address AS token_address,
+        CAST(`balance` AS STRING) AS balance_amount
+      FROM latest_balances balance
+      WHERE balance.token_type = 'ERC_20' OR balance.token_type IS NULL
+        AND balance.balance IS NOT NULL
+
+  # View 2: All token types for downstream processing
+  all_tokens:
+    type: sql
+    primary_key: id
+    sql: |
+      SELECT
+        CONCAT('base', '-', COALESCE(balance.contract_address, ''), '-', balance.owner_address, '-', COALESCE(CAST(balance.token_id AS STRING), '')) AS id,
+        'base' AS chain,
+        balance.owner_address,
+        balance.contract_address AS token_address,
+        balance.token_id,
+        balance.token_type,
+        CAST(`balance` AS STRING) AS balance_amount
+      FROM latest_balances balance
+      WHERE balance.token_type IN ('ERC_20', 'ERC_721', 'ERC_1155')
+        AND balance.balance IS NOT NULL
+
+sinks:
+  # Sink 1: Analytics warehouse
+  warehouse:
+    type: clickhouse
+    from: fungible_balances
+    table: token_balances
+    database: analytics
+    secret_name: CLICKHOUSE_SECRET
+    primary_key: id
+    batch_size: 100000
+    batch_flush_interval: 10s
+
+  # Sink 2: Webhook for downstream processing
+  webhook:
+    type: webhook
+    from: all_tokens
+    url: https://api.example.com/balances

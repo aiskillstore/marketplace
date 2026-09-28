@@ -1,0 +1,60 @@
+# Multi-Sink Pipeline
+# Sends data to multiple destinations from the same source
+# This example: archives all transfers to Postgres, sends large transfers to webhook
+#
+# Prerequisites:
+#   1. Create PostgreSQL secret:
+#      goldsky secret create --name MY_POSTGRES --value '{"type":"jdbc","protocol":"postgres","host":"...","port":5432,"databaseName":"...","user":"...","password":"..."}'
+#   2. Create webhook secret (optional, for authenticated webhooks):
+#      goldsky secret create --name MY_WEBHOOK --value '{"type":"httpauth","secretKey":"Authorization","secretValue":"Bearer your-token"}'
+#   3. Create Kafka secret (optional):
+#      goldsky secret create --name MY_KAFKA --value '{"type":"kafka","bootstrapServers":"...","securityProtocol":"SASL_SSL","saslMechanism":"PLAIN","saslJaasUsername":"...","saslJaasPassword":"..."}'
+#
+# Usage:
+#   1. Copy this file to your project
+#   2. Change 'name' to something unique
+#   3. Update secret names and remove unused sinks
+#   4. Run: goldsky turbo apply <filename>.yaml
+
+name: transfers-multi-sink
+resource_size: m
+
+sources:
+  transfers:
+    type: dataset
+    dataset_name: base.erc20_transfers
+    version: 1.2.0
+    start_at: latest
+
+transforms:
+  # Filter for large transfers (> 1 ETH equivalent in smallest unit)
+  large_transfers:
+    type: sql
+    primary_key: id
+    sql: |
+      SELECT * FROM transfers
+      WHERE amount > 1000000000000000000
+
+sinks:
+  # Sink 1: Archive all transfers to PostgreSQL
+  postgres_archive:
+    type: postgres
+    from: transfers
+    schema: public
+    table: all_transfers
+    secret_name: MY_POSTGRES # Update with your secret name
+    primary_key: id
+
+  # Sink 2: Send large transfers to webhook for alerting
+  webhook_alerts:
+    type: webhook
+    from: large_transfers
+    url: https://api.example.com/alerts # Update with your webhook URL
+    secret_name: MY_WEBHOOK # Update with your secret name (or remove for unauthenticated)
+
+  # Sink 3: Stream all transfers to Kafka (comment out if not needed)
+  kafka_stream:
+    type: kafka
+    from: transfers
+    topic: erc20.transfers
+    secret_name: MY_KAFKA # Update with your secret name

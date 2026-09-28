@@ -1,0 +1,49 @@
+# Multi-Chain Templated Pipeline Example
+# Pattern: Duplicate pipeline per chain with chain-specific values
+# Use case: Same logic across multiple chains with independent lifecycle
+#
+# This file shows the BASE chain version. Create copies for other chains:
+# - base-balance-streaming.yaml  (this file)
+# - arbitrum-balance-streaming.yaml
+# - optimism-balance-streaming.yaml
+#
+# For each chain, update:
+# - name: <chain>-balance-streaming
+# - topic: <chain>.raw.latest_balances_v2
+# - source key: <chain>_latest_balances_v2
+# - SQL: '<chain>' AS chain
+# - table: <chain>_token_balances
+
+name: base-balance-streaming
+resource_size: m
+
+sources:
+  base_latest_balances_v2:
+    type: kafka
+    topic: base.raw.latest_balances_v2
+
+transforms:
+  fungible_balances:
+    type: sql
+    primary_key: id
+    sql: |
+      SELECT
+        CONCAT('base', '-', COALESCE(balance.contract_address, ''), '-', balance.owner_address) AS id,
+        'base' AS chain,
+        balance.owner_address,
+        balance.contract_address AS token_address,
+        CAST(`balance` AS STRING) AS balance_amount
+      FROM base_latest_balances_v2 balance
+      WHERE (balance.token_type = 'ERC_20' OR balance.token_type IS NULL)
+        AND balance.balance IS NOT NULL
+
+sinks:
+  warehouse:
+    type: clickhouse
+    from: fungible_balances
+    table: base_token_balances
+    database: analytics
+    secret_name: CLICKHOUSE_SECRET
+    primary_key: id
+    batch_size: 100000
+    batch_flush_interval: 10s
