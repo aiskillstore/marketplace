@@ -1,0 +1,56 @@
+# Linear Pipeline Example
+# Pattern: source → decode → extract → sink
+# Use case: Decode and filter contract events, write to database
+
+name: example-linear-trades
+resource_size: s
+
+sources:
+  raw_logs:
+    type: dataset
+    dataset_name: base.logs
+    version: 1.0.0
+    start_at: earliest
+    filter: >-
+      address = '0x0000000000000000000000000000000000000001'
+      AND block_number >= 10000000
+
+transforms:
+  decoded_events:
+    type: sql
+    primary_key: id
+    sql: |
+      SELECT
+        _gs_log_decode(
+          '[{"anonymous":false,"inputs":[{"indexed":true,"name":"maker","type":"address"},{"indexed":true,"name":"taker","type":"address"},{"indexed":false,"name":"amount","type":"uint256"},{"indexed":false,"name":"price","type":"uint256"}],"name":"OrderFilled","type":"event"}]',
+          topics,
+          `data`
+        ) AS `decoded`,
+        id, block_number, transaction_hash, address, block_timestamp
+      FROM raw_logs
+
+  trades:
+    type: sql
+    primary_key: id
+    sql: |
+      SELECT
+        id,
+        block_number,
+        block_timestamp,
+        transaction_hash,
+        address AS contract_address,
+        decoded.event_params[1] AS maker,
+        decoded.event_params[2] AS taker,
+        (CAST(decoded.event_params[3] AS DOUBLE) / 1e18) AS amount,
+        (CAST(decoded.event_params[4] AS DOUBLE) / 1e6) AS price_usdc
+      FROM decoded_events
+      WHERE decoded.event_signature = 'OrderFilled'
+
+sinks:
+  database:
+    type: postgres
+    from: trades
+    table: trades
+    schema: public
+    secret_name: MY_POSTGRES_SECRET
+    primary_key: id
