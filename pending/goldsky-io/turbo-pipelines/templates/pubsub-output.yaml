@@ -1,0 +1,39 @@
+# Pub/Sub Output Pipeline (Turbo-only)
+# Streams ERC-20 transfers from Base into a Google Cloud Pub/Sub topic.
+#
+# Prerequisites:
+#   1. The Pub/Sub topic must already exist in your GCP project
+#      (Goldsky does not auto-create topics).
+#   2. Create a GCP service account and grant it BOTH:
+#        - roles/pubsub.publisher  (to publish messages)
+#        - roles/pubsub.viewer     (required by the sink's topic-existence pre-check at init)
+#      A publish-only SA will fail sink init with PermissionDenied.
+#   3. Create the secret with the GCP project id and service-account JSON:
+#        goldsky secret create --name PUBSUB_SANDBOX
+#        # (the CLI prompts for project id, then for the SA JSON as a single-line paste)
+#
+# Usage:
+#   1. Update `name`, `topic`, and `secret_name` below.
+#   2. Run: goldsky turbo apply pubsub-output.yaml
+
+name: base-erc20-transfers-pubsub
+resource_size: s
+
+sources:
+  transfers:
+    type: dataset
+    dataset_name: base.erc20_transfers
+    version: 1.2.0
+    start_at: latest
+
+transforms: {}
+
+sinks:
+  pubsub_output:
+    type: pubsub
+    from: transfers
+    topic: erc20-transfers
+    secret_name: PUBSUB_SANDBOX
+    # Optional batching:
+    # batch_size: 1000
+    # batch_flush_interval: 1s
