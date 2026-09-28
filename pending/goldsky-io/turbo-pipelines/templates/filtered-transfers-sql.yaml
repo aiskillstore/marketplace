@@ -1,0 +1,44 @@
+# Filtered ERC-20 Transfers with SQL Transform
+# Filters transfers by contract address (USDC on Base in this example)
+#
+# Usage:
+#   1. Copy this file to your project
+#   2. Change 'name' to something unique
+#   3. Replace the contract address in the WHERE clause
+#   4. Run: goldsky turbo apply <filename>.yaml -i
+#
+# Common contract addresses:
+#   - USDC on Base: 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913
+#   - USDC on Ethereum: 0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48
+#   - WETH on Base: 0x4200000000000000000000000000000000000006
+
+name: usdc-transfers
+resource_size: s
+
+sources:
+  base_transfers:
+    type: dataset
+    dataset_name: base.erc20_transfers
+    version: 1.2.0
+    start_at: latest
+
+transforms:
+  usdc_only:
+    type: sql
+    primary_key: id
+    sql: |
+      SELECT
+        id,
+        sender,
+        recipient,
+        amount,
+        address as token_address,
+        to_timestamp(block_timestamp) as block_time,
+        block_number
+      FROM base_transfers
+      WHERE address = lower('0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913')
+
+sinks:
+  output:
+    type: blackhole
+    from: usdc_only
