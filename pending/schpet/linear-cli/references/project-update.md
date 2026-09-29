@@ -1,0 +1,70 @@
+# project-update
+
+> Manage project status updates
+
+## Usage
+
+```
+Usage:   linear project-update
+
+Description:
+
+  Manage project status updates
+
+Options:
+
+  -h, --help           - Show this help.                      
+  --workspace  <slug>  - Target workspace (uses credentials)  
+
+Commands:
+
+  create, c  <projectId>  - Create a new status update for a project
+  list, l    <projectId>  - List status updates for a project
+```
+
+## Subcommands
+
+### create
+
+> Create a new status update for a project
+
+```
+Usage:   linear project-update create <projectId>
+
+Description:
+
+  Create a new status update for a project                                        
+                                                                                  
+  Linear Markdown: a plain Linear URL creates a mention; `@name`, `@[Name](id)`,  
+  and `[Name](url)` do not. Get a person's URL from the `url` field of            
+  `linear team members <TEAM> --json`, or an issue's from `linear issue url <ID>`.
+  Run `linear markdown` for collapsible sections and the full reference.          
+
+Options:
+
+  -h, --help                   - Show this help.                                    
+  --workspace        <slug>    - Target workspace (uses credentials)                
+  --body             <body>    - Update content (inline)                            
+  --body-file        <path>    - Read content from file                             
+  --health           <health>  - Project health status (onTrack, atRisk, offTrack)  
+  -i, --interactive            - Interactive mode with prompts
+```
+
+### list
+
+> List status updates for a project
+
+```
+Usage:   linear project-update list <projectId>
+
+Description:
+
+  List status updates for a project
+
+Options:
+
+  -h, --help            - Show this help.                                   
+  --workspace  <slug>   - Target workspace (uses credentials)               
+  --json                - Output as JSON                                    
+  --limit      <limit>  - Limit results                        (Default: 10)
+```
