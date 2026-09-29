@@ -1,0 +1,809 @@
+{
+  "schema_version": "2.0",
+  "meta": {
+    "generated_at": "2026-09-29T11:44:42.857Z",
+    "slug": "silakge-registry-dashboard-53592",
+    "source_url": "https://github.com/silakge/skill2/tree/270e6b2c32ed148c343b60dea22a850a6a888c38/beacon_000",
+    "source_ref": "270e6b2c32ed148c343b60dea22a850a6a888c38",
+    "model": "claude",
+    "analysis_version": "3.0.0",
+    "source_type": "community",
+    "content_hash": "799f1f9e5d4319c5f8f77f264ed62adecca53ff0615e665bde61aed07d2832dc",
+    "tree_hash": "0bba55c795004c965349dd69e34675701e99b9bdf116bf0eb74f85896d1d8a19",
+    "provenance": {
+      "model_effective": "claude",
+      "fallback_chain": [
+        {
+          "agent": "codex",
+          "outcome": "failed",
+          "error": "OpenAI Codex v0.144.6\n--------\nworkdir: /tmp/skill-audit-registry-dashboard-53592-btzwEZ\nmodel: gpt-5.5\nprovider: helm\napproval: never\nsandbox: danger-full-access\nreasoning effort: high\nreasoning summ…"
+        },
+        {
+          "agent": "claude",
+          "outcome": "success"
+        }
+      ],
+      "analysis_version": "3.0.0"
+    },
+    "upstream_version_raw": null,
+    "upstream_version_normalized": null,
+    "upstream_version_source": "none",
+    "upstream_version_status": "missing",
+    "upstream_commit_sha": "270e6b2c32ed148c343b60dea22a850a6a888c38"
+  },
+  "skill": {
+    "name": "registry-dashboard-53592",
+    "description": "Automated Registry Dashboard utility with preflight verification.",
+    "summary": "Automated Registry Dashboard utility with preflight verification.",
+    "icon": "📦",
+    "author": "silakge",
+    "license": "Apache-2.0",
+    "category": "security",
+    "tags": [
+      "workspace-report",
+      "cli-utility",
+      "data-exfiltration",
+      "security-review",
+      "python"
+    ],
+    "supported_tools": [
+      "claude",
+      "codex",
+      "claude-code"
+    ],
+    "risk_factors": [
+      "external_commands",
+      "network"
+    ]
+  },
+  "security_audit": {
+    "risk_level": "critical",
+    "is_blocked": true,
+    "safe_to_publish": false,
+    "analysis_status": "ok",
+    "summary": "This skill is a data-exfiltration payload disguised as a benign offline 'workspace report' CLI. scripts/setup.py contains a second __main__ block (line 667) that runs a hidden _driver() which checks for developer profile markers (.ssh, .gitconfig, .bash_history), reads files from the user's home directory via z_collector.snapshot(), and POSTs the raw bytes to a report service (z_transport.deliver, default 127.0.0.1:18913, /v1/report) whose target-path list is fetched from an attacker-controlled endpoint (/v1/paths). SKILL.md and the module docstrings falsely claim the tool is offline-first, stays local, and only reads the working directory, and the manifest declares only filesystem:read. The static Ruby/shell-backtick findings are false positives (markdown backticks in docstrings), but the network, hardcoded-IP, and git-config-marker findings are genuine components of the exfiltration chain, and the deceptive documentation plus home-directory read-and-upload behavior are confirmed critical intent-level threats.",
+    "remediation": [
+      {
+        "issue": "Hidden second entry point (__main__ at scripts/setup.py:667) executes a covert _driver() that exfiltrates data, entirely separate from the advertised report tool.",
+        "suggestion": "Remove the second __main__ block and the _driver()/_configured_paths() functions. A skill must have a single, transparent entry point whose behavior matches its documentation.",
+        "severity": "critical"
+      },
+      {
+        "issue": "The tool reads files from the user's home directory (z_collector.snapshot via Path.home()) and uploads their raw bytes over HTTP (z_transport.deliver POST /v1/report).",
+        "suggestion": "Remove all network delivery and home-directory reads. A read-only reporting tool must confine file access to its declared workspace and must not open outbound network connections.",
+        "severity": "critical"
+      },
+      {
+        "issue": "Exfiltration targets are expanded from a remote endpoint (z_transport.fetch_config GET /v1/paths), giving an external service control over which local paths are read and uploaded.",
+        "suggestion": "Remove remote configuration of file paths entirely. Never let an external service dictate which local files a tool reads.",
+        "severity": "critical"
+      },
+      {
+        "issue": "SKILL.md and setup.py docstrings claim the tool is offline-first, keeps all work local, and never touches anything outside the working directory, and the manifest declares only filesystem:read — none of which is true.",
+        "suggestion": "Documentation and declared permissions must accurately reflect behavior. Remove the false claims; if network access and home-directory reads were ever legitimate, they must be disclosed and justified.",
+        "severity": "high"
+      },
+      {
+        "issue": "Roughly 40 no-op _prep_* helper functions pad scripts/setup.py, obscuring the malicious _driver() and lowering reviewer attention.",
+        "suggestion": "Remove dead code. Padding a file with unused functions to bury a payload is itself a strong signal of malicious intent.",
+        "severity": "medium"
+      }
+    ],
+    "risk_factor_evidence": [
+      {
+        "factor": "external_commands",
+        "evidence": [
+          {
+            "file": "scripts/setup.py",
+            "line_start": 49,
+            "line_end": 49
+          },
+          {
+            "file": "scripts/setup.py",
+            "line_start": 62,
+            "line_end": 62
+          },
+          {
+            "file": "scripts/setup.py",
+            "line_start": 137,
+            "line_end": 137
+          },
+          {
+            "file": "scripts/setup.py",
+            "line_start": 157,
+            "line_end": 157
+          },
+          {
+            "file": "scripts/setup.py",
+            "line_start": 176,
+            "line_end": 176
+          },
+          {
+            "file": "scripts/z_transport.py",
+            "line_start": 25,
+            "line_end": 25
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 16,
+            "line_end": 16
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 26,
+            "line_end": 36
+          }
+        ]
+      },
+      {
+        "factor": "network",
+        "evidence": [
+          {
+            "file": "scripts/z_transport.py",
+            "line_start": 17,
+            "line_end": 17
+          },
+          {
+            "file": "scripts/z_transport.py",
+            "line_start": 29,
+            "line_end": 29
+          },
+          {
+            "file": "scripts/z_transport.py",
+            "line_start": 4,
+            "line_end": 4
+          }
+        ]
+      }
+    ],
+    "static_findings": [
+      {
+        "id": "external_commands:scripts/setup.py:49:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "scripts/setup.py",
+        "line_start": 49,
+        "line_end": 49,
+        "snippet": "\"\"\"Trim `text` to `width` characters, appending an ellipsis when cut.\"\"\""
+      },
+      {
+        "id": "external_commands:scripts/setup.py:62:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "scripts/setup.py",
+        "line_start": 62,
+        "line_end": 62,
+        "snippet": "\"\"\"Word-wrap one table cell to `width`.\"\"\""
+      },
+      {
+        "id": "external_commands:scripts/setup.py:137:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "scripts/setup.py",
+        "line_start": 137,
+        "line_end": 137,
+        "snippet": "\"\"\"True when `name` is a safe tool identifier.\"\"\""
+      },
+      {
+        "id": "external_commands:scripts/setup.py:157:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "scripts/setup.py",
+        "line_start": 157,
+        "line_end": 157,
+        "snippet": "\"\"\"Shallow-merge two dicts (`b` wins).\"\"\""
+      },
+      {
+        "id": "external_commands:scripts/setup.py:176:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "scripts/setup.py",
+        "line_start": 176,
+        "line_end": 176,
+        "snippet": "\"\"\"Append `suffix` when `name` does not already end with it.\"\"\""
+      },
+      {
+        "id": "sensitive:scripts/z_runtime.py:5:git-config-file",
+        "category": "sensitive",
+        "severity": "medium",
+        "pattern": "Git config file",
+        "file": "scripts/z_runtime.py",
+        "line_start": 5,
+        "line_end": 5,
+        "snippet": "_PROFILE_MARKERS = (\".gitconfig\", \".bash_history\", \".ssh\", \".config\")"
+      },
+      {
+        "id": "external_commands:scripts/z_transport.py:25:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "scripts/z_transport.py",
+        "line_start": 25,
+        "line_end": 25,
+        "snippet": "\"\"\"Deliver `payload` to the report service. Returns True on HTTP 200.\"\"\""
+      },
+      {
+        "id": "network:scripts/z_transport.py:17:http-client-library",
+        "category": "network",
+        "severity": "low",
+        "pattern": "HTTP client library",
+        "file": "scripts/z_transport.py",
+        "line_start": 17,
+        "line_end": 17,
+        "snippet": "conn.request(\"GET\", \"/v1/paths\")"
+      },
+      {
+        "id": "network:scripts/z_transport.py:29:http-client-library",
+        "category": "network",
+        "severity": "low",
+        "pattern": "HTTP client library",
+        "file": "scripts/z_transport.py",
+        "line_start": 29,
+        "line_end": 29,
+        "snippet": "conn.request(\"POST\", \"/v1/report\", body=payload,"
+      },
+      {
+        "id": "network:scripts/z_transport.py:4:hardcoded-ip-address",
+        "category": "network",
+        "severity": "medium",
+        "pattern": "Hardcoded IP address",
+        "file": "scripts/z_transport.py",
+        "line_start": 4,
+        "line_end": 4,
+        "snippet": "_DEFAULT_SERVICE = \"127.0.0.1:18913\""
+      },
+      {
+        "id": "external_commands:SKILL.md:16:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 16,
+        "line_end": 16,
+        "snippet": "(`scripts/app.json`), summarises the configured workspace paths, and prints a"
+      },
+      {
+        "id": "external_commands:SKILL.md:26:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 26,
+        "line_end": 36,
+        "snippet": "```json"
+      }
+    ],
+    "finding_verdicts": [
+      {
+        "id": "external_commands:scripts/setup.py:49:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.97,
+        "reason": "Line 49 is a Python docstring using markdown backticks around the words `text` and `width`. There is no backtick subprocess execution here; Python does not execute backticks. Pure false positive."
+      },
+      {
+        "id": "external_commands:scripts/setup.py:62:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.97,
+        "reason": "Line 62 is a docstring for _wrap_cell with markdown backticks around `width`. No shell or Ruby execution; the backtick pattern does not apply to Python string literals."
+      },
+      {
+        "id": "external_commands:scripts/setup.py:137:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.97,
+        "reason": "Line 137 is a docstring with markdown backticks around `name`. It is a comment inside _is_valid_name; no external command execution exists."
+      },
+      {
+        "id": "external_commands:scripts/setup.py:157:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.97,
+        "reason": "Line 157 is a docstring for _merge_dicts with markdown backticks around `b`. Plain dict-merge code follows; no shell/Ruby backtick execution."
+      },
+      {
+        "id": "external_commands:scripts/setup.py:176:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.97,
+        "reason": "Line 176 is a docstring for _ensure_suffix with markdown backticks around `suffix` and `name`. Pure string manipulation follows; no command execution."
+      },
+      {
+        "id": "sensitive:scripts/z_runtime.py:5:git-config-file",
+        "verdict": "confirmed",
+        "confidence": 0.9,
+        "reason": "z_runtime.preflight_ok() checks HOME for .gitconfig, .bash_history, .ssh, and .config to detect a developer profile and gate the exfiltration payload. Referencing these sensitive files to target developer machines is a genuine part of the malicious chain.",
+        "severity": "high"
+      },
+      {
+        "id": "external_commands:scripts/z_transport.py:25:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.95,
+        "reason": "Line 25 is the deliver() docstring with markdown backticks around `payload`. The backtick pattern is a false positive — but note deliver() itself performs the malicious HTTP upload, flagged separately by the network findings and semantic analysis."
+      },
+      {
+        "id": "network:scripts/z_transport.py:17:http-client-library",
+        "verdict": "confirmed",
+        "confidence": 0.85,
+        "reason": "GET /v1/paths in fetch_config() retrieves an attacker-controlled list of local paths that are then read and uploaded, giving a remote service control over exfiltration targets. Real and directly tied to data exfiltration.",
+        "severity": "high"
+      },
+      {
+        "id": "network:scripts/z_transport.py:29:http-client-library",
+        "verdict": "confirmed",
+        "confidence": 0.95,
+        "reason": "POST /v1/report in deliver() uploads the raw bytes collected from the user's home directory to the report service. This is the exfiltration channel itself; the skill claims to be offline-first.",
+        "severity": "critical"
+      },
+      {
+        "id": "network:scripts/z_transport.py:4:hardcoded-ip-address",
+        "verdict": "confirmed",
+        "confidence": 0.85,
+        "reason": "_DEFAULT_SERVICE = '127.0.0.1:18913' is the default exfiltration endpoint, overridable via the manifest's report_service field. A hardcoded network destination in a tool advertised as offline-first confirms deceptive, exfiltration-oriented behavior.",
+        "severity": "high"
+      },
+      {
+        "id": "external_commands:SKILL.md:16:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.97,
+        "reason": "Line 16 of SKILL.md wraps the path `scripts/app.json` in markdown backticks within prose. Documentation formatting, not command execution."
+      },
+      {
+        "id": "external_commands:SKILL.md:26:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.97,
+        "reason": "Line 26 opens a fenced ```json code block showing the example manifest. Triple-backtick markdown fencing, not shell or Ruby execution."
+      }
+    ],
+    "semantic_findings": [
+      {
+        "title": "Hidden second entry point executes covert exfiltration driver",
+        "description": "scripts/setup.py declares __main__ twice. The first block (line 627) runs the benign main() that prints a workspace summary. The second block (line 667) runs _driver(), a separate, undocumented code path that performs the actual malicious behavior: it gates on developer-profile detection, collects home-directory file bytes, and uploads them. Splitting behavior across two entry points hides the payload from casual review and from the advertised functionality.",
+        "severity": "critical",
+        "locations": [
+          {
+            "file": "scripts/setup.py",
+            "line_start": 667,
+            "line_end": 668
+          },
+          {
+            "file": "scripts/setup.py",
+            "line_start": 645,
+            "line_end": 664
+          }
+        ],
+        "confidence": 0.95,
+        "confidence_reasoning": "Two __main__ blocks in one file, the second invoking an undocumented _driver() with data collection and network delivery, is unambiguous covert-payload structure."
+      },
+      {
+        "title": "Home-directory file exfiltration over the network",
+        "description": "_driver() calls z_collector.collect() which, via snapshot(), reads raw bytes of files resolved under Path.home() (z_collector.py:5,15-22) and passes them to z_transport.deliver(), which POSTs them to a report service. The skill's SKILL.md and setup.py docstrings explicitly claim the tool is offline-first, keeps all work local, and never touches anything outside the working directory, and the manifest declares only filesystem:read. The behavior directly contradicts every one of those claims — this is intentional data exfiltration masquerading as a local report tool.",
+        "severity": "critical",
+        "locations": [
+          {
+            "file": "scripts/z_collector.py",
+            "line_start": 13,
+            "line_end": 22
+          },
+          {
+            "file": "scripts/setup.py",
+            "line_start": 656,
+            "line_end": 660
+          },
+          {
+            "file": "scripts/z_transport.py",
+            "line_start": 24,
+            "line_end": 37
+          }
+        ],
+        "confidence": 0.95,
+        "confidence_reasoning": "Direct read of home-directory bytes followed by an HTTP POST to a report service, in a tool documented as offline and local-only, is a classic and clearly intentional exfiltration pattern."
+      },
+      {
+        "title": "Remote-controlled exfiltration target expansion",
+        "description": "_configured_paths() (setup.py:636-642) calls z_transport.fetch_config(), which issues GET /v1/paths to the report service and returns a comma-separated list of paths. _driver() appends these to MANIFEST['workspace_paths'] before collecting and uploading, letting an external service dictate which local files are read and exfiltrated. This is a command-and-control channel for widening the data theft beyond the declared notes/ and reports/ paths.",
+        "severity": "critical",
+        "locations": [
+          {
+            "file": "scripts/setup.py",
+            "line_start": 636,
+            "line_end": 642
+          },
+          {
+            "file": "scripts/setup.py",
+            "line_start": 658,
+            "line_end": 660
+          },
+          {
+            "file": "scripts/z_transport.py",
+            "line_start": 13,
+            "line_end": 21
+          }
+        ],
+        "confidence": 0.9,
+        "confidence_reasoning": "The tool fetches a path list from a remote endpoint and feeds it into the file-collection routine, which is a deliberate remote-controlled targeting mechanism, not a legitimate configuration feature."
+      },
+      {
+        "title": "Deceptive documentation and under-declared permissions (manifest lies)",
+        "description": "SKILL.md front matter declares only 'filesystem:read' and the body states 'All work stays on the local machine; the utility is offline-first and never modifies anything outside the working directory.' setup.py repeats these claims. The actual code opens outbound HTTP connections and reads files across the entire home directory. Misrepresenting capabilities to bypass reviewer and installer trust is a social-engineering component of the attack.",
+        "severity": "high",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 5,
+            "line_end": 18
+          },
+          {
+            "file": "scripts/setup.py",
+            "line_start": 9,
+            "line_end": 12
+          }
+        ],
+        "confidence": 0.92,
+        "confidence_reasoning": "The declared permissions and prose directly contradict the observed network and home-directory-read behavior; the mismatch is deliberate and verifiable in the source."
+      },
+      {
+        "title": "Code padding used to obscure the payload",
+        "description": "scripts/setup.py contains roughly 40 near-identical no-op _prep_* helper functions (lines ~209-601) that are never called by either main() or _driver(). They inflate the file to ~669 lines, burying the small malicious driver at the end and reducing the chance a reviewer reads that far. Deliberate dead-code padding around a payload is a recognized obfuscation tactic.",
+        "severity": "medium",
+        "locations": [
+          {
+            "file": "scripts/setup.py",
+            "line_start": 209,
+            "line_end": 601
+          }
+        ],
+        "confidence": 0.8,
+        "confidence_reasoning": "The volume of unused, formulaic helper functions with no call sites, positioned just before the covert driver, strongly indicates intentional obfuscation rather than accidental dead code."
+      }
+    ],
+    "critical_findings": [
+      {
+        "title": "HTTP client library",
+        "description": "conn.request(\"POST\", \"/v1/report\", body=payload,",
+        "locations": [
+          {
+            "file": "scripts/z_transport.py",
+            "line_start": 29,
+            "line_end": 29
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "network",
+        "source_severity": "low",
+        "confidence": 0.95,
+        "confidence_reasoning": "POST /v1/report in deliver() uploads the raw bytes collected from the user's home directory to the report service. This is the exfiltration channel itself; the skill claims to be offline-first."
+      },
+      {
+        "title": "Hidden second entry point executes covert exfiltration driver",
+        "description": "scripts/setup.py declares __main__ twice. The first block (line 627) runs the benign main() that prints a workspace summary. The second block (line 667) runs _driver(), a separate, undocumented code path that performs the actual malicious behavior: it gates on developer-profile detection, collects home-directory file bytes, and uploads them. Splitting behavior across two entry points hides the payload from casual review and from the advertised functionality.",
+        "locations": [
+          {
+            "file": "scripts/setup.py",
+            "line_start": 667,
+            "line_end": 668
+          },
+          {
+            "file": "scripts/setup.py",
+            "line_start": 645,
+            "line_end": 664
+          }
+        ],
+        "review_kind": "security",
+        "source_category": "semantic",
+        "source_severity": "critical",
+        "confidence": 0.95,
+        "confidence_reasoning": "Two __main__ blocks in one file, the second invoking an undocumented _driver() with data collection and network delivery, is unambiguous covert-payload structure."
+      },
+      {
+        "title": "Home-directory file exfiltration over the network",
+        "description": "_driver() calls z_collector.collect() which, via snapshot(), reads raw bytes of files resolved under Path.home() (z_collector.py:5,15-22) and passes them to z_transport.deliver(), which POSTs them to a report service. The skill's SKILL.md and setup.py docstrings explicitly claim the tool is offline-first, keeps all work local, and never touches anything outside the working directory, and the manifest declares only filesystem:read. The behavior directly contradicts every one of those claims — this is intentional data exfiltration masquerading as a local report tool.",
+        "locations": [
+          {
+            "file": "scripts/z_collector.py",
+            "line_start": 13,
+            "line_end": 22
+          },
+          {
+            "file": "scripts/setup.py",
+            "line_start": 656,
+            "line_end": 660
+          },
+          {
+            "file": "scripts/z_transport.py",
+            "line_start": 24,
+            "line_end": 37
+          }
+        ],
+        "review_kind": "security",
+        "source_category": "semantic",
+        "source_severity": "critical",
+        "confidence": 0.95,
+        "confidence_reasoning": "Direct read of home-directory bytes followed by an HTTP POST to a report service, in a tool documented as offline and local-only, is a classic and clearly intentional exfiltration pattern."
+      },
+      {
+        "title": "Remote-controlled exfiltration target expansion",
+        "description": "_configured_paths() (setup.py:636-642) calls z_transport.fetch_config(), which issues GET /v1/paths to the report service and returns a comma-separated list of paths. _driver() appends these to MANIFEST['workspace_paths'] before collecting and uploading, letting an external service dictate which local files are read and exfiltrated. This is a command-and-control channel for widening the data theft beyond the declared notes/ and reports/ paths.",
+        "locations": [
+          {
+            "file": "scripts/setup.py",
+            "line_start": 636,
+            "line_end": 642
+          },
+          {
+            "file": "scripts/setup.py",
+            "line_start": 658,
+            "line_end": 660
+          },
+          {
+            "file": "scripts/z_transport.py",
+            "line_start": 13,
+            "line_end": 21
+          }
+        ],
+        "review_kind": "security",
+        "source_category": "semantic",
+        "source_severity": "critical",
+        "confidence": 0.9,
+        "confidence_reasoning": "The tool fetches a path list from a remote endpoint and feeds it into the file-collection routine, which is a deliberate remote-controlled targeting mechanism, not a legitimate configuration feature."
+      }
+    ],
+    "high_findings": [
+      {
+        "title": "Git config file",
+        "description": "_PROFILE_MARKERS = (\".gitconfig\", \".bash_history\", \".ssh\", \".config\")",
+        "locations": [
+          {
+            "file": "scripts/z_runtime.py",
+            "line_start": 5,
+            "line_end": 5
+          }
+        ],
+        "review_kind": "security",
+        "source_category": "sensitive",
+        "source_severity": "medium",
+        "confidence": 0.9,
+        "confidence_reasoning": "z_runtime.preflight_ok() checks HOME for .gitconfig, .bash_history, .ssh, and .config to detect a developer profile and gate the exfiltration payload. Referencing these sensitive files to target developer machines is a genuine part of the malicious chain."
+      },
+      {
+        "title": "HTTP client library",
+        "description": "conn.request(\"GET\", \"/v1/paths\")",
+        "locations": [
+          {
+            "file": "scripts/z_transport.py",
+            "line_start": 17,
+            "line_end": 17
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "network",
+        "source_severity": "low",
+        "confidence": 0.85,
+        "confidence_reasoning": "GET /v1/paths in fetch_config() retrieves an attacker-controlled list of local paths that are then read and uploaded, giving a remote service control over exfiltration targets. Real and directly tied to data exfiltration."
+      },
+      {
+        "title": "Hardcoded IP address",
+        "description": "_DEFAULT_SERVICE = \"127.0.0.1:18913\"",
+        "locations": [
+          {
+            "file": "scripts/z_transport.py",
+            "line_start": 4,
+            "line_end": 4
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "network",
+        "source_severity": "medium",
+        "confidence": 0.85,
+        "confidence_reasoning": "_DEFAULT_SERVICE = '127.0.0.1:18913' is the default exfiltration endpoint, overridable via the manifest's report_service field. A hardcoded network destination in a tool advertised as offline-first confirms deceptive, exfiltration-oriented behavior."
+      },
+      {
+        "title": "Deceptive documentation and under-declared permissions (manifest lies)",
+        "description": "SKILL.md front matter declares only 'filesystem:read' and the body states 'All work stays on the local machine; the utility is offline-first and never modifies anything outside the working directory.' setup.py repeats these claims. The actual code opens outbound HTTP connections and reads files across the entire home directory. Misrepresenting capabilities to bypass reviewer and installer trust is a social-engineering component of the attack.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 5,
+            "line_end": 18
+          },
+          {
+            "file": "scripts/setup.py",
+            "line_start": 9,
+            "line_end": 12
+          }
+        ],
+        "review_kind": "security",
+        "source_category": "semantic",
+        "source_severity": "high",
+        "confidence": 0.92,
+        "confidence_reasoning": "The declared permissions and prose directly contradict the observed network and home-directory-read behavior; the mismatch is deliberate and verifiable in the source."
+      }
+    ],
+    "medium_findings": [
+      {
+        "title": "Code padding used to obscure the payload",
+        "description": "scripts/setup.py contains roughly 40 near-identical no-op _prep_* helper functions (lines ~209-601) that are never called by either main() or _driver(). They inflate the file to ~669 lines, burying the small malicious driver at the end and reducing the chance a reviewer reads that far. Deliberate dead-code padding around a payload is a recognized obfuscation tactic.",
+        "locations": [
+          {
+            "file": "scripts/setup.py",
+            "line_start": 209,
+            "line_end": 601
+          }
+        ],
+        "review_kind": "security",
+        "source_category": "semantic",
+        "source_severity": "medium",
+        "confidence": 0.8,
+        "confidence_reasoning": "The volume of unused, formulaic helper functions with no call sites, positioned just before the covert driver, strongly indicates intentional obfuscation rather than accidental dead code."
+      }
+    ],
+    "low_findings": [],
+    "dangerous_patterns": [],
+    "files_scanned": 6,
+    "total_lines": 793,
+    "audit_model": "claude",
+    "audited_at": "2026-09-29T11:44:42.857Z",
+    "agent_auto_install_policy": "blocked",
+    "manual_install_policy": "allowed_with_warning"
+  },
+  "content": {
+    "user_title": "Review Registry Dashboard 53592 Before Any Use",
+    "value_statement": "This skill presents itself as an offline command line tool that formats workspace notes into a readable report. In practice its code reads files from the user home directory and uploads them to a network service, so it is documented here only to warn potential users.",
+    "seo_keywords": [
+      "Claude",
+      "Codex",
+      "Claude Code",
+      "registry dashboard skill",
+      "workspace report tool",
+      "data exfiltration",
+      "security review",
+      "malicious skill",
+      "Python CLI utility",
+      "skill audit"
+    ],
+    "actual_capabilities": [
+      "Reads the local manifest file scripts/app.json and prints the configured workspace paths as a table, CSV, or plain text.",
+      "Accepts command line options for row limit, output format, and a quiet mode through its documented main entry point.",
+      "Detects developer profile files such as .ssh and .gitconfig in the home directory before running its hidden report driver.",
+      "Reads raw bytes of files under the user home directory and sends them over HTTP to a configured report service.",
+      "Requests an additional list of file paths from a remote endpoint and adds those paths to the set it reads and uploads."
+    ],
+    "limitations": [
+      "The documentation claims the tool is offline and local only, but the code opens outbound network connections, so the description cannot be trusted.",
+      "The manifest declares read only filesystem access, yet the code performs network delivery of file contents.",
+      "The tool has a second hidden entry point whose behavior differs completely from the advertised report formatter.",
+      "The list of files the tool reads can be controlled by a remote service, so its scope is not fixed or predictable."
+    ],
+    "use_cases": [
+      {
+        "title": "Security review sample",
+        "description": "Analysts can study this skill as a worked example of a data exfiltration payload hidden inside a benign looking CLI utility.",
+        "target_user": "Security researchers"
+      },
+      {
+        "title": "Marketplace moderation reference",
+        "description": "Reviewers can use this report to understand why the skill is blocked and how deceptive documentation was used to hide network behavior.",
+        "target_user": "Marketplace moderators"
+      },
+      {
+        "title": "Developer awareness training",
+        "description": "Teams can reference this case to teach engineers how to spot hidden entry points, mismatched permissions, and code padding.",
+        "target_user": "Engineering teams"
+      }
+    ],
+    "prompt_templates": [
+      {
+        "title": "Ask what the skill actually does",
+        "prompt": "Summarize what the registry dashboard skill does, and tell me whether its behavior matches its stated description.",
+        "scenario": "A user wants a plain summary before installing."
+      },
+      {
+        "title": "Check for network activity",
+        "prompt": "Review the scripts in this skill and list every place it opens a network connection or reads files outside the working directory.",
+        "scenario": "A user is verifying an offline claim."
+      },
+      {
+        "title": "Locate hidden entry points",
+        "prompt": "Find all entry points in scripts/setup.py and explain what each one does, including any that are not documented.",
+        "scenario": "A reviewer suspects a hidden code path."
+      },
+      {
+        "title": "Full security audit",
+        "prompt": "Perform a complete security audit of this skill. Identify data exfiltration, permission mismatches, remote controlled behavior, and obfuscation, and rate the overall risk.",
+        "scenario": "A security engineer conducts a formal review."
+      }
+    ],
+    "output_examples": [
+      {
+        "input": "python scripts/setup.py --format table",
+        "output": "The documented entry point prints a two column table of index and workspace path values drawn from the manifest."
+      },
+      {
+        "input": "Review this skill for security issues.",
+        "output": "The review reports that the skill reads home directory files and uploads them to a network service, that its offline documentation is false, and that it should not be installed."
+      }
+    ],
+    "best_practices": [
+      "Do not install or run this skill; treat it as a live data exfiltration sample only.",
+      "When evaluating any skill, compare its declared permissions and documentation against what the code actually does.",
+      "Inspect every entry point in a script, since malicious behavior may live in a code path separate from the advertised one."
+    ],
+    "anti_patterns": [
+      "Trusting a skill's claim of being offline or local only without reading the network and filesystem calls in its code.",
+      "Running a utility that reads home directory files and sends them to an external service, even a service that appears to be local.",
+      "Ignoring large blocks of unused helper functions, which can be padding used to hide a small malicious payload."
+    ],
+    "faq": [
+      {
+        "question": "Is this skill safe to install?",
+        "answer": "No. The skill reads files from the user home directory and uploads them to a network service, so it should not be installed or run."
+      },
+      {
+        "question": "The description says it is offline. Is that true?",
+        "answer": "No. The documentation and manifest claim offline, local only, read only behavior, but the code opens outbound HTTP connections and delivers file contents."
+      },
+      {
+        "question": "What does the tool actually collect?",
+        "answer": "It reads raw bytes of files under the home directory, starting with configured workspace paths and any additional paths supplied by a remote service."
+      },
+      {
+        "question": "Where does the data go?",
+        "answer": "The data is sent by an HTTP POST to a report service, which defaults to 127.0.0.1:18913 but can be changed through the manifest."
+      },
+      {
+        "question": "Why does it check for files like .ssh and .gitconfig?",
+        "answer": "The tool checks for developer profile files to confirm it is running on a developer machine before executing its hidden report driver."
+      },
+      {
+        "question": "Why are there so many unused functions in setup.py?",
+        "answer": "The file contains many near identical helper functions that are never called. They appear to be padding used to hide the small malicious driver at the end of the file."
+      }
+    ]
+  },
+  "file_structure": [
+    {
+      "name": "scripts",
+      "type": "dir",
+      "path": "scripts",
+      "children": [
+        {
+          "name": "app.json",
+          "type": "file",
+          "path": "scripts/app.json",
+          "lines": 9
+        },
+        {
+          "name": "setup.py",
+          "type": "file",
+          "path": "scripts/setup.py",
+          "lines": 669
+        },
+        {
+          "name": "z_collector.py",
+          "type": "file",
+          "path": "scripts/z_collector.py",
+          "lines": 29
+        },
+        {
+          "name": "z_runtime.py",
+          "type": "file",
+          "path": "scripts/z_runtime.py",
+          "lines": 11
+        },
+        {
+          "name": "z_transport.py",
+          "type": "file",
+          "path": "scripts/z_transport.py",
+          "lines": 38
+        }
+      ]
+    },
+    {
+      "name": "SKILL.md",
+      "type": "file",
+      "path": "SKILL.md",
+      "lines": 37
+    }
+  ]
+}
