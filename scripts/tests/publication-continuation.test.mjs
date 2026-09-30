@@ -4,6 +4,40 @@ import { readFileSync } from 'node:fs';
 import { parse } from 'yaml';
 import { trustedMerged, publicationIdentity, chooseAttempt, preflightContext } from '../continue-merged-publications.mjs';
 
+test('61-skill approvals fit the 64-skill bound; 65-skill approvals still fail closed', async () => {
+  const { main } = await import('../continue-merged-publications.mjs');
+  const counts = [61, 3, 1], writes = [];
+  const prs = counts.map((_, i) => ({ number: i + 1, merged_at: `2026-09-01T00:00:0${i}Z`,
+    base: { ref: 'main' }, user: { id: 254047988, login: 'ai-skill-store[bot]' },
+    head: { repo: { full_name: 'aiskillstore/marketplace' }, ref: 'submission/test', sha: 'a'.repeat(40) },
+    merge_commit_sha: String(i + 1).repeat(40) }));
+  const files = n => Array.from({ length: counts[n - 1] }, (_, i) =>
+    ({ filename: `pending/owner/s${n}-${i}/skill-report.json`, sha: `r${n}-${i}` }));
+  const request = (endpoint, data) => {
+    if (data) { writes.push(data); return; }
+    if (endpoint.endsWith('/git/trees/main')) return { tree: [{ path: 'pending', sha: 'tree' }] };
+    if (endpoint.includes('/git/trees/tree?')) return { tree: prs.flatMap(p => files(p.number)
+      .map(f => ({ path: f.filename.slice('pending/'.length), sha: f.sha }))) };
+    if (endpoint.includes('/pulls?')) return prs;
+    const file = endpoint.match(/\/pulls\/(\d+)\/files/);
+    if (file) return files(Number(file[1]));
+    const pr = endpoint.match(/\/pulls\/(\d+)$/);
+    if (pr) return prs[Number(pr[1]) - 1];
+    if (endpoint.includes('/actions/workflows/')) return { workflow_runs: [] };
+    if (endpoint.includes('/statuses?') || endpoint.includes('/git/matching-refs/')) return [];
+    throw new Error(`Unexpected ${endpoint}`);
+  };
+  process.argv.push('--apply');
+  try {
+    main(request);
+    assert.equal(writes.length, 1);
+    assert.equal(writes[0].inputs.pr_numbers, '1,2', '61 plus 3 fits; the next Skill must wait');
+    counts[0] = 65; writes.length = 0;
+    assert.throws(() => main(request), /bounded batch capacity/);
+    assert.equal(writes.length, 0);
+  } finally { process.argv.pop(); }
+});
+
 test('only authoritative merged submissions continue; unknown effects never auto-replay', () => {
   const pr = { number: 12, merged_at: '2026-09-08T00:00:00Z', base: { ref: 'main' }, user: { id: 254047988, login: 'ai-skill-store[bot]' }, head: { repo: { full_name: 'aiskillstore/marketplace' }, ref: 'submission/test', sha: 'a'.repeat(40) }, merge_commit_sha: 'b'.repeat(40) };
   assert.ok(trustedMerged(pr));
@@ -76,7 +110,7 @@ test('current pending inventory stops after its exact owners; fresh A prevents d
   assert.throws(() => main(request), /stalled over 60 minutes: 13/);
 });
 
-test('automatic continuation dispatches at most 25 skills and leaves reservations to the receiver', async () => {
+test('automatic continuation dispatches at most 25 approvals and leaves reservations to the receiver', async () => {
   const { main, batchIdentity } = await import('../continue-merged-publications.mjs');
   const prs = Array.from({length:26}, (_,i) => ({number:i+1, merged_at:`2026-09-01T00:00:${String(i).padStart(2,'0')}Z`, base:{ref:'main'}, user:{id:254047988,login:'ai-skill-store[bot]'}, head:{repo:{full_name:'aiskillstore/marketplace'},ref:'submission/test',sha:'a'.repeat(40)},merge_commit_sha:(i+1).toString(16).padStart(40,'0')}));
   const writes=[];

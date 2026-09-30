@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, lstatSync, mkdirSync, renameSync, rmSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { publicationIdentity, chooseAttempt, batchIdentity, preflightContext } from './continue-merged-publications.mjs';
+import { publicationIdentity, chooseAttempt, batchIdentity, preflightContext, maxBatchSkills } from './continue-merged-publications.mjs';
 import { resolveApprovedSubmission, PublicationValidationError } from './resolve-approved-submission.mjs';
 import { recoveredPushSync } from './recovered-push-sync.mjs';
 
@@ -15,7 +15,7 @@ export function validateBatchPlans(rows) {
     if ([...roots].some(root => root === skill.targetDir || root.startsWith(`${skill.targetDir}/`) || skill.targetDir.startsWith(`${root}/`))) throw new Error(`Overlapping batch target: ${skill.targetDir}`);
     roots.add(skill.targetDir);
   }
-  if (roots.size < 1 || roots.size > 25) throw new Error('Batch must contain 1..25 distinct skills');
+  if (roots.size < 1 || roots.size > maxBatchSkills) throw new Error(`Batch must contain 1..${maxBatchSkills} distinct skills`);
   return roots;
 }
 function git(args, input) {
