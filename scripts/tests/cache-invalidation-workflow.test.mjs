@@ -104,7 +104,7 @@ test('workflow matrix is artifact-backed, one-Skill, and serial', () => {
   assert.doesNotMatch(planJob, /synced_slugs.*GITHUB_OUTPUT|slugs.*GITHUB_OUTPUT/i);
 
   assert.match(shardJob, /matrix: \$\{\{ fromJSON\(needs\.plan-cache-invalidation\.outputs\.matrix\) \}\}/);
-  assert.match(planJob, /--shard-size 1 --max-shards 25/);
+  assert.match(planJob, /--shard-size 1 --max-shards 64/);
   assert.match(shardJob, /max-parallel: 1/);
   assert.match(shardJob, /fail-fast: false/);
   assert.doesNotMatch(shardJob, /continue-on-error:/);
@@ -120,7 +120,7 @@ test('workflow matrix is artifact-backed, one-Skill, and serial', () => {
   assert.doesNotMatch(shardJob, /needs\.sync\.outputs\.synced_slugs/);
 });
 
-test('workflow rejects 26 sync targets before Supabase writes and removes full sync', () => {
+test('workflow rejects 65 sync targets before Supabase writes and removes full sync', () => {
   const workflow = readFileSync(WORKFLOW, 'utf8');
   const detectJob = section(workflow, '      - name: Detect changed skills', '      - name: Download skillstore-cli');
   const admission = section(workflow, '      - name: Validate bounded sync admission', '      - name: Download skillstore-cli');
@@ -130,10 +130,10 @@ test('workflow rejects 26 sync targets before Supabase writes and removes full s
 
   assert.doesNotMatch(workflow, /full_sync|find_all_skills/);
   assert.equal(shardSize, 1);
-  assert.equal(maxShards, 25);
+  assert.equal(maxShards, 64);
   assert.match(detectJob, /echo "target_count=\$TARGET_COUNT" >> \$GITHUB_OUTPUT/);
-  assert.match(detectJob, /if \[ "\$TARGET_COUNT" -le 25 \]; then\s+echo "changed_skills=\$CHANGED" >> \$GITHUB_OUTPUT/);
-  assert.match(admission, /MAX_SYNC_SKILLS=25/);
+  assert.match(detectJob, /if \[ "\$TARGET_COUNT" -le 64 \]; then\s+echo "changed_skills=\$CHANGED" >> \$GITHUB_OUTPUT/);
+  assert.match(admission, /MAX_SYNC_SKILLS=64/);
   assert.match(admission, /TARGET_COUNT: \$\{\{ steps\.changes\.outputs\.target_count \}\}/);
   assert.doesNotMatch(admission, /CHANGED_SKILLS/);
   assert.match(admission, /exceeds the production limit \$MAX_SYNC_SKILLS/);
@@ -154,20 +154,20 @@ test('workflow rejects 26 sync targets before Supabase writes and removes full s
       TARGET_COUNT: String(count),
     },
   });
-  const accepted = runAdmission(25);
+  const accepted = runAdmission(64);
   assert.equal(accepted.status, 0, `${accepted.stdout}\n${accepted.stderr}`);
-  const rejected = runAdmission(26);
+  const rejected = runAdmission(65);
   assert.equal(rejected.status, 1);
-  assert.match(`${rejected.stdout}\n${rejected.stderr}`, /Sync target count 26 exceeds the production limit 25/);
+  assert.match(`${rejected.stdout}\n${rejected.stderr}`, /Sync target count 65 exceeds the production limit 64/);
   const oversized = runAdmission(1000000);
   assert.equal(oversized.status, 1);
-  assert.match(`${oversized.stdout}\n${oversized.stderr}`, /Sync target count 1000000 exceeds the production limit 25/);
+  assert.match(`${oversized.stdout}\n${oversized.stderr}`, /Sync target count 1000000 exceeds the production limit 64/);
 
   const plan = buildShardPlan(
-    Array.from({ length: 25 }, (_, index) => `bounded-sync-${index}`),
+    Array.from({ length: 64 }, (_, index) => `bounded-sync-${index}`),
     { shardSize, maxShards },
   );
-  assert.equal(plan.shardCount, 25);
+  assert.equal(plan.shardCount, 64);
   assert.ok(plan.shards.every((shard) => shard.length === 1));
 });
 

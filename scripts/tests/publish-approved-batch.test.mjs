@@ -20,6 +20,8 @@ test('batch identity and distinct Skill limits fail closed', () => {
   assert.throws(() => batchIdentity(Array.from({length:26}, (_, i) => correlation(i + 1))));
   assert.throws(() => validateBatchPlans([{plan:{skills:[{targetDir:'skills/a'}, {targetDir:'skills/a/b'}]}}]));
   assert.equal(validateBatchPlans([{plan:{skills:[{targetDir:'skills/a',duplicate:true}]}}]).size, 1);
+  assert.equal(validateBatchPlans([{plan:{skills:Array.from({length:61},(_,i)=>({targetDir:`skills/s${i}`}))}}]).size, 61);
+  assert.throws(() => validateBatchPlans([{plan:{skills:Array.from({length:65},(_,i)=>({targetDir:`skills/s${i}`}))}}]), /1\.\.64/);
 });
 
 for (const {duplicates, rejectFirst = false, callbackFailure = false, unsafeFirst = false, recoveryState} of [{duplicates:[]}, {duplicates:[1]}, {duplicates:[1,2]}, {duplicates:[],rejectFirst:true}, {duplicates:[],callbackFailure:true}, {duplicates:[],rejectFirst:true,unsafeFirst:true}, {duplicates:[],recoveryState:'success'}, {duplicates:[],recoveryState:'failure'}]) test(`batch covers squash, duplicates ${duplicates}, preflight rejection ${rejectFirst}, callback failure ${callbackFailure}, unsafe path ${unsafeFirst}, recovery ${recoveryState}`, async () => {

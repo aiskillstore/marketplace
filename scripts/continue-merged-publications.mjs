@@ -8,6 +8,7 @@ export const preflightContext = digest => `agentcrew/publication-preflight/${cre
   .update(`${digest}:${publicationValidatorRevision}`).digest('hex')}`;
 
 const repo = 'aiskillstore/marketplace';
+export const maxBatchSkills = 64;
 export function trustedMerged(pr) {
   return pr.merged_at && pr.base?.ref === 'main'
     && pr.user?.id === 254047988 && pr.user?.login === 'ai-skill-store[bot]'
@@ -124,8 +125,8 @@ export function main(request = api) {
   let skillCount = 0;
   for (const candidate of candidates) {
     const count = skillCounts.get(candidate.number);
-    if (!count || count > 25) throw new Error('Submission exceeds bounded batch capacity');
-    if (skillCount + count > 25 || selected.length === 25) break;
+    if (!count || count > maxBatchSkills) throw new Error('Submission exceeds bounded batch capacity');
+    if (skillCount + count > maxBatchSkills || selected.length === 25) break;
     const pr = request(`repos/${repo}/pulls/${candidate.number}`);
     const { correlation, digest } = publicationIdentity(pr);
     const refs = request(`repos/${repo}/git/matching-refs/tags/agentcrew-dispatch-outbox/publication/${digest}/`);
