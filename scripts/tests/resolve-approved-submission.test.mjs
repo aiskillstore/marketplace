@@ -63,7 +63,7 @@ function git(root, ...args) {
   return result.stdout.trim();
 }
 
-function commitReportOnlyHistory(root, pendingDir, { oldRef = '1'.repeat(40), newRef = '2'.repeat(40) } = {}) {
+function commitReportOnlyHistory(root, pendingDir, { oldRef = '1'.repeat(40), newRef = '2'.repeat(40), auditSummary } = {}) {
   git(root, 'init', '-q');
   git(root, 'config', 'user.email', 'test@example.com');
   git(root, 'config', 'user.name', 'Test');
@@ -76,6 +76,7 @@ function commitReportOnlyHistory(root, pendingDir, { oldRef = '1'.repeat(40), ne
   const report = JSON.parse(readFileSync(reportPath, 'utf8'));
   report.meta.source_ref = newRef;
   report.meta.source_url = report.meta.source_url.replace(oldRef, newRef);
+  if (auditSummary) report.security_audit.summary = auditSummary;
   writeFileSync(reportPath, `${JSON.stringify(report)}\n`);
   git(root, 'add', reportPath);
   git(root, 'commit', '-qm', 're-audit report');
@@ -84,9 +85,8 @@ function commitReportOnlyHistory(root, pendingDir, { oldRef = '1'.repeat(40), ne
   return { baseCommit, mergeCommit: git(root, 'rev-parse', 'HEAD'), report, reportPath };
 }
 
-function commitPartialReauditHistory(root, pendingDir) {
+function commitPartialReauditHistory(root, pendingDir, newRef = '2'.repeat(40)) {
   const oldRef = '1'.repeat(40);
-  const newRef = '2'.repeat(40);
   write(root, `${pendingDir}/unchanged.md`, '# Unchanged\n');
   write(root, `${pendingDir}/deleted.md`, '# Delete me\n');
   write(root, `${pendingDir}/script.sh`, '#!/bin/sh\nexit 0\n');
@@ -245,6 +245,23 @@ test('resolves a report-only official re-audit', () => withRepository((root) => 
   });
   assert.equal(plan.skills[0].targetDir, 'skills/official-skill');
   assert.equal(plan.skills[0].publicationMode, 'report-only');
+}));
+
+test('same-source report refresh is valid; same-source payload changes remain rejected', () => withRepository((root) => {
+  const pendingDir = 'pending/owner/skill', sourceRef = '1'.repeat(40);
+  addSkill(root, pendingDir, { slug: 'owner-skill', sourceRef, withReference: true });
+  const { baseCommit, mergeCommit } = commitReportOnlyHistory(root, pendingDir,
+    { oldRef: sourceRef, newRef: sourceRef, auditSummary: 'Refreshed advisory findings for unchanged source' });
+  const plan = resolveApprovedSubmission({ repositoryRoot: root,
+    changedFiles: [`${pendingDir}/skill-report.json`], reportOnlyBaseCommit: baseCommit, reportOnlyMergeCommit: mergeCommit });
+  assert.equal(plan.skills[0].publicationMode, 'report-only');
+  withRepository(changedRoot => {
+    addSkill(changedRoot, pendingDir, { slug: 'owner-skill', sourceRef, withReference: true });
+    const history = commitPartialReauditHistory(changedRoot, pendingDir, sourceRef);
+    assert.throws(() => resolveApprovedSubmission({ repositoryRoot: changedRoot,
+      changedFiles: history.changedFiles, reportOnlyBaseCommit: history.baseCommit,
+      reportOnlyMergeCommit: history.mergeCommit }), /new immutable source commit/);
+  });
 }));
 
 test('exact history parses only merge parent headers, never commit-message text', () => withRepository((root) => {
