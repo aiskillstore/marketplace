@@ -429,7 +429,7 @@ test('production score writers serialize and avoid multiplicative retries', () =
 	assert.match(recalc, /INPUT_CONCURRENCY:\s*'1'/, 'manual score concurrency must be hard-coded to one');
 	assert.doesNotMatch(recalc, /inputs\.concurrency/, 'manual callers must not be able to raise production score concurrency');
 	assert.match(sync, /--concurrency 1/, 'incremental sync scoring must remain single-writer');
-	assert.match(sync, /Synced score plan exceeds the 25-Skill production limit/,
+	assert.match(sync, /Synced score plan exceeds the 64-Skill production limit/,
 		'incremental sync scoring must independently reject an oversized artifact');
 	assert.match(sync, /--slugs-file "\$SCORE_SLUGS_FILE"/,
 		'incremental sync scoring must consume its bounded file without a large CSV argv');
