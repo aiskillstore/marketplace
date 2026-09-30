@@ -185,6 +185,7 @@ CRITICAL_OPTIONS: dict[str, tuple[str, ...]] = {
 CRITICAL_ENUM_VALUES: dict[str, frozenset[str]] = {
     "--mode": frozenset({"accept-edits", "plan"}),
     "--output-format": frozenset({"text", "json", "stream-json"}),
+    "--effort": frozenset({"low", "medium", "high", "max"}),
 }
 
 class UsageParser(argparse.ArgumentParser):
@@ -634,8 +635,13 @@ def probe_installed_version(executable: str | None = None) -> str:
     return match.group(1)
 
 
-def parse_critical_help(raw: bytes) -> tuple[str, str]:
+def parse_critical_help(raw: bytes, version: str | None = None) -> tuple[str, str]:
     """Strictly bind the supported CLI surface without treating prose as evidence."""
+
+    critical_options = (
+        {**CRITICAL_OPTIONS, "--effort": ("low", "medium", "high", "max")}
+        if version == "1.2.11" else CRITICAL_OPTIONS
+    )
 
     if b"\x00" in raw:
         raise EvidenceUnavailable("agy critical interface output is malformed")
@@ -651,17 +657,17 @@ def parse_critical_help(raw: bytes) -> tuple[str, str]:
         if match is None:
             continue
         option, detail = match.groups()
-        if option not in CRITICAL_OPTIONS:
+        if option not in critical_options:
             continue
         if option in found:
             raise EvidenceUnavailable("agy critical interface output is ambiguous")
         if not detail or detail != detail.strip():
             raise EvidenceUnavailable("agy critical interface output is malformed")
         found[option] = detail
-    if set(found) != set(CRITICAL_OPTIONS):
+    if set(found) != set(critical_options):
         raise EvidenceUnavailable("agy critical interface output is incompatible")
     semantic: dict[str, Any] = {}
-    for option, required_values in CRITICAL_OPTIONS.items():
+    for option, required_values in critical_options.items():
         detail = found[option]
         if not required_values:
             semantic[option] = True
@@ -669,8 +675,11 @@ def parse_critical_help(raw: bytes) -> tuple[str, str]:
         domains = re.findall(r"\(([^()]*)\)", detail)
         selected: set[str] | None = None
         for domain in domains:
-            tokens = domain.split(", ")
-            if not tokens or any(re.fullmatch(r"[a-z][a-z-]*", token) is None for token in tokens):
+            tokens = domain.split("|") if option == "--effort" else domain.split(", ")
+            if (
+                not tokens or len(tokens) != len(set(tokens))
+                or any(re.fullmatch(r"[a-z][a-z-]*", token) is None for token in tokens)
+            ):
                 continue
             values = set(tokens)
             if not set(required_values).issubset(values):
@@ -689,12 +698,12 @@ def parse_critical_help(raw: bytes) -> tuple[str, str]:
     return hashlib.sha256(normalized).hexdigest(), hashlib.sha256(raw).hexdigest()
 
 
-def probe_critical_interface(executable: str) -> tuple[str, str]:
+def probe_critical_interface(executable: str, version: str | None = None) -> tuple[str, str]:
     raw = probe_command(
         executable, "--help", timeout=HELP_TIMEOUT_SECONDS,
         output_limit=HELP_OUTPUT_LIMIT, label="critical interface", help_stderr=True,
     )
-    return parse_critical_help(raw)
+    return parse_critical_help(raw, version)
 
 
 def compatibility_review_evidence(
@@ -774,7 +783,7 @@ def resolve_selection(
     installed = probe_installed_version(executable) if executable else None
     capability_sha = help_sha = None
     if executable:
-        capability_sha, help_sha = probe_critical_interface(executable)
+        capability_sha, help_sha = probe_critical_interface(executable, installed)
     result: dict[str, Any] = {
         "schema_version": 2 if installed is not None else 1,
         "kind": "agy-worker-selection",
@@ -1147,7 +1156,7 @@ def reprobe_selection_record(record: dict[str, Any]) -> tuple[str, dict[str, Any
         raise CallerError("selection record executable binding is legacy-only")
     executable, binding = resolve_safe_executable()
     installed = probe_installed_version(executable)
-    capabilities, help_sha = probe_critical_interface(executable)
+    capabilities, help_sha = probe_critical_interface(executable, installed)
     if (
         installed != record["installed_agy_version"]
         or capabilities != record["critical_capabilities_sha256"]

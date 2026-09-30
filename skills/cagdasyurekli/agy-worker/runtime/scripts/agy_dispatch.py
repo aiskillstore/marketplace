@@ -3443,7 +3443,13 @@ def _bound_candidate_worktree(state: dict[str, Any], command: dict[str, Any]) ->
     if current is None or expected_sha is None or expected_entries is None:
         raise DispatchError("candidate worktree reconciliation is unavailable")
     if current["sha256"] != expected_sha or current["entries"] != expected_entries:
-        raise DispatchError("candidate worktree binding changed")
+        # The snapshot exposes a digest and an entry count, not path-level
+        # provenance. Do not infer or disclose a changed path from that count.
+        drift = "entry count and snapshot digest" if current["entries"] != expected_entries else "snapshot digest"
+        raise DispatchError(
+            f"candidate worktree binding changed ({drift}); inspect volatile "
+            "ignored/cache artifacts and other edits in the disposable worktree"
+        )
 
 
 def _bound_current_candidate(job: Path, state: dict[str, Any]) -> tuple[dict[str, Any], bytes]:
@@ -4257,7 +4263,7 @@ def _classify_stderr(
             return "agy_failed_unclassified"
         if not m_line.startswith(b"AGY_ERROR: "):
             return "agy_failed_unclassified"
-        if version not in {"1.2.6", "1.2.7"} or returncode != 3:
+        if version not in {"1.2.6", "1.2.7", "1.2.10", "1.2.11"} or returncode != 3:
             return "agy_failed_unclassified"
         payload = parse_agy_error(m_line)
         if payload is None:
@@ -4404,7 +4410,7 @@ def _has_reviewed_denied_actions(stream: Path, version: str) -> bool:
     into public state. Call this only after the terminal envelope has passed
     schema validation, so presence cannot turn an invalid report into a candidate.
     """
-    if version not in {"1.1.27", "1.2.2"}:
+    if version not in {"1.1.27", "1.2.2", "1.2.11"}:
         return False
     result = _terminal_result(stream, strict=True)
     return isinstance(result, dict) and "denied_actions" in result
@@ -4418,7 +4424,7 @@ REFUSAL_RESULT_FIELDS_1_2_7 = REFUSAL_RESULT_FIELDS_1_2_6
 
 
 def _has_reviewed_terminal_refusal(stream: Path, version: str) -> bool:
-    """Recognize only the reviewed exact-shape AGY 1.2.6/1.2.7 refusal canary.
+    """Recognize only reviewed exact-shape headless refusal results.
 
     The observed native refusal returns exit 0, terminal status SUCCESS, empty
     response, exact result keys (no structured_output), valid conversation,
@@ -4426,7 +4432,7 @@ def _has_reviewed_terminal_refusal(stream: Path, version: str) -> bool:
     and a nonempty bounded list of denied_actions with exact action/display_name keys.
     Any deviation or unknown shape fails closed.
     """
-    if version not in {"1.2.6", "1.2.7"}:
+    if version not in {"1.2.6", "1.2.7", "1.2.11"}:
         return False
     result = _terminal_result(stream, strict=True)
     if result is None or set(result) != REFUSAL_RESULT_FIELDS_1_2_6:

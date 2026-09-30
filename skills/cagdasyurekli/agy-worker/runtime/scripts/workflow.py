@@ -30,6 +30,7 @@ if str(SCRIPTS) not in sys.path:
 
 from candidate_state import CandidateStateError, candidate_state_digest
 import agy_dispatch as DISPATCH
+from delegation_policy import evaluate_policy
 
 SCHEMA_VERSION = 3
 FACADE_SCHEMA_VERSION = 4
@@ -666,6 +667,134 @@ def preview_binding_fields(
     }
 
 
+def _pending_delegation(reason: str) -> dict[str, Any]:
+    """Describe a fact that the evaluator cannot yet decide without guessing."""
+    return {"policy": "delegation-first", "state": "pending", "reason": reason}
+
+
+def _announce_preview_delegation(args: argparse.Namespace) -> None:
+    """Keep canonical preview bytes stable while surfacing the policy gate."""
+    decision = evaluate_policy({
+        "policy": "delegation-first", "intent": args.workflow,
+        "user_opt_in": True, "transmission_approved": False,
+        "scope_path_approved": False, "preflight_passed": False,
+        "provider_state": "unverified", "hard_stop_triggered": False,
+        "cycle_budget_exhausted": False,
+    })
+    projection = {
+        "state": "awaiting-approval", "source": "transmission-preview",
+        "decision": decision,
+    }
+    sys.stderr.write(
+        "workflow: delegation-policy "
+        + canonical_json(projection).decode("utf-8") + "\n"
+    )
+
+
+def _delegation_from_dispatch(
+    facts: dict[str, Any] | None, *, approval_bound: bool,
+) -> dict[str, Any]:
+    """Evaluate only facts established by a bound dispatcher status snapshot."""
+    if facts is None:
+        return _pending_delegation("dispatch-not-started")
+    if not approval_bound:
+        return _pending_delegation("transmission-approval-unverified")
+    source_sha = facts.get("state_sha256")
+    if not isinstance(source_sha, str) or SHA_RE.fullmatch(source_sha) is None:
+        return _pending_delegation("dispatch-state-unavailable")
+    status = facts.get("status")
+    reason = facts.get("reason")
+    if status in {"queued", "running"}:
+        return _pending_delegation("provider-preflight-or-run-pending")
+    if reason == "selection_preflight_failed":
+        preflight_passed, provider_state = False, "unverified"
+    elif reason == "provider_quota_exhausted":
+        preflight_passed, provider_state = True, "quota_exhausted"
+    elif reason in {
+        "provider_terminal_error", "provider_timeout", "agy_failed_unclassified",
+        "provider_unavailable", "authentication_failed", "provider_terminal_cancelled",
+        "idle_timeout", "hard_deadline_exceeded",
+    }:
+        preflight_passed, provider_state = True, "unavailable"
+    elif status == "succeeded":
+        preflight_passed, provider_state = True, "available"
+    elif status == "failed" and (
+        reason in {"empty_output", "invalid_envelope", "output_oversized", "permission_required"}
+        or facts.get("failure_stage") in {
+            "framing", "missing_structured_output", "boost_contract",
+        }
+    ):
+        preflight_passed, provider_state = True, "available"
+    else:
+        return _pending_delegation("dispatch-outcome-unclassified")
+    intent = facts.get("workflow")
+    attempt = facts.get("attempt")
+    max_cycles = facts.get("max_cycles")
+    if (
+        intent not in {"explore", "task", "project"}
+        or type(attempt) is not int or attempt < 0
+        or type(max_cycles) is not int or max_cycles < 1
+    ):
+        return _pending_delegation("dispatch-policy-facts-unavailable")
+    if status == "succeeded":
+        finalized = facts.get("assurance") in {
+            "verified", "partially_verified", "blocked", "rejected",
+        }
+        return {
+            "policy": "delegation-first", "state": "completed",
+            "reason": (
+                "provider-attempt-succeeded-driver-finalized" if finalized
+                else "provider-attempt-succeeded-awaiting-driver-verification"
+            ),
+            "source": "bound-dispatch-status", "source_state_sha256": source_sha,
+            "source_attempt": attempt, "source_max_cycles": max_cycles,
+        }
+    policy_input = {
+        "policy": "delegation-first", "intent": intent,
+        "user_opt_in": True, "transmission_approved": True,
+        "scope_path_approved": True, "preflight_passed": preflight_passed,
+        "provider_state": provider_state,
+        "hard_stop_triggered": reason == "permission_required",
+        "hard_stop_reasons": ["permission_required"] if reason == "permission_required" else [],
+        "cycle_budget_exhausted": status == "failed" and attempt >= max_cycles,
+        "attempt_count": attempt, "max_cycles": max_cycles,
+        "prior_candidate_available": facts.get("result_available") is True,
+    }
+    decision = evaluate_policy(policy_input)
+    return {
+        "state": "evaluated", "source": "bound-dispatch-status",
+        "source_state_sha256": source_sha, "source_attempt": attempt,
+        "source_max_cycles": max_cycles, "decision": decision,
+    }
+
+
+def _announce_delegation(
+    dispatch_dir: Path, job_id: str, *, result: int, intent: str,
+) -> None:
+    """Make the ordinary run outcome visible without changing dispatch output."""
+    try:
+        facts = _bound_dispatch_status(dispatch_dir, job_id)
+    except WorkflowError:
+        facts = None
+    if facts is None and result in {7, 8}:
+        projection = {
+            "state": "evaluated", "source": "model-selection-preflight-exit",
+            "decision": evaluate_policy({
+                "policy": "delegation-first", "intent": intent,
+                "user_opt_in": True, "transmission_approved": True,
+                "scope_path_approved": True, "preflight_passed": False,
+                "provider_state": "unverified", "hard_stop_triggered": False,
+                "cycle_budget_exhausted": False,
+            }),
+        }
+    else:
+        projection = _delegation_from_dispatch(facts, approval_bound=True)
+    sys.stderr.write(
+        "workflow: delegation-policy "
+        + canonical_json(projection).decode("utf-8") + "\n"
+    )
+
+
 def transmission_choice(
     args: argparse.Namespace, preview_data: dict[str, Any],
 ) -> tuple[str, str | None, str, str, bool]:
@@ -1014,6 +1143,18 @@ class OrderedVerifier(argparse.Action):
         items.append((self.const or option_string, values))
 
 
+class SingleValue(argparse.Action):
+    """Keep repeated caller approvals from silently replacing earlier values."""
+
+    def __call__(
+        self, parser: argparse.ArgumentParser, namespace: argparse.Namespace,
+        values: str, option_string: str | None = None,
+    ) -> None:
+        if getattr(namespace, self.dest, None) is not None:
+            parser.error(f"repeated {option_string}")
+        setattr(namespace, self.dest, values)
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="workflow.sh",
@@ -1055,9 +1196,17 @@ def build_parser() -> argparse.ArgumentParser:
     run_parser.add_argument("--job-state", help="Optional path to job.sh state file.")
     run_parser.add_argument("--workflow", choices=("explore", "task", "project"), default="task")
     run_parser.add_argument("--mode", choices=("plan", "accept-edits"), default="accept-edits")
-    run_parser.add_argument("--tier")
-    run_parser.add_argument("--model")
-    run_parser.add_argument("--effort")
+    run_parser.add_argument("--tier", action=SingleValue)
+    run_parser.add_argument("--model", action=SingleValue)
+    run_parser.add_argument("--effort", action=SingleValue)
+    run_parser.add_argument(
+        "--compatibility-disposition", choices=("proceed",), action=SingleValue,
+        help="Explicit caller disposition for reviewed agy version drift.",
+    )
+    run_parser.add_argument(
+        "--approve-help-sha", action=SingleValue,
+        help="Exact observed raw agy help SHA-256 approved for version drift.",
+    )
     run_parser.add_argument("--max-cycles", type=int)
     run_parser.add_argument("--allow-scoped-repair", action="store_true",
                              help="Permit same-conversation repair within the approved scoped job.")
@@ -1148,6 +1297,10 @@ def _dispatch_run(
         cmd += ["--model", args.model]
     if args.effort:
         cmd += ["--effort", args.effort]
+    if args.compatibility_disposition:
+        cmd += ["--compatibility-disposition", args.compatibility_disposition]
+    if args.approve_help_sha:
+        cmd += ["--approve-help-sha", args.approve_help_sha]
     if args.max_cycles:
         cmd += ["--max-cycles", str(args.max_cycles)]
     if args.allow_scoped_repair:
@@ -1214,9 +1367,11 @@ def _explicit_run(args: argparse.Namespace, repo: Path) -> int:
         )
         if args.preview:
             sys.stdout.buffer.write(preview_raw)
+            _announce_preview_delegation(args)
             return 0
         if approved_sha is None:
             sys.stdout.buffer.write(preview_raw)
+            _announce_preview_delegation(args)
             sys.stderr.write(
                 "workflow: explicit provider-transmission mode required. "
                 f"Re-run with {approval_hint}\n"
@@ -1273,6 +1428,9 @@ def _explicit_run(args: argparse.Namespace, repo: Path) -> int:
     result = _dispatch_run(
         args, worktree=worktree, dispatch_job_dir=dispatch_job_dir,
         approved_whole_worktree=approved_sha if mode == "whole-worktree" else None,
+    )
+    _announce_delegation(
+        dispatch_job_dir, args.job_id, result=result, intent=args.workflow,
     )
     if (
         result != 0 and created_state_sha is not None
@@ -1362,6 +1520,8 @@ def _ordinary_run(args: argparse.Namespace, repo: Path) -> int:
             )
         except BaseException:
             if initialized_here:
+                # Lifecycle rollback locks the same parent directory.
+                store.close()
                 _rollback_facade_ready(
                     state_path=job_state_path, workflow_state_path=None,
                     workflow_sha=None, workflow_identity=None,
@@ -1438,9 +1598,11 @@ def _ordinary_run(args: argparse.Namespace, repo: Path) -> int:
 
         if args.preview:
             sys.stdout.buffer.write(preview_raw)
+            _announce_preview_delegation(args)
             return 0
         if approved_sha is None:
             sys.stdout.buffer.write(preview_raw)
+            _announce_preview_delegation(args)
             sys.stderr.write(
                 "workflow: explicit provider-transmission mode required. "
                 f"Re-run with {approval_hint}\n"
@@ -1460,6 +1622,9 @@ def _ordinary_run(args: argparse.Namespace, repo: Path) -> int:
         args, worktree=worktree, dispatch_job_dir=dispatch_job_dir,
         approved_whole_worktree=approved_sha if mode == "whole-worktree" else None,
     )
+    _announce_delegation(
+        dispatch_job_dir, args.job_id, result=result, intent=args.workflow,
+    )
     if (
         result != 0 and initialized_here
         and not dispatch_job_dir.exists() and not dispatch_job_dir.is_symlink()
@@ -1474,6 +1639,15 @@ def _ordinary_run(args: argparse.Namespace, repo: Path) -> int:
 
 
 def command_run(args: argparse.Namespace) -> int:
+    if bool(args.compatibility_disposition) != bool(args.approve_help_sha):
+        raise WorkflowError(
+            "--compatibility-disposition and --approve-help-sha must be supplied together"
+        )
+    if args.compatibility_disposition:
+        if not args.model or args.tier:
+            raise WorkflowError("compatibility approval requires one explicit --model")
+        if SHA_RE.fullmatch(args.approve_help_sha) is None:
+            raise WorkflowError("--approve-help-sha must be a lowercase SHA-256 digest")
     repo = real_absolute(Path(args.repo), "repository")
     if args.provider_scope:
         args.provider_scope = str(
@@ -1572,6 +1746,12 @@ def _workflow_status(args: argparse.Namespace) -> int:
             "preview_manifest_sha256": manifest_sha,
             "dispatch_job_dir": state.get("dispatch_job_dir"),
             "dispatch": dispatch_facts,
+            "delegation_policy": _delegation_from_dispatch(
+                dispatch_facts,
+                approval_bound=state["schema_version"] in {
+                    BOUND_SCHEMA_VERSION, BOUND_FACADE_SCHEMA_VERSION,
+                },
+            ),
             "verification": verification_facts,
             "phase": dispatch_facts.get("phase") if dispatch_facts else "ready",
             "controller_phase": (
@@ -1598,13 +1778,23 @@ def _workflow_status(args: argparse.Namespace) -> int:
             line1 = f"workflow: job={job_id} branch={branch} base={base[:12]}"
             disp = dispatch_facts.get("status", "none") if dispatch_facts else "none"
             phase = dispatch_facts.get("phase", "none") if dispatch_facts else "none"
-            cand = dispatch_facts.get("candidate_state_sha256", "none") if dispatch_facts else "none"
-            dispatch_sha = dispatch_facts.get("state_sha256", "none") if dispatch_facts else "none"
+            cand_raw = dispatch_facts.get("candidate_sha256") if dispatch_facts else None
+            cand = cand_raw if isinstance(cand_raw, str) else "none"
+            dispatch_raw = dispatch_facts.get("state_sha256") if dispatch_facts else None
+            dispatch_sha = dispatch_raw if isinstance(dispatch_raw, str) else "none"
             line2 = f"dispatch: status={disp} phase={phase} state={dispatch_sha[:12] if dispatch_sha != 'none' else 'none'} candidate={cand[:12] if cand != 'none' else 'none'}"
             verdict = verification_facts.get("verdict", "unverified") if verification_facts else "unverified"
             assurance = dispatch_facts.get("assurance") if dispatch_facts else "none"
             line3 = f"verification: verdict={verdict} assurance={assurance or 'none'}"
             sys.stdout.write(f"{line1}\n{line2}\n{line3}\n")
+            delegation = status_result["delegation_policy"]
+            decision = delegation.get("decision") or {}
+            sys.stdout.write(
+                "delegation: state=" + delegation["state"]
+                + " decision=" + decision.get("decision", "none")
+                + " reason=" + decision.get("reason_code", delegation.get("reason", "none"))
+                + "\n"
+            )
         return 0
     finally:
         store.close()
@@ -1920,11 +2110,14 @@ def command_verify_finalize(args: argparse.Namespace) -> int:
                     raise WorkflowError("dispatch state changed during verification")
                 assert verification_payload is not None
 
+                env = dict(os.environ)
+                env["AGY_WORKER_LOG_DIR"] = str(dispatch_dir.parent)
+
                 fin_proc = subprocess.run(
                     [
                         str(runtime / "agy-worker.sh"),
                         "finalize",
-                        "--job-dir", str(dispatch_dir),
+                        "--job-id", state["job_id"],
                         "--approve-state-sha", dispatch_approve_sha,
                         "--assurance", args.assurance,
                         "--format", args.format,
@@ -1932,6 +2125,7 @@ def command_verify_finalize(args: argparse.Namespace) -> int:
                     input=canonical_json(verification_payload),
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,
+                    env=env,
                     check=False,
                 )
                 sys.stdout.buffer.write(fin_proc.stdout)
