@@ -71,6 +71,7 @@ jobs:
           /scripts/materialize-changed-skills.mjs
           /scripts/validate-correlated-sync-roots.mjs
           /scripts/guard-provider-rerun.mjs
+          /scripts/recovered-push-sync.mjs
           /scripts/refresh-security-research-stats.sh
           /.github/actions/download-skillstore-cli/
           EOF
@@ -124,6 +125,7 @@ jobs:
             scripts/materialize-changed-skills.mjs \
             scripts/validate-correlated-sync-roots.mjs \
             scripts/guard-provider-rerun.mjs \
+            scripts/recovered-push-sync.mjs \
             scripts/refresh-security-research-stats.sh \
             .github/actions/download-skillstore-cli/action.yml; do
             if git ls-files -v -- "$required_path" | awk '$1 ~ /^S/ { found=1 } END { exit !found }'; then
@@ -425,6 +427,12 @@ jobs:
             if [ "$PUBLICATION_CONCLUSION" = failure ] || [ "$PUBLICATION_CONCLUSION" = cancelled ]; then
               echo "::error::Previous publication push run $run_id did not establish authoritative publication success; inspection is required"
               exit 1
+            fi
+            if { [ "$run_conclusion" = failure ] || [ "$run_conclusion" = cancelled ]; } \
+              && node ./scripts/recovered-push-sync.mjs "$run_id"; then
+              LAST_SHA="$head_sha"
+              LAST_CREATED_AT="$created_at"
+              break
             fi
             if [ "$SYNC_CONCLUSION" = success ] && [ "$run_conclusion" = success ]; then
               LAST_SHA="$head_sha"

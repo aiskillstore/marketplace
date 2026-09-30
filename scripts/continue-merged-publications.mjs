@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
 import { publicationValidatorRevision } from './resolve-approved-submission.mjs';
+import { recoveredPushSync } from './recovered-push-sync.mjs';
 
 export const preflightContext = digest => `agentcrew/publication-preflight/${createHash('sha256')
   .update(`${digest}:${publicationValidatorRevision}`).digest('hex')}`;
@@ -110,7 +111,8 @@ export function main(request = api) {
     .sort((a, b) => b.created_at.localeCompare(a.created_at))[0];
   // Publication already removed its pending report before provider/cache work.
   // Its absence cannot hide a failed downstream run and release the next item.
-  if (lastPush && !['success', 'skipped'].includes(lastPush.conclusion)) {
+  if (lastPush && !['success', 'skipped'].includes(lastPush.conclusion)
+    && !recoveredPushSync(lastPush, syncRuns, request)) {
     throw new Error(`Previous push sync ${lastPush.id} is ${lastPush.conclusion}; reconcile before continuing`);
   }
   const publicationRuns = request(`repos/${repo}/actions/workflows/on-pr-merge.yml/runs?per_page=100`).workflow_runs;

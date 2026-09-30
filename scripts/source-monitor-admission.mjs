@@ -1,6 +1,7 @@
 import {execFileSync} from 'node:child_process';
 import {appendFileSync} from 'node:fs';
 import {pathToFileURL} from 'node:url';
+import {recoveredPushSync} from './recovered-push-sync.mjs';
 const repo='repos/aiskillstore/marketplace';
 const api=path=>JSON.parse(execFileSync('gh',['api',`${repo}/${path}`],{encoding:'utf8',maxBuffer:32*1024*1024}));
 export function admitMonitor(request=api) {
@@ -12,7 +13,7 @@ export function admitMonitor(request=api) {
     if(runs.some(r=>r.status!=='completed'))return `Waiting for ${workflow}`;
     if(workflow==='sync-to-supabase.yml'){
       const last=runs.filter(r=>r.event==='push').sort((a,b)=>b.created_at.localeCompare(a.created_at))[0];
-      if(last && last.conclusion!=='success')return 'Previous publication sync needs recovery';
+      if(last && last.conclusion!=='success' && !recoveredPushSync(last,runs,path=>request(path.slice(repo.length+1))))return 'Previous publication sync needs recovery';
     }
   }
   return '';
