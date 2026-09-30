@@ -250,7 +250,8 @@ function verifyPendingReaudit({ repositoryRoot, pendingDir, baseCommit, mergeCom
     || report.meta.slug !== priorReport?.meta?.slug) {
     fail(`${pendingDir} source provenance does not match the trusted prior pending report`);
   }
-  if (!/^[0-9a-f]{40}$/.test(currentIdentity.ref) || currentIdentity.ref === priorIdentity.ref) {
+  if (!/^[0-9a-f]{40}$/.test(currentIdentity.ref)
+    || (publicationMode !== 'report-only' && currentIdentity.ref === priorIdentity.ref)) {
     fail(`${pendingDir} re-audit must reference a new immutable source commit`);
   }
   if (publicationMode === 'report-only') {
