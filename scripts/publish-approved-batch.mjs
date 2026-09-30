@@ -4,6 +4,7 @@ import { dirname } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { publicationIdentity, chooseAttempt, batchIdentity, preflightContext } from './continue-merged-publications.mjs';
 import { resolveApprovedSubmission, PublicationValidationError } from './resolve-approved-submission.mjs';
+import { recoveredPushSync } from './recovered-push-sync.mjs';
 
 export { batchIdentity } from './continue-merged-publications.mjs';
 
@@ -79,7 +80,10 @@ export async function main() {
   const syncs = api('actions/workflows/sync-to-supabase.yml/runs?per_page=100').workflow_runs;
   if (syncs.some(r => r.status !== 'completed')) throw new Error('Previous provider sync remains active');
   const last = syncs.filter(r => r.event === 'push').sort((a, b) => b.created_at.localeCompare(a.created_at))[0];
-  if (!last || last.conclusion !== 'success') throw new Error('Previous push sync is not fully successful');
+  if (!last || (last.conclusion !== 'success'
+    && !recoveredPushSync(last, syncs, path => api(path.slice(`repos/${repository}/`.length))))) {
+    throw new Error('Previous push sync is not fully successful');
+  }
   git(['config', 'credential.helper', '!gh auth git-credential']);
   git(['fetch', '--depth=1', 'origin', 'main', ...new Set(rows.flatMap(r => [r.pr.base.sha, r.pr.merge_commit_sha]))]);
   const base = git(['rev-parse', 'origin/main']);
