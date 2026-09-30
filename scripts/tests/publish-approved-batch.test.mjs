@@ -22,7 +22,7 @@ test('batch identity and distinct Skill limits fail closed', () => {
   assert.equal(validateBatchPlans([{plan:{skills:[{targetDir:'skills/a',duplicate:true}]}}]).size, 1);
 });
 
-for (const {duplicates, rejectFirst = false, callbackFailure = false, unsafeFirst = false} of [{duplicates:[]}, {duplicates:[1]}, {duplicates:[1,2]}, {duplicates:[],rejectFirst:true}, {duplicates:[],callbackFailure:true}, {duplicates:[],rejectFirst:true,unsafeFirst:true}]) test(`batch covers squash, duplicates ${duplicates}, preflight rejection ${rejectFirst}, callback failure ${callbackFailure}, unsafe path ${unsafeFirst}`, async () => {
+for (const {duplicates, rejectFirst = false, callbackFailure = false, unsafeFirst = false, recoveryState} of [{duplicates:[]}, {duplicates:[1]}, {duplicates:[1,2]}, {duplicates:[],rejectFirst:true}, {duplicates:[],callbackFailure:true}, {duplicates:[],rejectFirst:true,unsafeFirst:true}, {duplicates:[],recoveryState:'success'}, {duplicates:[],recoveryState:'failure'}]) test(`batch covers squash, duplicates ${duplicates}, preflight rejection ${rejectFirst}, callback failure ${callbackFailure}, unsafe path ${unsafeFirst}, recovery ${recoveryState}`, async () => {
   const temp = mkdtempSync(join(tmpdir(), 'publish-batch-'));
   const root = join(temp, 'work'), remote = join(temp, 'remote.git'), bin = join(temp, 'bin');
   mkdirSync(root); mkdirSync(bin);
@@ -61,14 +61,40 @@ for (const {duplicates, rejectFirst = false, callbackFailure = false, unsafeFirs
       files[number]=git(['diff','--name-only',base,merge]).split('\n').map(filename=>({filename}));
     }
     const before=git(['rev-parse','HEAD']);git(['clone','--bare',root,remote]);git(['remote','add','origin',remote]);
-    const state=join(temp,'state.json');writeFileSync(state,JSON.stringify({prs,files,refs:{},statuses:{},writes:[]}));
+    const responses = {};
+    if (recoveryState) {
+      const original = 'f'.repeat(40), parent = 'e'.repeat(40), head = 'd'.repeat(40);
+      const syncCorrelation = `source-monitor-pr-90-${head}-${original}-${'c'.repeat(64)}`;
+      responses['actions/workflows/sync-to-supabase.yml/runs?per_page=100'] = { workflow_runs: [
+        { id: 8, event: 'push', status: 'completed', conclusion: 'success', created_at: '2026-09-07T00:00:00Z', head_sha: parent },
+        { id: 9, run_attempt: 1, event: 'push', status: 'completed', conclusion: 'failure', created_at: '2026-09-08T00:00:00Z', head_sha: original },
+        { id: 10, run_attempt: 1, event: 'workflow_dispatch', status: 'completed', conclusion: recoveryState,
+          created_at: '2026-09-09T00:00:00Z', head_branch: 'main', head_repository: { full_name: 'aiskillstore/marketplace' },
+          path: '.github/workflows/sync-to-supabase.yml', display_title: `Provider sync ${syncCorrelation}` },
+      ] };
+      responses['actions/runs/9/attempts/1/jobs?per_page=100'] = { total_count: 1, jobs: [{ steps: [
+        { name: 'Wait for authoritative publication completion', conclusion: 'success' },
+        { name: 'Sync skills to Supabase', conclusion: 'failure' },
+      ] }] };
+      responses[`git/commits/${original}`] = { parents: [{ sha: parent }, { sha: head }] };
+      responses['actions/runs/10/attempts/1/jobs?per_page=100'] = { total_count: 1, jobs: [{ steps:
+        ['Validate trusted sync correlation', 'Verify durable provider sync dispatch outbox', 'Sync skills to Supabase',
+          'Upload provider-complete synced slugs artifact', 'Record durable correlated manual sync result']
+          .map(name => ({ name, conclusion: 'success' })) }] };
+      responses[`commits/${original}/status`] = { statuses: [{
+        context: `agentcrew/provider-sync/${createHash('sha256').update(syncCorrelation).digest('hex')}`,
+        state: 'success', target_url: 'https://github.com/aiskillstore/marketplace/actions/runs/10',
+      }] };
+    }
+    const state=join(temp,'state.json');writeFileSync(state,JSON.stringify({prs,files,responses,refs:{},statuses:{},writes:[]}));
     writeFileSync(join(bin,'gh'),`#!${process.execPath}\n`+`
 const fs=require('node:fs');const args=process.argv.slice(2);const endpoint=args.find(a=>a.startsWith('repos/')).replace('repos/aiskillstore/marketplace/','');
 const state=JSON.parse(fs.readFileSync(process.env.TEST_STATE));const post=args.includes('--method');let out;
 if(post){const body=JSON.parse(fs.readFileSync(0,'utf8'));state.writes.push({endpoint,body});
  if(endpoint==='git/refs'){state.refs[body.ref]={ref:body.ref,object:{type:'commit',sha:body.sha}};out=state.refs[body.ref];}
  else if(endpoint.startsWith('statuses/')){(state.statuses[endpoint.slice(9)]??=[]).unshift(body);out=body;}else throw new Error(endpoint);
-}else if(endpoint.startsWith('pulls/')){const n=Number(endpoint.split('/')[1]);out=endpoint.includes('/files')?state.files[n]:state.prs.find(p=>p.number===n);}
+}else if(state.responses[endpoint])out=state.responses[endpoint];
+else if(endpoint.startsWith('pulls/')){const n=Number(endpoint.split('/')[1]);out=endpoint.includes('/files')?state.files[n]:state.prs.find(p=>p.number===n);}
 else if(endpoint.startsWith('actions/workflows/'))out={workflow_runs:[{event:'push',status:'completed',conclusion:'success',created_at:'2026-09-08T00:00:00Z'}]};
 else if(endpoint.startsWith('git/matching-refs/'))out=Object.values(state.refs).filter(r=>r.ref.startsWith('refs/'+endpoint.slice('git/matching-refs/'.length)));
 else if(endpoint.startsWith('git/ref/'))out=state.refs['refs/'+endpoint.slice(8)];
@@ -81,6 +107,12 @@ fs.writeFileSync(process.env.TEST_STATE,JSON.stringify(state));process.stdout.wr
       let output='';child.stdout.on('data',s=>output+=s);child.stderr.on('data',s=>output+=s);child.on('close',code=>resolveRun({code,output}));
     });
     const result=await run();
+    if(recoveryState === 'failure') {
+      assert.notEqual(result.code, 0); assert.match(result.output, /Previous push sync is not fully successful/);
+      assert.equal(git(['ls-remote','origin','refs/heads/main']).split(/\s/)[0], before);
+      assert.equal(JSON.parse(readFileSync(state)).writes.length, 0); assert.equal(callbacks.length, 0);
+      return;
+    }
     if(rejectFirst){
       assert.notEqual(result.code,0);assert.match(result.output,unsafeFirst?/#1: Unsafe .*publication ancestor/:/#1: .*content_hash/);
       assert.equal(git(['ls-remote','origin','refs/heads/main']).split(/\s/)[0],before);
