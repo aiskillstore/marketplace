@@ -68,7 +68,7 @@ if (endpoint.includes('/runs?')) {
     assert.doesNotMatch(readFileSync(output, 'utf8'), new RegExp(`base_sha=${recovery.head_sha}`));
     const proof={id:4,run_attempt:1,event:'workflow_dispatch',status:'completed',conclusion:'success',head_branch:'main',head_repository:{full_name:'aiskillstore/marketplace'},path:'.github/workflows/reconcile-submission-sync.yml',created_at:'2026-09-04T00:00:00Z',display_title:'Reconcile submission push 2 using recovery 3'};
     const attested={...responses,
-      [`${prefix}/commits/${failed.head_sha}/status`]:{statuses:[{context:'agentcrew/provider-reconciliation/2',state:'success',creator:{id:41898282,login:'github-actions[bot]'},target_url:'https://github.com/aiskillstore/marketplace/actions/runs/4'}]},
+      [`${prefix}/commits/${failed.head_sha}/statuses?per_page=100&page=1`]:[{context:'agentcrew/provider-reconciliation/2',state:'success',creator:{id:41898282,login:'github-actions[bot]'},target_url:'https://github.com/aiskillstore/marketplace/actions/runs/4'}],
       [`${prefix}/actions/runs/4`]:proof,
       [`${prefix}/actions/runs/4/attempts/1/jobs?per_page=100`]:{total_count:1,jobs:[{steps:['Verify exact recovery and provider state','Record separate reconciliation result'].map(name=>({name,conclusion:'success'}))}]},
     };

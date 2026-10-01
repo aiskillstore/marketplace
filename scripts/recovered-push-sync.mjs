@@ -26,7 +26,7 @@ export function recoveredPushSync(push, runs, request) {
     || push.conclusion !== 'failure' || !/^[a-f0-9]{40}$/.test(push.head_sha ?? '')
     || !Number.isSafeInteger(push.id) || push.id < 1) return null;
   const context = `agentcrew/provider-reconciliation/${push.id}`;
-  const status = request(`${prefix}/commits/${push.head_sha}/status`).statuses.find(s => s.context === context);
+  const status = latestStatus(push.head_sha, context, request);
   if (status?.state !== 'success' || status.creator?.id !== 41898282
     || status.creator.login !== 'github-actions[bot]') return null;
   const match = status.target_url?.match(/^https:\/\/github\.com\/aiskillstore\/marketplace\/actions\/runs\/([1-9][0-9]*)$/);
@@ -43,6 +43,22 @@ export function recoveredPushSync(push, runs, request) {
   if (!['Verify exact recovery and provider state', 'Record separate reconciliation result']
     .every(name => successfulStep(jobs, name))) return null;
   return proof;
+}
+
+// Combined status omits creator; status-list includes it in reverse chronological order.
+// The first matching context is decisive even if failed/pending/untrusted.
+export function latestStatus(sha, context, request) {
+  for (let page = 1; page <= 10; page++) {
+    const statuses = request(`${prefix}/commits/${sha}/statuses?per_page=100&page=${page}`);
+    if (!Array.isArray(statuses) || statuses.length > 100
+      || statuses.some(s => !s || typeof s.context !== 'string')) {
+      throw new Error('Malformed status-list evidence');
+    }
+    const status = statuses.find(s => s.context === context);
+    if (status) return status;
+    if (statuses.length < 100) return null;
+  }
+  throw new Error('Status-list evidence limit reached');
 }
 
 function recoveredSourceMonitorPushSync(push, runs, request) {
