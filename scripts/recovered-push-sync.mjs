@@ -17,6 +17,35 @@ function jobsFor(run, request) {
 // A failed provider write is never replayed automatically. An inspected,
 // outbox-owned source-monitor recovery can close exactly its original push.
 export function recoveredPushSync(push, runs, request) {
+  const sourceMonitor = recoveredSourceMonitorPushSync(push, runs, request);
+  if (sourceMonitor) return sourceMonitor;
+  // A separate verifier performs provider GETs, exact pinned-tree/artifact checks,
+  // then records a NEW context. Never turn an arbitrary green manual run or the
+  // old failed publication status into success.
+  if (!push || push.event !== 'push' || push.status !== 'completed'
+    || push.conclusion !== 'failure' || !/^[a-f0-9]{40}$/.test(push.head_sha ?? '')
+    || !Number.isSafeInteger(push.id) || push.id < 1) return null;
+  const context = `agentcrew/provider-reconciliation/${push.id}`;
+  const status = request(`${prefix}/commits/${push.head_sha}/status`).statuses.find(s => s.context === context);
+  if (status?.state !== 'success' || status.creator?.id !== 41898282
+    || status.creator.login !== 'github-actions[bot]') return null;
+  const match = status.target_url?.match(/^https:\/\/github\.com\/aiskillstore\/marketplace\/actions\/runs\/([1-9][0-9]*)$/);
+  if (!match) return null;
+  const proof = request(`${prefix}/actions/runs/${match[1]}`);
+  if (String(proof.id) !== match[1] || proof.event !== 'workflow_dispatch'
+    || proof.status !== 'completed' || proof.conclusion !== 'success'
+    || proof.path !== '.github/workflows/reconcile-submission-sync.yml'
+    || proof.head_branch !== 'main' || proof.head_repository?.full_name !== repo
+    || !Number.isSafeInteger(proof.run_attempt) || proof.run_attempt < 1
+    || !(Date.parse(proof.created_at) > Date.parse(push.created_at))
+    || !new RegExp(`^Reconcile submission push ${push.id} using recovery [1-9][0-9]*$`).test(proof.display_title ?? '')) return null;
+  const jobs = jobsFor(proof, request);
+  if (!['Verify exact recovery and provider state', 'Record separate reconciliation result']
+    .every(name => successfulStep(jobs, name))) return null;
+  return proof;
+}
+
+function recoveredSourceMonitorPushSync(push, runs, request) {
   if (!push || push.event !== 'push' || push.status !== 'completed'
     || !['failure', 'cancelled'].includes(push.conclusion)
     || !/^[a-f0-9]{40}$/.test(push.head_sha ?? '')) return null;
