@@ -5,7 +5,7 @@ import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { admitMonitor } from '../source-monitor-admission.mjs';
-import { recoveredPushSync } from '../recovered-push-sync.mjs';
+import { recoveredPushSync, latestStatus } from '../recovered-push-sync.mjs';
 
 const repo = 'aiskillstore/marketplace';
 const sha = 'b'.repeat(40), head = 'c'.repeat(40), merge = 'd'.repeat(40), before = 'a'.repeat(40);
@@ -60,16 +60,36 @@ test('shared guard accepts only a separate successful attestation run, preservin
  const attestation={id:4,run_attempt:1,event:'workflow_dispatch',status:'completed',conclusion:'success',path:'.github/workflows/reconcile-submission-sync.yml',head_branch:'main',head_repository:{full_name:repo},display_title:'Reconcile submission push 2 using recovery 3',created_at:'2026-10-01T02:00:00Z'};
  const status={context:'agentcrew/provider-reconciliation/2',state:'success',creator:{id:41898282,login:'github-actions[bot]'},target_url:`https://github.com/${repo}/actions/runs/4`};
  function api(overrides={}){return endpoint=>{
-  if(endpoint.endsWith('/status'))return {statuses:[{...status,...overrides.status}]};
+  if(endpoint.endsWith('/status')){const {creator,...combined}=status;return {statuses:[combined]};}
+  if(endpoint.endsWith('/statuses?per_page=100&page=1'))return overrides.history ?? [{...status,...overrides.status}];
   if(endpoint.endsWith('/actions/runs/4'))return {...attestation,...overrides.run};
   if(endpoint.includes('/runs/4/attempts/1/jobs'))return {total_count:1,jobs:[{steps:[{name:'Verify exact recovery and provider state',conclusion:overrides.step||'success'},{name:'Record separate reconciliation result',conclusion:'success'}]}]};
   throw new Error(endpoint);
  };}
  assert.equal(recoveredPushSync(push,[push],api()).id,4);
  assert.equal(push.conclusion,'failure');
+ for(const state of ['failure','pending','error'])assert.equal(recoveredPushSync(push,[push],api({history:[{...status,state},status]})),null,'newest non-success cannot fall back to old success');
+ assert.equal(recoveredPushSync(push,[push],api({history:[{...status,creator:{id:1}},status]})),null,'newest wrong creator cannot fall back');
  const monitorApi=endpoint=>endpoint==='git/trees/main'?{tree:[]}
    :endpoint.includes('/workflows/')?{workflow_runs:endpoint.includes('sync-to-supabase')?[push]:[]}
      :api()(`repos/${repo}/${endpoint}`);
  assert.equal(admitMonitor(monitorApi),'');
  for(const overrides of [{status:{state:'failure'}},{status:{creator:{id:1}}},{run:{head_branch:'other'}},{run:{conclusion:'failure'}},{run:{display_title:'Reconcile submission push 9 using recovery 3'}},{run:{created_at:'invalid'}},{run:{head_repository:{full_name:'fork/repo'}}},{run:{path:'.github/workflows/sync-to-supabase.yml'}},{step:'skipped'}])assert.equal(recoveredPushSync(push,[push],api(overrides)),null);
+});
+
+test('status list is bounded, paginated and never falls back past a newer matching state',()=>{
+ const calls=[];
+ const full=Array.from({length:100},(_,i)=>({context:`other/${i}`}));
+ const failure={context:'wanted',state:'failure'};
+ assert.equal(latestStatus(sha,'wanted',endpoint=>{
+   calls.push(endpoint);
+   return calls.length===1?full:[failure,{context:'wanted',state:'success'}];
+ }),failure);
+ assert.equal(calls.length,2);
+ assert.match(calls[1],/statuses\?per_page=100&page=2$/);
+ assert.equal(latestStatus(sha,'wanted',()=>[]),null);
+ for(const invalid of [{statuses:[]},null,[null],Array(101).fill({context:'other'})])assert.throws(()=>latestStatus(sha,'wanted',()=>invalid),/Malformed/);
+ let pages=0;
+ assert.throws(()=>latestStatus(sha,'wanted',()=>{pages++;return full;}),/limit/);
+ assert.equal(pages,10);
 });

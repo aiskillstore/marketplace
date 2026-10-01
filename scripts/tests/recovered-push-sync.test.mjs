@@ -26,6 +26,7 @@ function evidence({ parents = [baseline.head_sha, 'c'.repeat(40)], recoverySteps
     ] }] };
     if (endpoint.includes('/runs/3/attempts/1/jobs')) return { total_count: totalCount, jobs: [{ steps: recoverySteps }] };
     if (endpoint.includes('/git/commits/')) return { parents: parents.map(sha => ({ sha })) };
+    if (endpoint.includes('/statuses?')) return [];
     if (endpoint.endsWith('/status')) return { statuses: [{ context, state: 'success',
       target_url: `https://github.com/${repo}/actions/runs/3`, ...status }] };
     throw new Error(`Unexpected endpoint: ${endpoint}`);
@@ -54,8 +55,8 @@ test('only exact, reserved and fully closed recovery reconciles a failed push', 
   assert.throws(() => recoveredPushSync(push, runs, evidence({ totalCount: 101 })), /Incomplete/);
   assert.equal(recoveredPushSync(push, [recovery, push, { ...baseline, conclusion: 'failure' }], evidence()), null);
   assert.equal(recoveredPushSync(push, [push, baseline], endpoint => {
-    assert.equal(endpoint, `repos/${repo}/commits/${push.head_sha}/status`);
-    return { statuses: [] }; // Separate reconciliation is discovered by exact status, not recent run lists.
+    assert.equal(endpoint, `repos/${repo}/commits/${push.head_sha}/statuses?per_page=100&page=1`);
+    return []; // Separate reconciliation is discovered by exact status, not recent run lists.
   }), null);
 });
 

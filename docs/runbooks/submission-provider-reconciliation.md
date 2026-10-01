@@ -43,3 +43,13 @@ Only a GitHub status is written by this workflow. Provider requests are GET only
 - Green: affected unit, archive-boundary, shared-guard, monitor, continuation, batch receiver, baseline-shell and action-pin tests. Re-run command in PR description.
 - Live GitHub smoke: verifier accepted original runs, baseline comparison, pinned published/pending entries and SHA-256 archive with a captured SQL projection fixture. This smoke does **not** claim live REST receiver execution.
 - No production configuration, provider or history mutations made by implementation. Rollback the repair source through normal reviewed revert if needed; do not rewrite an emitted reconciliation status without independent inspection. The original failed status remains available for audit.
+
+## Execution and API contract correction — 2026-10-01
+
+- Repair merged at `1784402905118ff83e695c3f976844682663ce83`.
+- [Reconciliation 36810614321](https://github.com/aiskillstore/marketplace/actions/runs/36810614321) succeeded with real provider REST verification; separate status on `421067cfa94823ceb4f1ab2c95ce369dddc36528` is success. Do **not** rerun it or the original provider sync.
+- [Continuation 36810677911](https://github.com/aiskillstore/marketplace/actions/runs/36810677911) failed before publication dispatch: combined-status API omits `creator`, unlike the status-list API. The original mocks incorrectly supplied this field.
+- Follow-up changes only the submission proof consumer to the status-list endpoint. GitHub returns newest first; the first exact context wins even when failed/pending/untrusted. Bounded pagination stops after 10 pages and rejects malformed/incomplete evidence. Existing actor, workflow, exact run and step checks remain intact. Source-monitor logic is unchanged.
+- Red regression uses creator-free combined response; it fails with the original consumer. Green affected suite: 52 pass, 0 fail, 0 skipped, including a newer failure/pending/error or wrong creator ahead of old success, paging and bounds, and baseline shell integration.
+- Live read-only `node scripts/recovered-push-sync.mjs 36738667705` with the corrected consumer returns `Push sync 36738667705 reconciled by verified recovery 36810614321`. This reads existing GitHub proof only, no provider or GitHub writes.
+- After independent exact-head review and approved merge, resume **continuation only**. Main push itself may trigger continuation and publication. Read current runs before any dispatch to avoid duplicate effects. PR3620/3621 publication/provider acceptance remains pending until source-of-truth readback.
