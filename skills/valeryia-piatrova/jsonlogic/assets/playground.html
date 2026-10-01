@@ -1,0 +1,239 @@
+<title>JSON Logic Playground</title>
+<style>
+  :root{
+    --bg:#ffffff;
+    --ink:#1c1b1f;
+    --ink-dim:#6b6673;
+    --accent:#a3199a;
+    --mono-bg:#1c1b1f;
+    --mono-ink:#f0eef5;
+    --mono-line:#38343f;
+    --good:#3f7d4f;
+    --bad:#af3a3a;
+    padding-top:env(safe-area-inset-top,0px);
+    padding-bottom:env(safe-area-inset-bottom,0px);
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0;
+    background:var(--bg);
+    color:var(--ink);
+    font:15px/1.5 'Inter',system-ui,-apple-system,sans-serif;
+    padding:24px 16px 48px;
+  }
+  .wrap{max-width:640px;margin:0 auto;}
+  h1{
+    font:800 32px/1.15 'Inter',sans-serif;
+    letter-spacing:-.01em;
+    margin:0 0 24px;
+  }
+  h1 .accent{color:var(--accent);}
+  .field{margin-bottom:22px;}
+  .field:last-child{margin-bottom:0;}
+  .field h2{
+    font:700 15px/1 'Inter',sans-serif;
+    color:var(--ink);
+    margin:0 0 8px;
+  }
+  textarea{
+    width:100%;
+    min-height:120px;
+    background:var(--mono-bg);
+    color:var(--mono-ink);
+    border:1px solid var(--mono-line);
+    border-radius:10px;
+    font:13px/1.55 'JetBrains Mono',monospace;
+    padding:12px 14px;
+    resize:vertical;
+    tab-size:2;
+  }
+  textarea:focus{outline:none;border-color:var(--accent);}
+  .result{
+    font:13px/1.6 'JetBrains Mono',monospace;
+    background:var(--mono-bg);
+    color:var(--mono-ink);
+    border-radius:10px;
+    padding:12px 14px;
+    min-height:50px;
+    white-space:pre-wrap;
+    word-break:break-word;
+  }
+  .result.ok{box-shadow:inset 0 0 0 1px var(--good);}
+  .result.err{box-shadow:inset 0 0 0 1px var(--bad); color:var(--bad);}
+  .verify-btn{
+    display:none;
+    margin-top:10px;
+    font:600 13px/1 'Inter',sans-serif;
+    color:var(--accent);
+    background:none;
+    border:1px solid var(--accent);
+    border-radius:999px;
+    padding:7px 14px;
+    cursor:pointer;
+  }
+  .verify-btn.show{display:inline-block;}
+  .verify-btn:hover{background:var(--accent); color:#fff;}
+  .verify-note{
+    display:none;
+    margin:8px 0 0;
+    font-size:15px;
+    color:var(--ink-dim);
+  }
+  .verify-note.show{display:block;}
+  details > summary{
+    display:inline-flex;
+    align-items:center;
+    gap:6px;
+    font:700 15px/1 'Inter',sans-serif;
+    color:var(--ink);
+    cursor:pointer;
+    list-style:none;
+  }
+  details > summary::-webkit-details-marker{display:none;}
+  details > summary::before{content:"▸"; color:var(--accent); font-size:20px; line-height:1;}
+  details[open] > summary::before{content:"▾";}
+  details > summary::after{
+    content:"click to expand";
+    color:var(--ink-dim);
+    font-weight:500;
+    opacity:0;
+    transition:opacity .15s;
+  }
+  details[open] > summary::after{content:"click to collapse";}
+  details > summary:hover::after{opacity:1;}
+  details textarea{margin-top:8px;}
+  details[open] textarea{min-height:160px;}
+  .hint{
+    margin-top:24px;
+    font-size:15px;
+    color:var(--ink-dim);
+    text-align:center;
+  }
+</style>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap">
+
+<div class="wrap">
+  <h1><span class="accent">JSON</span> Logic Playground</h1>
+
+  <div class="field">
+    <h2>Rule</h2>
+    <textarea id="rule" spellcheck="false" style="min-height:220px;"></textarea>
+    <button class="verify-btn" id="verifyBtn" type="button">Verify in chat →</button>
+    <p class="verify-note" id="verifyNote">For a 100% guaranteed match with the real library, verify in chat.</p>
+  </div>
+
+  <div class="field">
+    <h2>Result</h2>
+    <div class="result ok" id="result"></div>
+  </div>
+
+  <details class="field">
+    <summary>Data</summary>
+    <textarea id="data" spellcheck="false"></textarea>
+  </details>
+
+  <p class="hint">Rule and data are editable — the page recalculates live. This is the same playground that opens automatically each time the skill runs.</p>
+</div>
+
+<script src="jsonlogic-core.js"></script>
+<script>
+(function(){
+  "use strict";
+
+  // getVar / jsonLogicTruthy / apply come from jsonlogic-core.js (static, loaded above) —
+  // that file never changes between publishes, only this one gets re-templated.
+
+  // Target language mode: __CURRENT_LANG_MODE__ is replaced with "ruby" or "jsonlogic"
+  // (Ruby only false/nil are falsy; every other language shown here follows JsonLogic's
+  // own JS-derived truthy rules). Left untouched, falls back to "jsonlogic".
+  var LANG_MODE;
+  try{ LANG_MODE = __CURRENT_LANG_MODE__; }
+  catch(e){ LANG_MODE = "jsonlogic"; }
+
+  var DEFAULT_RULE = {"if":[{"<":[{"var":"cart.total"},50]}, "no discount", {">=":[{"var":"cart.total"},200]}, "15% off", "5% off"]};
+  var DEFAULT_DATA = {cart:{total:120}};
+
+  var ruleEl = document.getElementById("rule");
+  var dataEl = document.getElementById("data");
+  var resultEl = document.getElementById("result");
+
+  function evaluate(){
+    var rule, data;
+    try{ rule = JSON.parse(ruleEl.value); }
+    catch(e){ showError("Rule is not valid JSON: " + e.message); return; }
+    try{ data = JSON.parse(dataEl.value); }
+    catch(e){ showError("Data is not valid JSON: " + e.message); return; }
+    try{
+      var out = apply(rule, data, LANG_MODE);
+      resultEl.className = "result ok";
+      resultEl.textContent = JSON.stringify(out, null, 2);
+    }catch(e){
+      showError(e.message);
+    }
+  }
+
+  function showError(msg){
+    resultEl.className = "result err";
+    resultEl.textContent = msg;
+  }
+
+  // "Verify in chat": copies a ready-to-paste message with the CURRENT rule/data
+  // (whatever the user has typed, not just the initial seed) so Claude can run it
+  // through the real library for whichever language is in play, instead of this
+  // page's JS approximation. Only shown once the user has actually changed
+  // something away from the seed.
+  //
+  // Target library label: __VERIFY_LIB_LABEL__ names the real implementation to
+  // point at (e.g. "json-logic-js", "maykin-json-logic-py"). Left untouched, falls
+  // back to Ruby's json-logic-rb — the same default used elsewhere in this skill
+  // when no language/library was specified.
+  var VERIFY_LIB_LABEL;
+  try{ VERIFY_LIB_LABEL = __VERIFY_LIB_LABEL__; }
+  catch(e){ VERIFY_LIB_LABEL = "json-logic-rb (scripts/jsonlogic.rb)"; }
+
+  var verifyBtn = document.getElementById("verifyBtn");
+  var verifyNote = document.getElementById("verifyNote");
+  verifyNote.textContent = "For a 100% guaranteed match with " + VERIFY_LIB_LABEL + ", verify in chat.";
+  var verifyNoteDefault = verifyNote.textContent;
+  var seedRule, seedData;
+
+  function checkChanged(){
+    var changed = ruleEl.value !== seedRule || dataEl.value !== seedData;
+    verifyBtn.classList.toggle("show", changed);
+    verifyNote.classList.toggle("show", changed);
+  }
+
+  ruleEl.addEventListener("input", function(){ evaluate(); checkChanged(); });
+  dataEl.addEventListener("input", function(){ evaluate(); checkChanged(); });
+
+  verifyBtn.addEventListener("click", function(){
+    var msg = "Check this rule with the real " + VERIFY_LIB_LABEL + ", " +
+      "not the playground's approximation:\n\nRule:\n" + ruleEl.value +
+      "\n\nData:\n" + dataEl.value;
+    function done(ok){
+      verifyNote.textContent = ok
+        ? "Copied — paste into the chat with Claude."
+        : "Couldn't copy automatically — select the rule/data above and paste them into the chat yourself.";
+      setTimeout(function(){ verifyNote.textContent = verifyNoteDefault; }, 4000);
+    }
+    if(navigator.clipboard && navigator.clipboard.writeText){
+      navigator.clipboard.writeText(msg).then(function(){ done(true); }, function(){ done(false); });
+    }else{
+      done(false);
+    }
+  });
+
+  // Seed with the rule/data for the current task: __INITIAL_RULE__ / __INITIAL_DATA__
+  // are replaced with the real values (as JS/JSON literals) before this file is
+  // published as an artifact. Left untouched, the reference throws and this falls
+  // back to a built-in default, so the page never renders broken.
+  var INITIAL_RULE, INITIAL_DATA;
+  try{ INITIAL_RULE = __INITIAL_RULE__; INITIAL_DATA = __INITIAL_DATA__; }
+  catch(e){ INITIAL_RULE = DEFAULT_RULE; INITIAL_DATA = DEFAULT_DATA; }
+  ruleEl.value = JSON.stringify(INITIAL_RULE, null, 2);
+  dataEl.value = JSON.stringify(INITIAL_DATA, null, 2);
+  seedRule = ruleEl.value;
+  seedData = dataEl.value;
+  evaluate();
+})();
+</script>
