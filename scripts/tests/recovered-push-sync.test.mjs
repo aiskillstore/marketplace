@@ -53,7 +53,10 @@ test('only exact, reserved and fully closed recovery reconciles a failed push', 
   ]) assert.equal(recoveredPushSync(push, runs, evidence(overrides)), null);
   assert.throws(() => recoveredPushSync(push, runs, evidence({ totalCount: 101 })), /Incomplete/);
   assert.equal(recoveredPushSync(push, [recovery, push, { ...baseline, conclusion: 'failure' }], evidence()), null);
-  assert.equal(recoveredPushSync(push, [push, baseline], () => assert.fail('No proof should make no extra calls')), null);
+  assert.equal(recoveredPushSync(push, [push, baseline], endpoint => {
+    assert.equal(endpoint, `repos/${repo}/commits/${push.head_sha}/status`);
+    return { statuses: [] }; // Separate reconciliation is discovered by exact status, not recent run lists.
+  }), null);
 });
 
 test('monitor releases only the reconciled push; unrelated manual success still blocks', () => {

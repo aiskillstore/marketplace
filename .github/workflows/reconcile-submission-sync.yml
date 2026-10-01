@@ -1,0 +1,58 @@
+name: Reconcile submission provider sync
+run-name: Reconcile submission push ${{ inputs.failed_run_id }} using recovery ${{ inputs.recovery_run_id }}
+on:
+  workflow_dispatch:
+    inputs:
+      failed_run_id:
+        description: Exact failed submission publication push sync run
+        type: string
+        required: true
+      recovery_run_id:
+        description: Exact successful single-publication manual recovery run
+        type: string
+        required: true
+permissions:
+  contents: read
+  actions: read
+  pull-requests: read
+  statuses: write
+concurrency:
+  group: submission-provider-reconciliation
+  cancel-in-progress: false
+jobs:
+  reconcile:
+    if: github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          sparse-checkout: scripts
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: '24'
+      - name: Verify exact recovery and provider state
+        id: verify
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FAILED_RUN_ID: ${{ inputs.failed_run_id }}
+          RECOVERY_RUN_ID: ${{ inputs.recovery_run_id }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: node scripts/reconcile-submission-sync.mjs
+      - name: Record separate reconciliation result
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FAILED_RUN_ID: ${{ inputs.failed_run_id }}
+          PUBLICATION_SHA: ${{ steps.verify.outputs.publication_sha }}
+        run: |
+          set -euo pipefail
+          [[ "$FAILED_RUN_ID" =~ ^[1-9][0-9]*$ ]]
+          [[ "$PUBLICATION_SHA" =~ ^[a-f0-9]{40}$ ]]
+          gh api --method POST "repos/$GITHUB_REPOSITORY/statuses/$PUBLICATION_SHA" \
+            -f state=success \
+            -f context="agentcrew/provider-reconciliation/$FAILED_RUN_ID" \
+            -f description='Exact submission recovery verified without provider replay' \
+            -f target_url="https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
