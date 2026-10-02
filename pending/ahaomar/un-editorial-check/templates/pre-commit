@@ -1,0 +1,24 @@
+#!/bin/sh
+# un-editorial-check pre-commit hook.
+# Install: cp templates/pre-commit .git/hooks/pre-commit && chmod +x .git/hooks/pre-commit
+# Staged files of an extractable type are passed to the checker; a non-zero
+# exit (error-severity findings, or a usage failure) blocks the commit.
+staged=$(git diff --cached --name-only --diff-filter=ACM)
+set --
+while IFS= read -r f; do
+  [ -n "$f" ] || continue
+  [ -f "$f" ] || continue
+  case "$f" in
+    *.md|*.markdown|*.txt|*.html|*.htm|*.js|*.mjs|*.cjs|*.jsx|*.ts|*.tsx)
+      set -- "$@" "$f"
+      ;;
+  esac
+done <<EOF
+$staged
+EOF
+[ $# -eq 0 ] && exit 0
+if [ -n "${UE_CHECK:-}" ]; then
+  # UE_CHECK is a command with arguments; the word splitting is on purpose.
+  exec $UE_CHECK "$@"
+fi
+exec npx --no-install un-editorial-check "$@"
