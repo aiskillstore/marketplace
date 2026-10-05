@@ -1,0 +1,58 @@
+name: Publish
+
+# Publishing is a release act, not a push act.
+#
+# This used to trigger on any push to main that touched
+# .tessl-plugin/plugin.json. Two ways that goes wrong, both observed:
+#
+#   1. A commit pushed unsigned and then force-pushed signed looks like two
+#      pushes. The second one tried to publish a version that already existed
+#      and failed the run, even though nothing was wrong — the trees were
+#      byte-identical and only the signature differed.
+#   2. It published from whatever landed on main, which is upstream of the
+#      signed tag. An intermediate commit could publish before the release it
+#      belongs to existed.
+#
+# Triggering on the tag fixes both: publishing happens once, from the ref that
+# the release is actually cut from. Re-cutting a tag is still possible (a
+# deleted-and-recreated tag re-fires), so the step below is also idempotent.
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Tag must match the manifest version
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME#v}"
+          ver="$(python3 -c "import json,sys; print(json.load(open('.tessl-plugin/plugin.json'))['version'])")"
+          echo "tag=$tag manifest=$ver"
+          if [ "$tag" != "$ver" ]; then
+            echo "::error::tag ${GITHUB_REF_NAME} does not match manifest version ${ver}"
+            exit 1
+          fi
+
+      - uses: tesslio/setup-tessl@v2
+        with:
+          token: ${{ secrets.TESSL_TOKEN }}
+
+      - name: Publish (idempotent)
+        run: |
+          set -o pipefail
+          if tessl plugin publish 2>&1 | tee /tmp/publish.log; then
+            exit 0
+          fi
+          if grep -qi "already exists" /tmp/publish.log; then
+            echo "::notice::${GITHUB_REF_NAME} is already published — nothing to do"
+            exit 0
+          fi
+          exit 1
