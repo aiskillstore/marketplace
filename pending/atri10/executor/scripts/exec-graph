@@ -1,0 +1,164 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Atri10
+# exec-graph — the graph's integrity check. The engine's claim is that
+# every state mutation is a scripted edge, never a hand-edit. `check`
+# proves what is mechanically provable:
+#
+#   verbs     every word exec-step can emit has an actuator row
+#   writers   every ledger file names the script(s) that write it —
+#             a file with zero writers is one the controller edits by hand
+#   roles     every dispatch-registry role names a real prompt template
+#   ids       every ID grammar is minted by exactly one path
+#   refs      ledger tasks resolve to ### Task headings; dispatch rows
+#             resolve to ledger tasks; INDEX rows resolve to folders
+#
+# A dangling reference is a FAIL, not a NOTE — the same standard
+# exec-store-check applies to its own classes.
+#
+# Usage: exec-graph check [--verbose]
+set -euo pipefail
+HERE="$(cd "$(dirname "$0")" && pwd)"
+. "$HERE/_exec-lib.sh"
+
+[ "${1:-}" = "check" ] || exec_die "usage: exec-graph check [--verbose]"
+verbose=0; [ "${2:-}" = "--verbose" ] && verbose=1
+
+pass=0; fail=0
+ok()  { pass=$((pass+1)); [ "$verbose" -eq 1 ] && echo "ok   - $*"; return 0; }
+bad() { fail=$((fail+1)); echo "FAIL - $*"; }
+note() { echo "note - $*"; }
+
+# -- verbs: every emit has an actuator row, every row is reachable ----
+emits=$(grep -oE 'echo "[A-Z][A-Z-]+' "$HERE/exec-step" | cut -d'"' -f2 | sort -u)
+known=$(exec_verbs | cut -d'|' -f1)
+while IFS= read -r w; do
+  [ -n "$w" ] || continue
+  case "$w" in
+    *'$(|*)*') continue ;;
+  esac
+  if printf '%s\n' "$known" | grep -qx "$w"; then
+    ok "verb $w has an actuator row"
+  else
+    bad "exec-step can emit $w but exec_verbs has no actuator row for it"
+  fi
+done <<EOF
+$emits
+EOF
+while IFS= read -r w; do
+  [ -n "$w" ] || continue
+  if printf '%s\n' "$emits" | grep -qx "$w"; then
+    ok "actuator row $w is emittable"
+  else
+    note "exec_verbs row $w is never emitted by exec-step (reserved or dead)"
+  fi
+done <<EOF
+$known
+EOF
+
+# -- writers: every state file has ≥1 script writer -------------------
+# A file counts as scripted when a script either writes the literal
+# filename or calls a lib helper that writes it (exec_seed_workspace,
+# exec_dispatch_append/set, exec_mark_dispatched, exec_row_liveness,
+# exec_update_ledger_line). A file no path reaches is a hand-edit — the
+# failure this whole redesign exists to remove.
+#
+# `case` is a separate function, not inline: bash 3.2 (the /bin/bash every
+# stock macOS ships, and the shell this suite runs under) fails to PARSE a
+# `case` statement directly inside `$( … )` — "syntax error near
+# unexpected token `;;'". A 5.x shell accepts it, so the defect was
+# invisible locally and only the macOS CI runner saw it. Hoisting the
+# case out of the substitution is the portable shape.
+writer_helpers_for() {
+  case "$1" in
+    progress.md)      grep -lE 'exec_seed_workspace|exec_mark_dispatched|exec_update_ledger_line|exec_ledger_set' "$HERE"/exec-* 2>/dev/null ;;
+    dispatches.md)    grep -lE 'exec_seed_workspace|exec_dispatch_append|exec_dispatch_set|exec_row_liveness' "$HERE"/exec-* 2>/dev/null ;;
+    rulings.md|preflight-scan.md) grep -lE 'exec_seed_workspace' "$HERE"/exec-* 2>/dev/null ;;
+    INDEX.md)         grep -lE 'exec_run_registry' "$HERE"/exec-* 2>/dev/null ;;
+  esac
+}
+for f in progress.md dispatches.md rulings.md preflight-scan.md INDEX.md; do
+  writers=$(
+    { grep -lE "(>|>>|tee |mv ).*${f}\\b" "$HERE"/exec-* 2>/dev/null;
+      writer_helpers_for "$f"; } \
+      | grep -v 'exec-graph$' | sort -u \
+      | while IFS= read -r w; do basename "$w"; done | tr '\n' ' '
+  )
+  if [ -n "$writers" ]; then
+    ok "$f writers: $writers"
+  else
+    bad "no script writes $f — every byte in it is a hand-edit"
+  fi
+done
+
+# -- roles: every registry role resolves a real template --------------
+# read -r into `_` for the unused columns: the registry row has five
+# fields and the template is the third; naming the others would be dead
+# variables a linter must then be told about.
+while IFS='|' read -r role _ tmpl _; do
+  [ -n "$role" ] || continue
+  tfile="$HERE/../../$tmpl"
+  if [ -f "$tfile" ]; then
+    ok "role $role template $tmpl exists"
+  else
+    bad "role $role names template $tmpl but $tfile does not exist"
+  fi
+done <<EOF
+$(exec_roles)
+EOF
+
+# -- ids: each ID grammar has exactly one minter ----------------------
+# exec-dispatch is the only script that may substitute the placeholders.
+# Roles that share a grammar (impl/fix, review/re-review) is intentional
+# — a fix or re-review re-mints the same agent shape for a later round,
+# never a new identity — so a shared grammar is a note, not a failure.
+collide=$(exec_roles | cut -d'|' -f2 | sort | uniq -d)
+if [ -z "$collide" ]; then
+  ok "no two roles share an ID grammar"
+else
+  note "shared ID grammar (later-round re-mint, single minter): $(printf '%s' "$collide" | tr '\n' ' ')"
+fi
+for pat in $(exec_roles | cut -d'|' -f2 | grep -v '<' || true); do
+  bad "role grammar has no placeholder: $pat — a literal ID cannot be minted per-dispatch"
+done
+ok "every ID grammar carries placeholders"
+
+# -- refs: ledger ↔ plan ↔ dispatch ↔ INDEX ---------------------------
+docs_store=$(exec_docs_store 2>/dev/null || true)
+checked=0
+if [ -n "$docs_store" ]; then
+for p in "$docs_store"/*/plans/*.md "$docs_store"/plans/*.md; do
+  [ -f "$p" ] || continue
+  plan_id=$(exec_frontmatter "$p" id 2>/dev/null || true)
+  [ -n "$plan_id" ] || continue
+  wdir=$(exec_workspace_dir "$p" 2>/dev/null || true)
+  [ -n "$wdir" ] && [ -f "$wdir/progress.md" ] || continue
+  checked=1
+
+  # Task headings the plan declares
+  tasks=$(grep -oE '`'"${plan_id}"'-T[0-9]+`|### Task [0-9]+' "$p" | grep -oE "${plan_id}-T[0-9]+" | sort -u)
+  # Ledger lines naming tasks not in the plan
+  stray=$(grep -oE "${plan_id}-T[0-9]+" "$wdir/progress.md" 2>/dev/null | sort -u | comm -23 - <(printf '%s\n' "$tasks") || true)
+  [ -z "$stray" ] && ok "$plan_id: every ledger task resolves to a ### Task heading" \
+    || bad "$plan_id: ledger names tasks the plan never declared: $stray"
+
+  # Dispatch rows whose task has no ledger heading
+  stray=$(awk -F'|' -v pid="$plan_id" '/^\|/ && NR>3 { c=$2; gsub(/^[ \t]+|[ \t]+$/,"",c); if (c ~ ("^" pid "-T[0-9]+$")) print c }' "$wdir/dispatches.md" 2>/dev/null | sort -u | comm -23 - <(printf '%s\n' "$tasks") || true)
+  [ -z "$stray" ] && ok "$plan_id: every dispatch row names a declared task" \
+    || bad "$plan_id: dispatch rows name undeclared tasks: $stray"
+
+  # (Open-row liveness policy is exec-supervise's; nothing to check here.)
+done
+fi
+[ "$checked" -eq 0 ] && note "no in-flight plan workspaces — ref checks skipped"
+
+# INDEX.md rows resolve to plan folders and back
+if [ -d ".executor" ] && [ -f ".executor/INDEX.md" ]; then
+  stray=$(awk -F'|' '/^\|[ \t]*INIT-[0-9]+-P[0-9]+/ { c=$8; gsub(/[ `]/,"",c); gsub(/\/$/,"",c); if (c!="" && c!="—") { if (system("test -d .executor/" c) != 0) { gsub(/ /,"",$2); print $2 } } }' .executor/INDEX.md || true)
+  [ -z "$stray" ] && ok "registry paths resolve to workspace folders" \
+    || bad "registry rows point at missing workspaces: $stray"
+fi
+
+echo
+echo "$pass passed, $fail failed"
+[ "$fail" -eq 0 ]

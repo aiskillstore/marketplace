@@ -1,0 +1,92 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Atri10
+# Extract one task's full text into a brief file the implementer reads in a
+# single call, so task text never passes through the controller's context.
+#
+# The brief carries an identity header: initiative, plan, task, and spec IDs
+# plus the plan path. A subagent that reads only this file still knows exactly
+# what it is working on and can trace its lineage without opening the plan.
+#
+# The preamble separates contract from sketch: signatures, exact values, file
+# lists, and test expectations are verbatim; implementation code is advisory.
+#
+# A task heading without an ID in a plan that HAS an id: is a die (the run
+# ledger keys on task IDs, so an ID-less task cannot be executed). Only a
+# legacy plan — no id: anywhere — gets a synthesized ID, in the same
+# '<plan>-T<nn>' grammar exec-context uses.
+#
+# Usage: exec-brief PLAN_FILE TASK_NUMBER [OUTFILE]
+set -euo pipefail
+. "$(cd "$(dirname "$0")" && pwd)/_exec-lib.sh"
+
+[ $# -ge 2 ] && [ $# -le 3 ] || exec_die "usage: exec-brief PLAN_FILE TASK_NUMBER [OUTFILE]"
+
+plan=$1
+n=$2
+[ -f "$plan" ] || exec_die "no such plan file: $plan"
+
+# n interpolates into the task-extraction awk regex — a non-numeric value
+# is a regex injection ('1|2' matches other tasks), not just a bad lookup.
+case "$n" in
+  ''|*[!0-9]*) exec_die "task number must be numeric (like '3'), got: $n" ;;
+esac
+
+plan_id=$(exec_frontmatter "$plan" id)
+spec_id=$(exec_frontmatter "$plan" spec)
+task_id=$(exec_task_id "$plan" "$n")
+
+if [ -z "$task_id" ]; then
+  if [ -n "$plan_id" ]; then
+    exec_die "Task $n in $plan has no task ID in its heading.
+Expected: '### Task $n: <name> — \`${plan_id}-T$(exec_pad2 "$n")\`'
+A plan without task IDs cannot be executed by executor-execution."
+  fi
+  task_id="${plan_id:-plan}-T$(exec_pad2 "$n")"   # legacy plan, no IDs anywhere — exec-context's grammar
+fi
+
+if [ $# -eq 3 ]; then
+  out=$3
+else
+  dir=$(exec_workspace_dir "$plan")
+  exec_seed_workspace "$dir" "$plan"
+  out="$dir/briefs/${task_id}-brief.md"
+fi
+
+body=$(exec_task_body "$plan" "$n")
+
+[ -n "$body" ] || exec_die "task $n not found in $plan (no heading matching 'Task $n')"
+
+stamp=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+init=$(exec_initiative_of "${plan_id:-}" 2>/dev/null || echo "")
+# A caller-chosen OUTFILE may name a directory that does not exist yet.
+mkdir -p "$(dirname "$out")"
+{
+  echo "---"
+  echo "kind: brief"
+  [ -n "$task_id" ] && echo "id: $task_id"
+  [ -n "$init" ] && echo "initiative: $init"
+  echo "plan: ${plan_id:-(legacy)}"
+  echo "plan_file: $plan"
+  echo "spec: ${spec_id:-(none)}"
+  echo "title: Brief for $task_id"
+  echo "status: active"
+  echo "created_at: $stamp"
+  echo "updated_at: $stamp"
+  echo "---"
+  echo
+  echo "*Executor brief — generated, do not edit by hand.*"
+  echo
+  echo "This brief is your requirements. Signatures, exact values, file"
+  echo "lists, and test expectations are verbatim contract — copied, not"
+  echo "paraphrased. Implementation code shown is a reference sketch, not"
+  echo "authority: where a sketch and the contract disagree, the contract"
+  echo "wins — implement the contract and record the divergence in your"
+  echo "report."
+  echo
+  echo "---"
+  echo
+  echo "$body"
+} > "$out"
+
+echo "$out"

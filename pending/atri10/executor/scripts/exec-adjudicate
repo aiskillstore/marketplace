@@ -1,0 +1,77 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Atri10
+# exec-adjudicate — assemble a supervisor's evidence set and dispatch it.
+# The adjudicated party (the pump) used to choose the adjudicator's
+# evidence; here the set is mechanical: the report under dispute, the
+# latest verdict, the diff that produced them, the task's open dispatch
+# rows, and the rulings tail. Nothing in the list is optional, so nothing
+# in it can be quietly left out.
+#
+# Usage:
+#   exec-dispatch emits AGENT=… PROMPT=… — call this instead:
+#   exec-adjudicate PLAN_FILE TASK_ID [--why WHAT] [--subject TEXT] [--model M]
+#
+# Writes state/adjudication/<TID>-evidence.md, then runs exec-dispatch
+# --role supervisor. Prints the same KEY=VAL block plus EVIDENCE.
+set -euo pipefail
+. "$(cd "$(dirname "$0")" && pwd)/_exec-lib.sh"
+SCRIPTS_DIR="$(cd "$(dirname "$0")" && pwd)"
+
+[ $# -ge 2 ] && [ -f "$1" ] || exec_die "usage: exec-adjudicate PLAN_FILE TASK_ID [--why WHAT] [--subject TEXT] [--model M]"
+plan=$1 tid=$2; shift 2
+extra_args=()
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --why)     extra_args+=(--why "$2"); shift 2 ;;
+    --subject) extra_args+=(--subject "$2"); shift 2 ;;
+    --model)   extra_args+=(--model "$2"); shift 2 ;;
+    *) exec_die "unknown flag: $1" ;;
+  esac
+done
+
+dir=$(exec_workspace_dir "$plan")
+mkdir -p "$dir/state/adjudication"
+evidence="$dir/state/adjudication/${tid}-evidence.md"
+
+report="$dir/reports/${tid}-report.md"
+
+verdict=$( { ls "$dir/reviews/verdicts/${tid}-R"*-verdict.md 2>/dev/null || true; } | sort -V | tail -1)
+diff=$( { ls "$dir/reviews/diffs/${tid}"-*-*.diff "$dir/reviews/diffs/${tid}"-*-fix-package.md 2>/dev/null || true; } | sort -V | tail -1)
+
+{
+  echo "# Adjudication evidence — $tid"
+  echo
+  echo "Assembled by exec-adjudicate $(date -u +%Y-%m-%dT%H:%M:%SZ). Every"
+  echo "section below is a file path or an extract — read the files, not"
+  echo "the controller's summary of them."
+  echo
+  echo "## Files"
+  echo
+  [ -f "$report" ]  && echo "- report: \`$report\`" || echo "- report: absent"
+  [ -n "$verdict" ] && echo "- verdict: \`$verdict\`" || echo "- verdict: absent"
+  [ -n "$diff" ]    && echo "- diff: \`$diff\`" || echo "- diff: absent"
+  echo "- ledger: \`$dir/progress.md\`"
+  echo "- rulings: \`$dir/rulings.md\`"
+  echo
+  echo "## Open dispatch rows for $tid"
+  echo
+  awk -F'|' -v t="$tid" '
+    /^\|/ {
+      cell = $2; gsub(/[ \t]/, "", cell)
+      if (cell != t) next
+      o = $8; gsub(/^[ \t]+|[ \t]+$/, "", o)
+      if (o == "running" || o ~ /^revived-rv[0-9]+$/) print "- " $0
+    }' "$dir/dispatches.md" | sed 's/^- |/- `|/; s/|$/|`/'
+  echo
+  echo "## Ledger tail"
+  echo
+  grep "^${tid}:" "$dir/progress.md" | tail -10 | sed 's/^/    /'
+  echo
+  echo "## Rulings tail"
+  echo
+  tail -20 "$dir/rulings.md" | sed 's/^/    /'
+} > "$evidence"
+
+exec "$SCRIPTS_DIR/exec-dispatch" "$plan" --role supervisor --task "$tid" \
+  --evidence "$evidence" ${extra_args[@]+"${extra_args[@]}"}

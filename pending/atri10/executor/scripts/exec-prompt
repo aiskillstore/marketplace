@@ -1,0 +1,246 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Atri10
+# exec-prompt — render one registered prompt template with its placeholders
+# filled, or refuse. "An unfilled bracket is a defect" was prose; this makes
+# it mechanical.
+#
+# Usage:
+#   exec-prompt --file TEMPLATE [KEY=VAL ...]
+#   exec-prompt --role ROLE [KEY=VAL ...]
+#   exec-prompt --file TEMPLATE --block N ...   # Nth fenced block (0-based)
+#   --out PATH                                # write instead of stdout
+#
+# Extraction: the payload is the Nth fenced code block of the template —
+# every role template wraps its dispatch payload in one, fragments like
+# revive-preamble.md too.
+#
+# Filling: every [BRACKET] token in the payload is replaced by the KEY=VAL
+# whose normalized key matches. Normalization: content before ` —`, `:`,
+# `|`, `(`, or `<`, uppercased, non-alnum runs collapsed to _ with edge _
+# stripped. The template's own Placeholders table declares alternates (a
+# ` / `-separated first column); every alternate on a row binds to the
+# row's FIRST normalized token as its canonical key.
+#
+# Refusal: any surviving [A-Z][A-Z0-9_]* bracket, or any declared slot left
+# unfilled, exits 2 naming the keys — a prompt with an unfilled slot must
+# never reach a worker.
+set -euo pipefail
+. "$(cd "$(dirname "$0")" && pwd)/_exec-lib.sh"
+
+usage() {
+  sed -n '/^# Usage:/,/^# Extraction/ { /^#/s/^# \{0,1\}//p; }' "$0" >&2
+  exit 2
+}
+
+template=""; out=""; block=0; role=""
+declare -a pairs
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --file)   template=$2; shift 2 ;;
+    --role)   role=$2; shift 2 ;;
+    --block)  block=$2; shift 2 ;;
+    --out)    out=$2; shift 2 ;;
+    *=*)      pairs+=("$1"); shift ;;
+    -h|--help) usage ;;
+    *)        exec_die "unknown argument: $1 (want KEY=VAL or --flag)" ;;
+  esac
+done
+
+if [ -n "$role" ]; then
+  row=$(exec_role "$role")
+  skills_dir=$(cd "$(dirname "$0")/../.." && pwd)
+  template="$skills_dir/$(printf '%s' "$row" | cut -d'|' -f3)"
+fi
+[ -n "$template" ] && [ -f "$template" ] || usage
+
+work=$(mktemp -d "${TMPDIR:-/tmp}/exec-prompt.XXXXXX")
+trap 'rm -rf "$work"' EXIT
+decfile="$work/declared"; kvfile="$work/kv"; resfile="$work/result"
+: > "$decfile"; : > "$kvfile"
+
+# ---- pass 1: declared slots from the template's Placeholders table ------
+# "| `[A]` / `[b]` | desc |" rows: each `[token]` is an alias; the first
+# alias's normalized form is the canonical key the whole row binds to.
+# Emits: RAWALIAS \x01 CANON
+awk '
+  /^\|[ \t]*`?\[/ {
+    line = $0
+    sub(/^[^|]*\|[ \t]*/, "", line); sub(/[ \t]*\|.*$/, "", line)
+    gsub(/`/, "", line)
+    n = split(line, alt, /[ \t]*\/[ \t]*/)
+    canon = ""
+    for (i = 1; i <= n; i++) {
+      t = alt[i]
+      if (t ~ /^\[.*\]$/) {
+        inner = t; gsub(/^\[|\]$/, "", inner)
+        c = inner
+        sub(/ —.*$/, "", c); sub(/:.*/, "", c); sub(/\|.*/, "", c)
+        sub(/\(.*/, "", c); sub(/<.*/, "", c)
+        gsub(/^[ \t]+|[ \t]+$/, "", c)
+        c = toupper(c); gsub(/[^A-Z0-9]+/, "_", c); gsub(/^_+|_+$/, "", c)
+        if (canon == "") canon = c
+        printf "%s\x01%s\n", inner, canon
+      }
+    }
+  }
+' "$template" > "$decfile"
+
+# ---- pass 2: provided KEY=VAL pairs, normalized -------------------------
+for p in ${pairs[@]+"${pairs[@]}"}; do
+  k=${p%%=*}; v=${p#*=}
+  nk=$(printf '%s' "$k" | tr 'a-z' 'A-Z' | sed 's/[^A-Z0-9]\{1,\}/_/g; s/^_\{1,\}//; s/_\{1,\}$//')
+  printf '%s\x01%s\n' "$nk" "$v" >> "$kvfile"
+done
+
+# ---- pass 3: extract the Nth fenced block, replace, emit ----------------
+# Semantic fallback: a descriptive bracket carries a sentence, not a key —
+# `[absolute path of the rulings.md you append to via exec-ruling]` binds
+# to RULINGS_LOG by content. Ordered, conservative substrings; fires only
+# when the caller provided that key. A token no rule resolves stays a
+# defect — the leftover check catches it.
+awk -v want="$block" -v kvfile="$kvfile" -v decfile="$decfile" -v resfile="$resfile" '
+  function guess(inner,    c, cu) {
+    c = inner
+    sub(/ —.*$/, "", c); sub(/:.*/, "", c); sub(/\|.*/, "", c)
+    sub(/\(.*/, "", c); sub(/<.*/, "", c)
+    gsub(/^[ \t]+|[ \t]+$/, "", c)
+    cu = toupper(c); gsub(/[^A-Z0-9]+/, "_", cu); gsub(/^_+|_+$/, "", cu)
+    if (cu in val) return cu
+    if (inner in alias) return ""       # alias lookup handled by caller
+    lc = tolower(inner)
+    # Path-bearing slots resolve on the basename, not the directories —
+    # "…/briefs/X-context.md" contains "brief" but names a context file.
+    bn = lc; sub(/^.*\//, "", bn)
+    if (lc ~ /resolution|ambiguity/)                       return "RESOLUTION"
+    if (lc ~ /rulings/)                    return "RULINGS_LOG"
+    if (lc ~ /skill\.md|specification|your requirements/) return "SPEC_FILE"
+    if (lc ~ /artifacts|logs you may read|evidence/)       return "EVIDENCE"
+    if (lc ~ /you will write|output file|your output/)     return "OUTPUT_FILE"
+    if (lc ~ /spec/)                                       return "SPEC_ID"
+    if (bn ~ /context/)                                    return "CONTEXT_FILE"
+    if (bn ~ /brief/)                                      return "BRIEF_FILE"
+    if (bn ~ /report/)                                     return "REPORT_FILE"
+    if (bn ~ /verdict/)                                    return "VERDICT_FILE"
+    if (bn ~ /diff/)                                       return "DIFF_FILE"
+    if (bn ~ /plan/)                                       return "PLAN_FILE"
+    if (lc ~ /plan file|plan. path/)                       return "PLAN_FILE"
+    if (lc ~ /findings/)                                   return "FINDINGS"
+    if (lc ~ /covering test|test files/)                   return "COVERING_TEST_FILES"
+    if (lc ~ /subject|summary/)                            return "SUBJECT"
+    if (lc ~ /fit|where this task|project/)                return "FIT"
+    if (lc ~ /work from|worktree|working tree/)            return "WORKTREE"
+    if (cu ~ /^(SUPERVISOR|IMPL|REVIEW|VERIFY|AUDIT|REPAIR|AUTHOR|DECIDE|SCOUT|EXPLORE|CRITIC)[_A-Z0-9-]*$/) return "AGENT"
+    if (lc ~ /exec-heartbeat|scripts dir|the scripts/)                return "SCRIPTS_DIR"
+    if (lc ~ /identity|must match the dispatches/)         return "AGENT"
+    return ""
+  }
+  /^```/ { if (!inf) { inf = 1; n++; next } else { inf = 0; next } }
+  !inf { next }
+  n - 1 != want { next }
+  {
+    # Logical lines: a [ bracket that does not close on its own line keeps
+    # pulling physical lines until it does — multi-line descriptive slots
+    # would otherwise evade both filling and the leftover check.
+    buf = buf == "" ? $0 : buf "\n" $0
+    tmp = buf
+    opens = gsub(/\[/, "[", tmp); tmp = buf
+    closes = gsub(/\]/, "]", tmp)
+    if (opens > closes) next
+    line = buf; buf = ""
+    out = ""
+    while (match(line, /\[[^]]{1,400}\]/)) {
+      tok = substr(line, RSTART, RLENGTH)
+      inner = substr(tok, 2, RLENGTH - 2)
+      rep = ""
+      if (inner in alias) rep = alias[inner]
+      else {
+        k = guess(inner)
+        if (k != "" && k in val) rep = val[k]
+        else if (k != "" && k in canonof) {
+          ck = canonof[k]
+          if (ck in val) rep = val[ck]
+        }
+      }
+      if (rep != "") {
+        out = out substr(line, 1, RSTART - 1) rep
+        line = substr(line, RSTART + RLENGTH)
+      } else {
+        out = out substr(line, 1, RSTART + RLENGTH - 1)
+        line = substr(line, RSTART + RLENGTH)
+      }
+    }
+    print out line >> resfile
+  }
+  END { if (buf != "") print buf >> resfile }
+  BEGIN {
+    while ((getline l < kvfile) > 0) {
+      i = index(l, "\x01")
+      if (i) val[substr(l, 1, i - 1)] = substr(l, i + 1)
+    }
+    close(kvfile)
+    while ((getline l < decfile) > 0) {
+      i = index(l, "\x01")
+      if (!i) continue
+      a = substr(l, 1, i - 1); c = substr(l, i + 1)
+      if (c in val) alias[a] = val[c]
+      canonof[a] = c
+    }
+    close(decfile)
+    for (c in val) alias[c] = val[c]
+  }
+' "$template"
+[ -s "$resfile" ] || exec_die "no fenced block #$block in $template"
+
+# ---- leftover detection --------------------------------------------------
+# Span-aware: an [ … ] slot may wrap lines. A surviving span is a defect
+# when its normalized head is [A-Z][A-Z0-9_]*, OR its raw text matches a
+# declared alias. Lowercase descriptive brackets that resolve to nothing —
+# prose like `[findings …]` examples — print as NOTE, not defect: a human
+# sees them; a filled prompt still ships.
+leftover=$(awk '
+  { s = s $0 "\n" }
+  END {
+    while (match(s, /\[[^]]{1,400}\]/)) {
+      tok = substr(s, RSTART, RLENGTH)
+      inner = substr(tok, 2, RLENGTH - 2)
+      s = substr(s, RSTART + RLENGTH)
+      c = inner
+      sub(/ —.*$/, "", c); sub(/:.*/, "", c); sub(/\|.*/, "", c)
+      sub(/\(.*/, "", c); sub(/<.*/, "", c)
+      gsub(/^[ \t\n]+|[ \t\n]+$/, "", c)
+      cu = toupper(c); gsub(/[^A-Z0-9]+/, "_", cu); gsub(/^_+|_+$/, "", cu)
+      if (cu ~ /^[A-Z][A-Z0-9_]+$/) { uniq["[" cu "]"] = 1; continue }
+      lc = tolower(inner); gsub(/\n/, " ", lc)
+      if (lc ~ /path|file|verbatim|required|e\.g\.|choose|name the/) \
+        uniq["[" substr(lc, 1, 60) "]"] = 1
+    }
+    for (w in uniq) printf "%s ", w
+  }
+' "$resfile")
+missing=$(awk -v resfile="$resfile" '
+  BEGIN {
+    while ((getline l < resfile) > 0) all = all "\n" l
+    close(resfile)
+  }
+  {
+    i = index($0, "\x01")
+    if (!i) next
+    a = substr($0, 1, i - 1)
+    if (index(all, "[" a "]")) print "[" a "]"
+  }
+' "$decfile" | sort -u | tr '\n' ' ')
+
+if [ -n "$leftover" ] || [ -n "$missing" ]; then
+  allnames=$(printf '%s\n%s\n' "$leftover" "$missing" | tr ' ' '\n' | sed '/^$/d' | sort -u | tr '\n' ' ')
+  echo "unfilled placeholder(s) in $(basename "$template"): $allnames" >&2
+  exit 2
+fi
+
+if [ -n "$out" ]; then
+  mkdir -p "$(dirname "$out")"
+  cat "$resfile" > "$out"
+  echo "$out"
+else
+  cat "$resfile"
+fi

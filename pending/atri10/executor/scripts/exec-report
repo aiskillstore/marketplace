@@ -1,0 +1,152 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Atri10
+# exec-report — gate-on-commit. The ONLY path a worker's result takes into
+# run state. Nothing reaches the ledger, the dispatch log, or the registry
+# without passing this script's gate first.
+#
+# Usage:
+#   exec-report PLAN_FILE REPORT_FILE [BASE_SHA] [HEAD_SHA]
+#
+# The gate, in order:
+#   1. the report exists and is non-empty;
+#   2. a verdict exists for the task's latest round and is clean
+#      (spec_verdict PASS|null AND quality APPROVED, read from frontmatter);
+#   3. the task is not already complete in the ledger.
+#
+# On failure nothing is written and the gate names what is missing. On
+# success the canonical ledger line is appended, the task's open dispatch
+# rows close, and the registry row's task count refreshes — one act, under
+# the store lock, so a crash cannot leave "complete" without a verdict.
+#
+# Why this is a script and not a controller step: the controller is the
+# least reliable worker in the system. If it may judge its own work, an
+# unreviewed task is one paragraph away from being ledgered complete, and
+# every later audit reads that lie as history.
+set -euo pipefail
+. "$(cd "$(dirname "$0")" && pwd)/_exec-lib.sh"
+
+usage() {
+  sed -n '/^# Usage:/,/^[^#]/ { /^#/s/^# \{0,1\}//p; }' "$0" >&2
+  exit 2
+}
+
+case "${1:-}" in
+  -h|--help) usage ;;
+esac
+[ $# -ge 2 ] && [ -f "$1" ] && [ -f "$2" ] || usage
+
+plan=$1
+report=$2
+base=${3:-}
+head_sha=${4:-}
+
+plan_id=$(exec_frontmatter "$plan" id)
+[ -n "$plan_id" ] || plan_id=$(basename "$plan" .md)
+dir=$(exec_workspace_dir "$plan")
+
+# INIT-0004-P01-T03-report.md -> INIT-0004-P01-T03
+task=$(basename "$report"); task=${task%-report.md}
+case "$task" in
+  "$plan_id"-T[0-9][0-9]*) : ;;
+  *) exec_die "$report does not name a task of $plan_id (got '$task')" ;;
+esac
+
+fail=0
+# Gate 1 — the report itself.
+[ -s "$report" ] || { echo "GATE: $report is missing or empty" >&2; fail=1; }
+
+# Gate 2 — a clean verdict on the task's LATEST round. An earlier clean
+# round does not clear a later NEEDS_FIX: the newest verdict is the one
+# that speaks for the artifact currently on disk.
+verdict=""
+for v in $(ls -1 "$dir/reviews/verdicts/${task}"-R*-verdict.md 2>/dev/null | sort -V); do
+  verdict=$v
+done
+if [ -z "$verdict" ]; then
+  echo "GATE: no verdict for $task in reviews/verdicts/ — an unreviewed task cannot be ledgered complete" >&2
+  fail=1
+elif ! exec_verdict_clean "$verdict"; then
+  sv=$(exec_frontmatter "$verdict" spec_verdict); q=$(exec_frontmatter "$verdict" quality)
+  echo "GATE: $(basename "$verdict") is not clean (spec_verdict=${sv:-unset} quality=${q:-unset})" >&2
+  fail=1
+fi
+
+# Gate 3 — idempotence. A second commit for a complete task is refused
+# rather than duplicated: re-dispatch goes through an explicit in-fix line.
+if [ -f "$dir/progress.md" ]; then
+  st=$(exec_ledger_states "$dir/progress.md" "$plan_id" \
+       | awk -F'\t' -v t="$task" '$1 == t { s = $2 } END { print s }')
+  case "${st%%[ (]*}" in
+    complete|approved)
+      echo "GATE: $task is already complete in the ledger — record an in-fix line before committing again" >&2
+      fail=1 ;;
+  esac
+fi
+
+if [ "$fail" -ne 0 ]; then
+  echo "REFUSED: nothing was written to $plan_id state ($task)" >&2
+  exit 1
+fi
+
+# ---- commit --------------------------------------------------------
+# One act under the store lock: ledger line, dispatch outcomes, registry
+# count. A crash between any two of those is the half-committed state the
+# run audit exists to catch, so they are not three writes.
+store_lock "$(exec_run_store)"
+trap 'store_unlock "$(exec_run_store)"' EXIT
+
+range=""
+[ -n "$base" ] && [ -n "$head_sha" ] && range="commits ${base:0:7}..${head_sha:0:7}"
+printf '%s: complete (%s)\n' "$task" "$range" >> "$dir/progress.md"
+
+# The Task status table is what a resume scan reads first; a ledger line
+# without a table row is exactly how a finished task got re-dispatched.
+if ! grep -qE "^\| *${task} *\|" "$dir/progress.md"; then
+  printf '| %s | complete | %s | %s | committed by exec-report |\n' \
+    "$task" "$head_sha" "$(basename "$verdict")" >> "$dir/progress.md"
+fi
+
+# Close every open dispatch row for the task.
+if [ -f "$dir/dispatches.md" ]; then
+  tmp=$(store_tmp "$dir")
+  awk -v t="$task" '
+    BEGIN { FS = "|"; OFS = "|" }
+    /^\|[ \t]*Task[ \t]*\|/ {
+      for (i = 2; i <= NF; i++) {
+        c = $i; gsub(/^[ \t]+|[ \t]+$/, "", c)
+        if (c == "Task") ti = i
+        else if (c == "Outcome" || c == "Status") oi = i
+      }
+      print; next
+    }
+    /^\|/ {
+      if (!ti) { print; next }
+      cell = $ti; gsub(/[ \t]/, "", cell)
+      if (cell != t || !oi) { print; next }
+      o = $oi; gsub(/^[ \t]+|[ \t]+$/, "", o)
+      if (o != "running" && o !~ /^revived-rv[0-9]+$/) { print; next }
+      $oi = " complete "
+      print; next
+    }
+    { print }
+  ' "$dir/dispatches.md" > "$tmp" && mv "$tmp" "$dir/dispatches.md"
+fi
+
+# The registry's Tasks cell is a cache of the ledger — it refreshes inside
+# this same lock so a commit and its count are one act (the header's claim
+# was previously unfulfilled; the cell went stale between commits).
+reg="$(exec_run_store)/INDEX.md"
+if [ -f "$reg" ]; then
+  total_t=$(awk 'BEGIN{c=0} /^### Task /{c++} END{print c+0}' "$plan")
+  done_t=$(exec_ledger_states "$dir/progress.md" "$plan_id" \
+    | awk -F'\t' '$2 ~ /^complete([ (]|$)/ {n++} END{print n+0}')
+  rtmp=$(store_tmp "$(exec_run_store)")
+  awk -v id="$plan_id" -v tc="$done_t/$total_t" '
+    BEGIN { FS = OFS = "|" }
+    $0 ~ ("^\\| " id " \\|") { $5 = " " tc " " }
+    { print }
+  ' "$reg" > "$rtmp" && mv "$rtmp" "$reg"
+fi
+
+printf 'COMMITTED %s: report gated, ledger line appended, dispatch rows closed\n' "$task"
