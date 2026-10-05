@@ -1,5 +1,5 @@
 ---
-name: orchestration:native-invoke
+name: orchestration-native-invoke
 description: "Invoke external AI CLIs via native Task agents (Claude, Codex, Gemini, Cursor). Primary mode for multi-provider orchestration with fork-terminal fallback for auth."
 type: documentation
 ---
