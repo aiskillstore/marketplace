@@ -1,0 +1,505 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Atri10
+# exec-step — the thin-controller kernel. Reads the state already on disk and
+# emits exactly ONE typed action per call. It never writes state, never calls
+# an agent, and never improvises: it is a pure reader + emitter. The pump (the
+# main agent) executes the emitted verb verbatim, then calls exec-step again.
+#
+# This is the load-bearing claim of the redesign: "what is legal next" is a
+# *script* question, not a controller judgment. A pump that reads this output
+# and relays it cannot reorder work, skip a gate, or author an artifact —
+# each of those is a different emitted word it must still relay.
+#
+# Usage:
+#   exec-step PLAN_FILE      fold one plan run; emit ONE action line
+#   exec-step INIT-NNNN      fold an initiative's phase state; emit ONE action
+#   exec-step                scan every in-flight run and emit one action each
+#   exec-step --verbs        print the action vocabulary
+#
+# Action vocabulary (authoritative list: `_exec-lib.sh` exec_verbs; the
+# pump's decision table is generated from the same source):
+#   REPAIR-STATE <run-dir>            integrity/seeded-file drift → run the named repair
+#   RUN-START <plan-id>               registry 'ready' → exec-run start (plan-regression gate)
+#   DISPATCH <task-id> <task-num>     next eligible task → exec-dispatch --role impl
+#   REVIEW <task-id> R<nn>            report on disk, no verdict, no reviewer → exec-dispatch --role review
+#   FIX <task-id> R<nn>               latest verdict unclean → exec-dispatch --role fix
+#   REVIVE <task-id>                  row live-but-slow → exec-ladder revive
+#   REDISPATCH <task-id>              dead row, rungs remain → exec-ladder redispatch
+#   ADJUDICATE <task-id>              ladder exhausted / blocked / conflict → exec-adjudicate
+#   REPORT <report-file>              verdict clean → exec-report (gate-on-commit)
+#   GATE-STAGE <plan-id>              every task complete → exec-run complete (stage gate)
+#   PHASE-ENTER <init> <phase>        phase not entered → exec-initiative entered + AUTHOR
+#   PHASE-GATE <init> <phase>         artifacts + critique clear → exec-present / exec-gate --auto
+#   CRITIQUE <init> <component>       artifacts in, audit not clear → exec-critique + AUDIT dispatch
+#   ASK <topic>                       needs-context / blocking question → relay to the human
+#   WAIT (wake …)                     in-flight workers, nothing ready — idle one turn
+#   DONE                              run complete — nothing left to emit
+#
+# Every emit is stamped and counted. If the same word is emitted
+# N_PROGRESS_LIMIT times with no state change in between, the fold is
+# emitting an action the actuators refuse — the selector and the refusers
+# disagree, and without this the run loops forever reporting itself as
+# healthy (critic finding B-J4). The counter turns that silent livelock
+# into a recorded ADJUDICATE.
+# Exit status: 0 always emits one action line on stdout; 2 only for usage
+# errors and unresolvable targets (a fold that cannot read its store emits
+# REPAIR-STATE, not a crash — the engine fails closed toward a recorded
+# action, never toward silence).
+set -euo pipefail
+. "$(cd "$(dirname "$0")" && pwd)/_exec-lib.sh"
+
+# The emit stamp. One file per run, holding the last emitted action and a
+# digest of the state that produced it. Rewritten on every emit; the
+# counter is the number of consecutive identical (action, digest) pairs.
+#
+# The digest is what makes this detect a livelock rather than merely a
+# repeated action: a pump legitimately emits DISPATCH T02, does the work,
+# and emits DISPATCH T02 again for a later reason — but the ledger changed
+# in between, so the digest differs and the counter resets. An emit whose
+# action AND state are both unchanged means nothing happened, which is the
+# only definition of a stuck loop that does not also fire on real
+# repetition.
+_step_stamp() { echo "$1/state/.step-stamp"; }
+
+_step_state_digest() {
+  local dir=$1
+  # Written as `if` rather than `[ -f x ] && cksum x`: under `set -e` an
+  # AND-list whose left side is false is a fatal statement, so a workspace
+  # without a ledger (every initiative folder) killed the fold outright.
+  {
+    if [ -f "$dir/progress.md" ]; then cksum "$dir/progress.md"; fi
+    if [ -f "$dir/dispatches.md" ]; then cksum "$dir/dispatches.md"; fi
+    if [ -d "$dir/reviews/verdicts" ]; then ls -1 "$dir/reviews/verdicts"; fi
+    if [ -d "$dir/reports" ]; then ls -1 "$dir/reports"; fi
+    true
+  } 2>/dev/null | cksum | cut -d' ' -f1
+}
+
+# Emit an action through the progress guard. $1 = run dir, $2 = action.
+# The guard counts only "counted" verbs — verbs that promise a state
+# change. WAIT, ASK, DONE await an external event; counting them turns a
+# healthy idle turn into a false ADJUDICATE loop.
+_step_emit() {
+  local dir=$1 action=$2
+  local stamp digest prev_action prev_digest count limit verb counted
+  stamp=$(_step_stamp "$dir")
+  mkdir -p "$dir/state" 2>/dev/null || true
+  digest=$(_step_state_digest "$dir")
+  verb=${action%%[ (]*}
+  counted=$(exec_verbs | awk -F'|' -v v="$verb" '$1 == v { print $3; exit }')
+  prev_action=""; prev_digest=""; count=0
+  if [ -f "$stamp" ]; then
+    IFS='|' read -r prev_action prev_digest count < "$stamp" || true
+  fi
+  count=${count:-0}
+  if [ "$counted" = "yes" ] && [ "$prev_action" = "$action" ] && [ "$prev_digest" = "$digest" ]; then
+    count=$((count + 1))
+  else
+    count=0
+  fi
+  printf '%s|%s|%s\n' "$action" "$digest" "$count" > "$stamp" 2>/dev/null || true
+
+  limit=${EXEC_NO_PROGRESS_LIMIT:-3}
+  if [ "$counted" = "yes" ] && [ "$count" -ge "$limit" ]; then
+    # Reset, so the adjudication is not itself stuck behind the same guard.
+    printf '%s|%s|0\n' "" "" > "$stamp" 2>/dev/null || true
+    echo "ADJUDICATE loop: emitted '$action' $count times with no state change — the emitting fold and the refusing actuator disagree"
+    return 0
+  fi
+  echo "$action"
+}
+
+verbs() {
+  exec_verbs | cut -d'|' -f1 | tr '\n' ' ' | sed 's/ $//'
+  printf '\n'
+}
+
+# How many times a dispatch row has been revived, derived from the outcome
+# rows themselves (`revived-rv<n>`) — never from a worker-writable counter,
+# because a lost `state/*.attempts` file silently resets a ladder that must
+# bound its own retries (critic finding B-J3).
+revive_count() {
+  local dfile=$1 task=$2
+  awk -v t="$task" '
+    /^\|/ {
+      n = split($0, f, "|")
+      cell = f[2]; gsub(/[ \t]/, "", cell)
+      if (cell != t) next
+      for (i = 3; i <= n; i++) {
+        c = f[i]; gsub(/^[ \t]+|[ \t]+$/, "", c)
+        if (c ~ /^revived-rv[0-9]+$/) { n2 = substr(c, 11) + 0; if (n2 > m) m = n2 }
+      }
+    }
+    END { print m + 0 }
+  ' "$dfile"
+}
+
+# Liveness thresholds live in _exec-lib.sh (exec_row_liveness), not here.
+# exec-supervise decides what to DO about a dead worker and exec-step
+# decides whether to say so; two copies of these numbers would let those
+# two disagree, which is how a revived worker ends up dispatched twice.
+
+# The dependency edges of the Nth task: the `**Depends on:**` line inside
+# that task's own body, not a line merely naming the task. A heading's ID
+# never appears on its own Depends line, so a naive index() search finds
+# nothing — and under `set -o pipefail` an empty grep is a fatal
+# non-zero, which is how an unparseable plan became a silent exit 1
+# instead of a WAIT. Fence tracking matches exec_task_id so a `### Task`
+# or `Depends on:` inside a code example never becomes an edge.
+deps_of() {
+  local plan=$1 n=$2
+  awk -v n="$n" '
+    {
+      line = $0; ind = 0
+      while (substr(line, ind + 1, 1) == " ") ind++
+      s = substr(line, ind + 1)
+      if (s ~ /^(`{3,}|~{3,})/) {
+        if (match(s, /^(`{3,}|~{3,})/)) {
+          len = RLENGTH; ch = substr(s, 1, 1)
+          if (!inf) { inf = 1; flen = len; fch = ch }
+          else if (ch == fch && len >= flen) { inf = 0 }
+        }
+        next
+      }
+      if (inf) next
+      if (s ~ /^### Task[ \t]+[0-9]+/) {
+        c = s; sub(/^### Task[ \t]+/, "", c); sub(/[^0-9].*$/, "", c)
+        cur = c + 0
+        next
+      }
+      if (cur == n && s ~ /Depends on:/) { print; exit }
+    }
+  ' "$plan"
+}
+
+# Compute the next action for the run over $1 = plan file. Prints the raw
+# action; the wrapper below routes it through the no-progress guard, so no
+# early return inside the fold can bypass the check.
+step_plan_raw() {
+  local plan=$1 dir plan_id
+  plan_id=$(exec_frontmatter "$plan" id)
+  [ -n "$plan_id" ] || plan_id=$(basename "$plan" .md)
+  dir=$(exec_workspace_dir "$plan" 2>/dev/null || true)
+
+  # Fold 0 — integrity: the workspace contract is four seeded files with
+  # frontmatter. Drift here poisons every later fold, so it is emitted
+  # before any task work — fail closed toward a recorded repair.
+  if [ -z "$dir" ] || [ ! -d "$dir" ]; then
+    echo "REPAIR-STATE (no workspace for $plan_id — run exec-workspace $plan)"
+    return 0
+  fi
+  local f
+  for f in progress.md rulings.md preflight-scan.md dispatches.md; do
+    if [ ! -f "$dir/$f" ]; then
+      echo "REPAIR-STATE $dir (missing seeded file $f — run exec-workspace $plan)"
+      return 0
+    fi
+  done
+  grep -qE '^kind: ledger' "$dir/progress.md" 2>/dev/null || {
+    echo "REPAIR-STATE $dir (progress.md has no 'kind: ledger' frontmatter)"
+    return 0
+  }
+
+  # Fold 1 — liveness. exec-supervise owns the ladder policy; this fold
+  # only translates its verdict into an action word. Keeping the two in
+  # one place is what stops "who decides a worker is dead" and "who acts
+  # on it" from drifting apart.
+  local sup
+  sup=$("$(cd "$(dirname "$0")" && pwd)/exec-supervise" "$plan" 2>/dev/null || echo NONE)
+
+  # Fold 0.5 — run start: a workspace seeded but never run-started sits at
+  # 'ready' in the registry. exec-run start carries the plan-regression
+  # gate, so it must be the transition, not a hand-edit.
+  local reg_status
+  reg_status=$(awk -v id="$plan_id" 'BEGIN{FS="|"} $0 ~ ("^\\| " id " \\|") { s=$4; gsub(/ /,"",s); print s; exit }' \
+    "$(exec_run_store)/INDEX.md" 2>/dev/null || true)
+  if [ "$reg_status" = "ready" ]; then
+    echo "RUN-START $plan_id (exec-run $plan start — plan-regression gate rides it)"
+    return 0
+  fi
+  if [ "$reg_status" = "complete" ]; then
+    echo "DONE $plan_id: run complete"
+    return 0
+  fi
+
+  # Fold 1 — liveness. exec-supervise owns the ladder policy; this fold
+  # only translates its verdict into an action word.
+  # A zombie row's product landed — the bookkeeping fix is closing the row,
+  # which happens inside the report pipeline (REVIEW/REPORT/FIX below), so
+  # zombie falls through to it instead of jumping straight to exec-report.
+  case "$sup" in
+    "ZOMBIE "*)     sup_task=${sup#ZOMBIE }; sup_zombie=1 ;;
+    "REVIVE "*)     echo "REVIVE ${sup#REVIVE } (exec-ladder $plan ${sup#REVIVE } revive; spawn the AGENT it prints on PREAMBLE+prompt)"; return 0 ;;
+    "REDISPATCH "*) echo "REDISPATCH ${sup#REDISPATCH } (exec-ladder $plan ${sup#REDISPATCH } redispatch)"; return 0 ;;
+    "ADJUDICATE "*) echo "ADJUDICATE ${sup#ADJUDICATE } (exec-adjudicate $plan ${sup#ADJUDICATE })"; return 0 ;;
+    "SUSPECT "*)    echo "REVIVE ${sup#SUSPECT } (exec-ladder $plan ${sup#SUSPECT } revive)"; return 0 ;;
+    *)              : ;;
+  esac
+  live_task=""
+  case "$sup" in
+    "ALIVE "*|"SUSPECT "*) live_task=${sup#* } ;;
+  esac
+
+  # Fold 2 — the task pipeline: reports pending, verdicts pending, fix
+  # rounds pending. One order, one place:
+  #   report lands → result field routed (blocked/needs-context are not
+  #     reports) → verdict clean → REPORT; verdict unclean → FIX; no
+  #     verdict → REVIEW when no reviewer row is open, WAIT when one is.
+  # The reviewer-running WAIT is what kills the REPORT livelock: a report
+  # at the gate emits a stable verb while its verdict is being written.
+  local states
+  states=$(mktemp) || exec_die "mktemp failed"
+  exec_ledger_states "$dir/progress.md" "$plan_id" > "$states" 2>/dev/null || true
+
+  if [ -d "$dir/reports" ]; then
+    local r
+    for r in "$dir"/reports/"$plan_id"-T*-report.md; do
+      [ -f "$r" ] || continue
+      local rt rtid st result verdict
+      rt=$(basename "$r"); rtid=${rt%-report.md}
+      st=$(awk -F'\t' -v t="$rtid" '$1==t{print $2}' "$states" | tail -1)
+      case "${st%%[ (]*}" in complete|approved) continue ;; esac
+
+      verdict=$(ls "$dir/reviews/verdicts/${rtid}-R"*-verdict.md 2>/dev/null | sort -V | tail -1)
+      if [ -n "$verdict" ]; then
+        if exec_verdict_clean "$verdict"; then
+          echo "REPORT $r (verdict clean — exec-report $plan $r commits it)"
+        else
+          echo "FIX $rtid R$(basename "$verdict" | sed -n 's/.*-R\([0-9][0-9]*\)-verdict.*/\1/p') (verdict unclean — exec-dispatch $plan --role fix --task $rtid)"
+        fi
+        rm -f "$states"; return 0
+      fi
+
+      result=$(exec_frontmatter "$r" result | tr 'A-Z' 'a-z')
+      case "$result" in
+        blocked)        echo "ADJUDICATE $rtid (report declares BLOCKED — exec-adjudicate $plan $rtid)"; rm -f "$states"; return 0 ;;
+        needs-context|needs_context)  echo "ASK $rtid needs context — the worker's question is in $r"; rm -f "$states"; return 0 ;;
+      esac
+
+      # Reviewer in flight? A review row's product is its verdict, which is
+      # still absent — so the open row IS the signal.
+      if grep -qE "^\|[ \t]*${rtid}[ \t]*\|" "$dir/dispatches.md" 2>/dev/null \
+         && awk -F'|' -v t="$rtid" '
+            /^\|[ \t]*Task[ \t]*\|/ { for (i=2;i<=NF;i++){c=$i;gsub(/^[ \t]+|[ \t]+$/,"",c); if(c=="Task")ti=i; else if(c=="Role")ri=i; else if(c=="Outcome"||c=="Status")oi=i} next }
+            /^\|/ { if(!ti)next; cell=$ti;gsub(/[ \t]/,"",cell); if(cell!=t)next;
+                    ro=ri?$ri:"";gsub(/^[ \t]+|[ \t]+$/,"",ro); o=oi?$oi:"";gsub(/^[ \t]+|[ \t]+$/,"",o);
+                    if(ro ~ /[Rr][Ee][Vv][Ii][Ee][Ww]/ && (o=="running"||o~/^revived-rv[0-9]+$/)) {found=1;exit} }
+            END{exit !found}' "$dir/dispatches.md"; then
+        echo "WAIT (reviewer in flight for $rtid — wake on $dir/reviews/verdicts/${rtid}-R*-verdict.md landing, or heartbeat TTL ${EXEC_HEARTBEAT_TTL:-1800}s)"
+        rm -f "$states"; return 0
+      fi
+
+      echo "REVIEW $rtid R$(ls "$dir/reviews/verdicts/${rtid}-R"*-verdict.md 2>/dev/null | sed -n 's/.*-R\([0-9][0-9]*\)-verdict\.md/\1/p' | sort -n | tail -1 | awk 'END{printf "%02d",($1?$1+1:1)}') (exec-dispatch $plan --role review --task $rtid)"
+      rm -f "$states"; return 0
+    done
+  fi
+
+  # A zombie row whose task produced a report was routed above; a zombie
+  # whose product is NOT a report (reviewer verdict, adjudicator ruling)
+  # still needs its stale row closed — hand it to report-routing as
+  # REPAIR-STATE so the pump names the close instead of improvising.
+  if [ "${sup_zombie:-}" = 1 ]; then
+    echo "REPAIR-STATE $dir (dispatch row for $sup_task is open but its product landed — close it via the pipeline above)"
+    rm -f "$states"; return 0
+  fi
+
+  # Fold 3 — sequencing: the first task (in document order) whose deps are
+  # all complete and whose own ledger state is not terminal is dispatchable.
+  local task_num task_id dep deps ok st dst
+  local ntasks
+  ntasks=$(awk 'BEGIN{c=0} /^### Task [0-9]+:/ {c++} END{print c}' "$plan")
+  for ((task_num = 1; task_num <= ntasks; task_num++)); do
+    task_id=$(exec_task_id "$plan" "$task_num")
+    [ -n "$task_id" ] || continue
+    st=$(awk -F'\t' -v t="$task_id" '$1==t{print $2}' "$states" | tail -1)
+    case "${st%%[ (]*}" in complete|approved|parked) continue ;; esac
+    deps=$(deps_of "$plan" "$task_num" \
+      | grep -oE 'INIT-[0-9]+-P[0-9]+-T[0-9]+' | tr '\n' ' ' || true)
+    ok=1
+    for dep in $deps; do
+      [ "$dep" = "$task_id" ] && continue
+      dst=$(awk -F'\t' -v t="$dep" '$1==t{print $2}' "$states" | tail -1)
+      case "${dst%%[ (]*}" in complete|approved) ;; *) ok=0 ;; esac
+    done
+    if [ "$ok" = 1 ]; then
+      # Dispatchable — unless a worker for it is already in flight. A task
+      # with an open row and a 'dispatched' state is a live lane, not a
+      # dispatchable one; re-dispatching it forks the lane.
+      if [ "$sup" != "NONE" ] \
+         && awk -F'|' -v t="$task_id" '
+            /^\|[ \t]*Task[ \t]*\|/ { for(i=2;i<=NF;i++){c=$i;gsub(/^[ \t]+|[ \t]+$/,"",c); if(c=="Task")ti=i; else if(c=="Outcome"||c=="Status")oi=i} next }
+            /^\|/ { if(!ti)next; cell=$ti;gsub(/[ \t]/,"",cell); if(cell!=t)next;
+                    o=oi?$oi:"";gsub(/^[ \t]+|[ \t]+$/,"",o);
+                    if(o=="running"||o~/^revived-rv[0-9]+$/){found=1;exit} }
+            END{exit !found}' "$dir/dispatches.md" 2>/dev/null; then
+        echo "WAIT (worker in flight for ${live_task:-$task_id} — wake on $dir/reports/${task_id}-report.md landing or heartbeat TTL ${EXEC_HEARTBEAT_TTL:-1800}s)"
+        rm -f "$states"; return 0
+      fi
+      rm -f "$states"
+      echo "DISPATCH $task_id $task_num (exec-dispatch $plan --task $task_num --role impl)"
+      return 0
+    fi
+  done
+
+  # Fold 4 — every task terminal: the run is at its stage gate.
+  local total done_ct
+  total=$(awk 'BEGIN{c=0} /^### Task [0-9]+:/ {c++} END{print c}' "$plan")
+  done_ct=$(awk -F'\t' '$2 ~ /^(complete|approved)([ (]|$)/ {c++} END{print c+0}' "$states")
+  rm -f "$states"
+  if [ "$total" -gt 0 ] && [ "$done_ct" -ge "$total" ]; then
+    echo "GATE-STAGE $plan_id (exec-run $plan complete)"
+    return 0
+  fi
+  [ "$total" -eq 0 ] && { echo "ASK $plan_id declares no tasks — plan is malformed"; return 0; }
+  echo "WAIT (wake on: worker heartbeat expiry, report landing, or a new dispatch row)"
+}
+
+# Public entry: fold, then emit through the guard.
+step_plan() {
+  local dir action
+  dir=$(exec_workspace_dir "$1" 2>/dev/null || true)
+  action=$(step_plan_raw "$1")
+  if [ -n "$dir" ]; then _step_emit "$dir" "$action"; else echo "$action"; fi
+}
+
+# Scan every in-flight run under .executor and emit one action per run.
+step_scan() {
+  local store
+  store=$(exec_run_store 2>/dev/null || true)
+  if [ -z "$store" ] || [ ! -d "$store" ]; then
+    echo "DONE (no .executor store — nothing in flight)"
+    return 0
+  fi
+  # A run is in flight when its plan has a workspace with a seeded ledger.
+  # The registry's Status cell is not consulted here: a resume must also
+  # find runs whose row was never written, which is precisely the drift
+  # exec-run check reports. The per-plan fold decides what is legal.
+  local emitted=0 p
+  local docs_store
+  docs_store=$(exec_docs_store 2>/dev/null || true)
+  [ -n "$docs_store" ] || { echo "DONE (no repository root — nothing to scan)"; return 0; }
+  for p in "$docs_store"/*/plans/*.md "$docs_store"/plans/*.md; do
+    [ -f "$p" ] || continue
+    local plan_id wdir
+    plan_id=$(exec_frontmatter "$p" id)
+    [ -n "$plan_id" ] || continue
+    wdir=$(exec_workspace_dir "$p" 2>/dev/null || true)
+    [ -n "$wdir" ] && [ -f "$wdir/progress.md" ] || continue
+    step_plan "$p"
+    emitted=$((emitted + 1))
+  done
+  [ "$emitted" -eq 0 ] && echo "DONE (no in-flight runs)"
+  return 0
+}
+
+# Emit one action for an initiative's phase log. The phase table has four
+# cells per row (phase | entered | passed-or-skipped | note), and exactly
+# one of four situations is true for the first unfinished phase.
+step_initiative_raw() {
+  local init=$1 dir idx
+  dir=$(exec_initiative_dir_opt "$init")
+  [ -n "$dir" ] && [ -f "$dir/INDEX.md" ] || {
+    echo "REPAIR-STATE (no initiative folder or INDEX.md for $init — run exec-initiative new)"
+    return 0
+  }
+  idx="$dir/INDEX.md"
+
+  local p row entered passed
+  for p in $(exec_phases); do
+    # The phase log is a GROWING table — it carries a row only for phases
+    # that have been touched, so a missing row means never entered, not
+    # zero-valued. Columns are located by header name because a workspace
+    # written before the Notes column existed still has to parse.
+    row=$(awk -F'|' -v ph="$p" '
+      /^\|[ \t]*Phase[ \t]*\|/ {
+        for (i = 2; i <= NF; i++) {
+          c = $i; gsub(/^[ \t]+|[ \t]+$/, "", c)
+          if (c == "Phase") pi = i
+          else if (c == "Entered") ei = i
+          else if (c == "Gate passed" || c == "Passed") gi = i
+        }
+        next
+      }
+      pi && $0 ~ ("^\\|[ \t]*" ph "[ \t]*\\|") {
+        e = ei ? $ei : ""; gsub(/^[ \t]+|[ \t]+$/, "", e)
+        g = gi ? $gi : ""; gsub(/^[ \t]+|[ \t]+$/, "", g)
+        print e "|" g
+        exit
+      }
+    ' "$idx" 2>/dev/null || true)
+    entered=${row%%|*}
+    passed=${row#*|}
+    [ "$entered" = "$row" ] && { entered=""; passed=""; }
+
+    case "${passed}" in
+      ""|—)
+        # Not finished. Either it never started (author it) or it started
+        # and its deliverable is not there yet (gate it, or repair).
+        if [ -z "$entered" ] || [ "$entered" = "—" ]; then
+          echo "PHASE-ENTER $init $p (exec-initiative phase $init $p entered; dispatch AUTHOR per the phase skill)"
+          return 0
+        fi
+        # Entered but ungated. Three distinguishable states: deliverable
+        # still being written (the author is in flight — wait), deliverable
+        # present but its critique unclear (dispatch the critique), both
+        # clear (gate it). exec-initiative's check event is the same
+        # validation the gate itself runs, dry.
+        chk=$("$(cd "$(dirname "$0")" && pwd)/exec-initiative" phase "$init" "$p" check 2>&1 || true)
+        case "$chk" in
+          *"ready (check"*)
+            echo "PHASE-GATE $init $p (exec-present $init $p to the human, or exec-gate $init $p --auto)"
+            return 0 ;;
+          *"not clear"*)
+            comp=$(exec_critique_component_for_phase "$p" 2>/dev/null || true)
+            echo "CRITIQUE $init ${comp:-$p} (exec-critique $init ${comp:-$p} init + dispatch the component auditor; last check line: $(printf '%s' "$chk" | tail -1 | cut -c1-120))"
+            return 0 ;;
+          *"missing under"*|*"requires the artifact"*|*"cannot be entered"*)
+            echo "WAIT (author in flight on $init $p — wake on the phase artifact landing under $(exec_initiative_dir_opt "$init" 2>/dev/null || echo "the initiative dir"))"
+            return 0 ;;
+          *)
+            echo "ASK $init $p: phase check refused — $(printf '%s' "$chk" | tail -1 | cut -c1-160)"
+            return 0 ;;
+        esac ;;
+      **skipped**|????-??-??|????????|**auto-passed**\ ????-??-??)
+        : ;;   # passed, auto-passed, or explicitly skipped: advance
+      **superseded\***)
+        # A superseded phase is NOT finished — the human overturned the
+        # gate and cleared the Entered date, so the only legal next move
+        # is to re-enter it. Treating the marker as "advance" here would
+        # walk straight past a gate a human just rejected.
+        echo "PHASE-ENTER $init $p (exec-initiative phase $init $p entered)"
+        return 0 ;;
+    esac
+  done
+  echo "DONE $init: every phase passed, was auto-passed, or was explicitly skipped"
+}
+
+# Public entry: fold, then emit through the guard. The initiative's own
+# folder is the stamp location — the phase log lives there, not in a plan
+# workspace, so the two axes never share a counter.
+step_initiative() {
+  local dir action
+  dir=$(exec_initiative_dir_opt "$1")
+  action=$(step_initiative_raw "$1")
+  if [ -n "$dir" ]; then _step_emit "$dir" "$action"; else echo "$action"; fi
+}
+
+usage() {
+  sed -n '/^# Usage:/,/^[^#]/ { /^#/s/^# \{0,1\}//p; }' "$0" >&2
+  exit 2
+}
+
+case "${1:-}" in
+  --verbs|-h|--help) verbs; exit 0 ;;
+esac
+
+if [ $# -eq 0 ]; then
+  step_scan
+elif [ -f "$1" ]; then
+  step_plan "$1"
+elif [[ "$1" =~ ^INIT-[0-9]+ ]]; then
+  step_initiative "$1"
+else
+  usage
+fi

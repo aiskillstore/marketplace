@@ -1,0 +1,218 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Atri10
+# Build a review package — commit list, stat summary, the net diff with
+# extended context, PLUS the mechanical context a reviewer needs to judge
+# the diff: the declared-files coverage table, the task's seam contract,
+# and the verbatim requirement text it implements.
+#
+# Written to a file the reviewer reads in one call. The diff never enters
+# the controller's context.
+#
+# Named per task and per review round, so a re-review after fixes gets a
+# distinct file and the diff a given verdict judged stays recoverable.
+#
+# Usage: exec-review-package PLAN_FILE TASK BASE HEAD [ROUND]
+#   TASK  task number (e.g. 3), or the literal 'final' for whole-branch
+#   ROUND review round, default 01
+set -euo pipefail
+. "$(cd "$(dirname "$0")" && pwd)/_exec-lib.sh"
+
+[ $# -ge 4 ] && [ $# -le 5 ] || exec_die "usage: exec-review-package PLAN_FILE TASK BASE HEAD [ROUND]"
+
+plan=$1
+task=$2
+base=$3
+head=$4
+round=$(exec_pad2 "${5:-1}")
+
+[ -f "$plan" ] || exec_die "no such plan file: $plan"
+git rev-parse --verify --quiet "$base" >/dev/null || exec_die "bad BASE: $base"
+git rev-parse --verify --quiet "$head" >/dev/null || exec_die "bad HEAD: $head"
+
+plan_id=$(exec_frontmatter "$plan" id)
+dir=$(exec_workspace_dir "$plan")
+exec_seed_workspace "$dir" "$plan"
+b7=$(git rev-parse --short "$base")
+h7=$(git rev-parse --short "$head")
+
+# Requirement text comes from the lib's exec_requirement_body, which
+# covers heading forms ('### R01 — t', ':', '.', bare) and paragraph-form
+# 'R01. <text>' items — the grammars real specs use.
+
+if [ "$task" = "final" ]; then
+  label="${plan_id:-$(basename "$plan" .md)}-final"
+  scope="whole branch"
+else
+  task_id=$(exec_task_id "$plan" "$task")
+  [ -n "$task_id" ] || task_id="${plan_id:-plan}-T$(exec_pad2 "$task")"
+  label="${task_id}-R${round}"
+  scope="task $task, review round $round"
+fi
+
+out="$dir/reviews/diffs/${label}-${b7}..${h7}.diff"
+#the package is revision-bound. Record the exact SHAs judged and
+# the plan/spec content hashes so the same identity cannot silently carry
+# different bytes after an uncommitted spec edit.
+spec_id=$(exec_frontmatter "$plan" spec)
+spec_hash=""
+spec_file_probe=""
+if [ -n "$spec_id" ]; then
+  init_probe=$(exec_initiative_of "$plan_id" 2>/dev/null || true)
+  if [ -n "$init_probe" ]; then
+    init_dir_probe=$(exec_initiative_dir "$init_probe" 2>/dev/null || true)
+    [ -n "$init_dir_probe" ] && spec_file_probe=$(find "$init_dir_probe/specs" -maxdepth 1 -name "${spec_id}-*.md" -print -quit 2>/dev/null || true)
+  fi
+fi
+[ -n "$spec_file_probe" ] && spec_hash=$(git hash-object "$spec_file_probe" 2>/dev/null || true)
+plan_hash=$(git hash-object "$plan" 2>/dev/null || true)
+
+# ---------------------------------------------------------------------------
+# Mechanical context extraction (only for per-task packages; the final
+# package covers the whole branch and carries the ledger instead).
+# ---------------------------------------------------------------------------
+coverage_table=""
+seam_contract=""
+requirement_text=""
+if [ "$task" != "final" ]; then
+  task_body=$(exec_task_body "$plan" "$task")
+  [ -n "$task_body" ] || exec_die "task $task not found in $plan (no heading matching 'Task $task')"
+
+  # --- 1. Coverage table: declared Files vs changed files -------------------
+  # Declared paths come from the task's Files: block (Create/Modify/Test).
+  # A leading backticked span IS the path — the grammar quotes paths.
+  # Sanctioned decoration is stripped in grammar order: the backticked
+  # span, then a trailing ' (annotation)' the grammar allows after it
+  # (`path` (add DbContentStore)), then the trailing :N / :N-M line-range
+  # — so a colon-bearing path is never cut at its first colon the way
+  # 's/:.*$//' did. [[:space:]] classes, never \s: BSD sed reads \s as a
+  # literal 's', which left a leading space that defeated the ^` anchor
+  # and made the annotation part of the declared "path" — every such
+  # file then showed MISSING in the coverage table.
+  declared=$(printf '%s\n' "$task_body" | sed -n '/^\*\*Files:\*\*/,/^\*\*Interfaces:\*\*/p' \
+    | grep -E '^[[:space:]]*- (Create|Modify|Test):' | sed -E 's/^[[:space:]]*- (Create|Modify|Test):[[:space:]]*//' \
+    | sed -E 's/^`([^`]*)`.*/\1/' | sed 's/`//g' \
+    | sed -E 's/[[:space:]]*\(.*\)[[:space:]]*$//' \
+    | sed -E 's/:[0-9]+(-[0-9]+)?$//' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')
+  changed=$(git diff --name-only "${base}..${head}")
+  if [ -n "$declared" ]; then
+    coverage_table="## Declared-file coverage
+
+Every file the task's Files: block declares, and whether THIS RANGE
+(${base}..${head}) touches it. For round 01 the range is the whole task;
+for a fix round the range is only the fix delta — a declared file this
+delta does not touch is expected there (it was judged in the earlier
+round), not automatically a Missing finding. Judge Missing against the
+task's cumulative range, which the round-01 package carried.
+
+| Declared | Intent | In diff? |
+|---|---|---|
+"
+    while IFS= read -r path; do
+      [ -z "$path" ] && continue
+      intent=$(printf '%s\n' "$task_body" | sed -n '/^\*\*Files:\*\*/,/^\*\*Interfaces:\*\*/p' \
+        | grep -F "$path" | grep -oE 'Create|Modify|Test' | head -1)
+      if printf '%s\n' "$changed" | grep -qxF "$path"; then
+        in_diff="yes"
+      else
+        in_diff="**NO — MISSING**"
+      fi
+      coverage_table+="| \`$path\` | ${intent:-?} | $in_diff |"$'\n'
+    done <<< "$declared"
+  fi
+
+  # --- 2. Seam contract: the task's Interfaces block ----------------------
+  seam=$(printf '%s\n' "$task_body" | sed -n '/^\*\*Interfaces:\*\*/,/^\*\*Requirements:\*\*/p')
+  if [ -n "$seam" ]; then
+    seam_contract="## Seam contract (this task)
+
+The Interfaces block is how an implementer who sees only their own task
+learns what neighbours expose. Consumes lists exact signatures of what it
+uses from earlier tasks; Produces lists exact names, parameter types, return
+types, and error behaviour later tasks rely on. Judge the diff against
+these verbatim — a signature that diverges from Consumes is a broken seam
+even if the task's own tests pass.
+
+\`\`\`
+$(printf '%s\n' "$seam" | sed 's/^/    /')
+\`\`\`
+"
+  fi
+
+  # --- 3. Requirement text: verbatim from the spec -------------------------
+  spec_id=$(exec_frontmatter "$plan" spec)
+  spec_file=""
+  if [ -n "$spec_id" ]; then
+    init=$(exec_initiative_of "$plan_id" 2>/dev/null || echo "")
+    if [ -n "$init" ]; then
+      init_dir=$(exec_initiative_dir "$init" 2>/dev/null || echo "")
+      [ -n "$init_dir" ] && spec_file=$(find "$init_dir/specs" -maxdepth 1 -name "${spec_id}-*.md" -print -quit 2>/dev/null)
+    fi
+  fi
+  req_ids=$(printf '%s\n' "$task_body" | grep -oE 'INIT-[0-9]{4}-SPEC-[0-9]{2}-R[0-9]{2}' | sort -u)
+  #requirement IDs without a resolvable spec is a construction
+  # error, not an empty section. Fail before writing any package file so
+  # a reviewer never receives "authoritative" context with requirements
+  # silently missing.
+  if [ -n "$req_ids" ] && [ -z "$spec_file" ]; then
+    exec_die "task names requirements from $spec_id but no spec file matches ${spec_id}-*.md under the initiative's specs/ — resolve the spec before packaging this review"
+  fi
+  if [ -n "$req_ids" ] && [ -n "$spec_file" ]; then
+    requirement_text="## Requirements this task implements (verbatim from the spec)
+
+The implementer's brief paraphrases these; the spec is the authority. Judge
+the diff against the spec's own words, not the brief's restatement.
+
+"
+    while IFS= read -r rid; do
+      rnum=$(printf '%s' "$rid" | grep -oE 'R[0-9]{2}$')
+      #the full requirement node, never a fixed line window.
+      # exec_requirement_body covers the heading and paragraph grammars
+      # real specs use.
+      rtext=$(exec_requirement_body "$spec_file" "$rnum" | sed '/^$/d')
+      if [ -n "$rtext" ]; then
+        requirement_text+="\`${rid}\` — ${rtext}"$'\n'
+      else
+        requirement_text+="\`${rid}\` — (not found in ${spec_file})"$'\n'
+      fi
+    done <<< "$req_ids"
+  fi
+fi
+
+# ---------------------------------------------------------------------------
+# Assemble the package
+# ---------------------------------------------------------------------------
+{
+  echo "# Review package — $label"
+  echo "# Scope: $scope"
+  echo "# Range: ${base}..${head}"
+  echo "# Base SHA: $(git rev-parse "$base")"
+  echo "# Head SHA: $(git rev-parse "$head")"
+  [ -n "$spec_hash" ] && echo "# Spec blob: $spec_hash"
+  [ -n "$plan_hash" ] && echo "# Plan blob: $plan_hash"
+  echo
+  if [ -n "$coverage_table" ]; then
+    printf '%s\n' "$coverage_table"
+    echo
+  fi
+  if [ -n "$seam_contract" ]; then
+    printf '%s\n' "$seam_contract"
+    echo
+  fi
+  if [ -n "$requirement_text" ]; then
+    printf '%s\n' "$requirement_text"
+    echo
+  fi
+  echo "## Commits"
+  git log --oneline "${base}..${head}"
+  echo
+  echo "## Files changed"
+  git diff --stat "${base}..${head}"
+  echo
+  echo "## Diff"
+  git diff -U10 "${base}..${head}"
+} > "$out"
+
+commits=$(git rev-list --count "${base}..${head}")
+echo "$out"
+echo "# ${commits} commit(s), $(wc -c < "$out" | tr -d ' ') bytes" >&2

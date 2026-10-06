@@ -1,0 +1,199 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Atri10
+# Record a ruling — a decision taken on the human's behalf — in both places
+# it needs to live: the rulings log, and .local/decisions/ where every other
+# skill's decisions are indexed.
+#
+# Two scopes, picked by TASK_ID:
+#   <task id>|preflight|final  → the plan's rulings.md (per-plan decisions)
+#   initiative                 → .executor/<INIT>/rulings.md (cross-plan
+#                                decisions: plan-regression outcomes,
+#                                contract amendments, answers to questions
+#                                the human fielded mid-run)
+#
+# Legacy behaviour recited rulings once in a final chat message and deleted
+# the ledger. A ruling that dies with its workspace was a decision made in
+# secret; this writes it at the moment it is made.
+#
+# Usage: exec-ruling PLAN_FILE TASK_ID "<decision>" "<why>" "<cost if wrong>" [--answered "<question>"]
+#   --answered marks the ruling as human-answered mid-run (the ask contract):
+#   the question is recorded beside the decision so the ruling is not a
+#   silent controller pick.
+#
+#   --unsolicited "<verbatim human words>" records input the human offered
+#   WITHOUT being asked — the "actually, do it this way" that arrives
+#   between two tasks, or a correction of a ruling already made. The words
+#   are stored verbatim and never paraphrased into the decision field, so
+#   what the human actually said is recoverable after the fact.
+#
+#   --stop, with --unsolicited, additionally halts the run: the plan's
+#   registry row goes to `blocked` and the script prints a `STOP` line for
+#   the pump to relay. A stop is the one human input a pump must never
+#   reinterpret — the ingress verb exists so that halting is a mechanical
+#   consequence of a recorded event rather than a judgment call made under
+#   pressure by the agent least able to afford it.
+set -euo pipefail
+. "$(cd "$(dirname "$0")" && pwd)/_exec-lib.sh"
+
+[ $# -ge 5 ] || exec_die 'usage: exec-ruling PLAN_FILE TASK_ID "<decision>" "<why>" "<cost if wrong>" [--answered "<q>" | --unsolicited "<verbatim>" [--stop]]'
+
+plan=$1
+task_id=$2
+decision=$3
+why=$4
+cost=$5
+question=""
+verbatim=""
+stop_run=0
+shift 5
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --answered)
+      [ $# -ge 2 ] || exec_die "--answered requires the question text"
+      question=$2; shift 2 ;;
+    --unsolicited)
+      [ $# -ge 2 ] || exec_die "--unsolicited requires the verbatim human words"
+      verbatim=$2; shift 2 ;;
+    --stop)
+      [ -n "$verbatim" ] || exec_die "--stop only makes sense with --unsolicited — a stop is the human halting a run, not a controller decision"
+      stop_run=1; shift ;;
+    *) exec_die "unknown argument: $1" ;;
+  esac
+done
+
+# Checked after the loop, not inside it: flag order is the caller's choice,
+# and an in-loop guard only fires for one of the two orderings.
+if [ -n "$question" ] && [ -n "$verbatim" ]; then
+  exec_die "--answered and --unsolicited are mutually exclusive — an ask is answered, unsolicited input was not"
+fi
+
+[ -f "$plan" ] || exec_die "no such plan file: $plan"
+
+plan_id=$(exec_frontmatter "$plan" id)
+init=$(exec_initiative_of "${plan_id:-}" 2>/dev/null || echo "")
+stamp=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+
+# 1. Append to the rulings log (locked: concurrent rulings must not
+# interleave or lose records). 'initiative' scope writes the initiative-
+# level log; every other task ID writes the plan's own log.
+if [ "$task_id" = "initiative" ]; then
+  [ -n "$init" ] || exec_die "cannot derive an initiative from plan id '${plan_id:-<none>}' — initiative-scope rulings need an INIT-NNNN plan id"
+  rulings_file=$(exec_seed_initiative_rulings "$init")
+else
+  dir=$(exec_workspace_dir "$plan")
+  exec_seed_workspace "$dir" "$plan"
+  rulings_file="$dir/rulings.md"
+fi
+store_lock "$(dirname "$rulings_file")"
+{
+  echo
+  echo "## $task_id — $stamp"
+  echo
+  if [ -n "$question" ]; then
+    echo "**Question asked:** $question"
+    echo
+    echo "**Answered by the human:** yes — decision below is theirs, recorded as a ruling"
+    echo
+  fi
+  if [ -n "$verbatim" ]; then
+    echo "**Unsolicited human input (mid-run, not asked for):**"
+    echo
+    echo "> $verbatim"
+    echo
+    if [ "$stop_run" = 1 ]; then
+      echo "**Disposition:** STOP — the human halted this run. Work stops at the next boundary; nothing already committed is unwound."
+    else
+      echo "**Disposition:** recorded and applied from here on."
+    fi
+    echo
+  fi
+  echo "**Decided:** $decision"
+  echo
+  echo "**Why:** $why"
+  echo
+  echo "**Cost if wrong:** $cost"
+} >> "$rulings_file"
+store_unlock "$(dirname "$rulings_file")"
+
+# A stop is mechanical: the registry row goes to `blocked` and the pump
+# gets one line to relay. Nothing here decides whether the human was right
+# to stop — only that stopping is a recorded event with a state change,
+# not something the controller may talk itself out of.
+if [ "$stop_run" = 1 ] && [ -n "$plan_id" ]; then
+  "$(cd "$(dirname "$0")" && pwd)/exec-run" "$plan" blocked >/dev/null 2>&1 || true
+fi
+
+
+# 2. Mirror into .local/decisions/ using that store's sequence
+# convention. The sequence scan+write is locked against concurrent
+# rulings so two simultaneous calls cannot claim the same
+# sequence number.
+root=$(exec_root)
+ldir="$root/.local/decisions"
+mkdir -p "$ldir"
+store_lock "$ldir"
+
+max=0
+for f in "$ldir"/[0-9][0-9][0-9][0-9]-*.md; do
+  [ -f "$f" ] || continue
+  n=$((10#$(basename "$f" | cut -c1-4)))
+  [ "$n" -gt "$max" ] && max=$n
+done
+seq=$((max + 1))
+
+slug=$(echo "$task_id" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]\{1,\}/-/g')
+fname=$(printf '%04d-%s-%s-ruling.md' "$seq" "$(date -u +%Y%m%dT%H%M%SZ)" "$slug")
+
+cat > "$ldir/$fname" <<EOF
+---
+schema: colossal.local-context/v1
+kind: decision
+sequence: $seq
+created_at: $stamp
+updated_at: $stamp
+status: active
+project: $(basename "$root")
+topic: ${task_id}-ruling
+scope: project
+source: executor-execution
+confidence: confirmed
+sensitivity: internal
+supersedes: null
+review_after: null
+---
+
+# Ruling — $task_id
+
+${question:+**Question asked:** $question
+
+}
+${verbatim:+**Unsolicited human input (verbatim, not asked for):** $verbatim
+
+}
+**Statement:** $decision
+
+**Why it matters:** $why
+
+**Evidence / provenance:** Ruled during execution of \`${plan_id:-$plan}\`${init:+ (initiative \`$init\`)}.
+Observed in the plan text and the review findings for \`$task_id\`; recorded at
+the moment of decision, not reconstructed.
+
+**Constraints and consequences:** $cost
+
+**Supersession:** A later decision that reverses this one writes a new record
+with \`supersedes\` pointing here. The rulings log at
+\`${rulings_file#"$root"/}\` holds the same entry in execution order.
+EOF
+store_unlock "$ldir"
+
+echo "$rulings_file"
+echo "$ldir/$fname"
+
+# The pump's contract is one machine-readable line per call. A stop is the
+# one outcome the controller must relay rather than interpret.
+
+# `&&` on the final line would make every non-stopping ruling exit 1, which
+# any caller checking $? reads as "the ruling failed".
+[ "$stop_run" = 1 ] && echo "STOP $plan_id: halted by the human — see $rulings_file"
+exit 0

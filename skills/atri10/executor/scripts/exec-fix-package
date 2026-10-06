@@ -1,0 +1,203 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Atri10
+# Assemble a fix package — the single file a fix implementer is dispatched
+# with: the open findings verbatim from the verdict that failed, PLUS the
+# contract the fix is judged against — the implementer's report, the task's
+# brief, and its context file.
+#
+# A fix dispatched with only the reviewer's characterization of the
+# requirements iterates on a paraphrase of the contract; this package hands
+# the fixer the authoritative text, so fixes converge on the brief instead
+# of on a retelling of it.
+#
+# Written to a file the fix implementer reads in one call. The findings and
+# the contract never enter the controller's context.
+#
+# Named per task and per round, so a second fix dispatch against a later
+# verdict gets a distinct file and the findings a given fix answered stay
+# recoverable.
+#
+# Usage: exec-fix-package PLAN_FILE TASK_ID [OUTFILE]
+#   TASK_ID  a full task ID, e.g. INIT-0004-P01-T03 — the round is read off
+#            the task's latest verdict file
+#   OUTFILE  defaults to
+#            <workspace>/reviews/fix-packages/<TASK_ID>-R<nn>-fix-package.md
+set -euo pipefail
+. "$(cd "$(dirname "$0")" && pwd)/_exec-lib.sh"
+
+[ $# -ge 2 ] && [ $# -le 3 ] || exec_die "usage: exec-fix-package PLAN_FILE TASK_ID [OUTFILE]"
+
+plan=$1
+task_id=$2
+[ -f "$plan" ] || exec_die "no such plan file: $plan"
+
+# A generated markdown file's body: everything after the leading frontmatter
+# block. Files without frontmatter print whole. Lines print verbatim — the
+# CR strip below feeds the marker comparison only, never the output.
+body_of() {
+  awk '
+    { line = $0; sub(/\r$/, "", line) }
+    NR == 1 && line == "---" { infm = 1; next }
+    infm && line == "---" { infm = 0; next }
+    infm { next }
+    { print }
+  ' "$1"
+}
+
+# The task ID is the address: initiative, plan, and task are all read off
+# it. A malformed ID dies here — every lookup below keys on it.
+case "$task_id" in
+  INIT-[0-9][0-9][0-9][0-9]-P[0-9][0-9]-T[0-9][0-9]) ;;
+  *) exec_die "task ID must look like INIT-0004-P01-T03, got: $task_id" ;;
+esac
+init=$(exec_initiative_of "$task_id")
+task_plan=${task_id%-T[0-9][0-9]}
+
+plan_id=$(exec_frontmatter "$plan" id)
+spec_id=$(exec_frontmatter "$plan" spec)
+[ -n "$plan_id" ] || exec_die "no id: in $plan — a fix package keys on task IDs, which a plan without an id: does not carry"
+# The ID must belong to THIS plan — packaging a fix for a task the plan
+# does not own is the same ledger lie the run audit refuses.
+[ "$task_plan" = "$plan_id" ] || exec_die "task ID '$task_id' is not ${plan_id}-Tnn — cannot package a fix for a task this plan does not own"
+
+dir=$(exec_workspace_dir "$plan")
+exec_seed_workspace "$dir" "$plan"
+
+# Latest verdict wins — a task mid-loop has one verdict per round and the
+# fix works from the most recent judgment. Same selection the run audit
+# makes; a missing verdict means the task was never judged, and an
+# unjudged task has nothing to fix.
+verdict=$(ls "$dir/reviews/verdicts/${task_id}-R"*-verdict.md 2>/dev/null | sort | tail -1 || true)
+[ -n "$verdict" ] || exec_die "no verdict for $task_id under $dir/reviews/verdicts — nothing to fix"
+
+# The round is read off the verdict's own filename:
+# INIT-0004-P01-T03-R01-verdict.md fixes round R01 and packages as
+# INIT-0004-P01-T03-R01-fix-package.md.
+round=$(basename "$verdict" .md)
+round=${round#"${task_id}-"}
+round=${round%-verdict}
+case "$round" in
+  R[0-9][0-9]) ;;
+  *) exec_die "cannot read a round off $(basename "$verdict") — expected ${task_id}-R<nn>-verdict.md" ;;
+esac
+round_id="${task_id}-${round}"
+
+if exec_verdict_clean "$verdict"; then
+  echo "warn: $(basename "$verdict") is clean (spec PASS / quality APPROVED) — nothing in it should need fixing" >&2
+fi
+
+# Findings live in the verdict's level-2 sections: '## 3. Findings' on a
+# first-pass verdict; '## 1. Finding verdicts' and '## 2. New breakage in
+# the fix diff' on a re-review. Extract every section whose heading names
+# findings or breakage — heading and body, verbatim, in order. A verdict
+# with no such section falls back to its whole body: the fixer reads what
+# the reviewer wrote, never a silent truncation.
+findings=$(awk '
+  /^## / {
+    h = $0
+    sub(/^##[ \t]+/, "", h)
+    sub(/^[0-9]+[.)][ \t]+/, "", h)
+    keep = (tolower(h) ~ /finding|breakage/)
+  }
+  keep { print }
+' "$verdict")
+[ -n "$findings" ] || findings=$(body_of "$verdict")
+[ -n "$findings" ] || findings="*$(basename "$verdict") carries no extractable findings — read it directly.*"
+
+# The report is the implementer's account of what was tried. Its absence is
+# a warn, not a die — the verdict and the contract still make a complete
+# dispatch; the fixer just loses the history.
+report="$dir/reports/${task_id}-report.md"
+if [ -f "$report" ]; then
+  report_body=$(body_of "$report")
+  [ -n "$report_body" ] || report_body="*$(basename "$report") exists but carries no body — read it directly.*"
+else
+  echo "warn: no report at $report — the package carries the verdict and the contract alone" >&2
+  report_body="*No implementer report at reports/${task_id}-report.md — the verdict and the contract are the whole picture.*"
+fi
+
+# Brief and context ARE the contract — a fix package without them recreates
+# the exact failure this tool exists to prevent: a fixer iterating on the
+# reviewer's paraphrase. Both die.
+brief="$dir/briefs/${task_id}-brief.md"
+[ -f "$brief" ] || exec_die "no brief at $brief — the contract the fix is judged against is missing; regenerate it with exec-brief"
+context="$dir/briefs/${task_id}-context.md"
+[ -f "$context" ] || exec_die "no context at $context — the seam and constraint record is missing; regenerate it with exec-context"
+
+if [ $# -eq 3 ]; then
+  out=$3
+else
+  out="$dir/reviews/fix-packages/${task_id}-${round}-fix-package.md"
+fi
+
+# ---------------------------------------------------------------------------
+# Assemble the package
+# ---------------------------------------------------------------------------
+stamp=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+# A caller-chosen OUTFILE may name a directory that does not exist yet.
+mkdir -p "$(dirname "$out")"
+{
+  echo "---"
+  echo "kind: fix-package"
+  echo "id: ${round_id}-fix"
+  echo "initiative: $init"
+  echo "plan: $plan_id"
+  echo "plan_file: $plan"
+  echo "task: $task_id"
+  echo "round: $round_id"
+  echo "spec: ${spec_id:-(none)}"
+  echo "verdict: reviews/verdicts/$(basename "$verdict")"
+  echo "title: Fix package for $round_id"
+  echo "status: active"
+  echo "created_at: $stamp"
+  echo "updated_at: $stamp"
+  echo "---"
+  echo
+  echo "*Executor fix package — generated, do not edit by hand.*"
+  echo
+  echo "The verdict below judged this task and left findings. They are the"
+  echo "work list; the brief and context are the contract the fix is judged"
+  echo "against — verbatim, not paraphrased. Read all four before touching"
+  echo "code."
+  echo
+  echo "**Task:** \`$task_id\`"
+  echo "**Round under repair:** \`$round_id\`"
+  echo "**Verdict:** \`reviews/verdicts/$(basename "$verdict")\`"
+  echo "**Report:** \`reports/${task_id}-report.md\`"
+  echo "**Brief:** \`briefs/${task_id}-brief.md\`"
+  echo "**Context:** \`briefs/${task_id}-context.md\`"
+  echo
+  echo "## Open findings"
+  echo
+  echo "*Verbatim from $(basename "$verdict") — the findings this fix must close.*"
+  echo
+  printf '%s\n' "$findings"
+  echo
+  echo "## Implementer report"
+  echo
+  if [ -f "$report" ]; then
+    echo "*Verbatim from reports/${task_id}-report.md — what was tried, in the implementer's own words. Treat it as unverified claims.*"
+    echo
+  fi
+  printf '%s\n' "$report_body"
+  echo
+  echo "## Contract — brief"
+  echo
+  echo "*Verbatim from briefs/${task_id}-brief.md — the requirements themselves.*"
+  echo
+  body_of "$brief"
+  echo
+  echo "## Contract — context"
+  echo
+  echo "*Verbatim from briefs/${task_id}-context.md — the seams, existing surface, binding constraints, and rulings.*"
+  echo
+  body_of "$context"
+  echo
+  echo "---"
+  echo
+  echo "Fix the contract violations, not just the symptoms. Where brief code contradicts the brief's own requirements, the requirements win — record the divergence in your report."
+} > "$out"
+
+echo "$out"
+echo "# $(wc -c < "$out" | tr -d ' ') bytes — findings from $(basename "$verdict")" >&2

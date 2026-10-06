@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Atri10
+# exec-heartbeat — the worker-facing liveness witness. A dispatched worker
+# calls this between units of work; the pump never does (a pump-stamped
+# heartbeat measures the pump). exec_row_liveness reads the mtime.
+#
+# Usage:
+#   exec-heartbeat PLAN_FILE TASK_ID
+#
+# Worker prompts embed the call with absolute paths resolved at dispatch
+# time, so the worker needs nothing else: bash <scripts>/exec-heartbeat
+# <plan-file> <task-id>. Cheap enough to call after every artifact write.
+set -euo pipefail
+. "$(cd "$(dirname "$0")" && pwd)/_exec-lib.sh"
+
+[ $# -eq 2 ] && [ -f "$1" ] || exec_die "usage: exec-heartbeat PLAN_FILE TASK_ID"
+
+dir=$(exec_workspace_dir "$1")
+mkdir -p "$dir/state"
+exec_touch_heartbeat "$dir" "$2" \
+  || exec_die "cannot write heartbeat for $2 under $dir/state"
+echo "$(exec_heartbeat_file "$dir" "$2")"

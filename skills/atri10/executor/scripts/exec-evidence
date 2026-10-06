@@ -1,0 +1,149 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Atri10
+# Write one criterion's observed output as an evidence file in the
+# initiative's TRACKED verification store, and stamp state-R<nn>.txt once
+# per round per plan directory.
+#
+# The VRFY outcomes ledger keeps the verdict; this keeps the full raw
+# output, in a deterministic location a reader can reach from the ledger's
+# Evidence column without hunting. Evidence is thinking-grade proof and is
+# tracked: it commits on the branch that produced it and survives worktree
+# teardown (it lives under docs/executor/, anchored to the working tree —
+# never under the untracked .executor/ store).
+#
+# Usage: exec-evidence PLAN_FILE ROUND CRITERION METHOD [FILE...]
+#   ROUND     = outcomes round number (01, 02, ...)
+#   CRITERION = criterion reference as written in the VRFY doc ("#3" or "V03")
+#   METHOD    = unit|integration|smoke|manual|static
+#   Each FILE's content is appended in order; with no FILE, stdin is read.
+#   Output format: <VRFY-id>-V<nn>-R<nn>-<method>.txt under
+#   docs/executor/<INIT-NNNN-<slug>>/verification/evidence/<plan-seg>/
+#   (plan-seg = P01, P02, ...), a state-R<nn>.txt per round, and a
+#   -attemptN suffix when one capture repeats inside a round.
+set -euo pipefail
+. "$(cd "$(dirname "$0")" && pwd)/_exec-lib.sh"
+
+[ $# -ge 4 ] || exec_die "usage: exec-evidence PLAN_FILE ROUND CRITERION METHOD [FILE...]"
+
+plan=$1
+round=$2
+criterion=$3
+method=$4
+shift 4
+
+[ -f "$plan" ] || exec_die "no such plan file: $plan"
+
+plan_id=$(exec_frontmatter "$plan" id)
+[ -n "$plan_id" ] || exec_die "no id: in plan frontmatter — evidence needs a plan ID"
+init_id=$(exec_initiative_of "$plan_id") || exec_die "cannot derive initiative from $plan_id"
+exec_plan_segment_of "$plan_id" >/dev/null || exec_die "cannot derive plan segment from $plan_id"
+
+# Round must be a plain integer (01, 02, ...).
+case "$round" in
+  ''|*[!0-9]*) exec_die "round must be numeric (like '01'), got: $round" ;;
+esac
+rseg=$(printf '%02d' "$((10#$round))")
+
+# Method must be one of the documented kinds: reject before any
+# filesystem mutation so an invalid invocation creates no artifact.
+case "$method" in
+  unit|integration|smoke|manual|static) ;;
+  *) exec_die "method must be unit|integration|smoke|manual|static, got: $method" ;;
+esac
+
+# Every named input must exist before any filesystem mutation — a capture
+# that fails after mkdir/state-write would leave an orphan state file for
+# a round that never produced evidence.
+for f in "$@"; do
+  [ -f "$f" ] || exec_die "no such evidence file: $f"
+done
+
+# The VRFY document id: the plan's spec's `verification:` field, resolved
+# through the SPEC document. Falls back to the spec id when the SPEC is
+# not resolvable (pre-linkage stores).
+spec_id=$(exec_frontmatter "$plan" spec)
+vrfy_id=""
+if [ -n "$spec_id" ]; then
+  spec_file=$(find "$(exec_initiative_dir "$init_id")" -maxdepth 3 -type f -name "${spec_id}-*.md" -print -quit 2>/dev/null || true)
+  [ -n "$spec_file" ] && vrfy_id=$(exec_frontmatter "$spec_file" verification)
+fi
+[ -n "$vrfy_id" ] || vrfy_id="$spec_id"
+# vrfy_id is a filename segment below — anything outside [A-Za-z0-9-]
+# ('/', '..', whitespace) would write outside the evidence dir.
+case "$vrfy_id" in
+  ''|*[!A-Za-z0-9-]*) exec_die "verification id is not a safe filename segment ([A-Za-z0-9-]+), got: ${vrfy_id:-(empty)}" ;;
+esac
+# Normalize the criterion to a canonical V<nn> segment: "#3", "V3", and
+# "V03" all resolve to V03. Non-canonical aliases never produce
+# a second, divergent identity for the same criterion.
+num=${criterion#\#}
+num=${num#V}
+case "$num" in
+  ''|*[!0-9]*) exec_die "criterion must be numeric (like '#3' or 'V03'), got: $criterion" ;;
+esac
+vseg="V$(printf '%02d' "$((10#$num))")"
+
+idir=$(exec_initiative_dir "$init_id")
+[ -n "$idir" ] || exec_die "cannot resolve initiative dir for $plan_id — is the initiative registered in docs/executor/INDEX.md?"
+edir="$idir/verification/evidence/$(exec_plan_segment_of "$plan_id")"
+mkdir -p "$edir"
+
+# state.txt is per-round: evidence belongs to the state that
+# produced it, and a later round runs on a different state. The VRFY
+# outcomes table names the round it cites; each round's state file names
+# the commit that round actually exercised.
+state="$edir/state-R${rseg}.txt"
+if [ ! -f "$state" ]; then
+  {
+    echo "branch: $(git -C "$(exec_root)" branch --show-current 2>/dev/null || echo unknown)"
+    echo "commit: $(git -C "$(exec_root)" rev-parse HEAD 2>/dev/null || echo unknown)"
+    echo "recorded_at: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    echo "dirty: $(git -C "$(exec_root)" status --porcelain 2>/dev/null | wc -l | tr -d ' ') changed paths"
+  } > "$state"
+fi
+
+# Output path embeds the round: a re-run of the same criterion
+# in a later round is a distinct, immutable artifact — never an overwrite
+# of the earlier round's proof.
+out="$edir/${vrfy_id}-${vseg}-R${rseg}-${method}.txt"
+tmp=$(mktemp "$edir/.evidence-tmp.XXXXXX") || exec_die "cannot create temp file in $edir"
+cleanup_tmp() { rm -f "$tmp"; }
+trap cleanup_tmp EXIT
+{
+  echo "criterion: $vrfy_id $vseg"
+  echo "method: $method"
+  echo "round: $rseg"
+  echo "recorded_at: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  echo "state: $(git -C "$(exec_root)" rev-parse HEAD 2>/dev/null || echo unknown)"
+  echo "---"
+  if [ $# -gt 0 ]; then
+    for f in "$@"; do
+      cat "$f"
+    done
+  else
+    cat
+  fi
+} > "$tmp"
+# Same criterion/method/round re-captured (a re-run inside one round) is a
+# distinct attempt: attempt2, attempt3, ... Never overwrite an existing
+# proof — even within the same round. The attempt-number claim and the
+# publish run inside one critical section: without the lock, two
+# concurrent captures can check the same name and one's mv overwrites the
+# other's proof.
+store_lock "$edir"
+cleanup_publish() { rm -f "$tmp"; store_unlock "$edir"; }
+trap cleanup_publish EXIT
+attempt=1
+while [ -e "$out" ]; do
+  attempt=$((attempt + 1))
+  out="$edir/${vrfy_id}-${vseg}-R${rseg}-${method}-attempt${attempt}.txt"
+done
+# Atomic publish: the destination appears only when the full
+# artifact is written. A failed capture (missing input, interrupted run)
+# never truncates or replaces an existing proof.
+mv "$tmp" "$out"
+trap - EXIT
+store_unlock "$edir"
+
+echo "$out"
