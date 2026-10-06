@@ -1,0 +1,83 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Atri10
+# exec-status — the resume surface. One command answers "where is the
+# initiative and what does the pump do next" without holding the skill in
+# context: it folds every in-flight plan and every initiative, names the
+# open dispatch rows, and reports store drift — then stamps the whole
+# answer into .executor/RESUME.md so a cold agent can read one file and
+# continue.
+#
+# Usage: exec-status [--write]
+#   --write also stamps .executor/RESUME.md (default: print only)
+set -euo pipefail
+. "$(cd "$(dirname "$0")" && pwd)/_exec-lib.sh"
+SCRIPTS_DIR="$(cd "$(dirname "$0")" && pwd)"
+
+write=0; [ "${1:-}" = "--write" ] && write=1
+now=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+
+# Resolve the stores before emitting anything: outside a repository the
+# digest would otherwise print a header and a bogus "none under /docs/…",
+# which reads like an empty project rather than a wrong invocation.
+docs_store=$(exec_docs_store 2>/dev/null || true)
+store=$(exec_run_store 2>/dev/null || true)
+[ -n "$docs_store" ] && [ -n "$store" ] \
+  || exec_die "not inside a git repository — the Executor stores resolve from the repo root"
+
+{
+  echo "# Executor resume — $now"
+  echo
+  echo "Fresh agent: run 'exec' (bare) or read this file. Each NEXT is the"
+  echo "verb the fold emits; run the actuator it names, then re-fold."
+  echo
+
+  echo "## Initiatives"
+  echo
+  found=0
+  if [ -d "$docs_store" ]; then
+    for idx in "$docs_store"/*/INDEX.md; do
+      [ -f "$idx" ] || continue
+      init=$(exec_frontmatter "$idx" id 2>/dev/null || basename "$(dirname "$idx")")
+      step=$("$SCRIPTS_DIR/exec-step" "$init" 2>/dev/null || echo "?")
+      echo "- \`$init\` → \`$step\`"
+      found=1
+    done
+  fi
+  [ "$found" -eq 0 ] && echo "- none under $docs_store"
+  echo
+
+  echo "## Plan runs"
+  echo
+  found=0
+  if [ -n "$store" ] && [ -d "$store" ]; then
+    for p in "$docs_store"/*/plans/*.md "$docs_store"/plans/*.md; do
+      [ -f "$p" ] || continue
+      plan_id=$(exec_frontmatter "$p" id 2>/dev/null || true)
+      [ -n "$plan_id" ] || continue
+      wdir=$(exec_workspace_dir "$p" 2>/dev/null || true)
+      [ -n "$wdir" ] && [ -f "$wdir/progress.md" ] || continue
+      step=$("$SCRIPTS_DIR/exec-step" "$p" 2>/dev/null || echo "?")
+      echo "- \`$plan_id\` → \`$step\`"
+      open=$(awk -F'|' '/^\|/ { o=$8; gsub(/^[ \t]+|[ \t]+$/,"",o); if (o=="running"||o~/^revived-rv[0-9]+$/) { t=$2; gsub(/ /,"",t); printf "%s ", t } }' "$wdir/dispatches.md" 2>/dev/null)
+      [ -n "$open" ] && echo "  - open rows: $open"
+      found=1
+    done
+  fi
+  [ "$found" -eq 0 ] && echo "- none in flight"
+  echo
+
+  echo "## Store drift"
+  echo
+  if [ -n "$store" ] && [ -d "$store" ]; then
+    drift=$("$SCRIPTS_DIR/exec-store-check" 2>&1 | grep -E 'FAIL|NOTE' || true)
+    if [ -n "$drift" ]; then printf '%s\n' "$drift" | sed 's/^/- /'; else echo "- clean"; fi
+  else
+    echo "- no .executor store"
+  fi
+  echo
+  echo "## Next wake"
+  echo
+  echo "Re-run \`exec-status\` (or \`exec\`) after any actuator completes —"
+  echo "the fold changes only when on-disk state changes."
+} | { if [ "$write" -eq 1 ] && [ -d ".executor" ]; then tee .executor/RESUME.md; else cat; fi; }

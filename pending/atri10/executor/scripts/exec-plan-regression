@@ -1,0 +1,226 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Atri10
+# Own the plan-set regression pipeline's artifacts: where audit reports and
+# repair logs live, and whether the set is cleared to execute.
+#
+# The pipeline itself is executor-plan-regression's skill contract — this
+# script is the mechanical half: path resolution (nothing hand-builds a
+# location) and the check that turns "every plan audited or waived" into
+# an exit code the phase gate and store-check can rely on.
+#
+# Audit and repair files are round-suffixed (regression-P02-R01.md,
+# fix-P02-R01.md) because a re-audit verdicts the findings of the round
+# before it and must be able to read that round. A legacy unsuffixed
+# regression-P02.md reads as round 1.
+#
+# Usage:
+#   exec-plan-regression PLAN_FILE dir            # initiative's regression dir
+#   exec-plan-regression PLAN_FILE init           # seed summary, dispatch log, rulings home
+#   exec-plan-regression PLAN_FILE audit [ROUND]  # audit path for this plan (ROUND 01|R01, default 01)
+#   exec-plan-regression PLAN_FILE fix [ROUND]    # repair-log path for this plan and round
+#   exec-plan-regression PLAN_FILE latest         # newest existing audit for this plan, or exit 1
+#   exec-plan-regression PLAN_FILE check          # every plan clean|waived? exit 1 on gap
+set -euo pipefail
+. "$(cd "$(dirname "$0")" && pwd)/_exec-lib.sh"
+
+[ $# -ge 2 ] && [ $# -le 3 ] || exec_die "usage: exec-plan-regression PLAN_FILE dir|init|audit [ROUND]|fix [ROUND]|latest|check"
+
+plan=$1
+action=$2
+round_arg=${3:-01}
+[ -f "$plan" ] || exec_die "no such plan file: $plan"
+
+plan_id=$(exec_frontmatter "$plan" id)
+[ -n "$plan_id" ] || exec_die "no id: in plan frontmatter — the pipeline is keyed by plan IDs"
+init_id=$(exec_initiative_of "$plan_id") || exec_die "cannot derive initiative from plan id '$plan_id'"
+
+run_dir=$(exec_initiative_run_dir "$plan_id")
+reg_dir="$run_dir/plan-regression"
+summary="$reg_dir/summary.md"
+
+# Every plan file in the initiative — the set the pipeline audits. Plan
+# files on disk are truth (INDEX rows can lag); sorted so the set is stable.
+plan_set() {
+  local idir
+  idir=$(exec_initiative_dir "$init_id")
+  find "$idir/plans" -maxdepth 1 -name "${init_id}-P[0-9][0-9]*.md" 2>/dev/null | sort
+}
+
+# 1 | 01 | R01 | r1  ->  R01. Rounds are two digits, like review rounds.
+normalize_round() {
+  local r=${1#[Rr]}
+  case "$r" in
+    ''|*[!0-9]*) exec_die "round '$1' is not a number (want 01 or R01)" ;;
+  esac
+  [ "$((10#$r))" -ge 1 ] && [ "$((10#$r))" -le 99 ] || exec_die "round '$1' is outside 01..99"
+  printf 'R%02d' "$((10#$r))"
+}
+
+# Newest audit file for a plan segment: the highest -R<nn> round, else the
+# legacy unsuffixed file. Prints nothing when no audit exists.
+latest_audit() {
+  local seg=$1 newest
+  newest=$(find "$reg_dir" -maxdepth 1 -name "regression-${seg}-R[0-9][0-9].md" 2>/dev/null | sort | tail -1)
+  if [ -n "$newest" ]; then
+    echo "$newest"
+  elif [ -f "$reg_dir/regression-${seg}.md" ]; then
+    echo "$reg_dir/regression-${seg}.md"
+  fi
+}
+
+# An audit's verdict: the verdict: frontmatter field; for a legacy file
+# without one, the first body line starting PASS or FAIL (the pre-rounds
+# contract put the verdict line at the top of the body).
+audit_verdict() {
+  local f=$1 v
+  v=$(exec_frontmatter "$f" verdict)
+  if [ -z "$v" ]; then
+    v=$(awk 'BEGIN{fm=0} /^---$/{fm++; next} fm>=2 && /^(PASS|FAIL)([^A-Za-z]|$)/ { print $1; exit }' "$f")
+  fi
+  printf '%s' "$v" | tr '[:lower:]' '[:upper:]' | awk '{print $1}'
+}
+
+case "$action" in
+  dir)
+    mkdir -p "$reg_dir"
+    echo "$reg_dir"
+    ;;
+  init)
+    mkdir -p "$reg_dir"
+    exec_seed_initiative_rulings "$init_id" >/dev/null
+    stamp=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+    if [ ! -f "$summary" ]; then
+      cat > "$summary" <<EOF
+---
+kind: gate
+id: ${init_id}-plan-regression
+initiative: ${init_id}
+title: Plan-set regression summary
+status: draft
+created_at: $stamp
+updated_at: $stamp
+---
+
+# Plan-set regression — $init_id
+
+*One row per plan. A plan is 'clean' when its latest audit round has verdict PASS; 'waived' only when the human explicitly waived the open findings — record the waiver in the initiative rulings log too. 'audited' means a report exists but findings remain open.*
+
+| Plan | Status | Audit | Repairs | Notes |
+|---|---|---|---|---|
+EOF
+    fi
+    if [ ! -f "$reg_dir/dispatches.md" ]; then
+      cat > "$reg_dir/dispatches.md" <<EOF
+---
+kind: dispatches
+id: ${init_id}-plan-regression
+initiative: ${init_id}
+title: Plan-regression dispatch log
+status: active
+created_at: $stamp
+updated_at: $stamp
+---
+
+# Plan-regression dispatches — $init_id
+
+*One row per AUDIT or REPAIR dispatch, appended below the header row. Agent identities follow the dispatch registry in references/layout.md: AUDIT-P02-R01, REPAIR-P02-R01, AUDIT-P02-R02.*
+
+| Plan | Role | Model | Agent | Started | Outcome | Output |
+|---|---|---|---|---|---|---|
+EOF
+    fi
+    echo "$summary"
+    ;;
+  audit|fix)
+    mkdir -p "$reg_dir"
+    seg=$(exec_plan_segment_of "$plan_id") || exec_die "no Pnn segment in plan id '$plan_id'"
+    round=$(normalize_round "$round_arg")
+    if [ "$action" = "audit" ]; then
+      echo "$reg_dir/regression-${seg}-${round}.md"
+    else
+      echo "$reg_dir/fix-${seg}-${round}.md"
+    fi
+    ;;
+  latest)
+    seg=$(exec_plan_segment_of "$plan_id") || exec_die "no Pnn segment in plan id '$plan_id'"
+    found=$(latest_audit "$seg")
+    [ -n "$found" ] || exit 1
+    echo "$found"
+    ;;
+  check)
+    # The gate: every plan on disk must have a summary row whose Status is
+    # clean or waived, and an audit on disk. A clean row must agree with
+    # the LATEST audit round's verdict — a row can otherwise say clean
+    # while the newest audit says FAIL, and nothing would notice.
+    [ -f "$summary" ] || exec_die "no plan-regression summary at $summary — run exec-plan-regression PLAN init and audit the plan set"
+    # An empty set is not a clean set: with no plans there is nothing the
+    # gate could have audited, and a silent pass would clear execution on
+    # an initiative that never drafted anything.
+    if [ -z "$(plan_set)" ]; then
+      exec_die "no plan files under $(exec_initiative_dir "$init_id")/plans — nothing to clear; draft plans before running the regression gate"
+    fi
+    problems=0
+    while IFS= read -r pfile; do
+      [ -n "$pfile" ] || continue
+      pid=$(exec_frontmatter "$pfile" id)
+      [ -n "$pid" ] || continue
+      seg=$(exec_plan_segment_of "$pid" 2>/dev/null || true)
+      [ -n "$seg" ] || continue
+      row=$(awk -F'|' -v p="$pid" '$2 ~ p { print; exit }' "$summary" 2>/dev/null || true)
+      status=$(printf '%s' "$row" | awk -F'|' '{ gsub(/ /,"",$3); print $3 }')
+      notes=$(printf '%s' "$row" | awk -F'|' '{ gsub(/^[ \t]+|[ \t]+$/,"",$6); print $6 }')
+      if [ -z "$row" ]; then
+        echo "AUDIT: $pid has no row in $summary — the plan set is unaudited" >&2
+        problems=$((problems + 1))
+      elif [ "$status" != "clean" ] && [ "$status" != "waived" ]; then
+        echo "AUDIT: $pid summary status is '${status:-empty}' — must be clean or waived (repair the plan or record a human waiver)" >&2
+        problems=$((problems + 1))
+      elif [ "$status" = "waived" ]; then
+        # A waiver is a human decision; a bare 'waived' cell with no note
+        # is indistinguishable from a controller self-granting one.
+        case "$notes" in
+          ""|"—"|"-") echo "AUDIT: $pid is waived with no note — record what was waived and why (and the initiative ruling)" >&2
+                      problems=$((problems + 1)) ;;
+        esac
+      fi
+      afile=$(latest_audit "$seg")
+      if [ -z "$afile" ]; then
+        echo "AUDIT: $pid has no audit file under $reg_dir (regression-${seg}-R01.md) — a row without its report is an unverified claim" >&2
+        problems=$((problems + 1))
+      elif [ "$(exec_frontmatter "$afile" kind)" != "regression" ]; then
+        echo "AUDIT: $afile kind is '$(exec_frontmatter "$afile" kind)' — plan audits carry kind: regression" >&2
+        problems=$((problems + 1))
+      elif [ "$status" = "clean" ]; then
+        v=$(audit_verdict "$afile")
+        if [ "$v" != "PASS" ]; then
+          echo "AUDIT: $pid is marked clean but its latest audit ($(basename "$afile")) has verdict '${v:-none}' — re-audit the repaired plan, or fix the row" >&2
+          problems=$((problems + 1))
+        fi
+      fi
+    done < <(plan_set)
+    # Stale rows: a summary row whose plan file no longer exists is an
+    # audit of a plan that was renamed or deleted — the clearance record
+    # no longer describes the set on disk.
+    while IFS= read -r srow; do
+      [ -n "$srow" ] || continue
+      spid=$(printf '%s' "$srow" | awk -F'|' '{ gsub(/ /,"",$2); print $2 }')
+      case "$spid" in INIT-[0-9][0-9][0-9][0-9]-P[0-9][0-9]) ;; *) continue ;; esac
+      sseg=$(exec_plan_segment_of "$spid" 2>/dev/null || true)
+      [ -n "$sseg" ] || continue
+      idir=$(exec_initiative_dir "$init_id")
+      if ! find "$idir/plans" -maxdepth 1 -name "${spid}*.md" -print -quit 2>/dev/null | grep -q .; then
+        echo "AUDIT: $summary has a row for $spid but no such plan file exists — stale clearance row" >&2
+        problems=$((problems + 1))
+      fi
+    done < <(grep -E '^\| *INIT-[0-9]{4}-P[0-9]{2} *\|' "$summary" || true)
+    if [ "$problems" -gt 0 ]; then
+      echo "$init_id: $problems plan-regression problem(s) — the set is not cleared to execute" >&2
+      exit 1
+    fi
+    echo "$init_id: plan-regression clean — every plan audited or waived"
+    ;;
+  *)
+    exec_die "unknown action: $action"
+    ;;
+esac

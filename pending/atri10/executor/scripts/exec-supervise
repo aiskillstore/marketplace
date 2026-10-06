@@ -1,0 +1,161 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Atri10
+# exec-supervise — liveness policy for a plan run. Walks the open dispatch
+# rows and names the ONE action the revive ladder permits right now.
+#
+# Usage:
+#   exec-supervise PLAN_FILE          first actionable row, or NONE
+#   exec-supervise PLAN_FILE --all    every open row with its liveness word
+#
+# Output (one line per row):
+#   ALIVE      <task-id>     a worker is beating — leave it alone
+#   SUSPECT    <task-id>     stale but inside the grace window — ask, do not replace
+#   REVIVE     <task-id>     dead with attempts left — resume the same agent
+#   REDISPATCH <task-id>     attempts exhausted — a fresh agent, full context
+#   ADJUDICATE <task-id>     the ladder is spent — a SUPERVISOR must rule
+#   ZOMBIE     <task-id>     output already on disk — record it, never revive
+#   NONE                    no open rows
+#
+# The ladder is bounded by the dispatch log itself, never by a counter file:
+# each hop rewrites the row's Outcome to `revived-rv<n>`, and the highest n
+# wins. A counter file can be deleted by the very worker the ladder is
+# counting, which silently restarts the ladder forever; a log row is already
+# under the store lock that protects the rest of the bookkeeping.
+set -euo pipefail
+. "$(cd "$(dirname "$0")" && pwd)/_exec-lib.sh"
+
+max_revive() { echo "${EXEC_MAX_REVIVE:-2}"; }
+
+# Highest `revived-rv<n>` recorded against a task.
+revive_count() {
+  local dfile=$1 task=$2
+  awk -v t="$task" '
+    /^\|/ {
+      n = split($0, f, "|")
+      cell = f[2]; gsub(/[ \t]/, "", cell)
+      if (cell != t) next
+      for (i = 3; i <= n; i++) {
+        c = f[i]; gsub(/^[ \t]+|[ \t]+$/, "", c)
+        if (c ~ /^revived-rv[0-9]+$/) { v = substr(c, 11) + 0; if (v > m) m = v }
+      }
+    }
+    END { print m + 0 }
+  ' "$dfile"
+}
+
+# Open rows as "task<TAB>started<TAB>outcome<TAB>last-seen". Columns are
+# located by header name, so a workspace seeded before Last-Seen existed and
+# one seeded after both parse the same.
+# Open rows as "task<TAB>role<TAB>started<TAB>outcome<TAB>last-seen".
+# Columns are located by header name, so a workspace seeded before
+# Last-Seen existed and one seeded after both parse the same.
+open_rows() {
+  local dfile=$1 pid=$2
+  [ -f "$dfile" ] || return 0
+  awk -F'|' -v pid="$pid" '
+    BEGIN { OFS = "\t" }
+    /^\|[ \t]*Task[ \t]*\|/ {
+      for (i = 2; i <= NF; i++) {
+        c = $i; gsub(/^[ \t]+|[ \t]+$/, "", c)
+        if (c == "Task") ti = i
+        else if (c == "Role") ri = i
+        else if (c == "Started") si = i
+        else if (c == "Outcome" || c == "Status") oi = i
+        else if (c == "Last-Seen" || c == "Last Seen") li = i
+      }
+      next
+    }
+    /^\|/ {
+      if (!ti) next
+      t = $ti; gsub(/[ \t]/, "", t)
+      if (t !~ ("^" pid)) next
+      o = oi ? $oi : ""; gsub(/[ \t]/, "", o)
+      # An open row is running OR revived — a revived worker is still in
+      # flight and its row is the only record of how far the ladder got.
+      if (o != "running" && o !~ /^revived-rv[0-9]+$/) next
+      r = ri ? $ri : ""; gsub(/^[ \t]+|[ \t]+$/, "", r)
+      s = si ? $si : ""; gsub(/[ \t]/, "", s)
+      l = li ? $li : ""; gsub(/[ \t]/, "", l)
+      print t, r, s, o, l
+    }
+  ' "$dfile"
+}
+
+# The zombie product for a row, derived from its Role: a reviewer proves
+# itself with a verdict file, an implementer with a report. A role-agnostic
+# product check reads the implementer's report as the reviewer's output —
+# the row looks zombie forever and the fold re-commits the old report.
+product_for() { # dir task role
+  local d=$1 t=$2 r=$3
+  case "$r" in
+    *review*|*Review*|*REVIEW*)
+      echo "glob:$d/reviews/verdicts:${t}-R*-verdict.md" ;;
+    supervisor|SUPERVISOR|decide|DECIDE)
+      echo "none" ;;
+    *)
+      echo "file:$d/reports/${t}-report.md" ;;
+  esac
+}
+
+action_for() { # dir dfile task role started outcome lastseen
+  local dir=$1 dfile=$2 task=$3 role=$4 started=$5 outcome=$6 lastseen=$7
+  local live n
+  live=$(exec_row_liveness "$dir" "$task" "$started" "$lastseen" \
+         "$(product_for "$dir" "$task" "$role")")
+  case "$live" in
+    zombie) echo "ZOMBIE $task"; return 0 ;;
+    alive)  echo "ALIVE $task"; return 0 ;;
+  esac
+  n=$(revive_count "$dfile" "$task")
+  if [ "$live" = suspect ]; then
+    # Suspect is a question, not a verdict: re-probe the worker before
+    # spending a ladder hop on it.
+    echo "SUSPECT $task"
+  elif [ "$n" -eq 0 ]; then
+    # First failure — the agent still holds its own context, so resume it
+    # instead of paying to rebuild the brief from scratch.
+    echo "REVIVE $task"
+  elif [ "$n" -lt "$(max_revive)" ]; then
+    # Resumed once and still silent: the agent's context is the suspect
+    # now, so the next rung is a fresh agent with the full brief.
+    echo "REDISPATCH $task"
+  else
+    echo "ADJUDICATE $task"
+  fi
+}
+
+usage() {
+  sed -n '/^# Usage:/,/^[^#]/ { /^#/s/^# \{0,1\}//p; }' "$0" >&2
+  exit 2
+}
+
+case "${1:-}" in
+  -h|--help) usage ;;
+esac
+[ $# -ge 1 ] && [ -f "$1" ] || usage
+
+plan=$1
+all=${2:-}
+plan_id=$(exec_frontmatter "$plan" id)
+[ -n "$plan_id" ] || plan_id=$(basename "$plan" .md)
+dir=$(exec_workspace_dir "$plan")
+dfile="$dir/dispatches.md"
+
+emitted=0
+while IFS=$'\t' read -r task role started outcome lastseen; do
+  [ -n "$task" ] || continue
+  line=$(action_for "$dir" "$dfile" "$task" "$role" "$started" "$outcome" "$lastseen")
+  printf '%s\n' "$line"
+  emitted=$((emitted + 1))
+  # Default mode stops at the first row that needs a decision: a run with
+  # two dead workers still gets one action per turn, so the pump's table
+  # stays a one-word lookup.
+  case "$line" in
+    ALIVE*|SUSPECT*) [ "$all" = "--all" ] || continue ;;
+    *) [ "$all" = "--all" ] || break ;;
+  esac
+done <<< "$(open_rows "$dfile" "$plan_id")"
+
+[ "$emitted" -eq 0 ] && echo "NONE"
+exit 0

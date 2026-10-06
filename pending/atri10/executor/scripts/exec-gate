@@ -1,0 +1,120 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Atri10
+# exec-gate — decide whether a phase gate may be cleared without a human,
+# and clear it if so. The gate's own checks stay in exec-initiative: this
+# script never re-implements them, it only answers "is this gate one the
+# autonomy policy permits clearing unattended?"
+#
+# Usage:
+#   exec-gate INIT_ID PHASE              check the gate; exit 1 if not ready
+#   exec-gate INIT_ID PHASE --auto       check, then auto-pass if the policy allows
+#   exec-gate INIT_ID PHASE --policy     print the phase's mode and exit
+#
+# Policy lives in the initiative's `autonomous.md` and is read by
+# exec_autonomous_mode. Modes:
+#
+#   deny    never cleared unattended — the human reviews this phase
+#   gate    cleared when the phase's own structural gate passes
+#   allow   as `gate`, and additionally permitted for a pick-class phase
+#           ONLY when a scored verdict already exists on disk
+#
+# The `allow`/`pick` distinction exists because bash cannot score options.
+# A phase whose gate is really a choice between designs (which option did
+# the human pick?) cannot be auto-decided by a script that counts files, so
+# the policy requires the human's scored verdict to be sequenced in first.
+# The script's job is to refuse, not to guess which option is best.
+#
+# Every auto-pass records `**auto-passed**` in the phase log — visibly
+# distinct from a human `passed`, so an unattended run's record can never
+# be mistaken for one a person blessed. A human who disagrees overturns it
+# with `exec-initiative phase INIT superseded PHASE "<why>"`, which
+# reopens the phase.
+set -euo pipefail
+. "$(cd "$(dirname "$0")" && pwd)/_exec-lib.sh"
+
+SCRIPTS_DIR="$(cd "$(dirname "$0")" && pwd)"
+
+usage() {
+  sed -n '/^# Usage:/,/^[^#]/ { /^#/s/^# \{0,1\}//p; }' "$0" >&2
+  exit 2
+}
+
+case "${1:-}" in
+  -h|--help) usage ;;
+esac
+[ $# -ge 2 ] || usage
+
+init=$1; phase=$2; shift 2
+auto=0; policy_only=0
+for a in "$@"; do
+  case "$a" in
+    --auto) auto=1 ;;
+    --policy) policy_only=1 ;;
+    *) exec_die "unknown flag: $a (expected --auto or --policy)" ;;
+  esac
+done
+
+dir=$(exec_initiative_dir "$init")
+idx="$dir/INDEX.md"
+[ -f "$idx" ] || exec_die "no INDEX.md in $dir"
+
+# A phase is pick-class when its gate is a choice a human makes, not a
+# structure a script can verify. Kept here as an explicit list rather than
+# inferred: the whole point is that the script declines to infer.
+is_pick_phase() {
+  case "$1" in
+    design|specification) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+mode=$(exec_autonomous_mode "$dir" "$phase")
+
+if [ "$policy_only" = 1 ]; then
+  echo "$init $phase: $mode"
+  exit 0
+fi
+
+# Gate readiness is exec-initiative's business. Ask it to perform the
+# transition; if the artifacts are missing it refuses and names them, and
+# we relay that rather than re-deriving the list.
+run_transition() { # event note
+  "$SCRIPTS_DIR/exec-initiative" phase "$init" "$phase" "$1" "${2:-}"
+}
+
+if [ "$auto" -eq 0 ]; then
+  # Check-only: the `check` event validates `passed` and writes nothing.
+  # The old form ran `passed` for real — a "check" that passed the gate.
+  if out=$(run_transition check "" 2>&1); then
+    echo "GATE READY: $init $phase — the structural gate passes (a human still has to run it)"
+  else
+    echo "$out" >&2
+    echo "GATE NOT READY: $init $phase" >&2
+    exit 1
+  fi
+  exit 0
+fi
+
+case "$mode" in
+  deny)
+    exec_die "$init $phase is not auto-passable (mode: deny) — present it for human review instead" ;;
+  "no policy"|"disabled")
+    exec_die "$init $phase cannot be auto-passed: no enabled autonomous policy in $dir/autonomous.md" ;;
+esac
+
+if is_pick_phase "$phase"; then
+  if [ "$mode" != "allow" ]; then
+    exec_die "$init $phase is a pick-class gate and its policy mode is '$mode' — a script cannot choose between designs. Dispatch a CRITIC to score the options, record the human's pick, then set the mode to allow"
+  fi
+  # A scored verdict must already exist. Its presence is the human's or a
+  # critic's recorded judgment, not this script's.
+  if ! ls "$dir"/*/*-verdict.md "$dir"/verdicts/*.md >/dev/null 2>&1; then
+    exec_die "$init $phase is a pick-class gate with no scored verdict on disk — sequence the CRITIC verdict before auto-passing, or leave this phase to the human"
+  fi
+fi
+
+note="auto-passed by exec-gate (policy mode: $mode)"
+run_transition auto-passed "$note" \
+  || exec_die "auto-pass refused for $init $phase — the phase's own gate is not satisfied"
+echo "AUTO-PASSED $init $phase (policy mode: $mode) — recorded as **auto-passed**, not a human pass; overturn with: exec-initiative phase $init superseded $phase \"<why>\""

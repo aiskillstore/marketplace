@@ -1,0 +1,624 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Atri10
+# Own the run's lifecycle transitions in .executor/INDEX.md. The registry is
+# a contract, not a scratch note: a row whose status lies about the ledger
+# is how a resumed controller re-dispatches completed work.
+#
+# Usage:
+#   exec-run PLAN_FILE start            # Status: running, Tasks: 0/N
+#                                       # refuses once planning passed while
+#                                       # plan-regression is not passed/skipped
+#   exec-run PLAN_FILE task TASK_ID     # mark TASK_ID dispatched; Tasks: N/M
+#   exec-run PLAN_FILE complete         # Status: complete, Finished: today
+#   exec-run PLAN_FILE check            # verify row matches ledger; exit 1 on drift
+#                                       # also audits: verdict presence, task-table
+#                                       # coverage, seeded files + frontmatter,
+#                                       # sibling registry rows, misfiled cross-plan
+#                                       # artifacts, ledger-grammar drift
+#   exec-run PLAN_FILE pause|blocked    # partial-handoff states
+set -euo pipefail
+. "$(cd "$(dirname "$0")" && pwd)/_exec-lib.sh"
+
+[ $# -ge 2 ] && [ $# -le 6 ] || exec_die "usage: exec-run PLAN_FILE start|task|complete|check|pause|blocked [TASK_ID] [--line ANNOTATION] [--state WORD]"
+
+plan=$1
+action=$2
+[ -f "$plan" ] || exec_die "no such plan file: $plan"
+
+plan_id=$(exec_frontmatter "$plan" id)
+[ -n "$plan_id" ] || exec_die "no id: in plan frontmatter — cannot track a run without an ID"
+dir=$(exec_workspace_dir "$plan")
+store=$(exec_run_store)
+reg="$store/INDEX.md"
+[ -f "$reg" ] || exec_die "no run registry at $reg — run exec-workspace first"
+# A workspace resolved without exec-workspace still gets its seeded files —
+# unseeded workspaces (missing rulings/preflight/frontmatter) were the
+# P02 drift: audits read what should exist, so the files must exist.
+exec_seed_workspace "$dir" "$plan"
+
+
+# Count task headings in the plan. Fence-aware: '### Task' lines inside
+# ``` or ~~~ code blocks are fenced examples, not dispatches (same
+# tracker as exec-plan-lint and _exec-lib's exec_task_id).
+total=$(awk '
+  {
+    line = $0
+    indent = 0
+    while (substr(line, indent + 1, 1) == " ") indent++
+    stripped = substr(line, indent + 1)
+    if (stripped ~ /^(`{3,}|~{3,})/) {
+      match(stripped, /^(`{3,}|~{3,})/)
+      len = RLENGTH
+      ch = substr(stripped, 1, 1)
+      if (!infence) { infence = 1; flen = len; fch = ch }
+      else if (ch == fch && len >= flen) { infence = 0 }
+    }
+    if (!infence && $0 ~ /^### Task /) n++
+  }
+  END { print n + 0 }
+' "$plan")
+total=${total:-0}
+
+# Count complete lines in the ledger via the shared parser — it reads both
+# the canonical "^<TASK-ID>: <state>" shape and the narrative drift shape
+# real controllers write ("- <ts> — T03 complete"). A grammar the counter
+# cannot read makes every downstream audit silently no-op.
+done_count=$(exec_ledger_states "$dir/progress.md" "$plan_id" \
+  | awk -F'\t' '$2 ~ /^complete([ (]|$)/ { n++ } END { print n + 0 }')
+
+update_row() {
+  # $1 = new Status cell, $2 = Tasks cell, $3 = Finished cell (or keep)
+  #registry writes are locked and use a unique temp name —
+  # concurrent task/complete/check calls no longer lose rows through a
+  # shared fixed-name tmp.
+  local status=$1 tasks=$2 finished=$3
+  store_lock "$store"
+  local tmp
+  tmp=$(store_tmp "$store")
+  # exec-workspace is the only seeder of registry rows — exec-run mutates,
+  # never creates. A missing row means the workspace step never ran (or
+  # the row was lost); dying beats pretending the transition was recorded.
+  if awk -v id="$plan_id" -v status="$status" -v tasks="$tasks" -v finished="$finished" '
+    BEGIN { FS = OFS = "|" }
+    $0 ~ "^\\| " id " \\|" {
+      $4 = " " status " "
+      if (tasks != "") $5 = " " tasks " "
+      if (finished != "") $7 = " " finished " "
+      found = 1
+      print; next
+    }
+    { print }
+    END { exit (found ? 0 : 1) }
+  ' "$reg" > "$tmp"; then
+    mv "$tmp" "$reg"
+    # Dispatch-log hygiene rides the same locked transition: every
+    # registry mutation is also the moment a terminal ledger state gets
+    # its dispatches.md Outcome cell closed. Never fatal — a missing or
+    # rowless dispatches table is a NOTE, not a failed transition.
+    sync_dispatch_outcomes "$status"
+    store_unlock "$store"
+  else
+    rm -f "$tmp"
+    store_unlock "$store"
+    exec_die "no registry row for $plan_id in $reg — run exec-workspace on the plan file first; it seeds the row exec-run mutates"
+  fi
+}
+
+# Close the dispatch loop: the controller appends one dispatches.md row
+# per dispatch with Outcome 'running', and nothing ever rewrote it —
+# real ledgers (vocab INIT-0004) show every row stuck at 'running'. When
+# a task's latest ledger state is terminal (complete / parked), every
+# 'running' row it owns is dead and gets the terminal word — including
+# round-suffixed rows ('| INIT-…-T01-R01 |'), normalized onto the task.
+# At a fix boundary (in-fix / fix round) the round's dispatch is over
+# but the NEXT round's row may already be appended, so all 'running'
+# rows except the task's last close as 'done' — never closing the row
+# that may be live. When the run itself completes, plan-level rows
+# ('| INIT-…-P01 | final fix wave |') close too. Rows carrying a real
+# outcome are left alone; a terminal task with no row is a NOTE, never
+# a created row. dispatches.md is per-plan like progress.md, but this
+# runs under update_row's store lock so the registry row and the outcome
+# cells land as one bookkeeping act. $1 = the Status word being written.
+sync_dispatch_outcomes() {
+  local dfile="$dir/dispatches.md" tmp row_status=$1
+  [ -f "$dfile" ] || return 0
+  [ -f "$dir/progress.md" ] || return 0
+  tmp=$(mktemp "$dir/.dispatches.XXXXXX") || return 0
+  local states_file
+  states_file=$(mktemp "$dir/.states.XXXXXX") || return 0
+  exec_ledger_states "$dir/progress.md" "$plan_id" > "$states_file"
+  if awk -v pid="$plan_id" -v statesf="$states_file" -v status="$row_status" '
+    BEGIN {
+      # Latest ledger state per task — from exec_ledger_states, the same
+      # reduction the run audit uses (canonical + narrative-drift shapes).
+      while ((getline line < statesf) > 0) {
+        split(line, kv, "\t")
+        last[kv[1]] = kv[2]
+      }
+      close(statesf)
+      for (t in last) {
+        w = last[t]; sub(/[ (].*$/, "", w)
+        if (w == "complete" || w == "parked") term[t] = w
+        else if (w == "in-fix" || w == "fix") term[t] = "done"
+      }
+      # A completed run is terminal for the plan-level rows too — the
+      # final reviewer and final-fix dispatches keyed by the bare plan
+      # ID or <pid>-final are as dead as any task row.
+      if (status == "complete") term[pid] = "complete"
+      ocol = 0
+    }
+    {
+      rows[NR] = $0
+      if (!ocol && $0 ~ /^\|[ \t]*Task[ \t]*\|/) {
+        # Locate the Outcome column by name (older seeds called it
+        # Status) so a differently-shaped table is never rewritten in
+        # the wrong cell.
+        split($0, h, "|")
+        for (i = 2; i <= length(h); i++) {
+          c = h[i]; gsub(/^[ \t]+|[ \t]+$/, "", c)
+          if (c == "Outcome" || c == "Status") { ocol = i; break }
+        }
+      }
+      if ($0 ~ ("^\\|[ \t]*" pid "(-T[0-9][0-9](-R[0-9]+)?|-final)?[ \t]*\\|")) {
+        split($0, f, "|")
+        t = f[2]; gsub(/[ \t]/, "", t)
+        # Round-suffixed task cells (T01-R01) and the final-review cell
+        # both roll up to their task / plan key.
+        sub(/-R[0-9]+$/, "", t)
+        if (t == (pid "-final")) t = pid
+        hasrow[t] = 1
+        lastrow[t] = NR
+        if (t in term) trows[t] = trows[t] " " NR
+      }
+    }
+    END {
+      for (t in term) {
+        if (!(t in hasrow)) {
+          printf "%s\n", "NOTE: " t " is " term[t] " in the ledger but has no dispatches.md row — outcome left unrecorded" > "/dev/stderr"
+          continue
+        }
+        if (!ocol) break
+        n = split(trows[t], idx, " ")
+        for (k = 1; k <= n; k++) {
+          r = idx[k] + 0
+          split(rows[r], f, "|")
+          oc = f[ocol]; gsub(/^[ \t]+|[ \t]+$/, "", oc)
+          if (oc != "running") continue
+          if (term[t] == "done" && r == lastrow[t]) continue
+          f[ocol] = " " term[t] " "
+          rebuilt = f[1]
+          for (i = 2; i <= length(f); i++) rebuilt = rebuilt "|" f[i]
+          rows[r] = rebuilt
+        }
+      }
+      for (i = 1; i <= NR; i++) print rows[i]
+    }
+  ' "$dfile" > "$tmp"; then
+    mv "$tmp" "$dfile"
+  else
+    rm -f "$tmp"
+  fi
+  rm -f "$states_file"
+  return 0
+}
+
+# Mark one task's dispatch in the ledger: the Task-status row the resume
+# scan reads first (a task with no row has never been dispatched), plus
+# the append-only State changes line. progress.md is per-plan, so this
+# takes no store lock — the lock guards the shared INDEX.
+mark_dispatch() {
+  local tid=$1 line=${2:-} tstate=${3:-dispatched} tmp
+  tmp=$(mktemp "$dir/.progress.XXXXXX")
+  if grep -qE "^\| *${tid} *\|" "$dir/progress.md" 2>/dev/null; then
+    # Row exists: retarget its State cell (FS=| makes State $3).
+    awk -v tid="$tid" -v st="$tstate" '
+      BEGIN { FS = OFS = "|" }
+      $0 ~ ("^\\| *" tid " *\\|") { $3 = " " st " " }
+      { print }
+    ' "$dir/progress.md" > "$tmp" && mv "$tmp" "$dir/progress.md"
+  else
+    # No row yet: insert under the Task-status header; a ledger without
+    # the table gets the row appended rather than lost.
+    awk -v row="| $tid | $tstate | — | — | — |" '
+      !inserted && /^\| Task \|/ {
+        print
+        if ((getline line) > 0) print line
+        print row
+        inserted = 1
+        next
+      }
+      { print }
+      END { if (!inserted) print row }
+    ' "$dir/progress.md" > "$tmp" && mv "$tmp" "$dir/progress.md"
+  fi
+  # Canonical ledger line: the state word first, then the annotation.
+  # exec_ledger_states reads the first word; exec_task_branch_base reads
+  # "base <sha>" out of the annotation for the review package's BASE.
+  if [ -n "$line" ]; then
+    printf '%s: %s\n' "$tid" "$line" >> "$dir/progress.md"
+  else
+    printf '%s: dispatched\n' "$tid" >> "$dir/progress.md"
+  fi
+}
+
+# Fix-round cap: executor-execution documents five rounds maximum per
+# task. The ledger logs a round as 'Tnn: fix round N/5' (the /5 suffix
+# is optional in the wild, and one round can span several lines — a
+# dispatch line plus a close line — so the round NUMBER, not the line
+# count, is the measure). A ledger already at N=5 means the loop cannot
+# converge; another fix dispatch is refused unless an adjudication
+# already exists for the task — a rulings.md record ('## Tnn — …') or a
+# disposition line in the progress notes (parked / ruling / disposition
+# / adjudication / CLOSED). Enforced here, on the dispatch-marking
+# ledger-write path, because it is the only door a fix dispatch comes
+# through.
+enforce_fix_cap() {
+  local tid=$1 maxn
+  [ -f "$dir/progress.md" ] || return 0
+  maxn=$(awk -v tid="$tid" '
+    $0 ~ ("^" tid ": fix round[ \t]+[0-9]+") {
+      n = $0; sub(/^.*fix round[ \t]+/, "", n); sub(/[^0-9].*$/, "", n)
+      if (n + 0 > m) m = n + 0
+    }
+    END { print m + 0 }
+  ' "$dir/progress.md")
+  [ "${maxn:-0}" -ge 5 ] || return 0
+  grep -qE "^## ${tid}([[:space:]]|$)" "$dir/rulings.md" 2>/dev/null && return 0
+  if { grep -E "^${tid}: " "$dir/progress.md" 2>/dev/null || true; } \
+     | grep -qiE 'parked|ruling|disposition|adjudicat|closed'; then
+    return 0
+  fi
+  exec_die "$tid: fix-round cap (5) reached — escalate for a ruling/disposition instead of another round"
+}
+
+case "$action" in
+  start)
+    # A completed run is a finished contract — restarting it would let a
+    # resumed controller re-dispatch work the audit already blessed.
+    row_status=$(awk -v id="$plan_id" 'BEGIN{FS="|"} $0 ~ "^\\| " id " \\|" { gsub(/ /,"",$4); print $4 }' "$reg")
+    [ "$row_status" = "complete" ] && exec_die "$plan_id is already complete — a finished run does not rewind; supersede the plan or correct the registry row by hand"
+    # Plan-regression gate: once planning has passed (or the regression
+    # phase was entered), a run may not start until plan-regression passed
+    # or was explicitly skipped. Before planning, the gate does not apply —
+    # an initiative that has not drafted plans has nothing to audit, and
+    # the phase-order machine still refuses `execution entered` without it.
+    init_id=$(exec_initiative_of "$plan_id" 2>/dev/null || true)
+    if [ -n "$init_id" ]; then
+      idx_dir=$(exec_initiative_dir "$init_id" 2>/dev/null || true)
+      if [ -n "$idx_dir" ] && [ -f "$idx_dir/INDEX.md" ]; then
+        prg_row=$(awk -F'|' '/^\|[ \t]*plan-regression[ \t]*\|/ { print; exit }' "$idx_dir/INDEX.md" 2>/dev/null || true)
+        plan_row=$(awk -F'|' '/^\|[ \t]*planning[ \t]*\|/ { print; exit }' "$idx_dir/INDEX.md" 2>/dev/null || true)
+        prg_entered=$(printf '%s' "$prg_row" | awk -F'|' '{ gsub(/ /,"",$3); print $3 }')
+        prg_gate=$(printf '%s' "$prg_row" | awk -F'|' '{ gsub(/ /,"",$4); print $4 }')
+        plan_gate=$(printf '%s' "$plan_row" | awk -F'|' '{ gsub(/ /,"",$4); print $4 }')
+        case "$prg_gate" in
+          ????-??-??|"**skipped**") : ;;                    # passed or waived — clear
+          *)
+            case "$plan_gate$prg_entered" in
+              *[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]*)
+                exec_die "$plan_id: planning is done but plan-regression has not passed or been skipped — run executor-plan-regression before starting a run" ;;
+              *)
+                echo "note: $init_id has not reached plan-regression (planning gate unset) — the gate is not yet applicable" >&2 ;;
+            esac ;;
+        esac
+      fi
+    fi
+    update_row "running" "0/$total" ""
+    echo "$plan_id: running (0/$total)"
+    ;;
+  task)
+    task_id=${3:-}
+    line=""; tstate="dispatched"
+    shift 2
+    [ $# -gt 0 ] && shift || true   # drop TASK_ID itself
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        --line)  line=$2; shift 2 ;;
+        --state) tstate=$2; shift 2 ;;
+        *) exec_die "unknown flag for task: $1 (want --line|--state)" ;;
+      esac
+    done
+    [ -n "$task_id" ] || exec_die "usage: exec-run PLAN_FILE task ${plan_id}-Tnn — the dispatch marker names the task it records"
+    # The ID must belong to THIS plan — a marker for another plan's task
+    # is a ledger lie the audit would flag anyway.
+    case "$task_id" in
+      "$plan_id"-T[0-9][0-9]) ;;
+      *) exec_die "task ID '$task_id' is not ${plan_id}-Tnn — cannot mark a task this plan does not own" ;;
+    esac
+    # A real '### Task N:' heading (outside code fences) must carry the
+    # ID — a fenced example or a typo'd ID must not mint a dispatch record.
+    if ! awk -v tid="$task_id" '
+      {
+        line = $0
+        indent = 0
+        while (substr(line, indent + 1, 1) == " ") indent++
+        stripped = substr(line, indent + 1)
+        if (stripped ~ /^(`{3,}|~{3,})/) {
+          match(stripped, /^(`{3,}|~{3,})/)
+          len = RLENGTH
+          ch = substr(stripped, 1, 1)
+          if (!infence) { infence = 1; flen = len; fch = ch }
+          else if (ch == fch && len >= flen) { infence = 0 }
+        }
+      }
+      !infence && $0 ~ /^### Task [0-9]+:/ && index($0, tid) { found = 1; exit }
+      END { exit (found ? 0 : 1) }
+    ' "$plan"; then
+      exec_die "no '### Task N:' heading declares $task_id in $plan — refusing to mark a phantom dispatch"
+    fi
+    # Re-dispatching a complete task rewrites history; the fix flow goes
+    # through an explicit in-fix line first. The state is the leading
+    # word — "complete (commits…)" annotations count, matching the audit.
+    latest_state=$(exec_ledger_states "$dir/progress.md" "$plan_id" | awk -F'\t' -v t="$task_id" '$1 == t { s = $2 } END { print s }')
+    [ "${latest_state%%[ (]*}" = "complete" ] && exec_die "$task_id is already complete in the ledger — record an in-fix line before re-dispatching it"
+    # A dispatch for a task already at the fix-round cap is round 6+ —
+    # the documented maximum was reached, so only a recorded
+    # adjudication/disposition lets it through.
+    enforce_fix_cap "$task_id"
+    update_row "running" "$done_count/$total" ""
+    mark_dispatch "$task_id" "$line" "$tstate"
+    echo "$plan_id: dispatched $task_id ($done_count/$total)"
+    ;;
+  complete)
+    #validate BEFORE mutating the registry. A completion that
+    # fails the semantic audit leaves the registry unchanged — completion
+    # is a claim the audit must already support.
+    if ! exec_run_audit "$plan" "$dir" "$total" "$reg"; then
+      exec_die "cannot complete: run audit failed (see AUDIT lines above). Fix or record explicit dispositions first."
+    fi
+    update_row "complete" "$done_count/$total" "$(date -u +%Y-%m-%d)"
+    echo "$plan_id: complete ($done_count/$total)"
+    ;;
+  pause)
+    update_row "paused" "" ""
+    echo "$plan_id: paused"
+    ;;
+  blocked)
+    update_row "blocked" "" ""
+    echo "$plan_id: blocked"
+    ;;
+  check)
+    row_status=$(awk -v id="$plan_id" 'BEGIN{FS="|"} $0 ~ "^\\| " id " \\|" { gsub(/ /,"",$4); print $4 }' "$reg")
+    row_tasks=$(awk -v id="$plan_id" 'BEGIN{FS="|"} $0 ~ "^\\| " id " \\|" { gsub(/ /,"",$5); print $5 }' "$reg")
+    drift=0
+    if [ -z "$row_status" ]; then
+      echo "DRIFT: no registry row for $plan_id — run exec-workspace on the plan file to recreate the row" >&2
+      exit 1
+    fi
+    if [ "$row_status" = "complete" ] && [ "$done_count" -lt "$total" ]; then
+      echo "DRIFT: row says complete but ledger shows $done_count/$total complete" >&2
+      drift=1
+    fi
+    if [ "$row_status" = "running" ] && [ "$done_count" -ge "$total" ] && [ "$total" -gt 0 ]; then
+      echo "DRIFT: row says running but all $total tasks are complete — run exec-run PLAN complete" >&2
+      drift=1
+    fi
+    # Registry Tasks cell vs ledger truth. A stale cell is a NOTE, not
+    # drift: pause/blocked leave it untouched by design, and the count is
+    # a cache the ledger can always recompute.
+    if [ "$row_tasks" != "$done_count/$total" ]; then
+      echo "NOTE: registry Tasks cell reads '${row_tasks:-empty}' but the ledger shows $done_count/$total complete — re-run exec-run PLAN task/complete to refresh it" >&2
+    fi
+
+    # Canonical semantic audit: verdict CONTENT and the exact
+    # task set, not file existence. Runs after the row-drift checks so
+    # both classes of failure are reported.
+    exec_run_audit "$plan" "$dir" "$total" "$reg" || drift=1
+
+    if [ "$drift" -eq 0 ]; then
+      echo "$plan_id: row consistent ($row_status, $row_tasks)"
+    fi
+    # Ledger table audit: every task the ledger marks complete in State
+    # changes must also have a row in the Task status table. The resume
+    # scan reads the table first — prose-only completion (the P04/P05 live
+    # failure) makes a resumed controller re-dispatch finished work.
+    # Completed-task enumeration goes through exec_ledger_states so the
+    # narrative line shape real controllers write is counted too.
+    done_ids=$(exec_ledger_states "$dir/progress.md" "$plan_id" \
+      | awk -F'\t' '$2 ~ /^complete([ (]|$)/ { print $1 }' | sort -u)
+    table_missing=0
+    while IFS= read -r task_id; do
+      [ -n "$task_id" ] || continue
+      grep -qE "^\| *${task_id} *\|" "$dir/progress.md" || {
+        echo "AUDIT: $task_id is complete in State changes but has no row in the Task status table — the resume scan would miss it" >&2
+        table_missing=$((table_missing + 1))
+      }
+    done <<< "$done_ids"
+    if [ "$table_missing" -gt 0 ]; then
+      echo "$plan_id: $table_missing completed task(s) missing from the Task status table" >&2
+      drift=1
+    fi
+
+    # Verdict audit: every task the ledger marks complete must have a
+    # verdict file. A completion line without a verdict is an unjudged
+    # claim — the failure mode is a run whose last task's review was
+    # skipped because nothing audited the gap between the ledger and the
+    # verdicts directory.
+    missing_verdicts=0
+    while IFS= read -r task_id; do
+      [ -n "$task_id" ] || continue
+      ls "$dir/reviews/verdicts/${task_id}-R"*-verdict.md >/dev/null 2>&1 || {
+        echo "AUDIT: $task_id is complete but no verdict file exists in reviews/verdicts/ — the task is unjudged" >&2
+        missing_verdicts=$((missing_verdicts + 1))
+      }
+    done <<< "$done_ids"
+    if [ "$missing_verdicts" -gt 0 ]; then
+      echo "$plan_id: $missing_verdicts completed task(s) without a verdict file" >&2
+      drift=1
+    fi
+
+    # Seeded-file audit: the workspace contract is four files with
+    # frontmatter kinds — a missing or frontmatterless file means the
+    # workspace was built by hand instead of exec_seed_workspace.
+    for f in progress.md rulings.md preflight-scan.md dispatches.md; do
+      [ -f "$dir/$f" ] || echo "AUDIT: seeded file $f is missing from the workspace — run exec-workspace on the plan file" >&2
+    done
+    if ! grep -qE '^kind: ledger' "$dir/progress.md" 2>/dev/null; then
+      echo "AUDIT: progress.md carries no 'kind: ledger' frontmatter — the resume scan cannot identify it" >&2
+      drift=1
+    fi
+    if ! grep -qE '^kind: dispatches' "$dir/dispatches.md" 2>/dev/null; then
+      echo "AUDIT: dispatches.md carries no 'kind: dispatches' frontmatter" >&2
+      drift=1
+    fi
+
+    # Ledger grammar drift: narrative state lines are parsed, but each
+    # one is a line the canonical grammar never wrote — surface the count
+    # so a controller drifting from the contract gets told.
+    ndrift=$(exec_ledger_drift_count "$dir/progress.md" "$plan_id")
+    if [ "${ndrift:-0}" -gt 0 ]; then
+      echo "NOTE: $ndrift ledger line(s) use narrative grammar ('- <ts> — T<nn> <state>') instead of canonical '<TASK-ID>: <state>' — parsed, but write canonical going forward" >&2
+    fi
+
+    # Sibling workspaces: a plan dir under this initiative with a progress
+    # file but no registry row means a run started without exec-workspace —
+    # the registry lies about what ran. NOTE-level: the checker's plan is
+    # the one being verified.
+    init_seg=$(exec_initiative_of "$plan_id" 2>/dev/null || true)
+    if [ -n "$init_seg" ] && [ -d "$store/$init_seg" ]; then
+      for sibling in "$store/$init_seg"/P[0-9][0-9]; do
+        [ -d "$sibling" ] || continue
+        sib_plan="${init_seg}-$(basename "$sibling")"
+        [ "$sib_plan" = "$plan_id" ] && continue
+        if [ -f "$sibling/progress.md" ] && ! grep -q "^| $sib_plan |" "$reg" 2>/dev/null; then
+          echo "AUDIT: sibling workspace $sib_plan has a ledger but no registry row in INDEX.md — a run started without exec-workspace/exec-run" >&2
+          drift=1
+        fi
+        # A sibling dir with no files at all is an orphan scaffold.
+        if ! find "$sibling" -mindepth 1 -print -quit 2>/dev/null | grep -q .; then
+          echo "NOTE: sibling workspace $sib_plan exists but is empty — scaffolded, never run; harmless but undeclared" >&2
+        fi
+      done
+    fi
+
+    # Misfiled cross-plan artifacts: plan-regression audits and fix docs
+    # belong to .executor/<INIT>/plan-regression/, never inside one plan's
+    # reviews/ — the run that invented them ad-hoc filed them under P01.
+    while IFS= read -r stray; do
+      [ -n "$stray" ] || continue
+      echo "AUDIT: cross-plan artifact '$(basename "$stray")' sits in a plan's reviews/ — plan-regression artifacts live at .executor/$init_seg/plan-regression/" >&2
+      drift=1
+    done < <(find "$dir/reviews" -maxdepth 1 -type f \( -name 'regression-*' -o -name 'fix-P*' \) 2>/dev/null | sort || true)
+
+    # Branch topology (references/branches.md): the branch you are on must
+    # agree with the ledger about what is in flight, and every merge the
+    # ledger records must be findable on the plan branch. A branch and a
+    # ledger that disagree are how a resumed controller commits work to
+    # the wrong history.
+    task_states=$(exec_ledger_states "$dir/progress.md" "$plan_id")
+    plan_branch="plan/$plan_id"
+    if git show-ref --verify --quiet "refs/heads/$plan_branch" 2>/dev/null; then
+      cur_branch=$(git branch --show-current 2>/dev/null || true)
+      case "$cur_branch" in
+        task/*)
+          cur_tid=${cur_branch#task/}
+          case "$cur_tid" in
+            "$plan_id"-T[0-9][0-9])
+              cur_state=$(printf '%s\n' "$task_states" | awk -F'\t' -v t="$cur_tid" '$1 == t { print $2 }')
+              case "${cur_state%%[ (]*}" in
+                dispatched|in-fix|fix) ;;
+                *) echo "AUDIT: on task branch $cur_branch but the ledger says ${cur_tid} is '${cur_state:-absent}' — the branch and the ledger disagree about what is in flight" >&2
+                   drift=1 ;;
+              esac ;;
+            *) echo "AUDIT: on task branch $cur_branch, which names no task of $plan_id" >&2
+               drift=1 ;;
+          esac ;;
+      esac
+      # Every merge the ledger records must be an ancestor of the plan
+      # branch: a recorded merge that is not there means the branch was
+      # rewritten or the merge was lost.
+      while IFS= read -r tid; do
+        [ -n "$tid" ] || continue
+        msha=$(awk -v t="$tid" '
+          $0 ~ ("^" t ": complete \\(merge ") {
+            line = $0; sub(/^.*merge /, "", line); sub(/[ ).].*$/, "", line); m = line
+          }
+          END { if (m != "") print m }
+        ' "$dir/progress.md" 2>/dev/null)
+        [ -n "$msha" ] || continue
+        if ! git merge-base --is-ancestor "$msha" "$plan_branch" 2>/dev/null; then
+          echo "AUDIT: $tid records merge $msha but that commit is not on $plan_branch — the merge was lost or the branch rewritten" >&2
+          drift=1
+        fi
+      done <<< "$done_ids"
+      # A clean final verdict with a task branch still holding unmerged
+      # commits means the plan was cleared while work sat outside it.
+      final_v="$dir/reviews/verdicts/${plan_id}-final-verdict.md"
+      [ -f "$final_v" ] || final_v="$dir/reviews/verdicts/${plan_id}-FINAL-verdict.md"
+      if [ -f "$final_v" ] && exec_verdict_clean "$final_v"; then
+        while IFS= read -r tb; do
+          [ -n "$tb" ] || continue
+          ahead=$(git rev-list --count "$plan_branch".."$tb" 2>/dev/null || echo 0)
+          if [ "${ahead:-0}" -gt 0 ]; then
+            echo "AUDIT: $tb holds $ahead commit(s) not on $plan_branch while the final verdict is clean — merge or abandon it" >&2
+            drift=1
+          fi
+        done < <(git for-each-ref --format='%(refname:short)' "refs/heads/task/$plan_id-T*" 2>/dev/null | sort)
+      fi
+    fi
+
+    # Orphan worktrees: a directory under .executor/worktrees that is not a
+    # worktree at all, or whose branch is gone, is debris from an
+    # interrupted run — it holds files nobody will merge and disk nobody
+    # will reclaim. The .git probe matters: `git -C <dir>` walks UP to the
+    # enclosing repository, so a plain directory would otherwise report the
+    # main tree's branch and look healthy.
+    wtroot="$(exec_main_root)/.executor/worktrees"
+    if [ -d "$wtroot" ]; then
+      while IFS= read -r wt; do
+        [ -n "$wt" ] || continue
+        if [ ! -e "$wt/.git" ]; then
+          echo "AUDIT: $wt is not a worktree (no .git) — debris under .executor/worktrees; remove it" >&2
+          drift=1
+          continue
+        fi
+        wb=$(git -C "$wt" branch --show-current 2>/dev/null || true)
+        if [ -z "$wb" ] || ! git show-ref --verify --quiet "refs/heads/$wb"; then
+          echo "AUDIT: orphan worktree $wt (branch '${wb:-none}' is gone) — git worktree remove $wt" >&2
+          drift=1
+        fi
+      done < <(find "$wtroot" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort)
+    fi
+
+    # Agent identity grammar: the Agent column follows
+    # <ROLE>-<Pnn>-<Tnn>[-R<nn>] (IMPL/REVIEW/VERIFY; REVIEW-P01-final for
+    # the whole-branch review). A non-conforming cell is a NOTE, not drift:
+    # legacy stores predate the grammar, and the identity is provenance,
+    # not a gate. It names the log rows a reader should re-spell on touch.
+    if [ -f "$dir/dispatches.md" ]; then
+      #an empty dispatch table is valid (inline runs dispatch
+      # nothing). Under pipefail a no-match grep exits 1 and killed the
+      # whole check silently. Guard the pipeline: no matches is not an
+      # error; only a genuine malformed agent cell is a NOTE.
+      bad_agents=$( { grep -E '^\| ' "$dir/dispatches.md" 2>/dev/null || true; } \
+        | { grep -vE '^\| *Task *\|' || true; } \
+        | awk -F'|' '$2 !~ /Initiative/ {gsub(/ /,"",$5); if ($5 != "" && $5 !~ /^(IMPL|REVIEW|VERIFY)-[A-Za-z0-9-]+(-final)?(-R[0-9]{2})?$/) print $5}' \
+        | sort -u | head -5 || true)
+      if [ -n "$bad_agents" ]; then
+        while IFS= read -r bad; do
+          [ -n "$bad" ] && echo "NOTE: Agent cell '$bad' in dispatches.md does not follow the <ROLE>-<Pnn>-<Tnn>[-R<nn>] grammar (see references/layout.md) — re-spell on next touch" >&2
+        done <<< "$bad_agents"
+      fi
+    fi
+
+    # Final verdict: a completed plan needs the whole-branch final verdict
+    # too. The plan is not review-complete without it. Accept the uppercase
+    # -FINAL- variant produced on case-insensitive filesystems (canonical
+    # stays lowercase; exec_run_audit already tolerates both). Test each
+    # path with -f: `ls a b` exits non-zero when EITHER is missing, which
+    # passes on case-insensitive APFS and fails on Linux CI.
+    if [ "$row_status" = "complete" ] && [ "$done_count" -ge "$total" ] && [ "$total" -gt 0 ]; then
+      if [ ! -f "$dir/reviews/verdicts/${plan_id}-final-verdict.md" ] \
+         && [ ! -f "$dir/reviews/verdicts/${plan_id}-FINAL-verdict.md" ]; then
+        echo "AUDIT: run is complete but no final verdict (reviews/verdicts/${plan_id}-final-verdict.md) — whole-branch review has not run" >&2
+        drift=1
+      fi
+    fi
+
+    exit "$drift"
+    ;;
+  *)
+    exec_die "unknown action: $action"
+    ;;
+esac
