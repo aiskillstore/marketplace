@@ -41,9 +41,13 @@ The design workflow is ready to use after installation, with no extra configurat
 
 Using this skill triggers a version check, at most once every 10 minutes. If the server takes longer than 2 seconds, the check is skipped so it never slows down your task. Failed checks retry later when you use the skill again. The check only reads the public version list on ui.oiloil.org and does not upload project content. Offline checks cannot discover new versions, so they produce no reminder.
 
-Automatic updates need Python 3 and Node.js 18 or later. When a new version is found, the skill tries to update itself. If dependencies are missing, the agent ends its reply with recovery steps and a command containing the current installation's absolute path: `npx github:oil-oil/oil-cli update oil-ui --path "<installation path>"`. Network errors stay silent and retry later. Set `OIL_NO_AUTO_UPDATE=1` for reminders without automatic updates, or `OIL_NO_UPDATE_CHECK=1` to disable checks entirely.
+Version checks need Python 3. By default they only report new versions, without downloading an updater or replacing the skill. To update, explicitly ask your agent or run the displayed `python "<installation path>/scripts/check_update.py" --update` command; the program uses its actual Python interpreter when generating the command. Explicit updates also need Node.js 18 or later and use an Oil CLI pinned to a specific commit, which verifies the download's SHA-256 before installation. The updater only receives required paths, locale settings and Oil CLI authorization; unrelated service keys, `NODE_OPTIONS` and npm configuration environment variables are excluded. Remote release notes do not enter agent notices. Network errors stay silent and retry later. Set `OIL_NO_AUTO_UPDATE=1` to enforce reminders only, or `OIL_NO_UPDATE_CHECK=1` to disable checks entirely.
 
 Python 3 can run as `python3` or `python`, or as `py -3` on Windows. If Python 3 is missing, the agent reminds you once and continues the design task.
+
+## Data and permissions
+
+The design workflow needs no additional API key. Version checks use the public version endpoint; optional capabilities such as image generation use services already authorized in your host. The screenshot tool opens the page you specify in an independent temporary browser. Local previews listen on `127.0.0.1` and restrict file reads to the preview directory. Tested on macOS; Windows and Linux have not been tested on real machines.
 
 ## Usage
 

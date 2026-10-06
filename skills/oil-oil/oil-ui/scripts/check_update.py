@@ -1,19 +1,21 @@
 #!/usr/bin/env python3
-"""检查本 Skill 有没有新版本，有就自动更新。
+"""检查本 Skill 有没有新版本；只有显式传入 --update 才更新。
 
 由使用 Skill 触发，最多每 10 分钟联网检查一次，网络失败后一小时可重试。
 只读取 ui.oiloil.org 公开的版本列表，不上传项目内容。
-发现新版本时用 npx github:oil-oil/oil-cli 原地更新本目录：
+发现新版本时默认提示；用户要求更新后，用固定提交的 CLI 原地更新本目录：
 成功打印一行“已自动更新”，不能自动更新时打印一行提示，条件不变时每天最多提示一次；
 没有新版本、网络失败或在开发目录（含 .git）里运行时什么也不输出。
-设置环境变量 OIL_NO_UPDATE_CHECK=1 关闭检查，OIL_NO_AUTO_UPDATE=1 只提示不自动更新。
+设置环境变量 OIL_NO_UPDATE_CHECK=1 关闭检查，OIL_NO_AUTO_UPDATE=1 强制只提示。
 """
 from __future__ import annotations
 
+import argparse
 import hashlib
 import json
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -24,7 +26,13 @@ from typing import NamedTuple
 
 ROOT = Path(__file__).resolve().parent.parent
 API = os.environ.get("OIL_API", "https://ui.oiloil.org").rstrip("/")
-CLI = "github:oil-oil/oil-cli"
+# 固定经过检查的 CLI：无 npm 依赖，下载包必须通过 SHA-256 与归档路径校验。
+CLI = "github:oil-oil/oil-cli#b6fb811d42a72d327e5060518347b125d9a098ca"
+UPDATE_ENV_KEYS = {
+    "PATH", "HOME", "USERPROFILE", "APPDATA", "LOCALAPPDATA", "XDG_CONFIG_HOME", "XDG_STATE_HOME",
+    "SYSTEMROOT", "WINDIR", "TMPDIR", "TMP", "TEMP", "LANG", "LC_ALL", "LC_MESSAGES",
+    "OIL_API", "OIL_TOKEN",
+}
 DAY = 24 * 3600
 # 发版后用户下一次使用就能更新；版本列表有服务端缓存，频繁检查的成本很低
 CHECK_INTERVAL = 10 * 60
@@ -104,18 +112,8 @@ def fetch(name: str) -> dict | None:
         entry = json.load(response).get("skills", {}).get(name)
     if not isinstance(entry, dict) or not re.fullmatch(r"\d+\.\d+\.\d+", str(entry.get("latest", ""))):
         return None
-    history = entry.get("history") or []
-    notes = next((h.get("notes", "") for h in history if h.get("version") == entry["latest"]), "")
     # 免费版的版本信息带公开下载地址，付费版没有
-    return {"latest": entry["latest"], "notes": notes, "free": bool(entry.get("download_url"))}
-
-
-def headline(notes: str) -> str:
-    for line in notes.splitlines():
-        line = re.sub(r"^[#>*\-\s]+", "", line).strip().rstrip("。.；;，,")
-        if line:
-            return line if len(line) <= 60 else line[:59] + "…"
-    return ""
+    return {"latest": entry["latest"], "free": bool(entry.get("download_url"))}
 
 
 def file_signature(path: str | Path | None) -> list:
@@ -128,14 +126,19 @@ def file_signature(path: str | Path | None) -> list:
         return [str(path)]
 
 
-def update_context() -> tuple[str, str | None, bool]:
+def update_environment() -> dict[str, str]:
+    """只给已获准运行的 CLI 传必要路径、语言与其自身授权，不传无关密钥或注入选项。"""
+    return {**{k: v for k, v in os.environ.items() if k.upper() in UPDATE_ENV_KEYS}, "CI": "1"}
+
+
+def update_context(approved: bool = False) -> tuple[str, str | None, bool]:
     """只存指纹；登录配置变化或补齐依赖时不沿用旧冷却。"""
     npx = shutil.which("npx")
     node = shutil.which("node")
     node_version = ""
-    if node:
+    if node and approved:
         try:
-            result = subprocess.run([node, "--version"], capture_output=True, text=True, timeout=3)
+            result = subprocess.run([node, "--version"], env=update_environment(), capture_output=True, text=True, timeout=3)
             if result.returncode == 0:
                 node_version = result.stdout.strip()
         except (OSError, subprocess.SubprocessError):
@@ -144,7 +147,7 @@ def update_context() -> tuple[str, str | None, bool]:
     ready = bool(npx and version and int(version.group(1)) >= 18)
     context = [API, file_signature(config_path()), os.environ.get("OIL_TOKEN", ""),
                file_signature(npx), file_signature(node), node_version,
-               bool(os.environ.get("OIL_NO_AUTO_UPDATE"))]
+               bool(os.environ.get("OIL_NO_AUTO_UPDATE")), approved, CLI]
     fingerprint = hashlib.sha256(json.dumps(context).encode()).hexdigest()
     return fingerprint, npx, ready
 
@@ -166,15 +169,15 @@ def cli_error(stdout: str, stderr: str) -> str:
     return ""
 
 
-def auto_update(name: str, latest: str, free: bool, npx: str | None, ready: bool) -> UpdateResult:
-    if os.environ.get("OIL_NO_AUTO_UPDATE"):
+def auto_update(name: str, latest: str, free: bool, npx: str | None, ready: bool, approved: bool = False) -> UpdateResult:
+    if not approved or os.environ.get("OIL_NO_AUTO_UPDATE"):
         return UpdateResult(False, "manual")
     if not (free or logged_in()):
         return UpdateResult(False, "unauthorized")
     if not ready:
         return UpdateResult(False, "dependencies")
     # CI=1 让命令行在没登录时直接失败，不会停下来等浏览器确认
-    env = {**os.environ, "CI": "1"}
+    env = update_environment()
     try:
         result = subprocess.run([npx, "-y", CLI, "update", name, "--path", str(ROOT), "--json"], env=env,
                                 stdin=subprocess.DEVNULL, capture_output=True, text=True,
@@ -204,11 +207,9 @@ def english() -> bool:
 
 
 def update_command(name: str) -> str:
-    # 双引号方便直接复制，也保护 POSIX shell 中的变量与命令替换。
-    path = str(ROOT)
-    if os.name != "nt":
-        path = re.sub(r'([\\"$`])', r'\\\1', path)
-    return f'npx {CLI} update {name} --path "{path}"'
+    # 从同一入口执行，保留固定 CLI 和环境白名单；不让宿主自行拼接 npx 命令。
+    args = [sys.executable, str(ROOT / "scripts" / "check_update.py"), "--update"]
+    return subprocess.list2cmdline(args) if os.name == "nt" else shlex.join(args)
 
 
 def product_name(name: str) -> str:
@@ -247,6 +248,9 @@ def notice(name: str, current: str, latest: str, detail: str, reason: str) -> st
 
 
 def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--update", action="store_true", help="Explicitly authorize updating this installation")
+    approved = parser.parse_args().update
     if os.environ.get("OIL_NO_UPDATE_CHECK") or (ROOT / ".git").exists():
         return 0
     skill = read_skill()
@@ -255,8 +259,11 @@ def main() -> int:
     name, current = skill
     path = state_path(name)
     # 原来的共享文件可能包含失败与提示记录，迁移时只保留公开缓存。
-    cache = {key: value for key, value in load(path).items()
-             if key in {"checked_at", "latest", "notes", "free", "fetch_failed_at"}}
+    previous_cache = load(path)
+    cache = {key: value for key, value in previous_cache.items()
+             if key in {"checked_at", "latest", "free", "fetch_failed_at"}}
+    if cache != previous_cache:
+        save(path, cache)
     install_path = installation_state_path(name)
     state = load(install_path)
     now = time.time()
@@ -281,15 +288,14 @@ def main() -> int:
     latest = cache.get("latest")
     if not isinstance(latest, str) or not re.fullmatch(r"\d+\.\d+\.\d+", latest) or parse(latest) <= parse(current):
         return 0
-    summary = headline(cache.get("notes", ""))
-    detail = (f": {summary}" if english() else f"：{summary}") if summary else ""
-    context, npx, ready = update_context()
+    detail = ""
+    context, npx, ready = update_context(approved)
 
     reason = state.get("auto_failed_reason", "failed")
     cooldown = RETRY_AFTER_FAILURE if reason == "network" else DAY
     if (state.get("auto_failed_version") != latest or state.get("auto_failed_context") != context
             or now - float(state.get("auto_failed_at", 0)) >= cooldown):
-        result = auto_update(name, latest, bool(cache.get("free")), npx, ready)
+        result = auto_update(name, latest, bool(cache.get("free")), npx, ready, approved)
         reason = result.reason
         if reason == "updated":
             save(install_path, {})

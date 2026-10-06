@@ -9,14 +9,14 @@ marker="$state_base/oil/update-python-missing"
 for interpreter in python3 python; do
     if command -v "$interpreter" >/dev/null 2>&1 && "$interpreter" -c 'import sys; sys.exit(0 if sys.version_info[0] == 3 else 1)' >/dev/null 2>&1; then
         rmdir "$marker" 2>/dev/null
-        exec "$interpreter" "$script_dir/check_update.py"
+        exec "$interpreter" "$script_dir/check_update.py" "$@"
     fi
 done
 # mkdir 的独占创建同时防止连续加载与并发加载重复提醒。
 missing_python_notice() {
     case ${LC_ALL:-${LC_MESSAGES:-$LANG}} in
-        en*|EN*) printf '%s\n' 'Automatic updates need Python 3. This update check did not run.' ;;
-        *) printf '%s\n' '自动更新需要 Python 3，本次没有检查更新。' ;;
+        en*|EN*) printf '%s\n' 'Version checks need Python 3. This update check did not run.' ;;
+        *) printf '%s\n' '版本检查需要 Python 3，本次没有检查更新。' ;;
     esac
 }
 mkdir -p "$state_base/oil" 2>/dev/null

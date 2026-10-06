@@ -13,19 +13,25 @@ SCRIPT = Path(__file__).resolve().parent.parent / "scripts" / "check_update.py"
 LAUNCHER = SCRIPT.with_suffix(".sh")
 SH = shutil.which("sh")
 
-# 假的 npx：收到 update --path <目录> 时把那里的版本号改成 99.0.0，并记下调用
-FAKE_NPX = """#!/bin/sh
-echo "$@" >> "$FAKE_NPX_LOG"
-[ -n "$FAKE_NPX_STDERR" ] && printf '%s\\n' "$FAKE_NPX_STDERR" >&2
-[ -n "$FAKE_NPX_JSON" ] && printf '%s\\n' "$FAKE_NPX_JSON"
-[ -n "$FAKE_NPX_FAIL" ] && exit 1
-while [ $# -gt 0 ]; do
-  if [ "$1" = "--path" ]; then sed -i.bak 's/version: "0.10.0"/version: "99.0.0"/' "$2/SKILL.md"; fi
-  shift
-done
+# 配置来自测试文件，不能依赖被安全环境白名单过滤的假环境变量。
+FAKE_NPX = f"""#!{sys.executable}
+import json, os, sys
+from pathlib import Path
+c = json.loads(Path(__file__).with_name('settings.json').read_text())
+with Path(c['log']).open('a') as log: log.write(' '.join(sys.argv[1:])+'\\n')
+Path(c['env_log']).write_text(json.dumps({{k: k in os.environ for k in
+    ['AWS_SECRET_ACCESS_KEY','OPENAI_API_KEY','NODE_OPTIONS','NPM_TOKEN','OIL_TOKEN','CI']}}))
+if c.get('stderr'): print(c['stderr'], file=sys.stderr)
+if c.get('json'): print(c['json'])
+if c.get('fail'): sys.exit(1)
+if '--path' in sys.argv:
+    skill = Path(sys.argv[sys.argv.index('--path')+1])/'SKILL.md'
+    skill.write_text(skill.read_text().replace('version: "0.10.0"','version: "99.0.0"'))
 """
-FAKE_NODE = """#!/bin/sh
-printf '%s\\n' "${FAKE_NODE_VERSION:-v20.0.0}"
+FAKE_NODE = f"""#!{sys.executable}
+import json
+from pathlib import Path
+print(json.loads(Path(__file__).with_name('settings.json').read_text()).get('node_version') or 'v20.0.0')
 """
 
 
@@ -88,7 +94,12 @@ class CheckUpdateTest(unittest.TestCase):
         config.mkdir(parents=True, exist_ok=True)
         (config / "config.json").write_text(json.dumps({"token": "oil_test", "email": "a@example.com"}), encoding="utf-8")
 
-    def run_check(self, api=None, launcher=False, **extra):
+    def run_check(self, api=None, launcher=False, update=True, **extra):
+        (self.bin / 'settings.json').write_text(json.dumps({
+            'log': str(self.npx_log), 'env_log': str(self.tmp / 'env.json'),
+            'stderr': extra.get('FAKE_NPX_STDERR'), 'json': extra.get('FAKE_NPX_JSON'),
+            'fail': extra.get('FAKE_NPX_FAIL'), 'node_version': extra.get('FAKE_NODE_VERSION'),
+        }), encoding='utf-8')
         env = {k: v for k, v in os.environ.items() if not k.startswith("OIL_")}
         env.update(HOME=str(self.tmp / "home"), APPDATA=str(self.tmp / "config"), LOCALAPPDATA=str(self.tmp / "state"),
                    XDG_STATE_HOME=str(self.tmp / "state"), XDG_CONFIG_HOME=str(self.tmp / "config"),
@@ -96,8 +107,9 @@ class CheckUpdateTest(unittest.TestCase):
                    LANG="zh_CN.UTF-8", LC_ALL="", LC_MESSAGES="",
                    OIL_API=api or f"http://127.0.0.1:{self.server.server_port}")
         env.update(extra)
+        self.last_env = env
         script = self.skill / "scripts" / ("check_update.sh" if launcher else "check_update.py")
-        result = subprocess.run([SH if launcher else sys.executable, str(script)],
+        result = subprocess.run([SH if launcher else sys.executable, str(script), *(['--update'] if update else [])],
                                 capture_output=True, text=True, env=env, timeout=30)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stderr, "")
@@ -119,7 +131,7 @@ class CheckUpdateTest(unittest.TestCase):
     def test_logged_in_paid_skill_updates_itself(self):
         self.login()
         out = self.run_check()
-        self.assertIn("Oil UI Pro 已自动更新到 99.0.0（原来是 0.10.0）：动效改成三处基本动效。", out)
+        self.assertIn("Oil UI Pro 已自动更新到 99.0.0（原来是 0.10.0）。", out)
         self.assertIn(f"update oil-ui-pro --path {self.skill}", self.npx_calls()[0])
         self.assertIn('version: "99.0.0"', (self.skill / "SKILL.md").read_text(encoding="utf-8"))
         self.assertEqual(self.run_check(), "")
@@ -128,10 +140,45 @@ class CheckUpdateTest(unittest.TestCase):
         self.set_latest("99.0.0", free=True)
         self.assertIn("已自动更新到 99.0.0", self.run_check())
 
+    def test_default_check_never_executes_the_updater_or_changes_the_skill(self):
+        self.set_latest("99.0.0", free=True)
+        before = (self.skill / 'SKILL.md').read_bytes()
+        out = self.run_check(update=False)
+        self.assertIn('有新版本 99.0.0', out)
+        self.assertIn('--update', out)
+        self.assertEqual(self.npx_calls(), [])
+        self.assertEqual((self.skill / 'SKILL.md').read_bytes(), before)
+        self.assertEqual(self.run_check(update=False), '')
+
+    def test_explicit_update_pins_cli_and_filters_unrelated_secrets(self):
+        self.set_latest('99.0.0', free=True)
+        self.assertIn('已自动更新', self.run_check(
+            AWS_SECRET_ACCESS_KEY='dummy-only-aws', OPENAI_API_KEY='dummy-only-openai',
+            NODE_OPTIONS='--require /nonexistent-oil-test.js', NPM_TOKEN='dummy-only-npm',
+            OIL_TOKEN='dummy-only-oil'))
+        self.assertRegex(self.npx_calls()[0], r'-y github:oil-oil/oil-cli#[0-9a-f]{40} update')
+        seen = json.loads((self.tmp / 'env.json').read_text())
+        for key in ('AWS_SECRET_ACCESS_KEY','OPENAI_API_KEY','NODE_OPTIONS','NPM_TOKEN'):
+            self.assertFalse(seen[key], key)
+        self.assertTrue(seen['OIL_TOKEN'])
+        self.assertTrue(seen['CI'])
+
+    def test_remote_release_notes_are_not_printed_or_cached(self):
+        marker = 'REMOTE_INSTRUCTION_DO_NOT_FOLLOW'
+        Versions.payload['skills']['oil-ui-pro']['history'][0]['notes'] = marker
+        self.assertNotIn(marker, self.run_check(update=False))
+        cache = self.tmp / 'state/oil/oil-ui-pro-update.json'
+        data = json.loads(cache.read_text())
+        self.assertNotIn('notes', data)
+        data['notes'] = marker
+        cache.write_text(json.dumps(data))
+        self.assertNotIn(marker, self.run_check(update=False))
+        self.assertNotIn('notes', json.loads(cache.read_text()))
+
     def test_paid_skill_without_login_only_notifies_once_a_day(self):
         out = self.run_check()
-        self.assertIn("Oil UI Pro 有新版本 99.0.0（当前 0.10.0）：动效改成三处基本动效。", out)
-        self.assertIn("npx github:oil-oil/oil-cli update oil-ui-pro", out)
+        self.assertIn("Oil UI Pro 有新版本 99.0.0（当前 0.10.0）。", out)
+        self.assertIn("--update", out)
         self.assertEqual(self.npx_calls(), [])
         self.assertEqual(self.run_check(), "")
         self.assertEqual(Versions.hits, 1)
@@ -160,10 +207,11 @@ class CheckUpdateTest(unittest.TestCase):
                     out = self.run_check(LANG=language, FAKE_NPX_FAIL="1", FAKE_NPX_JSON=json.dumps({
                         "ok": False, "command": "update", "error": error, "message": "DO NOT ECHO THIS",
                         "new_field": "forward-compatible"}))
-                    self.assertIn(f'npx github:oil-oil/oil-cli update oil-ui-pro --path "{self.skill}"', out)
+                    self.assertIn(str(self.skill / 'scripts/check_update.py'), out)
+                    self.assertIn('--update', out)
                     self.assertNotIn("DO NOT ECHO THIS", out)
                     if error == "unauthorized":
-                        self.assertIn("npx github:oil-oil/oil-cli login", out)
+                        self.assertRegex(out, r"npx github:oil-oil/oil-cli#[0-9a-f]{40} login")
                         self.assertIn("Authorization has expired" if language.startswith("en") else "授权已失效", out)
                     else:
                         self.assertIn("https://ui.oiloil.org/pro/", out)
@@ -197,7 +245,7 @@ class CheckUpdateTest(unittest.TestCase):
                 target.rename(hidden)
                 out = self.run_check(PATH=str(self.bin))
                 self.assertIn("自动更新需要 Node.js 18 以上", out)
-                self.assertIn(f'--path "{self.skill}"', out)
+                self.assertIn(str(self.skill / 'scripts/check_update.py'), out)
                 self.assert_no_attempt()
                 hidden.rename(target)
         out = self.run_check(FAKE_NODE_VERSION="v16.20.0")
@@ -279,14 +327,14 @@ class CheckUpdateTest(unittest.TestCase):
         self.assertEqual(Versions.hits, 2)
 
     def test_manual_command_targets_absolute_path_and_handles_shell_characters(self):
+        self.login()
         self.skill.rename(self.skill.parent / 'custom space $HOME `false` "quote"')
         self.skill = self.skill.parent / 'custom space $HOME `false` "quote"'
         out = self.run_check(OIL_NO_AUTO_UPDATE="1")
         command = out.split("在终端运行 ", 1)[1].rsplit(" 即可更新。", 1)[0]
         # 实际复制执行提示；参数只能指向该副本，不能展开变量或命令替换。
-        result = subprocess.run([SH, "-c", command], env={**os.environ, "HOME": str(self.tmp / "home"),
-                                "PATH": f"{self.bin}{os.pathsep}{os.environ['PATH']}",
-                                "FAKE_NPX_LOG": str(self.npx_log)}, capture_output=True, text=True)
+        env = {k: v for k, v in self.last_env.items() if k != 'OIL_NO_AUTO_UPDATE'}
+        result = subprocess.run([SH, "-c", command], env=env, capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn(str(self.skill), self.npx_calls()[0])
         self.assertIn('version: "99.0.0"', (self.skill / "SKILL.md").read_text(encoding="utf-8"))
@@ -294,7 +342,8 @@ class CheckUpdateTest(unittest.TestCase):
     def test_english_success_and_manual_notice(self):
         out = self.run_check(LANG="en_US.UTF-8", OIL_NO_AUTO_UPDATE="1")
         self.assertIn("Oil UI Pro 99.0.0 is available (current: 0.10.0)", out)
-        self.assertIn("To update, run npx github:oil-oil/oil-cli", out)
+        self.assertIn("To update, run", out)
+        self.assertIn("--update", out)
         self.login()
         self.assertIn("updated automatically to 99.0.0", self.run_check(LANG="en_US.UTF-8"))
 
@@ -314,13 +363,13 @@ class CheckUpdateTest(unittest.TestCase):
 
     def test_missing_python_warns_once_and_recovery_resets_the_reminder(self):
         path = self.shell_path()
-        self.assertEqual(self.run_check(launcher=True, PATH=path), "自动更新需要 Python 3，本次没有检查更新。\n")
+        self.assertEqual(self.run_check(launcher=True, PATH=path), "版本检查需要 Python 3，本次没有检查更新。\n")
         self.assertEqual(self.run_check(launcher=True, PATH=path), "OIL_UPDATE_CHECK_SKIPPED: missing_python\n")
         self.assertEqual(Versions.hits, 0)
         (self.bin / "python").symlink_to(sys.executable)
         self.assertIn("有新版本", self.run_check(launcher=True, PATH=path, OIL_NO_AUTO_UPDATE="1"))
         (self.bin / "python").unlink()
-        self.assertIn("Automatic updates need Python 3", self.run_check(launcher=True, PATH=path, LANG="en_US.UTF-8"))
+        self.assertIn("Version checks need Python 3", self.run_check(launcher=True, PATH=path, LANG="en_US.UTF-8"))
 
     def test_python2_is_not_used_and_disabled_or_development_launcher_is_silent(self):
         (self.bin / "python").write_text("#!/bin/sh\nexit 1\n", encoding="utf-8")
@@ -330,7 +379,7 @@ class CheckUpdateTest(unittest.TestCase):
         (self.skill / ".git").mkdir()
         self.assertEqual(self.run_check(launcher=True, PATH=path), "")
         (self.skill / ".git").rmdir()
-        self.assertIn("自动更新需要 Python 3", self.run_check(launcher=True, PATH=path))
+        self.assertIn("版本检查需要 Python 3", self.run_check(launcher=True, PATH=path))
 
     def test_silent_when_up_to_date_offline_disabled_or_in_a_checkout(self):
         self.set_latest("0.0.1", free=False)

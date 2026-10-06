@@ -3,9 +3,10 @@
 // 用法见 references/tools.md；`node shoot.mjs --help` 打印同样的说明。
 import { spawn, spawnSync } from "node:child_process";
 import { createServer } from "node:http";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
-import { basename, dirname, extname, join, resolve } from "node:path";
+import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 
 const HELP = `用法：node shoot.mjs <页面地址或文件> [选项]
 
@@ -55,6 +56,8 @@ const sizes = opt.size.split(",").map((s) => {
   return { w: +m[1], h: +m[2] };
 });
 const states = opt.states ? opt.states.split(",").map((s) => s.trim()).filter(Boolean) : [null];
+const stateIds = states.map((s, i) => !s ? "page" : /^[A-Za-z0-9_-]{1,80}$/.test(s) ? s :
+  `state-${i + 1}-${createHash("sha256").update(s).digest("hex").slice(0, 12)}`);
 const zoom = Number(opt.zoom) || 1;
 const out = resolve(opt.out);
 mkdirSync(out, { recursive: true });
@@ -76,17 +79,22 @@ async function resolveTarget(t) {
   if (/^https?:\/\//.test(t)) return t;
   const file = resolve(t);
   if (!existsSync(file)) fail(`找不到文件：${t}`);
-  const root = statSync(file).isDirectory() ? file : dirname(file);
+  const root = realpathSync(statSync(file).isDirectory() ? file : dirname(file));
   const page = statSync(file).isDirectory() ? "index.html" : basename(file);
   server = createServer((req, res) => {
-    const path = decodeURIComponent(new URL(req.url, "http://x").pathname);
-    const local = resolve(join(root, path));
-    if (!local.startsWith(root) || !existsSync(local) || statSync(local).isDirectory()) {
+    try {
+      const path = decodeURIComponent(new URL(req.url, "http://x").pathname);
+      const local = realpathSync(resolve(join(root, path)));
+      const fromRoot = relative(root, local);
+      if (fromRoot === ".." || fromRoot.startsWith(`..${sep}`) || isAbsolute(fromRoot) || !statSync(local).isFile()) {
+        res.writeHead(404).end();
+        return;
+      }
+      res.writeHead(200, { "Content-Type": MIME[extname(local).toLowerCase()] || "application/octet-stream" });
+      res.end(readFileSync(local));
+    } catch {
       res.writeHead(404).end();
-      return;
     }
-    res.writeHead(200, { "Content-Type": MIME[extname(local).toLowerCase()] || "application/octet-stream" });
-    res.end(readFileSync(local));
   });
   await new Promise((ok) => server.listen(0, "127.0.0.1", ok));
   return `http://127.0.0.1:${server.address().port}/${encodeURIComponent(page)}`;
@@ -266,7 +274,7 @@ async function runSteps(text) {
       for (let i = 1; i <= 24; i++) { await mouse("mouseMoved", p.x + (dx * i) / 24, p.y + (dy * i) / 24, { buttons: 1 }); await sleep(16); }
       await mouse("mouseReleased", p.x + dx, p.y + dy, { clickCount: 1 }); await sleep(150);
     } else if (verb === "type") {
-      await evaluate(`(() => { const el = document.querySelector(${JSON.stringify(rest[0])}); if (!el) throw new Error("找不到元素：${rest[0]}"); el.focus(); return true; })()`);
+      await evaluate(`(() => { const el = document.querySelector(${JSON.stringify(rest[0])}); if (!el) throw new Error(${JSON.stringify("找不到元素：" + rest[0])}); el.focus(); return true; })()`);
       await cdp("Input.insertText", { text: rest.slice(1).join(" ") }); await sleep(120);
     } else if (verb === "key") {
       const key = rest[0] === "Space" ? " " : rest[0]; const code = KEYS[rest[0]] ?? key.toUpperCase().charCodeAt(0);
@@ -280,9 +288,10 @@ async function runSteps(text) {
 // ---------- 并排图：用同一个浏览器把截图排成一张 ----------
 async function sheet(items, file, w, h) {
   const cell = Math.min(w, 420);
+  const escapeHtml = (text) => String(text).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
   const figures = items.map(({ path, label }) =>
-    `<figure><img src="data:image/png;base64,${readFileSync(path).toString("base64")}"><figcaption>${label}</figcaption></figure>`).join("");
-  const html = `<!doctype html><meta charset="utf-8"><style>body{margin:0;padding:32px;background:#ececea;font:13px -apple-system,"PingFang SC",sans-serif;color:#555}
+    `<figure><img src="data:image/png;base64,${readFileSync(path).toString("base64")}"><figcaption>${escapeHtml(label)}</figcaption></figure>`).join("");
+  const html = `<!doctype html><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data:; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'"><style>body{margin:0;padding:32px;background:#ececea;font:13px -apple-system,"PingFang SC",sans-serif;color:#555}
 main{display:flex;gap:24px;align-items:flex-start}figure{margin:0;width:${cell}px}img{width:100%;display:block;border-radius:12px;box-shadow:0 1px 3px #0002}
 figcaption{margin-top:10px}</style><main>${figures}</main>`;
   const tmp = join(profile, "sheet.html");
@@ -350,12 +359,12 @@ try {
   } else {
     for (const { w, h } of sizes) {
       const shots = [], masked = [];
-      for (const s of states) {
+      for (const [stateIndex, s] of states.entries()) {
         problems = [];
         await setViewport(w, h, zoom);
         await open(withState(s));
         if (opt.steps) await runSteps(opt.steps);
-        const name = [s || "page", sizes.length > 1 ? `${w}x${h}` : "", zoom !== 1 ? `@${zoom}x` : ""].filter(Boolean).join("-");
+        const name = [stateIds[stateIndex], sizes.length > 1 ? `${w}x${h}` : "", zoom !== 1 ? `@${zoom}x` : ""].filter(Boolean).join("-");
         const file = await screenshot(join(out, `${name}.png`), flags.has("full"));
         const issues = await check();
         report.push({ file: basename(file), state: s, size: `${w}x${h}`, zoom, issues });

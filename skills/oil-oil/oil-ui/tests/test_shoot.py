@@ -160,6 +160,52 @@ document.querySelector('#go').onclick = () => show(document.body.dataset.state =
         self.shoot(output, "--force")
         self.assert_artifacts(output, ("page.png", "report.json"))
 
+    def test_preview_denies_sibling_paths_and_escaping_symlinks(self):
+        outside = Path(str(self.folder) + '-private')
+        outside.mkdir()
+        self.addCleanup(shutil.rmtree, outside)
+        (outside / 'secret.txt').write_text('test-only-secret', encoding='utf-8')
+        (self.folder / 'leak.txt').symlink_to(outside / 'secret.txt')
+        (self.folder / 'nested').mkdir()
+        (self.folder / 'nested/okay.txt').write_text('allowed-resource', encoding='utf-8')
+        blocked = ['/..%2f' + outside.name + '%2fsecret.txt', '/leak.txt', '/%E0%A4%A']
+        probe = '''<script>(async () => {
+          for (const path of PATHS) {
+            const response = await fetch(path);
+            if (response.status !== 404) console.error('SECURITY_LEAK:' + path);
+          }
+          const allowed = await fetch('/nested/okay.txt');
+          if (await allowed.text() !== 'allowed-resource') console.error('LEGIT_RESOURCE_BLOCKED');
+          console.error('AUDIT_FINISHED');
+        })().catch(() => console.error('AUDIT_FAILED'));</script>'''.replace('PATHS', json.dumps(blocked))
+        self.page.write_text(self.page.read_text().replace('</body>', probe + '</body>'), encoding='utf-8')
+        output = self.folder / 'boundary-shots'
+        self.shoot(output, '--wait', '1000')
+        report = json.loads((output / 'report.json').read_text())
+        issues = '\n'.join(report[0]['issues'])
+        self.assertIn('AUDIT_FINISHED', issues)
+        for marker in ('SECURITY_LEAK', 'LEGIT_RESOURCE_BLOCKED', 'AUDIT_FAILED'):
+            self.assertNotIn(marker, issues)
+
+    def test_state_labels_do_not_become_output_paths(self):
+        output = self.folder / 'safe-states'
+        states = ['../escaped', '<label & "quoted">']
+        self.shoot(output, '--states', ','.join(states), '--mask', '--sheet')
+        report = json.loads((output / 'report.json').read_text())
+        self.assertEqual([entry['state'] for entry in report], states)
+        for entry in report:
+            self.assertRegex(entry['file'], r'^state-\d+-[0-9a-f]{12}\.png$')
+            self.assertTrue((output / entry['file']).is_file())
+        self.assertFalse((self.folder / 'escaped.png').exists())
+        self.assert_artifacts(output, ('sheet.png', 'sheet-masked.png'))
+
+    def test_type_accepts_selectors_with_quotes(self):
+        self.page.write_text(self.page.read_text().replace('</body>', '<input data-x="value"></body>'), encoding='utf-8')
+        output = self.folder / 'quoted-selector'
+        self.shoot(output, '--steps', '''type 'input[data-x="value"]' hello''')
+        report = json.loads((output / 'report.json').read_text())
+        self.assertEqual(report[0]['issues'], [])
+
     def test_record_steps(self):
         output = self.folder / "record's output"
         result = self.shoot(output, "--record", "--steps", "click #go; wait 300", "--hold", "300")

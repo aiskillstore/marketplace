@@ -41,9 +41,13 @@ npx skills add oil-oil/oil-ui
 
 使用这个 Skill 时会触发版本检查，最多每 10 分钟联网一次，超过 2 秒没有响应就跳过，不会拖慢任务；失败后会在后续使用时稍后重试。检查只读取 ui.oiloil.org 公开的版本列表，不上传项目内容。离线时无法得知新版本，所以不会提示。
 
-自动更新需要 Python 3 和 Node.js 18 以上。发现新版本后会尝试自动更新；缺少依赖时，Agent 会在回复末尾给出恢复提示，并附上带有当前安装绝对路径的命令：`npx github:oil-oil/oil-cli update oil-ui --path "<安装路径>"`。网络错误保持静默，稍后重试。设置环境变量 `OIL_NO_AUTO_UPDATE=1` 只提醒不自动更新，`OIL_NO_UPDATE_CHECK=1` 完全关掉检查。
+版本检查需要 Python 3，默认只提示新版本，不下载执行更新器或替换 Skill。需要更新时，明确让 Agent 更新，或执行提示中的 `python "<安装路径>/scripts/check_update.py" --update` 命令；程序会使用本次检查所用的 Python 解释器生成可直接执行的命令。主动更新还需要 Node.js 18 以上，并通过固定提交的 Oil CLI 校验下载包的 SHA-256 后更新。更新子进程只接收必要的路径、语言设置和 Oil CLI 自身的授权，不继承其他服务密钥、`NODE_OPTIONS` 或 npm 配置环境变量。远端版本说明不会进入 Agent 提示。网络错误保持静默，稍后重试；`OIL_NO_AUTO_UPDATE=1` 强制只提醒，`OIL_NO_UPDATE_CHECK=1` 完全关掉检查。
 
 Python 3 可以用 `python3` 或 `python` 启动，Windows 也可以用 `py -3`。缺少 Python 3 时只提醒一次，设计任务照常继续。
+
+## 数据与权限边界
+
+设计流程无需额外 API Key。版本检查只访问公开版本接口；生成图片等可选能力沿用宿主已有的服务与授权。截图工具为你指定的页面启动独立临时浏览器，本地文件预览只监听 `127.0.0.1`，并限制读取范围在预览目录内。已在 macOS 实测；Windows 和 Linux 尚未实机验证。
 
 ## 使用
 
