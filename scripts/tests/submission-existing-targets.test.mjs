@@ -14,7 +14,7 @@ import { spawnSync } from 'node:child_process';
 import { test } from 'node:test';
 import { classifySubmissionTargets } from '../classify-submission-targets.mjs';
 import { calculateCanonicalTreeHash } from '../resolve-approved-submission.mjs';
-import { calculatePendingGitTreeOidAtCommit } from '../replace-pending-submission.mjs';
+import { calculatePendingGitTreeOidAtCommit, replacePendingSubmission } from '../replace-pending-submission.mjs';
 
 const SOURCE_COMMIT = '1'.repeat(40);
 
@@ -418,14 +418,59 @@ test('pending identity mismatch remains fail-closed instead of becoming an updat
   );
 }));
 
-test('a pending follow-up cannot coexist with a published target', () => withMarketplace((root) => {
-  writeTarget(root, 'alpha', { sourceRef: '2'.repeat(40) });
+test('same-source published and pending follow-up freezes both targets and preserves published bytes', () => withMarketplace((root) => {
+  const published = writeTarget(root, 'alpha', { sourceRef: '2'.repeat(40) });
   writeTarget(root, 'alpha', { rootDirectory: 'pending', sourceRef: '3'.repeat(40) });
-  assert.throws(
-    () => classify(root, selectionPlan([{ slug: 'alpha', path: 'skills/alpha' }])),
-    /pending target collision with published target/,
-  );
+  commitMarketplace(root);
+  const publishedBefore = ['SKILL.md', 'skill-report.json'].map(file => readFileSync(join(published, file)));
+  const result = classify(root, selectionPlan([{ slug: 'alpha', path: 'skills/alpha' }]));
+  assert.equal(result.disposition, 'processable');
+  assert.deepEqual(result.processingPlan.skills, [{ slug: 'alpha', path: 'skills/alpha' }]);
+  assert.deepEqual(result.updateTargets, ['skills/example/alpha']);
+  assert.deepEqual(result.pendingUpdateTargets, ['pending/example/alpha']);
+  assert.equal(result.updateSnapshots[0].sourceRef, '2'.repeat(40));
+  const frozen = result.pendingUpdateSnapshots[0];
+  assert.equal(frozen.sourceRef, '3'.repeat(40));
+  assert.equal(frozen.gitTreeOid, calculatePendingGitTreeOidAtCommit(root, 'HEAD', frozen.pendingDir));
+  assert.equal(frozen.reportHash, createHash('sha256').update(readFileSync(join(root, frozen.pendingDir, 'skill-report.json'))).digest('hex'));
+  withMarketplace(mergedResults => {
+    const replacement = writeTarget(mergedResults, 'alpha', { rootDirectory: 'pending', sourceRef: SOURCE_COMMIT });
+    replacePendingSubmission({repositoryRoot: root, mergedResults, pendingDir: frozen.pendingDir,
+      expectedTreeHash: frozen.treeHash, expectedReportHash: frozen.reportHash,
+      expectedGitTreeOid: frozen.gitTreeOid, expectedSourceRef: frozen.sourceRef});
+    assert.deepEqual(readFileSync(join(root, frozen.pendingDir, 'skill-report.json')), readFileSync(join(replacement, 'skill-report.json')));
+  });
+  assert.deepEqual(['SKILL.md', 'skill-report.json'].map(file => readFileSync(join(published, file))), publishedBefore);
 }));
+
+test('coexisting pending at the requested revision remains an idempotent no-op', () => withMarketplace(root => {
+  writeTarget(root, 'alpha', {sourceRef: '2'.repeat(40)});
+  writeTarget(root, 'alpha', {rootDirectory: 'pending', sourceRef: SOURCE_COMMIT});
+  const result = classify(root, selectionPlan([{slug: 'alpha', path: 'skills/alpha'}]));
+  assert.equal(result.disposition, 'all_existing');
+  assert.equal(result.reasonCode, 'all_selected_targets_already_processed');
+  assert.deepEqual(result.processingPlan.skills, []);
+  assert.deepEqual(result.updateTargets, []);
+  assert.equal(result.pendingUpdateSnapshots, undefined);
+}));
+
+test('coexisting targets reject ambiguous paths, mutable refs and replay of the published revision', () => {
+  for (const override of [
+    {published: {skillPath: 'other/alpha'}},
+    {pending: {skillPath: 'other/alpha'}},
+    {published: {sourceRef: 'main'}},
+    {pending: {sourceRef: 'main'}},
+    {published: {sourceRef: SOURCE_COMMIT}},
+    {pending: {repository: 'other/source'}},
+    {published: {repository: 'other/source'}},
+  ]) withMarketplace(root => {
+    writeTarget(root, 'alpha', {sourceRef: '2'.repeat(40), ...override.published});
+    writeTarget(root, 'alpha', {rootDirectory: 'pending', sourceRef: '3'.repeat(40), ...override.pending});
+    commitMarketplace(root);
+    assert.throws(() => classify(root, selectionPlan([{slug: 'alpha', path: 'skills/alpha'}])),
+      /pending target collision|source repository mismatch/);
+  });
+});
 
 test('official flat pending and source mismatches fail closed', () => withMarketplace((root) => {
   mkdirSync(join(root, 'pending', 'alpha'), { recursive: true });
