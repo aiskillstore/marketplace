@@ -95,6 +95,57 @@ test('expected-current errors remain generic even for hostile accessors and prox
     assert.throws(()=>compareExpectedCurrent(value,snapshot()),e=>e.message==='Invalid stage plan input');
   }
 });
+test('snapshot accessor cannot substitute an unvalidated pointer after assessment',()=>{
+  const good=snapshot(),expected={...bindExpectedCurrent(good),artifactVersionId:other};
+  let reads=0;
+  const hostile={...good};
+  Object.defineProperty(hostile,'skills',{enumerable:true,get(){
+    return ++reads>=8 ? [{...good.skills[0],current_artifact_version_id:other}] : good.skills;
+  }});
+  assert.throws(()=>compareExpectedCurrent(expected,hostile),e=>e.message==='Invalid stage plan input');
+  assert.equal(reads,0);
+});
+for(const kind of ['hidden','symbol'])test(`identity rejects ${kind} extra own field`,()=>{
+  const id=bindExpectedCurrent(snapshot());
+  Object.defineProperty(id,kind==='hidden'?'receipt':Symbol('receipt'),{value:{status:'success'}});
+  assert.throws(()=>compareExpectedCurrent(id,snapshot()),e=>e.message==='Invalid stage plan input');
+});
+test('identity rejects non-throwing accessor before it can add extra fields',()=>{
+  const id=bindExpectedCurrent(snapshot());let reads=0;
+  Object.defineProperty(id,'schemaVersion',{enumerable:true,get(){reads++;id.extraPointer=other;return 1;}});
+  assert.throws(()=>compareExpectedCurrent(id,snapshot()),e=>e.message==='Invalid stage plan input');
+  assert.equal(reads,0);assert.equal(Object.hasOwn(id,'extraPointer'),false);
+});
+for(const level of ['row','array'])test(`snapshot rejects non-throwing ${level} accessor without invoking it`,()=>{
+  const s=snapshot();let reads=0;
+  if(level==='row')Object.defineProperty(s.skills[0],'current_artifact_version_id',{enumerable:true,get(){reads++;return artifact;}});
+  else Object.defineProperty(s.skills,'0',{enumerable:true,get(){reads++;return snapshot().skills[0];}});
+  assert.throws(()=>bindExpectedCurrent(s),e=>e.message==='Invalid stage plan input');
+  assert.equal(reads,0);
+});
+test('snapshot rejects hidden and symbol extras at every data boundary',()=>{
+  for(const key of ['receipt',Symbol('receipt')])for(const level of ['snapshot','array','row']){
+    const s=snapshot(),target=level==='snapshot'?s:level==='array'?s.skills:s.skills[0];
+    Object.defineProperty(target,key,{value:'SYNTHETIC_DO_NOT_ECHO'});
+    assert.throws(()=>bindExpectedCurrent(s),e=>e.message==='Invalid stage plan input');
+  }
+});
+test('comparison retains owned expected identity if snapshot traps mutate caller identity',()=>{
+  const id=bindExpectedCurrent(snapshot()),s=snapshot();
+  s.skills[0]=new Proxy(s.skills[0],{ownKeys(target){id.artifactVersionId=other;return Reflect.ownKeys(target);}});
+  const result=compareExpectedCurrent(id,s);
+  assert.equal(id.artifactVersionId,other);
+  assert.equal(result.identityMatches,true);
+});
+test('data-only proxies are captured through descriptors, never direct caller property reads',()=>{
+  const trap={get(){throw new Error('SYNTHETIC_DO_NOT_ECHO');}};
+  const s=snapshot();
+  for(const name of ['skills','publicationArtifacts','currentArtifacts','observations'])s[name]=new Proxy(s[name].map(row=>new Proxy(row,trap)),trap);
+  const id=new Proxy(bindExpectedCurrent(snapshot()),trap);
+  assert.equal(compareExpectedCurrent(id,new Proxy(s,trap)).identityMatches,true);
+  const bad=new Proxy(snapshot(),{getOwnPropertyDescriptor(){throw new Error('SYNTHETIC_DO_NOT_ECHO');}});
+  assert.throws(()=>bindExpectedCurrent(bad),e=>e.message==='Invalid stage plan input');
+});
 test('history reads are bounded latest selections, not singleton lookups or proof of complete history',()=>{
   const p=stageReadPlan(),q=Object.fromEntries(p.queries.map(q=>[q.name,q]));
   assert.equal(q.audit.cardinality,'latest-candidate');assert.equal(q.audit.completeness,'latest-only');

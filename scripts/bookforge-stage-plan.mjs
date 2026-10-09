@@ -1,24 +1,50 @@
 #!/usr/bin/env node
 // Proposal only: no connector, stage executor, CAS or receipt verifier.
 import {pathToFileURL} from 'node:url';
-import {EXPECTED, assessSnapshot} from './bookforge-readonly-diagnostic.mjs';
+import {EXPECTED, assessSnapshot, readPlan} from './bookforge-readonly-diagnostic.mjs';
 
 const identityFields = ['schemaVersion','slug','root','publicationSha','contentHash','treeHash','sourceRef','skillId','artifactVersionId','artifactRevision'];
 const UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
 function requireValue(ok) { if (!ok) throw new Error('Invalid stage plan input'); }
-function validateIdentity(value) {
-  requireValue(value !== null && typeof value === 'object' && !Array.isArray(value));
-  requireValue(Object.keys(value).length === identityFields.length && identityFields.every(k=>Object.hasOwn(value,k)));
+// Capture descriptors once: never invoke caller accessors or validate then reread
+// caller-owned properties. The assessor and binder share this owned data copy.
+const snapshotCollections = readPlan().queries.map(q=>({name:q.name,fields:q.select}));
+function dataDescriptors(value, array=false) {
+  requireValue(value !== null && typeof value === 'object' && Array.isArray(value) === array);
+  const descriptors = Object.getOwnPropertyDescriptors(value);
+  requireValue(Reflect.ownKeys(descriptors).every(k=>Object.hasOwn(descriptors[k],'value')));
+  return descriptors;
+}
+function ownValues(descriptors, fields) {
+  requireValue(Reflect.ownKeys(descriptors).length === fields.length && fields.every(k=>Object.hasOwn(descriptors,k)));
+  return Object.fromEntries(fields.map(k=>[k,descriptors[k].value]));
+}
+function ownedSnapshot(input) {
+  const snapshot = ownValues(dataDescriptors(input),['schemaVersion','slug','publicationSha',...snapshotCollections.map(q=>q.name)]);
+  for (const {name,fields} of snapshotCollections) {
+    const descriptors = dataDescriptors(snapshot[name],true);
+    const length = descriptors.length.value;
+    requireValue(Number.isSafeInteger(length) && length >= 0 && length <= 2);
+    const indices = Array.from({length},(_,i)=>String(i));
+    const values = ownValues(descriptors,['length',...indices]);
+    snapshot[name] = indices.map(i=>ownValues(dataDescriptors(values[i]),fields));
+  }
+  return snapshot;
+}
+function validateIdentity(input) {
+  const value = ownValues(dataDescriptors(input),identityFields);
   requireValue(value.schemaVersion === 1 && value.slug === EXPECTED.slug && value.root === EXPECTED.root
     && value.publicationSha === EXPECTED.publicationSha && value.contentHash === EXPECTED.contentHash
     && value.treeHash === EXPECTED.treeHash && value.sourceRef === EXPECTED.sourceRef);
   requireValue(typeof value.skillId === 'string' && UUID.test(value.skillId)
     && typeof value.artifactVersionId === 'string' && UUID.test(value.artifactVersionId)
     && Number.isSafeInteger(value.artifactRevision) && value.artifactRevision > 0);
+  return value;
 }
-export function bindExpectedCurrent(snapshot) {
+export function bindExpectedCurrent(input) {
   // Reuse the exact three-table schema/incident validator; no provenance claim.
   try {
+    const snapshot = ownedSnapshot(input);
     requireValue(assessSnapshot(snapshot).classification === 'exact-current-snapshot');
     const skill = snapshot.skills[0];
     return {schemaVersion:1,slug:EXPECTED.slug,root:EXPECTED.root,publicationSha:EXPECTED.publicationSha,
@@ -28,9 +54,9 @@ export function bindExpectedCurrent(snapshot) {
 }
 export function compareExpectedCurrent(expectedCurrent, snapshot) {
   try {
-    validateIdentity(expectedCurrent);
+    const expected = validateIdentity(expectedCurrent);
     const observed = bindExpectedCurrent(snapshot);
-    return {schemaVersion:1,identityMatches:identityFields.every(k=>observed[k] === expectedCurrent[k]),
+    return {schemaVersion:1,identityMatches:identityFields.every(k=>observed[k] === expected[k]),
       inputTrust:'unverified-offline-snapshot',atomicCasPerformed:false,productionState:'UNKNOWN',
       replayAllowed:false,continuationAllowed:false};
   } catch { throw new Error('Invalid stage plan input'); }

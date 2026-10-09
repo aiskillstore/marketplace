@@ -21,6 +21,8 @@ All stages remain `UNKNOWN`, and `authorizesExecution`, `readScopeApproved`, `ex
 - `bindExpectedCurrent(snapshot)` accepts only the existing diagnostic's complete exact incident snapshot: one skill, one publication artifact, one current artifact and one observation with exact root/SHA/content/tree/source identity, matching pointers and positive revision. It rejects extra fields, missing/duplicate rows and divergent identity with `Invalid stage plan input`.
 - `compareExpectedCurrent(expectedCurrent, snapshot)` validates both inputs, compares the full fixed identity plus skill/artifact UUID and revision, and reports **offline equality only**. A newer internally consistent pointer/revision/skill fails comparison. It never performs atomic CAS, authenticates database evidence, accepts a claimed receipt, or grants write/replay authority.
 
+The JS identity API captures all own keys and data descriptors once, rejecting accessors and extra fields (including hidden/non-enumerable and Symbol keys). It creates an owned snapshot using the diagnostic read plan's exact row fields, including bounded dense arrays; assessment and binding use that same copy. Expected-current comparison likewise uses its own validated identity copy, never rereading caller properties after validation. This does not authenticate arbitrary proxy behavior or its provenance: only the captured data is assessed, and caller `get` accessors are never invoked.
+
 Inputs are untrusted. JSON cannot authenticate its own source. Callers must retain independently verifiable read receipts, query scope, observation time and completeness outside the JSON. Even matching snapshots leave production state UNKNOWN.
 
 ## Proposed reads and cardinality
@@ -85,3 +87,10 @@ Earlier broader diagnostic/workflow attempts failed in enforced no-write mode: e
 - `node scripts/check-workflow-action-pins.mjs` and `node scripts/check-workflow-runner-safety.mjs`: PASS (43 workflows).
 
 The lockfile installation reports four dependency advisories (two moderate, two high); dependencies were not changed or auto-fixed in this scoped slice. This is not a dependency-security clearance. Normal PR CI and Ada independent review remain required. Production state remains UNKNOWN. No merge, deployment, sync replay or production change was performed.
+
+2026-10-10: Ada independent review rejected head `6b4b40d66a24bbf83d5d7e36f1f3f6b2d1ee482c` for two P2 offline identity findings ([review](https://github.com/aiskillstore/marketplace/pull/3717#issuecomment-6088952490)): post-assessment pointer substitution and incomplete own-field rejection. Added seven failing regression cases first: enforced offline stage suite 13 PASS / 7 FAIL, zero skips. Fixed both using descriptor-only owned snapshots and identities; added two further stable-copy/proxy regressions. No diagnostic/S1 implementation changes.
+
+- Stage + diagnostic run in no-write mode: 28 PASS / 1 FAIL solely because diagnostic CLI fixture requires `mkdtemp`; retained as a failed invocation. Repeated in ordinary governed temp-enabled mode: 29/29 PASS. No test was skipped or weakened.
+- Final six affected suites with `CI=true`: `node --test scripts/tests/bookforge-stage-plan.test.mjs scripts/tests/bookforge-readonly-diagnostic.test.mjs scripts/tests/submission-scope-workflows.test.mjs scripts/tests/validate-marketplace-autofix.test.mjs scripts/tests/workflow-action-pin-policy.test.mjs scripts/tests/workflow-runner-safety.test.mjs`: 111/111 PASS, zero skips (stage 22 cases).
+- Both policy CLIs and `git diff --check`: PASS (43 workflows).
+- New exact head and normal PR CI must be read back after push. Ada independent re-review remains required; no production queries/writes, merge/deploy/release, continuation, notification or S2/S3 work is included.
