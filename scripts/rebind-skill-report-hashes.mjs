@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { createHash } from 'node:crypto';
+import { execFileSync } from 'node:child_process';
 import {
   existsSync,
   lstatSync,
@@ -62,7 +63,46 @@ function sha256(path) {
   return createHash('sha256').update(readFileSync(path)).digest('hex');
 }
 
-export function rebindSkillReportHashes({ repositoryRoot, skillPaths }) {
+// Source refreshes can restore upstream colon names in bundled sub-skills.
+// Preserve only a proven baseline normalization, never invent names or undo a rename.
+function preserveNestedSkillNames(root, skillDirectory) {
+  const git = (args) => execFileSync('git', ['-C', root, ...args], { encoding: 'utf8' });
+  const scalar = (content) => {
+    const frontmatter = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/.exec(content);
+    if (!frontmatter) return null;
+    const names = [...frontmatter[1].matchAll(/^name: *([^\r\n]+)$/gm)];
+    if (names.length !== 1) return null;
+    const value = /^(?:([a-z0-9:-]+)|"([a-z0-9:-]+)"|'([a-z0-9:-]+)') *$/.exec(names[0][1]);
+    if (!value) return null;
+    return {
+      name: value[1] ?? value[2] ?? value[3],
+      offset: content.indexOf('\n') + 1 + names[0].index,
+      length: names[0][0].length,
+    };
+  };
+  for (const entry of git(['ls-tree', '-rz', 'HEAD', '--', skillDirectory]).split('\0').filter(Boolean)) {
+    const tab = entry.indexOf('\t');
+    const [mode, type, oid] = entry.slice(0, tab).split(' ');
+    const path = entry.slice(tab + 1);
+    if (type !== 'blob' || !['100644', '100755'].includes(mode)
+      || !path.startsWith(`${skillDirectory}/`) || !path.endsWith('/SKILL.md')
+      || path === `${skillDirectory}/SKILL.md`) continue;
+    const absolute = resolve(root, path);
+    if (!existsSync(absolute)) continue;
+    if (realpathSync(absolute) !== absolute || !lstatSync(absolute).isFile()) {
+      fail(`${path} is not a regular packaged file`);
+    }
+    const before = scalar(git(['cat-file', 'blob', oid]));
+    const content = readFileSync(absolute, 'utf8');
+    const incoming = scalar(content);
+    if (!before || !incoming || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(before.name)
+      || !/^[a-z0-9]+(?:-[a-z0-9]+)*(?::[a-z0-9]+(?:-[a-z0-9]+)*)+$/.test(incoming.name)
+      || incoming.name.replaceAll(':', '-') !== before.name) continue;
+    writeFileSync(absolute, `${content.slice(0, incoming.offset)}name: ${before.name}${content.slice(incoming.offset + incoming.length)}`);
+  }
+}
+
+export function rebindSkillReportHashes({ repositoryRoot, skillPaths, preserveNestedNames = false }) {
   const root = realpathSync(repositoryRoot);
   const normalized = [...new Set(skillPaths.map(normalizeSkillPath))].sort();
   if (normalized.length === 0) fail('no changed SKILL.md paths were provided');
@@ -93,6 +133,10 @@ export function rebindSkillReportHashes({ repositoryRoot, skillPaths }) {
       fail(`${reportPath} has invalid source_ref lineage`);
     }
 
+    if (preserveNestedNames) {
+      if (!skillDirectory.startsWith('skills/')) fail('name preservation is restricted to published skills');
+      preserveNestedSkillNames(root, skillDirectory);
+    }
     const contentHash = sha256(absoluteSkill);
     const treeHash = calculateCanonicalTreeHash(root, skillDirectory);
     report.meta.content_hash = contentHash;
@@ -121,6 +165,7 @@ function main() {
   const rebound = rebindSkillReportHashes({
     repositoryRoot: option(args, '--repo-root'),
     skillPaths,
+    preserveNestedNames: args.includes('--preserve-nested-names'),
   });
   process.stdout.write(`${JSON.stringify({ schemaVersion: 1, rebound }, null, 2)}\n`);
 }

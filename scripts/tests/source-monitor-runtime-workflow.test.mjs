@@ -292,7 +292,7 @@ test('source monitor binds every changed report and verifies update safety befor
   );
 });
 
-function assertPayloadOnlyBinding(skillDirectory) {
+function assertPayloadOnlyBinding(skillDirectory, nameCase) {
   const root = mkdtempSync(join(tmpdir(), 'source-monitor-payload-only-'));
   const workspace = join(root, 'workspace');
   const absoluteSkillDirectory = join(workspace, skillDirectory);
@@ -314,24 +314,80 @@ function assertPayloadOnlyBinding(skillDirectory) {
     run('git', ['init', '-q', workspace]);
     run('git', ['-C', workspace, 'config', 'user.name', 'Fixture']);
     run('git', ['-C', workspace, 'config', 'user.email', 'fixture@example.com']);
+    const nestedPath = join(absoluteSkillDirectory, 'native-invoke', 'SKILL.md');
+    if (nameCase) {
+      mkdirSync(join(absoluteSkillDirectory, 'native-invoke'));
+      if (nameCase.before !== null) writeFileSync(nestedPath, `---\nname: ${nameCase.before}\ndescription: fixture\n---\nOld body\n`);
+    }
     run('git', ['-C', workspace, 'add', '.']);
     run('git', ['-C', workspace, 'commit', '-qm', 'fixture']);
 
+    if (nameCase) writeFileSync(nestedPath, `---\ndescription: ${JSON.stringify(`name: ${nameCase.incoming}`)}\nname: ${nameCase.incoming}\n---\nNew body\n`);
     writeFileSync(join(absoluteSkillDirectory, 'references', 'guide.md'), '# New\n');
-    run('bash', ['-c', extractRunBlock('Bind source monitor reports to packaged trees')], {
+    const outside = join(root, 'outside.md');
+    if (nameCase?.symlink) {
+      writeFileSync(outside, readFileSync(nestedPath));
+      rmSync(nestedPath);
+      symlinkSync(outside, nestedPath);
+    }
+    const bindingResult = run('bash', ['-c', extractRunBlock('Bind source monitor reports to packaged trees')], {
       cwd: workspace,
+      allowFailure: nameCase?.symlink,
       env: { ...process.env, RUNNER_TEMP: root, GITHUB_RUN_ID: '1234', DRY_RUN: 'false', CREATE_PR: 'true' },
     });
+    if (nameCase?.symlink) {
+      assert.notEqual(bindingResult.status, 0);
+      assert.match(bindingResult.stderr, /not a regular packaged file/);
+      assert.match(readFileSync(outside, 'utf8'), /name: orchestration:native-invoke\n/);
+      return;
+    }
 
     const staged = run('git', ['-C', workspace, 'diff', '--cached', '--name-only']).stdout.trim().split('\n');
     assert.ok(staged.includes(`${skillDirectory}/references/guide.md`));
     assert.ok(staged.includes(`${skillDirectory}/skill-report.json`));
     const report = JSON.parse(readFileSync(join(absoluteSkillDirectory, 'skill-report.json'), 'utf8'));
     assert.equal(report.meta.tree_hash, calculateCanonicalTreeHash(workspace, skillDirectory));
+    if (nameCase) {
+      const expected = `---\ndescription: ${JSON.stringify(`name: ${nameCase.incoming}`)}\nname: ${nameCase.expected}\n---\nNew body\n`;
+      assert.equal(readFileSync(nestedPath, 'utf8'), expected);
+      assert.equal(run('git', ['-C', workspace, 'show', `:${skillDirectory}/native-invoke/SKILL.md`]).stdout, expected);
+      assert.equal(report.meta.source_ref, 'main');
+      assert.equal(report.meta.source_url, 'https://github.com/owner/repository');
+    }
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
 }
+
+test('source monitor preserves previously canonicalized nested names before hashing and staging', () => {
+  for (const incoming of ['orchestration:native-invoke', '"orchestration:native-invoke"', "'orchestration:native-invoke'"]) {
+    assertPayloadOnlyBinding('skills/consiliency/orchestration', {
+      before: 'orchestration-native-invoke', incoming, expected: 'orchestration-native-invoke',
+    });
+  }
+});
+
+test('source monitor does not undo real renames or invent normalization for unmatched names', () => {
+  for (const incoming of ['new-name', 'other:native-invoke', '装修', 'UPPERCASE', 'orchestration::native-invoke']) {
+    assertPayloadOnlyBinding('skills/consiliency/orchestration', {
+      before: 'orchestration-native-invoke', incoming, expected: incoming,
+    });
+  }
+});
+
+test('source monitor refuses a nested symlink without modifying its target', () => {
+  assertPayloadOnlyBinding('skills/consiliency/orchestration', {
+    before: 'orchestration-native-invoke', incoming: 'orchestration:native-invoke', symlink: true,
+  });
+});
+
+test('source monitor does not normalize new or already-invalid baseline nested names', () => {
+  for (const before of [null, 'orchestration:native-invoke']) {
+    assertPayloadOnlyBinding('skills/consiliency/orchestration', {
+      before, incoming: 'orchestration:native-invoke', expected: 'orchestration:native-invoke',
+    });
+  }
+});
 
 test('source monitor rebinds namespaced and flat payload-only updates', () => {
   assertPayloadOnlyBinding('skills/owner/payload-only');
