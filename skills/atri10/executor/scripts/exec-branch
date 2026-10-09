@@ -1,0 +1,441 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Atri10
+# Branch lifecycle: fork from the parent branch, merge back through the
+# gate its level requires. See references/branches.md for the model.
+#
+# Branch model: initiative/INIT-NNNN forks from the human's branch at
+# intake; plan/INIT-NNNN-Pnn forks from the initiative branch; task/
+# INIT-NNNN-Pnn-Tnn forks from the PLAN BRANCH TIP at dispatch and merges
+# back only when its own review verdict is clean. side/ and spike/ carry
+# the work that is neither plan nor task. Initiative completion is the
+# human's decision (executor-handoff).
+#
+# Usage:
+#   exec-branch PLAN_FILE start       fork plan/INIT-NNNN-Pnn from the
+#                                     initiative branch (or its recorded
+#                                     base), switch to it; prints name
+#   exec-branch PLAN_FILE status      print current branch, the task-branch
+#                                     stack, and orphan worktrees
+#   exec-branch PLAN_FILE merge       merge plan branch into the initiative
+#                                     branch (--no-ff); refuses unless the
+#                                     exec-run audit passes (final verdict
+#                                     exists, every completed task judged)
+#   exec-branch PLAN_FILE audit       run that same audit without merging;
+#                                     prints the failing AUDIT lines
+#   exec-branch PLAN_FILE abandon     delete the plan branch (unmerged work
+#                                     is the human's call; refuses if the
+#                                     branch has commits not on the base
+#                                     unless -f is passed)
+#   exec-branch PLAN_FILE task start TASK_ID [--worktree]
+#                                     fork task/<TASK_ID> from the plan
+#                                     branch tip; --worktree also creates
+#                                     .executor/worktrees/<TASK_ID> and
+#                                     leaves the main tree on the plan
+#   exec-branch PLAN_FILE task merge TASK_ID
+#                                     merge the task branch into the plan
+#                                     branch; refuses unless the task's
+#                                     latest R-verdict is clean
+#   exec-branch PLAN_FILE task abandon TASK_ID [-f]
+#                                     delete the task branch (refuses
+#                                     unique commits unless -f)
+#   exec-branch PLAN_FILE side start|merge|abandon SLUG [-f]
+#                                     in-scope work that is neither plan
+#                                     nor task; merge requires an
+#                                     initiative ruling naming the slug
+#   exec-branch PLAN_FILE spike start|abandon SLUG [-f]
+#                                     throwaway experiment; never merges
+set -euo pipefail
+. "$(cd "$(dirname "$0")" && pwd)/_exec-lib.sh"
+
+[ $# -ge 2 ] || exec_die "usage: exec-branch PLAN_FILE start|status|merge|audit|abandon|task|side|spike [...]"
+plan=$1
+action=$2
+flag=${3:-}
+[ -f "$plan" ] || exec_die "no such plan file: $plan"
+
+plan_id=$(exec_frontmatter "$plan" id)
+[ -n "$plan_id" ] || exec_die "no id: in plan frontmatter — branch tracking needs an ID"
+init=$(exec_initiative_of "$plan_id") || exec_die "cannot derive initiative from $plan_id"
+
+plan_branch="plan/$plan_id"
+init_branch="initiative/$init"
+
+current=$(git branch --show-current)
+
+# --- task branches (references/branches.md) ---------------------------------
+#
+# A task branch forks from the PLAN BRANCH TIP at dispatch — not from a
+# snapshot taken when the plan started. That is what makes sequential
+# tasks conflict-free: task N+1 already contains task N's merged work.
+# The merge back is gated on the task's own review verdict, so the plan
+# branch's history holds only reviewed work.
+
+task_branch() { echo "task/$1"; }
+task_worktree() { echo "$(exec_main_root)/.executor/worktrees/$1"; }
+
+# Refuse to move branches with uncommitted work in play: the edits ride
+# the checkout and land in the wrong history.
+require_clean_tree() {
+  if [ -n "$(git status --porcelain)" ]; then
+    exec_die "working tree has uncommitted changes — commit, stash, or clean them before $1 (unrelated work must not ride the checkout)"
+  fi
+}
+
+# The task's newest R-verdict, or empty. Round-suffixed: R02 supersedes R01.
+task_latest_verdict() {
+  local tid=$1 ws
+  ws=$(exec_workspace_dir "$plan")
+  ls "$ws/reviews/verdicts/${tid}-R"*-verdict.md 2>/dev/null | sort | tail -1
+}
+
+# Remove the task's worktree if one exists. Refuses a dirty worktree —
+# uncommitted work there is the agent's, not ours to discard.
+remove_task_worktree() {
+  local tid=$1 wt
+  wt=$(task_worktree "$tid")
+  [ -d "$wt" ] || return 0
+  if [ -n "$(git -C "$wt" status --porcelain 2>/dev/null)" ]; then
+    exec_die "worktree $wt has uncommitted changes — commit or discard them before removing it"
+  fi
+  git worktree remove --force "$wt" >/dev/null 2>&1 || git worktree remove "$wt" >/dev/null 2>&1 \
+    || exec_die "could not remove worktree $wt — remove it by hand (git worktree remove $wt)"
+}
+
+cmd_task_start() {
+  local tid=$1 wt_flag=$2 tb wt base
+  case "$tid" in
+    "$plan_id"-T[0-9][0-9]) ;;
+    *) exec_die "task ID '$tid' is not ${plan_id}-Tnn — a task branch names a task this plan owns" ;;
+  esac
+  tb=$(task_branch "$tid")
+  require_clean_tree "starting a task branch"
+  git show-ref --verify --quiet "refs/heads/$plan_branch" \
+    || exec_die "no plan branch $plan_branch — run: exec-branch $plan start"
+  if git show-ref --verify --quiet "refs/heads/$tb"; then
+    # Idempotent resume: same task, same branch.
+    if [ "$wt_flag" = "--worktree" ]; then
+      wt=$(task_worktree "$tid")
+      [ -d "$wt" ] || git worktree add "$wt" "$tb" >/dev/null 2>&1 || exec_die "could not re-create worktree $wt"
+      echo "$tb"
+      echo "$wt"
+    else
+      [ "$(git branch --show-current)" = "$tb" ] || git checkout "$tb" >/dev/null
+      echo "$tb"
+    fi
+    return 0
+  fi
+  base=$(git rev-parse --short "$plan_branch")
+  if [ "$wt_flag" = "--worktree" ]; then
+    # The main worktree stays on the plan branch: a branch checked out in
+    # one worktree cannot be checked out in another.
+    wt=$(task_worktree "$tid")
+    mkdir -p "$(dirname "$wt")"
+    git worktree add "$wt" -b "$tb" "$plan_branch" >/dev/null 2>&1 \
+      || exec_die "could not create worktree $wt on $tb"
+    exec_record_task_branch "$(exec_workspace_dir "$plan")" "$tid" "$tb" "$base"
+    echo "$tb"
+    echo "$wt"
+  else
+    git checkout -b "$tb" "$plan_branch" >/dev/null
+    exec_record_task_branch "$(exec_workspace_dir "$plan")" "$tid" "$tb" "$base"
+    echo "$tb"
+  fi
+}
+
+cmd_task_merge() {
+  local tid=$1 tb verdict merge_sha
+  tb=$(task_branch "$tid")
+  require_clean_tree "merging a task branch"
+  git show-ref --verify --quiet "refs/heads/$tb" || exec_die "no task branch $tb — nothing to merge"
+  git show-ref --verify --quiet "refs/heads/$plan_branch" \
+    || exec_die "no plan branch $plan_branch — nothing to merge into"
+  # Gate: the task's own review must be clean. This is the whole point of
+  # the level — the plan branch receives only reviewed work.
+  verdict=$(task_latest_verdict "$tid")
+  if [ -z "$verdict" ]; then
+    exec_die "merge refused: no verdict for $tid under reviews/verdicts — the task is unjudged"
+  fi
+  if ! exec_verdict_clean "$verdict"; then
+    exec_die "merge refused: $(basename "$verdict") is not clean — needs spec_verdict: PASS or null with quality: APPROVED"
+  fi
+  # A worktree holding the branch must go before the branch can be merged
+  # and deleted; its cleanliness was checked there.
+  remove_task_worktree "$tid"
+  [ "$(git branch --show-current)" = "$plan_branch" ] || git checkout "$plan_branch" >/dev/null
+  if git merge --no-ff --no-edit "$tb" >/dev/null 2>&1; then
+    merge_sha=$(git rev-parse --short HEAD)
+    printf '%s: complete (merge %s into %s)\n' "$tid" "$merge_sha" "$plan_branch" \
+      >> "$(exec_workspace_dir "$plan")/progress.md"
+    git branch -d "$tb" >/dev/null
+    echo "merged $tb -> $plan_branch ($merge_sha)"
+  else
+    git merge --abort 2>/dev/null || true
+    exec_die "merge conflict — resolve on the task branch first (merge $plan_branch into $tb, fix, then retry)"
+  fi
+}
+
+cmd_task_abandon() {
+  local tid=$1 force=$2 tb
+  tb=$(task_branch "$tid")
+  git show-ref --verify --quiet "refs/heads/$tb" || exec_die "no task branch to abandon: $tb"
+  if [ "$force" != "-f" ]; then
+    git show-ref --verify --quiet "refs/heads/$plan_branch" \
+      || exec_die "no plan branch $plan_branch — cannot tell whether $tb carries unique commits; pass -f only if you mean to delete them blind"
+    if [ -n "$(git log --oneline "$plan_branch".."$tb" 2>/dev/null)" ]; then
+      exec_die "$tb has commits not on $plan_branch — pass -f to delete them deliberately"
+    fi
+  fi
+  remove_task_worktree "$tid"
+  if [ "$(git branch --show-current)" = "$tb" ]; then
+    git checkout "$plan_branch" >/dev/null 2>&1 || exec_die "on $tb but no plan branch $plan_branch to return to"
+  fi
+  if [ "$force" = "-f" ]; then
+    git branch -D "$tb" >/dev/null || exec_die "git could not force-delete $tb"
+  else
+    git branch -d "$tb" >/dev/null || exec_die "could not safely delete $tb — pass -f to force it"
+  fi
+  echo "abandoned $tb"
+}
+
+case "$action" in
+  task)
+    sub=${3:-}; tid=${4:-}; tflag=${5:-}
+    [ -n "$sub" ] && [ -n "$tid" ] \
+      || exec_die "usage: exec-branch PLAN_FILE task start|merge|abandon TASK_ID [--worktree|-f]"
+    case "$sub" in
+      start)
+        case "$tflag" in ""|--worktree) ;; *) exec_die "unknown flag: $tflag (want --worktree)" ;; esac
+        cmd_task_start "$tid" "$tflag" ;;
+      merge)
+        [ -z "$tflag" ] || exec_die "task merge takes no flag"
+        cmd_task_merge "$tid" ;;
+      abandon)
+        case "$tflag" in ""|-f) ;; *) exec_die "unknown flag: $tflag (want -f)" ;; esac
+        cmd_task_abandon "$tid" "$tflag" ;;
+      *) exec_die "unknown task action: $sub (want start|merge|abandon)" ;;
+    esac
+    exit 0
+    ;;
+esac
+
+case "$action" in
+  side|spike)
+    sub=${3:-}; slug=${4:-}; sflag=${5:-}
+    [ -n "$sub" ] && [ -n "$slug" ] \
+      || exec_die "usage: exec-branch PLAN_FILE $action start|merge|abandon SLUG [-f]"
+    case "$slug" in
+      *[!a-z0-9-]*|"") exec_die "slug '$slug' must be [a-z0-9-]+ (lowercase, hyphens)" ;;
+    esac
+    [ "${#slug}" -le 40 ] || exec_die "slug '$slug' is longer than 40 characters"
+    sbranch="$action/$init-$slug"
+    case "$sub" in
+      start)
+        [ -z "$sflag" ] || exec_die "$action start takes no flag"
+        require_clean_tree "starting a $action branch"
+        git show-ref --verify --quiet "refs/heads/$init_branch" \
+          || exec_die "no initiative branch $init_branch — run: exec-initiative branch $init"
+        if git show-ref --verify --quiet "refs/heads/$sbranch"; then
+          git checkout "$sbranch" >/dev/null
+          echo "$sbranch"
+          exit 0
+        fi
+        git checkout -b "$sbranch" "$init_branch" >/dev/null
+        echo "$sbranch"
+        ;;
+      merge)
+        [ "$action" = "side" ] || exec_die "a spike branch never merges — abandon it instead"
+        [ -z "$sflag" ] || exec_die "side merge takes no flag"
+        require_clean_tree "merging a side branch"
+        git show-ref --verify --quiet "refs/heads/$sbranch" || exec_die "no side branch $sbranch"
+        # A side branch is not a task: it has no verdict, so the gate is a
+        # recorded human decision. The ruling names the slug.
+        rulings="$(exec_run_store)/$init/rulings.md"
+        if [ ! -f "$rulings" ] || ! grep -qF "$slug" "$rulings" 2>/dev/null; then
+          exec_die "merge refused: no initiative ruling naming '$slug' — record the decision first (exec-ruling PLAN initiative \"merge side/$init-$slug\" \"why\" \"cost\")"
+        fi
+        [ "$(git branch --show-current)" = "$init_branch" ] || git checkout "$init_branch" >/dev/null
+        if git merge --no-ff --no-edit "$sbranch" >/dev/null 2>&1; then
+          echo "merged $sbranch -> $init_branch"
+          git branch -d "$sbranch" >/dev/null
+        else
+          git merge --abort 2>/dev/null || true
+          exec_die "merge conflict — resolve on $sbranch first (merge $init_branch into it, fix, then retry)"
+        fi
+        ;;
+      abandon)
+        case "$sflag" in ""|-f) ;; *) exec_die "unknown flag: $sflag (want -f)" ;; esac
+        git show-ref --verify --quiet "refs/heads/$sbranch" || exec_die "no $action branch to abandon: $sbranch"
+        if [ "$sflag" != "-f" ]; then
+          git show-ref --verify --quiet "refs/heads/$init_branch" \
+            || exec_die "no initiative branch $init_branch — cannot tell whether $sbranch carries unique commits; pass -f only if you mean to delete them blind"
+          if [ -n "$(git log --oneline "$init_branch".."$sbranch" 2>/dev/null)" ]; then
+            exec_die "$sbranch has commits not on $init_branch — pass -f to delete them deliberately"
+          fi
+        fi
+        if [ "$(git branch --show-current)" = "$sbranch" ]; then
+          git checkout "$init_branch" >/dev/null 2>&1 || exec_die "on $sbranch but no initiative branch to return to"
+        fi
+        if [ "$sflag" = "-f" ]; then
+          git branch -D "$sbranch" >/dev/null || exec_die "git could not force-delete $sbranch"
+        else
+          git branch -d "$sbranch" >/dev/null || exec_die "could not safely delete $sbranch — pass -f to force it"
+        fi
+        echo "abandoned $sbranch"
+        ;;
+      *) exec_die "unknown $action action: $sub (want start|merge|abandon)" ;;
+    esac
+    exit 0
+    ;;
+esac
+
+case "$action" in
+  start)
+    #never switch branches with uncommitted work in play — the
+    # edits ride the checkout into the new branch and get committed to
+    # the wrong history. The merge path already guards; start guards
+    # too, before any checkout.
+    if [ -n "$(git status --porcelain)" ]; then
+      exec_die "working tree has uncommitted changes — commit, stash, or clean them before starting a plan branch (unrelated work must not ride the checkout)"
+    fi
+    # The initiative branch must exist first: exec-initiative branch INIT-NNNN.
+    if ! git show-ref --verify --quiet "refs/heads/$init_branch"; then
+      exec_die "no initiative branch $init_branch — run: exec-initiative branch $init"
+    fi
+    if git show-ref --verify --quiet "refs/heads/$plan_branch"; then
+      # Idempotent resume: same plan, same branch.
+      git checkout "$plan_branch" >/dev/null
+      echo "$plan_branch"
+      exit 0
+    fi
+    git checkout -b "$plan_branch" "$init_branch" >/dev/null
+    echo "$plan_branch"
+    ;;
+  status)
+    echo "current branch: ${current:-(detached HEAD)}"
+    echo "plan branch:     $plan_branch"
+    echo "initiative:      $init_branch"
+    if [ "$current" = "$plan_branch" ]; then
+      echo "state:           on the plan branch"
+    elif git show-ref --verify --quiet "refs/heads/$plan_branch"; then
+      echo "state:           plan branch exists, you are NOT on it"
+    else
+      echo "state:           plan branch not created yet"
+    fi
+    # The stack: which task branches exist for this plan, and where each
+    # one's work sits relative to the plan branch.
+    ws=$(exec_workspace_dir "$plan")
+    if [ -f "$ws/progress.md" ]; then
+      while IFS= read -r tid; do
+        [ -n "$tid" ] || continue
+        tb=$(task_branch "$tid")
+        git show-ref --verify --quiet "refs/heads/$tb" || continue
+        ahead=$(git rev-list --count "$plan_branch".."$tb" 2>/dev/null || echo "?")
+        wt=$(task_worktree "$tid")
+        where=""
+        [ -d "$wt" ] && where=" worktree=$wt"
+        echo "task branch:     $tb ($ahead commit(s) ahead of $plan_branch)$where"
+      done < <(awk '/^### Task [0-9]+/ { if (match($0, /INIT-[0-9]{4}-P[0-9]{2}-T[0-9]{2}/)) print substr($0, RSTART, RLENGTH) }' "$plan" 2>/dev/null | sort -u)
+    fi
+    # Orphan worktrees: a directory under .executor/worktrees that is not a
+    # worktree at all, or whose branch is gone, is debris from an
+    # interrupted run. The .git probe matters: `git -C <dir>` walks UP to
+    # the enclosing repository, so a plain directory would otherwise report
+    # the main tree's branch and look healthy.
+    wtroot="$(exec_main_root)/.executor/worktrees"
+    if [ -d "$wtroot" ]; then
+      while IFS= read -r wt; do
+        [ -n "$wt" ] || continue
+        if [ ! -e "$wt/.git" ]; then
+          echo "orphan worktree: $wt (not a worktree — no .git) — remove it"
+          continue
+        fi
+        wb=$(git -C "$wt" branch --show-current 2>/dev/null || true)
+        if [ -z "$wb" ] || ! git show-ref --verify --quiet "refs/heads/$wb"; then
+          echo "orphan worktree: $wt (branch '${wb:-none}' is gone) — git worktree remove $wt"
+        fi
+      done < <(find "$wtroot" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort)
+    fi
+    ;;
+  merge)
+    [ "$current" = "$plan_branch" ] || exec_die "you are on '$current', not '$plan_branch' — the audit runs against the plan branch's workspace"
+    # A dirty tree must not ride the checkout: git would carry uncommitted
+    # changes across to the initiative branch (silent contamination) or die
+    # mid-checkout with an error far from its cause.
+    if [ -n "$(git status --porcelain 2>/dev/null)" ]; then
+      exec_die "working tree has uncommitted changes — commit or stash them before merging"
+    fi
+    # The merge target must exist before anything else moves.
+    git show-ref --verify --quiet "refs/heads/$init_branch" \
+      || exec_die "no initiative branch $init_branch — nothing to merge into"
+    # Gate: the plan's run must pass the full audit — registry consistent,
+    # a verdict for every completed task, and the final verdict present.
+    # This is the merge gate; review-before-merge is the whole point of the
+    # branch model. The audit's own diagnostics reach the user — a generic
+    # refusal without them sent people hunting for the real cause.
+    if ! "$0" "$plan" audit; then
+      exec_die "merge refused: exec-run audit fails (missing verdict or final review). Run: exec-run PLAN check"
+    fi
+    git checkout "$init_branch" >/dev/null
+    if git merge --no-ff --no-edit "$plan_branch" >/dev/null 2>&1; then
+      echo "merged $plan_branch -> $init_branch (no-ff, history preserved)"
+      git branch -d "$plan_branch" >/dev/null
+    else
+      # Conflict: back out the checkout, report. Resolution is a human decision.
+      git merge --abort 2>/dev/null || true
+      git checkout "$plan_branch" >/dev/null
+      exec_die "merge conflict — resolve on the plan branch first (merge $init_branch into $plan_branch, fix, then retry)"
+    fi
+    ;;
+  audit)
+    #one canonical semantic audit shared with exec-run. The
+    # previous existence-only copy accepted FAIL verdicts and stale
+    # content; the shared gate parses verdict content and the exact
+    # task set.
+    ws=$(exec_workspace_dir "$plan")
+    reg="$(exec_run_store)/INDEX.md"
+    [ -f "$reg" ] || exec_die "no run registry — run exec-workspace first"
+    total=$(grep -c '^### Task ' "$plan" 2>/dev/null || true)
+    total=${total:-0}
+    if exec_run_audit "$plan" "$ws" "$total" "$reg"; then
+      echo "$plan_id: audit passed"
+    else
+      exec_die "audit failed — see AUDIT lines above"
+    fi
+    ;;
+  abandon)
+    case "$flag" in
+      ""|-f) ;;
+      *) exec_die "usage: exec-branch PLAN_FILE abandon [-f] — unknown flag '$flag'" ;;
+    esac
+    git show-ref --verify --quiet "refs/heads/$plan_branch" || exec_die "no plan branch to abandon: $plan_branch"
+    if [ "$flag" != "-f" ]; then
+      # Refuse when the branch carries commits not on the initiative
+      # branch — a comparison that needs the base to exist.
+      git show-ref --verify --quiet "refs/heads/$init_branch" \
+        || exec_die "no initiative branch $init_branch — cannot tell whether $plan_branch carries unique commits; pass -f only if you mean to delete them blind"
+      if [ -n "$(git log --oneline "$init_branch".."$plan_branch" 2>/dev/null)" ]; then
+        exec_die "$plan_branch has commits not on $init_branch — pass -f to delete them deliberately"
+      fi
+    fi
+    if [ "$current" = "$plan_branch" ]; then
+      git show-ref --verify --quiet "refs/heads/$init_branch" \
+        || exec_die "on $plan_branch but no initiative branch $init_branch to return to — check out a base branch first"
+      git checkout "$init_branch" >/dev/null
+    fi
+    if [ "$flag" = "-f" ]; then
+      # -f is the user's informed choice: force-delete unconditionally.
+      git branch -D "$plan_branch" >/dev/null || exec_die "git could not force-delete $plan_branch"
+    else
+      # -d is the safe delete; if it fails despite a clean unique-commit
+      # scan (a race, or an unmerged-but-listed edge), surface git's
+      # reason — never silently escalate to a force-delete.
+      git branch -d "$plan_branch" >/dev/null \
+        || exec_die "could not safely delete $plan_branch — pass -f to force it"
+    fi
+    echo "abandoned $plan_branch"
+    ;;
+  *)
+    exec_die "unknown action: $action (want start|status|merge|audit|abandon)"
+    ;;
+esac

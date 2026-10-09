@@ -1,0 +1,79 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Atri10
+# Resolve and ensure a plan's execution workspace, printing its absolute path.
+#
+# Keyed by the plan's `id:` frontmatter, not its filename, so renaming a plan
+# never orphans its artifacts. A plan predating the Executor has no id: and
+# falls back to .executor/legacy/<basename>/, preserving old behaviour.
+#
+# Seeding lives in _exec-lib's exec_seed_workspace — every script that writes
+# into a workspace calls it, so no entry point can produce an unseeded
+# workspace. This script additionally writes the run-registry row (the only
+# seeder of those rows) and the initiative-level rulings log.
+#
+# Usage: exec-workspace PLAN_FILE
+set -euo pipefail
+. "$(cd "$(dirname "$0")" && pwd)/_exec-lib.sh"
+
+[ $# -eq 1 ] || exec_die "usage: exec-workspace PLAN_FILE"
+
+plan=$1
+dir=$(exec_workspace_dir "$plan")
+
+plan_id=$(exec_frontmatter "$plan" id)
+
+if [ ! -f "$dir/progress.md" ]; then
+  exec_seed_workspace "$dir" "$plan"
+else
+  #reuse is only safe when the ledger describes THIS plan.
+  # Rename support is deliberate (ID-addressed), but a different plan
+  # file or a different spec must not silently inherit the old run's
+  # ledger and verdicts.
+  spec_id=$(exec_frontmatter "$plan" spec)
+  [ -n "$spec_id" ] || spec_id="(none)"
+  ledger_plan=$(awk '/^plan:/{print $2; exit}' "$dir/progress.md")
+  ledger_spec=$(awk '/^spec:/{print $2; exit}' "$dir/progress.md")
+  if [ -n "$plan_id" ] && [ -n "$ledger_plan" ] && [ "$ledger_plan" != "$plan_id" ]; then
+    exec_die "workspace $dir holds a ledger for $ledger_plan but $plan names $plan_id — refuse to mix runs; resolve the stale workspace explicitly"
+  fi
+  if [ -n "$ledger_spec" ] && [ "$ledger_spec" != "$spec_id" ] && [ "$ledger_spec" != "(none)" ]; then
+    exec_die "workspace $dir was seeded against spec $ledger_spec but this plan names $spec_id — the contract changed; start a new workspace or record the revision deliberately"
+  fi
+  # A pre-existing workspace may still be missing seeded files (created
+  # before the seed-everywhere contract, or hand-made); fill gaps now.
+  exec_seed_workspace "$dir" "$plan"
+fi
+
+# Initiative-level home for cross-plan artifacts (plan-regression reports,
+# initiative rulings) — exists whenever any plan workspace does.
+if [ -n "$plan_id" ]; then
+  exec_initiative_run_dir "$plan_id" >/dev/null 2>&1 || true
+  init_id=$(exec_initiative_of "$plan_id" 2>/dev/null || true)
+  [ -n "$init_id" ] && exec_seed_initiative_rulings "$init_id" >/dev/null
+fi
+
+# Run registry row, created on first resolution of this plan.
+store=$(exec_run_store)
+reg="$store/INDEX.md"
+if [ ! -f "$reg" ]; then
+  {
+    echo "# Executor Runs"
+    echo
+    echo "| Plan ID | Initiative | Status | Tasks | Started | Finished | Workspace |"
+    echo "|---|---|---|---|---|---|---|"
+  } > "$reg"
+fi
+if ! grep -q "^| $plan_id |" "$reg" 2>/dev/null; then
+  init=$(exec_initiative_of "$plan_id" 2>/dev/null || echo "—")
+  rel=${dir#"$store/"}
+  # Seeded as 'ready': the run starts when exec-run start flips it to
+  # 'running' — a row born 'running' tells a resumed controller the run
+  # started when nothing ever did, which is the lie RUN-START closes.
+  awk -v row="| $plan_id | $init | ready | 0/? | $(date -u +%Y-%m-%d) | — | \`$rel/\` |" '
+    { print }
+    /^\|---/ && !done { print row; done = 1 }
+  ' "$reg" > "$reg.tmp" && mv "$reg.tmp" "$reg"
+fi
+
+echo "$dir"

@@ -1,0 +1,333 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Atri10
+# Own a critique stage's clearance record and decide whether the component
+# is cleared to gate the next phase.
+#
+# One script, every component. Which artifacts a component owns, where its
+# clearance record lives, and which check catalog applies all come from the
+# registry in _exec-lib.sh — so adding a component is a row, not a fork.
+# `plans` resolves to the pre-existing plan-regression/ home and reads the
+# same summary.md the shipped skill writes, so the two are one gate with
+# two front doors rather than two gates that can disagree.
+#
+# The judgment lives in the critique skill and its per-component catalogs.
+# This script is the mechanical half: path resolution (nothing hand-builds
+# a location) and the check that turns "the component is audited or waived"
+# into an exit code the phase gate relies on.
+#
+# Audit and repair files are round-suffixed (critique-architecture-R02.md)
+# because a re-audit verdicts the findings of the round before it and must
+# be able to read that round.
+#
+# Usage:
+#   exec-critique INIT_ID COMPONENT dir              # this component's dir
+#   exec-critique INIT_ID COMPONENT catalog          # the check catalog to audit against
+#   exec-critique INIT_ID COMPONENT init             # seed summary, dispatch log, rulings home
+#   exec-critique INIT_ID COMPONENT audit [ROUND]    # audit path for this component and round
+#   exec-critique INIT_ID COMPONENT repair [ROUND]   # repair-log path for this component and round
+#   exec-critique INIT_ID COMPONENT latest           # newest existing audit, or exit 1
+#   exec-critique INIT_ID COMPONENT check            # cleared to gate? exit 1 on any gap
+set -euo pipefail
+. "$(cd "$(dirname "$0")" && pwd)/_exec-lib.sh"
+
+# Three audits per component, matching the plan-regression contract. The
+# cap is enforced here rather than left to the skill's prose: a cap nobody
+# counts is a suggestion, and a suggestion is how a seventh round appears
+# with nobody able to say when the loop started.
+MAX_ROUNDS=3
+
+[ $# -ge 3 ] && [ $# -le 4 ] \
+  || exec_die "usage: exec-critique INIT_ID COMPONENT dir|catalog|init|audit [ROUND]|repair [ROUND]|latest|check"
+
+init_id=$1
+component=$2
+action=$3
+round_arg=${4:-01}
+
+# An unregistered component is a typo. Fail closed: an engine that cannot
+# name the component has no business clearing it.
+row=$(exec_critique_component "$component" "$init_id")
+
+
+phase=$(printf '%s' "$row" | cut -d'|' -f2)
+set_spec=$(printf '%s' "$row" | cut -d'|' -f3)
+summary_sub=$(printf '%s' "$row" | cut -d'|' -f4)
+catalog=$(printf '%s' "$row" | cut -d'|' -f5)
+
+# The registry is positional data, and a row with one field too many reads
+# as plausible-but-wrong: summary_dir silently becomes `-` and two
+# components land in the same directory named after it. Counting the
+# fields is cheaper than debugging that.
+fields=$(printf '%s\n' "$row" | awk -F'|' '{ print NF }')
+[ "$fields" -eq 5 ] \
+  || exec_die "critique registry row for '$component' has $fields fields, expected 5 (component|phase|set_spec|summary_dir|catalog) — fix the row in _exec-lib.sh"
+case "$summary_sub" in
+  ""|-) exec_die "critique registry row for '$component' has no summary_dir — every component needs a home for its clearance record" ;;
+esac
+
+idir=$(exec_initiative_dir "$init_id")
+run_dir=$(exec_initiative_run_dir "$init_id-$component")
+reg_dir="$run_dir/$summary_sub"
+summary="$reg_dir/summary.md"
+rulings="$run_dir/rulings.md"
+
+# 1 | 01 | R01 | r1  ->  R01. Rounds are two digits, like review rounds.
+normalize_round() {
+  local r=${1#[Rr]}
+  case "$r" in
+    ''|*[!0-9]*) exec_die "round '$1' is not a number (want 01 or R01)" ;;
+  esac
+  [ "$((10#$r))" -ge 1 ] && [ "$((10#$r))" -le "$MAX_ROUNDS" ] \
+    || exec_die "round '$1' is outside 01..$MAX_ROUNDS — after $MAX_ROUNDS audits the open findings go to the human, not to another repair"
+  printf 'R%02d' "$((10#$r))"
+}
+
+# The row key for an artifact: its frontmatter id when it has one, else the
+# filename without extension. Artifact ids are the pipeline's currency, but
+# a file that predates the id convention must still get audited rather than
+# silently dropped from the set.
+artifact_key() {
+  local f=$1 k
+  k=$(exec_frontmatter "$f" id 2>/dev/null || true)
+  if [ -z "$k" ]; then
+    k=$(basename "$f")
+    k=${k%.md}
+  fi
+  # Newline-terminated: callers pipe this in a read loop, and a key with no
+  # terminator fuses with the next one into a single unmatchable line.
+  printf '%s\n' "$k"
+}
+
+# Newest audit file for this component: the highest -R<nn> round. Prints
+# nothing when no audit exists.
+latest_audit() {
+  find "$reg_dir" -maxdepth 1 -name "critique-${component}-R[0-9][0-9].md" 2>/dev/null | sort | tail -1
+}
+
+# An audit's verdict, and the severity counts that must agree with it.
+# A bare `verdict: PASS` next to `high: 2` is the exact hole the generic
+# gate exists to close: the count is the auditor's own statement of what it
+# found, so disagreement means one of the two is a lie.
+audit_field() {
+  local f=$1 k=$2
+  exec_frontmatter "$f" "$k" 2>/dev/null | tr -dc '0-9'
+}
+
+audit_verdict() {
+  local f=$1 v
+  v=$(exec_frontmatter "$f" verdict 2>/dev/null || true)
+  printf '%s' "$v" | tr '[:lower:]' '[:upper:]' | awk '{print $1}'
+}
+
+case "$action" in
+  dir)
+    mkdir -p "$reg_dir"
+    echo "$reg_dir"
+    ;;
+  catalog)
+    echo "$catalog"
+    ;;
+  init)
+    mkdir -p "$reg_dir"
+    exec_seed_initiative_rulings "$init_id" >/dev/null
+    stamp=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+    if [ ! -f "$summary" ]; then
+      cat > "$summary" <<EOF
+---
+kind: gate
+id: ${init_id}-${component}-critique
+initiative: ${init_id}
+component: $component
+phase: $phase
+title: ${component} critique summary
+status: draft
+created_at: $stamp
+updated_at: $stamp
+---
+
+# ${component} critique — $init_id
+
+*One row per artifact. An artifact is 'clean' when its latest audit round has verdict PASS; 'waived' only when the human explicitly waived the open findings — record the waiver as an initiative ruling too. 'audited' means a report exists but findings remain open.*
+
+| Artifact | Status | Audit | Repairs | Notes |
+|---|---|---|---|---|
+EOF
+    fi
+    if [ ! -f "$reg_dir/dispatches.md" ]; then
+      cat > "$reg_dir/dispatches.md" <<EOF
+---
+kind: dispatches
+id: ${init_id}-${component}-critique
+initiative: ${init_id}
+component: $component
+title: ${component} critique dispatch log
+status: active
+created_at: $stamp
+updated_at: $stamp
+---
+
+# ${component} critique dispatches — $init_id
+
+*One row per AUDIT or REPAIR dispatch, appended below the header row. Agent identities follow the dispatch registry in references/layout.md.*
+
+| Artifact | Role | Model | Agent | Started | Outcome | Output |
+|---|---|---|---|---|---|---|
+EOF
+    fi
+    echo "$summary"
+    ;;
+  audit|repair)
+    mkdir -p "$reg_dir"
+    round=$(normalize_round "$round_arg")
+    if [ "$action" = "audit" ]; then
+      echo "$reg_dir/critique-${component}-${round}.md"
+    else
+      echo "$reg_dir/repair-${component}-${round}.md"
+    fi
+    ;;
+  latest)
+    found=$(latest_audit)
+    [ -n "$found" ] || exit 1
+    echo "$found"
+    ;;
+  check)
+    if [ ! -f "$summary" ]; then
+      exec_die "no $component critique summary at $summary — run 'exec-critique $init_id $component init' and audit the set"
+    fi
+    problems=0
+
+    # The audit is per-component: one report per round covering the whole
+    # set, which is what lets a check span rows. A component with no audit
+    # has nothing to check, so it is refused once, here, rather than once
+    # per row below.
+    afile=$(latest_audit)
+    if [ -z "$afile" ]; then
+      echo "CRITIQUE: $component has no audit under $reg_dir (critique-${component}-R01.md) — a clearance row without its report is an unverified claim" >&2
+      problems=$((problems + 1))
+    elif [ "$(exec_frontmatter "$afile" kind)" != "critique" ]; then
+      echo "CRITIQUE: $(basename "$afile") kind is '$(exec_frontmatter "$afile" kind)' — critique audits carry kind: critique" >&2
+      problems=$((problems + 1))
+    else
+      v=$(audit_verdict "$afile")
+      high=$(audit_field "$afile" high)
+      med=$(audit_field "$afile" medium)
+      : "${high:=0}" "${med:=0}"
+      # PASS is a computable claim: zero HIGH and zero MEDIUM. Checking the
+      # verdict against the auditor's own counts is the difference between
+      # a gate and a transcription of the auditor's optimism.
+      if [ "$v" = "PASS" ] && { [ "$high" -gt 0 ] 2>/dev/null || [ "$med" -gt 0 ] 2>/dev/null; }; then
+        echo "CRITIQUE: $(basename "$afile") claims verdict PASS but reports high=$high medium=$med — PASS means zero HIGH and zero MEDIUM; fix the verdict or the counts" >&2
+        problems=$((problems + 1))
+      fi
+    fi
+
+    # Every clearance row must stand on its own: a real status, and a
+    # report that agrees with it. Rows are the unit of validation (rather
+    # than the artifact set) so that run-axis components — which audit no
+    # directory — are held to the same standard as document components.
+    # One awk pass emits key, status and notes as a tab-separated record.
+    # Re-parsing the row in a second awk cannot work: assigning to a field
+    # makes awk rebuild $0 from the fields, so the pipes are gone before
+    # the second pass sees the line.
+    rows=0
+    while IFS=$'\t' read -r key status notes; do
+      case "$key" in ""|Artifact|Status) continue ;; esac
+      rows=$((rows + 1))
+      status=$(printf '%s' "$status" | tr -d ' ')
+
+      if [ "$status" != "clean" ] && [ "$status" != "waived" ]; then
+        echo "CRITIQUE: $key summary status is '${status:-empty}' — must be clean or waived (repair it, or record a human waiver)" >&2
+        problems=$((problems + 1))
+        continue
+      fi
+      if [ -z "$afile" ]; then
+        continue   # already reported once, above
+      fi
+      if [ "$status" = "clean" ] && [ "$v" != "PASS" ]; then
+        echo "CRITIQUE: $key is marked clean but its latest audit ($(basename "$afile")) has verdict '${v:-none}' — re-audit after repair, or fix the row" >&2
+        problems=$((problems + 1))
+      fi
+      if [ "$status" = "waived" ]; then
+        # A waiver is a human decision. A bare cell is indistinguishable
+        # from a controller self-granting one, and a note with no ruling
+        # behind it is an undocumented skip — the same defect, one layer up.
+        case "$notes" in
+          ""|"—"|"-")
+            echo "CRITIQUE: $key is waived with no note — record what was waived and why (and the initiative ruling)" >&2
+            problems=$((problems + 1)) ;;
+        esac
+        if [ ! -f "$rulings" ] || ! grep -qF "$key" "$rulings" 2>/dev/null; then
+          echo "CRITIQUE: $key is waived but no initiative ruling names it in $rulings — a waived defect with no ruling is an undocumented skip" >&2
+          problems=$((problems + 1))
+        fi
+      fi
+    done < <(awk -F'|' '
+      NR > 1 && /^\|/ {
+        for (i = 2; i <= 6; i++) gsub(/^[ \t]+|[ \t]+$/, "", $i)
+        if ($2 == "" || $2 == "Artifact" || $2 ~ /^-+$/) next
+        printf "%s\t%s\t%s\n", $2, $3, $6
+      }
+    ' "$summary" 2>/dev/null || true)
+
+    if [ "$rows" -eq 0 ]; then
+      # An empty clearance is not a cleared one. For a document component
+      # that means nothing was authored; for a run-axis one it means the
+      # audit never recorded what it covered. Either way a silent pass here
+      # would gate a phase on the strength of no evidence at all.
+      if [ "$set_spec" = "-" ]; then
+        echo "CRITIQUE: $component has no clearance rows — a run-axis audit must record the units it covered (one row per plan)" >&2
+      else
+        echo "CRITIQUE: $component has no artifacts under $idir matching its registered set, and no clearance rows — nothing to clear; author the documents before running the critique gate" >&2
+      fi
+      problems=$((problems + 1))
+    fi
+
+    # Coverage and staleness only apply to document components, where the
+    # set is enumerable. Keys are derived through artifact_key on both
+    # sides — comparing a frontmatter id against a bare filename would
+    # report every row stale, which is a check nobody trusts twice.
+    if [ "$set_spec" != "-" ]; then
+      live=$(exec_critique_set "$init_id" "$component" | while IFS= read -r f; do
+        [ -n "$f" ] && artifact_key "$f"
+      done)
+
+      # Coverage: every artifact in the set has a row. A set member with
+      # no row is an unaudited document that the clearance silently omits.
+      while IFS= read -r f; do
+        [ -n "$f" ] || continue
+        key=$(artifact_key "$f")
+        if ! printf '%s\n' "$live" | grep -qxF "$key"; then
+          continue   # the key is in `live` by construction; guards the loop below
+        fi
+        if [ -z "$(awk -F'|' -v k="$key" '
+              { gsub(/^[ \t]+|[ \t]+$/,"",$2) }
+              $2 == k { print; exit }
+            ' "$summary" 2>/dev/null || true)" ]; then
+          echo "CRITIQUE: $key has no row in $summary — the $component set is unaudited" >&2
+          problems=$((problems + 1))
+        fi
+      done < <(exec_critique_set "$init_id" "$component")
+
+      # Staleness: a row whose artifact is gone audits a document that was
+      # renamed or deleted, so the record no longer describes the set.
+      while IFS= read -r skey; do
+        [ -n "$skey" ] || continue
+        case "$skey" in Artifact|Status|---*) continue ;; esac
+        if ! printf '%s\n' "$live" | grep -qxF "$skey"; then
+          echo "CRITIQUE: $summary has a row for $skey but no such artifact exists — stale clearance row" >&2
+          problems=$((problems + 1))
+        fi
+      done < <(awk -F'|' '/^\|/ { gsub(/^[ \t]+|[ \t]+$/,"",$2); if ($2 ~ /^(INIT-[0-9]{4}|[A-Z]{4}-[0-9])/) print $2 }' "$summary" 2>/dev/null || true)
+    fi
+
+    if [ "$problems" -gt 0 ]; then
+      echo "$init_id: $problems $component critique problem(s) — not cleared to gate $phase" >&2
+      exit 1
+    fi
+    echo "$init_id: $component critique clean — cleared to gate $phase"
+    ;;
+  *)
+    exec_die "unknown action: $action"
+    ;;
+esac

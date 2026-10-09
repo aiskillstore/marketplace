@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Atri10
+# exec — the single entry point. Bare `exec` prints the resume digest;
+# `exec <script> ...` dispatches to any exec-* script; `exec verbs` prints
+# the decision table; `exec roles` the dispatch registry. The pump never
+# needs to know the scripts directory — every path a SKILL.md names can be
+# spelled `exec <name>` and this resolves it.
+set -euo pipefail
+HERE="$(cd "$(dirname "$0")" && pwd)"
+
+usage() {
+  cat <<'EOF'
+usage: exec                resume digest (same as exec-status)
+       exec verbs          the pump's decision table (verb -> actuator)
+       exec roles          the dispatch registry (role -> id grammar)
+       exec <name> ...     run scripts/exec-<name> with the given args
+       exec --help         this text
+EOF
+}
+
+case "${1:-}" in
+  "")      exec "$HERE/exec-status" ;;
+  verbs)   . "$HERE/_exec-lib.sh"; exec_verbs | awk -F'|' '{ printf "%-13s ->  %s\n", $1, $2 }' ;;
+  roles)   . "$HERE/_exec-lib.sh"; exec_roles ;;
+
+  *)
+    name=$1; shift
+    s="$HERE/exec-$name"
+    [ -f "$s" ] && [ -x "$s" ] || { echo "exec: no script exec-$name — exec verbs lists the vocabulary" >&2; exit 2; }
+    exec "$s" "$@"
+    ;;
+esac

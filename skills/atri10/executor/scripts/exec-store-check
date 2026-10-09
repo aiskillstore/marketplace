@@ -1,0 +1,774 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Atri10
+# Lint the TRACKED thinking store (docs/executor/) for contract violations.
+#
+# The live stores showed the drift: the execution store grew script-enforced
+# gates while the thinking store — the record humans and future sessions
+# actually read — was maintained by prose alone. Five documents went
+# unregistered while their initiative's INDEX claimed completeness; six
+# statuses contradicted their own frontmatter; counts disagreed with the
+# bodies they counted. This script makes those failures exit non-zero.
+#
+# Checks:
+#   Registry (docs/executor/INDEX.md)
+#     R1. exists, has a table with the required columns
+#     R2. every initiative folder has a row; every row has a folder
+#     R3. statuses drawn from the contract vocabulary
+#   Initiative INDEX.md
+#     I1. every on-disk document appears in the Documents table (by ID)
+#     I2. every Documents row's Path resolves to a file
+#     I3. row Status matches the document's frontmatter status
+#     I4. phase log has no time travel (Gate passed not before Entered)
+#     I5. an initiative that has entered execution carries a **Branch:**
+#         line — exec-initiative branch writes the fork point at fork time
+#   Brainstorm
+#     B1. discovery gate passed ⇒ a session under brainstorm/sessions/
+#         or a recorded skip note (INDEX.md or a discovery document)
+#     B2. every session dir — in an initiative or at the store root —
+#         carries session.md with kind: brainstorm, question/decided, and
+#         the sections its mode requires: a draft its opening section, an
+#         active session the whole method (design: Brief, Map, >=3
+#         Concepts, Stress test, Decision log, Design, Risks and open
+#         questions, Handoff; decision: >=3 Options, Adversarial pass,
+#         Outcome) and a decided: pick. A root session naming an
+#         initiative was adopted in name but never moved.
+#     B3. a session carrying an INIT-NNNN-BRN-nn id has a Documents row
+#   Documents
+#     D1. frontmatter present; id/initiative/kind/title/status/timestamps set
+#     D2. id matches the filename's ID segment
+#     D3. initiative matches the containing folder's ID
+#     D4. timestamps ISO-8601 UTC; updated_at >= created_at
+#     D5. kind-specific required fields present (spec counts, ADR fields...)
+#     D6. plan task headings carry IDs; count matches tasks:
+#     D7. no HTML comments — a comment between a table header and its rows
+#         splits the table, and an unfilled comment is invisible leftover
+#         guidance (layout.md "Markdown rendering rules")
+#     D8. per-kind body contracts: ARCH carries a mermaid diagram; SPEC
+#         carries ### R<nn> headings, a verification pointer resolving to
+#         a VRFY in this initiative, and a global_constraints count
+#         matching its C<nn> rows; an active OPTS has recommends set and
+#         a filled ## Decision; VRFY criteria_count matches its V<nn>
+#         criteria; and thinking-only kinds (charter, research, options,
+#         risk, spec, verification) embed no implementation-language
+#         code fences
+#   Cross-links
+#     X1. plan spec: resolves to a SPEC in the same initiative
+#     X2. VRFY spec: resolves to a SPEC in the same initiative
+#     X3. every evidence file cited by a VRFY exists; orphan evidence listed
+#   Plan regression
+#     P1. execution entered ⇒ plan-regression phase passed or skipped;
+#         passed ⇒ .executor/<INIT>/plan-regression/summary.md exists
+#
+# Usage: exec-store-check [DOCS_STORE_DIR]   (default: resolved via _exec-lib)
+# Exit: 0 clean, 1 findings, 2 usage/setup error
+set -euo pipefail
+. "$(cd "$(dirname "$0")" && pwd)/_exec-lib.sh"
+
+[ $# -le 1 ] || exec_die "usage: exec-store-check [DOCS_STORE_DIR]"
+
+store=${1:-$(exec_docs_store)}
+[ -d "$store" ] || exec_die "no thinking store at $store"
+
+findings=0
+fail() { echo "FINDING: $*" >&2; findings=$((findings + 1)); }
+note() { echo "note: $*" >&2; }
+
+# ---------------------------------------------------------------------------
+# Frontmatter helpers
+# ---------------------------------------------------------------------------
+
+fm_field() { exec_frontmatter "$1" "$2"; }
+
+fm_iso_ok() {
+  case "$1" in
+    ????-??-??T??:??:??Z)
+      # Shape alone accepts xxxx-xx-xxTxx:xx:xxZ. Verify the calendar
+      # fields are real: a failed parse must not fall back to "valid".
+      date -j -f '%Y-%m-%dT%H:%M:%SZ' "$1" +%s >/dev/null 2>&1 \
+        || date -u -d "$1" +%s >/dev/null 2>&1 \
+        || return 1
+      return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+# UTC seconds since epoch for an ISO-8601 Z timestamp (GNU/BSD date).
+# Callers only invoke this after fm_iso_ok, so a parse failure here is a
+# real error, not a silent 0.
+#
+# `-u` on BOTH branches, not just the GNU one. BSD's `date -j -f` parses in
+# LOCAL time unless told otherwise, so the two platforms disagreed by the
+# machine's UTC offset — 5.5 hours on a IST host — for the same timestamp.
+# Both call sites currently compare two values from this function, so the
+# error cancelled out; nothing is broken today. It is a trap for the next
+# caller who compares the result against an absolute threshold, and a
+# one-character fix now is cheaper than that bug later.
+fm_epoch() {
+  date -u -j -f '%Y-%m-%dT%H:%M:%SZ' "$1" +%s 2>/dev/null \
+    || date -u -d "$1" +%s 2>/dev/null
+}
+
+# B2 for one brainstorm session directory. $1 = session dir, $2 = the
+# directory findings are reported relative to (initiative or store root).
+# The record is the deliverable: its mode decides which sections must
+# exist, and a decided (status: active) session must show the whole method
+# — a design session its brief, map, three or more concepts, stress test,
+# decision log, design, and handoff; a decision session three or more
+# options, the adversarial pass, and the outcome. A draft only needs the
+# section it opened with, so a session in progress is never a finding.
+check_brainstorm_session() {
+  local sdir=$1 base=$2 sfile rel mode st decided sec n req
+  sfile="$sdir/session.md"
+  if [ ! -f "$sfile" ]; then
+    fail "B2: ${sdir#"$base"/} has no session.md — a session directory without its record is an empty claim"
+    return
+  fi
+  rel=${sfile#"$base"/}
+  [ "$(fm_field "$sfile" kind)" = "brainstorm" ] \
+    || fail "B2: $rel kind is '$(fm_field "$sfile" kind)' — brainstorm sessions carry kind: brainstorm"
+  for k in question decided; do
+    exec_frontmatter_has "$sfile" "$k" \
+      || fail "B2: $rel missing $k: field — the question and the pick are the session's identity"
+  done
+  # Sessions written before modes existed are decision records.
+  mode=$(fm_field "$sfile" mode); mode=${mode:-decision}
+  st=$(fm_field "$sfile" status)
+  decided=$(fm_field "$sfile" decided)
+  case "$mode" in
+    design)
+      if [ "$st" = "active" ]; then
+        req="Brief|Map|Concepts|Stress test|Decision log|Design|Risks and open questions|Handoff"
+      else
+        req="Brief"
+      fi ;;
+    decision)
+      if [ "$st" = "active" ]; then req="Options|Adversarial pass|Outcome"; else req="Options"; fi ;;
+    *)
+      fail "B2: $rel mode is '$mode' — want design or decision"
+      return ;;
+  esac
+  while IFS= read -r sec; do
+    [ -n "$(exec_section_body "$sfile" "$sec" | tr -d '[:space:]')" ] \
+      || fail "B2: $rel ($mode, ${st:-no status}) has no non-empty ## $sec section"
+  done < <(printf '%s\n' "$req" | tr '|' '\n')
+  if [ "$st" = "active" ]; then
+    case "$decided" in
+      ""|null|"~") fail "B2: $rel is active but decided: is empty — an active session records the human's pick" ;;
+    esac
+    sec=Options; [ "$mode" = "design" ] && sec=Concepts
+    n=$(exec_section_body "$sfile" "$sec" | grep -c '^### ' || true)
+    [ "${n:-0}" -ge 3 ] \
+      || fail "B2: $rel records ${n:-0} ### entries under ## $sec — a decided session compares at least three"
+  fi
+}
+
+# ---------------------------------------------------------------------------
+# R1–R3: registry
+# ---------------------------------------------------------------------------
+
+reg="$store/INDEX.md"
+if [ ! -f "$reg" ]; then
+  fail "R1: no initiative registry at $reg"
+  reg=""
+fi
+
+declare -a REG_IDS=()
+if [ -n "$reg" ]; then
+  # R1: the registry table must carry the full documented schema. A
+  # header missing any required column means rows cannot be parsed
+  # reliably — refuse rather than guess.
+  header=$(grep -E '^\| *ID *\|' "$reg" | head -1 || true)
+  for col in 'ID' 'Title' 'Status' 'Phase' 'Folder' 'Updated'; do
+    printf '%s' "$header" | grep -qF "| $col |" || fail "R1: registry table missing required column '$col'"
+  done
+  while IFS='|' read -r _ id _ status _ folder _; do
+    id=$(printf '%s' "$id" | xargs)
+    [ -n "$id" ] || continue
+    case "$id" in INIT-[0-9][0-9][0-9][0-9]) ;; *) continue ;; esac
+    # Duplicate initiative rows corrupt resolution (first-match wins
+    # downstream); refuse them here.
+    for rid in "${REG_IDS[@]:-}"; do
+      if [ "$rid" = "$id" ]; then
+        fail "R2: registry has duplicate rows for $id"
+        break
+      fi
+    done
+    REG_IDS+=("$id")
+    status=$(printf '%s' "$status" | xargs)
+    case "$status" in
+      active|complete|superseded|abandoned|paused) ;;
+      *) fail "R3: registry row $id status '$status' not in active|complete|superseded|abandoned|paused" ;;
+    esac
+    folder=$(printf '%s' "$folder" | xargs)
+    folder=${folder#\`}; folder=${folder%\`}
+    if [ -n "$folder" ] && [ ! -d "$store/$folder" ]; then
+      fail "R2: registry row $id names folder '$folder' which does not exist"
+    fi
+  done < <(grep -E '^\| *INIT-[0-9]{4} *\|' "$reg")
+
+  # every folder has a row
+  while IFS= read -r d; do
+    base=$(basename "$d")
+    init_id=$(printf '%s' "$base" | grep -oE '^INIT-[0-9]{4}')
+    found=0
+    for rid in "${REG_IDS[@]:-}"; do
+      [ "$rid" = "$init_id" ] && { found=1; break; }
+    done
+    [ "$found" -eq 1 ] || fail "R2: initiative folder '$base' has no registry row"
+  done < <(find "$store" -maxdepth 1 -type d -name 'INIT-[0-9][0-9][0-9][0-9]-*' | sort)
+fi
+
+# ---------------------------------------------------------------------------
+# B2 at the store root: pre-initiative design sessions
+# ---------------------------------------------------------------------------
+# A session started before any initiative existed lives under
+# docs/executor/brainstorm/sessions/ and gets the same record contract as
+# one inside an initiative. It carries no initiative, so a non-null
+# initiative: field means it was adopted in name but never moved.
+while IFS= read -r sdir; do
+  [ -n "$sdir" ] || continue
+  check_brainstorm_session "$sdir" "$store"
+  pinit=$(fm_field "$sdir/session.md" initiative)
+  case "$pinit" in
+    ""|null|"~") ;;
+    *) fail "B2: ${sdir#"$store"/} names initiative $pinit but sits at the store root — adopt it: git mv it into that initiative's brainstorm/sessions/" ;;
+  esac
+done < <(find "$store/brainstorm/sessions" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort)
+
+# ---------------------------------------------------------------------------
+# Per-initiative pass
+# ---------------------------------------------------------------------------
+
+for idir in "$store"/INIT-*/; do
+  [ -d "$idir" ] || continue
+  case "$(basename "$idir")" in
+    INIT-[0-9][0-9][0-9][0-9]-*) ;;
+    *) continue ;;
+  esac
+  init_id=$(basename "$idir"); init_id=${init_id%%-*}; init_id=$(printf '%s' "$(basename "$idir")" | grep -oE '^INIT-[0-9]{4}')
+  idx="$idir/INDEX.md"
+  # Initiative-wide evidence citation accumulator for the orphan scan.
+  cited_tmp=$(mktemp)
+  : > "$cited_tmp"
+
+  # ---- I1/I2/I3: documents table vs disk -----------------------------------
+  if [ -f "$idx" ]; then
+    # Newline-delimited set, not `declare -A`. Associative arrays are
+    # bash 4.0+, and macOS still ships bash 3.2 as /bin/bash — which is what
+    # a GitHub macOS runner puts on PATH ahead of any newer bash. Under 3.2
+    # `declare -A` is a hard error, and with `set -e` the script dies at this
+    # line, so every check downstream of it silently never ran. The symptom
+    # was sixteen green-looking checks reporting "rejected" on a store that
+    # was fine. A newline-delimited string does the same job in 3.2.
+    LISTED=$'\n'
+    while IFS= read -r row; do
+      row=${row#\|}; row=${row%\|}          # trim outer pipes
+      IFS='|' read -r did _ _ status path <<< "$row"
+      did=$(printf '%s' "$did" | xargs)
+      [ -n "$did" ] || continue
+      case "$did" in INIT-[0-9][0-9][0-9][0-9]-*) ;; *) continue ;; esac
+      LISTED+="$did"$'\n'
+      path=$(printf '%s' "$path" | xargs)
+      path=${path#\`}; path=${path%\`}
+      if [ -n "$path" ] && [ ! -f "$idir/$path" ]; then
+        fail "I2: $init_id Documents row $did points at missing file '$path'"
+      fi
+      # I3: row status vs document frontmatter
+      if [ -n "$path" ] && [ -f "$idir/$path" ]; then
+        doc_status=$(fm_field "$idir/$path" status)
+        row_status=$(printf '%s' "$status" | xargs)
+        if [ -n "$doc_status" ] && [ "$doc_status" != "$row_status" ]; then
+          fail "I3: $init_id row $did says status '$row_status' but the document's frontmatter says '$doc_status' — document wins, fix the row"
+        fi
+      fi
+    done < <(grep -E '^\| *INIT-[0-9][0-9][0-9][0-9]-[A-Z]+' "$idx")
+    # every on-disk doc listed
+    while IFS= read -r f; do
+      rel=${f#"$idir"}
+      base=$(basename "$f")
+      seg=$(printf '%s' "$base" | grep -oE '^INIT-[0-9]{4}-(CHTR|RSCH|OPTS|ARCH|ADR|IFCE|DSGN|SPEC|RISK|VRFY)-[0-9]+|^INIT-[0-9]{4}-P[0-9]{2}') || seg=""
+      [ -n "$seg" ] || { note "unregistered-content file skipped: $rel (no document ID segment)"; continue; }
+      # Membership: the set carries a leading and trailing newline, so a
+      # segment can only match a WHOLE line — INIT-0001-P01 never matches
+      # INIT-0001-P011, which a bare substring test would.
+      [ "${LISTED#*$'\n'"$seg"$'\n'}" != "$LISTED" ] || fail "I1: $rel exists on disk but has no Documents-table row in $init_id INDEX.md"
+    done < <(find "$idir" -type f -name '*.md' \
+              ! -name 'INDEX.md' ! -name 'README.md' ! -path '*/brainstorm/*' ! -path '*/evidence/*' | sort)
+
+    # I4: phase-log time travel
+    while IFS= read -r row; do
+      row=${row#\|}; row=${row%\|}
+      IFS='|' read -r phase entered gate _ <<< "$row"
+      phase=$(printf '%s' "$phase" | xargs)
+      case "$phase" in
+        intake|discovery|architecture|design|specification|planning|plan-regression|execution|review|verification|handoff) ;;
+        *) continue ;;
+      esac
+      entered=$(printf '%s' "$entered" | xargs)
+      gate=$(printf '%s' "$gate" | xargs)
+      case "$entered" in -|"—"|"") continue ;; esac
+      e=$(fm_epoch "${entered}T00:00:00Z"); g=$e
+      case "$gate" in
+        -|"—"|"**skipped**"|"") ;;
+        *) g=$(fm_epoch "${gate}T00:00:00Z") ;;
+      esac
+      if [ "$g" -lt "$e" ]; then
+        fail "I4: $init_id phase log row '$phase' passed its gate ($gate) before the phase was entered ($entered) — time travel"
+      fi
+    done < <(grep -E '^\| *(intake|discovery|architecture|design|specification|planning|plan-regression|execution|review|verification|handoff) *\|' "$idx")
+
+    # I5: once execution begins the initiative branch exists, and its
+    # fork provenance lives on the INDEX **Branch:** line —
+    # exec-initiative branch writes it at fork time, never afterwards.
+    # An initiative that has not reached execution legitimately has none.
+    if ! grep -q '^\*\*Branch:\*\*' "$idx"; then
+      needs_branch=0
+      while IFS= read -r row; do
+        row=${row#\|}; row=${row%\|}
+        IFS='|' read -r _ bentered bgate _ <<< "$row"
+        bentered=$(printf '%s' "$bentered" | xargs)
+        bgate=$(printf '%s' "$bgate" | xargs)
+        case "$bentered $bgate" in
+          *[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]*) needs_branch=1 ;;
+        esac
+      done < <(grep -E '^\| *(execution|review|verification|handoff) *\|' "$idx")
+      [ "$needs_branch" -eq 0 ] || fail "I5: $init_id INDEX.md records execution-phase progress but carries no **Branch:** line — exec-initiative branch writes the fork point there"
+    fi
+
+    # B1: a passed discovery gate means ideation was either run — a
+    # session directory under brainstorm/sessions/ — or declined with a
+    # recorded note. An empty sessions dir with no note in INDEX.md or a
+    # discovery document means the decision was never recorded, and a
+    # later reader cannot tell deliberate skip from never-considered.
+    while IFS= read -r row; do
+      row=${row#\|}; row=${row%\|}
+      IFS='|' read -r _ _ bgate _ <<< "$row"
+      bgate=$(printf '%s' "$bgate" | xargs)
+      case "$bgate" in
+        ????-??-??) ;;
+        *) continue ;;
+      esac
+      if ! find "$idir/brainstorm/sessions" -mindepth 1 -maxdepth 1 -type d -print -quit 2>/dev/null | grep -q . \
+         && ! grep -qi 'brainstorm' "$idx" \
+         && ! grep -li 'brainstorm' "$idir"/discovery/*.md 2>/dev/null | grep -q .; then
+        fail "B1: $init_id discovery passed but no brainstorm session and no recorded skip — discovery contract requires one or the other"
+      fi
+    done < <(grep -E '^\| *discovery *\|' "$idx")
+
+    # B2: every session directory carries a session.md whose frontmatter
+    # identifies it and whose body records the work its mode requires
+    # (rules in check_brainstorm_session). B3: a session with an allocated
+    # BRN id is a document, so it needs a Documents-table row like every
+    # other document — the phase entry gates read sessions, and an
+    # unregistered one is invisible in INDEX.md. Sessions are excluded
+    # from the D-scan, so these are their structural checks.
+    while IFS= read -r sdir; do
+      [ -n "$sdir" ] || continue
+      check_brainstorm_session "$sdir" "$idir"
+      sid=$(fm_field "$sdir/session.md" id)
+      case "$sid" in
+        "$init_id"-BRN-[0-9][0-9])
+          grep -qE "^\| *$sid *\|" "$idx" 2>/dev/null \
+            || fail "B3: ${sdir#"$idir"/}/session.md carries id $sid but $init_id INDEX.md has no Documents row for it" ;;
+        ""|null|"~") ;;
+        *) fail "B3: ${sdir#"$idir"/}/session.md id '$sid' is not $init_id-BRN-nn — allocate it with exec-id $init_id BRN" ;;
+      esac
+    done < <(find "$idir/brainstorm/sessions" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort)
+
+    # P1: a passed plan-regression gate (or an initiative already past it —
+    # execution entered) means the plan-set audit ran and cleared. The
+    # artifacts live in the EXECUTION store at .executor/<INIT>/plan-
+    # regression/ — checked from here because the thinking store's phase
+    # log is the authority on whether the gate was reached, and the run
+    # store is the only place the audit output may live. Skipped needs no
+    # artifacts; entered-but-unpassed is what exec-run start refuses on.
+    run_store=$(exec_run_store 2>/dev/null || true)
+    if [ -n "$run_store" ]; then
+      prg_gate="" exec_entered=""
+      while IFS= read -r row; do
+        row=${row#\|}; row=${row%\|}
+        IFS='|' read -r ph pe pg _ <<< "$row"
+        ph=$(printf '%s' "$ph" | xargs)
+        pe=$(printf '%s' "$pe" | xargs)
+        pg=$(printf '%s' "$pg" | xargs)
+        case "$ph" in
+          plan-regression) prg_gate=$pg ;;
+          execution) exec_entered=$pe ;;
+        esac
+      done < <(grep -E '^\| *(plan-regression|execution) *\|' "$idx" || true)
+      case "$prg_gate" in
+        ????-??-??|"**skipped**") prg_ok=1 ;;
+        *) prg_ok=0 ;;
+      esac
+      case "$exec_entered" in ????-??-??) exec_started=1 ;; *) exec_started=0 ;; esac
+      if [ "$exec_started" -eq 1 ] && [ "$prg_ok" -eq 0 ]; then
+        fail "P1: $init_id entered execution without a passed or skipped plan-regression phase — run executor-plan-regression or record an explicit skip"
+      fi
+      if [ "$prg_ok" -eq 1 ] && [ "$prg_gate" != "**skipped**" ]; then
+        prg_dir="$run_store/$init_id/plan-regression"
+        if [ ! -f "$prg_dir/summary.md" ]; then
+          fail "P1: $init_id plan-regression gate passed but $prg_dir/summary.md is missing — the clearance record does not exist"
+        fi
+      fi
+    fi
+  fi
+
+  # ---- D1–D8: every document ------------------------------------------------
+  while IFS= read -r f; do
+    rel=${f#"$idir"}
+    base=${rel#/}; seg=$(printf '%s' "$base" | grep -oE '^INIT-[0-9]{4}-(CHTR|RSCH|OPTS|ARCH|ADR|IFCE|DSGN|SPEC|RISK|VRFY)-[0-9]+|INIT-[0-9]{4}-P[0-9]{2}') || seg=""
+    fid=$(fm_field "$f" id)
+    fkind=$(fm_field "$f" kind)
+    fstatus=$(fm_field "$f" status)
+    fcreated=$(fm_field "$f" created_at)
+    fupdated=$(fm_field "$f" updated_at)
+    ftitle=$(fm_field "$f" title)
+
+    [ -n "$fid" ] || fail "D1: $rel frontmatter has no id:"
+    [ -n "$fkind" ] || fail "D1: $rel frontmatter has no kind:"
+    [ -n "$fstatus" ] || fail "D1: $rel frontmatter has no status:"
+    [ -n "$ftitle" ] || fail "D1: $rel frontmatter has no title:"
+    [ -n "$fcreated" ] || fail "D1: $rel frontmatter has no created_at:"
+    [ -n "$fupdated" ] || fail "D1: $rel frontmatter has no updated_at:"
+    for k in supersedes superseded_by; do
+      exec_frontmatter_has "$f" "$k" || fail "D1: $rel frontmatter has no $k: field"
+    done
+    case "$fstatus" in
+      draft|active|superseded|withdrawn|abandoned|"") ;;
+      *) fail "D1: $rel status '$fstatus' not in draft|active|superseded|withdrawn|abandoned" ;;
+    esac
+    # D2: id matches filename segment
+    if [ -n "$fid" ] && [ -n "$seg" ]; then
+      [ "$fid" = "$seg" ] || fail "D2: $rel frontmatter id '$fid' does not match filename segment '$seg'"
+    fi
+
+    # D3: initiative matches folder
+    finit=$(fm_field "$f" initiative)
+    [ -n "$finit" ] || fail "D3: $rel frontmatter has no initiative:"
+    if [ -n "$finit" ] && [ "$finit" != "$init_id" ]; then
+      fail "D3: $rel frontmatter initiative '$finit' does not match containing folder $init_id"
+    fi
+
+    # D4: timestamp shape and ordering
+    if [ -n "$fcreated" ] && ! fm_iso_ok "$fcreated"; then
+      fail "D4: $rel created_at '$fcreated' is not ISO-8601 UTC (YYYY-MM-DDTHH:MM:SSZ)"
+    fi
+    if [ -n "$fupdated" ] && ! fm_iso_ok "$fupdated"; then
+      fail "D4: $rel updated_at '$fupdated' is not ISO-8601 UTC"
+    fi
+    if fm_iso_ok "$fcreated" && fm_iso_ok "$fupdated"; then
+      [ "$(fm_epoch "$fupdated")" -ge "$(fm_epoch "$fcreated")" ] || \
+        fail "D4: $rel updated_at ($fupdated) is before created_at ($fcreated)"
+    fi
+
+    # D5: kind-specific required fields — scoped to frontmatter only.
+    # A `key:` line in a body code fence is an example, not metadata.
+    case "$fkind" in
+      spec)
+        for k in implements decisions verification plans; do
+          exec_frontmatter_has "$f" "$k" || fail "D5: $rel (spec) missing $k: field in frontmatter"
+        done
+        ;;
+      adr)
+        for k in decision alternatives_considered consequences_accepted reversibility informs; do
+          exec_frontmatter_has "$f" "$k" || fail "D5: $rel (adr) missing $k: field in frontmatter"
+        done
+        ;;
+      interface)
+        for k in provides consumers stability; do
+          exec_frontmatter_has "$f" "$k" || fail "D5: $rel (interface) missing $k: field in frontmatter"
+        done
+        ;;
+      charter)
+        for k in phase skipped_phases depends_on supersedes_initiative superseded_by_initiative related owner; do
+          exec_frontmatter_has "$f" "$k" || fail "D5: $rel (charter) missing $k: field in frontmatter"
+        done
+        ;;
+      architecture)
+        for k in components interfaces decisions; do
+          exec_frontmatter_has "$f" "$k" || fail "D5: $rel (architecture) missing $k: field in frontmatter"
+        done
+        ;;
+      design)
+        for k in component implements interfaces; do
+          exec_frontmatter_has "$f" "$k" || fail "D5: $rel (design) missing $k: field in frontmatter"
+        done
+        ;;
+      research)
+        for k in question sources confidence; do
+          exec_frontmatter_has "$f" "$k" || fail "D5: $rel (research) missing $k: field in frontmatter"
+        done
+        ;;
+      options)
+        for k in question sources confidence recommends; do
+          exec_frontmatter_has "$f" "$k" || fail "D5: $rel (options) missing $k: field in frontmatter"
+        done
+        ;;
+      risk)
+        for k in method risks_identified mitigations_planned accepted_without_mitigation; do
+          exec_frontmatter_has "$f" "$k" || fail "D5: $rel (risk) missing $k: field in frontmatter"
+        done
+        ;;
+      verification)
+        for k in spec criteria_count evidence_types; do
+          exec_frontmatter_has "$f" "$k" || fail "D5: $rel (verification) missing $k: field in frontmatter"
+        done
+        ;;
+      plan)
+        for k in spec interfaces tasks execution_mode workspace; do
+          exec_frontmatter_has "$f" "$k" || fail "D5: $rel (plan) missing $k: field in frontmatter"
+        done
+        ;;
+    esac
+
+    # D7: no HTML comments. Comments inside html/xml/svg code fences are
+    # the sampled language, not markdown comments.
+    awk -v file="$rel" '
+      {
+        line = $0
+        indent = 0
+        while (substr(line, indent + 1, 1) == " ") indent++
+        stripped = substr(line, indent + 1)
+        if (match(stripped, /^(`{3,}|~{3,})/)) {
+          mlen = RLENGTH; ch = substr(stripped, 1, 1)
+          info = substr(stripped, mlen + 1)
+          gsub(/^[ \t]+|[ \t]+$/, "", info)
+          if (!infence) { infence = 1; flen = mlen; fch = ch; markup = (tolower(info) ~ /^(html|xml|svg)/) }
+          else if (ch == fch && mlen >= flen) { infence = 0; markup = 0 }
+          next
+        }
+        if (line ~ /<!--/ && !(infence && markup)) {
+          printf "D7: %s:%d: HTML comment — generated markdown carries no comments; write guidance as visible text\n", file, NR > "/dev/stderr"
+          bad = 1
+        }
+      }
+      END { exit bad }
+    ' "$f" || fail "D7: $rel contains HTML comments (see above)"
+
+    # D8: per-kind body contracts, checked where the contract is countable
+    # or referenceable. Plan task-count and INDEX status agreement are
+    # already covered by D6 and I3.
+    case "$fkind" in
+      architecture)
+        # The arch contract requires one worked diagram — a ```mermaid
+        # fence at body level. A ```mermaid line inside another fence is
+        # quoted example text, not a diagram.
+        awk '
+          {
+            line = $0
+            indent = 0
+            while (substr(line, indent + 1, 1) == " ") indent++
+            stripped = substr(line, indent + 1)
+            if (match(stripped, /^(`{3,}|~{3,})/)) {
+              mlen = RLENGTH; ch = substr(stripped, 1, 1)
+              if (!infence) {
+                info = substr(stripped, mlen + 1)
+                gsub(/^[ \t]+|[ \t]+$/, "", info)
+                tag = tolower(info)
+                sub(/[ \t].*$/, "", tag); gsub(/[{}]/, "", tag); sub(/^\./, "", tag)
+                if (tag == "mermaid") found = 1
+                infence = 1; flen = mlen; fch = ch
+              }
+              else if (ch == fch && mlen >= flen) { infence = 0 }
+            }
+          }
+          END { exit !found }
+        ' "$f" || fail "D8: $rel architecture document carries no mermaid diagram — the arch contract requires one worked diagram"
+        ;;
+      spec)
+        # Requirements are numbered ### R<nn>; the verification pointer
+        # is written when the spec is and must resolve to a VRFY document
+        # in this initiative (the X2 resolution, run in reverse); a
+        # declared global_constraints count must match the C<nn> rows.
+        counts=$(awk '
+          {
+            line = $0
+            indent = 0
+            while (substr(line, indent + 1, 1) == " ") indent++
+            stripped = substr(line, indent + 1)
+            if (match(stripped, /^(`{3,}|~{3,})/)) {
+              mlen = RLENGTH; ch = substr(stripped, 1, 1)
+              if (!infence) { infence = 1; flen = mlen; fch = ch }
+              else if (ch == fch && mlen >= flen) { infence = 0 }
+              next
+            }
+            if (infence) next
+            if (stripped ~ /^###[ \t]+R[0-9]+([^0-9A-Za-z]|$)/) nreq++
+            if (stripped ~ /^\|[ \t]*C[0-9]+[ \t]*\|/) {
+              match(stripped, /C[0-9]+/)
+              cons[substr(stripped, RSTART, RLENGTH)] = 1
+            }
+          }
+          END { print nreq + 0, length(cons) }
+        ' "$f")
+        nreq=${counts%% *}; ncons=${counts##* }
+        [ "$nreq" -gt 0 ] || fail "D8: $rel (spec) carries no ### R<nn> requirement heading — the spec contract numbers every requirement"
+        sver=$(fm_field "$f" verification)
+        case "$sver" in
+          ""|null|"[]")
+            fail "D8: $rel (spec) verification: is unset — the spec contract names its VRFY document at writing time" ;;
+          "$init_id"-*)
+            vf=$(find "$idir" -name "${sver}-*.md" -print -quit)
+            if [ -z "$vf" ]; then
+              fail "D8: $rel verification '$sver' resolves to no document in $init_id"
+            elif [ "$(fm_field "$vf" kind)" != "verification" ]; then
+              fail "D8: $rel verification '$sver' names $(basename "$vf"), which is not kind: verification"
+            fi ;;
+          *) fail "D8: $rel verification '$sver' is a cross-initiative citation — forbidden outside charter fields" ;;
+        esac
+        declared=$(fm_field "$f" global_constraints)
+        if [ -n "$declared" ] && [ "$declared" != "null" ]; then
+          [ "$declared" = "$ncons" ] || \
+            fail "D8: $rel global_constraints: $declared but the body carries $ncons C<nn> constraint rows"
+        fi
+        ;;
+      options)
+        # An active OPTS means the human picked: recommends names the
+        # document carrying the choice and ## Decision records it.
+        if [ "$fstatus" = active ]; then
+          rec=$(fm_field "$f" recommends)
+          case "$rec" in
+            ""|null|"[]")
+              fail "D8: $rel (options) is active but recommends: is unset — the human's pick was never recorded" ;;
+          esac
+          [ -n "$(exec_section_body "$f" Decision | tr -d '[:space:]')" ] \
+            || fail "D8: $rel (options) is active but its ## Decision section is absent or empty — the pick and its date live there"
+        fi
+        ;;
+      verification)
+        declared=$(fm_field "$f" criteria_count)
+        if [ -n "$declared" ] && [ "$declared" != "null" ]; then
+          # Criteria are | V<nn> | table rows plus ### V<nn> manual
+          # blocks — count the distinct IDs, matching the contract.
+          ncrit=$(awk '
+            {
+              line = $0
+              indent = 0
+              while (substr(line, indent + 1, 1) == " ") indent++
+              stripped = substr(line, indent + 1)
+              if (match(stripped, /^(`{3,}|~{3,})/)) {
+                mlen = RLENGTH; ch = substr(stripped, 1, 1)
+                if (!infence) { infence = 1; flen = mlen; fch = ch }
+                else if (ch == fch && mlen >= flen) { infence = 0 }
+                next
+              }
+              if (infence) next
+              if (stripped ~ /^\|[ \t]*V[0-9]+[ \t]*\|/) {
+                match(stripped, /V[0-9]+/)
+                vs[substr(stripped, RSTART, RLENGTH)] = 1
+              }
+              if (match(stripped, /^###[ \t]+V[0-9]+([^0-9A-Za-z]|$)/)) {
+                match(stripped, /V[0-9]+/)
+                vs[substr(stripped, RSTART, RLENGTH)] = 1
+              }
+            }
+            END { print length(vs) }
+          ' "$f")
+          [ "$declared" = "$ncrit" ] || \
+            fail "D8: $rel criteria_count: $declared but the body carries $ncrit V<nn> criteria"
+        fi
+        ;;
+    esac
+
+    # D8 (doc-code boundary): thinking-only kinds carry prose, tables,
+    # and contract/pseudocode — an implementation-language fence is code
+    # that escaped into the record. Contract-bearing kinds (interface,
+    # design, architecture, plan) legitimately carry code and are exempt,
+    # as are structural fences (mermaid, json, yaml, diff, ...) and
+    # untagged blocks.
+    case "$fkind" in
+      charter|research|options|risk|spec|verification)
+        while IFS= read -r lang; do
+          [ -n "$lang" ] || continue
+          fail "D8: $rel non-code document kind '$fkind' embeds $lang code — thinking docs carry prose, tables, and contract/pseudocode only"
+        done < <(awk '
+          {
+            line = $0
+            indent = 0
+            while (substr(line, indent + 1, 1) == " ") indent++
+            stripped = substr(line, indent + 1)
+            if (match(stripped, /^(`{3,}|~{3,})/)) {
+              mlen = RLENGTH; ch = substr(stripped, 1, 1)
+              if (!infence) {
+                info = substr(stripped, mlen + 1)
+                gsub(/^[ \t]+|[ \t]+$/, "", info)
+                tag = tolower(info)
+                sub(/[ \t].*$/, "", tag); gsub(/[{}]/, "", tag); sub(/^\./, "", tag)
+                if (tag ~ /^(python|java|kotlin|kts|go|rust|ruby|php|swift|scala|c|cc|cpp|cs|ts|tsx|js|jsx|mjs|cjs)$/) seen[tag] = 1
+                infence = 1; flen = mlen; fch = ch
+              }
+              else if (ch == fch && mlen >= flen) { infence = 0 }
+            }
+          }
+          END { for (t in seen) print t }
+        ' "$f")
+        ;;
+    esac
+
+    # D6: plan task headings carry IDs and match declared count
+    if [ "$fkind" = plan ]; then
+      nhead=0
+      while IFS= read -r line; do
+        hnum=$(printf '%s' "$line" | sed -n 's/^### Task \([0-9][0-9]*\):.*/\1/p')
+        [ -n "$hnum" ] || continue
+        nhead=$((nhead + 1))
+        printf '%s' "$line" | grep -qE 'INIT-[0-9]{4}-P[0-9]{2}-T[0-9]{2}' || \
+          fail "D6: $rel Task heading $hnum carries no backticked task ID token"
+      done < <(grep -E '^### Task [0-9]+:' "$f" || true)
+      declared=$(fm_field "$f" tasks)
+      if [ -n "$declared" ] && [ "$declared" != "null" ] && [ "$declared" != "$nhead" ]; then
+        fail "D6: $rel tasks: $declared but body has $nhead task headings"
+      fi
+      # X1: plan spec resolves in this initiative
+      pspec=$(fm_field "$f" spec)
+      if [ -n "$pspec" ] && [ "$pspec" != "null" ]; then
+        case "$pspec" in
+          "$init_id"-*) find "$idir" -name "${pspec}-*.md" -print -quit | grep -q . || \
+            fail "X1: $rel spec '$pspec' resolves to no document in $init_id" ;;
+          *) fail "X1: $rel spec '$pspec' is a cross-initiative citation — forbidden outside charter fields" ;;
+        esac
+      fi
+    fi
+
+    # X2: VRFY spec resolves
+    if [ "$fkind" = verification ]; then
+      vspec=$(fm_field "$f" spec)
+      if [ -n "$vspec" ] && [ "$vspec" != "null" ]; then
+        case "$vspec" in
+          "$init_id"-*) find "$idir" -name "${vspec}-*.md" -print -quit | grep -q . || \
+            fail "X2: $rel spec '$vspec' resolves to no document in $init_id" ;;
+          *) fail "X2: $rel spec '$vspec' is a cross-initiative citation — forbidden outside charter fields" ;;
+        esac
+        # X3: evidence citations resolve. Cited names accumulate
+        # initiative-wide so the orphan scan below sees every VRFY's
+        # citations, not just this document's.
+        while IFS= read -r ev; do
+          [ -n "$ev" ] || continue
+          printf '%s\n' "$ev" >> "$cited_tmp"
+          find "$idir/verification" -name "$ev" -print -quit | grep -q . || \
+            fail "X3: $rel cites evidence file '$ev' which does not exist under verification/"
+        done < <(grep -oE '[A-Za-z0-9._-]+\.(txt|log)' "$f" | sort -u)
+      fi
+    fi
+  done < <(find "$idir" -maxdepth 3 -type f -name '*.md' \
+            ! -name 'INDEX.md' ! -name 'README.md' ! -path '*/brainstorm/*' ! -path '*/evidence/*' | sort)
+
+  # Orphan scan: runs regardless of how many citations any single VRFY
+  # carries — evidence on disk that no VRFY cites is reported even when
+  # every VRFY cites nothing.
+  if [ -d "$idir/verification/evidence" ]; then
+    while IFS= read -r ef; do
+      ebase=$(basename "$ef")
+      case "$ebase" in state.txt|state-R*.txt|README.md|index.md) continue ;; esac
+      grep -qxF "$ebase" "$cited_tmp" || note "orphan evidence: $init_id/$ebase is on disk but cited by no VRFY document"
+    done < <(find "$idir/verification/evidence" -type f \( -name '*.txt' -o -name '*.log' \) | sort)
+  fi
+  rm -f "$cited_tmp"
+done
+
+if [ "$findings" -gt 0 ]; then
+  echo "store check: $findings finding(s)" >&2
+  exit 1
+fi
+echo "store check: clean"

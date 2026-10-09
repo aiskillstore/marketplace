@@ -1,0 +1,56 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Atri10
+# exec-present — the gate card. PHASE-GATE used to mean "the pump reads the
+# artifact and summarizes it for the human" — the most expensive read in
+# the design. This emits a fixed-shape card: what the artifacts are, where
+# they live, what the phase log says, and whether the structural gate is
+# ready. The artifacts' bytes never enter the pump's context.
+#
+# Usage: exec-present INIT_ID PHASE
+set -euo pipefail
+. "$(cd "$(dirname "$0")" && pwd)/_exec-lib.sh"
+SCRIPTS_DIR="$(cd "$(dirname "$0")" && pwd)"
+
+[ $# -eq 2 ] || exec_die "usage: exec-present INIT_ID PHASE"
+init=$1 phase=$2
+
+dir=$(exec_initiative_dir "$init")
+idx="$dir/INDEX.md"
+[ -f "$idx" ] || exec_die "no INDEX.md in $dir"
+
+row=$(awk -F'|' -v p="$phase" '/^\|/ { c=$2; gsub(/^[ \t]+|[ \t]+$/,"",c); if (c==p) { print; exit } }' "$idx")
+[ -n "$row" ] || exec_die "phase $phase has no row in $idx — it was never entered"
+entered=$(printf '%s' "$row" | awk -F'|' '{ gsub(/^[ \t]+|[ \t]+$/,"",$3); print $3 }')
+gate=$(printf '%s' "$row" | awk -F'|' '{ gsub(/^[ \t]+|[ \t]+$/,"",$4); print $4 }')
+note=$(printf '%s' "$row" | awk -F'|' '{ gsub(/^[ \t]+|[ \t]+$/,"",$5); print $5 }')
+
+echo "GATE-CARD $init $phase"
+echo "  entered: ${entered:-—}"
+echo "  gate:    ${gate:-—}"
+[ -n "$note" ] && [ "$note" != "—" ] && echo "  note:    $note"
+
+# Artifacts: what the gate will judge, as paths. Never the contents.
+component=$(exec_critique_component_for_phase "$phase" 2>/dev/null || true)
+if [ -n "$component" ]; then
+  row2=$(exec_critique_component "$component" 2>/dev/null || true)
+  summary_dir=$(printf '%s' "$row2" | cut -d'|' -f4)
+  echo "  critique: $component"
+  if [ -n "$summary_dir" ] && [ "$summary_dir" != "-" ] && [ -f "$dir/$summary_dir/summary.md" ]; then
+    echo "  clearance: $dir/$summary_dir/summary.md"
+  else
+    echo "  clearance: none"
+  fi
+fi
+arts=$(exec_critique_set "$init" "$component" 2>/dev/null || true)
+if [ -n "$arts" ]; then
+  echo "  artifacts:"
+  printf '%s\n' "$arts" | sed 's/^/    /'
+else
+  echo "  artifacts: none found"
+fi
+if out=$("$SCRIPTS_DIR/exec-gate" "$init" "$phase" 2>&1); then
+  echo "  gate-check: ready"
+else
+  echo "  gate-check: not ready — $(printf '%s' "$out" | tail -1)"
+fi

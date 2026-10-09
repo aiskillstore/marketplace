@@ -1,0 +1,240 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Atri10
+# Assemble the context an implementer needs before a task executes, into a
+# single file the dispatch prompt points at. The controller never pastes
+# this into its own context — it writes the file and passes the path.
+#
+# The brief carries the task's requirements. This carries everything the
+# brief cannot know: the exact signatures other tasks provide (so the
+# implementer never invents one), the current surface of the files it will
+# modify (so it does not need to explore to start), the global constraints
+# that bind it (one source, not a controller-pasted copy), and the rulings
+# that touch its files (so it does not rediscover decided questions).
+#
+# Usage: exec-context PLAN_FILE TASK_NUMBER [OUTFILE]
+#   OUTFILE defaults to <workspace>/briefs/<TASK_ID>-context.md
+set -euo pipefail
+. "$(cd "$(dirname "$0")" && pwd)/_exec-lib.sh"
+
+[ $# -ge 2 ] && [ $# -le 3 ] || exec_die "usage: exec-context PLAN_FILE TASK_NUMBER [OUTFILE]"
+
+plan=$1
+n=$2
+[ -f "$plan" ] || exec_die "no such plan file: $plan"
+
+# n interpolates into the task-extraction awk regex — a non-numeric value
+# is a regex injection ('1|2' matches other tasks), not just a bad lookup.
+case "$n" in
+  ''|*[!0-9]*) exec_die "task number must be numeric (like '3'), got: $n" ;;
+esac
+
+plan_id=$(exec_frontmatter "$plan" id)
+spec_id=$(exec_frontmatter "$plan" spec)
+task_id=$(exec_task_id "$plan" "$n")
+[ -n "$task_id" ] || task_id="${plan_id:-plan}-T$(exec_pad2 "$n")"
+
+if [ $# -eq 3 ]; then
+  out=$3
+else
+  dir=$(exec_workspace_dir "$plan")
+  exec_seed_workspace "$dir" "$plan"
+  out="$dir/briefs/${task_id}-context.md"
+fi
+
+# Task body (same extraction exec-brief uses).
+task_body=$(exec_task_body "$plan" "$n")
+[ -n "$task_body" ] || exec_die "task $n not found in $plan (no heading matching 'Task $n')"
+
+# --- 1. Provided-by: what earlier tasks expose that this task consumes ----
+# The task's Consumes lines name signatures from earlier tasks. The plan's
+# Interfaces section is the verbatim authority for those signatures.
+provided_by=""
+consumes=$(printf '%s\n' "$task_body" | sed -n '/^\*\*Interfaces:\*\*/,/^\*\*Requirements:\*\*/p' | grep '^\s*- Consumes:' || true)
+if [ -n "$consumes" ]; then
+  interfaces=$(exec_section_body "$plan" "Interfaces")
+  provided_by="## Provided by earlier tasks (verbatim from the plan's Interfaces)
+
+These are the exact signatures earlier tasks produce. Consume them as-is —
+an implementer who invents a signature builds a half that cannot meet its
+neighbour. If a signature you need is not here, that is a dispatch gap:
+report NEEDS_CONTEXT rather than inventing one.
+
+\`\`\`
+$(printf '%s\n' "$interfaces" | sed 's/^/    /')
+\`\`\`
+
+This task's Consumes lines, restated:
+
+\`\`\`
+$(printf '%s\n' "$consumes" | sed 's/^/    /')
+\`\`\`
+
+"
+fi
+
+# --- 2. Existing surface: what the files this task modifies look like now --
+# For each Modify path, extract the current symbol skeleton from HEAD so the
+# implementer can start without exploring the whole codebase.
+surface=""
+# Declared path extraction: a leading backticked span IS the path (the
+# grammar quotes paths). Sanctioned decoration is stripped in grammar
+# order — take the backticked span, drop a trailing ' (annotation)' the
+# plan grammar allows after it (`path` (add DbContentStore)), then the
+# trailing :N / :N-M line-range — so a colon-bearing path is never cut
+# at its first colon the way 's/:.*$//' did. [[:space:]] classes, never
+# \s: BSD sed reads \s as a literal 's', which left a leading space that
+# defeated the ^` anchor and made the annotation part of the "path".
+modify_paths=$(printf '%s\n' "$task_body" | sed -n '/^\*\*Files:\*\*/,/^\*\*Interfaces:\*\*/p' | { grep '^[[:space:]]*- Modify:' || true; } | sed -E 's/^[[:space:]]*- Modify:[[:space:]]*//' | sed -E 's/^`([^`]*)`.*/\1/' | sed 's/`//g' | sed -E 's/[[:space:]]*\(.*\)[[:space:]]*$//' | sed -E 's/:[0-9]+(-[0-9]+)?$//' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')
+if [ -n "$modify_paths" ]; then
+  surface="## Existing surface of the files you will modify
+
+Read these skeletons before touching the files. They are the current state
+at HEAD — your changes must fit them, not replace their conventions.
+
+"
+  surface_lines=""
+  while IFS= read -r path; do
+    [ -z "$path" ] && continue
+    if git cat-file -e "HEAD:$path" 2>/dev/null; then
+      skeleton=$(git show "HEAD:$path" 2>/dev/null | grep -E '^(def |class |export |const |function |type |interface |public |private |impl |fn |func |async )' || true)
+      if [ -n "$skeleton" ]; then
+        surface_lines+="\`$path\` — symbol skeleton:"$'\n'
+        surface_lines+="\`\`\`"$'\n'
+        while IFS= read -r sym; do surface_lines+="    $sym"$'\n'; done <<< "$skeleton"
+        surface_lines+="\`\`\`"$'\n'
+      else
+        surface_lines+="\`$path\` — exists at HEAD (no extractable top-level symbols)."$'\n'
+      fi
+    else
+      surface_lines+="\`$path\` — does not exist yet (this task creates it)."$'\n'
+    fi
+  done <<< "$modify_paths"
+  if [ -n "$surface_lines" ]; then
+    surface="${surface}${surface_lines}"
+  fi
+fi
+
+# --- 3. Global constraints: the binding block, one source -----------------
+constraints=""
+gc=$(exec_section_body "$plan" "Global Constraints")
+if [ -n "$gc" ]; then
+  constraints="## Global constraints that bind this task (from the plan)
+
+These are the project-wide requirements every task implicitly includes.
+The reviewer grades against them; violate one here and it is a finding
+even if the task's own requirements are met.
+
+\`\`\`
+$(printf '%s\n' "$gc" | sed 's/^/    /')
+\`\`\`
+
+"
+fi
+
+# --- 4. Parked findings and rulings touching this task's files ------------
+# Rulings carry a task ID in their heading (## <TASK_ID> — <utc>). Match
+# this task's ID, plus any ruling whose Decided text names a file this task
+# touches.
+parked=""
+rulings_file=""
+if [ -n "$plan_id" ]; then
+  ws=$(exec_workspace_dir "$plan")
+  [ -f "$ws/rulings.md" ] && rulings_file="$ws/rulings.md"
+  # Initiative-level rulings (cross-plan decisions: contract amendments,
+  # regression outcomes, human-answered questions) bind every later plan —
+  # they are appended to the same match input, under the initiative log.
+  init_seg=$(exec_initiative_of "$plan_id" 2>/dev/null || true)
+  init_rulings=""
+  [ -n "$init_seg" ] && init_rulings="$(exec_run_store)/$init_seg/rulings.md"
+  if [ -n "$init_rulings" ] && [ -f "$init_rulings" ]; then
+    if [ -n "$rulings_file" ]; then
+      rulings_both=$(mktemp)
+      cat "$init_rulings" "$rulings_file" > "$rulings_both"
+      rulings_file=$rulings_both
+    else
+      rulings_file=$init_rulings
+    fi
+  fi
+fi
+if [ -n "$rulings_file" ]; then
+  # Rulings for this task, or rulings mentioning any file this task
+  # touches. Whole ruling records are included — heading through the
+  # next heading — so the Why and Cost lines never detach from the
+  # decision. No extension whitelist: any backticked path in
+  # the Files block counts, including docs and configs.
+  files=$(printf '%s\n' "$task_body" | sed -n '/^\*\*Files:\*\*/,/^\*\*Interfaces:\*\*/p' | grep -oE '`[^`]+`' | sed 's/`//g' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//' | sed -E 's/:[0-9]+(-[0-9]+)?$//' || true)
+  files_tmp=$(mktemp)
+  printf '%s\n' "$files" > "$files_tmp"
+  matches=$(awk -v tid="$task_id" '
+    BEGIN { while ((getline fl < "'"$files_tmp"'") > 0) { gsub(/^[[:space:]]+|[[:space:]]+$/, "", fl); if (fl != "") files[n++] = fl } }
+    /^## / {
+      # A ruling record spans from its heading to the next heading.
+      # Print whole records: matching the task ID or any touched file
+      # anywhere in the record keeps Decided, Why, and Cost together.
+      if (record != "" && record !~ "\n") { record = record "\n" }
+      if (record != "") { pending[++pn] = record }
+      record = $0 "\n"
+      next
+    }
+    { record = record $0 "\n" }
+    END {
+      if (record != "") { pending[++pn] = record }
+      for (i = 1; i <= pn; i++) {
+        if (index(pending[i], tid) > 0) { printf "%s", pending[i]; continue }
+        for (j = 0; j < n; j++) {
+          if (index(pending[i], files[j]) > 0) { printf "%s", pending[i]; break }
+        }
+      }
+    }
+  ' "$rulings_file" || true)
+  rm -f "$files_tmp"
+  if [ -n "${rulings_both:-}" ]; then rm -f "$rulings_both"; fi
+  if [ -n "$matches" ]; then
+    parked="## Rulings touching this task
+
+Decisions already made on the human's behalf that this task must not
+rediscover or contradict. Read them before starting.
+
+\`\`\`
+$(printf '%s\n' "$matches" | sed 's/^/    /')
+\`\`\`
+
+"
+  fi
+fi
+
+# --- Assemble --------------------------------------------------------------
+stamp=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+init=$(exec_initiative_of "${plan_id:-}" 2>/dev/null || echo "")
+# A caller-chosen OUTFILE may name a directory that does not exist yet.
+mkdir -p "$(dirname "$out")"
+{
+  echo "---"
+  echo "kind: context"
+  [ -n "$task_id" ] && echo "id: $task_id"
+  [ -n "$init" ] && echo "initiative: $init"
+  echo "plan: ${plan_id:-(legacy)}"
+  echo "plan_file: $plan"
+  echo "spec: ${spec_id:-(none)}"
+  echo "title: Context for $task_id"
+  echo "status: active"
+  echo "created_at: $stamp"
+  echo "updated_at: $stamp"
+  echo "---"
+  echo
+  echo "*Executor context — generated, do not edit by hand.*"
+  echo
+  echo "This file carries what the brief cannot: the seam contracts, the"
+  echo "existing surface, the binding constraints, and the decided rulings."
+  echo "Read it before the brief, or with it — never instead of it."
+  echo
+  echo "---"
+  echo
+  [ -n "$provided_by" ] && printf '%s\n' "$provided_by"
+  [ -n "$surface" ] && printf '%s\n' "$surface"
+  [ -n "$constraints" ] && printf '%s\n' "$constraints"
+  [ -n "$parked" ] && printf '%s\n' "$parked"
+} > "$out"
+
+echo "$out"

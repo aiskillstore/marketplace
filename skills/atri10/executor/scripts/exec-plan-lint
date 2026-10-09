@@ -1,0 +1,365 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Atri10
+# Lint a plan for contract violations before it passes the planning gate.
+#
+# Plans are the single source of task truth; anything a plan states wrongly
+# is faithfully executed and faithfully reviewed, so the cheapest place to
+# catch a plan defect is here — one read of one file.
+#
+# Checks:
+#   1. Forbidden literal store paths. Artifact locations are RESOLVED by
+#      scripts (exec-workspace, exec-evidence, exec-review-package), never
+#      written into a plan. A plan containing a literal path it intends to
+#      create under docs/executor/... or .executor/... is a planner guessing
+#      an output location — the guess breaks the moment the workspace moves
+#      or the store is relocated, and every tool that resolves paths by ID
+#      then disagrees with the plan about where artifacts live.
+#   2. Task-heading integrity. Every '### Task N:' heading must carry its
+#      task ID backtick token (INIT-NNNN-Pnn-Tnn) — exec-brief refuses
+#      without it.
+#   3. Frontmatter contract: the required keys (id, spec, interfaces,
+#      tasks, execution_mode) must be PRESENT — an absent key is not an
+#      empty value; INIT-0004-P03 shipped with no interfaces:/tasks: keys
+#      at all and linted clean under value-only checks. Values keep their
+#      rules: id/spec non-empty, execution_mode declares the dispatch
+#      model, tasks: matches the real heading count.
+#   4. Sketch cap. Plans sketch; they do not implement. A fenced block
+#      tagged with an implementation language may hold at most 40 lines —
+#      past that it is a pasted implementation. Within a task body,
+#      implementation-language code over 60% of the body's lines and over
+#      60 lines total is over-specification. Contract/fixture fences (sql,
+#      json, toml, yaml, text, bash, sh, diff, mermaid) and untagged
+#      fences are exempt.
+#
+# Usage: exec-plan-lint PLAN_FILE
+# Exit: 0 clean, 1 violations, 2 usage error
+set -euo pipefail
+. "$(cd "$(dirname "$0")" && pwd)/_exec-lib.sh"
+
+[ $# -eq 1 ] || exec_die "usage: exec-plan-lint PLAN_FILE"
+plan=$1
+[ -f "$plan" ] || exec_die "no such plan file: $plan"
+
+violations=0
+fail() { echo "VIOLATION: $*" >&2; violations=$((violations + 1)); }
+
+# --- Frontmatter ------------------------------------------------------------
+# Presence before value: a key that is absent passes every value check
+# below — nothing reads it, so nothing rejects it. exec_frontmatter_has
+# scopes the test to the frontmatter block, so a 'tasks:' inside a body
+# code fence is an example, not a field. The required set is the plan
+# contract's execution-critical keys; the wider document fields
+# (initiative, kind, timestamps, supersedes, superseded_by, workspace) are
+# enforced by exec-store-check D1/D5 once the plan lands in the store.
+for req_key in id spec interfaces tasks execution_mode; do
+  exec_frontmatter_has "$plan" "$req_key" \
+    || fail "no '$req_key:' key in frontmatter — the plan contract requires the key even when its value is empty"
+done
+
+plan_id=$(exec_frontmatter "$plan" id)
+spec_id=$(exec_frontmatter "$plan" spec)
+[ -n "$plan_id" ] || fail "no id: in frontmatter — a plan without an ID cannot be tracked"
+[ -n "$spec_id" ] || fail "no spec: in frontmatter — a plan argues from a spec or records why it cannot"
+
+# The live stores showed the drift: P02 shipped without interfaces/tasks/
+# execution_mode, P03 with execution_mode: null — all under lint that only
+# checked id/spec. Required plan fields are each enforced now.
+exec_mode=$(exec_frontmatter "$plan" execution_mode)
+case "$exec_mode" in
+  subagent|inline) ;;
+  "") fail "no execution_mode: in frontmatter — the dispatch model (subagent|inline) must be declared, not implied" ;;
+  *) fail "execution_mode: '$exec_mode' is neither subagent nor inline" ;;
+esac
+interfaces_inline=$(awk '
+  NR == 1 { sub(/\r$/, ""); if ($0 == "---") { infm = 1; next } else exit }
+  infm && /^---[[:space:]]*$/ { exit }
+  infm {
+    if ($0 ~ /^[ \t]*interfaces[ \t]*:/) { sub(/^[ \t]*interfaces[ \t]*:[ \t]*/, ""); print; exit }
+  }
+' "$plan")
+case "$interfaces_inline" in
+  "") : ;;  # block list (interfaces:\n  - ID) — items live on following lines; presence of the key is enough
+  "null") fail "interfaces: is null — list the interface IDs the tasks build against, or [] with the reason stated in the body" ;;
+  "[]") : ;;  # empty list is allowed only with a stated reason in the body
+  *) : ;;   # inline list with items
+esac
+declared_tasks=$(exec_frontmatter "$plan" tasks)
+# Fence-aware heading count: a '### Task N:' inside a fenced example is
+# documentation, not a real task. Uses the shared CommonMark fence
+# tracker so backtick/tilde/long fences all behave the same way here as
+# in brief/context extraction.
+heading_tasks=$(awk '
+  {
+    line = $0
+    indent = 0
+    while (substr(line, indent + 1, 1) == " ") indent++
+    stripped = substr(line, indent + 1)
+    if (stripped ~ /^(`{3,}|~{3,})/) {
+      match(stripped, /^(`{3,}|~{3,})/)
+      len = RLENGTH
+      ch = substr(stripped, 1, 1)
+      if (!infence) { infence = 1; flen = len; fch = ch }
+      else if (ch == fch && len >= flen) { infence = 0 }
+    }
+    if (!infence && $0 ~ /^### Task [0-9]+:/) count++
+  }
+  END { print count + 0 }
+' "$plan")
+if [ -n "$declared_tasks" ] && [ "$declared_tasks" != "null" ] && [ "$declared_tasks" != "$heading_tasks" ]; then
+  fail "tasks: $declared_tasks but the body has $heading_tasks real '### Task N:' headings (fenced examples excluded) — the count is a contract, not a guess"
+fi
+
+plan_status=$(exec_frontmatter "$plan" status)
+case "$plan_status" in
+  ""|draft|active) ;;
+  *) fail "status: '$plan_status' is not draft or active — superseded plans keep their body but gain superseded_by" ;;
+esac
+
+# --- 1b. A sequential plan justifies the flag -------------------------------
+# 'sequential: true' tells execution to commit tasks directly to the plan
+# branch instead of giving each one a branch (references/branches.md). That
+# is only honest when the tasks form a single chain — otherwise the flag
+# claims an ordering the dependency map does not have, and becomes a way
+# to skip the per-task isolation the branch model exists to provide.
+seq_flag=$(exec_frontmatter "$plan" sequential)
+case "$seq_flag" in
+  ""|"false") ;;
+  "true")
+    n_tasks=$(grep -c '^### Task [0-9]' "$plan" 2>/dev/null || true)
+    n_tasks=${n_tasks:-0}
+    if [ "$n_tasks" -gt 1 ]; then
+      n=2
+      while [ "$n" -le "$n_tasks" ]; do
+        prev_id=$(exec_task_id "$plan" $((n - 1)) 2>/dev/null || true)
+        body=$(exec_task_body "$plan" "$n" 2>/dev/null || true)
+        if [ -z "$prev_id" ]; then
+          fail "sequential: true but task $((n - 1)) carries no ID token — the chain cannot be verified"
+        elif ! printf '%s\n' "$body" | grep -qE "^\*\*Depends on:\*\*.*${prev_id}"; then
+          fail "sequential: true but task $n does not declare '**Depends on:** \`${prev_id}\`' — the flag claims a chain the dependency map does not have"
+        fi
+        n=$((n + 1))
+      done
+    fi
+    ;;
+  *) fail "sequential: '$seq_flag' is neither true nor false" ;;
+esac
+
+# --- 2. Task headings carry IDs ---------------------------------------------
+# Real headings only: the shared fence tracker excludes fenced examples.
+# IDs must name THIS plan and match the heading number.
+n=0
+collected_headings=$(awk '
+  {
+    line = $0
+    indent = 0
+    while (substr(line, indent + 1, 1) == " ") indent++
+    stripped = substr(line, indent + 1)
+    if (stripped ~ /^(`{3,}|~{3,})/) {
+      match(stripped, /^(`{3,}|~{3,})/)
+      len = RLENGTH
+      ch = substr(stripped, 1, 1)
+      if (!infence) { infence = 1; flen = len; fch = ch }
+      else if (ch == fch && len >= flen) { infence = 0 }
+    }
+    if (!infence && $0 ~ /^### Task [0-9]+:/) print
+  }
+' "$plan")
+while IFS= read -r line; do
+  n=$((n + 1))
+  heading_num=$(printf '%s' "$line" | sed -n 's/^### Task \([0-9][0-9]*\):.*/\1/p')
+  [ -n "$heading_num" ] || continue
+  tid=$(printf '%s' "$line" | grep -oE 'INIT-[0-9]{4}-P[0-9]{2}-T[0-9]{2}' | head -1)
+  if [ -z "$tid" ]; then
+    fail "Task heading $heading_num carries no task ID token (want: ### Task $heading_num: <name> — \`$plan_id-T$(exec_pad2 "$heading_num")\`)"
+  else
+    expected="${plan_id}-T$(exec_pad2 "$heading_num")"
+    [ "$tid" = "$expected" ] || fail "Task heading $heading_num carries ID '$tid' but this plan expects '$expected' — a heading that names another plan's task is a dispatch trap"
+  fi
+done <<< "$collected_headings"
+[ "$n" -gt 0 ] || fail "no '### Task N:' headings found — a plan without tasks is not a plan"
+# Duplicate heading numbers are ambiguous for exec-brief (it concatenates
+# both sections) and for any resume scan. Refuse them.
+dup_nums=$(printf '%s\n' "$collected_headings" | sed -n 's/^### Task \([0-9][0-9]*\):.*/\1/p' | sort | uniq -d)
+if [ -n "$dup_nums" ]; then
+  fail "duplicate Task heading number(s): $(printf '%s' "$dup_nums" | tr '\n' ' ') — two headings with the same number cannot both be dispatched"
+fi
+body_start=$(awk 'NR>1 { sub(/\r$/, ""); if ($0 == "---") { print NR; exit } }' "$plan")
+body_start=${body_start:-$(wc -l < "$plan")}
+fm_tmp=$(mktemp "${TMPDIR:-/tmp}/exec-plan-lint-fm.XXXXXX")
+body_tmp=$(mktemp "${TMPDIR:-/tmp}/exec-plan-lint-body.XXXXXX")
+cleanup() { rm -f "$fm_tmp" "$body_tmp"; }
+trap cleanup EXIT
+# Normalize CRLF once: the frontmatter reader strips \r, so the body
+# split must see the same delimiters or a CRLF plan silently loses its
+# body to the forbidden-path scan.
+sed 's/\r$//' "$plan" > "$fm_tmp"
+awk -v bs="$body_start" 'NR >  bs' "$fm_tmp" > "$body_tmp"
+# Emit "lineno:text" for body lines containing a literal, skipping fenced
+# code — a ```markdown example naming a store path is documentation, not a
+# mutation target (same fence model the task-heading scan uses).
+body_lines_with() {
+  awk -v needle="$1" '{
+    line = $0
+    indent = 0
+    while (substr(line, indent + 1, 1) == " ") indent++
+    stripped = substr(line, indent + 1)
+    if (match(stripped, /^(`{3,}|~{3,})/)) {
+      len = RLENGTH; ch = substr(stripped, 1, 1)
+      if (!infence) { infence = 1; flen = len; fch = ch }
+      else if (ch == fch && len >= flen) { infence = 0 }
+      next
+    }
+    if (!infence && index($0, needle)) print NR ":" $0
+  }' "$body_tmp"
+}
+while IFS=: read -r lineno text; do
+  [ -n "$text" ] || continue
+  case "$text" in
+    *.executor/*)
+      fail "line $((lineno + body_start)) names a literal .executor/ path — the workspace and its artifacts resolve via exec-workspace/exec-evidence; plans reference scripts, not paths"
+      ;;
+  esac
+done < <(body_lines_with '.executor/')
+# docs/executor/<...>: only a MUTATION target (Create/Modify/Test:) is a
+# violation. A read-only citation ("consult docs/executor/INDEX.md",
+# "do not modify") is legitimate — the contract governs where artifacts
+# are created, not what a plan may read.
+while IFS=: read -r lineno text; do
+  [ -n "$text" ] || continue
+  case "$text" in
+    *[Cc]reate:*docs/executor/*|*[Mm]odify:*docs/executor/*|*[Tt]est:*docs/executor/*)
+      fail "line $((lineno + body_start)) names a literal docs/executor/ path as a mutation target — artifact locations are resolved by scripts (exec-workspace, exec-evidence), never written into a plan"
+      ;;
+  esac
+done < <(body_lines_with 'docs/executor/')
+
+# --- 3. Task depth -----------------------------------------------------------
+# A task is dispatched to a fresh implementer who reads only its brief, so
+# the brief must carry everything that implementer needs without asking:
+# what it implements, what it waits on, which files it may touch, the
+# seams it consumes and produces, the requirements it is graded against,
+# a stepwise path, and at least one command whose expected output proves
+# the step. Fenced lines are stripped first — an example inside a code
+# block never satisfies a field.
+unfenced() {
+  awk '{
+    line = $0
+    indent = 0
+    while (substr(line, indent + 1, 1) == " ") indent++
+    stripped = substr(line, indent + 1)
+    if (match(stripped, /^(`{3,}|~{3,})/)) {
+      len = RLENGTH; ch = substr(stripped, 1, 1)
+      if (!infence) { infence = 1; flen = len; fch = ch }
+      else if (ch == fch && len >= flen) { infence = 0 }
+      next
+    }
+    if (!infence) print
+  }'
+}
+while IFS= read -r hnum; do
+  [ -n "$hnum" ] || continue
+  tbody=$(exec_task_body "$plan" "$hnum" 2>/dev/null | unfenced || true)
+  label="Task $hnum"
+  printf '%s\n' "$tbody" | grep -qE '^\*\*Implements:\*\*.*R[0-9]+' \
+    || fail "$label has no **Implements:** line naming a requirement ID — the reviewer grades a task against the requirements it implements"
+  printf '%s\n' "$tbody" | grep -qE '^\*\*Depends on:\*\*[[:space:]]*(`?INIT-[0-9]{4}-P[0-9]{2}-T[0-9]{2}|none)' \
+    || fail "$label has no **Depends on:** line (a task ID, or 'none') — the controller orders dispatch from it"
+  printf '%s\n' "$tbody" | grep -qE '^\*\*Files:\*\*' \
+    && printf '%s\n' "$tbody" | grep -qE '^[[:space:]]*- (Create|Modify|Test|Delete):' \
+    || fail "$label has no **Files:** list with a Create/Modify/Test/Delete entry — the implementer writes only the files listed"
+  printf '%s\n' "$tbody" | grep -qE '^\*\*Interfaces:\*\*' \
+    || fail "$label has no **Interfaces:** block (Consumes/Produces, or 'none') — a seam left implicit is a seam the next task guesses"
+  printf '%s\n' "$tbody" | grep -qE '^\*\*Requirements:\*\*' \
+    || fail "$label has no **Requirements:** block — invariants and exact values bind only when written down"
+  nsteps=$(printf '%s\n' "$tbody" | grep -cE '^[[:space:]]*- \[ \]' || true)
+  [ "${nsteps:-0}" -ge 3 ] \
+    || fail "$label has ${nsteps:-0} checkbox step(s) — at least 3 are required (failing test, implementation, passing test)"
+  printf '%s\n' "$tbody" | awk '/^Run:/ { run = 1; next } run && /^Expected:/ { ok = 1 } END { exit !ok }' \
+    || fail "$label has no 'Run:' line followed by an 'Expected:' line — every task names a command and the output that proves it"
+done < <(printf '%s\n' "$collected_headings" | sed -n 's/^### Task \([0-9][0-9]*\):.*/\1/p')
+
+# --- 4. Sketch cap -----------------------------------------------------------
+# Plans sketch; implementations live in interface and design docs. Two
+# limits, fence-aware over the body (post-frontmatter, CRLF-normalized —
+# same model as the task-heading and store-path scans):
+#   * a fenced block tagged with an implementation language may hold at
+#     most 40 body lines — past that it is a pasted implementation;
+#   * within one '### Task N:' body, implementation-language fenced lines
+#     over 60% of the body's line count AND over 60 lines total is
+#     over-specification (test code counts too — the cap targets embedded
+#     implementation volume overall).
+# Contract/fixture fences never count: sql json toml yaml yml text bash sh
+# shell diff mermaid — and untagged fences.
+while IFS=$'\t' read -r cap_kind cap1 cap2 cap3 cap4; do
+  [ -n "$cap_kind" ] || continue
+  case "$cap_kind" in
+    B)
+      fail "line $cap1: implementation block of $cap2 lines exceeds the 40-line sketch cap — keep signatures/invariants/tests verbatim; move full implementations to an interface or design doc"
+      ;;
+    T)
+      fail "line $cap1: Task $cap2 embeds $cap3 implementation-code lines across a $cap4-line body (>60% and >60) — a plan sketches the work; the implementation belongs in an interface or design doc"
+      ;;
+  esac
+done < <(awk -v bs="$body_start" '
+  BEGIN {
+    split("python java kotlin kts go rust ruby php swift scala c cc cpp cs ts tsx js jsx mjs cjs", langs, " ")
+    for (i in langs) impl[langs[i]] = 1
+  }
+  function flush_task() {
+    if (intask && timpl > 60 && timpl > 0.6 * tlines)
+      printf "T\t%d\t%d\t%d\t%d\n", tstart + bs, tnum, timpl, tlines
+  }
+  {
+    line = $0
+    indent = 0
+    while (substr(line, indent + 1, 1) == " ") indent++
+    stripped = substr(line, indent + 1)
+    if (match(stripped, /^(`{3,}|~{3,})/)) {
+      mlen = RLENGTH; ch = substr(stripped, 1, 1)
+      if (!infence) {
+        infence = 1; flen = mlen; fch = ch
+        # First word of the info string, lowercased, is the language tag.
+        tag = substr(stripped, mlen + 1)
+        gsub(/^[ \t]+|[ \t]+$/, "", tag)
+        sub(/[ \t].*$/, "", tag)
+        bimpl = (tolower(tag) in impl)
+        bstart = NR; blines = 0
+      } else if (ch == fch && mlen >= flen) {
+        infence = 0
+        if (bimpl && blines > 40)
+          printf "B\t%d\t%d\n", bstart + bs, blines
+      }
+      if (intask) tlines++
+      next
+    }
+    if (infence) {
+      blines++
+      if (intask) { tlines++; if (bimpl) timpl++ }
+      next
+    }
+    # Unfenced headings bound task bodies, same model as exec_task_body:
+    # a level-2 or level-3 heading ends the task it follows.
+    if ($0 ~ /^### Task [0-9]+:/) {
+      flush_task()
+      intask = 1; tstart = NR
+      tnum = $0; sub(/^### Task /, "", tnum); sub(/:.*/, "", tnum)
+      tlines = 0; timpl = 0
+      next
+    }
+    if ($0 ~ /^#{2,3} /) { flush_task(); intask = 0; next }
+    if (intask) tlines++
+  }
+  END {
+    # An unclosed fence still reports — its lines are embedded code either way.
+    if (infence && bimpl && blines > 40)
+      printf "B\t%d\t%d\n", bstart + bs, blines
+    flush_task()
+  }
+' "$body_tmp")
+
+if [ "$violations" -gt 0 ]; then
+  echo "$plan: $violations violation(s) — fix before the planning gate" >&2
+  exit 1
+fi
+echo "$plan: clean"

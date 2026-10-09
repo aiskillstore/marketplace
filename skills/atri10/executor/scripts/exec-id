@@ -1,0 +1,63 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Atri10
+# Allocate the next free document ID of a kind within one initiative.
+#
+# Lists the initiative immediately before allocating, so two agents racing
+# cannot silently reuse a number: the loser sees the winner's file and takes
+# the next one.
+#
+# Usage: exec-id INIT-0004 ADR
+#        exec-id INIT-0004 P        (plans use the P<nn> segment)
+set -euo pipefail
+. "$(cd "$(dirname "$0")" && pwd)/_exec-lib.sh"
+
+[ $# -eq 2 ] || exec_die "usage: exec-id INIT-NNNN KIND   (KIND: CHTR RSCH OPTS ARCH ADR IFCE DSGN SPEC RISK VRFY BRN P)"
+
+id=$1
+kind=$(echo "$2" | tr '[:lower:]' '[:upper:]')
+
+case "$kind" in
+  CHTR|RSCH|OPTS|ARCH|ADR|IFCE|DSGN|SPEC|RISK|VRFY|BRN|P) ;;
+  *) exec_die "unknown kind: $kind" ;;
+esac
+
+
+# Plans are the one kind whose grammar has no separator: INIT-0004-P01, not
+# INIT-0004-P-01. Everything else is -<KIND>-<nn>. The namespace is the
+# documented two-digit range; 100+ documents of one kind is a structural
+# error, not a silent overflow into a third digit.
+if [ "$kind" = "P" ]; then
+  pattern="${id}-P[0-9]{2}"
+  fmt='%s-P%02d\n'
+else
+  pattern="${id}-${kind}-[0-9]{2}"
+  fmt="%s-${kind}-%02d\n"
+fi
+
+dir=$(exec_initiative_dir "$id")
+
+# Scan every file in the initiative for existing IDs of this kind. Scanning
+# content as well as filenames means a document filed in the wrong directory
+# still reserves its number.
+max=0
+while IFS= read -r found; do
+  n=$((10#${found##*[!0-9]}))
+  [ "$n" -gt "$max" ] && max=$n
+done < <(
+  {
+    find "$dir" -type f -name "*.md" -exec basename {} \;
+    grep -rhoE "$pattern" "$dir" 2>/dev/null || true
+  } | grep -oE "$pattern" || true
+)
+
+next=$((max + 1))
+#the two-digit grammar is a namespace bound, not a formatting
+# hint. Overflowing to 100 produces IDs the grep patterns above can never
+# see again (silent duplicate allocation), so refuse at the boundary.
+if [ "$next" -gt 99 ]; then
+  exec_die "ID namespace exhausted: ${id}-${kind} already has 99 documents; the two-digit grammar cannot represent more. Split the initiative or extend the grammar deliberately."
+fi
+
+# shellcheck disable=SC2059  # fmt is built above, not user input
+printf "$fmt" "$id" "$next"

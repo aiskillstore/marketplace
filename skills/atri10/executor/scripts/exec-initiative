@@ -1,0 +1,716 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Atri10
+# Initiative lifecycle: allocate, resolve, and advance phases.
+#
+# Usage:
+#   exec-initiative new "<title>"                    scaffold a new initiative
+#   exec-initiative resolve INIT-0004                print its folder path
+#   exec-initiative phase INIT-0004 <phase> entered|passed|skipped [note]
+#   exec-initiative status INIT-0004 <status>        active|complete|superseded|abandoned|paused
+#   exec-initiative branch INIT-0004 [BASE]          resolve-or-create the
+#                                                    initiative branch
+#                                                    (initiative/INIT-0004),
+#                                                    forked from BASE
+#                                                    (default: current
+#                                                    HEAD); prints the
+#                                                    branch name
+#   exec-initiative list                             print the registry
+set -euo pipefail
+. "$(cd "$(dirname "$0")" && pwd)/_exec-lib.sh"
+
+PHASES=$(exec_phases)   # canonical order lives in _exec-lib.sh (exec_phases)
+
+# Canonical phase order for transition validation. A phase may
+# only be entered after the previous one passed (or was explicitly
+# skipped); passed requires entered first. Skips are recorded events,
+# not silent holes.
+phase_rank() {
+  local i=0 p
+  for p in $PHASES; do
+    [ "$p" = "$1" ] && { echo "$i"; return 0; }
+    i=$((i + 1))
+  done
+  echo -1
+}
+
+# Validate a requested transition against the INDEX phase table. Prints
+# the violation to stderr and returns 1 when the transition is not
+# legal. Read-only.
+validate_phase_transition() {
+  local id=$1 phase=$2 event=$3 idx=$4
+  local rank row entered="" passed=""
+  rank=$(phase_rank "$phase")
+
+  # Parse the phase table row: <phase> | entered | passed-or-skip | note
+  row=$(awk -v ph="$phase" 'BEGIN{FS="|"} $0 ~ "^\\| " ph " \\|" { gsub(/ /,"",$3); gsub(/ /,"",$4); print $3 "|" $4; exit }' "$idx" 2>/dev/null || true)
+  if [ -n "$row" ]; then
+    entered=${row%%|*}
+    passed=${row##*|}
+  fi
+
+  case "$event" in
+    entered)
+      if [ -n "$entered" ] && [ "$entered" != "—" ]; then
+        echo "phase $phase already entered ($entered) — re-entering requires explicit repair" >&2
+        return 1
+      fi
+      if [ "$rank" -gt 0 ]; then
+        local prev prev_passed
+        prev=$(printf '%s\n' $PHASES | sed -n "$((rank))p")
+        prev_passed=$(awk -v ph="$prev" 'BEGIN{FS="|"} $0 ~ "^\\| " ph " \\|" { gsub(/ /,"",$4); print $4; exit }' "$idx" 2>/dev/null || true)
+        if [ -z "$prev_passed" ] || [ "$prev_passed" = "—" ]; then
+          echo "phase $phase cannot be entered before $prev passed or was explicitly skipped" >&2
+          return 1
+        fi
+      fi
+      ;;
+    passed)
+      if [ -z "$entered" ] || [ "$entered" = "—" ]; then
+        echo "phase $phase cannot pass before it is entered" >&2
+        return 1
+      fi
+      if [ -n "$passed" ] && [ "$passed" != "—" ] && [ "$passed" != "**skipped**" ]; then
+        echo "phase $phase already passed ($passed)" >&2
+        return 1
+      fi
+      ;;
+    skipped)
+      if [ -n "$passed" ] && [ "$passed" != "—" ] && [ "$passed" != "**skipped**" ]; then
+        echo "phase $phase already passed ($passed) — cannot retroactively skip" >&2
+        return 1
+      fi
+      ;;
+    auto-passed)
+      # Same preconditions as a human pass — the phase must be entered, and
+      # must not already be finished. What differs is the recorded marker,
+      # never the bar: an auto-pass that could not have been granted by a
+      # human is not an auto-pass, it is a hole.
+      if [ -z "$entered" ] || [ "$entered" = "—" ]; then
+        echo "phase $phase cannot be auto-passed before it is entered" >&2
+        return 1
+      fi
+      if [ -n "$passed" ] && [ "$passed" != "—" ] && [ "$passed" != "**skipped**" ]; then
+        echo "phase $phase is already finished ($passed)" >&2
+        return 1
+      fi
+      ;;
+    superseded)
+      # The deliberate inverse of the "already passed" refusal. Only a
+      # phase that HAS been passed, auto-passed, or skipped can be
+      # superseded — you cannot overturn a gate that never opened — and
+      # doing so reopens the phase rather than merely annotating it.
+      # Without this, a human who disagrees with an autonomous pass has no
+      # move but to hand-edit the log, which is the one thing the phase
+      # log exists to prevent.
+      if [ -z "$passed" ] || [ "$passed" = "—" ]; then
+        echo "phase $phase cannot be superseded before it passed, was auto-passed, or was skipped" >&2
+        return 1
+      fi
+      ;;
+  esac
+  return 0
+}
+
+# ------------------------------------------------------------------
+# Entry gate: brainstorming is required before specs and plans are built.
+# Entering specification needs a decided (status: active) brainstorm
+# session whose feeds: list names specification — normally the design
+# session for the feature; entering planning needs one that names
+# planning — the decomposition session deciding how the spec splits into
+# plans and tasks. A skip note does not satisfy either: the gate asks
+# whether the design space was explored and decided, and a note records
+# only that it was not.
+
+# True when some session under $1/brainstorm/sessions is active and lists
+# $2 in its feeds:. Word-matched so "planning" never matches "replanning".
+has_decided_session_feeding() {
+  local dir=$1 phase=$2 s st feeds
+  for s in "$dir"/brainstorm/sessions/*/session.md; do
+    [ -f "$s" ] || continue
+    st=$(exec_frontmatter "$s" status)
+    feeds=$(exec_frontmatter "$s" feeds)
+    [ "$st" = "active" ] || continue
+    printf '%s\n' "$feeds" | tr '[],' '   ' | tr ' ' '\n' | grep -qx "$phase" && return 0
+  done
+  return 1
+}
+
+# Prints what an `entered` event still needs; returns nonzero when missing.
+phase_entry_missing() {
+  local phase=$1 dir=$2
+  case "$phase" in
+    specification)
+      has_decided_session_feeding "$dir" specification && return 0
+      echo "a decided brainstorm session feeding specification — run executor-brainstorm (design mode) and record feeds: [specification] with status: active"
+      return 1 ;;
+    planning)
+      has_decided_session_feeding "$dir" planning && return 0
+      echo "a decided brainstorm session feeding planning — run executor-brainstorm on how the spec decomposes into plans and tasks, feeds: [planning], status: active"
+      return 1 ;;
+  esac
+  return 0
+}
+
+# ------------------------------------------------------------------
+# Artifact gate: a `passed` row asserts the phase produced its
+# deliverable, not just that the log moved. The checks below are
+# existence-level — a non-empty file carrying the initiative's ID
+# prefix under the right subdirectory. Content quality is
+# exec-store-check's job; this gate only refuses a pass recorded
+# against nothing.
+
+# True when at least one non-empty file under $1 is named $2. An absent
+# directory means none; -print -quit stops at the first match.
+has_artifact() {
+  find "$1" -type f -name "$2" ! -size 0 -print -quit 2>/dev/null | grep -q .
+}
+
+# True when the charter carries at least one content line beyond
+# frontmatter and '#' headings. The seed writes such lines itself (the
+# italic section prompts), so the seeded skeleton already counts — the
+# gate is existence-level: it refuses a missing, emptied, or
+# headings-only charter, and the human's charter approval remains the
+# substantive intake gate.
+charter_has_content() {
+  local f=$1
+  [ -f "$f" ] || return 1
+  awk '
+    { sub(/\r$/, "") }
+    NR == 1 && $0 ~ /^---[[:space:]]*$/ { infm = 1; next }
+    infm && $0 ~ /^---[[:space:]]*$/    { infm = 0; next }
+    infm                                { next }
+    $0 ~ /^[[:space:]]*$/               { next }
+    $0 ~ /^[[:space:]]*#/               { next }
+    $0 ~ /^[[:space:]]*---+[[:space:]]*$/        { next }
+    { found = 1; exit }
+    END { exit !found }
+  ' "$f"
+}
+
+# Print one line per required artifact absent under the initiative dir
+# ($3); return nonzero iff anything was printed. Phases with no
+# thinking-store deliverable at this layer — design (waivable),
+# execution/review/verification (run-axis, audited by exec-run), handoff
+# (the merge itself) — print nothing.
+phase_artifacts_missing() {
+  local id=$1 phase=$2 dir=$3 missing=0
+  case "$phase" in
+    intake)
+      charter_has_content "$dir/charter.md" || {
+        echo "charter.md — missing, empty, or stripped to frontmatter and headings alone"
+        missing=$((missing + 1))
+      } ;;
+    discovery)
+      has_artifact "$dir/discovery" "${id}-RSCH-[0-9]*.md" \
+        || has_artifact "$dir/discovery" "${id}-OPTS-[0-9]*.md" \
+        || { echo "discovery/${id}-RSCH-nn-*.md or discovery/${id}-OPTS-nn-*.md"
+             missing=$((missing + 1)); } ;;
+    architecture)
+      has_artifact "$dir/architecture" "${id}-ARCH-[0-9]*.md" \
+        || { echo "architecture/${id}-ARCH-nn-*.md"; missing=$((missing + 1)); } ;;
+    specification)
+      has_artifact "$dir/specs"        "${id}-SPEC-[0-9]*.md" \
+        || { echo "specs/${id}-SPEC-nn-*.md";        missing=$((missing + 1)); }
+      has_artifact "$dir/risks"        "${id}-RISK-[0-9]*.md" \
+        || { echo "risks/${id}-RISK-nn-*.md";        missing=$((missing + 1)); }
+      has_artifact "$dir/verification" "${id}-VRFY-[0-9]*.md" \
+        || { echo "verification/${id}-VRFY-nn-*.md"; missing=$((missing + 1)); } ;;
+    planning)
+      has_artifact "$dir/plans" "${id}-P[0-9][0-9]*.md" \
+        || { echo "plans/${id}-Pnn-*.md"; missing=$((missing + 1)); } ;;
+    plan-regression)
+      # The one deliverable that lives in the EXECUTION store, not the
+      # thinking store: the clearance summary must exist AND every plan
+      # must be clean|waived — summary.md alone proves init ran, not that
+      # the set cleared. exec-plan-regression check does the row walk;
+      # it needs any one plan file to resolve the initiative.
+      rs=$(exec_run_store 2>/dev/null || true)
+      summary="$rs/$id/plan-regression/summary.md"
+      if [ -z "$rs" ] || [ ! -f "$summary" ]; then
+        echo ".executor/$id/plan-regression/summary.md — run exec-plan-regression PLAN init and audit the set"; missing=$((missing + 1))
+      else
+        pfile=$(find "$dir/plans" -maxdepth 1 -name "${id}-P[0-9][0-9]*.md" -print -quit 2>/dev/null)
+        if [ -z "$pfile" ]; then
+          # A summary with no plans to audit is a clearance record for an
+          # empty set — the gate cannot have run.
+          echo "plans/${id}-Pnn-*.md — plan-regression cannot pass with no plans to audit"; missing=$((missing + 1))
+        else
+          "$(cd "$(dirname "$0")" && pwd)/exec-plan-regression" "$pfile" check >/dev/null 2>&1 \
+            || { echo "plan-regression rows not all clean|waived — exec-plan-regression PLAN check names them"; missing=$((missing + 1)); }
+        fi
+      fi ;;
+  esac
+  return "$missing"
+}
+
+usage() {
+  # Bound by the Usage comment block, not a fixed line range — a literal
+  # range silently dropped `branch`'s tail and `list` as the header grew.
+  sed -n '/^# Usage:/,/^[^#]/ { /^#/s/^# \{0,1\}//p; }' "$0" >&2
+  exit 2
+}
+
+now_utc() { date -u +%Y-%m-%dT%H:%M:%SZ; }
+today()   { date -u +%Y-%m-%d; }
+
+slugify() {
+  echo "$1" \
+    | tr '[:upper:]' '[:lower:]' \
+    | sed -e 's/[^a-z0-9]\{1,\}/-/g' -e 's/^-//' -e 's/-$//' \
+    | cut -c1-48
+}
+
+# Next free INIT-NNNN. Lists immediately before allocating; a collision means
+# another agent won the race, so we take the next number rather than overwrite.
+next_initiative_id() {
+  local store=$1 max=0 n
+  if [ -d "$store" ]; then
+    for d in "$store"/INIT-[0-9][0-9][0-9][0-9]*; do
+      [ -d "$d" ] || continue
+      n=$(basename "$d" | sed -n 's/^INIT-\([0-9][0-9][0-9][0-9]\).*/\1/p')
+      [ -n "$n" ] || continue
+      n=$((10#$n))
+      [ "$n" -gt "$max" ] && max=$n
+    done
+  fi
+  printf 'INIT-%04d' "$((max + 1))"
+}
+
+ensure_registry() {
+  local store=$1 idx="$1/INDEX.md"
+  mkdir -p "$store"
+  if [ ! -f "$idx" ]; then
+    {
+      echo "# Executor Initiatives"
+      echo
+      echo "| ID | Title | Status | Phase | Folder | Updated |"
+      echo "|---|---|---|---|---|---|"
+    } > "$idx"
+  fi
+  echo "$idx"
+}
+
+# Allocation must be a critical section, not an atomic file create.
+#
+# First attempt used `mkdir "$store/$id-$slug"` as the claim. That only
+# collides when two callers pick the SAME slug — two concurrent `new` calls
+# with different titles both compute the same next number and both succeed,
+# because their paths differ. Observed: 8 concurrent calls produced 8
+# directories but only 7 distinct IDs.
+#
+# The read-allocate-create-append sequence has to be serialised as a whole.
+# `mkdir` of a fixed lock path is the mutex; `new` is rare enough that
+# serialising it costs nothing.
+registry_lock() {
+  local store=$1
+  local lock="$store/.registry.lock" waited=0
+  mkdir -p "$store"
+  while ! mkdir "$lock" 2>/dev/null; do
+    waited=$((waited + 1))
+    if [ "$waited" -gt 100 ]; then          # ~10s: assume the holder died
+      # Guard the non-empty case: an unset/empty $lock must never expand
+      # `rm -rf` to its argument list's worst case.
+      [ -n "$lock" ] && rm -rf "$lock"
+      continue
+    fi
+    sleep 0.1
+  done
+}
+
+registry_unlock() { rmdir "$1/.registry.lock" 2>/dev/null || true; }
+
+append_registry_row() {
+  local idx=$1 row=$2
+  awk -v row="$row" '
+    { print }
+    /^\|---/ && !done { print row; done = 1 }
+  ' "$idx" > "$idx.tmp" && mv "$idx.tmp" "$idx"
+}
+
+cmd_new() {
+  local title=${1:-}
+  [ -n "$title" ] || usage
+  # Titles flow into YAML frontmatter, headings, and pipe tables. A
+  # raw '|' or newline shifts table columns and breaks the registry;
+  # refuse these characters instead of corrupting the stores.
+  case "$title" in
+    *\|*|*$'\n'*) exec_die "title must not contain '|' or newlines — it is interpolated into YAML and pipe tables verbatim" ;;
+  esac
+  local store idx id slug dir stamp
+  store=$(exec_docs_store)
+  slug=$(slugify "$title")
+
+  # Everything from reading the highest existing number to appending the
+  # registry row happens under one lock. Releasing on signal too, so a killed
+  # run cannot wedge the next caller for ten seconds.
+  registry_lock "$store"
+  # EXIT covers normal return and errexit. Signals must exit, not just run
+  # the handler — a trapped INT that falls through would resume cmd_new
+  # after the lock was released. 130/143 = 128+SIGINT/SIGTERM.
+  trap 'registry_unlock "$store"' EXIT
+  trap 'registry_unlock "$store"; exit 130' INT
+  trap 'registry_unlock "$store"; exit 143' TERM
+
+  idx=$(ensure_registry "$store")
+  id=$(next_initiative_id "$store")
+  dir="$store/$id-$slug"
+  [ -e "$dir" ] && exec_die "initiative folder already exists: $dir"
+
+  mkdir -p "$dir"/{discovery,architecture,design,specs,risks,verification,plans,brainstorm/sessions}
+  stamp=$(now_utc)
+
+  cat > "$dir/charter.md" <<EOF
+---
+id: $id-CHTR-01
+initiative: $id
+kind: charter
+title: $title
+status: draft
+created_at: $stamp
+updated_at: $stamp
+supersedes: null
+superseded_by: null
+phase: intake
+skipped_phases: []
+depends_on: []
+supersedes_initiative: null
+superseded_by_initiative: null
+related: []
+owner: TBD
+---
+
+# $title
+
+## Problem
+
+*What is wrong today, stated so someone outside the team recognises it.*
+
+## Why now
+
+## Goals
+
+## Non-goals
+
+## Success criteria
+
+*Observable and measurable. "Faster" is not a criterion; "p99 under 200ms at 10k tenants" is.*
+
+## Scope boundaries
+
+## Constraints
+
+## Stakeholders
+EOF
+
+  cat > "$dir/INDEX.md" <<EOF
+# $id — $title
+
+**Status:** active · **Phase:** intake · **Owner:** TBD
+
+## Dependencies
+
+_None declared._
+
+## Documents
+
+| ID | Kind | Title | Status | Path |
+|---|---|---|---|---|
+| $id-CHTR-01 | charter | $title | draft | \`charter.md\` |
+
+## Phase log
+
+| Phase | Entered | Gate passed | Notes |
+|---|---|---|---|
+| intake | $(today) | — | |
+| discovery | — | — | |
+| architecture | — | — | |
+| design | — | — | |
+| specification | — | — | |
+| planning | — | — | |
+| plan-regression | — | — | |
+| execution | — | — | |
+| review | — | — | |
+| verification | — | — | |
+| handoff | — | — | |
+EOF
+
+  # Registry row, newest first, inserted under the header separator — still
+  # inside the critical section, so a concurrent `new` cannot drop it.
+  append_registry_row "$idx" \
+    "| $id | $title | active | intake | \`$id-$slug/\` | $(today) |"
+
+  registry_unlock "$store"
+  trap - EXIT INT TERM
+
+  printf '%s\t%s\n' "$id" "$dir"
+}
+
+cmd_resolve() {
+  local id=${1:-}
+  [ -n "$id" ] || usage
+  exec_initiative_dir "$id"
+}
+
+cmd_phase() {
+  local id=${1:-} phase=${2:-} event=${3:-} note=${4:-}
+  [ -n "$id" ] && [ -n "$phase" ] && [ -n "$event" ] || usage
+  case " $PHASES " in *" $phase "*) ;; *) exec_die "unknown phase: $phase (want one of: $PHASES)" ;; esac
+  case "$event" in
+    entered|passed|skipped) ;;
+    auto-passed|superseded) ;;
+    # check = dry-run of `passed` — validates transition legality, artifact
+    # presence, and critique clearance, writes nothing. exec-gate's
+    # check-only mode and exec-step's CRITIQUE verb read the fold through
+    # it; a "check" that passes the gate for real is a lie the log
+    # then reports as human-passed.
+    check) ;;
+    *) exec_die "event must be entered, passed, auto-passed, superseded, skipped, or check" ;;
+  esac
+  # A skipped phase always carries a reason — the documented contract,
+  # enforced here. A **skipped** row with no note is indistinguishable
+  # from an oversight, which is the distinction the phase log exists to
+  # make.
+  if [ "$event" = "skipped" ] && [ -z "${note//[[:space:]]/}" ]; then
+    exec_die "phase $phase skipped requires a reason note — a skipped phase always carries one"
+  fi
+
+  if [ "$event" = "superseded" ] && [ -z "${note//[[:space:]]/}" ]; then
+    exec_die "phase $phase superseded requires a reason note — an override always states what it overturns"
+  fi
+  # An auto-pass is the one gate decision no human made, so it is the one
+  # that must prove it was permitted. Fail-closed: with no policy file, or
+  # no row naming this phase, the answer is no. "Autonomous mode is on"
+  # is not permission for every gate — the policy names them one at a time.
+  if [ "$event" = "auto-passed" ]; then
+    local policy_dir policy_mode
+    policy_dir=$(exec_initiative_dir_opt "$id")
+    policy_mode=$(exec_autonomous_mode "${policy_dir:-}" "$phase")
+    if [ "$policy_mode" != "gate" ] && [ "$policy_mode" != "allow" ]; then
+      exec_die "phase $phase is not declared auto-passable (autonomous mode: ${policy_mode:-no policy}) — add a row to ${policy_dir:-<initiative>}/autonomous.md, or pass the phase for human review"
+    fi
+  fi
+  # The note lands verbatim in a pipe-table cell — a raw '|' or newline
+  # shifts columns and breaks the log. Same contract as title in cmd_new.
+  case "$note" in
+    *\|*|*$'\n'*) exec_die "note must not contain '|' or newlines — it is interpolated into pipe tables verbatim" ;;
+  esac
+
+  local dir idx
+  dir=$(exec_initiative_dir "$id")
+  idx="$dir/INDEX.md"
+  [ -f "$idx" ] || exec_die "no INDEX.md in $dir"
+
+  # `check` validates as `passed` and writes nothing — move the alias up
+  # so the transition validator checks the same legality the gate does.
+  local eff_event=$event
+  [ "$event" = "check" ] && eff_event=passed
+  #validate the transition BEFORE any mutation. A skipped
+  # predecessor or a passed-before-entered sequence is refused here, not
+  # discovered later by store-check.
+  validate_phase_transition "$id" "$phase" "$eff_event" "$idx" \
+    || exec_die "illegal phase transition: $phase $event refused (see reason above)"
+
+  if [ "$eff_event" = "entered" ]; then
+    local needs
+    if ! needs=$(phase_entry_missing "$phase" "$dir"); then
+      exec_die "phase $phase cannot be entered: brainstorming is required before it — missing under $dir/brainstorm/sessions:
+  $needs"
+    fi
+  fi
+  if [ "$eff_event" = "passed" ] || [ "$event" = "auto-passed" ]; then
+    local missing
+    if ! missing=$(phase_artifacts_missing "$id" "$phase" "$dir"); then
+      exec_die "phase $phase cannot $([ "$event" = "auto-passed" ] && echo "be auto-passed" || echo "pass"): the gate requires the artifact, not just the log row — missing under $dir:
+$(printf '%s\n' "$missing" | sed 's/^/  /')"
+    fi
+
+    # Critique gate. Every authoring phase is cleared by an independent
+    # audit of its component, not by the controller's reading of its own
+    # work — the whole point of a thin pump. The component comes from the
+    # registry, so a phase and its critique can never disagree about
+    # whether one exists.
+    local component
+    component=$(exec_critique_component_for_phase "$phase")
+    if [ -n "$component" ]; then
+      local critique_out critique_rc
+      critique_out=$("$(cd "$(dirname "$0")" && pwd)/exec-critique" "$id" "$component" check 2>&1) || critique_rc=$?
+      if [ -n "${critique_rc:-}" ]; then
+        exec_die "phase $phase cannot $([ "$event" = "auto-passed" ] && echo "be auto-passed" || echo "pass"): its $component critique is not clear — the controller does not clear its own work.
+$critique_out"
+      fi
+      # The critique gates the phase but does not get its own row, so the
+      # clearance is recorded in the Notes cell. Without this the log would
+      # show a bare date and a reader could not tell an audited phase from
+      # an unaudited one — the one cost this shape carries.
+      if [ -n "$note" ]; then
+        note="$note; critique $component cleared"
+      else
+        note="critique $component cleared"
+      fi
+    fi
+
+    # These phases produce no thinking-store document at this layer —
+    # their gate evidence lives on the run axis (exec-run audit).
+    case "$phase" in
+      execution|review|verification)
+        echo "note: phase $phase artifacts are verified on the run axis" >&2 ;;
+    esac
+  fi
+
+  if [ "$event" = "check" ]; then
+    echo "$id: $phase ready (check — nothing written)"
+    return 0
+  fi
+
+  if grep -q "^| $phase |" "$idx"; then
+    awk -v phase="$phase" -v event="$event" -v d="$(today)" -v note="$note" '
+      BEGIN { FS = OFS = "|" }
+      $0 ~ "^\\| " phase " \\|" {
+        if (event == "entered") { $3 = " " d " " }
+        else if (event == "passed") { $4 = " " d " " }
+        # auto-passed is a DIFFERENT gate result from passed, not a
+        # synonym: a reader must be able to tell at a glance which gates
+        # no human ever looked at. The date rides along so the row still
+        # orders chronologically.
+        else if (event == "auto-passed") { $4 = " **auto-passed** " d " " }
+        # superseded reopens the phase — Entered is cleared so the phase
+        # can be re-entered and re-gated. Leaving the old Entered date
+        # would make the reopen invisible to the transition validator,
+        # which refuses a re-entry on a phase that still looks entered.
+        else if (event == "superseded") { $3 = " — "; $4 = " **superseded** " d " " }
+        else {
+          # skipped is a gate decision, not a history rewrite — keep a real
+          # Entered date; write the placeholder only when none was recorded
+          e = $3; gsub(/[[:space:]]/, "", e)
+          if (e == "" || e == "—") { $3 = " — " }
+          $4 = " **skipped** "
+        }
+        if (note != "") { $5 = " " note " " }
+        print; next
+      }
+      { print }
+    ' "$idx" > "$idx.tmp" && mv "$idx.tmp" "$idx"
+  else
+    local entered="—" passed="—"
+    case "$event" in
+      entered) entered=$(today) ;;
+      passed)  passed=$(today) ;;
+      # A phase with no row at all can only be auto-passed or superseded in
+      # the degenerate case the caller got the phase order wrong; the shape
+      # still has to be the same one the in-place branch writes.
+      auto-passed) passed="**auto-passed** $(today)" ;;
+      superseded) passed="**superseded** $(today)" ;;
+      # Same row shape the in-place branch emits for a phase with no
+      # recorded Entered date: — placeholder plus the skipped gate marker.
+    esac
+    printf '| %s | %s | %s | %s |\n' "$phase" "$entered" "$passed" "$note" >> "$idx"
+  fi
+
+  # Header line and registry row both track the current phase.
+  # Phase names may carry a hyphen (plan-regression) — [a-z]+ would replace
+  # only the first word and leave the tail, producing plan-regression-regression.
+  sed -i.bak -E "s/(\*\*Phase:\*\* )[a-z][a-z-]*/\1$phase/" "$idx" && rm -f "$idx.bak"
+  local store reg
+  store=$(exec_docs_store); reg="$store/INDEX.md"
+  [ -f "$reg" ] && awk -v id="$id" -v phase="$phase" -v d="$(today)" '
+    BEGIN { FS = OFS = "|" }
+    $0 ~ "^\\| " id " \\|" { $5 = " " phase " "; $7 = " " d " "; print; next }
+    { print }
+  ' "$reg" > "$reg.tmp" && mv "$reg.tmp" "$reg"
+
+  echo "$id: $phase $event"
+}
+
+cmd_status() {
+  local id=${1:-} status=${2:-}
+  [ -n "$id" ] && [ -n "$status" ] || usage
+  case "$status" in active|complete|superseded|abandoned|paused) ;; *)
+    exec_die "status must be active, complete, superseded, abandoned, or paused" ;;
+  esac
+  local dir idx store reg
+  dir=$(exec_initiative_dir "$id"); idx="$dir/INDEX.md"
+  sed -i.bak -E "s/(\*\*Status:\*\* )[a-z]+/\1$status/" "$idx" && rm -f "$idx.bak"
+  store=$(exec_docs_store); reg="$store/INDEX.md"
+  [ -f "$reg" ] && awk -v id="$id" -v s="$status" -v d="$(today)" '
+    BEGIN { FS = OFS = "|" }
+    $0 ~ "^\\| " id " \\|" { $4 = " " s " "; $7 = " " d " "; print; next }
+    { print }
+  ' "$reg" > "$reg.tmp" && mv "$reg.tmp" "$reg"
+  echo "$id: $status"
+}
+
+# Initiative branch: initiative/INIT-NNNN. One branch per initiative, forked
+# from wherever the human currently is when the initiative starts (their
+# call — recorded here so a resumed controller finds it). Plan branches fork
+# from this one (exec-branch), so every plan builds on merged, reviewed work.
+#
+# Resolve-or-create is idempotent: calling it twice never errors and never
+# forks twice. The recorded base branch is written to the initiative INDEX
+# so handoff knows where to merge back without asking twice.
+cmd_branch() {
+  local id=${1:-} base=${2:-}
+  [ -n "$id" ] || usage
+  local dir idx branch
+  dir=$(exec_initiative_dir "$id")
+  idx="$dir/INDEX.md"
+  [ -f "$idx" ] || exec_die "no INDEX.md in $dir"
+
+  branch="initiative/$id"
+
+  # Idempotent create: fork from BASE only if the branch does not exist.
+  if ! git show-ref --verify --quiet "refs/heads/$branch"; then
+    base=${base:-$(git branch --show-current)}
+    [ -n "$base" ] || exec_die "detached HEAD and no BASE given — name the branch to fork from"
+    git rev-parse --verify --quiet "refs/heads/$base" >/dev/null       || exec_die "base branch not found: $base"
+    git branch "$branch" "$base"
+    # Record provenance beside the status header, not at EOF: the phase log
+    # is the last section of INDEX.md and an EOF append pushes the next
+    # phase row below this line, outside the table. An existing **Branch:**
+    # line is updated in place — repeated calls never duplicate it.
+    local line anchor
+    line="**Branch:** \`$branch\` (forked from \`$base\` at $(git rev-parse --short "$base"))"
+    if   grep -q '^\*\*Branch:\*\*' "$idx"; then anchor='^\*\*Branch:\*\*'
+    elif grep -q '^\*\*Status:\*\*' "$idx"; then anchor='^\*\*Status:\*\*'
+    elif grep -q '^## Dependencies' "$idx"; then anchor='^## Dependencies'
+    else anchor='^# '
+    fi
+    awk -v line="$line" -v anchor="$anchor" '
+      /^\*\*Branch:\*\*/ && done { next }
+      $0 ~ anchor && !done {
+        if ($0 ~ /^\*\*Branch:\*\*/) print line
+        else { print; print line }
+        done = 1; next
+      }
+      { print }
+      END { if (!done) print line }
+    ' "$idx" > "$idx.tmp" && mv "$idx.tmp" "$idx"
+    echo "$branch"
+  else
+    #an existing branch name is not provenance. If the caller
+    # names a base, it must match the recorded fork; otherwise the
+    # branch may belong to a different history than the caller assumes.
+    recorded_base=$( { awk '/^\*\*Branch:/{print}' "$idx" | grep -oE 'forked from `[a-zA-Z0-9/_-]+`' || true; } | { grep -oE '`[a-zA-Z0-9/_-]+`' || true; } | tr -d '`' | head -1 || true)
+    if [ -n "$base" ] && [ -n "$recorded_base" ] && [ "$base" != "$recorded_base" ]; then
+      exec_die "branch $branch was forked from $recorded_base but BASE $base was requested — refusing to reuse a branch with mismatched provenance; resolve the stale branch deliberately"
+    fi
+    echo "$branch"
+  fi
+}
+
+cmd_list() {
+  local reg
+  reg="$(exec_docs_store)/INDEX.md"
+  [ -f "$reg" ] || exec_die "no initiative registry yet"
+  cat "$reg"
+}
+
+case "${1:-}" in
+  new)      shift; cmd_new "$@" ;;
+  resolve)  shift; cmd_resolve "$@" ;;
+  phase)    shift; cmd_phase "$@" ;;
+  status)   shift; cmd_status "$@" ;;
+  branch)   shift; cmd_branch "$@" ;;
+  list)     shift; cmd_list "$@" ;;
+  *)        usage ;;
+esac

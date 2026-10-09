@@ -1,0 +1,115 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Atri10
+# exec-ladder — the write path for the revive ladder. exec-supervise names
+# the rung (REVIVE/REDISPATCH); this script performs it: rewrites the open
+# row's Outcome to revived-rvN, refreshes Last-Seen, mints the agent
+# identity for a redispatch, fills the revive preamble, and emits the
+# block the pump relays. The bound lives here too: a hop past
+# EXEC_MAX_REVIVE (default 2) refuses — supervise's word is policy, the
+# cell rewrite is enforcement.
+#
+# Usage:
+#   exec-ladder PLAN_FILE TASK_ID revive|redispatch
+#
+# Output (KEY=VAL lines for the pump):
+#   AGENT       identity to dispatch (same on revive, -Rnn minted on redispatch)
+#   PREAMBLE    filled revive-preamble path — prepend to the worker prompt
+#   RUNG        the new ladder rung (rv1, rv2, …)
+#   BRIEF       regenerated brief (redispatch only)
+#   CONTEXT     regenerated context (redispatch only)
+#   REPORT      the report path to watch (redispatch only)
+# Exit: 2 usage/bound-exceeded; the rung names itself in the refusal.
+set -euo pipefail
+. "$(cd "$(dirname "$0")" && pwd)/_exec-lib.sh"
+SCRIPTS_DIR="$(cd "$(dirname "$0")" && pwd)"
+
+[ $# -eq 3 ] && [ -f "$1" ] || exec_die "usage: exec-ladder PLAN_FILE TASK_ID revive|redispatch"
+plan=$1 task=$2 rung=$3
+case "$rung" in revive|redispatch) ;; *) exec_die "usage: exec-ladder PLAN_FILE TASK_ID revive|redispatch" ;; esac
+
+plan_id=$(exec_frontmatter "$plan" id)
+[ -n "$plan_id" ] || plan_id=$(basename "$plan" .md)
+dir=$(exec_workspace_dir "$plan")
+dfile="$dir/dispatches.md"
+[ -f "$dfile" ] || exec_die "no dispatches.md in $dir"
+
+# The open row for this task must exist — a revive with nothing live is a
+# fresh dispatch wearing the wrong name.
+open_row=$(awk -F'|' -v t="$task" '
+  /^\|[ \t]*Task[ \t]*\|/ {
+    for (i = 2; i <= NF; i++) { c = $i; gsub(/^[ \t]+|[ \t]+$/, "", c)
+      if (c == "Task") ti = i; else if (c == "Outcome" || c == "Status") oi = i
+      else if (c == "Agent") ai = i }
+    next
+  }
+  /^\|/ {
+    if (!ti) next
+    cell = $ti; gsub(/[ \t]/, "", cell)
+    if (cell != t) next
+    o = oi ? $oi : ""; gsub(/^[ \t]+|[ \t]+$/, "", o)
+    if (o != "running" && o !~ /^revived-rv[0-9]+$/) next
+    a = ai ? $ai : ""; gsub(/^[ \t]+|[ \t]+$/, "", a)
+    print a; exit
+  }
+' "$dfile")
+[ -n "$open_row" ] || exec_die "no open dispatch row for $task — nothing to $rung; a dead lane with no row is a new dispatch"
+agent=$open_row
+
+# Highest revived-rvN on record -> next rung.
+n=$(awk -v t="$task" '
+  /^\|/ {
+    n2 = split($0, f, "|")
+    cell = f[2]; gsub(/[ \t]/, "", cell)
+    if (cell != t) next
+    for (i = 3; i <= n2; i++) {
+      c = f[i]; gsub(/^[ \t]+|[ \t]+$/, "", c)
+      if (c ~ /^revived-rv[0-9]+$/) { v = substr(c, 11) + 0; if (v > m) m = v }
+    }
+  }
+  END { print m + 0 }
+' "$dfile")
+new=$((n + 1))
+max=${EXEC_MAX_REVIVE:-2}
+[ "$new" -le "$max" ] || exec_die "$task: revive ladder spent (rv$n of $max used) — the next hop is ADJUDICATE, not another rung"
+
+# Redispatch mints the fresh identity on the same row: IMPL-P01-T03 ->
+# IMPL-P01-T03-R02. The -R suffix count follows the rung so a reader sees
+# which ladder produced which context.
+if [ "$rung" = redispatch ]; then
+  base_agent=$(printf '%s' "$agent" | sed 's/-R[0-9][0-9]*$//')
+  agent="${base_agent}-R$(printf '%02d' "$new")"
+fi
+
+now=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+exec_dispatch_set "$dfile" "$task" "Outcome" "revived-rv$new" \
+  || exec_die "cannot rewrite Outcome for $task"
+exec_dispatch_set "$dfile" "$task" "Last-Seen" "$now" || true
+[ "$rung" = redispatch ] && exec_dispatch_set "$dfile" "$task" "Agent" "$agent" || true
+
+# The ledger records the hop — a dispatch row's outcome cell tells the
+# ladder where it is; the ledger tells a human why.
+printf '%s: dispatched (%s rv%s, agent %s)\n' "$task" "$rung" "$new" "$agent" \
+  >> "$dir/progress.md"
+
+report="$dir/reports/${task}-report.md"
+mkdir -p "$dir/state/prompts"
+preamble=$("$SCRIPTS_DIR/exec-prompt" \
+  --file "$SCRIPTS_DIR/../revive-preamble.md" --block 0 \
+  REPORT_FILE="$report" --out "$dir/state/prompts/${agent}-rv${new}-preamble.md")
+
+echo "AGENT=$agent"
+echo "PREAMBLE=$preamble"
+echo "RUNG=rv$new"
+
+if [ "$rung" = redispatch ]; then
+  # Fresh context for the fresh agent — the preamble says what happened;
+  # the brief says what to do. The prior report rides in the context via
+  # the prompt's own instructions.
+  tnum=$(exec_task_num "$task")
+  brief=$("$SCRIPTS_DIR/exec-brief" "$plan" "$tnum")
+  ctx=$("$SCRIPTS_DIR/exec-context" "$plan" "$tnum")
+  echo "BRIEF=$brief"
+  echo "CONTEXT=$ctx"
+  echo "REPORT=$report"
+fi

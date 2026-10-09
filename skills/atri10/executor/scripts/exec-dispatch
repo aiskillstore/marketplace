@@ -1,0 +1,232 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Atri10
+# exec-dispatch — the one write path for a dispatch. What used to be four
+# hand-edits and three script calls the controller had to remember is one
+# act here: mint the agent identity, build the role's input file, mark the
+# ledger, append the dispatches.md row, render the prompt, print the spawn
+# block. A dispatch that skips any of those is a state lie the fold reads
+# as health; there is no "dispatch but forget the row" path anymore.
+#
+# Usage:
+#   exec-dispatch PLAN_FILE --role impl  --task N|TID [--model M] [--worktree]
+#   exec-dispatch PLAN_FILE --role fix   --task N|TID [--model M]
+#   exec-dispatch PLAN_FILE --role review --task N|TID [--round N] [--model M]
+#   exec-dispatch PLAN_FILE --role final-review [--model M]
+#   exec-dispatch PLAN_FILE --role supervisor --task N|TID --evidence FILE [--model M]
+#
+# Output: KEY=VAL lines — AGENT PROMPT REPORT plus role-specific paths
+# (BRIEF CONTEXT DIFF FIXPKG VERDICT EVIDENCE BRANCH WORKTREE). The pump
+# reads them, spawns AGENT on PROMPT, done.
+set -euo pipefail
+. "$(cd "$(dirname "$0")" && pwd)/_exec-lib.sh"
+SCRIPTS_DIR="$(cd "$(dirname "$0")" && pwd)"
+
+usage() {
+  sed -n '/^# Usage:/,/^# Output/ { /^#/s/^# \{0,1\}//p; }' "$0" >&2
+  exit 2
+}
+
+plan=""; role=""; task_in=""; model=${EXEC_DISPATCH_MODEL:-standard}
+round=""; base=""; head=""; evidence=""; wt_flag=""; why=""; subject=""; notes=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --role)     role=$2; shift 2 ;;
+    --task)     task_in=$2; shift 2 ;;
+    --model)    model=$2; shift 2 ;;
+    --round)    round=$2; shift 2 ;;
+    --base)     base=$2; shift 2 ;;
+    --head)     head=$2; shift 2 ;;
+    --evidence) evidence=$2; shift 2 ;;
+    --worktree) wt_flag=--worktree; shift ;;
+    --why)      why=$2; shift 2 ;;
+    --notes)    notes=$2; shift 2 ;;
+    -h|--help)  usage ;;
+    *)          [ -z "$plan" ] && [ -f "$1" ] && { plan=$1; shift; continue; }
+                exec_die "unknown argument: $1" ;;
+  esac
+done
+[ -n "$plan" ] && [ -n "$role" ] || usage
+exec_role "$role" >/dev/null   # unregistered role dies here, not downstream
+
+plan_id=$(exec_frontmatter "$plan" id)
+[ -n "$plan_id" ] || exec_die "no id: in $plan frontmatter"
+init_id=$(exec_initiative_of "$plan_id" 2>/dev/null || echo "")
+pseg=$(exec_plan_segment_of "$plan_id")
+dir=$(exec_workspace_dir "$plan")
+exec_seed_workspace "$dir" "$plan"
+dfile="$dir/dispatches.md"
+sequential=$(exec_frontmatter "$plan" sequential)
+
+# Resolve the task argument to a full TID (except plan-scoped roles).
+tid=""; tnum=""
+if [ "$role" != "final-review" ]; then
+  [ -n "$task_in" ] || exec_die "usage: --role $role needs --task N|TID"
+  case "$task_in" in
+    *-T[0-9]*) tid=$task_in ;;
+    *)         tnum=$task_in; tid=$(exec_task_id "$plan" "$tnum") ;;
+  esac
+  [ -n "$tid" ] || exec_die "cannot resolve task '$task_in' to an ID in $plan"
+  tnum=$(exec_task_num "$tid")
+fi
+
+now=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+agent=""; prompt_file=""; ctx_cell=""; report="$dir/reports/${tid}-report.md"
+
+# Role input + prompt assembly. Every branch ends with $agent minted and
+# $prompt_file rendered; the row append below is shared.
+mkdir -p "$dir/state/prompts"
+
+case "$role" in
+  impl)
+    agent="IMPL-${pseg}-T$(exec_pad2 "$tnum")"
+    branch=""
+    if [ "$sequential" != "true" ]; then
+      branch=$("$SCRIPTS_DIR/exec-branch" "$plan" task start "$tid" $wt_flag | head -1)
+    fi
+    [ -n "$base" ] || base=$(exec_task_branch_base "$dir" "$tid")
+    [ -n "$base" ] || base=$(git rev-parse --short HEAD)
+    brief=$("$SCRIPTS_DIR/exec-brief" "$plan" "$tnum")
+    ctx=$("$SCRIPTS_DIR/exec-context" "$plan" "$tnum")
+    ctx_cell="$(basename "$brief") + $(basename "$ctx")"
+    # Task display name: heading text between "Task N:" and the ID em-dash.
+    tname=$(awk -v n="$tnum" '$0 ~ ("^### Task " n ":") { sub(/^### Task [0-9]+: */, ""); sub(/ —.*$/, ""); print; exit }' "$plan")
+    prompt_file=$("$SCRIPTS_DIR/exec-prompt" --role impl \
+      --out "$dir/state/prompts/${agent}.prompt.md" \
+      "TASK_ID=$tid" "task name=$tname" \
+      "INIT-NNNN=$init_id" "INIT-NNNN-Pnn=$plan_id" "INIT-NNNN-Pnn-Tnn=$tid" \
+      "INIT-NNNN-SPEC-nn=$(s=$(exec_frontmatter "$plan" spec); echo "${s:-none}")" \
+      "SPEC_ID=$(s=$(exec_frontmatter "$plan" spec); echo "${s:-none}")" \
+      "PLAN_FILE=$plan" MODEL="$model" AGENT="$agent" SCRIPTS_DIR="$SCRIPTS_DIR" \
+      "FIT=${notes:-execute the task exactly as briefed}" \
+      "RESOLUTION=${notes:-none — the brief is binding as written}" \
+      BRIEF_FILE="$brief" CONTEXT_FILE="$ctx" REPORT_FILE="$report" \
+      WORKTREE="$(git rev-parse --show-toplevel)")
+    ;;
+  fix)
+    # The fix round is the round of the verdict it answers.
+    latest_v=$(ls "$dir/reviews/verdicts/${tid}-R"*-verdict.md 2>/dev/null | sort -V | tail -1)
+    [ -n "$latest_v" ] || exec_die "no verdict for $tid — nothing to fix (a fix without a verdict is a re-dispatch)"
+    [ -z "$round" ] && round=$(basename "$latest_v" | sed -n 's/.*-R\([0-9][0-9]*\)-verdict\.md/\1/p')
+    [ -n "$round" ] || exec_die "cannot read the round off $(basename "$latest_v")"
+    rn=$((10#$round))
+    if [ "$rn" -le 3 ]; then
+      # R1-3 resume the implementer: its context still holds the task.
+      agent=$(awk -F'|' -v t="$tid" '/^\|/ {c=$2; gsub(/[ \t]/,"",c); if (c==t) {a=$5; gsub(/^[ \t]+|[ \t]+$/,"",a)}} END{print a}' "$dfile")
+      [ -n "$agent" ] || agent="IMPL-${pseg}-T$(exec_pad2 "$tnum")"
+      block=1
+    else
+      # R4-5 hand to a fresh agent — the previous implementer's approach is
+      # part of the defect by then.
+      agent="IMPL-${pseg}-T$(exec_pad2 "$tnum")-R$(exec_pad2 "$rn")"
+      block=2
+    fi
+    fixpkg=$("$SCRIPTS_DIR/exec-fix-package" "$plan" "$tid")
+    findings=$(sed -n '/^## Findings/,$p' "$latest_v" | head -60)
+    brief=$("$SCRIPTS_DIR/exec-brief" "$plan" "$tnum")
+    ctx=$("$SCRIPTS_DIR/exec-context" "$plan" "$tnum")
+    ctx_cell="$(basename "$fixpkg")"
+    prompt_file=$("$SCRIPTS_DIR/exec-prompt" --file \
+      "$SCRIPTS_DIR/../../executor-execution/implementer-prompt.md" --block "$block" \
+      --out "$dir/state/prompts/${agent}-fix-R$(exec_pad2 "$rn").prompt.md" \
+      "TASK_ID=$tid" R="$rn" N="$rn" MODEL="$model" \
+      BRIEF_FILE="$brief" CONTEXT_FILE="$ctx" REPORT_FILE="$report" \
+      "FINDINGS=$findings" "findings …=$findings" \
+      "covering test files=(the tests covering files you amend)")
+    ;;
+  review|re-review)
+    [ -z "$round" ] && round=$( { ls "$dir/reviews/verdicts/${tid}-R"*-verdict.md 2>/dev/null \
+        | sed -n 's/.*-R\([0-9][0-9]*\)-verdict\.md/\1/p' | sort -n | tail -1; } )
+    round=$(exec_pad2 "$((${round:-0} + 1))")
+    agent="REVIEW-${pseg}-T$(exec_pad2 "$tnum")-R${round}"
+    [ -n "$base" ] || base=$(exec_task_branch_base "$dir" "$tid")
+    [ -n "$base" ] || exec_die "no BASE for $tid — the dispatch annotation must carry 'base <sha>' (dispatch via exec-dispatch, or pass --base)"
+    [ -n "$head" ] || head=$(git rev-parse HEAD)
+    diff=$("$SCRIPTS_DIR/exec-review-package" "$plan" "$tnum" "$base" "$head" "$round")
+    verdict="$dir/reviews/verdicts/${tid}-R${round}-verdict.md"
+    spec_id=$(exec_frontmatter "$plan" spec)
+    ctx_cell="$(basename "$diff")"
+    tmpl=review; [ "$role" = re-review ] && tmpl=re-review
+    prompt_file=$("$SCRIPTS_DIR/exec-prompt" --role "$tmpl" \
+      --out "$dir/state/prompts/${agent}.prompt.md" \
+      MODEL="$model" AGENT="$agent" "INITIATIVE_ID=$init_id" "INIT-NNNN=$init_id" \
+      "PLAN_ID=$plan_id" "INIT-NNNN-Pnn=$plan_id" PLAN_FILE="$plan" \
+      "TASK_ID=$tid" "ROUND_ID=${tid}-R${round}" "ROUND=$round" \
+      "SPEC_ID=${spec_id:-none}" BRIEF_FILE="$("$SCRIPTS_DIR/exec-brief" "$plan" "$tnum")" \
+      REPORT_FILE="$report" DIFF_FILE="$diff" VERDICT_FILE="$verdict" \
+      BASE_SHA="$base" HEAD_SHA="$head" \
+      GLOBAL_CONSTRAINTS="(see spec ${spec_id:-none} Global Constraints — bind verbatim)")
+    report="$verdict"   # the review row's product is the verdict file
+    ;;
+  final-review)
+    agent="REVIEW-${pseg}-final"
+    [ -n "$base" ] || base=$(git rev-parse --short "${plan_branch:-HEAD}" 2>/dev/null || git rev-parse --short HEAD)
+    [ -n "$head" ] || head=$(git rev-parse HEAD)
+    diff=$("$SCRIPTS_DIR/exec-review-package" "$plan" final "$base" "$head")
+    verdict="$dir/reviews/verdicts/${plan_id}-final-verdict.md"
+    prompt_file=$("$SCRIPTS_DIR/exec-prompt" --role final-review \
+      --out "$dir/state/prompts/${agent}.prompt.md" \
+      MODEL="$model" AGENT="$agent" "INITIATIVE_ID=$init_id" "INIT-NNNN=$init_id" \
+      "PLAN_ID=$plan_id" PLAN_FILE="$plan" \
+      DIFF_FILE="$diff" VERDICT_FILE="$verdict" BASE_SHA="$base" HEAD_SHA="$head")
+    report="$verdict"
+    tid=$plan_id   # final-review rows log against the plan ID
+    ;;
+  supervisor)
+    [ -n "$evidence" ] || evidence="$dir/state/adjudication/${tid}-evidence.md"
+    agent="SUPERVISOR-${pseg}-T$(exec_pad2 "$tnum")"
+    ctx_cell="$(basename "$evidence")"
+    prompt_file=$("$SCRIPTS_DIR/exec-prompt" --role supervisor \
+      --out "$dir/state/prompts/${agent}.prompt.md" \
+      MODEL="$model" AGENT="$agent" "INIT-NNNN=$init_id" \
+      LANE="$tid" "WHAT=${why:-spent-ladder}" "SUBJECT=${subject:-adjudicate $tid}" \
+      "one-line subject=${subject:-adjudicate $tid}" \
+      EVIDENCE="$evidence" RULINGS_LOG="$dir/rulings.md" PLAN_FILE="$plan" \
+      SCRIPTS_DIR="$SCRIPTS_DIR")
+    ;;
+  verify)
+    vid=$(exec_pad2 "$tnum")
+    agent="VERIFY-${pseg}-V${vid}"
+    prompt_file=$("$SCRIPTS_DIR/exec-prompt" --role verify \
+      --out "$dir/state/prompts/${agent}.prompt.md" \
+      MODEL="$model" AGENT="$agent" "INITIATIVE_ID=$init_id" "INIT-NNNN=$init_id" \
+      "PLAN_ID=$plan_id" PLAN_FILE="$plan")
+    ;;
+  *) exec_die "role $role has no dispatch recipe here (register one before dispatching it)" ;;
+esac
+
+# The ledger mark: exec-run task carries the fix cap, the registry Tasks
+# cell, and the Task-status row. The annotation keeps agent/model/base —
+# the review package reads its BASE off this line later.
+case "$role" in
+  impl|fix|review|re-review|verify|supervisor)
+    if [ "$role" = fix ]; then
+      "$SCRIPTS_DIR/exec-run" "$plan" task "$tid" \
+        --line "fix round $rn (agent $agent, model $model)" --state in-fix
+    else
+      # State word first (the ledger parser reads word 1); then agent,
+      # model, base — exec_task_branch_base reads "base <sha>" back out.
+      "$SCRIPTS_DIR/exec-run" "$plan" task "$tid" \
+        --line "dispatched (agent $agent, model $model, base $base)"
+    fi ;;
+esac
+
+# The dispatch row — appended under the workspace dir lock-free (dispatches
+# is per-plan), columns by header name.
+exec_dispatch_append "$dfile" \
+  "$(printf 'Task\x01%s\x01Role\x01%s\x01Model\x01%s\x01Agent\x01%s\x01Branch\x01%s\x01Started\x01%s\x01Outcome\x01running\x01Context\x01%s\x01Last-Seen\x01%s' \
+    "${tid:-$plan_id}" "$role" "$model" "$agent" "${branch:-—}" "$now" "${ctx_cell:-—}" "$now")" \
+  || exec_die "cannot append the dispatch row in $dfile"
+
+# The spawn block — everything the pump needs, nothing it must infer.
+echo "AGENT=$agent"
+echo "PROMPT=$prompt_file"
+echo "REPORT=$report"
+[ -n "${brief:-}" ]  && echo "BRIEF=$brief"
+[ -n "${ctx:-}" ]    && echo "CONTEXT=$ctx"
+[ -n "${diff:-}" ]   && echo "DIFF=$diff"
+[ -n "${fixpkg:-}" ] && echo "FIXPKG=$fixpkg"
+[ -n "${verdict:-}" ] && echo "VERDICT=$verdict"
+[ -n "${evidence:-}" ] && [ "$role" = supervisor ] && echo "EVIDENCE=$evidence"
+[ -n "${branch:-}" ] && echo "BRANCH=$branch"
+echo "BASE=${base:-}"
