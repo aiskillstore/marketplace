@@ -45,6 +45,14 @@ test('stale package or copy revision enters needs_rebase rather than applying si
  assert.equal(applySuggestion(s,next).status,'needs_rebase');
  assert.deepEqual(applySuggestion(s,base).fields,{...base.fields,user_title:'Clearer title'});
 });
+test('CI path filters and sparse checkout include the offline demo fixture',()=>{
+ const validate=readFileSync('.github/workflows/validate-marketplace.yml','utf8');
+ assert.equal((validate.match(/- "scripts\/listing-copy-demo-contract\.mjs"/g) ?? []).length,2);
+ assert.match(validate,/scripts\/tests\/listing-copy-demo-contract\.test\.mjs/);
+ const isolated=readFileSync('.github/workflows/test-recalculate-scores.yml','utf8');
+ assert.equal((isolated.match(/- "docs\/proposals\/listing-copy-demo\.html"/g) ?? []).length,2);
+ assert.match(isolated,/docs\/proposals\/listing-copy-demo\.html/);
+});
 test('copy-only HTML prototype is explicit offline simulation and escapes untrusted text in rendered previews',()=>{
  const html=readFileSync('docs/proposals/listing-copy-demo.html','utf8');
  assert.match(html,/离线交互演示/);assert.match(html,/不会连接平台或写入数据/);
