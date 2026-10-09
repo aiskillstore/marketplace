@@ -222,7 +222,7 @@ Antigravity delegation with independent verification
 
 本地 `CI=true node --test scripts/tests/listing-copy-demo-contract.test.mjs` **18/18 PASS、零跳过**：字段类型/长度/禁止键、伪造模拟角色/标签、自审、修订后批准失效、批准绑定、基础过期、独立发布、重复动作确定性拒绝、保护字段与源对象不变。重复批准/发布不会静默重放；重复修订无内容变化也拒绝。纯函数只描述单进程模拟，不能代替服务端权限、并发 CAS、RLS 或密码学签名。
 
-已通过真实无登录态本地浏览器交互检查（agent-browser 独立 session）：固定文案逐字段 diff → 提交 → 请求修改 → revision2 → 批准但公共原文不变 → 再修改清除批准 → 重审 → publishing → 合成回执 → 模拟 public 改变；基础变化后恢复原文，批准到发布之间基础变化进入 needs_rebase；刷新全部重置。390px 视口无横向溢出。静态服务仅白名单提供 HTML 和两个本地模块，未查询生产。共94条浏览器命令含动作前 snapshot、状态断言与5张截图，原始证据保存在共享 review 区，未发布为公开截图链接。
+已通过真实无登录态本地浏览器交互检查（agent-browser 独立 session）：固定文案逐字段 diff → 提交 → 请求修改 → revision2 → 批准但公共原文不变 → 再修改清除批准 → 重审 → publishing → 合成回执 → 模拟 public 改变；基础变化后恢复原文，批准到发布之间基础变化进入 needs_rebase；刷新全部重置。390px 视口无横向溢出。静态服务仅白名单提供 HTML 和两个本地模块，未查询生产。共100条浏览器命令含动作前 snapshot、两类模拟身份标签、状态断言与5张截图，原始证据保存在共享 review 区，未发布为公开截图链接。
 
 ### 复验步骤
 1. 按文首命令启动本地静态服务器。选择社区/已核验维护者模拟身份；标签不授予审核权。标题、简介和其余七项 JSON 已预填 PR3699 文案。

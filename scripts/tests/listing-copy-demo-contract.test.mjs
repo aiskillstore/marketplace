@@ -108,5 +108,5 @@ test('HTML discloses simulation, imports fixed fixture, uses safe text and no re
  assert.match(html,/离线交互演示/);assert.match(html,/不会连接平台或写入数据/);assert.match(html,/刷新页面会重置/);
  assert.match(html,/listing-copy-demo-fixture/);assert.match(html,/textContent/);
  assert.doesNotMatch(html,/fetch\s*\(|localStorage|sessionStorage|XMLHttpRequest|WebSocket/);
- assert.match(html,/id="staleBtn"/);assert.match(html,/id="publicSource"/);
+ assert.match(html,/id="staleBtn"/);assert.match(html,/id="publicSource"/);assert.match(html,/id="heroIdentity"/);
 });
