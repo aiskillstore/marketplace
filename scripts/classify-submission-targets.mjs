@@ -289,6 +289,18 @@ export function classifySubmissionTargets({
   const pendingSameRevisionTargets = [];
   const processingSkills = [];
   const newTargets = [];
+  const rememberPendingUpdate = (target) => {
+    pendingUpdateTargets.push(target.relativePath);
+    pendingUpdateSnapshots.push({
+      pendingDir: target.relativePath,
+      treeHash: calculateCanonicalTreeHash(root, target.relativePath),
+      reportHash: createHash('sha256')
+        .update(readFileSync(join(target.directory, 'skill-report.json')))
+        .digest('hex'),
+      gitTreeOid: calculatePendingGitTreeOidAtCommit(root, 'HEAD', target.relativePath),
+      sourceRef: target.sourceRef,
+    });
+  };
 
   for (const skill of plan.skills) {
     const alias = aliases.get(skill.path);
@@ -362,7 +374,23 @@ export function classifySubmissionTargets({
       fail(`ambiguous published target identity for ${skill.slug}: ${expectedTarget.relativePath}, ${alternateExact.relativePath}`);
     }
     if (pendingTarget !== null && (expectedTarget !== null || alternateExact !== null)) {
-      fail(`pending target collision with published target for ${skill.slug}: ${pendingTarget.relativePath}`);
+      // A new audit may supersede a pending update without publishing or replacing
+      // the live version. Both independently validated identities must match the
+      // requested source path and immutable refs; other collisions stay closed.
+      const immutableRef = /^[a-f0-9]{40,64}$/;
+      if (expectedTarget === null || alternateExact !== null
+        || pendingTarget.sourcePath !== skill.path || expectedTarget.sourcePath !== skill.path
+        || !immutableRef.test(sourceRef) || !immutableRef.test(pendingTarget.sourceRef)
+        || !immutableRef.test(expectedTarget.sourceRef)
+        || (sourceRef === expectedTarget.sourceRef && sourceRef !== pendingTarget.sourceRef)) {
+        fail(`pending target collision with published target for ${skill.slug}: ${pendingTarget.relativePath}`);
+      }
+      if (pendingTarget.sourceRef === sourceRef) {
+        existingTargets.push(pendingTarget.relativePath);
+        sameRevisionTargets.push(pendingTarget.relativePath);
+        pendingSameRevisionTargets.push(pendingTarget.relativePath);
+        continue;
+      }
     }
     if (expectedTarget === null && alternateExact !== null) {
       fail(`published target identity for ${skill.slug} exists at unexpected path: ${alternateExact.relativePath}`);
@@ -380,6 +408,7 @@ export function classifySubmissionTargets({
           treeHash,
           sourceRef: expectedTarget.sourceRef,
         });
+        if (pendingTarget !== null) rememberPendingUpdate(pendingTarget);
       }
       continue;
     }
@@ -389,17 +418,8 @@ export function classifySubmissionTargets({
         sameRevisionTargets.push(pendingTarget.relativePath);
         pendingSameRevisionTargets.push(pendingTarget.relativePath);
       } else {
-        pendingUpdateTargets.push(pendingTarget.relativePath);
+        rememberPendingUpdate(pendingTarget);
         processingSkills.push(skill);
-        pendingUpdateSnapshots.push({
-          pendingDir: pendingTarget.relativePath,
-          treeHash: calculateCanonicalTreeHash(root, pendingTarget.relativePath),
-          reportHash: createHash('sha256')
-            .update(readFileSync(join(pendingTarget.directory, 'skill-report.json')))
-            .digest('hex'),
-          gitTreeOid: calculatePendingGitTreeOidAtCommit(root, 'HEAD', pendingTarget.relativePath),
-          sourceRef: pendingTarget.sourceRef,
-        });
       }
       continue;
     }
