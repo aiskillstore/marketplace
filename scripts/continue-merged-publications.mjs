@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
-import { publicationValidatorRevision } from './resolve-approved-submission.mjs';
+import { publicationValidatorRevision, assertPublicationReportNotHeld } from './resolve-approved-submission.mjs';
 import { recoveredPushSync } from './recovered-push-sync.mjs';
 
 export const preflightContext = digest => `agentcrew/publication-preflight/${createHash('sha256')
@@ -76,6 +76,9 @@ export function main(request = api) {
   const reports = new Map(inventory.tree.filter(t => t.path.endsWith('/skill-report.json'))
     .map(t => [`pending/${t.path}`, t.sha]));
   if (!reports.size) return console.log('No pending skills');
+  // Fail closed for the entire continuation, rather than skipping a candidate
+  // whose old reservations/effects have not been reconciled. No dispatch here.
+  for (const [reportPath, blobSha] of reports) assertPublicationReportNotHeld(reportPath, blobSha);
   const owners = new Map();
   const skillCounts = new Map();
   // Stop when every CURRENT pending report has an exact merged owner. Scanning
