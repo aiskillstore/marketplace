@@ -13,6 +13,8 @@ This PR delivers **offline code and a read plan only**. It does not configure a 
 
 The actual artifact/current projection/provider outcome remains **UNKNOWN** until an operator/runtime-approved read capability supplies authoritative evidence. `0 synced` and a failed run are not zero-write proof. Current CLI source has an artifact RPC before the ancillary catalog update; that source ordering is a reason to inspect possible partial effects, not proof of the old run's committed state.
 
+This module's three-table plan defines its input contract, not the full scope of a human's authorization. Reuse the original verified authorization for other relevant reads when it already covers them. Do not turn this diagnostic's narrow schema into a new approval requirement. Current runtime capability, source binding and evidence checks still apply; a read authorization never grants production mutation or replay.
+
 ## Commands (no production access)
 
 ```sh

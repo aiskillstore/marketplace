@@ -13,7 +13,9 @@ CI=true node --test scripts/tests/bookforge-stage-plan.test.mjs
 
 The only CLI command is `--plan`. Extra arguments, effects and receipt input are rejected with a generic message; no input or parser detail is echoed. No connector, environment credential access, subprocess, network, write, stage executor or receipt verifier is added. The module reuses the existing diagnostic's `assessSnapshot` validation; importing that library does not invoke its snapshot-file CLI.
 
-All stages remain `UNKNOWN`, and `authorizesExecution`, `readScopeApproved`, `executorImplemented`, `replayAllowed` and `continuationAllowed` are false. This proposal is **not an expansion of the previously approved three-table GET**. All proposed ancillary reads require separate scoped authority and an approved connector; no queries are executed here.
+All stages remain `UNKNOWN`, and `authorizesExecution`, `readScopeApproved`, `executorImplemented`, `replayAllowed` and `continuationAllowed` are false. These flags describe this offline module: it grants no authority and executes no queries. They do not cancel or narrow an existing human authorization. Determine the allowed read scope from the original human instruction and current runtime capabilities, not from a model-authored three-table limit. Reuse an existing authorization when it covers the query; ask again only for a genuinely new authority boundary.
+
+Keep development and production execution separate. When the current task already authorizes development, prepare and test the missing executor or verifier in an isolated environment and obtain independent review before requesting any still-missing production permission. A missing production connector or write authorization does not by itself block code preparation. Preparation, matching offline data and a merged proposal do not authorize production effects or establish business completion.
 
 ## Entry points and identity
 
