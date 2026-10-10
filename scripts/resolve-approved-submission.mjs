@@ -8,6 +8,21 @@ import { pathToFileURL } from 'node:url';
 
 export class PublicationValidationError extends Error {}
 function fail(message) { throw new PublicationValidationError(message); }
+
+// Issue #3703: this exact reviewed pending report is superseded and must not
+// publish when the unrelated provider gate clears. Keep the bytes and audit
+// history intact. A different blob is NOT approval; all ordinary checks remain.
+export function assertPublicationReportNotHeld(reportPath, blobSha) {
+  if (reportPath === 'pending/cagdasyurekli/agy-worker/skill-report.json'
+    && blobSha === '9db4ee7c8a2fe82d3dd189dfb36198d10ffd583f') {
+    fail('Publication hold: Issue #3703 requires safe replacement of the superseded agy-worker report before release');
+  }
+}
+
+export function publicationReportBlobSha(bytes) {
+  const raw = Buffer.from(bytes);
+  return createHash('sha1').update(`blob ${raw.length}\0`).update(raw).digest('hex');
+}
 // Bind preflight rejection to this validator version. A deployed validation fix
 // rechecks old failures without replaying a receiver that already made changes.
 export const publicationValidatorRevision = createHash('sha256')
@@ -484,6 +499,7 @@ export function resolveApprovedSubmission({
       fail(`${pendingDir} contains a symlinked publication identity file`);
     }
 
+    assertPublicationReportNotHeld(`${pendingDir}/skill-report.json`, publicationReportBlobSha(readFileSync(reportPath)));
     const report = readJson(reportPath, `${pendingDir}/skill-report.json`);
     const publicationMode = publicationModeByRoot.get(pendingDir);
     if (reauditRoots.has(pendingDir)) {
