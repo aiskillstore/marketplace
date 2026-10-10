@@ -25,6 +25,19 @@ The controller locally enumerates and validates paths, rejects unsafe copies, an
 transactionally reconciles only authorized mutations. A disposable worktree itself
 is not a security sandbox.
 
+### Worker instruction precedence
+
+The worker prompt instructs the worker to respect applicable user and repository
+instructions, including security, privacy, permission and scope constraints; conflicts
+or missing answers needed to satisfy those constraints require `blocked` and
+`requires_human=true`. It explicitly protects secrets, data destinations, destructive
+actions and required permission to act, and forbids assuming authorization. For routine
+questions that need no protected answer, it instructs the worker to record the question
+in `open_questions` and a safe assumption in `summary`, then continue. Compatible report
+requirements go inside the schema fields; incompatible templates yield to the run's
+response format. These are prompt instructions; provider compliance still needs
+independent review and verification.
+
 ### Environments and verification
 
 Provider children and dispatch-time `agy` version, help, and model-selection probes
