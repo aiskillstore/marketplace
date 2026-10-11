@@ -238,10 +238,12 @@ function validateCandidate(candidate, identity, targetLabel = 'published target'
     if (report.meta.source_type !== 'community') {
       fail(`namespaced published target must be community at ${reportPath}`);
     }
-    const author = report?.skill?.author?.toLowerCase();
-    const owner = identity.owner.toLowerCase();
-    if (typeof author !== 'string' || (author !== owner && !author.endsWith(`(${owner})`))) {
-      fail(`${targetLabel} author mismatch at ${reportPath}: expected ${identity.owner}`);
+    // The CLI preserves SKILL.md's display author (a person or organization).
+    // It is not a GitHub login. Authority comes from the owner-scoped target,
+    // report slug and canonical source repository/ref checked below.
+    const author = report?.skill?.author;
+    if (typeof author !== 'string' || author.trim() === '') {
+      fail(`${targetLabel} author must be a non-empty display name at ${reportPath}`);
     }
   } else if (report.meta.source_type !== 'official') {
     fail(`flat published target must be official at ${reportPath}`);

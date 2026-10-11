@@ -386,16 +386,37 @@ test('same-source pending follow-up accepts a display author with the repository
   assert.equal(result.reasonCode, 'all_selected_targets_are_pending_updates');
 }));
 
-test('pending display author without the repository owner handle remains fail-closed', () => withMarketplace((root) => {
+test('same-source pending follow-up preserves a display author without a GitHub handle', () => withMarketplace((root) => {
   writeTarget(root, 'alpha', {
     rootDirectory: 'pending',
     sourceRef: '2'.repeat(40),
-    author: 'Unrelated Author',
+    author: 'Example Organization',
   });
-  assert.throws(
-    () => classify(root, selectionPlan([{ slug: 'alpha', path: 'skills/alpha' }])),
-    /pending target author mismatch/,
-  );
+  commitMarketplace(root);
+  const result = classify(root, selectionPlan([{ slug: 'alpha', path: 'skills/alpha' }]));
+  assert.equal(result.reasonCode, 'all_selected_targets_are_pending_updates');
+  assert.equal(result.pendingUpdateSnapshots[0].treeHash, calculateCanonicalTreeHash(root, 'pending/example/alpha'));
+}));
+
+test('published display authors do not change source identity or the frozen update snapshot', () => withMarketplace((root) => {
+  const target = writeTarget(root, 'alpha', { sourceRef: '2'.repeat(40), author: 'Example Organization' });
+  const before = readFileSync(join(target, 'skill-report.json'));
+  const result = classify(root, selectionPlan([{ slug: 'alpha', path: 'skills/alpha' }]));
+  assert.deepEqual(result.updateTargets, ['skills/example/alpha']);
+  assert.equal(result.updateSnapshots[0].treeHash, calculateCanonicalTreeHash(root, 'skills/example/alpha'));
+  assert.deepEqual(readFileSync(join(target, 'skill-report.json')), before);
+}));
+
+test('a display author matching the owner cannot authorize a different source repository', () => withMarketplace((root) => {
+  writeTarget(root, 'alpha', { rootDirectory: 'pending', repository: 'other/source', sourceRef: '2'.repeat(40), author: 'example' });
+  assert.throws(() => classify(root, selectionPlan([{ slug: 'alpha', path: 'skills/alpha' }])), /source repository mismatch/);
+}));
+
+test('missing or empty community display authors remain invalid report data', () => withMarketplace((root) => {
+  for (const author of ['', '  ', 123]) {
+    writeTarget(root, 'alpha', { author });
+    assert.throws(() => classify(root, selectionPlan([{ slug: 'alpha', path: 'skills/alpha' }])), /author must be a non-empty display name/);
+  }
 }));
 
 test('same-source pending commit is an idempotent no-op', () => withMarketplace((root) => {
