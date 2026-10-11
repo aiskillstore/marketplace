@@ -288,3 +288,14 @@ test('rejects a payload-only update with a stale report tree hash', () => {
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test('an unchanged checkout is a safe no-op but unrelated writes and stale allowlists fail', () => {
+  const root=fixture();
+  try {
+    write(join(root,'README.md'),'fixture');commit(root);
+    assert.deepEqual(verifySourceMonitorUpdate({repositoryRoot:root}),{changedSkills:0,changedPaths:0,deletedPaths:0});
+    assert.throws(()=>verifySourceMonitorUpdate({repositoryRoot:root,allowDestructiveSkills:['skills/owner/demo']}));
+    write(join(root,'README.md'),'unrelated mutation');
+    assert.throws(()=>verifySourceMonitorUpdate({repositoryRoot:root}),/outside published skills/);
+  } finally {rmSync(root,{recursive:true,force:true});}
+});

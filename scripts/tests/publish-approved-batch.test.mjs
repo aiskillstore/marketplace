@@ -61,6 +61,7 @@ for (const {duplicates, rejectFirst = false, callbackFailure = false, unsafeFirs
       const merge=git(['rev-parse','HEAD']);
       prs.push({number,merged_at:'2026-09-08T00:00:00Z',base:{ref:'main',sha:base},user:{id:254047988,login:'ai-skill-store[bot]'},head:{ref:`submission/${number}`,sha:head,repo:{full_name:'aiskillstore/marketplace'}},merge_commit_sha:merge,html_url:`https://github.com/aiskillstore/marketplace/pull/${number}`,merged_by:{login:'test'},body:`Submission ID: \`${number.toString().padStart(8,'0')}-0000-0000-0000-000000000000\``});
       files[number]=git(['diff','--name-only',base,merge]).split('\n').map(filename=>({filename}));
+      prs.at(-1).changed_files=files[number].length;
     }
     const before=git(['rev-parse','HEAD']);git(['clone','--bare',root,remote]);git(['remote','add','origin',remote]);
     const responses = {};

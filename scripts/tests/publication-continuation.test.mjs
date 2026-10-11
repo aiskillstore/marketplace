@@ -2,12 +2,12 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFileSync } from 'node:fs';
 import { parse } from 'yaml';
-import { trustedMerged, publicationIdentity, chooseAttempt, preflightContext } from '../continue-merged-publications.mjs';
+import { trustedMerged, publicationIdentity, chooseAttempt, preflightContext, publicationFiles } from '../continue-merged-publications.mjs';
 
 test('61-skill approvals fit the 64-skill bound; 65-skill approvals still fail closed', async () => {
   const { main } = await import('../continue-merged-publications.mjs');
   const counts = [61, 3, 1], writes = [];
-  const prs = counts.map((_, i) => ({ number: i + 1, merged_at: `2026-09-01T00:00:0${i}Z`,
+  const prs = counts.map((_, i) => ({ number: i + 1, get changed_files() { return counts[i]; }, merged_at: `2026-09-01T00:00:0${i}Z`,
     base: { ref: 'main' }, user: { id: 254047988, login: 'ai-skill-store[bot]' },
     head: { repo: { full_name: 'aiskillstore/marketplace' }, ref: 'submission/test', sha: 'a'.repeat(40) },
     merge_commit_sha: String(i + 1).repeat(40) }));
@@ -79,7 +79,7 @@ test('sync baseline selection sorts workflow runs newest first', () => {
 
 test('current pending inventory stops after its exact owners; fresh A prevents dispatching B', async () => {
   const { main } = await import('../continue-merged-publications.mjs');
-  const makePr = (number, date, sha) => ({ number, merged_at: date, base: { ref: 'main' }, user: { id: 254047988, login: 'ai-skill-store[bot]' }, head: { repo: { full_name: 'aiskillstore/marketplace' }, ref: 'submission/test', sha: 'a'.repeat(40) }, merge_commit_sha: sha.repeat(40) });
+  const makePr = (number, date, sha) => ({ number, changed_files: 1, merged_at: date, base: { ref: 'main' }, user: { id: 254047988, login: 'ai-skill-store[bot]' }, head: { repo: { full_name: 'aiskillstore/marketplace' }, ref: 'submission/test', sha: 'a'.repeat(40) }, merge_commit_sha: sha.repeat(40) });
   const a = makePr(1, '2026-09-01T00:00:00Z', 'b');
   const b = makePr(2, '2026-09-02T00:00:00Z', 'c');
   const { digest } = publicationIdentity(a);
@@ -112,7 +112,7 @@ test('current pending inventory stops after its exact owners; fresh A prevents d
 
 test('automatic continuation dispatches at most 25 approvals and leaves reservations to the receiver', async () => {
   const { main, batchIdentity } = await import('../continue-merged-publications.mjs');
-  const prs = Array.from({length:26}, (_,i) => ({number:i+1, merged_at:`2026-09-01T00:00:${String(i).padStart(2,'0')}Z`, base:{ref:'main'}, user:{id:254047988,login:'ai-skill-store[bot]'}, head:{repo:{full_name:'aiskillstore/marketplace'},ref:'submission/test',sha:'a'.repeat(40)},merge_commit_sha:(i+1).toString(16).padStart(40,'0')}));
+  const prs = Array.from({length:26}, (_,i) => ({number:i+1, changed_files:1, merged_at:`2026-09-01T00:00:${String(i).padStart(2,'0')}Z`, base:{ref:'main'}, user:{id:254047988,login:'ai-skill-store[bot]'}, head:{repo:{full_name:'aiskillstore/marketplace'},ref:'submission/test',sha:'a'.repeat(40)},merge_commit_sha:(i+1).toString(16).padStart(40,'0')}));
   const writes=[];
   let preflightStatus = null, receiverStatus = null;
   const request=(endpoint,data)=>{
@@ -145,4 +145,19 @@ test('automatic continuation dispatches at most 25 approvals and leaves reservat
   writes.length=0;process.argv.push('--apply');try{main(request);}finally{process.argv.pop();}
   assert.match(writes[0].data.inputs.pr_numbers,/^1,/,'a new validator must recheck previous preflight failures');
 
+});
+
+ test('publication file inventory accepts large approvals and rejects incomplete API evidence', () => {
+  for (const count of [1, 1000, 2614, 3000]) {
+    let pages = 0;
+    const result = publicationFiles({number:1,changed_files:count}, endpoint => {
+      const page = Number(new URL(`https://api.github.com/${endpoint}`).searchParams.get('page'));
+      pages++;
+      return Array.from({length:Math.min(100,count-(page-1)*100)}, (_,i)=>({filename:`pending/owner/demo/f${(page-1)*100+i}`}));
+    });
+    assert.equal(result.length,count);assert.equal(pages,Math.ceil(count/100));
+  }
+  assert.throws(()=>publicationFiles({number:1,changed_files:3001},()=>[]),/bound/);
+  assert.throws(()=>publicationFiles({number:1,changed_files:2},()=>[]),/Incomplete/);
+  assert.throws(()=>publicationFiles({number:1,changed_files:2},()=>[{filename:'same'},{filename:'same'}]),/duplicate/);
 });

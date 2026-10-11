@@ -66,6 +66,24 @@ function pages(endpoint, request = api) {
   }
   throw new Error(`Inventory limit reached: ${endpoint}`);
 }
+export function publicationFiles(pr, request = api) {
+  // GitHub serves at most 3,000 PR files. Bind the full inventory to the PR's
+  // declared count, including exactly-full pages; never accept truncation.
+  const detail = Number.isSafeInteger(pr.changed_files) ? pr : request(`repos/${repo}/pulls/${pr.number}`);
+  if (!Number.isSafeInteger(detail.changed_files) || detail.changed_files < 1 || detail.changed_files > 3000) {
+    throw new Error(`PR #${pr.number} file inventory exceeds the complete GitHub API bound`);
+  }
+  const files = [];
+  for (let page = 1; files.length < detail.changed_files; page++) {
+    const batch = request(`repos/${repo}/pulls/${pr.number}/files?per_page=100&page=${page}`);
+    if (!Array.isArray(batch) || !batch.length || batch.length > 100) throw new Error('Incomplete publication file inventory');
+    files.push(...batch);
+  }
+  if (files.length !== detail.changed_files || new Set(files.map(f => f.filename)).size !== files.length) {
+    throw new Error('Incomplete or duplicate publication file inventory');
+  }
+  return files;
+}
 export function main(request = api) {
   const live = process.argv.includes('--apply');
   const tree = request(`repos/${repo}/git/trees/main`);
@@ -86,7 +104,7 @@ export function main(request = api) {
   for (let page = 1; page <= 10 && owners.size < reports.size; page++) {
     const batch = request(`repos/${repo}/pulls?state=closed&sort=updated&direction=desc&per_page=100&page=${page}`);
     for (const pr of batch.filter(trustedMerged).sort((a, b) => b.merged_at.localeCompare(a.merged_at))) {
-      const files = pages(`repos/${repo}/pulls/${pr.number}/files`, request);
+      const files = publicationFiles(pr, request);
       skillCounts.set(pr.number, files.filter(f => f.filename.endsWith('/skill-report.json')).length);
       for (const file of files) {
         if (reports.get(file.filename) === file.sha && !owners.has(file.filename)) {

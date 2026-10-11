@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -11,6 +12,16 @@ import {
 import { validateSelectionPlan } from '../submission-selection-plan.mjs';
 
 const MAIN_SHA = '1'.repeat(40);
+
+test('malformed upstream frontmatter has an explicit rejected outcome while system failures remain failures', () => withDirectory(root => {
+  writeFileSync(join(root,'SKILL.md'),'---\nname: demo\ndescription: bad: scalar\n---\n');
+  const run=source=>spawnSync(process.execPath,['scripts/discover-submission-skills.mjs','--source-dir',source,'--report-rejection'],{encoding:'utf8'});
+  const rejected=run(root);
+  assert.equal(rejected.status,0);
+  assert.equal(JSON.parse(rejected.stdout).reasonCode,'invalid_skill_frontmatter');
+  assert.equal(JSON.parse(rejected.stdout).outcome,'rejected');
+  assert.notEqual(run(join(root,'does-not-exist')).status,0);
+}));
 const READY_SHA = '2'.repeat(40);
 const SLUG_ALIAS_REGISTRY = JSON.parse(readFileSync(
   new URL('../../governance/submission-slug-aliases.json', import.meta.url),
@@ -410,7 +421,7 @@ test('valid root-level names produce the same planned slug while malformed root 
   writeFileSync(join(root, 'SKILL.md'), '---\nname: flops-compute-prices\ndescription: GPU prices Keywords: verified\n---\n');
   assert.throws(
     () => discoverSubmissionSkills({ sourceDir: root }),
-    /invalid YAML plain scalar/,
+    /invalid YAML frontmatter/,
   );
 }));
 
@@ -551,4 +562,11 @@ test('ASCII discovery remains unchanged when aliases belong to another repositor
       }],
     },
   }).skills, [{ slug: 'demo-skill', path: 'demo' }]);
+}));
+
+test('valid YAML flow mappings, lists and block scalars keep the declared skill identity', () => withDirectory(root => {
+  for (const extra of ['metadata: { "openclaw": { "primaryEnv": "API_KEY" } }', 'allowed-tools: [Bash, "Read: files"]', 'description: |\n  valid text: with a colon']) {
+    writeFileSync(join(root,'SKILL.md'),`---\nname: valid-skill\n${extra}\n---\n`);
+    assert.deepEqual(discoverSubmissionSkills({sourceDir:root}).skills,[{slug:'valid-skill',path:'.'}]);
+  }
 }));

@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { createHash } from 'node:crypto';
+import { createRequire } from 'node:module';
 import { lstatSync, readFileSync, readdirSync, realpathSync } from 'node:fs';
 import { basename, dirname, join, relative, resolve, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -10,6 +11,8 @@ const SKIP_DIRECTORIES = new Set(['node_modules', '.git', '.venv', 'venv', 'dist
 const PROJECT_LOCAL_SKILL_ROOTS = ['.agents/skills', '.claude/skills', '.codex/skills'];
 const REPOSITORY = /^[a-z0-9_-]+\/[a-z0-9._-]+$/;
 const CANONICAL_SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+
+export class SubmissionContentError extends Error {}
 
 function fail(message) {
   throw new Error(message);
@@ -102,37 +105,23 @@ function isWithinScope(path, scope) {
 }
 
 function topLevelName(skillMdPath, content) {
+  const fail = message => { throw new SubmissionContentError(message); };
   const lines = content.replace(/^\uFEFF/, '').split(/\r?\n/);
   if (lines[0]?.trim() !== '---') return null;
   const end = lines.findIndex((line, index) => index > 0 && line.trim() === '---');
   if (end === -1) fail(`${skillMdPath}: frontmatter is not terminated`);
-  let name = null;
-  for (let index = 1; index < end; index += 1) {
-    const line = lines[index];
-    if (line.trim() === '' || /^\s*#/.test(line) || /^\s/.test(line)) continue;
-    const match = line.match(/^([A-Za-z0-9_-]+):(?:\s*(.*))?$/);
-    if (!match) fail(`${skillMdPath}:${index + 1}: invalid top-level YAML`);
-    const [, key, rawValue = ''] = match;
-    const value = rawValue.trim();
-    if (value !== '' && !/^[>|][+-]?$/.test(value) && !value.startsWith('"') && !value.startsWith("'") && /:\s/.test(value)) {
-      fail(`${skillMdPath}:${index + 1}: invalid YAML plain scalar; quote values containing ': '`);
-    }
-    if (key !== 'name') continue;
-    if (name !== null) fail(`${skillMdPath}: duplicate top-level name field`);
-    if (value.startsWith('"')) {
-      try {
-        name = JSON.parse(value);
-      } catch {
-        fail(`${skillMdPath}:${index + 1}: invalid quoted name`);
-      }
-    } else if (value.startsWith("'")) {
-      if (!value.endsWith("'") || value.length < 2) fail(`${skillMdPath}:${index + 1}: invalid quoted name`);
-      name = value.slice(1, -1).replace(/''/g, "'");
-    } else {
-      name = value.replace(/\s+#.*$/, '').trim();
-    }
-    if (typeof name !== 'string' || name === '') fail(`${skillMdPath}:${index + 1}: name must be a non-empty scalar`);
-  }
+  // Use the locked YAML parser: flow mappings, lists, folded strings and
+  // comments are valid YAML, and must not be guessed with scalar regexes.
+  // Lazy loading keeps alias-only consumers independent of parser setup.
+  const { parseDocument } = createRequire(import.meta.url)('yaml');
+  const document = parseDocument(lines.slice(1, end).join('\n'), { uniqueKeys: true });
+  if (document.errors.length) fail(`${skillMdPath}: invalid YAML frontmatter: ${document.errors[0].message}`);
+  let data;
+  try { data = document.toJS({ maxAliasCount: 50 }); }
+  catch { fail(`${skillMdPath}: unsafe YAML aliases`); }
+  if (!data || typeof data !== 'object' || Array.isArray(data)) fail(`${skillMdPath}: frontmatter must be a mapping`);
+  const name = data.name ?? null;
+  if (name !== null && (typeof name !== 'string' || name.trim() === '')) fail(`${skillMdPath}: name must be a non-empty scalar`);
   return name;
 }
 
@@ -462,7 +451,11 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
   try {
     main();
   } catch (error) {
-    console.error(`::error::Submission skill discovery failed: ${error instanceof Error ? error.message : String(error)}`);
-    process.exitCode = 1;
+    if (error instanceof SubmissionContentError && process.argv.includes('--report-rejection')) {
+      process.stdout.write(`${JSON.stringify({ outcome: 'rejected', reasonCode: 'invalid_skill_frontmatter', reason: error.message })}\n`);
+    } else {
+      console.error(`::error::Submission skill discovery failed: ${error instanceof Error ? error.message : String(error)}`);
+      process.exitCode = 1;
+    }
   }
 }

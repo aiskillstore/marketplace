@@ -22,6 +22,8 @@ const publicationProvenance = readFileSync('.github/workflows/publication-proven
 const cliCompatibilityDescription =
   'Reserved compatibility input; submission processing is pinned to CLI 2.16.5';
 const runtimeFiles = [
+  'package.json',
+  'package-lock.json',
   'schemas/skill-report.schema.json',
   'governance/submission-slug-aliases.json',
   '.github/actions/download-skillstore-cli/action.yml',
@@ -113,6 +115,8 @@ function createFixture() {
   run('git', ['-C', seed, 'config', 'user.email', 'fixture@example.com']);
 
   const files = {
+    'package.json': '{}\n',
+    'package-lock.json': '{}\n',
     'schemas/skill-report.schema.json': '{"type":"object"}\n',
     'governance/submission-slug-aliases.json': '{"schemaVersion":1,"aliases":[]}\n',
     '.github/actions/download-skillstore-cli/action.yml': 'name: fixture action\n',
@@ -459,7 +463,9 @@ test('existing-target classification is a pre-CLI gate with a handled rejection 
   assert.match(reusable, /inputs\.is_manual_approval == false && steps\.targets\.outputs\.disposition == 'processable'/);
   assert.match(reusable, /if: steps\.targets\.outputs\.disposition == 'processable'/);
   assert.match(reusable, /target_disposition == 'processable' && needs\.discover-and-plan\.outputs\.shard_count != '0'/);
-  assert.match(reusable, /target_disposition == 'all_existing' && 'rejected'/);
+  assert.match(reusable, /contains\(fromJSON\('\["all_existing","invalid_source"\]'\), jobs.discover-and-plan.outputs.target_disposition\) && 'rejected'/);
+  assert.match(reusable, /--report-rejection/);
+  assert.match(reusable, /if: steps.discover.outputs.rejection_reason == ''/);
   assert.match(
     readFileSync('scripts/classify-submission-targets.mjs', 'utf8'),
     /all_selected_targets_already_published/,
