@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
+import { appendFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { publicationValidatorRevision, assertPublicationReportNotHeld } from './resolve-approved-submission.mjs';
 import { recoveredPushSync } from './recovered-push-sync.mjs';
@@ -8,6 +9,26 @@ export const preflightContext = digest => `agentcrew/publication-preflight/${cre
   .update(`${digest}:${publicationValidatorRevision}`).digest('hex')}`;
 
 const repo = 'aiskillstore/marketplace';
+// Dependency outcomes are queue state, not a new execution failure. Keep the
+// original failed run visible and do not mistake successful planning for delivery.
+export function reportContinuation(outcome, reason, { runIds = [], prNumbers = [], skillCount = 0 } = {}, env = process.env) {
+  const result = { outcome, reason, runIds, prNumbers, skillCount };
+  console.log(JSON.stringify(result));
+  if (outcome === 'blocked') {
+    const message = reason.replace(/%/g, '%25').replace(/\r/g, '%0D').replace(/\n/g, '%0A');
+    console.warn(`::warning title=Publication queue blocked::${message}`);
+  }
+  if (env.GITHUB_OUTPUT) appendFileSync(env.GITHUB_OUTPUT, `outcome=${outcome}\nresult=${JSON.stringify(result)}\n`);
+  if (env.GITHUB_STEP_SUMMARY) {
+    const links = runIds.map(id => `- [Dependency run ${id}](https://github.com/${repo}/actions/runs/${id})`).join('\n');
+    appendFileSync(env.GITHUB_STEP_SUMMARY, `## Publication queue: ${outcome}\n\n${reason}\n\n`
+      + (outcome === 'dispatched' ? `Dispatched ${skillCount} skills for receiver validation. Provider, callbacks and cache must still complete.\n`
+        : 'No publication was dispatched. Existing publication and provider results are unchanged.\n')
+      + (links ? `\n${links}\n` : '')
+      + (prNumbers.length ? `\nPRs: ${prNumbers.map(n => `#${n}`).join(', ')}\n` : ''));
+  }
+  return result;
+}
 export const maxBatchSkills = 64;
 export function trustedMerged(pr) {
   return pr.merged_at && pr.base?.ref === 'main'
@@ -31,7 +52,7 @@ export function batchIdentity(correlations) {
 // Existing receiver remains the authority for immutable source/tree validation.
 export function chooseAttempt({ refs, statuses, digest, merge, now }) {
   const prefix = `refs/tags/agentcrew-dispatch-outbox/publication/${digest}/`;
-  if (refs.length >= 8) return { wait: 'outbox attempt limit; inspection required' };
+  if (refs.length >= 8) return { wait: 'outbox attempt limit; inspection required', outcome: 'blocked' };
   for (const ref of refs) {
     if (!ref.ref.startsWith(prefix) || !/^\d{13}-[1-9]\d*$/.test(ref.ref.slice(prefix.length))
       || ref.object.type !== 'commit' || ref.object.sha !== merge) throw new Error('Invalid publication outbox');
@@ -40,10 +61,10 @@ export function chooseAttempt({ refs, statuses, digest, merge, now }) {
   // Any prior receiver reservation is authoritative. Failure may include partial
   // effects; automatic continuation must not invent a safe retry from it.
   if (statuses.some(s => s.context === context || s.context.startsWith(`agentcrew/publication-attempt/${digest}/`))) {
-    return { wait: 'receiver has durable evidence; reconcile before replay' };
+    return { wait: 'receiver has durable evidence; reconcile before replay', outcome: 'blocked' };
   }
   const newest = Math.max(0, ...refs.map(r => Number(r.ref.slice(prefix.length).split('-')[0])));
-  if (newest > now - 15 * 60_000) return { wait: 'fresh dispatch awaiting receiver' };
+  if (newest > now - 15 * 60_000) return { wait: 'fresh dispatch awaiting receiver', outcome: 'waiting' };
   return { attempt: `${now}-${refs.length + 1}` };
 }
 
@@ -88,15 +109,35 @@ export function main(request = api) {
   const live = process.argv.includes('--apply');
   const tree = request(`repos/${repo}/git/trees/main`);
   const pending = tree.tree.find(t => t.path === 'pending');
-  if (!pending) return console.log('No pending skills');
+  if (!pending) return reportContinuation('idle', 'No pending skills');
   const inventory = request(`repos/${repo}/git/trees/${pending.sha}?recursive=1`);
   if (inventory.truncated) throw new Error('Truncated pending inventory');
   const reports = new Map(inventory.tree.filter(t => t.path.endsWith('/skill-report.json'))
     .map(t => [`pending/${t.path}`, t.sha]));
-  if (!reports.size) return console.log('No pending skills');
+  if (!reports.size) return reportContinuation('idle', 'No pending skills');
   // Fail closed for the entire continuation, rather than skipping a candidate
   // whose old reservations/effects have not been reconciled. No dispatch here.
   for (const [reportPath, blobSha] of reports) assertPublicationReportNotHeld(reportPath, blobSha);
+  // Check dependencies before the expensive PR/file inventory on every wakeup.
+  // A failed write must be reconciled, never replayed by this planner.
+  const syncRuns = request(`repos/${repo}/actions/workflows/sync-to-supabase.yml/runs?per_page=100`).workflow_runs;
+  if (syncRuns.some(r => r.status !== 'completed')) {
+    const active = syncRuns.filter(r => r.status !== 'completed');
+    if (active.some(r => Date.now() - Date.parse(r.created_at) > 60 * 60_000)) {
+      throw new Error(`Provider sync stalled over 60 minutes: ${active.map(r => r.id).join(', ')}; inspect scoring locks and unfinished stages`);
+    }
+    return reportContinuation('waiting', 'Waiting for provider sync to finish before publishing another batch', { runIds: active.map(r => r.id) });
+  }
+  const lastPush = syncRuns.filter(r => r.event === 'push')
+    .sort((a, b) => b.created_at.localeCompare(a.created_at))[0];
+  if (lastPush && !['success', 'skipped'].includes(lastPush.conclusion)
+    && !recoveredPushSync(lastPush, syncRuns, request)) {
+    return reportContinuation('blocked', `Previous push sync ${lastPush.id} is ${lastPush.conclusion}; inspect its effects and complete verified reconciliation before continuing`, { runIds: [lastPush.id] });
+  }
+  for (const workflow of ['on-pr-merge.yml', 'publish-approved-batch.yml']) {
+    const active = request(`repos/${repo}/actions/workflows/${workflow}/runs?per_page=100`).workflow_runs.filter(r => r.status !== 'completed');
+    if (active.length) return reportContinuation('waiting', `Waiting for ${workflow}`, { runIds: active.map(r => r.id) });
+  }
   const owners = new Map();
   const skillCounts = new Map();
   // Stop when every CURRENT pending report has an exact merged owner. Scanning
@@ -119,28 +160,6 @@ export function main(request = api) {
   if (unmatched.length) console.error(`::warning::Pending reports need provenance inspection: ${unmatched.join(', ')}`);
   const candidates = [...new Set(owners.values())].sort((a, b) => a.merged_at.localeCompare(b.merged_at));
   console.log(JSON.stringify({ pending: reports.size, candidates: candidates.map(p => p.number), unmatched }));
-  // GitHub's concurrency group only preserves one pending run. Let each push sync
-  // close before creating the next publication push, including Cody's dispatches.
-  const syncRuns = request(`repos/${repo}/actions/workflows/sync-to-supabase.yml/runs?per_page=100`).workflow_runs;
-  if (syncRuns.some(r => r.status !== 'completed')) {
-    const active = syncRuns.filter(r => r.status !== 'completed');
-    if (active.some(r => Date.now() - Date.parse(r.created_at) > 60 * 60_000)) {
-      throw new Error(`Provider sync stalled over 60 minutes: ${active.map(r => r.id).join(', ')}; inspect scoring locks and unfinished stages`);
-    }
-    return console.log(`Waiting for provider sync: ${active.map(r => `${r.id} (${r.status})`).join(', ')}`);
-  }
-  const lastPush = syncRuns.filter(r => r.event === 'push')
-    .sort((a, b) => b.created_at.localeCompare(a.created_at))[0];
-  // Publication already removed its pending report before provider/cache work.
-  // Its absence cannot hide a failed downstream run and release the next item.
-  if (lastPush && !['success', 'skipped'].includes(lastPush.conclusion)
-    && !recoveredPushSync(lastPush, syncRuns, request)) {
-    throw new Error(`Previous push sync ${lastPush.id} is ${lastPush.conclusion}; reconcile before continuing`);
-  }
-  const publicationRuns = request(`repos/${repo}/actions/workflows/on-pr-merge.yml/runs?per_page=100`).workflow_runs;
-  if (publicationRuns.some(r => r.status !== 'completed')) return console.log('Waiting for publication receiver');
-  const batchRuns = request(`repos/${repo}/actions/workflows/publish-approved-batch.yml/runs?per_page=100`).workflow_runs;
-  if (batchRuns.some(r => r.status !== 'completed')) return console.log('Waiting for batch publication receiver');
   const selected = [];
   const rejected = [];
   let skillCount = 0;
@@ -156,13 +175,13 @@ export function main(request = api) {
     if (choice.wait) {
       // Oldest-first is a safety boundary: a missing or non-terminal effect
       // blocks later publications until its exact correlation is reconciled.
-      return console.log(`#${pr.number}: ${choice.wait}`);
+      return reportContinuation(choice.outcome, `#${pr.number}: ${choice.wait}`, { prNumbers: [pr.number] });
     }
     // Only validation that failed BEFORE any reservation/mutation may be
     // isolated. Unknown publication effects above still stop the entire queue.
     if (statuses.find(s => s.context === preflightContext(digest))?.state === 'failure') {
       rejected.push(pr.number);
-      console.error(`::error::#${pr.number}: frozen publication preflight rejected; inspect its status. Other independent approvals can continue.`);
+      console.warn(`::warning::#${pr.number}: frozen publication preflight rejected; inspect its status. Other independent approvals can continue.`);
       continue;
     }
     selected.push({ number: pr.number, correlation });
@@ -172,8 +191,8 @@ export function main(request = api) {
     const inputs = { pr_numbers: selected.map(p => p.number).join(','), batch_id: batchIdentity(selected.map(p => p.correlation)) };
     if (live) request(`repos/${repo}/actions/workflows/publish-approved-batch.yml/dispatches`, { ref: 'main', inputs });
     console.log(`${live ? 'Dispatched' : 'Would dispatch'} ${skillCount} skills: ${JSON.stringify(inputs)}; receiver owns durable reservations`);
-    return;
+    return reportContinuation(live ? 'dispatched' : 'ready', 'Receiver owns durable reservations and final publication validation', { prNumbers: selected.map(p => p.number), skillCount });
   }
-  if (reports.size) throw new Error(`Remaining pending skills require inspection; no safe fresh dispatch. Preflight rejected PRs: ${rejected.join(', ')}`);
+  return reportContinuation('blocked', `Remaining pending skills require inspection; no safe fresh dispatch. ${unmatched.length} reports lack verified ownership; ${rejected.length} PRs were rejected before mutation.`, { prNumbers: rejected });
 }
 if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) main();

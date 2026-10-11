@@ -1,5 +1,10 @@
 # Implementation notes
 
+## 2026-10-11 — Publication dependency outcomes
+
+- Repeated wakeups behind one failed provider write report `blocked` with its original run link, not a new execution error. Waiting, blocked, idle and dispatch outcomes are written to job outputs and the run summary; none imply production acceptance.
+- Check active/failed dependencies before fetching all approval files. Reconciliation completion now wakes continuation directly. Exact recovery proof, no-replay, publication holds and source validation remain required; API/integrity failures and stalled runs still fail.
+
 ## 2026-10-11 — Submission author identity
 
 - CLI reports preserve the upstream YAML author as a display name; it is not required to equal the GitHub owner login. Existing-target classification now uses the owner-scoped path, report slug and canonical source repository/ref as authority, while requiring a nonempty display author.
