@@ -1,15 +1,13 @@
 #!/usr/bin/env python3
-"""Path-pinned worktree and Git snapshot implementation for agy_dispatch.
+"""Worktree observations and staging with explicit, module-owned dependencies.
 
-This module deliberately does not import agy_dispatch.  Its caller passes the
-current dispatcher globals for each invocation, preserving the dispatcher's
-exception identity and its mutable test seams when two copied runtimes coexist.
+The dispatcher and standalone preview share these implementations through normal
+sibling imports. Tests patch dependencies where this module looks them up.
 """
 from __future__ import annotations
 
 import contextlib
 import hashlib
-import importlib.util
 import json
 import os
 from pathlib import Path
@@ -23,17 +21,38 @@ import subprocess
 import sys
 import time
 import unicodedata
-from typing import Any, Mapping
+from typing import Any, NamedTuple, cast
 
-_CONTAINMENT_SPEC = importlib.util.spec_from_file_location(
-    "agy_dispatch_containment_for_worktree",
-    Path(__file__).resolve().with_name("agy_dispatch_containment.py"),
-)
-if _CONTAINMENT_SPEC is None or _CONTAINMENT_SPEC.loader is None:
-    raise RuntimeError("native containment helper is unavailable")
-CONTAINMENT = importlib.util.module_from_spec(_CONTAINMENT_SPEC)
-sys.modules[_CONTAINMENT_SPEC.name] = CONTAINMENT
-_CONTAINMENT_SPEC.loader.exec_module(CONTAINMENT)
+SCRIPT_DIR = Path(__file__).resolve().parent
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
+
+import agy_dispatch_containment as CONTAINMENT  # noqa: E402 -- standalone sibling imports follow path setup
+import model_selection as MODEL_SELECTION  # noqa: E402 -- standalone sibling imports follow path setup
+import launch_authority as LAUNCH_AUTHORITY  # noqa: E402 -- standalone sibling imports follow path setup
+
+MAX_BOUNDARY_ENTRIES = 100000
+MAX_STREAM_BYTES = 32 * 1024 * 1024
+DIAGNOSTIC_MAX_PATHS = 64
+DIAGNOSTIC_MAX_PATH_BYTES = 8192
+TERM_GRACE = 1.0
+
+class DispatchError(ValueError):
+    pass
+
+class WorktreeBaselineError(DispatchError):
+    """The queued worktree baseline is unavailable or no longer exact."""
+
+class ResolveUndoPresentError(WorktreeBaselineError):
+    """A valid, non-empty REUC observation is present in the worktree index."""
+
+def canonical(value: Any) -> bytes:
+    try:
+        return json.dumps(
+            value, ensure_ascii=True, sort_keys=True, separators=(",", ":")
+        ).encode("ascii") + b"\n"
+    except RecursionError as exc:
+        raise DispatchError("JSON structure is invalid") from exc
 
 
 READABLE_MANIFEST_MAX_ENTRIES = 100000
@@ -60,9 +79,54 @@ class ReadableManifestError(ValueError):
     """The provider-readable path boundary could not be observed completely."""
 
 
-# Standalone preview/parser imports do not have the dispatcher dependency map.
-# ``call`` replaces this binding with the dispatcher's exact exception class.
-DispatchError = ReadableManifestError
+def digest(raw: bytes) -> str:
+    return hashlib.sha256(raw).hexdigest()
+
+def _identity(info: os.stat_result) -> tuple[int, int, int, int, int]:
+    return (
+        info.st_dev, info.st_ino, info.st_uid, info.st_gid,
+        stat.S_IMODE(info.st_mode),
+    )
+
+def _parse_resolve_undo(
+    raw: bytes, object_length: int,
+) -> dict[tuple[bytes, int], tuple[int, bytes]] | None:
+    """Strictly parse ``ls-files --resolve-undo -z`` records.
+
+    V7 does not persist REUC records: any well-formed record makes the semantic
+    snapshot unavailable.  Parsing first keeps malformed, duplicate, and
+    unsupported output fail-closed instead of treating it as an empty result.
+    """
+    if object_length not in {40, 64}:
+        return None
+    if not raw:
+        return {}
+    if not raw.endswith(b"\0"):
+        return None
+    parsed: dict[tuple[bytes, int], tuple[int, bytes]] = {}
+    for record in raw.split(b"\0")[:-1]:
+        try:
+            header, relative = record.split(b"\t", 1)
+            mode_raw, oid, stage_raw = header.split(b" ")
+            mode = int(mode_raw, 8)
+            stage = int(stage_raw, 10)
+        except (ValueError, TypeError):
+            return None
+        parts = relative.split(b"/")
+        key = (relative, stage)
+        if (
+            mode not in {0o100644, 0o100755, 0o120000, 0o160000}
+            or len(oid) != object_length
+            or any(char not in b"0123456789abcdef" for char in oid)
+            or stage not in {1, 2, 3}
+            or not relative or relative.startswith(b"/")
+            or any(part in {b"", b".", b".."} for part in parts)
+            or parts[0] == b".git"
+            or key in parsed
+        ):
+            return None
+        parsed[key] = (mode, oid)
+    return parsed
 
 
 def _canonical_json(value: Any) -> bytes:
@@ -98,24 +162,24 @@ def _manifest_binding(info: os.stat_result) -> tuple[int, ...]:
 
 
 def _read_provider_scope_file(
-    path: str | Path, limit: int,
+    path: str | Path, limit: int, *, error_type: type[ValueError] = ReadableManifestError,
 ) -> tuple[str, bytes, os.stat_result]:
     """Read a stable, owner-private provider-scope policy without aliases."""
     try:
         path_text = os.fsdecode(path)
         if "\0" in path_text or os.path.islink(path_text):
-            raise DispatchError("provider scope path is invalid")
+            raise error_type("provider scope path is invalid")
         resolved = os.path.realpath(path_text)
         if not os.path.isabs(resolved) or os.path.islink(resolved):
-            raise DispatchError("provider scope path is invalid")
+            raise error_type("provider scope path is invalid")
         named_before = os.lstat(resolved)
         if not stat.S_ISREG(named_before.st_mode):
-            raise DispatchError("provider scope authority is invalid")
+            raise error_type("provider scope authority is invalid")
         descriptor = os.open(resolved, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
     except (OSError, TypeError, UnicodeError, ValueError) as exc:
-        if isinstance(exc, DispatchError):
+        if isinstance(exc, error_type):
             raise
-        raise DispatchError("provider scope is unavailable") from exc
+        raise error_type("provider scope is unavailable") from exc
     try:
         before = os.fstat(descriptor)
         if (
@@ -125,7 +189,7 @@ def _read_provider_scope_file(
             or stat.S_IMODE(before.st_mode) != 0o600
             or _manifest_binding(before) != _manifest_binding(named_before)
         ):
-            raise DispatchError("provider scope authority is invalid")
+            raise error_type("provider scope authority is invalid")
         chunks: list[bytes] = []
         total = 0
         while total <= limit:
@@ -140,13 +204,13 @@ def _read_provider_scope_file(
     try:
         named_after = os.lstat(resolved)
     except OSError as exc:
-        raise DispatchError("provider scope changed during read") from exc
+        raise error_type("provider scope changed during read") from exc
     if (
         total > limit
         or _manifest_binding(before) != _manifest_binding(after)
         or _manifest_binding(after) != _manifest_binding(named_after)
     ):
-        raise DispatchError("provider scope changed during read")
+        raise error_type("provider scope changed during read")
     return resolved, b"".join(chunks), after
 
 
@@ -806,46 +870,25 @@ def _manifest_digest(manifest: Any) -> str:
     return hashlib.sha256(raw).hexdigest()
 
 
+def _preview_validation_error(exc: ReadableManifestError | DispatchError |
+                              LAUNCH_AUTHORITY.LaunchAuthorityError) -> None:
+    """Expose bounded validation reasons without emitting control bytes or file contents."""
+    reason = str(exc).encode("unicode_escape").decode("ascii")
+    if len(reason) > 512:
+        reason = "validation detail is too long"
+    if reason == "control marker is not regular":
+        reason += "; use a branch-backed linked worktree"
+    print(f"agy-worker.sh: transmission preview invalid: {reason}", file=sys.stderr)
+
+
 def _preview_main(argv: list[str]) -> int:
-    workdir: str | None = None
-    scope_path: str | None = None
-    provider_isolation = "session"
-    provider_isolation_seen = False
-    format_opt = "json"
-    idx = 0
-    while idx < len(argv):
-        arg = argv[idx]
-        if arg in ("--workdir", "--worktree"):
-            if idx + 1 >= len(argv) or workdir is not None:
-                print("agy-worker.sh: transmission preview unavailable", file=sys.stderr)
-                return 64
-            workdir = argv[idx + 1]
-            idx += 2
-        elif arg == "--provider-scope":
-            if idx + 1 >= len(argv) or scope_path is not None:
-                print("agy-worker.sh: transmission preview unavailable", file=sys.stderr)
-                return 64
-            scope_path = argv[idx + 1]
-            idx += 2
-        elif arg == "--provider-isolation":
-            if idx + 1 >= len(argv) or provider_isolation_seen:
-                print("agy-worker.sh: transmission preview unavailable", file=sys.stderr)
-                return 64
-            provider_isolation = argv[idx + 1]
-            provider_isolation_seen = True
-            idx += 2
-        elif arg == "--format":
-            if idx + 1 >= len(argv) or argv[idx + 1] != "json":
-                print("agy-worker.sh: transmission preview unavailable", file=sys.stderr)
-                return 64
-            format_opt = argv[idx + 1]
-            idx += 2
-        else:
-            print("agy-worker.sh: transmission preview unavailable", file=sys.stderr)
-            return 64
-    if workdir is None:
-        print("agy-worker.sh: transmission preview unavailable", file=sys.stderr)
+    try:
+        args = LAUNCH_AUTHORITY.preview_parser().parse_args(argv)
+    except SystemExit:
         return 64
+    workdir = args.workdir
+    scope_path = args.provider_scope
+    provider_isolation = args.provider_isolation
     if provider_isolation not in {"session", "native"} or (
         provider_isolation == "native" and scope_path is None
     ):
@@ -890,13 +933,12 @@ def _preview_main(argv: list[str]) -> int:
             result["contents_read"] = True
             result["content_manifest"] = content["manifest"]
             result["content_manifest_sha256"] = content["manifest_sha256"]
-            result["launch_approval_sha256"] = _compute_v11_launch_approval_sha256(
-                provider_isolation, native_grant_profile,
-                whole_worktree_content_sha256=result["content_manifest_sha256"],
-                readable_manifest_sha256=result["manifest_sha256"],
-            )
-        else:
-            result["launch_approval_sha256"] = result["transmission_sha256"]
+        task_raw = (args.task.encode("utf-8") if args.task is not None else
+                    sys.stdin.buffer.read(LAUNCH_AUTHORITY.MAX_TASK_BYTES + 1))
+        authority, task_text = LAUNCH_AUTHORITY.preview_authority(result, args, task_raw)
+        result["launch_authority"] = authority
+        result["task_text"] = task_text
+        result["launch_approval_sha256"] = LAUNCH_AUTHORITY.approval_sha256(authority)
         summary = {
             "local_review_only": True,
             "contents_read": result.get("contents_read", False),
@@ -917,6 +959,8 @@ def _preview_main(argv: list[str]) -> int:
             "manifest_sha256": result["manifest_sha256"],
             "launch_approval_sha256": result["launch_approval_sha256"],
             "provider_authority": result["provider_authority"],
+            "launch_authority": authority,
+            "task_text": task_text,
         }
         if provider_isolation == "session":
             summary.update({
@@ -945,31 +989,14 @@ def _preview_main(argv: list[str]) -> int:
         else:
             summary["content_manifest_sha256"] = result["content_manifest_sha256"]
         result["authority_summary"] = summary
-    except ReadableManifestError:
-        if scope_path is None:
-            print(
-                "agy-worker.sh: whole-worktree content preview failed its bounded local scan; use --provider-scope for selected content",
-                file=sys.stderr,
-            )
-        else:
-            print("agy-worker.sh: transmission preview unavailable", file=sys.stderr)
+    except (ReadableManifestError, DispatchError, LAUNCH_AUTHORITY.LaunchAuthorityError) as exc:
+        _preview_validation_error(exc)
         return 20
     except (OSError, UnicodeError, ValueError, OverflowError, RecursionError):
         print("agy-worker.sh: transmission preview unavailable", file=sys.stderr)
         return 20
     sys.stdout.buffer.write(_canonical_json(result) + b"\n")
     return 0
-
-
-def call(name: str, dependencies: Mapping[str, Any], *args: Any, **kwargs: Any) -> Any:
-    """Run one façade target with its caller's current dependency bindings."""
-    for key, value in dependencies.items():
-        # Keep the invoked implementation local so a façade cannot recurse
-        # into itself. Other implementation names are dependencies: callers
-        # intentionally monkeypatch them in controller and regression tests.
-        if not key.startswith("__") and key != name:
-            globals()[key] = value
-    return _IMPLEMENTATION_DEFAULTS[name](*args, **kwargs)
 
 
 class _MarkerPreflightLimit(Exception):
@@ -1485,7 +1512,7 @@ def _full_stat_binding(info: os.stat_result) -> tuple[int, ...]:
 
 
 def _bound_git_worktree_root(
-    raw: bytes, canonical_root: str, root_binding: tuple[int, ...],
+    raw: bytes | None, canonical_root: str, root_binding: tuple[int, ...],
 ) -> bool:
     """Accept only Git's exact bound-root spelling or macOS's /var alias.
 
@@ -1762,9 +1789,9 @@ def _bounded_git_read(
             ready = selector.select(remaining)
             if not ready:
                 return None
-            for key, events in ready:
+            for selector_key, events in ready:
                 if events & selectors.EVENT_READ:
-                    if key.fileobj == status_read:
+                    if selector_key.fileobj == status_read:
                         piece = os.read(status_read, 33 - len(status))
                         if not piece:
                             return None
@@ -1780,7 +1807,7 @@ def _bounded_git_read(
                         selector.unregister(status_read)
                         os.close(status_read)
                         status_read = -1
-                    elif key.fileobj is process.stdout:
+                    elif selector_key.fileobj is process.stdout:
                         amount = min(65536, output_limit + 1 - len(output))
                         piece = os.read(process.stdout.fileno(), amount)
                         if not piece:
@@ -1800,7 +1827,7 @@ def _bounded_git_read(
                                 return None
                 if events & selectors.EVENT_WRITE:
                     if sent == len(payload):
-                        selector.unregister(key.fileobj)
+                        selector.unregister(selector_key.fileobj)
                         os.close(payload_write)
                         payload_write = -1
                     else:
@@ -1839,9 +1866,9 @@ def _bounded_git_read(
         if status_read >= 0:
             os.close(status_read)
         if process is not None:
-            for stream in (process.stdout, process.stderr):
-                if stream is not None and not stream.closed:
-                    stream.close()
+            for remaining_stream in (process.stdout, process.stderr):
+                if remaining_stream is not None and not remaining_stream.closed:
+                    remaining_stream.close()
 
 
 def _git_boundary_identity(workdir: str) -> dict[str, Any] | None:
@@ -2053,8 +2080,810 @@ def _git_boundary_identity(workdir: str) -> dict[str, Any] | None:
             os.close(root_fd)
 
 
-def _worktree_snapshot(
-    workdir: str, *, legacy: bool = False, explain_unsupported: bool = False,
+def _snapshot_binding(info: os.stat_result) -> tuple[int, ...]:
+    return (
+        info.st_dev, info.st_ino, info.st_mode, info.st_nlink,
+        info.st_uid, info.st_gid, info.st_size, info.st_mtime_ns, info.st_ctime_ns,
+    )
+
+def _snapshot_authority(value: tuple[int, ...]) -> tuple[int, int, int, int, int]:
+    """Project stable identity out of a full in-call race binding."""
+    return value[0], value[1], value[4], value[5], stat.S_IMODE(value[2])
+
+def _snapshot_persistent_metadata(value: tuple[int, ...]) -> tuple[int, ...]:
+    """Persist semantic file shape while retaining full race bindings."""
+    if not value:
+        return value
+    return stat.S_IFMT(value[2]), stat.S_IMODE(value[2])
+
+def _snapshot_open_listed_parent(root_fd: int, parts: list[bytes]) -> int:
+    """Open a listed path's parent, or return -1 when it was deleted."""
+    directory = getattr(os, "O_DIRECTORY", 0)
+    nofollow = getattr(os, "O_NOFOLLOW", 0)
+    parent_fd = os.dup(root_fd)
+    try:
+        for component in parts[:-1]:
+            try:
+                next_fd = os.open(
+                    component, os.O_RDONLY | directory | nofollow,
+                    dir_fd=parent_fd,
+                )
+            except FileNotFoundError:
+                os.close(parent_fd)
+                return -1
+            os.close(parent_fd)
+            parent_fd = next_fd
+        return parent_fd
+    except BaseException:
+        os.close(parent_fd)
+        raise
+
+def _snapshot_git_marker_binding(root_fd: int) -> tuple[bytes, tuple[int, ...], bytes] | None:
+    """Bind the root .git marker without following it or its contents."""
+    try:
+        before = os.stat(".git", dir_fd=root_fd, follow_symlinks=False)
+        if stat.S_ISDIR(before.st_mode):
+            descriptor = os.open(
+                ".git", os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
+                | getattr(os, "O_NOFOLLOW", 0), dir_fd=root_fd,
+            )
+            kind = b"directory"
+            payload = b""
+        elif stat.S_ISREG(before.st_mode) and before.st_size <= 8192:
+            descriptor = os.open(
+                ".git", os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0), dir_fd=root_fd,
+            )
+            kind = b"file"
+        else:
+            return None
+        try:
+            if kind == b"file":
+                chunks: list[bytes] = []
+                size = 0
+                while True:
+                    piece = os.read(descriptor, min(8193 - size, 8192))
+                    if not piece:
+                        break
+                    chunks.append(piece); size += len(piece)
+                    if size > 8192:
+                        return None
+                payload = b"".join(chunks)
+            opened = os.fstat(descriptor)
+        finally:
+            os.close(descriptor)
+        named = os.stat(".git", dir_fd=root_fd, follow_symlinks=False)
+    except OSError:
+        return None
+    if (
+        _snapshot_binding(before) != _snapshot_binding(opened) or _snapshot_binding(opened) != _snapshot_binding(named)
+        or (kind == b"directory" and not stat.S_ISDIR(opened.st_mode))
+        or (kind == b"file" and (not stat.S_ISREG(opened.st_mode) or len(payload) != opened.st_size))
+    ):
+        return None
+    return kind, _snapshot_binding(opened), hashlib.sha256(payload).digest()
+
+def _snapshot_one_path(root: str, raw: bytes, *, resolve: bool = True) -> str | None:
+    if not raw.endswith(b"\n") or raw.count(b"\n") != 1 or b"\0" in raw:
+        return None
+    value = os.fsdecode(raw[:-1])
+    if not value:
+        return None
+    path = value if os.path.isabs(value) else os.path.join(root, value)
+    return os.path.realpath(path) if resolve else os.path.abspath(path)
+
+def _snapshot_directory_boundary(path: str) -> tuple[str, tuple[int, ...]] | None:
+    """Bind a direct Git directory without accepting arbitrary aliases."""
+    if not os.path.isabs(path):
+        return None
+    named_path = os.path.abspath(path)
+    try:
+        named = os.lstat(os.fsencode(named_path))
+        if not stat.S_ISDIR(named.st_mode) or stat.S_ISLNK(named.st_mode):
+            return None
+        canonical_path = os.path.realpath(named_path)
+        if MODEL_SELECTION._canonical_executable_path(canonical_path) != (
+            MODEL_SELECTION._canonical_executable_path(named_path)
+        ):
+            return None
+        descriptor = os.open(
+            os.fsencode(named_path), os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
+            | getattr(os, "O_NOFOLLOW", 0),
+        )
+        try:
+            opened = os.fstat(descriptor)
+        finally:
+            os.close(descriptor)
+        after = os.lstat(os.fsencode(named_path))
+    except OSError:
+        return None
+    if (
+        _snapshot_binding(named) != _snapshot_binding(opened)
+        or _snapshot_binding(opened) != _snapshot_binding(after)
+    ):
+        return None
+    return canonical_path, _snapshot_binding(opened)
+
+def _snapshot_index_binding(path: str) -> tuple[bytes | None, tuple[int, ...] | None] | None:
+    try:
+        descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+    except FileNotFoundError:
+        return (None, None)
+    except OSError:
+        return None
+    try:
+        before = os.fstat(descriptor)
+        if not stat.S_ISREG(before.st_mode) or stat.S_ISLNK(before.st_mode) or before.st_size > MAX_STREAM_BYTES:
+            return None
+        chunks: list[bytes] = []
+        total_bytes = 0
+        while True:
+            piece = os.read(descriptor, min(65536, MAX_STREAM_BYTES + 1 - total_bytes))
+            if not piece:
+                break
+            chunks.append(piece)
+            total_bytes += len(piece)
+            if total_bytes > MAX_STREAM_BYTES:
+                return None
+        after = os.fstat(descriptor)
+    finally:
+        os.close(descriptor)
+    try:
+        named = os.lstat(path)
+    except OSError:
+        return None
+    if _snapshot_binding(before) != _snapshot_binding(after) or _snapshot_binding(after) != _snapshot_binding(named):
+        return None
+    return b"".join(chunks), _snapshot_binding(after)
+
+class _SnapshotGitContext:
+    """Borrow the held root and own one deadline and cumulative Git-read budget."""
+
+    def __init__(
+        self, root_fd: int, root: str, root_binding: tuple[int, ...],
+        deadline: float, target: str, target_authority: dict[str, Any],
+    ) -> None:
+        self.root_fd = root_fd
+        self.root = root
+        self.root_binding = root_binding
+        self.deadline = deadline
+        self.target = target
+        self.target_authority = target_authority
+        self.total = 0
+
+    def read(
+        self, arguments: list[str], payload: bytes = b"", *, allowed: tuple[int, ...] = (0,),
+    ) -> tuple[int, bytes] | None:
+        """Read fixed plumbing with one cumulative stdout limit across phases."""
+        completed = _bounded_git_read(
+            self.target, self.target_authority, self.root, arguments, payload=payload,
+            allowed=allowed, deadline=self.deadline,
+            stdout_limit=MAX_STREAM_BYTES - self.total,
+        )
+        if completed is None:
+            return None
+        self.total += len(completed[1])
+        return completed
+
+    def bound_worktree(self) -> bool:
+        """Reject configured worktree redirection before and after enumeration."""
+        inside = self.read(["rev-parse", "--is-inside-work-tree"])
+        top_level = self.read(["rev-parse", "--show-toplevel"])
+        return (
+            inside is not None and inside[1] == b"true\n"
+            and top_level is not None
+            and _bound_git_worktree_root(top_level[1], self.root, self.root_binding)
+        )
+
+    def bound_read(
+        self, git_dir_boundary: tuple[str, tuple[int, ...]],
+        arguments: list[str], payload: bytes = b"", *, allowed: tuple[int, ...] = (0,),
+    ) -> tuple[int, bytes] | None:
+        """Bind enumeration to the no-follow Git directory and held root."""
+        return self.read(
+            _BoundGitReadArguments(arguments, git_dir_boundary), payload, allowed=allowed,
+        )
+
+
+class _SnapshotGitFacts(NamedTuple):
+    object_length: int
+    git_dir_path: str
+    git_dir_boundary: tuple[str, tuple[int, ...]]
+    index_path: str
+    before_index: tuple[bytes | None, tuple[int, ...] | None]
+    common_path: str
+    common_dir_boundary: tuple[str, tuple[int, ...]]
+
+def _snapshot_bind_git(
+    context: _SnapshotGitContext, *, explain_unsupported: bool,
+) -> _SnapshotGitFacts | None:
+    """Bind fixed Git context, index bytes and supported repository features."""
+    if not context.bound_worktree():
+        return None
+
+    format_result = context.read(["rev-parse", "--show-object-format"])
+    if format_result is None or format_result[1] not in {b"sha1\n", b"sha256\n"}:
+        return None
+    object_length = 40 if format_result[1] == b"sha1\n" else 64
+    git_dir_result = context.read(["rev-parse", "--absolute-git-dir"])
+    if git_dir_result is None:
+        return None
+    git_dir_path = _snapshot_one_path(context.root, git_dir_result[1], resolve=False)
+    if git_dir_path is None:
+        return None
+    git_dir_boundary = _snapshot_directory_boundary(git_dir_path)
+    if git_dir_boundary is None:
+        return None
+    index_path_result = context.read(["rev-parse", "--git-path", "index"])
+    if index_path_result is None:
+        return None
+    index_path = _snapshot_one_path(context.root, index_path_result[1], resolve=False)
+    if index_path is None:
+        return None
+    before_index = _snapshot_index_binding(index_path)
+    if before_index is None:
+        return None
+    common_path_result = context.read(["rev-parse", "--git-common-dir"])
+    if common_path_result is None:
+        return None
+    common_path = _snapshot_one_path(context.root, common_path_result[1], resolve=False)
+    if common_path is None:
+        return None
+    common_dir_boundary = _snapshot_directory_boundary(common_path)
+    if common_dir_boundary is None:
+        return None
+    for alternate_name in ("alternates", "http-alternates"):
+        try:
+            os.lstat(os.path.join(common_path, "objects", "info", alternate_name))
+            return None
+        except FileNotFoundError:
+            pass
+        except OSError:
+            return None
+    promisor = context.bound_read(git_dir_boundary,
+        ["config", "--local", "--no-includes", "--get-regexp", "^(extensions\\.partialclone|remote\\..*\\.promisor)$"],
+        allowed=(0, 1),
+    )
+    sparse = context.bound_read(git_dir_boundary, ["config", "--bool", "--get", "core.sparseCheckout"], allowed=(0, 1))
+    if promisor is None or sparse is None:
+        return None
+    if promisor[0] == 0 and promisor[1]:
+        if explain_unsupported:
+            raise _UnsupportedWorktreeError(
+                "partial/promisor Git clones are unsupported; use a full clone"
+            )
+        return None
+    if (promisor[0] == 1 and promisor[1]) or (sparse[0] == 0 and sparse[1] != b"false\n") or (sparse[0] == 1 and sparse[1]):
+        return None
+    skip = context.bound_read(git_dir_boundary, ["ls-files", "-v", "-z"])
+    if skip is None or (skip[1] and not skip[1].endswith(b"\0")):
+        return None
+    if any(
+        len(record) < 3 or record[1:2] != b" " or record.startswith(b"S ") or record[:1].islower()
+        for record in skip[1].split(b"\0")[:-1]
+    ):
+        return None
+
+    return _SnapshotGitFacts(
+        object_length, git_dir_path, git_dir_boundary, index_path, before_index,
+        common_path, common_dir_boundary,
+    )
+
+def _snapshot_listings(
+    context: _SnapshotGitContext, git: _SnapshotGitFacts, *, explain_unsupported: bool,
+) -> tuple[bytes, bytes, bytes, bytes, bytes, bytes] | None:
+    head_id = context.bound_read(git.git_dir_boundary, ["rev-parse", "--verify", "-q", "HEAD^{tree}"], allowed=(0, 1))
+    staged = context.bound_read(git.git_dir_boundary, ["ls-files", "--stage", "-z"])
+    debug = context.bound_read(git.git_dir_boundary, ["ls-files", "--debug", "-z"])
+    resolve_undo = context.bound_read(git.git_dir_boundary, ["ls-files", "--resolve-undo", "-z"])
+    other = context.bound_read(git.git_dir_boundary, ["ls-files", "-z", "--others", "--exclude-standard"])
+    ignored = context.bound_read(git.git_dir_boundary, ["ls-files", "-z", "--others", "--ignored", "--exclude-standard"])
+    if (
+        head_id is None or staged is None or debug is None
+        or resolve_undo is None or other is None or ignored is None
+    ):
+        return None
+    parsed_resolve_undo = _parse_resolve_undo(cast(tuple[int, bytes], resolve_undo)[1], git.object_length)
+    if parsed_resolve_undo is None or parsed_resolve_undo:
+        if explain_unsupported and parsed_resolve_undo:
+            second_resolve_undo = context.bound_read(git.git_dir_boundary, ["ls-files", "--resolve-undo", "-z"])
+            if (
+                second_resolve_undo is not None
+                and second_resolve_undo[1] == cast(tuple[int, bytes], resolve_undo)[1]
+                and _snapshot_index_binding(git.index_path) == git.before_index
+                and _parse_resolve_undo(second_resolve_undo[1], git.object_length) == parsed_resolve_undo
+            ):
+                raise _ResolveUndoPresentError("resolve_undo_present")
+        return None
+    if head_id[0] == 1:
+        if head_id[1]:
+            return None
+        head = b""
+    elif len(head_id[1]) == git.object_length + 1 and head_id[1].endswith(b"\n"):
+        oid = head_id[1][:-1]
+        if any(char not in b"0123456789abcdef" for char in oid):
+            return None
+        tree = context.bound_read(git.git_dir_boundary, ["ls-tree", "-r", "-z", oid.decode("ascii")])
+        if tree is None:
+            return None
+        head = tree[1]
+    else:
+        return None
+    values = (head, staged[1], other[1], ignored[1])
+    if any(raw and not raw.endswith(b"\0") for raw in values):
+        return None
+    return values[0], values[1], debug[1], values[2], values[3], head_id[1]
+
+def _snapshot_valid_oid(value: bytes, object_length: int) -> bool:
+    return len(value) == object_length and not any(char not in b"0123456789abcdef" for char in value)
+
+def _snapshot_parse_tree(raw: bytes, object_length: int) -> dict[bytes, tuple[int, bytes]] | None:
+    parsed: dict[bytes, tuple[int, bytes]] = {}
+    for record in raw.split(b"\0")[:-1]:
+        try:
+            header, relative = record.split(b"\t", 1)
+            mode_raw, kind, oid = header.split(b" ")
+            mode = int(mode_raw, 8)
+        except (ValueError, TypeError):
+            return None
+        if kind != b"blob" or mode not in {0o100644, 0o100755, 0o120000} or not _snapshot_valid_oid(oid, object_length) or relative in parsed:
+            return None
+        parsed[relative] = (mode, oid)
+    return parsed
+
+def _snapshot_parse_index(raw: bytes, object_length: int) -> dict[bytes, tuple[int, bytes]] | None:
+    parsed: dict[bytes, tuple[int, bytes]] = {}
+    for record in raw.split(b"\0")[:-1]:
+        try:
+            header, relative = record.split(b"\t", 1)
+            mode_raw, oid, stage_raw = header.split(b" ")
+            mode = int(mode_raw, 8)
+        except (ValueError, TypeError):
+            return None
+        if stage_raw != b"0" or mode not in {0o100644, 0o100755, 0o120000} or not _snapshot_valid_oid(oid, object_length) or relative in parsed:
+            return None
+        parsed[relative] = (mode, oid)
+    return parsed
+
+def _snapshot_debug_index_flags(raw: bytes) -> dict[bytes, int] | None:
+    """Read documented ls-files debug flags, ignoring volatile stat cache.
+
+    The debug record's pathname is NUL-delimited; its preceding stat
+    cache lines are intentionally only shape-checked.  Flags are the
+    semantic portion: unsupported nonzero values, including
+    CE_INTENT_TO_ADD, reject rather than silently sharing an OID/mode
+    digest with a different index meaning.
+    """
+    parsed: dict[bytes, int] = {}
+    position = 0
+    while position < len(raw):
+        separator = raw.find(b"\0", position)
+        if separator < position:
+            return None
+        relative = raw[position:separator]
+        position = separator + 1
+        lines: list[bytes] = []
+        for _ in range(5):
+            ending = raw.find(b"\n", position)
+            if ending < position:
+                return None
+            lines.append(raw[position:ending + 1])
+            position = ending + 1
+        if not relative or relative in parsed or any(
+            re.fullmatch(shape, line) is None
+            for shape, line in zip((
+                br"  ctime: [0-9]+:[0-9]+\n",
+                br"  mtime: [0-9]+:[0-9]+\n",
+                br"  dev: [0-9]+\tino: [0-9]+\n",
+                br"  uid: [0-9]+\tgid: [0-9]+\n",
+            ), lines[:4])
+        ):
+            return None
+        flags = re.fullmatch(br"  size: [0-9]+\tflags: ([0-9a-f]+)\n", lines[4])
+        if flags is None:
+            return None
+        try:
+            parsed[relative] = int(flags.group(1), 16)
+        except ValueError:
+            return None
+    return parsed
+
+class _SnapshotListedFacts(NamedTuple):
+    first: tuple[bytes, bytes, bytes, bytes, bytes, bytes]
+    head: dict[bytes, tuple[int, bytes]]
+    staged: dict[bytes, tuple[int, bytes]]
+    other: set[bytes]
+    ignored: set[bytes]
+    objects: dict[bytes, bytes]
+
+def _snapshot_read_facts(
+    context: _SnapshotGitContext, git: _SnapshotGitFacts, *, explain_unsupported: bool,
+) -> _SnapshotListedFacts | None:
+    """Read the initial Git sample and staged bytes in their original order."""
+    first = _snapshot_listings(context, git, explain_unsupported=explain_unsupported)
+    if first is None:
+        return None
+    head_raw, staged_raw, debug_raw, other_raw, ignored_raw, _head_id_raw = first
+    head = _snapshot_parse_tree(head_raw, git.object_length)
+    staged = _snapshot_parse_index(staged_raw, git.object_length)
+    flags = _snapshot_debug_index_flags(debug_raw)
+    if head is None or staged is None or flags is None:
+        return None
+    if set(flags) != set(staged) or any(value != 0 for value in flags.values()):
+        return None
+    other = set(other_raw.split(b"\0")[:-1])
+    ignored = set(ignored_raw.split(b"\0")[:-1])
+    if other & ignored or len(head) + len(staged) + len(other) + len(ignored) > MAX_BOUNDARY_ENTRIES:
+        return None
+    object_ids = sorted({oid for _mode, oid in staged.values()})
+    objects_raw = context.bound_read(git.git_dir_boundary, ["cat-file", "--batch"], b"".join(item + b"\n" for item in object_ids))
+    if objects_raw is None:
+        return None
+    objects: dict[bytes, bytes] = {}
+    position = 0
+    while position < len(objects_raw[1]):
+        end = objects_raw[1].find(b"\n", position)
+        if end < 0:
+            return None
+        fields = objects_raw[1][position:end].split(b" ")
+        if len(fields) != 3 or fields[0] not in object_ids or fields[1] != b"blob":
+            return None
+        try:
+            size = int(fields[2])
+        except ValueError:
+            return None
+        start = end + 1
+        finish = start + size
+        if size < 0 or finish >= len(objects_raw[1]) or objects_raw[1][finish:finish + 1] != b"\n" or fields[0] in objects:
+            return None
+        objects[fields[0]] = objects_raw[1][start:finish]
+        position = finish + 1
+    if len(objects) != len(object_ids):
+        return None
+
+    return _SnapshotListedFacts(first, head, staged, other, ignored, objects)
+
+def _snapshot_directory_manifest(root_fd: int, deadline: float) -> tuple[bytes, int] | None:
+    """Bind bounded topology and count otherwise-unlisted empty directories."""
+    nofollow = getattr(os, "O_NOFOLLOW", 0)
+    directory = getattr(os, "O_DIRECTORY", 0)
+    manifest_bytes = 0
+    manifest_entries = 0
+    empty_directories = 0
+
+    def walk(parent_fd: int, *, is_root: bool = False) -> bytes | None:
+        nonlocal manifest_bytes, manifest_entries, empty_directories
+        if time.monotonic() >= deadline:
+            return None
+        before_directory = os.fstat(parent_fd)
+        if not stat.S_ISDIR(before_directory.st_mode):
+            return None
+        records: list[tuple[bytes, bytes, tuple[int, ...], bytes]] = []
+        scan_fd = -1
+        try:
+            # scandir does not own a caller-supplied descriptor on the
+            # supported runtimes, so retain and close this duplicate in
+            # our own finally path even if scandir rejects it.
+            scan_fd = os.dup(parent_fd)
+            with os.scandir(scan_fd) as scanned:
+                for entry in scanned:
+                    if time.monotonic() >= deadline:
+                        return None
+                    name = entry.name
+                    raw_name = os.fsencode(name)
+                    if not raw_name or b"\0" in raw_name:
+                        continue
+                    if raw_name.lower() == b".git":
+                        # Only the root marker was bound separately.
+                        # Do not open or traverse a nested marker.
+                        if is_root and raw_name == b".git":
+                            continue
+                        return None
+                    manifest_entries += 1
+                    if manifest_entries > MAX_BOUNDARY_ENTRIES:
+                        return None
+                    try:
+                        info = os.stat(name, dir_fd=parent_fd, follow_symlinks=False)
+                    except OSError:
+                        return None
+                    metadata = _snapshot_binding(info)
+                    if stat.S_ISDIR(info.st_mode):
+                        try:
+                            child_fd = os.open(name, os.O_RDONLY | directory | nofollow, dir_fd=parent_fd)
+                        except OSError:
+                            return None
+                        try:
+                            if _snapshot_binding(os.fstat(child_fd)) != metadata:
+                                return None
+                            payload = walk(child_fd)
+                            if payload is None or _snapshot_binding(os.fstat(child_fd)) != metadata:
+                                return None
+                        finally:
+                            os.close(child_fd)
+                        kind = b"directory"
+                    elif stat.S_ISLNK(info.st_mode):
+                        try:
+                            target_raw = os.fsencode(os.readlink(name, dir_fd=parent_fd))
+                            named = os.stat(name, dir_fd=parent_fd, follow_symlinks=False)
+                        except OSError:
+                            return None
+                        manifest_bytes += len(target_raw)
+                        if manifest_bytes > MAX_STREAM_BYTES or _snapshot_binding(named) != metadata:
+                            return None
+                        payload = hashlib.sha256(target_raw).digest()
+                        kind = b"symlink"
+                    elif stat.S_ISREG(info.st_mode):
+                        # Regular bytes and metadata are bound by the
+                        # primary listed-path observation and its final
+                        # revalidation.  This second pass is topology
+                        # only, so it never re-reads file contents.
+                        metadata = ()
+                        payload = b""
+                        kind = b"file"
+                    else:
+                        metadata = ()
+                        payload = b""
+                        kind = b"special"
+                    records.append((raw_name, kind, _snapshot_persistent_metadata(metadata), payload))
+        except OSError:
+            return None
+        finally:
+            if scan_fd >= 0:
+                os.close(scan_fd)
+        try:
+            if _snapshot_binding(os.fstat(parent_fd)) != _snapshot_binding(before_directory):
+                return None
+        except OSError:
+            return None
+        result = hashlib.sha256()
+        result.update(b"agy-worker-directory-manifest-v1\0")
+        for raw_name, kind, metadata, payload in sorted(records):
+            result.update(len(raw_name).to_bytes(8, "big")); result.update(raw_name)
+            result.update(len(kind).to_bytes(8, "big")); result.update(kind)
+            metadata_raw = canonical(list(metadata))
+            result.update(len(metadata_raw).to_bytes(8, "big")); result.update(metadata_raw)
+            result.update(len(payload).to_bytes(8, "big")); result.update(payload)
+        if not is_root and not records:
+            empty_directories += 1
+        return result.digest()
+
+    manifest = walk(root_fd, is_root=True)
+    if manifest is None:
+        return None
+    return manifest, empty_directories
+
+def _snapshot_observe_content(
+    context: _SnapshotGitContext, git: _SnapshotGitFacts, facts: _SnapshotListedFacts,
+    root_git_marker: tuple[bytes, tuple[int, ...], bytes],
+) -> tuple[Any, dict[bytes, tuple[Any, ...]], int] | None:
+    """Hash listed content and semantic metadata while retaining race bindings."""
+    nofollow = getattr(os, "O_NOFOLLOW", 0)
+    observation = hashlib.sha256()
+    observation.update(b"agy-worker-worktree-v7\0")
+    canonical_root = os.fsencode(context.root)
+    observation.update(len(canonical_root).to_bytes(8, "big")); observation.update(canonical_root)
+    observation.update(canonical([context.root_binding[0], context.root_binding[1]]))
+    observation.update(canonical([
+        os.fsdecode(root_git_marker[0]), list(_snapshot_authority(root_git_marker[1])),
+        root_git_marker[2].hex(),
+    ]))
+    observation.update(canonical([
+        git.git_dir_boundary[0], list(_snapshot_authority(git.git_dir_boundary[1])),
+        git.common_dir_boundary[0], list(_snapshot_authority(git.common_dir_boundary[1])),
+        None, None, None,
+    ]))
+    content_bytes = 0
+    changed = 0
+    observed_paths: dict[bytes, tuple[Any, ...]] = {}
+    for relative in sorted(set(facts.head) | set(facts.staged) | facts.other | facts.ignored):
+        parts = relative.split(b"/")
+        if not relative or relative.startswith(b"/") or any(part in {b"", b".", b".."} for part in parts) or parts[0] == b".git":
+            return None
+        observation.update(len(relative).to_bytes(8, "big")); observation.update(relative)
+        indexed = facts.staged.get(relative)
+        head_entry = facts.head.get(relative)
+        for label, entry in ((b"head", head_entry), (b"index", indexed)):
+            observation.update(label + b"\0")
+            if entry is None:
+                observation.update(b"missing\0")
+            else:
+                observation.update(f"{entry[0]:o}".encode("ascii") + b"\0")
+                observation.update(entry[1])
+        index_changed = indexed != head_entry
+        is_other = relative in facts.other or relative in facts.ignored
+        parent_fd = _snapshot_open_listed_parent(context.root_fd, parts)
+        try:
+            name = parts[-1]
+            if parent_fd < 0:
+                observation.update(b"missing\0")
+                observed_paths[relative] = (b"missing",)
+                differs = indexed is not None
+            else:
+                try:
+                    before = os.stat(name, dir_fd=parent_fd, follow_symlinks=False)
+                except FileNotFoundError:
+                    observation.update(b"missing\0")
+                    observed_paths[relative] = (b"missing",)
+                    differs = indexed is not None
+                else:
+                    metadata = _snapshot_binding(before); observation.update(canonical(list(_snapshot_persistent_metadata(metadata))))
+                    if stat.S_ISLNK(before.st_mode):
+                        target_raw = os.fsencode(os.readlink(name, dir_fd=parent_fd))
+                        content_bytes += len(target_raw)
+                        if content_bytes > MAX_STREAM_BYTES or _snapshot_binding(os.stat(name, dir_fd=parent_fd, follow_symlinks=False)) != metadata:
+                            return None
+                        observation.update(b"symlink\0"); observation.update(len(target_raw).to_bytes(8, "big")); observation.update(target_raw)
+                        observed_paths[relative] = (b"symlink", metadata, target_raw)
+                        differs = indexed is None or indexed[0] != 0o120000 or target_raw != facts.objects[indexed[1]]
+                    elif stat.S_ISREG(before.st_mode):
+                        descriptor = os.open(name, os.O_RDONLY | nofollow, dir_fd=parent_fd)
+                        try:
+                            opened = os.fstat(descriptor)
+                            if (opened.st_dev, opened.st_ino) != (before.st_dev, before.st_ino):
+                                return None
+                            content = hashlib.sha256()
+                            while True:
+                                piece = os.read(descriptor, 65536)
+                                if not piece:
+                                    break
+                                content_bytes += len(piece)
+                                if content_bytes > MAX_STREAM_BYTES:
+                                    return None
+                                content.update(piece)
+                            after = os.fstat(descriptor)
+                        finally:
+                            os.close(descriptor)
+                        if _snapshot_binding(after) != metadata or _snapshot_binding(os.stat(name, dir_fd=parent_fd, follow_symlinks=False)) != metadata:
+                            return None
+                        content_digest = content.digest()
+                        observation.update(b"file\0"); observation.update(content_digest)
+                        observed_paths[relative] = (b"file", metadata, content_digest)
+                        differs = indexed is None or indexed[0] not in {0o100644, 0o100755} or bool(before.st_mode & 0o111) != bool(indexed[0] & 0o111) or before.st_size != len(facts.objects[indexed[1]]) or content_digest != hashlib.sha256(facts.objects[indexed[1]]).digest()
+                    else:
+                        observation.update(b"special\0")
+                        observed_paths[relative] = (b"special", metadata)
+                        differs = True
+            if is_other or index_changed or differs:
+                changed += 1
+        finally:
+            if parent_fd >= 0:
+                os.close(parent_fd)
+    return observation, observed_paths, changed
+
+def _snapshot_revalidate_content(
+    root_fd: int, observed_paths: dict[bytes, tuple[Any, ...]],
+) -> bool:
+    """Re-read observed paths with a separate content budget and held parents."""
+    nofollow = getattr(os, "O_NOFOLLOW", 0)
+    revalidated_bytes = 0
+    for relative, expected in observed_paths.items():
+        parts = relative.split(b"/")
+        parent_fd = _snapshot_open_listed_parent(root_fd, parts)
+        try:
+            name = parts[-1]
+            if parent_fd < 0:
+                current: tuple[Any, ...] = (b"missing",)
+            else:
+                try:
+                    before = os.stat(name, dir_fd=parent_fd, follow_symlinks=False)
+                except FileNotFoundError:
+                    current = (b"missing",)
+                else:
+                    metadata = _snapshot_binding(before)
+                    if stat.S_ISLNK(before.st_mode):
+                        target_raw = os.fsencode(os.readlink(name, dir_fd=parent_fd))
+                        revalidated_bytes += len(target_raw)
+                        if (
+                            revalidated_bytes > MAX_STREAM_BYTES
+                            or _snapshot_binding(os.stat(name, dir_fd=parent_fd, follow_symlinks=False)) != metadata
+                        ):
+                            return False
+                        current = (b"symlink", metadata, target_raw)
+                    elif stat.S_ISREG(before.st_mode):
+                        descriptor = os.open(name, os.O_RDONLY | nofollow, dir_fd=parent_fd)
+                        try:
+                            opened = os.fstat(descriptor)
+                            if (opened.st_dev, opened.st_ino) != (before.st_dev, before.st_ino):
+                                return False
+                            content = hashlib.sha256()
+                            while True:
+                                piece = os.read(descriptor, 65536)
+                                if not piece:
+                                    break
+                                revalidated_bytes += len(piece)
+                                if revalidated_bytes > MAX_STREAM_BYTES:
+                                    return False
+                                content.update(piece)
+                            after = os.fstat(descriptor)
+                        finally:
+                            os.close(descriptor)
+                        if (
+                            _snapshot_binding(after) != metadata
+                            or _snapshot_binding(os.stat(name, dir_fd=parent_fd, follow_symlinks=False)) != metadata
+                        ):
+                            return False
+                        current = (b"file", metadata, content.digest())
+                    else:
+                        current = (b"special", metadata)
+            if current != expected:
+                return False
+        finally:
+            if parent_fd >= 0:
+                os.close(parent_fd)
+    return True
+
+
+def _snapshot_path_facts(
+    facts: _SnapshotListedFacts, observed_paths: dict[bytes, tuple[Any, ...]],
+) -> dict[str, Any]:
+    """Retain bounded, content-free facts from the already validated scan."""
+    items: list[list[Any]] = []
+    path_bytes = 0
+    for relative, observed in sorted(observed_paths.items()):
+        if len(items) >= DIAGNOSTIC_MAX_PATHS or path_bytes + len(relative) > DIAGNOSTIC_MAX_PATH_BYTES:
+            return {"complete": False, "items": items}
+        path_bytes += len(relative)
+        kind = observed[0].decode("ascii")
+        metadata = _snapshot_persistent_metadata(observed[1]) if len(observed) > 1 else ()
+        mode = metadata[1] if metadata else None
+        payload = observed[2] if len(observed) > 2 else b""
+        if kind == "symlink":
+            payload = hashlib.sha256(payload).digest()
+        head = facts.head.get(relative)
+        indexed = facts.staged.get(relative)
+        fingerprint = digest(canonical([
+            None if head is None else [head[0], head[1].hex()],
+            None if indexed is None else [indexed[0], indexed[1].hex()],
+            relative in facts.other, relative in facts.ignored,
+            kind, list(metadata), payload.hex(),
+        ]))
+        items.append([os.fsdecode(relative), kind, mode, fingerprint])
+    return {"complete": True, "items": items}
+
+
+def _snapshot_drift_details(before: dict[str, Any] | None, after: dict[str, Any] | None) -> str:
+    """Name only differences proved by two bounded snapshot observations."""
+    if before is None or after is None:
+        return ""
+    old = {item[0]: item for item in before["items"]}
+    new = {item[0]: item for item in after["items"]}
+    details: list[str] = []
+    for path in sorted(old.keys() | new.keys()):
+        prior, current = old.get(path), new.get(path)
+        if prior is None and not before["complete"]:
+            continue
+        if current is None and not after["complete"]:
+            continue
+        if prior is not None and current is not None and prior[3] == current[3]:
+            continue
+        if prior is None:
+            cause = "new cache artifact, possibly verifier-created" if (
+                "__pycache__/" in path or path.startswith(".pytest_cache/") or path.endswith(".pyc")
+            ) else "new path"
+        elif current is None:
+            cause = "path removed"
+        elif prior[1] != current[1]:
+            cause = "kind changed"
+        elif prior[2] != current[2]:
+            cause = (
+                f"mode changed {prior[2]:04o} to {current[2]:04o}"
+                if type(prior[2]) is int and type(current[2]) is int else "mode changed"
+            )
+        else:
+            cause = "content or Git index changed"
+        display = json.dumps(path, ensure_ascii=True)
+        detail = f"{display} ({cause})"
+        if len(detail) > 1024:
+            detail = detail[:1021] + "..."
+        details.append(detail)
+        if len(details) == 3:
+            break
+    if not details and (not before["complete"] or not after["complete"]):
+        return "path diagnostics incomplete (first 64 paths / 8192 bytes only)"
+    return "; ".join(details)
+
+
+def _worktree_snapshot_raw(
+    workdir: str, *, explain_unsupported: bool = False,
 ) -> dict[str, Any] | None:
     """Hash a bounded worktree fact set without executing repository programs.
 
@@ -2064,8 +2893,7 @@ def _worktree_snapshot(
     root descriptor, so symlinks contribute their own target bytes only.  The
     persisted v7 form deliberately excludes volatile inode/timestamp/cache
     details; the complete bindings below remain in this one scan to detect
-    replacement and TOCTOU races.  ``legacy`` retains the exact v6 digest
-    algorithm for already-persisted v6 state only.
+    replacement and TOCTOU races.
     """
     root_fd = -1
     try:
@@ -2080,46 +2908,8 @@ def _worktree_snapshot(
         if not stat.S_ISDIR(root_info.st_mode):
             return None
 
-        def binding(info: os.stat_result) -> tuple[int, ...]:
-            return (
-                info.st_dev, info.st_ino, info.st_mode, info.st_nlink,
-                info.st_uid, info.st_gid, info.st_size, info.st_mtime_ns, info.st_ctime_ns,
-            )
-
-        def authority(value: tuple[int, ...]) -> tuple[int, int, int, int, int]:
-            """Project stable identity out of a full in-call race binding."""
-            return value[0], value[1], value[4], value[5], stat.S_IMODE(value[2])
-
-        def persistent_metadata(value: tuple[int, ...]) -> tuple[int, ...]:
-            """Persist semantic file shape while retaining full race bindings."""
-            if not value:
-                return value
-            if legacy:
-                return value
-            return stat.S_IFMT(value[2]), stat.S_IMODE(value[2])
-
-        def open_listed_parent(parts: list[bytes]) -> int:
-            """Open a listed path's parent, or return -1 when it was deleted."""
-            parent_fd = os.dup(root_fd)
-            try:
-                for component in parts[:-1]:
-                    try:
-                        next_fd = os.open(
-                            component, os.O_RDONLY | directory | nofollow,
-                            dir_fd=parent_fd,
-                        )
-                    except FileNotFoundError:
-                        os.close(parent_fd)
-                        return -1
-                    os.close(parent_fd)
-                    parent_fd = next_fd
-                return parent_fd
-            except BaseException:
-                os.close(parent_fd)
-                raise
-
-        root_binding = binding(root_info)
-        if binding(os.lstat(workdir)) != root_binding:
+        root_binding = _snapshot_binding(root_info)
+        if _snapshot_binding(os.lstat(workdir)) != root_binding:
             return None
         # Do not start Git plumbing until a no-follow, marker-only traversal
         # established that the sole marker has the exact root spelling.  The
@@ -2135,51 +2925,7 @@ def _worktree_snapshot(
         if not _worktree_git_admin_alias_boundary(root):
             return None
 
-        def git_marker_binding() -> tuple[bytes, tuple[int, ...], bytes] | None:
-            """Bind the root .git marker without following it or its contents."""
-            try:
-                before = os.stat(".git", dir_fd=root_fd, follow_symlinks=False)
-                if stat.S_ISDIR(before.st_mode):
-                    descriptor = os.open(
-                        ".git", os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
-                        | getattr(os, "O_NOFOLLOW", 0), dir_fd=root_fd,
-                    )
-                    kind = b"directory"
-                    payload = b""
-                elif stat.S_ISREG(before.st_mode) and before.st_size <= 8192:
-                    descriptor = os.open(
-                        ".git", os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0), dir_fd=root_fd,
-                    )
-                    kind = b"file"
-                else:
-                    return None
-                try:
-                    if kind == b"file":
-                        chunks: list[bytes] = []
-                        size = 0
-                        while True:
-                            piece = os.read(descriptor, min(8193 - size, 8192))
-                            if not piece:
-                                break
-                            chunks.append(piece); size += len(piece)
-                            if size > 8192:
-                                return None
-                        payload = b"".join(chunks)
-                    opened = os.fstat(descriptor)
-                finally:
-                    os.close(descriptor)
-                named = os.stat(".git", dir_fd=root_fd, follow_symlinks=False)
-            except OSError:
-                return None
-            if (
-                binding(before) != binding(opened) or binding(opened) != binding(named)
-                or (kind == b"directory" and not stat.S_ISDIR(opened.st_mode))
-                or (kind == b"file" and (not stat.S_ISREG(opened.st_mode) or len(payload) != opened.st_size))
-            ):
-                return None
-            return kind, binding(opened), hashlib.sha256(payload).digest()
-
-        root_git_marker = git_marker_binding()
+        root_git_marker = _snapshot_git_marker_binding(root_fd)
         if root_git_marker is None:
             return None
         safe_git = _safe_git_executable()
@@ -2189,624 +2935,33 @@ def _worktree_snapshot(
         if not _safe_git_is_outside_worktree(target, root):
             return None
         target_binding = tuple(target_authority["target"])
-        total = 0
-
-        def git_read(
-            arguments: list[str], payload: bytes = b"", *, allowed: tuple[int, ...] = (0,),
-        ) -> tuple[int, bytes] | None:
-            """Read fixed Git plumbing with no filters, hooks, fetches, or locks."""
-            nonlocal total
-            completed = _bounded_git_read(
-                target, target_authority, root, arguments, payload=payload,
-                allowed=allowed, deadline=deadline,
-                stdout_limit=MAX_STREAM_BYTES - total,
-            )
-            if completed is None:
-                return None
-            total += len(completed[1])
-            return completed
-
-        def one_path(raw: bytes, *, resolve: bool = True) -> str | None:
-            if not raw.endswith(b"\n") or raw.count(b"\n") != 1 or b"\0" in raw:
-                return None
-            value = os.fsdecode(raw[:-1])
-            if not value:
-                return None
-            path = value if os.path.isabs(value) else os.path.join(root, value)
-            return os.path.realpath(path) if resolve else os.path.abspath(path)
-
-        def directory_boundary(path: str) -> tuple[str, tuple[int, ...]] | None:
-            """Bind a direct Git directory without accepting arbitrary aliases."""
-            if not os.path.isabs(path):
-                return None
-            named_path = os.path.abspath(path)
-            try:
-                named = os.lstat(os.fsencode(named_path))
-                if not stat.S_ISDIR(named.st_mode) or stat.S_ISLNK(named.st_mode):
-                    return None
-                canonical_path = os.path.realpath(named_path)
-                if MODEL_SELECTION._canonical_executable_path(canonical_path) != (
-                    MODEL_SELECTION._canonical_executable_path(named_path)
-                ):
-                    return None
-                descriptor = os.open(
-                    os.fsencode(named_path), os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
-                    | getattr(os, "O_NOFOLLOW", 0),
-                )
-                try:
-                    opened = os.fstat(descriptor)
-                finally:
-                    os.close(descriptor)
-                after = os.lstat(os.fsencode(named_path))
-            except OSError:
-                return None
-            if (
-                binding(named) != binding(opened)
-                or binding(opened) != binding(after)
-            ):
-                return None
-            return canonical_path, binding(opened)
-
-        def index_binding(path: str) -> tuple[bytes | None, tuple[int, ...] | None] | None:
-            try:
-                descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
-            except FileNotFoundError:
-                return (None, None)
-            except OSError:
-                return None
-            try:
-                before = os.fstat(descriptor)
-                if not stat.S_ISREG(before.st_mode) or stat.S_ISLNK(before.st_mode) or before.st_size > MAX_STREAM_BYTES:
-                    return None
-                chunks: list[bytes] = []
-                total_bytes = 0
-                while True:
-                    piece = os.read(descriptor, min(65536, MAX_STREAM_BYTES + 1 - total_bytes))
-                    if not piece:
-                        break
-                    chunks.append(piece)
-                    total_bytes += len(piece)
-                    if total_bytes > MAX_STREAM_BYTES:
-                        return None
-                after = os.fstat(descriptor)
-            finally:
-                os.close(descriptor)
-            try:
-                named = os.lstat(path)
-            except OSError:
-                return None
-            if binding(before) != binding(after) or binding(after) != binding(named):
-                return None
-            return b"".join(chunks), binding(after)
-
-        def bound_git_worktree() -> bool:
-            """Require Git's configured worktree to remain this held root.
-
-            ``-C`` only chooses Git's process directory: a local
-            ``core.worktree`` can otherwise redirect plumbing enumeration.  The
-            initial and final fixed rev-parse facts therefore bind the context
-            before it is passed directly to every enumeration below.
-            """
-            inside = git_read(["rev-parse", "--is-inside-work-tree"])
-            top_level = git_read(["rev-parse", "--show-toplevel"])
-            return (
-                inside is not None and inside[1] == b"true\n"
-                and top_level is not None
-                and _bound_git_worktree_root(top_level[1], root, root_binding)
-            )
-
-        def bound_git_read(
-            arguments: list[str], payload: bytes = b"", *, allowed: tuple[int, ...] = (0,),
-        ) -> tuple[int, bytes] | None:
-            """Use the no-follow-bound Git directory and held worktree root.
-
-            The initial bare root proof rejects a configured redirected
-            worktree.  The bounded reader then derives command-line global
-            options from this exact Git-directory authority and held root;
-            arbitrary argument lists cannot override either.  The final bare
-            proof fails closed if repository configuration drifts during the
-            scan.
-            """
-            return git_read(
-                _BoundGitReadArguments(arguments, git_dir_boundary), payload, allowed=allowed,
-            )
-
-        if not bound_git_worktree():
-            return None
-
-        format_result = git_read(["rev-parse", "--show-object-format"])
-        if format_result is None or format_result[1] not in {b"sha1\n", b"sha256\n"}:
-            return None
-        object_length = 40 if format_result[1] == b"sha1\n" else 64
-        git_dir_result = git_read(["rev-parse", "--absolute-git-dir"])
-        if git_dir_result is None:
-            return None
-        git_dir_path = one_path(git_dir_result[1], resolve=False)
-        if git_dir_path is None:
-            return None
-        git_dir_boundary = directory_boundary(git_dir_path)
-        if git_dir_boundary is None:
-            return None
-        index_path_result = git_read(["rev-parse", "--git-path", "index"])
-        if index_path_result is None:
-            return None
-        index_path = one_path(index_path_result[1], resolve=False)
-        if index_path is None:
-            return None
-        before_index = index_binding(index_path)
-        if before_index is None:
-            return None
-        common_path_result = git_read(["rev-parse", "--git-common-dir"])
-        if common_path_result is None:
-            return None
-        common_path = one_path(common_path_result[1], resolve=False)
-        if common_path is None:
-            return None
-        common_dir_boundary = directory_boundary(common_path)
-        if common_dir_boundary is None:
-            return None
-        for alternate_name in ("alternates", "http-alternates"):
-            try:
-                os.lstat(os.path.join(common_path, "objects", "info", alternate_name))
-                return None
-            except FileNotFoundError:
-                pass
-            except OSError:
-                return None
-        promisor = bound_git_read(
-            ["config", "--local", "--no-includes", "--get-regexp", "^(extensions\\.partialclone|remote\\..*\\.promisor)$"],
-            allowed=(0, 1),
+        context = _SnapshotGitContext(
+            root_fd, root, root_binding, deadline, target, target_authority,
         )
-        sparse = bound_git_read(["config", "--bool", "--get", "core.sparseCheckout"], allowed=(0, 1))
-        if promisor is None or sparse is None:
+        git = _snapshot_bind_git(context, explain_unsupported=explain_unsupported)
+        if git is None:
             return None
-        if promisor[0] == 0 and promisor[1]:
-            if explain_unsupported:
-                raise _UnsupportedWorktreeError(
-                    "partial/promisor Git clones are unsupported; use a full clone"
-                )
+        facts = _snapshot_read_facts(context, git, explain_unsupported=explain_unsupported)
+        if facts is None:
             return None
-        if (promisor[0] == 1 and promisor[1]) or (sparse[0] == 0 and sparse[1] != b"false\n") or (sparse[0] == 1 and sparse[1]):
+        observed = _snapshot_observe_content(context, git, facts, root_git_marker)
+        if observed is None:
             return None
-        skip = bound_git_read(["ls-files", "-v", "-z"])
-        if skip is None or (skip[1] and not skip[1].endswith(b"\0")):
-            return None
-        if any(
-            len(record) < 3 or record[1:2] != b" " or record.startswith(b"S ") or record[:1].islower()
-            for record in skip[1].split(b"\0")[:-1]
-        ):
-            return None
-
-        def listings() -> tuple[bytes, bytes, bytes, bytes, bytes, bytes] | None:
-            head_id = bound_git_read(["rev-parse", "--verify", "-q", "HEAD^{tree}"], allowed=(0, 1))
-            staged = bound_git_read(["ls-files", "--stage", "-z"])
-            debug = None if legacy else bound_git_read(["ls-files", "--debug", "-z"])
-            resolve_undo = None if legacy else bound_git_read(["ls-files", "--resolve-undo", "-z"])
-            other = bound_git_read(["ls-files", "-z", "--others", "--exclude-standard"])
-            ignored = bound_git_read(["ls-files", "-z", "--others", "--ignored", "--exclude-standard"])
-            if (
-                head_id is None or staged is None or (not legacy and debug is None)
-                or (not legacy and resolve_undo is None) or other is None or ignored is None
-            ):
-                return None
-            if not legacy:
-                parsed_resolve_undo = _parse_resolve_undo(resolve_undo[1], object_length)  # type: ignore[index]
-                if parsed_resolve_undo is None or parsed_resolve_undo:
-                    if explain_unsupported and parsed_resolve_undo:
-                        second_resolve_undo = bound_git_read(["ls-files", "--resolve-undo", "-z"])
-                        if (
-                            second_resolve_undo is not None
-                            and second_resolve_undo[1] == resolve_undo[1]
-                            and index_binding(index_path) == before_index
-                            and _parse_resolve_undo(second_resolve_undo[1], object_length) == parsed_resolve_undo
-                        ):
-                            raise _ResolveUndoPresentError("resolve_undo_present")
-                    return None
-            if head_id[0] == 1:
-                if head_id[1]:
-                    return None
-                head = b""
-            elif len(head_id[1]) == object_length + 1 and head_id[1].endswith(b"\n"):
-                oid = head_id[1][:-1]
-                if any(char not in b"0123456789abcdef" for char in oid):
-                    return None
-                tree = bound_git_read(["ls-tree", "-r", "-z", oid.decode("ascii")])
-                if tree is None:
-                    return None
-                head = tree[1]
-            else:
-                return None
-            values = (head, staged[1], other[1], ignored[1])
-            if any(raw and not raw.endswith(b"\0") for raw in values):
-                return None
-            return values[0], values[1], b"" if debug is None else debug[1], values[2], values[3], head_id[1]
-
-        first = listings()
-        if first is None:
-            return None
-        head_raw, staged_raw, debug_raw, other_raw, ignored_raw, head_id_raw = first
-
-        def valid_oid(value: bytes) -> bool:
-            return len(value) == object_length and not any(char not in b"0123456789abcdef" for char in value)
-
-        def parse_tree(raw: bytes) -> dict[bytes, tuple[int, bytes]] | None:
-            parsed: dict[bytes, tuple[int, bytes]] = {}
-            for record in raw.split(b"\0")[:-1]:
-                try:
-                    header, relative = record.split(b"\t", 1)
-                    mode_raw, kind, oid = header.split(b" ")
-                    mode = int(mode_raw, 8)
-                except (ValueError, TypeError):
-                    return None
-                if kind != b"blob" or mode not in {0o100644, 0o100755, 0o120000} or not valid_oid(oid) or relative in parsed:
-                    return None
-                parsed[relative] = (mode, oid)
-            return parsed
-
-        def parse_index(raw: bytes) -> dict[bytes, tuple[int, bytes]] | None:
-            parsed: dict[bytes, tuple[int, bytes]] = {}
-            for record in raw.split(b"\0")[:-1]:
-                try:
-                    header, relative = record.split(b"\t", 1)
-                    mode_raw, oid, stage_raw = header.split(b" ")
-                    mode = int(mode_raw, 8)
-                except (ValueError, TypeError):
-                    return None
-                if stage_raw != b"0" or mode not in {0o100644, 0o100755, 0o120000} or not valid_oid(oid) or relative in parsed:
-                    return None
-                parsed[relative] = (mode, oid)
-            return parsed
-
-        def debug_index_flags(raw: bytes) -> dict[bytes, int] | None:
-            """Read documented ls-files debug flags, ignoring volatile stat cache.
-
-            The debug record's pathname is NUL-delimited; its preceding stat
-            cache lines are intentionally only shape-checked.  Flags are the
-            semantic portion: unsupported nonzero values, including
-            CE_INTENT_TO_ADD, reject rather than silently sharing an OID/mode
-            digest with a different index meaning.
-            """
-            parsed: dict[bytes, int] = {}
-            position = 0
-            while position < len(raw):
-                separator = raw.find(b"\0", position)
-                if separator < position:
-                    return None
-                relative = raw[position:separator]
-                position = separator + 1
-                lines: list[bytes] = []
-                for _ in range(5):
-                    ending = raw.find(b"\n", position)
-                    if ending < position:
-                        return None
-                    lines.append(raw[position:ending + 1])
-                    position = ending + 1
-                if not relative or relative in parsed or any(
-                    re.fullmatch(shape, line) is None
-                    for shape, line in zip((
-                        br"  ctime: [0-9]+:[0-9]+\n",
-                        br"  mtime: [0-9]+:[0-9]+\n",
-                        br"  dev: [0-9]+\tino: [0-9]+\n",
-                        br"  uid: [0-9]+\tgid: [0-9]+\n",
-                    ), lines[:4])
-                ):
-                    return None
-                flags = re.fullmatch(br"  size: [0-9]+\tflags: ([0-9a-f]+)\n", lines[4])
-                if flags is None:
-                    return None
-                try:
-                    parsed[relative] = int(flags.group(1), 16)
-                except ValueError:
-                    return None
-            return parsed
-
-        head = parse_tree(head_raw)
-        staged = parse_index(staged_raw)
-        flags = {} if legacy else debug_index_flags(debug_raw)
-        if head is None or staged is None or flags is None:
-            return None
-        if not legacy and (set(flags) != set(staged) or any(value != 0 for value in flags.values())):
-            return None
-        other = set(other_raw.split(b"\0")[:-1])
-        ignored = set(ignored_raw.split(b"\0")[:-1])
-        if other & ignored or len(head) + len(staged) + len(other) + len(ignored) > MAX_BOUNDARY_ENTRIES:
-            return None
-        object_ids = sorted({oid for _mode, oid in staged.values()})
-        objects_raw = bound_git_read(["cat-file", "--batch"], b"".join(item + b"\n" for item in object_ids))
-        if objects_raw is None:
-            return None
-        objects: dict[bytes, bytes] = {}
-        position = 0
-        while position < len(objects_raw[1]):
-            end = objects_raw[1].find(b"\n", position)
-            if end < 0:
-                return None
-            fields = objects_raw[1][position:end].split(b" ")
-            if len(fields) != 3 or fields[0] not in object_ids or fields[1] != b"blob":
-                return None
-            try:
-                size = int(fields[2])
-            except ValueError:
-                return None
-            start = end + 1
-            finish = start + size
-            if size < 0 or finish >= len(objects_raw[1]) or objects_raw[1][finish:finish + 1] != b"\n" or fields[0] in objects:
-                return None
-            objects[fields[0]] = objects_raw[1][start:finish]
-            position = finish + 1
-        if len(objects) != len(object_ids):
-            return None
-
-        nofollow = getattr(os, "O_NOFOLLOW", 0)
-        directory = getattr(os, "O_DIRECTORY", 0)
-
-        def directory_manifest() -> tuple[bytes, int] | None:
-            """Bind bounded topology and count otherwise-unlisted empty directories."""
-            manifest_bytes = 0
-            manifest_entries = 0
-            empty_directories = 0
-
-            def walk(parent_fd: int, *, is_root: bool = False) -> bytes | None:
-                nonlocal manifest_bytes, manifest_entries, empty_directories
-                if time.monotonic() >= deadline:
-                    return None
-                before_directory = os.fstat(parent_fd)
-                if not stat.S_ISDIR(before_directory.st_mode):
-                    return None
-                records: list[tuple[bytes, bytes, tuple[int, ...], bytes]] = []
-                scan_fd = -1
-                try:
-                    # scandir does not own a caller-supplied descriptor on the
-                    # supported runtimes, so retain and close this duplicate in
-                    # our own finally path even if scandir rejects it.
-                    scan_fd = os.dup(parent_fd)
-                    with os.scandir(scan_fd) as scanned:
-                        for entry in scanned:
-                            if time.monotonic() >= deadline:
-                                return None
-                            name = entry.name
-                            raw_name = os.fsencode(name)
-                            if not raw_name or b"\0" in raw_name:
-                                continue
-                            if raw_name.lower() == b".git":
-                                # Only the root marker was bound separately.
-                                # Do not open or traverse a nested marker.
-                                if is_root and raw_name == b".git":
-                                    continue
-                                return None
-                            manifest_entries += 1
-                            if manifest_entries > MAX_BOUNDARY_ENTRIES:
-                                return None
-                            try:
-                                info = os.stat(name, dir_fd=parent_fd, follow_symlinks=False)
-                            except OSError:
-                                return None
-                            metadata = binding(info)
-                            if stat.S_ISDIR(info.st_mode):
-                                try:
-                                    child_fd = os.open(name, os.O_RDONLY | directory | nofollow, dir_fd=parent_fd)
-                                except OSError:
-                                    return None
-                                try:
-                                    if binding(os.fstat(child_fd)) != metadata:
-                                        return None
-                                    payload = walk(child_fd)
-                                    if payload is None or binding(os.fstat(child_fd)) != metadata:
-                                        return None
-                                finally:
-                                    os.close(child_fd)
-                                kind = b"directory"
-                            elif stat.S_ISLNK(info.st_mode):
-                                try:
-                                    target_raw = os.fsencode(os.readlink(name, dir_fd=parent_fd))
-                                    named = os.stat(name, dir_fd=parent_fd, follow_symlinks=False)
-                                except OSError:
-                                    return None
-                                manifest_bytes += len(target_raw)
-                                if manifest_bytes > MAX_STREAM_BYTES or binding(named) != metadata:
-                                    return None
-                                payload = hashlib.sha256(target_raw).digest()
-                                kind = b"symlink"
-                            elif stat.S_ISREG(info.st_mode):
-                                # Regular bytes and metadata are bound by the
-                                # primary listed-path observation and its final
-                                # revalidation.  This second pass is topology
-                                # only, so it never re-reads file contents.
-                                metadata = ()
-                                payload = b""
-                                kind = b"file"
-                            else:
-                                metadata = ()
-                                payload = b""
-                                kind = b"special"
-                            records.append((raw_name, kind, persistent_metadata(metadata), payload))
-                except OSError:
-                    return None
-                finally:
-                    if scan_fd >= 0:
-                        os.close(scan_fd)
-                try:
-                    if binding(os.fstat(parent_fd)) != binding(before_directory):
-                        return None
-                except OSError:
-                    return None
-                result = hashlib.sha256()
-                result.update(b"agy-worker-directory-manifest-v1\0")
-                for raw_name, kind, metadata, payload in sorted(records):
-                    result.update(len(raw_name).to_bytes(8, "big")); result.update(raw_name)
-                    result.update(len(kind).to_bytes(8, "big")); result.update(kind)
-                    metadata_raw = canonical(list(metadata))
-                    result.update(len(metadata_raw).to_bytes(8, "big")); result.update(metadata_raw)
-                    result.update(len(payload).to_bytes(8, "big")); result.update(payload)
-                if not is_root and not records:
-                    empty_directories += 1
-                return result.digest()
-
-            manifest = walk(root_fd, is_root=True)
-            if manifest is None:
-                return None
-            return manifest, empty_directories
-
-        observation = hashlib.sha256()
-        observation.update(b"agy-worker-worktree-v5\0" if legacy else b"agy-worker-worktree-v7\0")
-        canonical_root = os.fsencode(root)
-        observation.update(len(canonical_root).to_bytes(8, "big")); observation.update(canonical_root)
-        observation.update(canonical([root_info.st_dev, root_info.st_ino]))
-        observation.update(canonical([
-            os.fsdecode(root_git_marker[0]), list(authority(root_git_marker[1])),
-            root_git_marker[2].hex(),
-        ]))
-        observation.update(canonical([
-            git_dir_boundary[0], list(authority(git_dir_boundary[1])),
-            common_dir_boundary[0], list(authority(common_dir_boundary[1])),
-            os.path.realpath(index_path) if legacy else None,
-            None if before_index[0] is None else hashlib.sha256(before_index[0]).hexdigest() if legacy else None,
-            None if before_index[1] is None else list(authority(before_index[1])) if legacy else None,
-        ]))
-        content_bytes = 0
-        changed = 0
-        observed_paths: dict[bytes, tuple[Any, ...]] = {}
-        for relative in sorted(set(head) | set(staged) | other | ignored):
-            parts = relative.split(b"/")
-            if not relative or relative.startswith(b"/") or any(part in {b"", b".", b".."} for part in parts) or parts[0] == b".git":
-                return None
-            observation.update(len(relative).to_bytes(8, "big")); observation.update(relative)
-            indexed = staged.get(relative)
-            head_entry = head.get(relative)
-            for label, entry in ((b"head", head_entry), (b"index", indexed)):
-                observation.update(label + b"\0")
-                if entry is None:
-                    observation.update(b"missing\0")
-                else:
-                    observation.update(f"{entry[0]:o}".encode("ascii") + b"\0")
-                    observation.update(entry[1])
-            index_changed = indexed != head_entry
-            is_other = relative in other or relative in ignored
-            parent_fd = open_listed_parent(parts)
-            try:
-                name = parts[-1]
-                if parent_fd < 0:
-                    observation.update(b"missing\0")
-                    observed_paths[relative] = (b"missing",)
-                    differs = indexed is not None
-                else:
-                    try:
-                        before = os.stat(name, dir_fd=parent_fd, follow_symlinks=False)
-                    except FileNotFoundError:
-                        observation.update(b"missing\0")
-                        observed_paths[relative] = (b"missing",)
-                        differs = indexed is not None
-                    else:
-                        metadata = binding(before); observation.update(canonical(list(persistent_metadata(metadata))))
-                        if stat.S_ISLNK(before.st_mode):
-                            target_raw = os.fsencode(os.readlink(name, dir_fd=parent_fd))
-                            content_bytes += len(target_raw)
-                            if content_bytes > MAX_STREAM_BYTES or binding(os.stat(name, dir_fd=parent_fd, follow_symlinks=False)) != metadata:
-                                return None
-                            observation.update(b"symlink\0"); observation.update(len(target_raw).to_bytes(8, "big")); observation.update(target_raw)
-                            observed_paths[relative] = (b"symlink", metadata, target_raw)
-                            differs = indexed is None or indexed[0] != 0o120000 or target_raw != objects[indexed[1]]
-                        elif stat.S_ISREG(before.st_mode):
-                            descriptor = os.open(name, os.O_RDONLY | nofollow, dir_fd=parent_fd)
-                            try:
-                                opened = os.fstat(descriptor)
-                                if (opened.st_dev, opened.st_ino) != (before.st_dev, before.st_ino):
-                                    return None
-                                content = hashlib.sha256()
-                                while True:
-                                    piece = os.read(descriptor, 65536)
-                                    if not piece:
-                                        break
-                                    content_bytes += len(piece)
-                                    if content_bytes > MAX_STREAM_BYTES:
-                                        return None
-                                    content.update(piece)
-                                after = os.fstat(descriptor)
-                            finally:
-                                os.close(descriptor)
-                            if binding(after) != metadata or binding(os.stat(name, dir_fd=parent_fd, follow_symlinks=False)) != metadata:
-                                return None
-                            content_digest = content.digest()
-                            observation.update(b"file\0"); observation.update(content_digest)
-                            observed_paths[relative] = (b"file", metadata, content_digest)
-                            differs = indexed is None or indexed[0] not in {0o100644, 0o100755} or bool(before.st_mode & 0o111) != bool(indexed[0] & 0o111) or before.st_size != len(objects[indexed[1]]) or content_digest != hashlib.sha256(objects[indexed[1]]).digest()
-                        else:
-                            observation.update(b"special\0")
-                            observed_paths[relative] = (b"special", metadata)
-                            differs = True
-                if is_other or index_changed or differs:
-                    changed += 1
-            finally:
-                if parent_fd >= 0:
-                    os.close(parent_fd)
-        initial_directory_observation = directory_manifest()
+        observation, observed_paths, changed = observed
+        initial_directory_observation = _snapshot_directory_manifest(root_fd, deadline)
         if initial_directory_observation is None:
             return None
         initial_directory_manifest, initial_empty_directories = initial_directory_observation
-        second = listings()
-        if second is None or second != first or index_binding(index_path) != before_index:
+        second = _snapshot_listings(context, git, explain_unsupported=explain_unsupported)
+        if second is None or second != facts.first or _snapshot_index_binding(git.index_path) != git.before_index:
             return None
-
-        revalidated_bytes = 0
-        for relative, expected in observed_paths.items():
-            parts = relative.split(b"/")
-            parent_fd = open_listed_parent(parts)
-            try:
-                name = parts[-1]
-                if parent_fd < 0:
-                    current: tuple[Any, ...] = (b"missing",)
-                else:
-                    try:
-                        before = os.stat(name, dir_fd=parent_fd, follow_symlinks=False)
-                    except FileNotFoundError:
-                        current = (b"missing",)
-                    else:
-                        metadata = binding(before)
-                        if stat.S_ISLNK(before.st_mode):
-                            target_raw = os.fsencode(os.readlink(name, dir_fd=parent_fd))
-                            revalidated_bytes += len(target_raw)
-                            if (
-                                revalidated_bytes > MAX_STREAM_BYTES
-                                or binding(os.stat(name, dir_fd=parent_fd, follow_symlinks=False)) != metadata
-                            ):
-                                return None
-                            current = (b"symlink", metadata, target_raw)
-                        elif stat.S_ISREG(before.st_mode):
-                            descriptor = os.open(name, os.O_RDONLY | nofollow, dir_fd=parent_fd)
-                            try:
-                                opened = os.fstat(descriptor)
-                                if (opened.st_dev, opened.st_ino) != (before.st_dev, before.st_ino):
-                                    return None
-                                content = hashlib.sha256()
-                                while True:
-                                    piece = os.read(descriptor, 65536)
-                                    if not piece:
-                                        break
-                                    revalidated_bytes += len(piece)
-                                    if revalidated_bytes > MAX_STREAM_BYTES:
-                                        return None
-                                    content.update(piece)
-                                after = os.fstat(descriptor)
-                            finally:
-                                os.close(descriptor)
-                            if (
-                                binding(after) != metadata
-                                or binding(os.stat(name, dir_fd=parent_fd, follow_symlinks=False)) != metadata
-                            ):
-                                return None
-                            current = (b"file", metadata, content.digest())
-                        else:
-                            current = (b"special", metadata)
-                if current != expected:
-                    return None
-            finally:
-                if parent_fd >= 0:
-                    os.close(parent_fd)
-        third = listings()
+        if not _snapshot_revalidate_content(root_fd, observed_paths):
+            return None
+        third = _snapshot_listings(context, git, explain_unsupported=explain_unsupported)
         if (
             third is None
-            or third != first
-            or index_binding(index_path) != before_index
+            or third != facts.first
+            or _snapshot_index_binding(git.index_path) != git.before_index
         ):
             return None
         # The second complete manifest is the bounded linearization point: all
@@ -2814,32 +2969,36 @@ def _worktree_snapshot(
         # the first manifest. A same-UID mutation after an entry's final read
         # remains outside this finite observation and is a controller-TCB
         # residual, not a reason to alternate scans indefinitely.
-        final_directory_observation = directory_manifest()
+        final_directory_observation = _snapshot_directory_manifest(root_fd, deadline)
         if final_directory_observation is None:
             return None
         final_directory_manifest, final_empty_directories = final_directory_observation
         if (
             final_directory_manifest != initial_directory_manifest
             or final_empty_directories != initial_empty_directories
-            or index_binding(index_path) != before_index
+            or _snapshot_index_binding(git.index_path) != git.before_index
         ):
             return None
         if (
             os.path.realpath(workdir) != root
-            or binding(os.fstat(root_fd)) != root_binding
-            or binding(os.lstat(workdir)) != root_binding
-            or git_marker_binding() != root_git_marker
-            or directory_boundary(git_dir_path) != git_dir_boundary
-            or directory_boundary(common_path) != common_dir_boundary
-            or index_binding(index_path) != before_index
-            or binding(os.lstat(target)) != target_binding
-            or not bound_git_worktree()
+            or _snapshot_binding(os.fstat(root_fd)) != root_binding
+            or _snapshot_binding(os.lstat(workdir)) != root_binding
+            or _snapshot_git_marker_binding(root_fd) != root_git_marker
+            or _snapshot_directory_boundary(git.git_dir_path) != git.git_dir_boundary
+            or _snapshot_directory_boundary(git.common_path) != git.common_dir_boundary
+            or _snapshot_index_binding(git.index_path) != git.before_index
+            or _snapshot_binding(os.lstat(target)) != target_binding
+            or not context.bound_worktree()
         ):
             return None
         observation.update(b"directory-manifest-v1\0")
         observation.update(initial_directory_manifest)
         observation.update(initial_empty_directories.to_bytes(8, "big"))
-        return {"sha256": observation.hexdigest(), "entries": changed + initial_empty_directories}
+        return {
+            "sha256": observation.hexdigest(),
+            "entries": changed + initial_empty_directories,
+            "path_facts": _snapshot_path_facts(facts, observed_paths),
+        }
     except _UnsupportedWorktreeError:
         raise
     except (OSError, subprocess.TimeoutExpired, OverflowError, ValueError, RecursionError):
@@ -2847,6 +3006,20 @@ def _worktree_snapshot(
     finally:
         if root_fd >= 0:
             os.close(root_fd)
+
+
+def _worktree_snapshot(
+    workdir: str, *, explain_unsupported: bool = False,
+) -> dict[str, Any] | None:
+    """Translate internal snapshot failures to the controller's stable contract."""
+    try:
+        return _worktree_snapshot_raw(
+            workdir, explain_unsupported=explain_unsupported,
+        )
+    except _ResolveUndoPresentError as exc:
+        raise ResolveUndoPresentError(str(exc)) from None
+    except _UnsupportedWorktreeError as exc:
+        raise WorktreeBaselineError(str(exc)) from None
 
 
 def _parse_provider_scope(raw_bytes: bytes) -> dict[str, Any]:
@@ -3179,30 +3352,6 @@ def _compute_transmission_sha256(
     }
     raw = json.dumps(payload, ensure_ascii=True, sort_keys=True, separators=(",", ":")).encode("ascii") + b"\n"
     return hashlib.sha256(raw).hexdigest()
-
-
-def _compute_provider_launch_approval_sha256(
-    provider_isolation: str, readable_manifest_sha256: str,
-    transmission_sha256: str | None = None,
-) -> str:
-    """Bind a preview approval to the selected provider execution authority."""
-
-    if provider_isolation not in {"session", "native"}:
-        raise ValueError("provider isolation is invalid")
-    if not isinstance(readable_manifest_sha256, str) or re.fullmatch(r"[0-9a-f]{64}", readable_manifest_sha256) is None:
-        raise ValueError("readable manifest digest is invalid")
-    if transmission_sha256 is not None and (
-        not isinstance(transmission_sha256, str)
-        or re.fullmatch(r"[0-9a-f]{64}", transmission_sha256) is None
-    ):
-        raise ValueError("transmission digest is invalid")
-    payload = {
-        "kind": "agy-worker-provider-launch-approval-v1",
-        "provider_isolation": provider_isolation,
-        "readable_manifest_sha256": readable_manifest_sha256,
-        "transmission_sha256": transmission_sha256,
-    }
-    return hashlib.sha256(_canonical_json(payload)).hexdigest()
 
 
 def _compute_v11_launch_approval_sha256(
@@ -4123,6 +4272,261 @@ def _recover_reconciliation(source_root: str | Path, job_dir: Path) -> bool:
         os.close(job_fd)
 
 
+def _prepare_reconciliation_backups(
+    src_root_fd: int, recovery_fd: int, operation_manifest: list[dict[str, Any]],
+    directory_flag: int, nofollow: int,
+) -> tuple[dict[str, dict[str, Any]], dict[str, dict[str, Any]]]:
+    """Bind prior targets and write backups before the coordinator publishes them."""
+    backups: dict[str, dict[str, Any]] = {}
+    directory_backups: dict[str, dict[str, Any]] = {}
+    created_directory_indexes = {
+        op["path"]: index
+        for index, op in enumerate(operation_manifest)
+        if op["op"] == "create" and op["kind"] == "directory"
+    }
+    for index, op in enumerate(operation_manifest):
+        parts = _reconciliation_parts(op["path"])
+        curr_src = os.dup(src_root_fd)
+        deferred_parent = False
+        try:
+            for parent_index, comp in enumerate(parts[:-1], start=1):
+                try:
+                    next_src = os.open(
+                        comp, os.O_RDONLY | directory_flag | nofollow, dir_fd=curr_src,
+                    )
+                except FileNotFoundError:
+                    parent_path = "/".join(parts[:parent_index])
+                    creator = created_directory_indexes.get(parent_path)
+                    if op["op"] != "create" or creator is None or creator >= index:
+                        raise DispatchError("reconciliation parent is unavailable")  # noqa: B904 -- preserve existing exception context and public diagnostics
+                    # Stage mutation generation orders parent directory
+                    # creates before descendants. A missing source parent
+                    # therefore has no prior target to bind; the normal
+                    # apply loop will create and descriptor-rebind it.
+                    deferred_parent = True
+                    break
+                os.close(curr_src)
+                curr_src = next_src
+            if deferred_parent:
+                prior = None
+            else:
+                try:
+                    prior = os.stat(parts[-1], dir_fd=curr_src, follow_symlinks=False)
+                except FileNotFoundError:
+                    prior = None
+        finally:
+            os.close(curr_src)
+        if op["op"] == "create":
+            if prior is not None:
+                raise DispatchError("reconciliation create target already exists")
+            op["prior_identity"] = None
+        else:
+            if prior is None or stat.S_ISLNK(prior.st_mode):
+                raise DispatchError("reconciliation prior target is unavailable")
+            if (op["kind"] == "file") != stat.S_ISREG(prior.st_mode):
+                raise DispatchError("reconciliation prior target changed kind")
+            if op["kind"] == "directory" and not stat.S_ISDIR(prior.st_mode):
+                raise DispatchError("reconciliation prior target changed kind")
+            op["prior_identity"] = list(_manifest_binding(prior))
+            if op["op"] == "delete" and op["kind"] == "directory":
+                directory_backups[op["path"]] = {
+                    "mode": stat.S_IMODE(prior.st_mode),
+                    "prior_identity": _reconciliation_root_identity(prior),
+                }
+        if op["op"] in {"replace", "delete"} and op["kind"] == "file":
+            curr_src = os.dup(src_root_fd)
+            try:
+                for comp in parts[:-1]:
+                    next_src = os.open(comp, os.O_RDONLY | directory_flag | nofollow, dir_fd=curr_src)
+                    os.close(curr_src)
+                    curr_src = next_src
+                try:
+                    f_fd = os.open(parts[-1], os.O_RDONLY | nofollow, dir_fd=curr_src)
+                except FileNotFoundError:
+                    f_fd = -1
+            finally:
+                os.close(curr_src)
+            if f_fd >= 0:
+                try:
+                    st = os.fstat(f_fd)
+                    backup_name = f"{index:06d}.backup"
+                    backup_fd = os.open(
+                        backup_name,
+                        os.O_WRONLY | os.O_CREAT | os.O_EXCL | nofollow,
+                        0o600, dir_fd=recovery_fd,
+                    )
+                    try:
+                        hasher = hashlib.sha256()
+                        total = 0
+                        while True:
+                            chunk = os.read(f_fd, 65536)
+                            if not chunk:
+                                break
+                            total += len(chunk)
+                            if total > SELECTED_CONTENT_MAX_FILE_BYTES:
+                                raise DispatchError("reconciliation backup byte limit exceeded")
+                            hasher.update(chunk)
+                            _reconciliation_write_all(backup_fd, chunk)
+                        os.fsync(backup_fd)
+                    finally:
+                        os.close(backup_fd)
+                    if hasher.hexdigest() != op["prior_sha256"]:
+                        raise DispatchError("reconciliation prior content changed")
+                    backups[op["path"]] = {
+                        "mode": stat.S_IMODE(st.st_mode),
+                        "name": backup_name,
+                        "prior_identity": op["prior_identity"],
+                        "prior_sha256": op["prior_sha256"],
+                    }
+                finally:
+                    os.close(f_fd)
+
+    return backups, directory_backups
+
+
+def _apply_reconciliation_operation(
+    src_root_fd: int, stage_root_fd: int, op: dict[str, Any], parts: list[str],
+    directory_flag: int, nofollow: int,
+) -> None:
+    """Apply one durably announced operation and retain its post identity."""
+    check_fd = os.dup(src_root_fd)
+    try:
+        for comp in parts[:-1]:
+            next_fd = os.open(
+                comp, os.O_RDONLY | directory_flag | nofollow,
+                dir_fd=check_fd,
+            )
+            os.close(check_fd)
+            check_fd = next_fd
+        try:
+            current_prior = os.stat(
+                parts[-1], dir_fd=check_fd, follow_symlinks=False,
+            )
+        except FileNotFoundError:
+            current_prior = None
+    finally:
+        os.close(check_fd)
+    if op["op"] == "create":
+        if current_prior is not None:
+            raise DispatchError("reconciliation create target drifted")
+    elif (
+        current_prior is None
+        or list(_manifest_binding(current_prior)) != op["prior_identity"]
+    ):
+        raise DispatchError("reconciliation prior target identity drifted")
+
+    if op["op"] == "create" and op["kind"] == "directory":
+        curr_fd = os.dup(src_root_fd)
+        try:
+            for comp in parts:
+                try:
+                    next_fd = os.open(comp, os.O_RDONLY | directory_flag | nofollow, dir_fd=curr_fd)
+                except FileNotFoundError:
+                    os.mkdir(comp, 0o700, dir_fd=curr_fd)
+                    next_fd = os.open(comp, os.O_RDONLY | directory_flag | nofollow, dir_fd=curr_fd)
+                os.fchmod(next_fd, 0o700)
+                os.fsync(curr_fd)
+                os.close(curr_fd)
+                curr_fd = next_fd
+        finally:
+            os.close(curr_fd)
+    elif op["op"] in {"create", "replace"} and op["kind"] == "file":
+        curr_stg = os.dup(stage_root_fd)
+        try:
+            for comp in parts[:-1]:
+                next_stg = os.open(comp, os.O_RDONLY | directory_flag | nofollow, dir_fd=curr_stg)
+                os.close(curr_stg)
+                curr_stg = next_stg
+            stg_fd = os.open(parts[-1], os.O_RDONLY | nofollow, dir_fd=curr_stg)
+        finally:
+            os.close(curr_stg)
+        try:
+            content = bytearray()
+            while True:
+                chunk = os.read(stg_fd, 65536)
+                if not chunk:
+                    break
+                content.extend(chunk)
+        finally:
+            os.close(stg_fd)
+
+        curr_src = os.dup(src_root_fd)
+        try:
+            for comp in parts[:-1]:
+                try:
+                    next_src = os.open(comp, os.O_RDONLY | directory_flag | nofollow, dir_fd=curr_src)
+                except FileNotFoundError:
+                    os.mkdir(comp, 0o700, dir_fd=curr_src)
+                    next_src = os.open(comp, os.O_RDONLY | directory_flag | nofollow, dir_fd=curr_src)
+                os.fchmod(next_src, 0o700)
+                os.close(curr_src)
+                curr_src = next_src
+
+            tmp_name = f".tmp.reconcile.{os.getpid()}.{time.time_ns()}"
+            mode = 0o700 if op["executable"] else 0o600
+            tmp_fd = os.open(tmp_name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | nofollow, mode, dir_fd=curr_src)
+            try:
+                _reconciliation_write_all(tmp_fd, content)
+                os.fsync(tmp_fd)
+                os.fchmod(tmp_fd, mode)
+            finally:
+                os.close(tmp_fd)
+            os.replace(tmp_name, parts[-1], src_dir_fd=curr_src, dst_dir_fd=curr_src)
+            os.fsync(curr_src)
+        finally:
+            os.close(curr_src)
+    elif op["op"] == "delete" and op["kind"] == "file":
+        curr_src = os.dup(src_root_fd)
+        try:
+            for comp in parts[:-1]:
+                next_src = os.open(comp, os.O_RDONLY | directory_flag | nofollow, dir_fd=curr_src)
+                os.close(curr_src)
+                curr_src = next_src
+            with contextlib.suppress(FileNotFoundError):
+                os.unlink(parts[-1], dir_fd=curr_src)
+                os.fsync(curr_src)
+        finally:
+            os.close(curr_src)
+    elif op["op"] == "delete" and op["kind"] == "directory":
+        curr_src = os.dup(src_root_fd)
+        try:
+            for comp in parts[:-1]:
+                next_src = os.open(comp, os.O_RDONLY | directory_flag | nofollow, dir_fd=curr_src)
+                os.close(curr_src)
+                curr_src = next_src
+            with contextlib.suppress(FileNotFoundError):
+                os.rmdir(parts[-1], dir_fd=curr_src)
+                os.fsync(curr_src)
+        finally:
+            os.close(curr_src)
+
+    post_fd = os.dup(src_root_fd)
+    try:
+        for comp in parts[:-1]:
+            next_fd = os.open(
+                comp, os.O_RDONLY | directory_flag | nofollow,
+                dir_fd=post_fd,
+            )
+            os.close(post_fd)
+            post_fd = next_fd
+        try:
+            post = os.stat(
+                parts[-1], dir_fd=post_fd, follow_symlinks=False,
+            )
+        except FileNotFoundError:
+            post = None
+    finally:
+        os.close(post_fd)
+    if op["op"] == "delete":
+        if post is not None:
+            raise DispatchError("reconciliation delete target remains")
+        op["post_identity"] = None
+    else:
+        if post is None or stat.S_ISLNK(post.st_mode):
+            raise DispatchError("reconciliation post target is unavailable")
+        op["post_identity"] = list(_manifest_binding(post))
+
+
 def _reconcile_stage_to_source(
     source_root: str | Path, stage_dir: str | Path, operation_manifest: list[dict[str, Any]], job_dir: Path,
 ) -> str:
@@ -4171,109 +4575,9 @@ def _reconcile_stage_to_source(
         )
         ledger["backup_dir_identity"] = _reconciliation_root_identity(os.fstat(recovery_fd))
 
-        backups: dict[str, dict[str, Any]] = {}
-        directory_backups: dict[str, dict[str, Any]] = {}
-        created_directory_indexes = {
-            op["path"]: index
-            for index, op in enumerate(operation_manifest)
-            if op["op"] == "create" and op["kind"] == "directory"
-        }
-        for index, op in enumerate(operation_manifest):
-            parts = _reconciliation_parts(op["path"])
-            curr_src = os.dup(src_root_fd)
-            deferred_parent = False
-            try:
-                for parent_index, comp in enumerate(parts[:-1], start=1):
-                    try:
-                        next_src = os.open(
-                            comp, os.O_RDONLY | directory_flag | nofollow, dir_fd=curr_src,
-                        )
-                    except FileNotFoundError:
-                        parent_path = "/".join(parts[:parent_index])
-                        creator = created_directory_indexes.get(parent_path)
-                        if op["op"] != "create" or creator is None or creator >= index:
-                            raise DispatchError("reconciliation parent is unavailable")
-                        # Stage mutation generation orders parent directory
-                        # creates before descendants. A missing source parent
-                        # therefore has no prior target to bind; the normal
-                        # apply loop will create and descriptor-rebind it.
-                        deferred_parent = True
-                        break
-                    os.close(curr_src)
-                    curr_src = next_src
-                if deferred_parent:
-                    prior = None
-                else:
-                    try:
-                        prior = os.stat(parts[-1], dir_fd=curr_src, follow_symlinks=False)
-                    except FileNotFoundError:
-                        prior = None
-            finally:
-                os.close(curr_src)
-            if op["op"] == "create":
-                if prior is not None:
-                    raise DispatchError("reconciliation create target already exists")
-                op["prior_identity"] = None
-            else:
-                if prior is None or stat.S_ISLNK(prior.st_mode):
-                    raise DispatchError("reconciliation prior target is unavailable")
-                if (op["kind"] == "file") != stat.S_ISREG(prior.st_mode):
-                    raise DispatchError("reconciliation prior target changed kind")
-                if op["kind"] == "directory" and not stat.S_ISDIR(prior.st_mode):
-                    raise DispatchError("reconciliation prior target changed kind")
-                op["prior_identity"] = list(_manifest_binding(prior))
-                if op["op"] == "delete" and op["kind"] == "directory":
-                    directory_backups[op["path"]] = {
-                        "mode": stat.S_IMODE(prior.st_mode),
-                        "prior_identity": _reconciliation_root_identity(prior),
-                    }
-            if op["op"] in {"replace", "delete"} and op["kind"] == "file":
-                curr_src = os.dup(src_root_fd)
-                try:
-                    for comp in parts[:-1]:
-                        next_src = os.open(comp, os.O_RDONLY | directory_flag | nofollow, dir_fd=curr_src)
-                        os.close(curr_src)
-                        curr_src = next_src
-                    try:
-                        f_fd = os.open(parts[-1], os.O_RDONLY | nofollow, dir_fd=curr_src)
-                    except FileNotFoundError:
-                        f_fd = -1
-                finally:
-                    os.close(curr_src)
-                if f_fd >= 0:
-                    try:
-                        st = os.fstat(f_fd)
-                        backup_name = f"{index:06d}.backup"
-                        backup_fd = os.open(
-                            backup_name,
-                            os.O_WRONLY | os.O_CREAT | os.O_EXCL | nofollow,
-                            0o600, dir_fd=recovery_fd,
-                        )
-                        try:
-                            hasher = hashlib.sha256()
-                            total = 0
-                            while True:
-                                chunk = os.read(f_fd, 65536)
-                                if not chunk:
-                                    break
-                                total += len(chunk)
-                                if total > SELECTED_CONTENT_MAX_FILE_BYTES:
-                                    raise DispatchError("reconciliation backup byte limit exceeded")
-                                hasher.update(chunk)
-                                _reconciliation_write_all(backup_fd, chunk)
-                            os.fsync(backup_fd)
-                        finally:
-                            os.close(backup_fd)
-                        if hasher.hexdigest() != op["prior_sha256"]:
-                            raise DispatchError("reconciliation prior content changed")
-                        backups[op["path"]] = {
-                            "mode": stat.S_IMODE(st.st_mode),
-                            "name": backup_name,
-                            "prior_identity": op["prior_identity"],
-                            "prior_sha256": op["prior_sha256"],
-                        }
-                    finally:
-                        os.close(f_fd)
+        backups, directory_backups = _prepare_reconciliation_backups(
+            src_root_fd, recovery_fd, operation_manifest, directory_flag, nofollow,
+        )
 
         os.fsync(recovery_fd)
         ledger["backups"] = backups
@@ -4289,142 +4593,9 @@ def _reconcile_stage_to_source(
                 ledger["active_operation"] = operation_index
                 persist_ledger()
 
-                check_fd = os.dup(src_root_fd)
-                try:
-                    for comp in parts[:-1]:
-                        next_fd = os.open(
-                            comp, os.O_RDONLY | directory_flag | nofollow,
-                            dir_fd=check_fd,
-                        )
-                        os.close(check_fd)
-                        check_fd = next_fd
-                    try:
-                        current_prior = os.stat(
-                            parts[-1], dir_fd=check_fd, follow_symlinks=False,
-                        )
-                    except FileNotFoundError:
-                        current_prior = None
-                finally:
-                    os.close(check_fd)
-                if op["op"] == "create":
-                    if current_prior is not None:
-                        raise DispatchError("reconciliation create target drifted")
-                elif (
-                    current_prior is None
-                    or list(_manifest_binding(current_prior)) != op["prior_identity"]
-                ):
-                    raise DispatchError("reconciliation prior target identity drifted")
-
-                if op["op"] == "create" and op["kind"] == "directory":
-                    curr_fd = os.dup(src_root_fd)
-                    try:
-                        for comp in parts:
-                            try:
-                                next_fd = os.open(comp, os.O_RDONLY | directory_flag | nofollow, dir_fd=curr_fd)
-                            except FileNotFoundError:
-                                os.mkdir(comp, 0o700, dir_fd=curr_fd)
-                                next_fd = os.open(comp, os.O_RDONLY | directory_flag | nofollow, dir_fd=curr_fd)
-                            os.fchmod(next_fd, 0o700)
-                            os.fsync(curr_fd)
-                            os.close(curr_fd)
-                            curr_fd = next_fd
-                    finally:
-                        os.close(curr_fd)
-                elif op["op"] in {"create", "replace"} and op["kind"] == "file":
-                    curr_stg = os.dup(stage_root_fd)
-                    try:
-                        for comp in parts[:-1]:
-                            next_stg = os.open(comp, os.O_RDONLY | directory_flag | nofollow, dir_fd=curr_stg)
-                            os.close(curr_stg)
-                            curr_stg = next_stg
-                        stg_fd = os.open(parts[-1], os.O_RDONLY | nofollow, dir_fd=curr_stg)
-                    finally:
-                        os.close(curr_stg)
-                    try:
-                        content = bytearray()
-                        while True:
-                            chunk = os.read(stg_fd, 65536)
-                            if not chunk:
-                                break
-                            content.extend(chunk)
-                    finally:
-                        os.close(stg_fd)
-
-                    curr_src = os.dup(src_root_fd)
-                    try:
-                        for comp in parts[:-1]:
-                            try:
-                                next_src = os.open(comp, os.O_RDONLY | directory_flag | nofollow, dir_fd=curr_src)
-                            except FileNotFoundError:
-                                os.mkdir(comp, 0o700, dir_fd=curr_src)
-                                next_src = os.open(comp, os.O_RDONLY | directory_flag | nofollow, dir_fd=curr_src)
-                            os.fchmod(next_src, 0o700)
-                            os.close(curr_src)
-                            curr_src = next_src
-
-                        tmp_name = f".tmp.reconcile.{os.getpid()}.{time.time_ns()}"
-                        mode = 0o700 if op["executable"] else 0o600
-                        tmp_fd = os.open(tmp_name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | nofollow, mode, dir_fd=curr_src)
-                        try:
-                            _reconciliation_write_all(tmp_fd, content)
-                            os.fsync(tmp_fd)
-                            os.fchmod(tmp_fd, mode)
-                        finally:
-                            os.close(tmp_fd)
-                        os.replace(tmp_name, parts[-1], src_dir_fd=curr_src, dst_dir_fd=curr_src)
-                        os.fsync(curr_src)
-                    finally:
-                        os.close(curr_src)
-                elif op["op"] == "delete" and op["kind"] == "file":
-                    curr_src = os.dup(src_root_fd)
-                    try:
-                        for comp in parts[:-1]:
-                            next_src = os.open(comp, os.O_RDONLY | directory_flag | nofollow, dir_fd=curr_src)
-                            os.close(curr_src)
-                            curr_src = next_src
-                        with contextlib.suppress(FileNotFoundError):
-                            os.unlink(parts[-1], dir_fd=curr_src)
-                            os.fsync(curr_src)
-                    finally:
-                        os.close(curr_src)
-                elif op["op"] == "delete" and op["kind"] == "directory":
-                    curr_src = os.dup(src_root_fd)
-                    try:
-                        for comp in parts[:-1]:
-                            next_src = os.open(comp, os.O_RDONLY | directory_flag | nofollow, dir_fd=curr_src)
-                            os.close(curr_src)
-                            curr_src = next_src
-                        with contextlib.suppress(FileNotFoundError):
-                            os.rmdir(parts[-1], dir_fd=curr_src)
-                            os.fsync(curr_src)
-                    finally:
-                        os.close(curr_src)
-
-                post_fd = os.dup(src_root_fd)
-                try:
-                    for comp in parts[:-1]:
-                        next_fd = os.open(
-                            comp, os.O_RDONLY | directory_flag | nofollow,
-                            dir_fd=post_fd,
-                        )
-                        os.close(post_fd)
-                        post_fd = next_fd
-                    try:
-                        post = os.stat(
-                            parts[-1], dir_fd=post_fd, follow_symlinks=False,
-                        )
-                    except FileNotFoundError:
-                        post = None
-                finally:
-                    os.close(post_fd)
-                if op["op"] == "delete":
-                    if post is not None:
-                        raise DispatchError("reconciliation delete target remains")
-                    op["post_identity"] = None
-                else:
-                    if post is None or stat.S_ISLNK(post.st_mode):
-                        raise DispatchError("reconciliation post target is unavailable")
-                    op["post_identity"] = list(_manifest_binding(post))
+                _apply_reconciliation_operation(
+                    src_root_fd, stage_root_fd, op, parts, directory_flag, nofollow,
+                )
                 _refresh_reconciliation_directory_ancestors(
                     src_root_fd, operation_manifest, operation_index,
                     operation="delete", identity_key="prior_identity",
@@ -4506,47 +4677,6 @@ def _cleanup_stage(stage_dir: str | Path, recorded_identity: tuple[int, int, int
         os.close(stage_root_fd)
 
     os.rmdir(stg_str)
-
-
-_IMPLEMENTATION_FUNCTIONS = frozenset({
-    "_marker_only_preflight",
-    "_resolved_path_is_git_administration",
-    "_worktree_symlink_boundary",
-    "_worktree_git_admin_alias_boundary",
-    "_project_boundary",
-    "_safe_git_owner_mode",
-    "_safe_git_executable",
-    "_confirm_safe_git_executable",
-    "_safe_git_is_outside_worktree",
-    "_stable_git_authority",
-    "_full_stat_binding",
-    "_bound_git_worktree_root",
-    "_fixed_git_read_argv",
-    "_bounded_git_read",
-    "_git_boundary_identity",
-    "_worktree_snapshot",
-    "_scan_readable_worktree",
-    "whole_worktree_content_manifest",
-    "_validate_manifest",
-    "_manifest_digest",
-    "_read_provider_scope_file",
-    "_parse_provider_scope",
-    "_validate_scope_against_worktree",
-    "_build_selected_content_manifest",
-    "_canonical_digest",
-    "_selected_content_digest",
-    "_compute_transmission_sha256",
-    "_compute_provider_launch_approval_sha256",
-    "_compute_v11_launch_approval_sha256",
-    "_materialize_stage",
-    "_scan_stage_mutations",
-    "_recover_reconciliation",
-    "_reconcile_stage_to_source",
-    "_cleanup_stage",
-})
-_IMPLEMENTATION_DEFAULTS = {
-    name: globals()[name] for name in _IMPLEMENTATION_FUNCTIONS
-}
 
 
 if __name__ == "__main__":

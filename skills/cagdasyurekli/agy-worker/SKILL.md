@@ -1,125 +1,163 @@
 ---
 name: agy-worker
-description: Use when Codex should delegate repository exploration or implementation to Google Antigravity CLI (agy), then review, verify, repair, and deliver the result.
+description: Use when Codex or Claude Code should delegate repository exploration or implementation to Google Antigravity CLI (agy), then review, verify, repair, and deliver the result.
 license: MIT
-compatibility: Requires OpenAI Codex CLI, Bash, Python 3, git, and agy with provider network access. Claude and Claude Code hosts are not supported.
+compatibility: "OpenAI Codex CLI and Claude Code. Requires Bash, Python 3, git, and agy with provider network access."
 metadata:
   author: cagdasyurekli
-  version: "0.22.0"
+  version: "0.24.2"
 ---
 
 # Delegate repository work and verify the result
 
-Use this skill when `agy` can usefully explore a repository, implement bounded work,
-or help with broader project changes. In normal use, delegate substantial exploration
-and implementation to `agy` before Codex duplicates it. Codex reads only scope and
-authority necessities, then spot-checks material findings and reviews the actual diff.
-Codex retains responsibility for scope, diff review, driver-owned checks, repair
-decisions, and final independent acceptance.
+Delegate substantive exploration or implementation to `agy`, then inspect its diff
+and run driver-owned checks. Unknown files, architecture or a first test command do
+not prevent useful exploration; worker envelopes are not evidence.
 
-Resolve the installed package instead of guessing a checkout path:
+`SKILL_ROOT` contains this file. In Claude Code it is `${CLAUDE_SKILL_DIR}`,
+substituted in instructions rather than exported by Bash. Resolve the package:
 
 ```bash
 PIPELINE="$(bash "$SKILL_ROOT/scripts/resolve-pipeline.sh")" || exit $?
 ```
 
-`"$PIPELINE/doctor.sh" --repo /absolute/path/to/target` can check offline
-prerequisites before provider use. `ready` does not prove authentication, provider
-availability, task quality, or future job success. For package orientation, read the
-[Package README](README.md).
+Use `"$PIPELINE/doctor.sh" --repo /absolute/path/to/target` for offline readiness;
+`ready` proves neither authentication nor task success. See the [Package README](README.md).
 
 ## Authorize provider work
 
-Before a provider launch, obtain explicit human approval for the exact provider-readable
-content, transmission and isolation mode, task, caller-selected model, and budget.
-One exact upfront approval may cover predictable same-scope repairs and mechanical
-digest/state refresh; provider-launch notices are status, not repeated permission requests.
-Use initial `--allow-scoped-repair` for approved multi-turn scoped work. Approval is a
-human decision. Preview, transmission, state, candidate, and dispatch SHA values are
-mechanical bindings to that decision; refreshing a still-applicable binding is not another
-approval request. New scope, content exposure, destination, isolation, permissions or
-budget still require authority. Preserve required current raw-help/semantic version
-preflight on each launch; add no cache or alternate controller. Ordinary jobs require
-neither hand-authored JSON nor Goal as a prerequisite (Goal remains an ordinary-use opt-in).
+Obtain human approval for the task, exact provider-readable content, transmission and
+isolation modes, caller-selected model and budget. One upfront approval may cover
+predictable same-scope repairs and mechanical digest refresh. New scope, content
+exposure, destination, isolation, permissions or budget needs fresh authority.
+SHA values bind the documented controller inputs, not the entire human decision;
+refreshing a still-applicable binding is not another approval request. Goal and
+hand-authored JSON are not ordinary-use prerequisites.
 
-Prefer `--provider-scope FILE --approve-transmission-sha SHA256` for bounded jobs. It binds exact reviewed read entries, their selected-content digest, and a write subset, then stages only selected entries in a fresh owner-private mode-`0700` Gitless provider cwd.
-Whole-worktree dispatch remains an explicit exception. New approvals bind content, kinds, permissions, symlink targets, and execution mode; the controller rechecks this binding before provider start. Legacy records keep their original contracts. Treat the entire disposable worktree passed as `--workdir` as worker-readable and potentially transmissible to Google/Gemini, regardless of requested edit paths; `--add-dir`, prompt denylist instructions, `qa-gate --only`, and `--allow` do not narrow that read boundary.
-Neither `workflow.sh run` nor the advanced `agy-worker.sh` initial dispatch has an implicit transmission mode: launch requires either `--approve-whole-worktree LAUNCH_APPROVAL_SHA256` or the scoped pair above. The deprecated facade-only `--approve-preview-sha` spelling cannot launch by itself and remains temporarily available only with `--legacy-preview-approval`.
-New jobs default to `--provider-isolation session`, which uses the existing AGY session without AGY sandbox or native host containment. AGY has normal user filesystem/network authority; selected-file staging and reconciliation are not host isolation. Include this execution mode in the initial approval alongside task/content, then reuse that approval while its scope remains unchanged. Explicit `--provider-isolation native` retains supported macOS scoped containment with private HOME/TMP and reviewed network/Keychain access; it never falls back to session mode. The native `/usr/bin/security` exception allows broader same-user Keychain operations, and its listener rule permits wildcard binds. Read [Security and compatibility](references/SECURITY_AND_COMPATIBILITY.md) for those limits. Preserve the job's selected mode across continuation and repair.
+Prefer `--provider-scope FILE --approve-transmission-sha SHA256` for bounded jobs. It binds reviewed read entries, their content digest, and a write subset in a fresh owner-private mode-`0700` Gitless stage.
+Whole-worktree dispatch requires `--approve-whole-worktree LAUNCH_APPROVAL_SHA256`. Every disposable-worktree entry is provider-readable and may reach Google/Gemini; `--add-dir`, prompt denylists and gate path policies do not narrow that read boundary.
+Neither `workflow.sh run` nor the advanced `agy-worker.sh` initial dispatch has an implicit transmission mode.
+The whole-worktree digest binds content, kinds, full file mode bits, symlink target hashes, the
+readable manifest, provider isolation and native grant profile. The scoped digest
+binds canonical read/write policy, readable path/kind manifest, selected bytes and
+executable bits, isolation and grant profile; scoped mode rejects symlinks and does
+not bind full POSIX permissions. The controller rechecks the approved boundary
+before provider start. The human approves one `launch_approval_sha256` over canonical
+`launch_authority`: those content inputs, destination and Git base, exact normalized
+task and constructed prompt, fixed transport templates, workflow/edit mode, model/effort,
+cycles and time budgets, scoped repair, self-verification manifest digest, provider-env
+names, slash policy, additional directories and provider schema digest. Preview the
+exact task and all launch options; reuse them unchanged for the approved run. Only
+trailing LF bytes are removed from UTF-8 task input; spaces and CRLF are preserved.
+Environment values and private verification commands are never serialized into the
+approval payload. Use the private prelaunch review checklist
+in [Project lifecycle and verification](references/PROJECT_LIFECYCLE_AND_VERIFICATION.md#approval-bindings-and-launch-notices), including any optional self-verification
+commands, IDs and limits; keep that manifest out of the provider preview and prompt.
+Retired dispatch and workflow job formats are rejected; finish or discard them with their creating release, without migration.
+Default `--provider-isolation session` uses the existing AGY session. AGY has normal user filesystem/network authority; staging and reconciliation are not host isolation.
+Explicit `--provider-isolation native` requires supported macOS scoped containment; it never falls back to session mode. Preserve the recorded isolation mode and grant profile across repairs.
 Provider-scope approval grants neither provider execution, Git action, driver acceptance, nor publication.
-Before each launch, ensure secrets, credentials, private keys, user-denied paths, and unrelated private files are absent from every entry approved for provider transmission; telling the worker not to read an approved entry is not a control.
+Exclude secrets, denied paths and unrelated private content from every approved entry; telling the worker not to read an approved entry is not a control.
 
-Keep raw worker logs and local controller state outside the worktree and out of prompts.
-Installation does not authorize provider transmission, Git actions, publication, or
-acceptance.
+Keep raw logs and controller state outside the worktree and prompts. Each launch
+requires capability preflight and immediate executable-binding recheck. Model and
+effort stay caller-owned. Child environment opt-ins require approval per variable
+name. Installation grants no provider or Git authority.
 
-For the required user-facing provider-launch notice, including defaults, preflight
-failures, resumes, and continuation, read [Project lifecycle and verification](references/PROJECT_LIFECYCLE_AND_VERIFICATION.md#approval-bindings-and-launch-notices).
-Direct model and effort selection remain caller-owned; recommendations are advisory.
+Read [Security and compatibility](references/SECURITY_AND_COMPATIBILITY.md) before a
+first live dispatch or changing execution exposure. It owns native network/Keychain
+limits, verifier environments and no-follow boundaries. Read the required
+[launch notices](references/PROJECT_LIFECYCLE_AND_VERIFICATION.md#approval-bindings-and-launch-notices)
+before initial, resume, continue or restart attempts; notices do not repeat approvals.
 
 ## Choose and run the workflow
 
-| User intent | Workflow | Default cycle budget | Codex responsibility |
-|---|---|---:|---|
-| Explore, understand, review, or plan | `explore` | 2 | Spot-check material claims and state coverage limits. |
-| Implement a feature, refactor, tests, or bounded repair | `task` | 2 | Inspect the diff and run relevant project checks. |
-| Build a project or perform broad audit-and-fix work | `project` | 5 | Review repo-wide changes and run applicable build, test, and lint checks. |
+| Intent | Workflow | Cycle budget | Driver action |
+|---|---|---|---|
+| Explore, understand, review or plan | `explore` | default 2, allowed 1..2 | Spot-check findings; state coverage limits. |
+| Bounded feature, refactor or tests | `task` | default 2, allowed 1..2 | Review the diff; run relevant checks. |
+| Project build or broad audit-and-fix | `project` | default 5, allowed 1..5 | Review changes; run build, tests and lint. |
 
-`explore` and `task` accept `1..2` cycles; `project` accepts `1..5`. Personas are
-optional prompt specializations, not capability, approval, routing, verification, or
-quality gates. The raw `--boost` profile is an advanced, separately acknowledged
-one-cycle task path; read [Security and compatibility](references/SECURITY_AND_COMPATIBILITY.md#boost-authority-boundary)
-before using it.
+Use `workflow.sh run --preview`, approved `run`, read-only `status`, and
+`verify-finalize`. The facade does not choose a model, assurance, repair or external
+action. [Project lifecycle and verification](references/PROJECT_LIFECYCLE_AND_VERIFICATION.md)
+owns copyable commands, Verification v2 candidate bindings and recovery.
 
-For material UX, lifecycle, trust-boundary, security, data-semantics, or other domain
-plans, use the co-planning policy in [Project lifecycle and verification](references/PROJECT_LIFECYCLE_AND_VERIFICATION.md#material-planning-governance).
-Purely mechanical changes are exempt.
+Quick path: save the reviewed scope file outside the target repository with mode
+`0600`, then run the facade with a unique job ID:
 
+```bash
+TARGET=/absolute/path/to/approved-repository
+JOB_ID=job-12345
+SCOPE=/absolute/private/provider-scope.json
+TASK='the exact approved bounded task'
+"$PIPELINE/workflow.sh" run --preview --repo "$TARGET" --job-id "$JOB_ID" --provider-scope "$SCOPE" --task "$TASK"
+```
+
+This creates the disposable worktree and private state. Review `launch_approval_sha256`,
+then repeat the same command without `--preview`, adding
+`--approve-transmission-sha "$LAUNCH_SHA"`. A minimal owner-private
+scope file, with entries sorted by path, is:
+
+```json
+{"schema_version":1,"kind":"agy-worker-provider-scope","read":[{"path":"src/parser.py","kind":"file"},{"path":"tests","kind":"tree"}],"write":[{"path":"tests","kind":"tree"}]}
+```
+
+Use paths that exist in the reviewed worktree and keep the scope file outside it
+with mode `0600`. The facade derives an owner-private state path for later
+`status` and `verify-finalize`; see the linked guide for the complete sequence.
+
+Run driver-selected build/test commands and Python imports in an isolated
+verification copy with `PYTHONDONTWRITEBYTECODE=1`. Inspect the bound candidate's
+actual diff and gate binding directly. Never manually edit, delete, or chmod the
+bound candidate; send needed
+repairs to the same worker conversation. Never execute an envelope's
+`commands_run` or `tests_run`; bind only sanitized driver findings to the candidate.
+Gate and `verify-finalize --verify-argv` verifiers run in the bound candidate: choose
+only commands known to be read-only there. Snapshot rejection detects changes to bound candidate state
+after they happen; it does not isolate the candidate. Verifiers run untrusted
+candidate code with the user's authority; the gate does not detect changes outside
+the candidate, including Git hooks and configuration. Feed separate copy test results
+into Verification v2.
+Repair observable failures in the same conversation within budget; never silently
+fall back to direct-driver work after provider failure or exhausted budget.
+Use initial `--allow-scoped-repair` for approved multi-turn scoped work. Without that
+grant, a changed scoped candidate is result/finalize-only. Preserve useful work;
+`restart` requires an explicit user decision.
+
+Self-verification is optional advisory feedback, not acceptance. An unknown first
+check is not a hard stop. Reuse checks only for unchanged candidate bytes and relevant
+environment; the driver independently decides the final assurance.
+For trust-boundary changes, use the short design note and independent review in
+[Material planning governance](references/PROJECT_LIFECYCLE_AND_VERIFICATION.md#material-planning-governance).
 Explicit delegation-first requires running the `delegation-policy.sh` evaluator before substantive repository work.
-The controller records are local: the runtime cannot infer prior work or approval and
-must never silently authorize direct-Codex fallback after a missing approval, hard
-stop, preflight failure, provider failure, or exhausted budget. Direct-Codex and
-second-eye work remain explicit policy choices.
+Controller records are local: the runtime cannot infer prior work or approval and
+must never silently authorize direct-driver fallback after missing approval, a hard
+stop, preflight/provider failure or exhausted budget.
 
-Prefer `workflow.sh` for `run --preview`, approved `run`, read-only `status`, and
-`verify-finalize`. Review the content-free preview, then run with its exact approved
-whole-worktree or scoped binding. The facade does not choose a model, assurance label,
-repair, retry, Git action, or external write. Read the lifecycle guide for facade
-examples, low-level recovery, Verification v2, and required notices.
-
-After a candidate arrives, inspect the actual Git diff; select and run checks yourself
-in an isolated verification copy, never an envelope's `commands_run` or `tests_run`;
-worker envelopes are not evidence. Reuse driver-owned checks only for identical candidate
-bytes and relevant environment; after changes rerun affected checks and run the required full
-suite once the final executable candidate is stable. Bind only sanitized driver findings to
-the current candidate; then finalize honestly or request a bounded same-conversation repair.
-Failed product checks return concrete sanitized feedback to the same AGY conversation for
-bounded repair; do not allow silent direct-Codex fallback after provider failure or exhausted
-budget. A scoped candidate can receive another provider turn only when initial dispatch included
-`--allow-scoped-repair`, which binds the same approved scope, selected model,
-conversation, and budgets. Preserve useful work when a check fails or the cycle budget
-ends; `restart` is an explicit user decision. See [Project lifecycle and verification](references/PROJECT_LIFECYCLE_AND_VERIFICATION.md).
+Claude Code: in non-interactive `claude -p` or SDK runs, dispatch in the foreground
+(up to the host's ten-minute ceiling) or keep the turn alive until it finishes;
+never end the turn while a job runs. In interactive sessions, a long dispatch may
+use Bash `run_in_background: true` while the main session remains active. Do not
+duplicate a job or treat a Bash timeout as provider failure.
+Bash permission approval is separate from transmission approval. Read
+[Claude Code host operation](references/PROJECT_LIFECYCLE_AND_VERIFICATION.md#claude-code-host-operation).
 
 ## Hard stops and delivery
 
-Do not dispatch or continue without exact provider approval; when approved
-provider-readable content contains secrets, denied paths, or unrelated private files;
-when writes can escape the disposable worktree, enter `.git`, or traverse a symlink
-boundary; with dangerous permission or approval-bypass flags; or when a Git action,
-publication, installation, account action, or other external write lacks its own
-authorization.
+Stop for missing exact approval; secrets or denied/unrelated private content in
+approved inputs; writes escaping the worktree, entering `.git` or traversing symlink
+boundaries; or unapproved Git, publication, installation, account or external actions.
+Never use dangerous permission/approval-bypass flags or disable the host sandbox for AGY.
+Do not modify user configuration as a code change. Never weaken the evidence gate.
 
-Unknown architecture, an unknown first test command, lack of a persona, or a failed
-first check are not hard stops. Existing self-verification is optional advisory feedback
-when a focused command is known; an unknown first command or architecture does not
-prohibit useful delegation. Discover what is needed, preserve the candidate, and
-report evidence limits. Keep final Codex independent acceptance. Before changing agy-facing flags or claims, run
-`"$PIPELINE/ground-truth.sh"` and inspect its current `agy --help`; consume
-`result.structured_output` when ordinary agy output is empty. Its default phase is
-version/help only; `--account` is a separate explicit action.
+Before changing AGY-facing flags or claims, run `"$PIPELINE/ground-truth.sh"` and
+inspect current help. Its default version/help phase is local; `--account` is separate.
+Read `result.structured_output`, not echoed schema or empty display text.
 
-Before delivery, review the exact candidate bytes and run relevant driver-owned checks.
-Report only what those checks establish: `verified`, `partially_verified`, `rejected`,
-or `blocked`. Offline checks do not prove provider success, completeness, release state,
-security, or general correctness. Use [Troubleshooting](references/TROUBLESHOOTING.md)
-for actionable failures.
+Deliver `verified`, `partially_verified`, `rejected` or `blocked` with the checks
+actually run and remaining gaps. Offline checks do not prove live provider behavior,
+completeness, release state or general correctness. Use
+[Troubleshooting](references/TROUBLESHOOTING.md) for the failing boundary.
+When `status` offers finalization for a bound candidate, `verify-finalize` records the
+driver's result without a Git change and is the facade's required closure step.

@@ -198,6 +198,14 @@ elif (( ${#all_verify_env[@]} )); then
     echo "qa-gate.sh: verifier environment opt-in requires verify-job.sh private handoff" >&2
     exit 64
 fi
+verifier_has_bytecode_setting=0
+verifier_has_pytest_setting=0
+for verifier_name in ${received_verify_env+"${received_verify_env[@]}"}; do
+    [[ "$verifier_name" != PYTHONDONTWRITEBYTECODE ]] || verifier_has_bytecode_setting=1
+    [[ "$verifier_name" != PYTEST_ADDOPTS ]] || verifier_has_pytest_setting=1
+done
+(( verifier_has_bytecode_setting )) || verifier_environment+=("PYTHONDONTWRITEBYTECODE=1")
+(( verifier_has_pytest_setting )) || verifier_environment+=("PYTEST_ADDOPTS=-p no:cacheprovider")
 
 verifier_python="$(command -v python3)" || {
     echo "qa-gate.sh: verifier runtime unavailable" >&2; exit 64;
@@ -223,9 +231,6 @@ repo="$(cd "$repo" && pwd -P)"
 [[ -f "$SCHEMA" ]] || { echo "qa-gate.sh: schema not found: $SCHEMA" >&2; exit 64; }
 SCHEMA="$(cd "$(dirname "$SCHEMA")" && pwd)/$(basename "$SCHEMA")"
 
-git -C "$repo" rev-parse --is-inside-work-tree >/dev/null 2>&1 || {
-    echo "qa-gate.sh: not a git worktree: $repo" >&2; exit 64;
-}
 case "$base" in
     ''|*[!0-9a-f]*)
         echo "qa-gate.sh: --base must be the full immutable commit ID captured before dispatch" >&2
@@ -235,7 +240,9 @@ if [[ ${#base} -ne 40 && ${#base} -ne 64 ]]; then
     echo "qa-gate.sh: --base must be a full 40- or 64-character commit ID" >&2
     exit 64
 fi
-resolved_base="$(git -C "$repo" rev-parse --verify "$base^{commit}" 2>/dev/null)" || {
+resolved_base="$("$verifier_python" -I -S -B \
+    "$SCRIPT_DIR/scripts/candidate_state.py" --repo "$repo" \
+    --base "$base" --verify-base)" || {
     echo "qa-gate.sh: invalid base commit: $base" >&2; exit 64;
 }
 [[ "$resolved_base" == "$base" ]] || {
@@ -273,7 +280,7 @@ gate_python() {
     if [[ -n "$evidence_fd" ]]; then
         "$evidence_python" -I -S -B "$@"
     else
-        python3 "$@"
+        python3 -B "$@"
     fi
 }
 
@@ -429,30 +436,50 @@ gate_finish() {
 }
 
 scope_check() {
-    gate_python - "$envelope" "$repo" "$base" "${#allow[@]}" "${#only[@]}" \
+    gate_python - "$SCRIPT_DIR/scripts" "$envelope" "$repo" "$base" "${#allow[@]}" "${#only[@]}" \
         ${allow[@]+"${allow[@]}"} ${only[@]+"${only[@]}"} <<'PY'
 import fnmatch
+from functools import lru_cache
+from pathlib import Path
 import json
 import os
 import posixpath
-import subprocess
 import sys
+
+sys.dont_write_bytecode = True
+sys.path.insert(0, sys.argv.pop(1))
+from candidate_state import _checked_git_reader
 
 envelope_path, repo, base = sys.argv[1:4]
 allow_count, only_count = map(int, sys.argv[4:6])
 allow = sys.argv[6:6 + allow_count]
 only = sys.argv[6 + allow_count:6 + allow_count + only_count]
 
+git_reader = _checked_git_reader(Path(repo))
+
 def git_output(*args):
-    return subprocess.run(
-        ["git", "-C", repo, *args], check=True,
-        stdout=subprocess.PIPE).stdout
+    return git_reader(Path(repo), *args)
 
 def git_paths(*args):
     return {
         part.decode("utf-8", "surrogateescape")
         for part in git_output(*args).split(b"\0") if part
     }
+
+def path_matches(path, pattern):
+    parts, patterns = path.split("/"), pattern.split("/")
+
+    @lru_cache(maxsize=None)
+    def match(i, j):
+        if j == len(patterns):
+            return i == len(parts)
+        if patterns[j] == "**":
+            return match(i, j + 1) or (i < len(parts) and match(i + 1, j))
+        return (i < len(parts) and fnmatch.fnmatchcase(parts[i], patterns[j])
+                and match(i + 1, j + 1))
+
+    return match(0, 0)
+
 
 def normalize_claim(path):
     if not isinstance(path, str):
@@ -476,6 +503,15 @@ def normalize_claim(path):
 try:
     with open(envelope_path, encoding="utf-8") as handle:
         envelope = json.load(handle)
+    envelope_status = envelope["status"]
+    requires_human = envelope["requires_human"]
+    commands_run = envelope["commands_run"]
+    tests_run = envelope["tests_run"]
+    if (envelope_status not in ("completed", "partial", "blocked", "failed")
+            or type(requires_human) is not bool
+            or type(commands_run) is not list or type(tests_run) is not list
+            or len(commands_run) > 9999 or len(tests_run) > 9999):
+        raise ValueError("envelope control fields changed after validation")
     claimed_changes = {}
     for item in envelope["files_changed"]:
         path = normalize_claim(item["path"])
@@ -502,7 +538,7 @@ try:
         "ls-files", "--others", "--ignored", "--exclude-standard", "-z", "--")
     for path in untracked | ignored:
         actual_changes.setdefault(path, "created")
-except (OSError, ValueError, subprocess.CalledProcessError) as exc:
+except (OSError, ValueError, KeyError, TypeError) as exc:
     print(f"qa-gate: cannot establish scope: {exc}", file=sys.stderr)
     sys.exit(1)
 
@@ -510,12 +546,12 @@ claimed = set(claimed_changes)
 actual = set(actual_changes)
 undeclared = {
     path for path in actual - claimed
-    if not any(fnmatch.fnmatchcase(path, pattern) for pattern in allow)
+    if not any(path_matches(path, pattern) for pattern in allow)
 }
 phantom = claimed - actual
 outside_policy = {
     path for path in actual
-    if only and not any(fnmatch.fnmatchcase(path, pattern) for pattern in only)
+    if only and not any(path_matches(path, pattern) for pattern in only)
 }
 kind_mismatches = {
     path: (claimed_changes[path], actual_changes[path])
@@ -543,13 +579,31 @@ if kind_mismatches:
 if undeclared or phantom or outside_policy or kind_mismatches:
     sys.exit(1)
 print(f"qa-gate: scope OK ({len(actual)} file(s) changed)", file=sys.stderr)
-print(len(claimed))
+if len(claimed) > 9999:
+    sys.exit(1)
+print(f"{len(claimed)} {envelope_status} {'true' if requires_human else 'false'} "
+      f"{len(commands_run)} {len(tests_run)}")
 PY
 }
 
 snapshot_repo() {
     gate_python "$SCRIPT_DIR/scripts/candidate_state.py" \
         --repo "$repo" --base "$base"
+}
+
+snapshot_repo_with_facts() {
+    gate_python "$SCRIPT_DIR/scripts/candidate_state.py" \
+        --repo "$repo" --base "$base" --digest-facts
+}
+
+snapshot_repo_with_git_state() {
+    gate_python "$SCRIPT_DIR/scripts/candidate_state.py" \
+        --repo "$repo" --base "$base" --digest-git-state
+}
+
+snapshot_diagnostic_facts() {
+    gate_python "$SCRIPT_DIR/scripts/candidate_state.py" \
+        --repo "$repo" --facts
 }
 
 if [[ -n "$evidence_fd" ]]; then
@@ -572,10 +626,23 @@ else
         || gate_finish 12 invalid-envelope
 fi
 
-claimed_count="$(scope_check)" || gate_finish 10 scope-violation
+parse_scope_record() {
+    local pattern='^([0-9]{1,4}) (completed|partial|blocked|failed) (true|false) ([0-9]{1,4}) ([0-9]{1,4})$'
+    [[ "$1" =~ $pattern ]] || return 1
+    scope_claimed_count="${BASH_REMATCH[1]}"
+    scope_status="${BASH_REMATCH[2]}"
+    scope_requires_human="${BASH_REMATCH[3]}"
+    scope_command_count="${BASH_REMATCH[4]}"
+    scope_test_count="${BASH_REMATCH[5]}"
+}
 
-status="$(gate_python -c 'import json,sys; print(json.load(open(sys.argv[1]))["status"])' "$envelope")"
-requires_human="$(gate_python -c 'import json,sys; print("true" if json.load(open(sys.argv[1]))["requires_human"] else "false")' "$envelope")"
+first_scope_record="$(scope_check)" || gate_finish 10 scope-violation
+parse_scope_record "$first_scope_record" || gate_finish 10 scope-violation
+claimed_count="$scope_claimed_count"
+status="$scope_status"
+requires_human="$scope_requires_human"
+command_count="$scope_command_count"
+test_count="$scope_test_count"
 
 # Escalation is a valid worker outcome, but never accepted work. Scope has already
 # been checked so status cannot hide edits.
@@ -591,8 +658,6 @@ fi
 
 # Never execute commands supplied by the untrusted envelope. Workers are instructed
 # to leave this list empty; a non-empty list is a contract violation, not evidence.
-command_count="$(gate_python -c 'import json,sys; print(len(json.load(open(sys.argv[1]))["commands_run"]))' "$envelope")"
-test_count="$(gate_python -c 'import json,sys; print(len(json.load(open(sys.argv[1]))["tests_run"]))' "$envelope")"
 if [[ "$command_count" != "0" || "$test_count" != "0" ]]; then
     echo "qa-gate: UNTRUSTED COMMAND CLAIM - commands_run and tests_run must be empty; nothing from the envelope was executed" >&2
     gate_finish 11 untrusted-worker-claim
@@ -603,7 +668,12 @@ if (( ${#verify_specs[@]} == 0 )); then
     exit 64
 fi
 
-before_snapshot="$(snapshot_repo)" || gate_finish 14 driver-verification-failed
+before_bundle="$(snapshot_repo_with_facts)" || gate_finish 14 driver-verification-failed
+before_snapshot="${before_bundle%%$'\n'*}"
+before_remainder="${before_bundle#*$'\n'}"
+before_diagnostic_facts="${before_remainder%%$'\n'*}"
+before_git_state="${before_remainder#*$'\n'}"
+failed_verifier=""
 for (( i=0; i<${#verify_specs[@]}; i++ )); do
     verifier_mode="${verify_modes[$i]}"
     [[ "$verifier_mode" != legacy ]] || verifier_mode=shell
@@ -645,18 +715,38 @@ for (( i=0; i<${#verify_specs[@]}; i++ )); do
         fi
     fi
     if [[ "$verifier_rc" != 0 ]]; then
-        echo "qa-gate: DRIVER VERIFICATION FAILED - $verifier_label ($verifier_mode)" >&2
-        gate_finish 14 driver-verification-failed
+        failed_verifier="$verifier_label ($verifier_mode)"
+        break
     fi
 done
-after_snapshot="$(snapshot_repo)" || gate_finish 14 driver-verification-failed
-if [[ "$before_snapshot" != "$after_snapshot" ]]; then
-    echo "qa-gate: DRIVER VERIFICATION MUTATED THE WORKTREE" >&2
+after_bundle="$(snapshot_repo_with_git_state)" || gate_finish 14 driver-verification-failed
+after_snapshot="${after_bundle%%$'\n'*}"
+after_git_state="${after_bundle#*$'\n'}"
+if [[ "$before_snapshot" != "$after_snapshot" || "$before_git_state" != "$after_git_state" ]]; then
+    git_state_details=""
+    if [[ "$before_git_state" != "$after_git_state" ]]; then
+        git_state_details="$(printf '%s\n%s\n' "$before_git_state" "$after_git_state" | \
+            gate_python "$SCRIPT_DIR/scripts/candidate_state.py" --compare-git-states)" || git_state_details=""
+    fi
+    after_diagnostic_facts="$(snapshot_diagnostic_facts)" || after_diagnostic_facts=""
+    diagnostic_details=""
+    if [[ -n "$before_diagnostic_facts" && -n "$after_diagnostic_facts" ]]; then
+        diagnostic_details="$(gate_python "$SCRIPT_DIR/scripts/candidate_state.py" \
+            --compare-diagnostics "$before_diagnostic_facts" "$after_diagnostic_facts")" || diagnostic_details=""
+    fi
+    echo "qa-gate: DRIVER VERIFICATION MUTATED THE CANDIDATE${git_state_details:+: $git_state_details}${diagnostic_details:+: $diagnostic_details}; inspect paths and request same-worker repair" >&2
+    [[ -z "$failed_verifier" ]] || echo "qa-gate: DRIVER VERIFICATION FAILED - $failed_verifier" >&2
+    gate_finish 14 driver-verification-failed
+fi
+if [[ -n "$failed_verifier" ]]; then
+    echo "qa-gate: DRIVER VERIFICATION FAILED - $failed_verifier" >&2
     gate_finish 14 driver-verification-failed
 fi
 
 # Re-check path policy after verification as defense in depth.
-scope_check >/dev/null || gate_finish 10 scope-violation
+final_scope_record="$(scope_check)" || gate_finish 10 scope-violation
+parse_scope_record "$final_scope_record" || gate_finish 10 scope-violation
+[[ "$final_scope_record" == "$first_scope_record" ]] || gate_finish 10 scope-violation
 
 echo "qa-gate: ACCEPTED" >&2
 gate_finish 0 gate-passed

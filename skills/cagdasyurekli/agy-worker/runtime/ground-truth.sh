@@ -39,11 +39,9 @@ echo
 echo "## phase"
 printf '%s\n' "$phase"
 echo
-echo "## version"
-agy --version 2>&1 || echo "(agy --version failed)"
-echo
-echo "## documented installed flags and subcommands"
-agy --help 2>&1 || echo "(agy --help failed)"
+echo "## bounded installed interface"
+RUNTIME_DIR="$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+python3 -B "$RUNTIME_DIR/scripts/model_selection.py" --probe-interface
 
 if [[ "$phase" == "account" ]]; then
     echo
@@ -69,33 +67,11 @@ PY
 fi
 echo
 cat <<'EOF'
-## historical behavioural observations (2026-08-01, agy 1.1.9)
+## interpretation limits
 
-These observations belong to the stated version, not the installed version above.
-Revalidate version-sensitive behavior before relying on it. In particular, AGY
-1.2.2 deprecates `unsandboxed` rules in favor of `command` rules; this report does
-not change account permissions. Do not automatically retry authentication,
-permission, quota, or environment blockers.
-
-- The prompt is `--print`'s ARGUMENT VALUE. agy ignores stdin in print mode. With
-  `--print` placed before other flags, agy reads the NEXT FLAG as the message.
-  Therefore `--print` must always be built LAST.
-- Exit code 0 does NOT mean success. agy exits 0 with EMPTY STDOUT when a tool it
-  wanted required a permission headless mode cannot prompt for. The real reason
-  appears only on stderr. Always check stripped stdout content, never just $?.
-- Under `--sandbox`, running a shell command needs an `unsandboxed(<target>)`
-  allow-rule. A `command(<name>)` rule alone is NOT sufficient.
-- Authentication was observed to be intermittent: an interactive OAuth failure
-  was followed by a successful identical invocation. That observation does not
-  authorize retrying an account or authentication blocker.
-- `stream-json` event shape: {"event":"...","init":...}, then repeated
-  {"event":"step_update",...}, then exactly one {"event":"result","result":{...}}.
-  The schema-validated answer is at result.structured_output.
-  result.json_schema is the ECHOED SCHEMA — do not mistake it for the answer.
-- Baseline cost: a trivial no-tool job consumed ~24.8k input tokens. agy loads a
-  large standing context per invocation regardless of task size, so many tiny jobs
-  are far more expensive than one batched job.
-- The observed unsupported examples `agy run`, `agy exec`, and `agy auth` print
-  top-level usage and exit 0. Probe documented commands and their expected semantic
-  content; never infer support from an exit code or generic usage text.
+Required capabilities establish the local interface, not authentication, model
+availability, permission, or task quality. Version text is diagnostic only.
+The schema-validated answer is result.structured_output; result.json_schema is the
+echoed schema. Exit zero alone is not success. Do not retry authentication,
+permission, quota, or environment blockers automatically.
 EOF

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Render one validated Evidence Receipt v1 without dispatch, routing, or gate work.
+# Render one validated Evidence Receipt v2 without dispatch, routing, or gate work.
 set -euo pipefail
 
 SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"

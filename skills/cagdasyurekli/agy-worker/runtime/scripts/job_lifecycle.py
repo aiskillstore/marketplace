@@ -25,7 +25,7 @@ import subprocess
 import sys
 import tempfile
 import time
-from typing import Any, Iterator
+from typing import Callable, Mapping, TypedDict, Any, Iterator, NoReturn, IO, cast
 
 sys.dont_write_bytecode = True
 SCRIPTS = Path(__file__).resolve(strict=True).parent
@@ -34,7 +34,9 @@ if str(SCRIPTS) not in sys.path:
 
 from candidate_state import (  # noqa: E402
     CandidateStateError,
+    GIT_EXECUTABLE,
     candidate_state_digest,
+    candidate_state_is_empty,
 )
 from evidence_receipt import (  # noqa: E402
     ValidationFailure,
@@ -65,7 +67,6 @@ STATE_FIELDS = {
     "worktree_identity", "branch", "branch_ref", "base", "receipt",
     "dispatch", "cleanup_step", "last_result", "failure",
 }
-LEGACY_STATE_FIELDS = STATE_FIELDS - {"dispatch"}
 FACADE_STATE_FIELDS = STATE_FIELDS | {"origin", "dispatch_job_dir"}
 FACADE_ORIGIN = "workflow-facade"
 PHASES = {
@@ -88,8 +89,6 @@ MAX_DELETE_NODES = 100_000
 MAX_GIT_OUTPUT = 32 * 1024 * 1024
 MAX_ATTRIBUTE_PATH_BYTES = 16 * 1024 * 1024
 GIT_TIMEOUT_SECONDS = 30.0
-GIT_EXECUTABLE = "/usr/bin/git"
-EMPTY_CANDIDATE_STATE_SHA256 = hashlib.sha256(b"\0" * 8).hexdigest()
 UNSAFE_GIT_CONFIG_RE = re.compile(
     rb"^(?:filter\..*\.(?:clean|smudge|process|required)|core\.(?:fsmonitor|hooksPath|pager)"
     rb"|diff\.external|interactive\.diffFilter|pager\..*|include(?:If)?\..*)$",
@@ -99,6 +98,10 @@ UNSAFE_GIT_CONFIG_RE = re.compile(
 
 class JobError(ValueError):
     pass
+
+
+class UnsupportedJobSchemaError(JobError):
+    """Retired lifecycle records require their creating release."""
 
 
 class GitError(OSError):
@@ -121,7 +124,7 @@ class GitResult:
 
 
 class Parser(argparse.ArgumentParser):
-    def error(self, message: str) -> None:
+    def error(self, message: str) -> NoReturn:
         del message
         self.print_usage(sys.stderr)
         self.exit(64, "job: invalid arguments\n")
@@ -351,75 +354,85 @@ def canonical_branch_syntax(branch: str) -> bool:
     )
 
 
-def validate_state(value: Any) -> dict[str, Any]:
-    if not isinstance(value, dict):
-        raise JobError("state fields are invalid")
-    version = value.get("schema_version")
-    fields = set(value)
-    if version == 1:
-        if fields != STATE_FIELDS and fields != LEGACY_STATE_FIELDS:
-            raise JobError("state fields are invalid")
-    elif version == 2:
-        if fields != FACADE_STATE_FIELDS or value.get("origin") != FACADE_ORIGIN:
-            raise JobError("state fields are invalid")
-        dispatch_job_dir = value.get("dispatch_job_dir")
-        if (
-            not isinstance(dispatch_job_dir, str)
-            or not Path(dispatch_job_dir).is_absolute()
-            or os.path.normpath(dispatch_job_dir) != dispatch_job_dir
-            or "\n" in dispatch_job_dir
-            or "\r" in dispatch_job_dir
-        ):
-            raise JobError("state dispatch job directory is invalid")
-    else:
-        raise JobError("state version is invalid")
-    if value["kind"] != "agy-worker-local-job-state":
-        raise JobError("state version is invalid")
-    if type(value["sequence"]) is not int or value["sequence"] < 1:
-        raise JobError("state sequence is invalid")
-    previous = value["previous_state_sha256"]
-    if previous is not None and (not isinstance(previous, str) or SHA_RE.fullmatch(previous) is None):
-        raise JobError("state history binding is invalid")
-    if (value["sequence"] == 1) != (previous is None):
-        raise JobError("state history binding is inconsistent")
-    if value["phase"] not in PHASES or value["cleanup_step"] not in CLEANUP_STEPS:
-        raise JobError("state phase is invalid")
-    if not isinstance(value["job_id"], str) or JOB_RE.fullmatch(value["job_id"]) is None:
-        raise JobError("state job ID is invalid")
-    if not isinstance(value["base"], str) or COMMIT_RE.fullmatch(value["base"]) is None:
-        raise JobError("state base is invalid")
-    for key in ("repo_path", "git_common_dir", "worktree_path", "branch", "branch_ref"):
-        if not isinstance(value[key], str) or not value[key] or "\x00" in value[key]:
-            raise JobError("state path or ref is invalid")
-    for key in ("repo_path", "git_common_dir", "worktree_path"):
-        candidate = value[key]
-        if (
-            not Path(candidate).is_absolute()
-            or os.path.normpath(candidate) != candidate
-            or "\n" in candidate
-            or "\r" in candidate
-        ):
-            raise JobError("state path is not canonical")
-    if not canonical_branch_syntax(value["branch"]):
-        raise JobError("state branch is invalid")
-    if value["branch_ref"] != f"refs/heads/{value['branch']}":
-        raise JobError("state branch binding is inconsistent")
-    validate_identity(value["repo_identity"], "repository")
-    validate_identity(value["git_common_identity"], "Git common directory")
-    if type(value["worktree_parent_device"]) is not int or value["worktree_parent_device"] < 0:
-        raise JobError("worktree parent device is invalid")
-    if value["worktree_identity"] is not None:
-        validate_identity(value["worktree_identity"], "worktree")
-    if value["last_result"] is not None and type(value["last_result"]) is not int:
-        raise JobError("state result is invalid")
-    if value["failure"] is not None and (
-        not isinstance(value["failure"], str)
-        or value["failure"] not in {
-            "init-failed", "interrupted", "verify-failed", "dispatch-failed",
-            "cleanup-failed",
-        }
+class ReceiptBinding(TypedDict):
+    path: str
+    sha256: str
+    gate_exit: int
+    verdict: str
+    final_candidate_state_sha256: str
+
+
+class DispatchBinding(TypedDict):
+    path: str
+    sha256: str
+    state_identity: dict[str, int]
+    job_identity: dict[str, int]
+    lock_identity: dict[str, int]
+    status: str
+    reason: str
+    exit_code: int
+    candidate_state_sha256: str
+
+
+class LifecycleStateFields(TypedDict):
+    schema_version: int
+    kind: str
+    sequence: int
+    previous_state_sha256: str | None
+    phase: str
+    job_id: str
+    repo_path: str
+    repo_identity: dict[str, int]
+    git_common_dir: str
+    git_common_identity: dict[str, int]
+    worktree_path: str
+    worktree_parent_device: int
+    worktree_identity: dict[str, int] | None
+    branch: str
+    branch_ref: str
+    base: str
+    receipt: ReceiptBinding | None
+    cleanup_step: str
+    last_result: int | None
+    failure: str | None
+
+
+class LifecycleState(LifecycleStateFields, total=False):
+    """The exact version-dependent key sets remain enforced by validate_state."""
+
+    dispatch: DispatchBinding | None
+    origin: str
+    dispatch_job_dir: str
+
+
+def _invalid_if(invalid: bool, message: str) -> None:
+    if invalid:
+        raise JobError(message)
+
+
+def _validate_path_or_ref(item: Any) -> None:
+    if not isinstance(item, str) or not item or "\x00" in item:
+        raise JobError("state path or ref is invalid")
+
+
+def _validate_canonical_path(item: Any) -> None:
+    candidate = item
+    if (
+        not Path(candidate).is_absolute()
+        or os.path.normpath(candidate) != candidate
+        or "\n" in candidate
+        or "\r" in candidate
     ):
-        raise JobError("state failure is invalid")
+        raise JobError("state path is not canonical")
+
+
+def _validate_fields(value: Mapping[str, Any], validators: dict[str, Callable[[Any], None]]) -> None:
+    """Run one phase's field checks in their declared first-error order."""
+    for key, validate in validators.items():
+        validate(value[key])
+
+
+def _validate_result_bindings(value: Mapping[str, Any]) -> None:
     receipt = value["receipt"]
     if receipt is not None:
         if not isinstance(receipt, dict) or set(receipt) != RECEIPT_FIELDS:
@@ -470,6 +483,10 @@ def validate_state(value: Any) -> dict[str, Any]:
         if type(dispatch["exit_code"]) is not int or dispatch["exit_code"] == 0:
             raise JobError("state dispatch result is invalid")
 
+
+def _validate_phase_fields(value: Mapping[str, Any]) -> None:
+    receipt = value["receipt"]
+    dispatch = value.get("dispatch")
     phase = value["phase"]
     cleanup_step = value["cleanup_step"]
     worktree_identity = value["worktree_identity"]
@@ -555,7 +572,65 @@ def validate_state(value: Any) -> dict[str, Any]:
         )
     if not consistent:
         raise JobError("state phase fields are inconsistent")
-    return value
+
+
+def validate_state(value: Any) -> LifecycleState:
+    if not isinstance(value, dict):
+        raise JobError("state fields are invalid")
+    version = value.get("schema_version")
+    fields = set(value)
+    if type(version) is int and version == 3:
+        if fields != STATE_FIELDS:
+            raise JobError("state fields are invalid")
+    elif type(version) is int and version == 4:
+        if fields != FACADE_STATE_FIELDS or value.get("origin") != FACADE_ORIGIN:
+            raise JobError("state fields are invalid")
+        dispatch_job_dir = value.get("dispatch_job_dir")
+        if (
+            not isinstance(dispatch_job_dir, str)
+            or not Path(dispatch_job_dir).is_absolute()
+            or os.path.normpath(dispatch_job_dir) != dispatch_job_dir
+            or "\n" in dispatch_job_dir
+            or "\r" in dispatch_job_dir
+        ):
+            raise JobError("state dispatch job directory is invalid")
+    else:
+        raise UnsupportedJobSchemaError("state format is retired or unsupported; finish or discard the job with the release that created it")
+    _validate_fields(value, {
+        "kind": lambda item: _invalid_if(item != 'agy-worker-local-job-state', 'state version is invalid'),
+        "sequence": lambda item: _invalid_if(type(item) is not int or item < 1, 'state sequence is invalid'),
+    })
+    previous = value["previous_state_sha256"]
+    if previous is not None and (not isinstance(previous, str) or SHA_RE.fullmatch(previous) is None):
+        raise JobError("state history binding is invalid")
+    if (value["sequence"] == 1) != (previous is None):
+        raise JobError("state history binding is inconsistent")
+    if value["phase"] not in PHASES or value["cleanup_step"] not in CLEANUP_STEPS:
+        raise JobError("state phase is invalid")
+    _validate_fields(value, {
+        "job_id": lambda item: _invalid_if(not isinstance(item, str) or JOB_RE.fullmatch(item) is None, 'state job ID is invalid'),
+        "base": lambda item: _invalid_if(not isinstance(item, str) or COMMIT_RE.fullmatch(item) is None, 'state base is invalid'),
+    })
+    _validate_fields(value, dict.fromkeys(('repo_path', 'git_common_dir', 'worktree_path', 'branch', 'branch_ref'), _validate_path_or_ref))
+    _validate_fields(value, dict.fromkeys(('repo_path', 'git_common_dir', 'worktree_path'), _validate_canonical_path))
+    if not canonical_branch_syntax(value["branch"]):
+        raise JobError("state branch is invalid")
+    if value["branch_ref"] != f"refs/heads/{value['branch']}":
+        raise JobError("state branch binding is inconsistent")
+    validate_identity(value["repo_identity"], "repository")
+    validate_identity(value["git_common_identity"], "Git common directory")
+    if type(value["worktree_parent_device"]) is not int or value["worktree_parent_device"] < 0:
+        raise JobError("worktree parent device is invalid")
+    if value["worktree_identity"] is not None:
+        validate_identity(value["worktree_identity"], "worktree")
+    _validate_fields(value, {
+        "last_result": lambda item: _invalid_if(item is not None and type(item) is not int, 'state result is invalid'),
+        "failure": lambda item: _invalid_if(item is not None and (not isinstance(item, str) or item not in {'init-failed', 'interrupted', 'verify-failed', 'dispatch-failed', 'cleanup-failed'}), 'state failure is invalid'),
+    })
+    _validate_result_bindings(value)
+    _validate_phase_fields(value)
+    # Exact shape and every field/cross-field rule have passed; preserve input identity.
+    return cast(LifecycleState, value)
 
 
 class StateStore:
@@ -575,7 +650,7 @@ class StateStore:
         self.raw: bytes | None = None
         self.metadata: os.stat_result | None = None
         self.sha256: str | None = None
-        self.value: dict[str, Any] | None = None
+        self.value: LifecycleState | None = None
         if not initial:
             self.load()
 
@@ -584,7 +659,7 @@ class StateStore:
             os.close(self.parent_fd)
             self.parent_fd = -1
 
-    def load(self) -> dict[str, Any]:
+    def load(self) -> LifecycleState:
         self._validate_parent_path()
         data, metadata = read_regular_at(
             self.parent_fd, self.name, MAX_STATE_BYTES, "state", private=True
@@ -614,7 +689,7 @@ class StateStore:
             signal.pthread_sigmask(signal.SIG_SETMASK, prior)
 
     def create(self, value: dict[str, Any]) -> str:
-        validate_state(value)
+        validated = validate_state(value)
         data = canonical_bytes(value)
         with self._blocked():
             self._validate_parent_path()
@@ -632,7 +707,7 @@ class StateStore:
             finally:
                 os.close(descriptor)
             self.raw, self.metadata, self.sha256, self.value = (
-                data, metadata, sha256_bytes(data), value
+                data, metadata, sha256_bytes(data), validated
             )
             os.fsync(self.parent_fd)
             self._validate_parent_path()
@@ -652,7 +727,7 @@ class StateStore:
         next_value.update(updates)
         next_value["sequence"] = self.value["sequence"] + 1
         next_value["previous_state_sha256"] = self.sha256
-        validate_state(next_value)
+        validated = validate_state(next_value)
         data = canonical_bytes(next_value)
         temporary = f".{self.name}.job-state.{secrets.token_hex(12)}.tmp"
         descriptor = -1
@@ -679,7 +754,7 @@ class StateStore:
                 if not same_identity(installed, identity(temporary_metadata)):
                     raise JobError("state replacement identity changed")
                 self.raw, self.metadata, self.sha256, self.value = (
-                    data, installed, sha256_bytes(data), next_value
+                    data, installed, sha256_bytes(data), validated
                 )
                 os.fsync(self.parent_fd)
                 self._validate_parent_path()
@@ -776,7 +851,7 @@ def _communicate_bounded(
                         continue
                     if not chunk:
                         selector.unregister(key.fileobj)
-                        key.fileobj.close()
+                        cast(IO[bytes], key.fileobj).close()
                         continue
                     output.extend(chunk)
                     if len(output) > maximum:
@@ -793,7 +868,7 @@ def _communicate_bounded(
                         pending = pending[written:]
                     if not pending:
                         selector.unregister(key.fileobj)
-                        key.fileobj.close()
+                        cast(IO[bytes], key.fileobj).close()
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             raise subprocess.TimeoutExpired(process.args, timeout)
@@ -1098,7 +1173,7 @@ def validate_base(repo: Path, base: str) -> None:
         raise JobError("base did not resolve exactly")
 
 
-def output_state(state: dict[str, Any], digest: str) -> None:
+def output_state(state: LifecycleState, digest: str) -> None:
     result: dict[str, Any] = {
         "cleanup_authorized": False,
         "job_id": state["job_id"],
@@ -1129,7 +1204,7 @@ def initial_state(args: argparse.Namespace) -> tuple[dict[str, Any], Path, Path]
     if contains(repo, state_path) or contains(worktree, state_path):
         raise JobError("state must be outside repository and worktree")
     state = {
-        "schema_version": 1,
+        "schema_version": 3,
         "kind": "agy-worker-local-job-state",
         "sequence": 1,
         "previous_state_sha256": None,
@@ -1159,7 +1234,7 @@ def initial_state(args: argparse.Namespace) -> tuple[dict[str, Any], Path, Path]
         )
         if contains(repo, dispatch_job_dir) or contains(worktree, dispatch_job_dir):
             raise JobError("dispatch job directory must be outside repository and worktree")
-        state["schema_version"] = 2
+        state["schema_version"] = 4
         state["origin"] = FACADE_ORIGIN
         state["dispatch_job_dir"] = str(dispatch_job_dir)
     elif args.dispatch_job_dir is not None:
@@ -1215,14 +1290,14 @@ def worktree_records(repo: Path) -> list[dict[str, str]]:
     return records
 
 
-def validate_repo_binding(state: dict[str, Any]) -> Path:
+def validate_repo_binding(state: Mapping[str, Any]) -> Path:
     repo, repo_id, common, common_id = canonical_repo(Path(state["repo_path"]))
     if repo_id != state["repo_identity"] or str(common) != state["git_common_dir"] or common_id != state["git_common_identity"]:
         raise JobError("repository binding changed")
     return repo
 
 
-def validate_ready_state(state: dict[str, Any]) -> dict[str, Any]:
+def validate_ready_state(state: Mapping[str, Any]) -> dict[str, Any]:
     repo = validate_repo_binding(state)
     worktree = real_absolute(Path(state["worktree_path"]), "worktree")
     metadata = worktree.lstat()
@@ -1307,8 +1382,6 @@ def command_verify(args: argparse.Namespace) -> int:
             command += ["--verify-credential-env", value]
         if args.selection:
             command += ["--selection", args.selection]
-        if args.pre_recommendation:
-            command += ["--pre-recommendation", args.pre_recommendation]
         try:
             rc = run_process(command)
         except JobSignal as exc:
@@ -1345,7 +1418,7 @@ def command_verify(args: argparse.Namespace) -> int:
         store.close()
 
 
-def validate_receipt_binding(state: dict[str, Any]) -> dict[str, Any]:
+def validate_receipt_binding(state: LifecycleState) -> dict[str, Any]:
     binding = state["receipt"]
     if not isinstance(binding, dict):
         raise JobError("rejected state has no receipt binding")
@@ -1413,7 +1486,7 @@ def _held_dispatch_lock(
 
 
 def _dispatch_binding(
-    state: dict[str, Any], path: Path, candidate_sha256: str
+    state: LifecycleState, path: Path, candidate_sha256: str
 ) -> dict[str, Any]:
     path = real_absolute(path, "dispatch state")
     if path.name != "dispatch-state.json":
@@ -1462,8 +1535,8 @@ def _dispatch_binding(
 
 
 def validate_dispatch_binding(
-    state: dict[str, Any], *, lock_is_held: bool = False
-) -> dict[str, Any]:
+    state: LifecycleState, *, lock_is_held: bool = False
+) -> DispatchBinding:
     binding = state["dispatch"]
     if not isinstance(binding, dict):
         raise JobError("dispatch-failed state has no dispatch binding")
@@ -1622,7 +1695,7 @@ def command_rollback_ready(args: argparse.Namespace) -> int:
         state = store.value
         assert state is not None and store.sha256 is not None
         if (
-            state["schema_version"] != 2
+            state["schema_version"] != 4
             or state.get("origin") != FACADE_ORIGIN
             or state["phase"] != "ready"
             or state["receipt"] is not None
@@ -1649,9 +1722,10 @@ def command_rollback_ready(args: argparse.Namespace) -> int:
 
         facts = validate_ready_state(state)
         scan_deletion_domain(facts["worktree"])
-        if candidate_state_digest(
-            facts["worktree"], state["base"], git_reader=git
-        ) != EMPTY_CANDIDATE_STATE_SHA256:
+        if not candidate_state_is_empty(facts["worktree"], state["base"]):
+            print("job: rollback candidate is not provably empty; preserve it for review, "
+                  "or use abort --discard-unverified after record-dispatch-failure "
+                  "for a terminal failed dispatch", file=sys.stderr)
             raise JobError("rollback candidate is not empty")
 
         _rollback_dispatch_absent(dispatch_job)
@@ -1659,9 +1733,10 @@ def command_rollback_ready(args: argparse.Namespace) -> int:
         _rollback_dispatch_absent(dispatch_job)
         facts = validate_ready_state(state)
         scan_deletion_domain(facts["worktree"])
-        if candidate_state_digest(
-            facts["worktree"], state["base"], git_reader=git
-        ) != EMPTY_CANDIDATE_STATE_SHA256:
+        if not candidate_state_is_empty(facts["worktree"], state["base"]):
+            print("job: rollback candidate is not provably empty before removal; "
+                  "preserve it for review, or use abort --discard-unverified after "
+                  "record-dispatch-failure for a terminal failed dispatch", file=sys.stderr)
             raise JobError("rollback candidate changed before worktree removal")
         rc = run_git(
             facts["repo"], "worktree", "remove", "--force", str(facts["worktree"])
@@ -1845,9 +1920,8 @@ def command_abort(args: argparse.Namespace) -> int:
         binding = validate_dispatch_binding(state, lock_is_held=True)
         if args.approve_candidate_sha != binding["candidate_state_sha256"]:
             raise JobError("abort candidate approval does not match dispatch binding")
-        if (
-            binding["candidate_state_sha256"] != EMPTY_CANDIDATE_STATE_SHA256
-            and not args.discard_unverified
+        if not args.discard_unverified and not candidate_state_is_empty(
+            Path(state["worktree_path"]), state["base"]
         ):
             raise JobError("changed unverified candidate needs explicit discard approval")
         if state["phase"] == "abort-in-progress":
@@ -1956,7 +2030,7 @@ def command_abort(args: argparse.Namespace) -> int:
         store.close()
 
 
-def status_facts(state: dict[str, Any]) -> dict[str, Any]:
+def status_facts(state: LifecycleState) -> dict[str, Any]:
     result = {
         "branch_matches": False,
         "candidate_matches_receipt": False,
@@ -2064,7 +2138,6 @@ def parser() -> argparse.ArgumentParser:
     verify.add_argument("--verify-env", action="append", default=[])
     verify.add_argument("--verify-credential-env", action="append", default=[])
     verify.add_argument("--selection", action=Once)
-    verify.add_argument("--pre-recommendation", action=Once)
     preserve = commands.add_parser("preserve-instructions")
     preserve.add_argument("--state", action=Once, required=True)
     cleanup = commands.add_parser("cleanup")
@@ -2122,6 +2195,9 @@ def main(argv: list[str] | None = None) -> int:
     except JobSignal as exc:
         print("job: interrupted", file=sys.stderr)
         return 128 + exc.number
+    except UnsupportedJobSchemaError:
+        print("job: state format is retired or unsupported; finish or discard the job with the release that created it", file=sys.stderr)
+        return 64
     except JobError:
         print("job: local lifecycle validation failed", file=sys.stderr)
         return 64

@@ -3,7 +3,6 @@
 set -uo pipefail
 
 DOCTOR_SCHEMA_VERSION=1
-DOCTOR_EXPECTED_AGY_SOURCE_REVISION='6dadd6227a49905f475d22b7f0afe59493229595'
 
 doctor_usage() {
     echo "usage: doctor.sh [--repo DIR] [--format text|json]" >&2
@@ -31,7 +30,7 @@ doctor_runtime_complete() {
     [[ -d "$runtime_root" && ! -L "$runtime_root" ]] || return 1
     runtime_canonical="$(CDPATH= cd -- "$runtime_root" 2>/dev/null && pwd -P)" \
         || return 1
-    for parent in scripts agents schemas compat benchmarks; do
+    for parent in scripts schemas; do
         [[ -d "$runtime_canonical/$parent" \
             && ! -L "$runtime_canonical/$parent" ]] || return 1
         parent_canonical="$(CDPATH= cd -- "$runtime_canonical/$parent" \
@@ -49,34 +48,18 @@ doctor_runtime_complete() {
         qa-gate.sh \
         verify-job.sh \
         evidence-report.sh \
-        benchmark.sh \
-        swebench-workflow-study.sh \
-        model-recommendation.sh \
         model-selection.sh \
         doctor.sh \
         ground-truth.sh \
-        feedback-triage.sh \
-        model-intelligence.sh \
-        model-evidence-campaign.sh \
         delegation-policy.sh \
         scripts/workflow.py \
         scripts/validate-envelope.py \
         scripts/evidence_receipt.py \
         scripts/evidence_report.py \
-        scripts/benchmark.py \
-        scripts/swebench_workflow_study.py \
-        scripts/recommendation_record.py \
-        scripts/model-recommendation.py \
         scripts/model_selection.py \
-        scripts/compatibility.py \
         scripts/candidate_state.py \
         scripts/agy_dispatch.py \
-        scripts/legacy_dispatch_state.py \
         scripts/job_lifecycle.py \
-        scripts/doctor-metadata.py \
-        scripts/feedback-triage.py \
-        scripts/model_intelligence.py \
-        scripts/model_evidence_campaign.py \
         scripts/delegation_policy.py; do
         case "$required" in
             */*) dependency_parent="${required%/*}" ;;
@@ -98,50 +81,14 @@ doctor_runtime_complete() {
         scripts/agy_dispatch_worktree.py \
         scripts/agy_dispatch_containment.py \
         scripts/agy_dispatch_verification.py \
+        scripts/launch_authority.py \
         schemas/workflow-state.schema.json \
-        scripts/version_manifest_engine.py \
         schemas/worker-result.schema.json \
         schemas/worker-result.provider.schema.json \
         schemas/evidence-receipt.schema.json \
         schemas/model-selection.schema.json \
-        schemas/model-recommendation.schema.json \
         schemas/job-state.schema.json \
-        schemas/benchmark-plan.schema.json \
-        schemas/benchmark-result.schema.json \
-        schemas/swebench-workflow-study-plan.schema.json \
-        schemas/swebench-workflow-study-report.schema.json \
-        schemas/swebench-workflow-study-advisory.schema.json \
-        schemas/model-intelligence-evidence.schema.json \
-        schemas/model-intelligence-advisory.schema.json \
-        schemas/model-evidence-campaign-plan.schema.json \
-        schemas/model-evidence-campaign-record.schema.json \
-        schemas/model-evidence-campaign-evaluation.schema.json \
-        schemas/model-evidence-campaign-aggregate.schema.json \
-        schemas/model-evidence-campaign-aggregate-preview.schema.json \
-        schemas/model-evidence-campaign-advisory-summary.schema.json \
-        schemas/model-evidence-campaign-advisory-preview.schema.json \
-        schemas/delegation-policy.schema.json \
-        compat/model-intelligence/dataset.v1.json \
-        benchmarks/v1/manifest.json \
-        benchmarks/v1/portable-source.json \
-        benchmarks/v1/tasks/exact-edit/initial.txt \
-        benchmarks/v1/tasks/exact-edit/candidate.txt \
-        benchmarks/v1/tasks/exact-edit/envelope.json \
-        benchmarks/v1/variants/bulk.json \
-        agents/bulk-test-writer.md \
-        agents/repo-inventory.md \
-        agents/diff-reviewer.md \
-        compat/agy-verified-version.txt \
-        compat/agy-upstream-head.txt \
-        compat/agy-last-reviewed.txt \
-        compat/agy-model-effort-matrix.json \
-        compat/model-effort-matrix.schema.json \
-        compat/agy-model-effort-matrix.sha256 \
-        compat/agy-models-inventory-binding.json \
-        compat/agy-models-inventory-binding.sha256 \
-        compat/agy-version-manifest.json \
-        compat/agy-version-manifest.sha256 \
-        compat/version-manifest.schema.json; do
+        schemas/delegation-policy.schema.json; do
         dependency_parent="${required%/*}"
         parent_canonical="$(CDPATH= cd -- "$runtime_canonical/$dependency_parent" \
             2>/dev/null && pwd -P)" || return 1
@@ -161,7 +108,7 @@ doctor_runtime_complete() {
 DOCTOR_WORK_DIR=''
 DOCTOR_ACTIVE_PID=''
 DOCTOR_INTERRUPTED=''
-DOCTOR_CAPTURED_VERSION=''
+DOCTOR_CAPTURED_INTERFACE=''
 DOCTOR_OLD_TMPDIR=''
 DOCTOR_OLD_TMPDIR_SET=0
 DOCTOR_OLD_TRAP_HUP=''
@@ -294,13 +241,13 @@ doctor_restore_runtime_context() {
     doctor_restore_one_trap "$DOCTOR_OLD_TRAP_TERM" TERM
 }
 
-doctor_capture_agy_version() {
-    local metadata_helper="$1" capture_file rc captured='' extra=''
-    DOCTOR_CAPTURED_VERSION=''
+doctor_capture_agy_interface() {
+    local probe_helper="$1" capture_file rc captured='' capabilities='' extra=''
+    DOCTOR_CAPTURED_INTERFACE=''
     capture_file="$DOCTOR_WORK_DIR/agy-version"
     : > "$capture_file" 2>/dev/null || return 1
     /bin/chmod 600 "$capture_file" 2>/dev/null || return 1
-    python3 -B "$metadata_helper" capture-agy-version \
+    python3 -B "$probe_helper" --probe-interface \
         > "$capture_file" 2>/dev/null &
     DOCTOR_ACTIVE_PID=$!
     wait "$DOCTOR_ACTIVE_PID"
@@ -308,12 +255,13 @@ doctor_capture_agy_version() {
     DOCTOR_ACTIVE_PID=''
     [[ -z "$DOCTOR_INTERRUPTED" ]] || return 130
     if [[ "$rc" == 0 && -f "$capture_file" && ! -L "$capture_file" ]]; then
-        if { IFS= read -r captured && ! IFS= read -r extra; } < "$capture_file"; then
-            DOCTOR_CAPTURED_VERSION="$captured"
+        if { IFS= read -r captured && IFS= read -r capabilities && ! IFS= read -r extra; } < "$capture_file" \
+                && [[ -n "$captured" && "$capabilities" == 'required capabilities: --'* ]]; then
+            DOCTOR_CAPTURED_INTERFACE="$captured"
         fi
     fi
     /bin/rm -f -- "$capture_file" 2>/dev/null || return 1
-    [[ "$rc" == 0 && -n "$DOCTOR_CAPTURED_VERSION" ]] || return 1
+    [[ "$rc" == 0 && -n "$DOCTOR_CAPTURED_INTERFACE" ]] || return 1
     return 0
 }
 
@@ -333,7 +281,6 @@ doctor_add_check() {
     DOCTOR_CHECK_DETAILS[$index]="$detail"
     case "$status" in
         not-ready) DOCTOR_HAS_NOT_READY=1 ;;
-        review-required) DOCTOR_HAS_REVIEW_REQUIRED=1 ;;
     esac
 }
 
@@ -378,12 +325,11 @@ doctor_print_json() {
 
 doctor_main() {
     local repo='.' format='text' seen_repo=0 seen_format=0
-    local runtime_dir metadata_helper version_file source_file review_file
+    local runtime_dir probe_helper
     local runtime_ready=0 workspace_ready=0 python_ready=0 git_ready=0 repo_ready=0
-    local output rc verified_version='' installed_version='' reviewed_source=''
+    local output rc
     local worktree_line='' head_line=''
     local agy_rc=0
-    local semver_re='^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$'
     local head_re='^HEAD [0-9a-f]{40}$'
     local git_version_re='^git version [0-9]+(\.[0-9]+)+([[:space:]].*)?$'
 
@@ -426,15 +372,12 @@ doctor_main() {
         echo "doctor: runtime location is unavailable" >&2
         return 3
     }
-    metadata_helper="$runtime_dir/scripts/doctor-metadata.py"
-    version_file="$runtime_dir/compat/agy-verified-version.txt"
-    source_file="$runtime_dir/compat/agy-upstream-head.txt"
-    review_file="$runtime_dir/compat/agy-last-reviewed.txt"
+    probe_helper="$runtime_dir/scripts/model_selection.py"
 
     DOCTOR_WORK_DIR=''
     DOCTOR_ACTIVE_PID=''
     DOCTOR_INTERRUPTED=''
-    DOCTOR_CAPTURED_VERSION=''
+    DOCTOR_CAPTURED_INTERFACE=''
     if doctor_prepare_workspace "$repo"; then
         workspace_ready=1
         doctor_install_runtime_context
@@ -444,7 +387,6 @@ doctor_main() {
     DOCTOR_CHECK_STATUSES=()
     DOCTOR_CHECK_DETAILS=()
     DOCTOR_HAS_NOT_READY=0
-    DOCTOR_HAS_REVIEW_REQUIRED=0
 
     if doctor_runtime_complete "$runtime_dir"; then
         runtime_ready=1
@@ -526,67 +468,20 @@ doctor_main() {
 
     if (( workspace_ready )) && command -v agy >/dev/null 2>&1; then
         doctor_add_check agy ready present
-        if (( runtime_ready && python_ready )) && [[ -x "$metadata_helper" ]]; then
-            doctor_capture_agy_version "$metadata_helper"
+        if (( runtime_ready && python_ready )) && [[ -x "$probe_helper" ]]; then
+            doctor_capture_agy_interface "$probe_helper"
             agy_rc=$?
-            installed_version="$DOCTOR_CAPTURED_VERSION"
-            if [[ "$agy_rc" != 0 || ! "$installed_version" =~ $semver_re ]]; then
-                installed_version=''
+            if [[ "$agy_rc" == 0 ]]; then
+                doctor_add_check agy_capabilities ready required-interface-present
+            else
+                doctor_add_check agy_capabilities not-ready unavailable-or-unsupported
             fi
+        else
+            doctor_add_check agy_capabilities not-ready prerequisites-unavailable
         fi
     else
         doctor_add_check agy not-ready missing
-    fi
-
-    if (( runtime_ready && python_ready )) \
-            && [[ -f "$metadata_helper" && -f "$version_file" ]]; then
-        verified_version="$(python3 -B "$metadata_helper" version "$version_file" 2>/dev/null)"
-        rc=$?
-        if [[ "$rc" != 0 ]]; then
-            verified_version=''
-        fi
-    fi
-    if [[ ! -f "$version_file" || -L "$version_file" ]]; then
-        doctor_add_check agy_version not-ready verified-metadata-unavailable
-    elif [[ -z "$installed_version" ]]; then
-        doctor_add_check agy_version not-ready invalid-version-output
-    elif [[ -z "$verified_version" ]]; then
-        doctor_add_check agy_version not-ready verified-metadata-unavailable
-    elif [[ "$installed_version" == "$verified_version" ]]; then
-        doctor_add_check agy_version ready verified-version-match
-    else
-        doctor_add_check agy_version review-required version-drift
-    fi
-
-    if (( runtime_ready && python_ready )) \
-            && [[ -f "$metadata_helper" && -f "$source_file" && ! -L "$source_file" ]]; then
-        reviewed_source="$(python3 -B "$metadata_helper" revision "$source_file" 2>/dev/null)"
-        rc=$?
-        if [[ "$rc" != 0 ]]; then
-            reviewed_source=''
-        fi
-    fi
-    if [[ ! -f "$source_file" || -L "$source_file" || -z "$reviewed_source" ]]; then
-        doctor_add_check agy_source not-ready reviewed-source-metadata-unavailable
-    elif [[ "$reviewed_source" == "$DOCTOR_EXPECTED_AGY_SOURCE_REVISION" ]]; then
-        doctor_add_check agy_source ready reviewed-source-match
-    else
-        doctor_add_check agy_source not-ready reviewed-source-mismatch
-    fi
-
-    if (( runtime_ready && python_ready )) \
-            && [[ -f "$metadata_helper" && -f "$review_file" ]]; then
-        output="$(python3 -B "$metadata_helper" review "$review_file" 2>/dev/null)"
-        rc=$?
-        if [[ "$rc" == 0 && "$output" == 'fresh' ]]; then
-            doctor_add_check compatibility_review ready fresh
-        elif [[ "$rc" == 3 && "$output" == 'due' ]]; then
-            doctor_add_check compatibility_review review-required due
-        else
-            doctor_add_check compatibility_review not-ready invalid
-        fi
-    else
-        doctor_add_check compatibility_review not-ready metadata-unavailable
+        doctor_add_check agy_capabilities not-ready prerequisites-unavailable
     fi
 
     if doctor_finish_interrupted; then
@@ -604,9 +499,6 @@ doctor_main() {
 
     if (( DOCTOR_HAS_NOT_READY )); then
         DOCTOR_OVERALL='not-ready'
-        DOCTOR_EXIT=3
-    elif (( DOCTOR_HAS_REVIEW_REQUIRED )); then
-        DOCTOR_OVERALL='review-required'
         DOCTOR_EXIT=3
     else
         DOCTOR_OVERALL='ready'

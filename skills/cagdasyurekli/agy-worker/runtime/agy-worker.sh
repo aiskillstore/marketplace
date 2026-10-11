@@ -18,6 +18,12 @@
 #   * Therefore: exit code 0 proves nothing. Empty stdout is a FAILURE. See classify().
 set -euo pipefail
 
+if [[ -n "${AGY_WORKER_TIER:-}" ]]; then
+    echo "agy-worker.sh: AGY_WORKER_TIER is retired; use --model / AGY_WORKER_MODEL" >&2
+    exit 64
+fi
+
+
 # Prompts, streams, stderr, and envelopes can contain private repository content.
 # Create dispatcher-owned artifacts under a private mask regardless of the caller's
 # umask. The local supervisor restores this exact mask only in the agy child, so
@@ -39,10 +45,9 @@ LOG_DIR="${AGY_WORKER_LOG_DIR:-$SCRIPT_DIR/logs}"
 
 # Selector values are presence-sensitive. An explicitly empty environment variable
 # is not the same as an unset one, and CLI never silently overrides environment.
-tier_env_seen=0; tier_env_value=""
 model_env_seen=0; model_env_value=""
 effort_env_seen=0; effort_env_value=""
-if [[ -n "${AGY_WORKER_TIER+x}" ]]; then tier_env_seen=1; tier_env_value="$AGY_WORKER_TIER"; fi
+
 if [[ -n "${AGY_WORKER_MODEL+x}" ]]; then model_env_seen=1; model_env_value="$AGY_WORKER_MODEL"; fi
 if [[ -n "${AGY_WORKER_EFFORT+x}" ]]; then effort_env_seen=1; effort_env_value="$AGY_WORKER_EFFORT"; fi
 mode_env_seen=0; mode_env_value=""
@@ -111,34 +116,32 @@ PY
 usage() {
     local usage_exit="${1:-64}"
     cat >&2 <<'EOF'
-usage: agy-worker.sh [--workdir DIR] [--persona NAME] [--mode plan|accept-edits]
+usage: agy-worker.sh [--workdir DIR] [--mode plan|accept-edits]
                      [--workflow explore|task|project] [--max-cycles N]
-                     [--tier bulk|cheap|hard|hardest|default|MODEL]
-                     [--model REVIEWED_MODEL [--effort low|medium|high]]
-                     [--compatibility-disposition proceed --approve-help-sha SHA256]
-                     [--literal-model EXACT_SLUG]
+                     [--model MODEL [--effort EFFORT]]
                      [--idle-timeout 10m] [--hard-timeout 2h]
-                     [--max-runtime 12h]
+                     [--max-runtime 12h] [--notice-interval 30m]
                      [--provider-isolation session|native]
+                     [--base-commit IMMUTABLE_GIT_HEAD]
                      [--provider-env NAME]...
                      [--provider-scope FILE --approve-transmission-sha SHA256]
                      [--allow-scoped-repair]
                      [--self-verification-manifest ABSOLUTE_PRIVATE_FILE]
                      [--approve-whole-worktree LAUNCH_APPROVAL_SHA256]
-                     [--boost --approve-boost-risk-sha SHA256]
+                     --approval-record ABSOLUTE_PRIVATE_PREVIEW_FILE
                      [--add-dir DIR]... [--allow-slash-commands]
        ... task prompt on stdin ...
 
        agy-worker.sh start [run options] ... task prompt on stdin ...
        agy-worker.sh transmission-preview --workdir ABSOLUTE_DISPOSABLE_WORKTREE
-       agy-worker.sh status|result --job-id JOB [--format json|text]
+       agy-worker.sh status|result --job-id JOB [--state WORKFLOW_STATE] [--format json|text]
        agy-worker.sh verification-copy --job-id JOB --destination NEW_DIRECTORY_IN_0700_PARENT [--format json|text]
        agy-worker.sh self-verify --job-id JOB --approve-state-sha SHA [--format json|text]
-       agy-worker.sh resume --job-id JOB --approve-state-sha SHA [--approve-migration-sha SHA] [--format json|text]
-       agy-worker.sh restart --job-id JOB --approve-state-sha SHA [--approve-migration-sha SHA] [--format json|text]
-       agy-worker.sh continue --job-id JOB --approve-state-sha SHA [--approve-migration-sha SHA] [--format json|text] < driver-verification-input
+       agy-worker.sh resume --job-id JOB --approve-state-sha SHA [--format json|text]
+       agy-worker.sh restart --job-id JOB --approve-state-sha SHA [--format json|text]
+       agy-worker.sh continue --job-id JOB --approve-state-sha SHA [--format json|text] < driver-verification-input
        agy-worker.sh continue --job-id JOB --approve-state-sha SHA --use-self-verification [--format json|text]
-       agy-worker.sh finalize --job-id JOB --approve-state-sha SHA [--approve-migration-sha SHA] \
+       agy-worker.sh finalize --job-id JOB --approve-state-sha SHA \
            --assurance verified|partially_verified|rejected|blocked [--format json|text] < driver-verification-input
        agy-worker.sh wait --job-id JOB --after-state-sha SHA [--timeout 60s] [--format json|text]
        agy-worker.sh cancel --job-id JOB --approve-state-sha SHA
@@ -146,8 +149,7 @@ usage: agy-worker.sh [--workdir DIR] [--persona NAME] [--mode plan|accept-edits]
 
 Workflow cycle limits: explore/task 1..2 (default 2); project 1..5 (default 5).
 --max-cycles requires an explicit workflow; legacy raw mode remains one attempt.
-Direct model: an exact reviewed version launches after the structural help probe;
-version drift requires both --compatibility-disposition and --approve-help-sha.
+Every selection runs capability preflight; model and effort are literal caller values.
 
 Stdout contracts: run emits a worker result envelope; start and lifecycle controls emit
 control JSON, with status/wait/resume/restart/continue/finalize accepting --format text;
@@ -155,20 +157,17 @@ result emits its bound worker envelope unless --format text. A non-zero run exit
 stdout is NOT a valid envelope. Artifacts land in $AGY_WORKER_LOG_DIR.
 
 Exit codes: 0 ok · 2 no prompt · 3 empty output · 4 schema invalid · 5 unclassified agy failure
-            6 permission gate · 7 compatibility review · 8 compatibility evidence unavailable
-            9 idle timeout · 16 hard deadline · 17-19 reserved for version-bound
-            provider/auth evidence · 20 status, binding, or verification-copy runtime unavailable · 21 resume failed
+            6 permission gate · 8 capability evidence unavailable
+            9 idle timeout · 16 hard deadline · 17 provider timeout · 20 status, binding, or verification-copy runtime unavailable · 21 resume failed
             22 cancelled · 23 output oversized · 24 quota exhausted · 25 provider terminal error
-            26 direct-selection preflight failed
+            26 model selection failed · 27 native host sandbox unavailable
             64 invalid usage
 
+Advanced controls accept --state WORKFLOW_STATE to resolve the bound dispatch log root.
 Resume and restart use the current state approval before any provider call:
   agy-worker.sh resume --job-id JOB --approve-state-sha STATE_SHA
   agy-worker.sh restart --job-id JOB --approve-state-sha STATE_SHA
 
-For a V3/V4 legacy state, copy both approvals from status before the first
-lifecycle transition; the migration SHA binds the current root, artifacts, and
-dispatch inputs and is rejected if any of them changed.
 EOF
     exit "$usage_exit"
 }
@@ -177,25 +176,28 @@ if [[ "$dispatch_action" != "run" && "$dispatch_action" != "start" ]]; then
     control_job="$job_id"
     control_job_seen=0
     control_state_sha=""
-    control_migration_sha=""
     control_after_sha=""
     control_timeout="60s"
     control_format="json"
     control_by=""
     control_assurance=""
     control_destination=""
+    control_state=""
     control_use_self_verification_seen=0
     while [[ $# -gt 0 ]]; do
         case "$1" in
+            --approve-migration-sha|--approve-migration-sha=*)
+                echo "agy-worker.sh: --approve-migration-sha was removed after v0.22.0; finish or discard the old job with the release that created it." >&2
+                exit 64 ;;
             --job-id)
                 [[ $# -ge 2 && $control_job_seen -eq 0 ]] || usage
                 control_job="$2"; control_job_seen=1; shift 2 ;;
+            --state)
+                [[ $# -ge 2 && -z "$control_state" && -n "$2" ]] || usage
+                control_state="$2"; shift 2 ;;
             --approve-state-sha)
                 [[ $# -ge 2 && -z "$control_state_sha" ]] || usage
                 control_state_sha="$2"; shift 2 ;;
-            --approve-migration-sha)
-                [[ $# -ge 2 && -z "$control_migration_sha" ]] || usage
-                control_migration_sha="$2"; shift 2 ;;
             --after-state-sha)
                 [[ $# -ge 2 && -z "$control_after_sha" ]] || usage
                 control_after_sha="$2"; shift 2 ;;
@@ -229,6 +231,22 @@ if [[ "$dispatch_action" != "run" && "$dispatch_action" != "start" ]]; then
         echo "agy-worker.sh: --use-self-verification is valid only with continue" >&2
         exit 64
     fi
+    if [[ -n "$control_state" ]]; then
+        LOG_DIR="$(python3 -I -S -B - "$SCRIPT_DIR/scripts" "$control_state" "$control_job" <<'PY'
+import sys
+from pathlib import Path
+
+sys.path.insert(0, sys.argv[1])
+from workflow import WorkflowError, dispatch_log_root_from_workflow_state
+
+try:
+    print(dispatch_log_root_from_workflow_state(Path(sys.argv[2]), sys.argv[3]))
+except WorkflowError as exc:
+    print(f"agy-worker.sh: {exc}", file=sys.stderr)
+    raise SystemExit(64)
+PY
+)" || exit 64
+    fi
     [[ -d "$LOG_DIR" ]] || { echo "agy-worker.sh: log root is unavailable" >&2; exit 64; }
     validate_log_root "$LOG_DIR" || {
         echo "agy-worker.sh: log root must be an owner-owned, non-writable real directory" >&2
@@ -251,17 +269,16 @@ if [[ "$dispatch_action" != "run" && "$dispatch_action" != "start" ]]; then
         restart|continue)
             [[ -n "$control_state_sha" ]] || usage
             supervisor+=(--approve-state-sha "$control_state_sha")
-            [[ -z "$control_migration_sha" ]] || supervisor+=(--approve-migration-sha "$control_migration_sha")
             (( control_use_self_verification_seen == 0 )) || supervisor+=(--use-self-verification) ;;
         resume)
             # Let the controller read the current safe snapshot so an omitted
             # approval can return its exact actionable replacement, not usage.
             [[ -z "$control_state_sha" ]] || supervisor+=(--approve-state-sha "$control_state_sha")
-            [[ -z "$control_migration_sha" ]] || supervisor+=(--approve-migration-sha "$control_migration_sha") ;;
+            ;;
         finalize)
             [[ -n "$control_state_sha" && -n "$control_assurance" ]] || usage
             supervisor+=(--approve-state-sha "$control_state_sha" --assurance "$control_assurance")
-            [[ -z "$control_migration_sha" ]] || supervisor+=(--approve-migration-sha "$control_migration_sha") ;;
+            ;;
         verification-copy)
             [[ -n "$control_destination" ]] || usage
             supervisor+=(--destination "$control_destination") ;;
@@ -273,27 +290,23 @@ if [[ "$dispatch_action" != "run" && "$dispatch_action" != "start" ]]; then
 fi
 
 workdir="$PWD"
-persona=""
 workflow=""
 max_cycles=""
 workflow_cli_seen=0; max_cycles_cli_seen=0; mode_cli_seen=0
 extra_dirs=()
-tier_cli_seen=0; tier_cli_value=""
 model_cli_seen=0; model_cli_value=""
 effort_cli_seen=0; effort_cli_value=""
-compatibility_disposition_seen=0; compatibility_disposition=""
-approve_help_sha_seen=0; approve_help_sha=""
-literal_cli_seen=0; literal_cli_value=""
-idle_cli_seen=0; hard_cli_seen=0; max_cli_seen=0
+idle_cli_seen=0; hard_cli_seen=0; max_cli_seen=0; notice_cli_seen=0
 job_cli_seen=0
 provider_scope_seen=0; provider_scope=""
 approve_transmission_sha_seen=0; approve_transmission_sha=""
 approve_whole_worktree_seen=0; approve_whole_worktree=""
-boost_seen=0; approve_boost_risk_sha_seen=0; approve_boost_risk_sha=""; boost_policy_sha=""
 allow_scoped_repair_seen=0
 self_verification_manifest_seen=0; self_verification_manifest=""
 provider_isolation_seen=0; provider_isolation="session"
+base_commit_seen=0; base_commit=""
 provider_env=()
+approval_record=""
 # Injection control (rec #8): worker prompts routinely embed repo content, and a
 # "/skill ..." string inside that content would otherwise expand as a real command.
 # Default OFF; only a caller who controls the whole prompt should re-enable it.
@@ -301,14 +314,13 @@ disable_slash=1
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
+        --approve-migration-sha|--approve-migration-sha=*)
+            echo "agy-worker.sh: --approve-migration-sha was removed after v0.22.0; finish or discard the old job with the release that created it." >&2
+            exit 64 ;;
         --workdir) [[ $# -ge 2 ]] || usage; workdir="$2"; shift 2 ;;
-        # Persona by PROMPT INJECTION, not by --agent. Measured 2026-08-01: passing
-        # --agent silently disables --json-schema enforcement (result.structured_output
-        # comes back null and the worker answers in prose), which breaks the entire
-        # driver contract. agy also accepts any --agent name without error, so a typo
-        # yields a default worker that believes it is a specialist. Inlining the
-        # persona body keeps structured output working.
-        --persona) [[ $# -ge 2 ]] || usage; persona="$2"; shift 2 ;;
+        --boost|--boost=*|--approve-boost-risk-sha|--approve-boost-risk-sha=*|--persona|--persona=*)
+            echo "agy-worker.sh: ${1%%=*} was removed after v0.22.0; use the ordinary task workflow." >&2
+            exit 64 ;;
         --mode) [[ $# -ge 2 && $mode_cli_seen -eq 0 ]] || usage; mode_cli_seen=1; mode="$2"; shift 2 ;;
         --workflow)
             [[ $# -ge 2 && $workflow_cli_seen -eq 0 ]] || usage
@@ -316,18 +328,13 @@ while [[ $# -gt 0 ]]; do
         --max-cycles)
             [[ $# -ge 2 && $max_cycles_cli_seen -eq 0 ]] || usage
             max_cycles_cli_seen=1; max_cycles="$2"; shift 2 ;;
-        --tier)
-            [[ $# -ge 2 ]] || usage
-            (( tier_cli_seen == 0 )) || { echo "agy-worker.sh: repeated --tier" >&2; exit 64; }
-            tier_cli_seen=1; tier_cli_value="$2"; shift 2 ;;
         --model)
             [[ $# -ge 2 ]] || usage
             (( model_cli_seen == 0 )) || { echo "agy-worker.sh: repeated --model" >&2; exit 64; }
             model_cli_seen=1; model_cli_value="$2"; shift 2 ;;
-        --literal-model)
-            [[ $# -ge 2 ]] || usage
-            (( literal_cli_seen == 0 )) || { echo "agy-worker.sh: repeated --literal-model" >&2; exit 64; }
-            literal_cli_seen=1; literal_cli_value="$2"; shift 2 ;;
+        --literal-model|--literal-model=*)
+            echo "agy-worker.sh: --literal-model is retired; use --model" >&2
+            exit 64 ;;
         --idle-timeout)
             [[ $# -ge 2 ]] || usage
             (( idle_cli_seen == 0 )) || { echo "agy-worker.sh: repeated --idle-timeout" >&2; exit 64; }
@@ -344,24 +351,29 @@ while [[ $# -gt 0 ]]; do
             [[ $# -ge 2 ]] || usage
             (( job_cli_seen == 0 )) || { echo "agy-worker.sh: repeated --job-id" >&2; exit 64; }
             job_cli_seen=1; job_id="$2"; shift 2 ;;
+        --notice-interval)
+            [[ $# -ge 2 ]] || usage
+            (( notice_cli_seen == 0 )) || { echo "agy-worker.sh: repeated --notice-interval" >&2; exit 64; }
+            notice_cli_seen=1; notice_interval="$2"; shift 2 ;;
         --provider-env)
             [[ $# -ge 2 ]] || usage
             provider_env+=("$2"); shift 2 ;;
+        --approval-record)
+            [[ $# -ge 2 && -z "$approval_record" ]] || usage
+            approval_record="$2"; shift 2 ;;
         --provider-isolation)
             [[ $# -ge 2 && $provider_isolation_seen -eq 0 ]] || usage
             provider_isolation_seen=1; provider_isolation="$2"; shift 2 ;;
+        --base-commit)
+            [[ $# -ge 2 && $base_commit_seen -eq 0 ]] || usage
+            base_commit_seen=1; base_commit="$2"; shift 2 ;;
         --effort)
             [[ $# -ge 2 ]] || usage
             (( effort_cli_seen == 0 )) || { echo "agy-worker.sh: repeated --effort" >&2; exit 64; }
             effort_cli_seen=1; effort_cli_value="$2"; shift 2 ;;
-        --compatibility-disposition)
-            [[ $# -ge 2 ]] || usage
-            (( compatibility_disposition_seen == 0 )) || { echo "agy-worker.sh: repeated --compatibility-disposition" >&2; exit 64; }
-            compatibility_disposition_seen=1; compatibility_disposition="$2"; shift 2 ;;
-        --approve-help-sha)
-            [[ $# -ge 2 ]] || usage
-            (( approve_help_sha_seen == 0 )) || { echo "agy-worker.sh: repeated --approve-help-sha" >&2; exit 64; }
-            approve_help_sha_seen=1; approve_help_sha="$2"; shift 2 ;;
+        --compatibility-disposition|--approve-help-sha)
+            echo "agy-worker.sh: version-attestation flags are retired; remove them and use capability preflight" >&2
+            exit 64 ;;
         --provider-scope)
             [[ $# -ge 2 ]] || usage
             (( provider_scope_seen == 0 )) || { echo "agy-worker.sh: repeated --provider-scope" >&2; exit 64; }
@@ -381,11 +393,6 @@ while [[ $# -gt 0 ]]; do
             [[ $# -ge 2 ]] || usage
             (( approve_whole_worktree_seen == 0 )) || { echo "agy-worker.sh: repeated --approve-whole-worktree" >&2; exit 64; }
             approve_whole_worktree_seen=1; approve_whole_worktree="$2"; shift 2 ;;
-        --boost) (( boost_seen == 0 )) || { echo "agy-worker.sh: repeated --boost" >&2; exit 64; }; boost_seen=1; shift ;;
-        --approve-boost-risk-sha)
-            [[ $# -ge 2 ]] || usage
-            (( approve_boost_risk_sha_seen == 0 )) || { echo "agy-worker.sh: repeated --approve-boost-risk-sha" >&2; exit 64; }
-            approve_boost_risk_sha_seen=1; approve_boost_risk_sha="$2"; shift 2 ;;
         --add-dir) [[ $# -ge 2 ]] || usage; extra_dirs+=("$2"); shift 2 ;;
         --allow-slash-commands) disable_slash=0; shift ;;
         -h|--help) usage 0 ;;
@@ -440,10 +447,6 @@ if (( self_verification_manifest_seen )) && [[ "$self_verification_manifest" != 
     echo "agy-worker.sh: --self-verification-manifest requires a canonical absolute path" >&2
     exit 64
 fi
-if (( boost_seen == 0 && approve_boost_risk_sha_seen )); then
-    echo "agy-worker.sh: --approve-boost-risk-sha requires --boost" >&2
-    exit 64
-fi
 
 if (( ${#provider_env[@]} > 64 )); then
     echo "agy-worker.sh: at most 64 --provider-env names are supported" >&2
@@ -485,43 +488,21 @@ if (( legacy_timeout_seen )); then
     echo "agy-worker.sh: warning: AGY_WORKER_TIMEOUT is deprecated; use --hard-timeout" >&2
 fi
 
-(( tier_cli_seen == 0 || tier_env_seen == 0 )) || {
-    echo "agy-worker.sh: --tier conflicts with AGY_WORKER_TIER" >&2; exit 64;
-}
 (( model_cli_seen == 0 || model_env_seen == 0 )) || {
     echo "agy-worker.sh: --model conflicts with AGY_WORKER_MODEL" >&2; exit 64;
 }
 (( effort_cli_seen == 0 || effort_env_seen == 0 )) || {
     echo "agy-worker.sh: --effort conflicts with AGY_WORKER_EFFORT" >&2; exit 64;
 }
-tier_seen=$((tier_cli_seen + tier_env_seen))
 model_seen=$((model_cli_seen + model_env_seen))
 effort_seen=$((effort_cli_seen + effort_env_seen))
-if (( literal_cli_seen > 0 && (tier_seen > 0 || model_seen > 0 || effort_seen > 0) )); then
-    echo "agy-worker.sh: --literal-model conflicts with tier/model/effort selectors" >&2
-    exit 64
-fi
-if (( tier_seen > 0 && (model_seen > 0 || effort_seen > 0) )); then
-    echo "agy-worker.sh: explicit tier and model/effort selectors are mutually exclusive" >&2
-    exit 64
-fi
+
 if (( effort_seen > 0 && model_seen == 0 )); then
     echo "agy-worker.sh: effort requires an explicit base model" >&2
     exit 64
 fi
-if (( (compatibility_disposition_seen > 0 || approve_help_sha_seen > 0) && model_seen == 0 )); then
-    echo "agy-worker.sh: compatibility approval requires an explicit model selector" >&2
-    exit 64
-fi
-if (( literal_cli_seen > 0 )); then
-    [[ -n "$literal_cli_value" ]] || { echo "agy-worker.sh: literal model must not be empty" >&2; exit 64; }
-    literal_model="$literal_cli_value"; selection_kind="literal"
-elif (( tier_seen > 0 )); then
-    if (( tier_cli_seen )); then tier="$tier_cli_value"; tier_source="cli"
-    else tier="$tier_env_value"; tier_source="environment"; fi
-    [[ -n "$tier" ]] || { echo "agy-worker.sh: explicit tier must not be empty" >&2; exit 64; }
-    selection_kind="tier"
-elif (( model_seen > 0 )); then
+
+if (( model_seen > 0 )); then
     if (( model_cli_seen )); then user_model="$model_cli_value"; model_source="cli"
     else user_model="$model_env_value"; model_source="environment"; fi
     [[ -n "$user_model" ]] || { echo "agy-worker.sh: explicit model must not be empty" >&2; exit 64; }
@@ -533,7 +514,7 @@ elif (( model_seen > 0 )); then
     fi
     selection_kind="model"
 else
-    tier="default"; tier_source="implicit-default"; selection_kind="tier"
+    selection_kind="agy-default"
 fi
 
 case "$workflow" in
@@ -575,10 +556,6 @@ case "$workflow" in
         max_cycles=1 ;;
 esac
 
-case "$persona" in
-    ''|bulk-test-writer|repo-inventory|diff-reviewer) ;;
-    *) echo "agy-worker.sh: invalid persona: $persona" >&2; exit 64 ;;
-esac
 case "$mode" in
     plan|accept-edits) ;;
     *) echo "agy-worker.sh: invalid mode: $mode" >&2; exit 64 ;;
@@ -590,34 +567,13 @@ fi
 case "$job_id" in
     ''|.|..|*[!A-Za-z0-9._-]*) echo "agy-worker.sh: invalid AGY_WORKER_JOB_ID: $job_id" >&2; exit 64 ;;
 esac
-if [[ "$mode" != "plan" && ( "$persona" == "repo-inventory" || "$persona" == "diff-reviewer" ) ]]; then
-    echo "agy-worker.sh: persona '$persona' is read-only and requires --mode plan" >&2
-    exit 64
-fi
-if (( boost_seen )); then
-    if [[ "$workflow" != "task" || "$mode" != "accept-edits" || "$max_cycles" != "1" || -n "$persona" || "$disable_slash" != 1 ]]; then
-        echo "agy-worker.sh: --boost requires task, accept-edits, one cycle, no persona, and slash protection" >&2
-        exit 64
-    fi
-    boost_policy_text="Boost may invoke subagents and protected tools; this acknowledgement does not grant runtime permissions."
-    boost_policy_sha="$(printf '%s' "$boost_policy_text" | shasum -a 256 | awk '{print $1}')"
-    expected_boost_risk_sha="$(printf '%s\n%s\n' "$boost_policy_sha" "$job_id" | shasum -a 256 | awk '{print $1}')"
-    if (( approve_boost_risk_sha_seen == 0 )); then
-        printf '%s\n' "agy-worker.sh: $boost_policy_text Review and rerun: --boost --approve-boost-risk-sha $expected_boost_risk_sha" >&2
-        exit 6
-    fi
-    if [[ "$approve_boost_risk_sha" != "$expected_boost_risk_sha" ]]; then
-        echo "agy-worker.sh: Boost risk acknowledgement is invalid or stale" >&2
-        exit 6
-    fi
-fi
 if (( allow_scoped_repair_seen )); then
     if [[ "$workflow" != "task" && "$workflow" != "project" ]]; then
         echo "agy-worker.sh: --allow-scoped-repair requires task or project workflow" >&2
         exit 64
     fi
-    if (( max_cycles < 2 || boost_seen )); then
-        echo "agy-worker.sh: --allow-scoped-repair requires at least two non-Boost cycles" >&2
+    if (( max_cycles < 2 )); then
+        echo "agy-worker.sh: --allow-scoped-repair requires at least two cycles" >&2
         exit 64
     fi
 fi
@@ -626,10 +582,10 @@ if (( self_verification_manifest_seen )); then
         echo "agy-worker.sh: --self-verification-manifest requires task or project workflow" >&2
         exit 64
     fi
-    if (( boost_seen )); then
-        echo "agy-worker.sh: --self-verification-manifest is unavailable with Boost" >&2
-        exit 64
-    fi
+fi
+if (( provider_scope_seen && base_commit_seen )); then
+    echo "agy-worker.sh: --base-commit applies only to whole-worktree dispatch" >&2
+    exit 64
 fi
 
 duration_seconds() {
@@ -712,43 +668,20 @@ if (( self_verification_manifest_seen )) && ! project_log_root_is_external "$LOG
     exit 64
 fi
 
-# The advanced raw entry point keeps whole-worktree dispatch available, but never
-# chooses it implicitly.  Bind the caller's explicit exception to the same
-# provider-free, drift-checked manifest used by the primary workflow facade.  The
-# supervisor repeats this proof immediately before the initial provider launch.
-if (( provider_scope_seen == 0 )); then
-    current_manifest_sha="$(
-        /usr/bin/python3 -I -S -B "$SCRIPT_DIR/scripts/agy_dispatch_worktree.py" \
-            transmission-preview --workdir "$workdir" --provider-isolation "$provider_isolation" \
-        | /usr/bin/python3 -I -S -B -c '
-import json, re, sys
-value = json.load(sys.stdin)
-digest = value.get("launch_approval_sha256") if isinstance(value, dict) else None
-if not isinstance(digest, str) or re.fullmatch(r"[0-9a-f]{64}", digest) is None:
-    raise SystemExit(64)
-print(digest)
-'
-    )" || {
-        echo "agy-worker.sh: whole-worktree transmission preview is unavailable" >&2
-        exit 64
-    }
-    if (( approve_whole_worktree_seen == 0 )); then
-        if [[ "$provider_isolation" == "session" ]]; then
-            echo "agy-worker.sh: session provider authority is normal same-user filesystem and network access; whole-worktree approval does not host-confine the provider" >&2
-        fi
-        echo "agy-worker.sh: choose provider scope, or explicitly approve whole-worktree transmission" >&2
-        echo "agy-worker.sh: rerun with --approve-whole-worktree $current_manifest_sha" >&2
-        exit 64
-    fi
-    if [[ "$approve_whole_worktree" != "$current_manifest_sha" ]]; then
-        if [[ "$provider_isolation" == "session" ]]; then
-            echo "agy-worker.sh: session provider authority is normal same-user filesystem and network access; whole-worktree approval does not host-confine the provider" >&2
-        fi
-        echo "agy-worker.sh: approved whole-worktree manifest does not match the current worktree" >&2
-        echo "agy-worker.sh: rerun with --approve-whole-worktree $current_manifest_sha" >&2
-        exit 64
-    fi
+# The record is comparison data; only its human-approved digest grants authority.
+if (( provider_scope_seen == 0 && approve_whole_worktree_seen == 0 )); then
+    echo "agy-worker.sh: choose provider scope, or explicitly approve whole-worktree transmission" >&2
+    echo "agy-worker.sh: obtain a full transmission-preview with the exact task and launch options" >&2
+    exit 64
 fi
+[[ -n "$approval_record" ]] || {
+    echo "agy-worker.sh: --approval-record is required for full launch authority" >&2
+    exit 64
+}
+approved_launch_sha="$approve_whole_worktree"
+(( provider_scope_seen == 0 )) || approved_launch_sha="$approve_transmission_sha"
+/usr/bin/python3 -I -S -B "$SCRIPT_DIR/scripts/launch_authority.py" \
+    check-record "$approval_record" "$approved_launch_sha" || exit 64
 
 if [[ "$workflow" == "project" ]]; then
     # Repeat the physical containment decision after creation and canonical
@@ -916,11 +849,8 @@ PY
     exit 64
 }
 
-# A review-required direct selection is intentionally pre-task.  The newly
-# created controller directory is empty at this point; remove only that exact
-# owner-private inode so a caller can retry the same explicit job ID with the
-# SHA copied from the public review evidence.  Any replacement or unexpected
-# content fails closed and is left untouched.
+# Capability preflight is pre-task. Remove only the exact empty owner-private
+# directory after rejection; preserve replacements and unexpected content.
 cleanup_empty_preflight_job() {
     python3 -I -S -B - "$job_dir" "$job_dir_identity" <<'PY'
 import os
@@ -950,9 +880,8 @@ staged_dir="$job_dir/staged"
 staged_prompt_file="$staged_dir/full-prompt.txt"
 selection_file="$job_dir/selection.json"
 
-# Resolve once before consuming the task. New direct selectors validate the exact
-# portable matrix and installed agy version; legacy tiers preserve their old mapping.
-selection_args=(--output "$selection_file")
+# Resolve once before consuming the task; every selection shares capability checks.
+selection_args=(--output "$selection_file" --provider-isolation "$provider_isolation")
 child_env_args=()
 for provider_env_name in ${provider_env+"${provider_env[@]}"}; do
     child_env_args+=(--child-env "$provider_env_name")
@@ -960,21 +889,12 @@ done
 if (( ${#child_env_args[@]} )); then
     selection_args+=("${child_env_args[@]}")
 fi
-if [[ "$selection_kind" == "tier" ]]; then
-    selection_args+=(--tier "$tier" --tier-source "$tier_source")
-elif [[ "$selection_kind" == "literal" ]]; then
-    selection_args+=(--literal-model "$literal_model")
-else
+if [[ "$selection_kind" == "model" ]]; then
     selection_args+=(--model "$user_model" --model-source "$model_source")
     if [[ -n "$user_effort" ]]; then
         selection_args+=(--effort "$user_effort" --effort-source "$effort_source")
     fi
-    if (( compatibility_disposition_seen )); then
-        selection_args+=(--compatibility-disposition "$compatibility_disposition")
-    fi
-    if (( approve_help_sha_seen )); then
-        selection_args+=(--approve-help-sha "$approve_help_sha")
-    fi
+
 fi
 set +e
 model="$(python3 -B "$SCRIPT_DIR/scripts/model_selection.py" "${selection_args[@]}")"
@@ -984,57 +904,14 @@ if (( selection_rc != 0 )); then
     cleanup_empty_preflight_job || true
     exit "$selection_rc"
 fi
-IFS=$'\t' read -r agy_version agy_version_observed agy_selection_mode < <(python3 -I -S -B - "$selection_file" \
-    "$SCRIPT_DIR/compat/agy-verified-version.txt" <<'PY'
-import json
-import re
-import sys
-
-with open(sys.argv[1], "r", encoding="utf-8") as handle:
-    value = json.load(handle)
-with open(sys.argv[2], "r", encoding="ascii") as handle:
-    baseline = handle.read().strip()
-version = value.get("installed_agy_version", baseline) if isinstance(value, dict) else None
-if not isinstance(version, str) or re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", version) is None:
-    raise SystemExit(7)
-print("\t".join((
-    version,
-    "true" if "installed_agy_version" in value else "false",
-    value.get("selection_mode", ""),
-)))
-PY
-) || exit $?
-if [[ "$agy_selection_mode" == "literal-model" ]]; then
-    set +e
-    observed_version="$(python3 -B "$SCRIPT_DIR/scripts/model_selection.py" \
-        ${child_env_args+"${child_env_args[@]}"} \
-        --observe-installed-version 2>/dev/null)"
-    observe_rc=$?
-    set -e
-    if (( observe_rc == 0 )); then
-        agy_version="$observed_version"
-        agy_version_observed=true
-    elif (( observe_rc >= 128 )); then
-        exit "$observe_rc"
-    fi
-fi
-
-# The initial direct-selection preflight is deliberately completed before task
-# bytes are read.  This second, silent binding check closes the small interval
-# between selection publication and task consumption; it never prints a local
-# executable path or changes the caller's selection.
-if [[ "$agy_selection_mode" == "exact-model" || "$agy_selection_mode" == "model-effort" ]]; then
-    set +e
-    python3 -B "$SCRIPT_DIR/scripts/model_selection.py" \
-        ${child_env_args+"${child_env_args[@]}"} \
-        --verify-record-executable "$selection_file" > /dev/null 2>&1
-    executable_rc=$?
-    set -e
-    if (( executable_rc != 0 )); then
-        if (( executable_rc >= 128 )); then exit "$executable_rc"; fi
-        exit 8
-    fi
-fi
+# Selection publication has completed the shared capability preflight.
+agy_version="$(python3 -I -S -B - "$selection_file" <<'PYCODE'
+import json, sys
+with open(sys.argv[1], encoding="utf-8") as handle:
+    print(json.load(handle)["installed_agy_version"])
+PYCODE
+)"
+agy_version_observed=true
 
 self_verification_manifest_file=""
 self_verification_prompt_block=""
@@ -1223,94 +1100,45 @@ if [[ -t 0 ]]; then
 fi
 cat > "$prompt_file"
 task="$(<"$prompt_file")"
-# $(<file) strips trailing whitespace, so a whitespace-only payload would pass a
-# byte-size check yet still hand agy an empty --print value. Check stripped content.
+# $(<file) strips trailing LF bytes; reject whitespace-only tasks before rendering.
 if [[ -z "${task//[[:space:]]/}" ]]; then
     echo "agy-worker.sh: empty task; refusing to dispatch a promptless worker" >&2
     exit 2
 fi
 
-# --- the contract preamble ---------------------------------------------------
-# agy is agentic: given an analysis prompt it will happily write its answer to an
-# internal "brain" artifact and return a stub. The envelope requirement plus this
-# directive pin the answer to stdout where the driver can actually read it.
-if [[ "$mode" == "accept-edits" ]]; then
-    workspace_directive="Use file tools to inspect and edit the approved workspace."
-else
-    workspace_directive="Use file tools to inspect the approved workspace only; do not edit files."
+# Build the exact reviewed prompt with the same code used by local previews.
+if ! /usr/bin/python3 -I -S -B "$SCRIPT_DIR/scripts/launch_authority.py" \
+    render "$mode" "$provider_isolation" "$self_verification_prompt_block" \
+    < "$prompt_file" > "$full_prompt_file"; then
+    echo "agy-worker.sh: task cannot be bound to launch authority" >&2
+    exit 64
 fi
-if [[ "$provider_isolation" == "session" ]]; then
-    provider_execution_note="This job runs in a normal AGY session with same-user filesystem and network authority; the selected workspace is a task instruction, not host confinement."
-else
-    provider_execution_note="Under native isolation, shell tools run in a separate scratch area; their output is not evidence about the approved workspace."
-fi
-boost_workspace_contract=""
-if (( boost_seen )); then
-    if (( provider_scope_seen )); then
-        boost_workspace_shape="It is intentionally Gitless and may contain only selected files."
-    else
-        boost_workspace_shape="It is the explicitly approved whole worktree."
-    fi
-    read -r -d '' boost_workspace_contract <<'EOF' || true
-BOOST WORKSPACE CONTRACT — non-negotiable:
-- The initial working directory exposed by file tools is the complete approved task
-  workspace. __BOOST_WORKSPACE_SHAPE__ Do not search for another repository or
-  "active workspace".
-- Use built-in file listing, reading, and editing tools. The controller supplies the
-  exact absolute workspace root immediately before launch; use absolute child paths
-  beneath that root and never pass a task-relative path alone. Do not inspect HOME,
-  `~/.gemini`, parent directories, or other user directories.
-- Never call shell or terminal tools, including `pwd`, `ls`, `find`, or `git`.
-  __PROVIDER_EXECUTION_NOTE__
-- If you delegate, include this entire contract in every subagent task. If a subagent
-  cannot comply, perform the task directly with file tools. If file-tool access is
-  denied or unavailable, return the schema-valid blocked envelope.
+full_prompt="$(<"$full_prompt_file")"
 
-EOF
-    boost_workspace_contract="${boost_workspace_contract/__BOOST_WORKSPACE_SHAPE__/$boost_workspace_shape}"
-    boost_workspace_contract="${boost_workspace_contract/__PROVIDER_EXECUTION_NOTE__/$provider_execution_note}"
-fi
-read -r -d '' PREAMBLE <<'EOF' || true
-You are a bounded worker. Another agent (the driver) will independently verify
-everything you claim, so inaccurate self-reporting is worse than admitting failure.
-
-__BOOST_WORKSPACE_CONTRACT__
-__SELF_VERIFICATION_CHECK_REQUESTS__
-OUTPUT CONTRACT — non-negotiable:
-- Your FINAL response must be a single JSON object matching the enforced schema.
-- Do NOT write your answer to a file, artifact, or brain document.
-- Do NOT reply "see the artifact" or reference an external document.
-- List every file whose final state differs from its state at provider launch in files_changed
-  as created, modified, or deleted. Omit transient touches with no net final change.
-- __WORKSPACE_DIRECTIVE__ Do NOT run shell or terminal tools or tests.
-  __PROVIDER_EXECUTION_NOTE__ The driver's environment is the only trusted execution
-  context. Leave commands_run and tests_run as empty arrays.
-- If a permission gate, missing tool, or ambiguity blocks you: set
-  status="blocked", requires_human=true, and explain in open_questions.
-  Do not silently work around it.
-
-TASK FOLLOWS:
-EOF
-PREAMBLE="${PREAMBLE/__BOOST_WORKSPACE_CONTRACT__/$boost_workspace_contract}"
-PREAMBLE="${PREAMBLE/__SELF_VERIFICATION_CHECK_REQUESTS__/$self_verification_prompt_block}"
-PREAMBLE="${PREAMBLE/__WORKSPACE_DIRECTIVE__/$workspace_directive}"
-PREAMBLE="${PREAMBLE/__PROVIDER_EXECUTION_NOTE__/$provider_execution_note}"
-
-# Persona is prepended as text (see --persona note above). Strip YAML frontmatter:
-# the `tools:` list is meaningless here — tool access is governed by agy's own
-# permissions, not by anything we can assert in a prompt.
-persona_text=""
-if [[ -n "$persona" ]]; then
-    persona_file="$SCRIPT_DIR/agents/$persona.md"
-    [[ -f "$persona_file" ]] || { echo "agy-worker.sh: no such persona: $persona_file" >&2; exit 64; }
-    persona_text="$(awk 'BEGIN{fm=0} /^---$/{fm++; next} fm>=2' "$persona_file")
-"
-fi
-
-full_prompt="$PREAMBLE
-$persona_text
-$task"
-printf '%s' "$full_prompt" > "$full_prompt_file"
+launch_preview_file="$job_dir/launch-preview.json"
+launch_preview_args=(transmission-preview --workdir "$workdir"
+    --provider-isolation "$provider_isolation" --workflow "${workflow:-legacy}"
+    --mode "$mode" --max-cycles "$max_cycles"
+    --idle-timeout "${idle_seconds}s" --hard-timeout "${hard_seconds}s"
+    --max-runtime "${max_seconds}s" --notice-interval "${notice_seconds}s"
+    --provider-schema "$SCHEMA")
+(( provider_scope_seen == 0 )) || launch_preview_args+=(--provider-scope "$provider_scope")
+(( allow_scoped_repair_seen == 0 )) || launch_preview_args+=(--allow-scoped-repair)
+[[ -z "$self_verification_manifest_file" ]] || \
+    launch_preview_args+=(--self-verification-manifest "$self_verification_manifest_file")
+(( disable_slash )) || launch_preview_args+=(--allow-slash-commands)
+(( model_cli_seen == 0 )) || launch_preview_args+=(--model "$model_cli_value")
+(( effort_cli_seen == 0 )) || launch_preview_args+=(--effort "$effort_cli_value")
+for provider_env_name in ${provider_env+"${provider_env[@]}"}; do
+    launch_preview_args+=(--provider-env "$provider_env_name")
+done
+for extra_dir in ${extra_dirs+"${extra_dirs[@]}"}; do
+    launch_preview_args+=(--add-dir "$extra_dir")
+done
+/usr/bin/python3 -I -S -B "$SCRIPT_DIR/scripts/agy_dispatch_worktree.py" \
+    "${launch_preview_args[@]}" < "$prompt_file" > "$launch_preview_file" || exit 64
+/usr/bin/python3 -I -S -B "$SCRIPT_DIR/scripts/launch_authority.py" \
+    match-record "$approval_record" "$approved_launch_sha" "$launch_preview_file" || exit 64
 
 # --- build the command -------------------------------------------------------
 build_cmd() {
@@ -1318,8 +1146,8 @@ build_cmd() {
     [[ "$provider_isolation" != "native" ]] || cmd+=(--sandbox)
     cmd+=(--mode "$mode" --print-timeout "${max_seconds}s")
     cmd+=(--output-format stream-json --json-schema "$SCHEMA")
-    (( boost_seen == 0 )) || cmd+=(--agent Boost)
     [[ -n "$model" ]] && cmd+=(--model "$model")
+    [[ -z "${user_effort:-}" ]] || cmd+=(--effort "$user_effort")
     if (( disable_slash )) && [[ "$mode" != "plan" ]]; then
         cmd+=(--disable-slash-commands)
     fi
@@ -1342,10 +1170,9 @@ build_cmd() {
         chmod 0555 "$staged_dir"
         stage_used=1
         cmd+=(--add-dir "$staged_dir")
-        cmd+=(--print "Read '$staged_prompt_file' as the complete prompt, including its
-output contract, persona, and task. Follow it exactly. The staged job directory is
-read-only context; target files named in that prompt remain readable and editable
-according to --mode and --add-dir. Return the JSON envelope inline.")
+        stage_instruction="$(/usr/bin/python3 -I -S -B \
+            "$SCRIPT_DIR/scripts/launch_authority.py" stage-instruction "$staged_prompt_file")"
+        cmd+=(--print "$stage_instruction")
     else
         cmd+=(--print "$full_prompt")   # ALWAYS last, prompt as the value
     fi
@@ -1363,7 +1190,7 @@ python3 -I -S -B - "$SCRIPT_DIR/scripts/agy_dispatch.py" "$command_file" "$job_i
     "$idle_seconds" "$hard_seconds" "$max_seconds" "$notice_seconds" \
     "$stage_dir_arg" "$stage_file_arg" "$CALLER_UMASK" "$command_workflow" "$max_cycles" \
     "${#provider_env[@]}" ${provider_env+"${provider_env[@]}"} "$selection_file" \
-    "$provider_scope" "$approve_transmission_sha" "$approve_whole_worktree" "$boost_seen" "$boost_policy_sha" "$approve_boost_risk_sha" "$allow_scoped_repair_seen" "$self_verification_manifest_file" "$provider_isolation" "${cmd[@]}" <<'PY'
+    "$provider_scope" "$approve_transmission_sha" "$approve_whole_worktree" "$allow_scoped_repair_seen" "$self_verification_manifest_file" "$provider_isolation" "$base_commit" "${cmd[@]}" <<'PY'
 import json
 import os
 from pathlib import Path
@@ -1377,11 +1204,11 @@ import sys
 dispatch = runpy.run_path(dispatch_source, run_name="agy_dispatch_scope_reader")
 provider_env_count = int(provider_env_count)
 provider_env = sorted(remainder[:provider_env_count])
-selection_path, provider_scope_arg, approved_transmission_sha_arg, approved_whole_worktree_sha_arg, boost_arg, boost_policy_sha_arg, approved_boost_risk_sha_arg, allow_scoped_repair_arg, self_verification_manifest_arg, provider_isolation_arg, *argv = remainder[provider_env_count:]
+selection_path, provider_scope_arg, approved_transmission_sha_arg, approved_whole_worktree_sha_arg, allow_scoped_repair_arg, self_verification_manifest_arg, provider_isolation_arg, base_commit_arg, *argv = remainder[provider_env_count:]
 if not isinstance(child_umask, str) or len(child_umask) not in (3, 4) or any(ch not in "01234567" for ch in child_umask):
     raise SystemExit(64)
 value = {
-    "schema_version": 11,
+    "schema_version": dispatch["CURRENT_COMMAND_SCHEMA"],
     "kind": "agy-worker-dispatch-command",
     "job_id": job_id,
     "workdir": workdir,
@@ -1413,9 +1240,6 @@ value = {
     "provider_scope_identity": None,
     "approved_transmission_sha256": None,
     "approved_whole_worktree_sha256": approved_whole_worktree_sha_arg or None,
-    "boost": boost_arg == "1",
-    "boost_policy_sha256": boost_policy_sha_arg or None,
-    "approved_boost_risk_sha256": approved_boost_risk_sha_arg or None,
     "allow_scoped_repair": allow_scoped_repair_arg == "1",
     "repair_authority_sha256": None,
     "allow_self_verification": bool(self_verification_manifest_arg),
@@ -1423,12 +1247,17 @@ value = {
     "self_verification_manifest_sha256": None,
     "self_verification_manifest_identity": None,
     "provider_isolation": provider_isolation_arg,
+    "base_commit": None,
     "whole_worktree_content_sha256": None,
     "native_grant_profile": (
         "baseline" if provider_isolation_arg == "session"
         else dispatch["CONTAINMENT"].NEW_NATIVE_GRANT_PROFILE
     ),
 }
+with open(Path(output).parent / "launch-preview.json", "rb") as handle:
+    launch_preview = json.load(handle)
+value["launch_authority"] = launch_preview["launch_authority"]
+value["launch_approval_sha256"] = launch_preview["launch_approval_sha256"]
 descriptor = os.open(selection_path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
 try:
     before = os.fstat(descriptor)
@@ -1463,6 +1292,13 @@ if provider_scope_arg:
     value["provider_scope_identity"] = list(identity(scope_info))
     value["approved_transmission_sha256"] = approved_transmission_sha_arg
 else:
+    try:
+        value["base_commit"] = dispatch["_bound_whole_worktree_base"](
+            workdir, base_commit_arg or None, workflow,
+        )
+    except dispatch["DispatchError"] as exc:
+        sys.stderr.write(f"agy-worker.sh: whole-worktree Git base binding failed: {exc}\n")
+        raise SystemExit(64)
     try:
         content = dispatch["whole_worktree_content_manifest"](workdir)
     except Exception:

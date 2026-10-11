@@ -1,8 +1,7 @@
 # Troubleshooting
 
-Start from the first failing boundary. Do not turn a local preflight, provider,
-lifecycle, or verification failure into an automatic retry, a changed model, or a
-weaker check. Preserve the current candidate and state until the cause is classified.
+Classify the first failure; preserve the candidate and caller choices. Do not silently
+retry, change models or weaken checks.
 
 For the normal command sequence, read
 [Project lifecycle and verification](PROJECT_LIFECYCLE_AND_VERIFICATION.md). For
@@ -19,15 +18,11 @@ missing.
 partial runtime or edit `.pipeline-root` by hand. A standalone marker must be an
 absolute path to a complete installation.
 
-## Doctor reports `review-required` or `not-ready`
+## Doctor reports `not-ready`
 
-`review-required` means reviewed matrix resolution is unavailable or stale. It does
-not block the provider-owned default or an explicitly approved literal model, but it
-does require the documented compatibility review before a reviewed direct selection.
-
-`not-ready` is a dispatch blocker. Fix the named local prerequisite, then rerun the
-offline doctor. Do not claim that a later live dispatch will work merely because the
-doctor becomes `ready`; it does not test authentication, provider availability, or
+Fix the named local prerequisite or missing AGY capability, then rerun the read-only
+doctor. Version drift does not require activation or help-SHA approval. A `ready`
+result does not test authentication, provider availability, native containment, or
 task quality.
 
 ## Transmission preview fails
@@ -49,16 +44,14 @@ boundary to recover a preview.
 
 ## Preflight fails before provider launch
 
-Tell the user that the task was not sent to AGY. Keep the caller's model, effort,
-permissions, authentication, scope, and task unchanged while classifying the local
-failure. A model change cannot repair a permission, missing executable, invalid
-worktree, approval, environment, quota, or human-decision blocker.
+Tell the user the task was not sent to AGY. Missing capabilities, malformed help or a
+changed executable reject before launch. Version text is diagnostic; approval flags
+cannot bypass readiness. Resolve the actual prerequisite without changing model,
+effort, authentication, scope, permissions or task.
 
-Before every reviewed direct dispatch, including an exact-version match, Codex must inspect current bounded raw `agy --help` evidence. Structural acceptance is not proof
-that the caller-selected model or effort is semantically available. On installed
-version drift, review the bounded help bytes and approve their exact SHA only when
-the selection can still be honored. A final selection reprobe failure does not permit
-same-job resume or restart; create a new job only after the evidence is reviewed.
+Lifecycle status reports `selection_preflight_failed` (exit 26). Inspect the existing
+private `stderr_path` for fixed missing-capability names, not raw help. Initial CLI
+preflight reports those names directly.
 
 ## agy exits zero but ordinary output is empty
 
@@ -75,25 +68,15 @@ permissions. A file-tool-only prompt does not guarantee the worker avoids comman
 Classify only from reviewed, bounded evidence. Do not infer account health, billing,
 model acceptance, or provider availability from local controller state.
 
-An exact agy `1.1.13` terminal quota response can produce exit `24` with a sanitized
-`retry_after_seconds`. Treat it as a stop and explicit-resume decision: do not sleep,
-retry, restart, or change the selected model automatically. Wrong-version or altered quota terminals without a
-recognized report remain `invalid_envelope`, exit `4`, with
-`failure_stage=missing_structured_output`; never generalize the narrow classifier.
+There is no version-specific quota countdown or automatic retry. A strict terminal
+`denied_actions` field, including an empty or malformed value, stops provider reuse.
+A valid candidate remains reviewable; a missing report does not become a candidate.
+An exact duration-bound partial-timeout signal or nonzero provider exit also prevents
+successful completion. Follow the recorded reason and available actions.
 
 For a candidate-free failure, consult `available_actions`. A mechanically eligible
 `resume` keeps the exact stored conversation; a fresh `restart` requires explicit user
 direction. Both require the current state SHA and a new provider notice.
-
-## Boost preflight or contract failed
-
-The first `--boost` invocation without approval exits before provider launch and prints
-the exact job-bound `--approve-boost-risk-sha`. Review the warning and rerun only for
-that same intended job and transmission. An invalid or stale digest, broader workflow,
-more than one cycle, persona, plan mode, or enabled slash commands is rejected before
-launch. After launch, a missing or mismatched Boost agent or `request-review`
-permission mode produces `failure_stage=boost_contract`. Do not resume, restart, or
-continue that job; a further attempt requires a new job and fresh approvals.
 
 ## A provider error or cancellation still has a candidate
 
@@ -111,6 +94,9 @@ cancellation as unverified unless independently established.
 Explicit `--provider-isolation native` requires supported macOS scoped containment.
 New jobs use the existing AGY session by default. A general
 `doctor` readiness result does not qualify that native launch or authentication.
+An outer host sandbox can prohibit nested Seatbelt: Codex `workspace-write` produced
+`sandbox_apply: Operation not permitted` in a live native attempt. Treat that as a
+host containment prerequisite failure, not as an unclassified provider failure.
 If launch reports `status_unavailable`, inspect the host and bound executable/profile
 before changing the task. Do not retry a provider call or silently switch execution
 or transmission modes: that changes the exposure approved by the user. Keep the
@@ -123,14 +109,21 @@ Mutating lifecycle commands require the current `state_sha256`; `wait` uses
 candidate-bound evidence, and use the newly reported approval only if the intended
 action remains available. Never copy a stale digest forward blindly.
 
-Refreshing this mechanical state binding does not by itself require another human
-approval. Reuse the approved job scope when the action remains covered; request new
-authority only when its scope, transmission, destination, or budget materially changes.
+Refreshing a binding does not itself require new approval. Reuse covered authority;
+changed exposure, scope, destination, isolation, permissions or budget needs approval.
 
 For facade finalization of a bound dispatch, use `dispatch.state_sha256` as
 `--approve-dispatch-sha`. It is distinct from a convenient current facade state hash.
-The deprecated facade `--approve-state-sha` spelling is only an exact alias for the
-same dispatch-state approval.
+The former facade `--approve-state-sha` alias is rejected; advanced dispatcher and
+job lifecycle commands still use their own `--approve-state-sha` flag.
+
+## Unsupported job schema or removed flag
+
+Use the creating release to finish or discard old-format jobs. Preserve their artifacts;
+do not rewrite schema numbers or use removed options to bypass rejection. There is no
+in-place migration, including for ordinary old jobs without removed features.
+Use current explicit transmission approvals and `--approve-dispatch-sha` for facade
+finalization. See [controller state and actions](PROJECT_LIFECYCLE_AND_VERIFICATION.md#controller-state-and-actions).
 
 ## Candidate drift or verification-copy failure
 

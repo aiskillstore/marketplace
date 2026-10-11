@@ -16,25 +16,14 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, NoReturn
 
 sys.dont_write_bytecode = True
 
-import compatibility
 
 
-RUNTIME_ROOT = Path(__file__).resolve().parents[1]
-COMPAT_ROOT = RUNTIME_ROOT / "compat"
-MATRIX_PATH = COMPAT_ROOT / "agy-model-effort-matrix.json"
-MATRIX_SCHEMA_PATH = COMPAT_ROOT / "model-effort-matrix.schema.json"
-MATRIX_SHA_PATH = COMPAT_ROOT / "agy-model-effort-matrix.sha256"
-INVENTORY_BINDING_PATH = COMPAT_ROOT / "agy-models-inventory-binding.json"
-INVENTORY_BINDING_SHA_PATH = COMPAT_ROOT / "agy-models-inventory-binding.sha256"
-VERSION_PATH = COMPAT_ROOT / "agy-verified-version.txt"
-SOURCE_PATH = COMPAT_ROOT / "agy-upstream-head.txt"
 SHA256_RE = re.compile(r"[0-9a-f]{64}")
 SOURCE_NAMES = ("cli", "environment")
-TIER_SOURCES = ("cli", "environment", "implicit-default")
 CHILD_ENV_BASE = ("HOME", "PATH", "TMPDIR", "LANG", "LANGUAGE")
 CHILD_ENV_LOCALES = (
     "LC_ALL", "LC_CTYPE", "LC_NUMERIC", "LC_TIME", "LC_COLLATE",
@@ -62,15 +51,6 @@ POLICY_FILE_LIMIT = 256 * 1024
 # finite pre-task hashing bound while leaving enough room for a near-term
 # executable growth without weakening the descriptor identity checks.
 EXECUTABLE_CONTENT_LIMIT = 512 * 1024 * 1024
-VERSION_RE = re.compile(r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)")
-REVISION_RE = re.compile(r"[0-9a-f]{40}")
-LITERAL_MODEL_RE = re.compile(r"[a-z0-9]+(?:[.-][a-z0-9]+)+")
-TIER_MODEL_BY_NAME = {
-    "bulk": "gemini-3.6-flash-medium",
-    "cheap": "gemini-3.6-flash-low",
-    "hard": "gemini-3.1-pro-high",
-    "hardest": "claude-opus-4-6-thinking",
-}
 
 
 def validate_child_environment_names(names: list[str]) -> list[str]:
@@ -99,50 +79,16 @@ def child_environment(
     if force_c_locale:
         environment["LC_ALL"] = "C"
     return environment
-COMMON_RECORD_FIELDS = {"schema_version", "kind", "selection_mode"}
-TIER_RECORD_FIELDS = COMMON_RECORD_FIELDS | {
-    "selected_tier",
-    "selected_tier_source",
-    "resolved_agy_model",
-}
-DIRECT_V1_RECORD_FIELDS = COMMON_RECORD_FIELDS | {
-    "user_model",
-    "user_model_source",
-    "resolved_agy_model",
-    "installed_agy_version",
-    "matrix_sha256",
-    "matrix_agy_version",
-    "matrix_source_revision",
-}
-EFFORT_V1_RECORD_FIELDS = DIRECT_V1_RECORD_FIELDS | {"user_effort", "user_effort_source"}
-DIRECT_V2_PROBE_FIELDS = {
-    "installed_agy_version",
-    "matrix_sha256",
-    "matrix_agy_version",
-    "matrix_source_revision",
-    "version_relation",
-    "compatibility_status",
-    "critical_interface_probe_version",
-    "critical_interface_status",
-    "critical_capabilities_sha256",
-    "help_sha256",
-    "model_availability",
-    "probed_executable",
-}
-DIRECT_V2_RECORD_FIELDS = (COMMON_RECORD_FIELDS | {
-    "user_model", "user_model_source", "resolved_agy_model",
-} | DIRECT_V2_PROBE_FIELDS)
-EFFORT_V2_RECORD_FIELDS = DIRECT_V2_RECORD_FIELDS | {"user_effort", "user_effort_source"}
-DIRECT_V3_DECISION_FIELDS = {
-    "compatibility_disposition", "approved_help_sha256", "compatibility_decision_sha256",
-}
-DIRECT_V3_RECORD_FIELDS = DIRECT_V2_RECORD_FIELDS | DIRECT_V3_DECISION_FIELDS
-EFFORT_V3_RECORD_FIELDS = DIRECT_V3_RECORD_FIELDS | {"user_effort", "user_effort_source"}
-LITERAL_RECORD_FIELDS = COMMON_RECORD_FIELDS | {
-    "user_model",
-    "user_model_source",
-    "resolved_agy_model",
-    "compatibility_status",
+SELECTION_SCHEMA = 5
+COMMON_RECORD_FIELDS = {"schema_version", "kind", "selection_mode", "resolved_agy_model"}
+PROBE_FIELDS = {"installed_agy_version", "probed_executable"}
+REQUIRED_AGY_CAPABILITIES = (
+    "--add-dir", "--disable-slash-commands", "--json-schema", "--mode",
+    "--model", "--output-format", "--print", "--print-timeout",
+)
+KNOWN_AGY_CAPABILITIES = REQUIRED_AGY_CAPABILITIES + ("--sandbox", "--conversation", "--effort")
+REQUIRED_CAPABILITY_VALUES = {
+    "--mode": {"accept-edits", "plan"}, "--output-format": {"stream-json"},
 }
 
 
@@ -150,16 +96,23 @@ class CallerError(ValueError):
     """The caller supplied an invalid or ambiguous selector."""
 
 
-class ReviewRequired(ValueError):
-    """Reviewed compatibility evidence drifted and needs Codex reconciliation."""
-
-    def __init__(self, message: str, evidence: dict[str, Any] | None = None) -> None:
-        super().__init__(message)
-        self.evidence = evidence
-
-
 class EvidenceUnavailable(ValueError):
     """Required local evidence is missing, malformed, or could not be observed."""
+
+
+class MissingCapabilities(EvidenceUnavailable):
+    """A diagnostic made exclusively from the controller's fixed flag names."""
+
+    def __init__(self, flags: tuple[str, ...], *, values: bool = False) -> None:
+        if not flags or len(set(flags)) != len(flags) or any(flag not in KNOWN_AGY_CAPABILITIES for flag in flags):
+            raise ValueError("invalid capability diagnostic")
+        self.flags = tuple(sorted(flags))
+        self.values = values
+        super().__init__(self.diagnostic())
+
+    def diagnostic(self) -> str:
+        prefix = "agy missing required capability values: " if self.values else "agy missing required capabilities: "
+        return prefix + ", ".join(self.flags)
 
 
 class ProbeInterrupted(BaseException):
@@ -170,26 +123,8 @@ class ProbeInterrupted(BaseException):
         self.signal_number = signal_number
 
 
-CRITICAL_OPTIONS: dict[str, tuple[str, ...]] = {
-    "--sandbox": (),
-    "--mode": ("accept-edits", "plan"),
-    "--print-timeout": (),
-    "--output-format": ("stream-json",),
-    "--json-schema": (),
-    "--model": (),
-    "--conversation": (),
-    "--add-dir": (),
-    "--disable-slash-commands": (),
-    "--print": (),
-}
-CRITICAL_ENUM_VALUES: dict[str, frozenset[str]] = {
-    "--mode": frozenset({"accept-edits", "plan"}),
-    "--output-format": frozenset({"text", "json", "stream-json"}),
-    "--effort": frozenset({"low", "medium", "high", "max"}),
-}
-
 class UsageParser(argparse.ArgumentParser):
-    def error(self, message: str) -> None:
+    def error(self, message: str) -> NoReturn:
         self.print_usage(sys.stderr)
         self.exit(64, f"model-selection: {message}\n")
 
@@ -215,85 +150,6 @@ def read_bounded(path: Path) -> bytes:
     if len(data) > POLICY_FILE_LIMIT:
         raise EvidenceUnavailable(f"{path.name} is oversized")
     return data
-
-
-def read_policy_record(path: Path, kind: str) -> str:
-    try:
-        return compatibility.validate_record(kind, compatibility.read_record(path))
-    except compatibility.CompatibilityError as exc:
-        raise EvidenceUnavailable(str(exc)) from exc
-
-
-def load_policy() -> tuple[dict[str, Any], str, str, str]:
-    try:
-        expected_sha = compatibility.read_record(MATRIX_SHA_PATH)
-    except compatibility.CompatibilityError as exc:
-        raise EvidenceUnavailable(str(exc)) from exc
-    if SHA256_RE.fullmatch(expected_sha) is None:
-        raise EvidenceUnavailable("malformed matrix SHA-256 record")
-
-    matrix_bytes = read_bounded(MATRIX_PATH)
-    actual_sha = hashlib.sha256(matrix_bytes).hexdigest()
-    if actual_sha != expected_sha:
-        raise EvidenceUnavailable("matrix SHA-256 does not match the reviewed record")
-
-    try:
-        matrix = compatibility.validate_matrix_structure(MATRIX_PATH, MATRIX_SCHEMA_PATH)
-    except compatibility.CompatibilityError as exc:
-        raise EvidenceUnavailable(str(exc)) from exc
-    if hashlib.sha256(read_bounded(MATRIX_PATH)).hexdigest() != actual_sha:
-        raise EvidenceUnavailable("matrix changed while it was being validated")
-
-    version = read_policy_record(VERSION_PATH, "version")
-    revision = read_policy_record(SOURCE_PATH, "revision")
-    active, reason = compatibility.matrix_binding_state(matrix, version, revision)
-    if not active:
-        raise ReviewRequired(reason)
-    try:
-        compatibility.validate_inventory_binding(
-            INVENTORY_BINDING_PATH,
-            INVENTORY_BINDING_SHA_PATH,
-            version,
-            revision,
-            matrix,
-        )
-    except compatibility.CompatibilityError as exc:
-        raise EvidenceUnavailable(str(exc)) from exc
-    return matrix, actual_sha, version, revision
-
-
-def resolve_model(matrix: dict[str, Any], model: str, effort: str | None) -> tuple[str, str]:
-    if compatibility.MODEL_RE.fullmatch(model) is None:
-        raise CallerError("--model must be one exact reviewed lowercase model name")
-    if effort is not None and effort not in compatibility.EFFORTS:
-        raise CallerError("--effort must be exactly low, medium, or high")
-
-    adjustable = {row["model"]: row for row in matrix["adjustable_models"]}
-    resolved_outputs = {
-        slug
-        for row in matrix["adjustable_models"]
-        for slug in row["resolutions"].values()
-    }
-    fixed = {row["model_slug"] for row in matrix["fixed_models"]}
-
-    if effort is None:
-        if model in adjustable:
-            raise CallerError("an adjustable base model requires one explicit effort")
-        if model in resolved_outputs or model in fixed:
-            return model, "exact-model"
-        raise CallerError("--model is not an exact reviewed model choice")
-
-    if model in resolved_outputs or model in fixed:
-        raise CallerError("compound and fixed model slugs do not accept --effort")
-    row = adjustable.get(model)
-    if row is None:
-        raise CallerError("--model is not a reviewed adjustable base model")
-    if effort in row["unsupported_efforts"]:
-        raise CallerError(f"{model} does not advertise {effort}")
-    resolved = row["resolutions"].get(effort)
-    if not isinstance(resolved, str) or not resolved:
-        raise EvidenceUnavailable("matrix has no exact reviewed output")
-    return resolved, "model-effort"
 
 
 def stop_process_group(process: subprocess.Popen[bytes]) -> None:
@@ -577,9 +433,8 @@ def probe_command(
     def interrupt_probe(signal_number: int, _frame: Any) -> None:
         raise ProbeInterrupted(signal_number)
 
-    # Interface probes never need provider credentials. The public approval
-    # recipe hashes C-locale help bytes, so bind the minimal probe environment
-    # to that locale as well.
+    # Interface probes never need provider credentials. Keep their minimal
+    # environment and capability descriptions in the C locale.
     probe_environment = child_environment(force_c_locale=True)
     try:
         for signal_number in watched_signals:
@@ -618,279 +473,120 @@ def probe_command(
 
 def probe_installed_version(executable: str | None = None) -> str:
     executable = executable or resolve_safe_executable()[0]
-    raw = probe_command(
-        executable, "--version", timeout=VERSION_TIMEOUT_SECONDS,
-        output_limit=VERSION_OUTPUT_LIMIT, label="version",
-    )
-
-    if not raw.endswith(b"\n") or raw.count(b"\n") != 1 or b"\x00" in raw:
-        raise EvidenceUnavailable("agy version output is empty or malformed")
+    raw = probe_command(executable, "--version", timeout=VERSION_TIMEOUT_SECONDS,
+                        output_limit=VERSION_OUTPUT_LIMIT, label="version")
     try:
-        line = raw[:-1].decode("ascii")
+        line = (raw[:-1] if raw.endswith(b"\n") else raw).decode("utf-8")
     except UnicodeDecodeError as exc:
-        raise EvidenceUnavailable("agy version output is not ASCII") from exc
-    match = re.fullmatch(rf"(?:agy\s+)?({VERSION_RE.pattern})", line)
-    if match is None:
-        raise EvidenceUnavailable("agy version output lacks documented semantic content")
-    return match.group(1)
+        raise EvidenceUnavailable("agy version output is malformed") from exc
+    if not line or line != line.strip() or any(ord(c) < 32 or ord(c) == 127 for c in line):
+        raise EvidenceUnavailable("agy version output is empty or malformed")
+    return line
 
-
-def parse_critical_help(raw: bytes, version: str | None = None) -> tuple[str, str]:
-    """Strictly bind the supported CLI surface without treating prose as evidence."""
-
-    critical_options = (
-        {**CRITICAL_OPTIONS, "--effort": ("low", "medium", "high", "max")}
-        if version == "1.2.11" else CRITICAL_OPTIONS
+def required_agy_capabilities(
+    *, provider_isolation: str = "session", conversation: bool = False, effort: bool = False,
+) -> tuple[str, ...]:
+    """Require optional flags only when the selected operation uses them."""
+    if provider_isolation not in {"session", "native"}:
+        raise CallerError("provider isolation must be session or native")
+    return REQUIRED_AGY_CAPABILITIES + tuple(
+        flag for flag, enabled in (
+            ("--sandbox", provider_isolation == "native"),
+            ("--conversation", conversation), ("--effort", effort),
+        ) if enabled
     )
 
-    if b"\x00" in raw:
-        raise EvidenceUnavailable("agy critical interface output is malformed")
+
+def parse_critical_help(
+    raw: bytes, *, provider_isolation: str = "session", conversation: bool = False,
+    effort: bool = False,
+) -> None:
+    """Check advertised flags and required transport values, never model policy."""
+    required_flags = required_agy_capabilities(
+        provider_isolation=provider_isolation, conversation=conversation, effort=effort,
+    )
+    if not raw or b"\x00" in raw:
+        raise EvidenceUnavailable("agy capability help is malformed")
     try:
         text = raw.decode("utf-8")
     except UnicodeDecodeError as exc:
-        raise EvidenceUnavailable("agy critical interface output is malformed") from exc
+        raise EvidenceUnavailable("agy capability help is malformed") from exc
     found: dict[str, str] = {}
     for line in text.splitlines():
-        # Help currently uses exactly two indentation spaces then a long option and
-        # at least two separating spaces.  Do not accept reflowed prose or aliases.
         match = re.fullmatch(r"  (--[a-z-]+) {2,}([^\r\n]+)", line)
-        if match is None:
+        if match is None or match[1] not in required_flags:
             continue
         option, detail = match.groups()
-        if option not in critical_options:
-            continue
-        if option in found:
-            raise EvidenceUnavailable("agy critical interface output is ambiguous")
-        if not detail or detail != detail.strip():
-            raise EvidenceUnavailable("agy critical interface output is malformed")
+        if option in found or detail != detail.strip():
+            raise EvidenceUnavailable("agy capability help is ambiguous or malformed")
         found[option] = detail
-    if set(found) != set(critical_options):
-        raise EvidenceUnavailable("agy critical interface output is incompatible")
-    semantic: dict[str, Any] = {}
-    for option, required_values in critical_options.items():
-        detail = found[option]
-        if not required_values:
-            semantic[option] = True
-            continue
-        domains = re.findall(r"\(([^()]*)\)", detail)
-        selected: set[str] | None = None
-        for domain in domains:
-            tokens = domain.split("|") if option == "--effort" else domain.split(", ")
-            if (
-                not tokens or len(tokens) != len(set(tokens))
-                or any(re.fullmatch(r"[a-z][a-z-]*", token) is None for token in tokens)
-            ):
-                continue
-            values = set(tokens)
-            if not set(required_values).issubset(values):
-                continue
-            allowed = CRITICAL_ENUM_VALUES[option]
-            if not values.issubset(allowed) or selected is not None:
-                raise EvidenceUnavailable("agy critical interface output is incompatible")
-            selected = values
-        if selected is None:
-            raise EvidenceUnavailable("agy critical interface output is incompatible")
-        semantic[option] = sorted(selected)
-    normalized = json.dumps(
-        {option: semantic[option] for option in sorted(semantic)},
-        ensure_ascii=True, sort_keys=True, separators=(",", ":"),
-    ).encode("ascii")
-    return hashlib.sha256(normalized).hexdigest(), hashlib.sha256(raw).hexdigest()
+    missing = sorted(set(required_flags) - set(found))
+    if missing:
+        raise MissingCapabilities(tuple(missing))
+    for option, required in REQUIRED_CAPABILITY_VALUES.items():
+        domains = [set(domain.split(", ")) for domain in re.findall(r"\(([^()]*)\)", found[option])]
+        if not any(required <= domain for domain in domains):
+            raise MissingCapabilities((option,), values=True)
 
-
-def probe_critical_interface(executable: str, version: str | None = None) -> tuple[str, str]:
+def probe_critical_interface(
+    executable: str, *, provider_isolation: str = "session", conversation: bool = False,
+    effort: bool = False,
+) -> None:
     raw = probe_command(
         executable, "--help", timeout=HELP_TIMEOUT_SECONDS,
         output_limit=HELP_OUTPUT_LIMIT, label="critical interface", help_stderr=True,
     )
-    return parse_critical_help(raw, version)
+    parse_critical_help(
+        raw, provider_isolation=provider_isolation, conversation=conversation, effort=effort,
+    )
 
 
-def compatibility_review_evidence(
-    *, installed: str, matrix_version: str, capability_sha: str, help_sha: str,
-    relation: str, user_model: str, user_model_source: str, resolved_model: str,
-    user_effort: str | None, user_effort_source: str | None,
-    compatibility_disposition: str | None, approve_help_sha: str | None,
+def transport_value(value: str, label: str) -> str:
+    if (not isinstance(value, str) or not value or len(value) > 128
+            or value != value.strip() or value.startswith("-")
+            or any(ord(c) < 33 or ord(c) == 127 for c in value)):
+        raise CallerError(f"{label} must be one bounded non-empty argument")
+    return value
+
+
+def probe_capabilities(
+    *, provider_isolation: str = "session", conversation: bool = False, effort: bool = False,
+) -> tuple[str, dict[str, Any], str]:
+    executable, binding = resolve_safe_executable()
+    version = probe_installed_version(executable)
+    probe_critical_interface(
+        executable, provider_isolation=provider_isolation, conversation=conversation, effort=effort,
+    )
+    confirm_executable_binding(executable, binding)
+    return executable, binding, version
+
+
+def bind_selection(
+    record: dict[str, Any], *, provider_isolation: str = "session",
 ) -> dict[str, Any]:
-    retry_arguments, retry_environment = [], {}
-    selectors = [(user_model_source, "--model", user_model, "AGY_WORKER_MODEL")]
-    if user_effort is not None:
-        selectors.append((user_effort_source, "--effort", user_effort, "AGY_WORKER_EFFORT"))
-    for source, flag, value, environment_name in selectors:
-        if source == "cli":
-            retry_arguments.extend((flag, value))
-        else:
-            retry_environment[environment_name] = value
-    retry_arguments += ["--compatibility-disposition", "proceed", "--approve-help-sha", help_sha]
-    evidence = {
-        "schema_version": 1,
-        "kind": "agy-worker-compatibility-review-evidence",
-        "installed_agy_version": installed,
-        "matrix_agy_version": matrix_version,
-        "version_relation": relation,
-        "compatibility_status": "direct-selection-review-required",
-        "critical_interface_status": "compatible",
-        "critical_capabilities_sha256": capability_sha,
-        "raw_help_sha256": help_sha,
-        "user_model": user_model,
-        "user_model_source": user_model_source,
-        "resolved_agy_model": resolved_model,
-        "retry_selection_arguments": retry_arguments,
-        "retry_selection_environment": retry_environment,
-        "approval": {"compatibility_disposition": compatibility_disposition, "approve_help_sha256": approve_help_sha},
-    }
-    if user_effort is not None:
-        evidence.update(user_effort=user_effort, user_effort_source=user_effort_source)
-    return evidence
+    _executable, binding, version = probe_capabilities(
+        provider_isolation=provider_isolation, effort=record.get("user_effort") is not None,
+    )
+    return {**record, "installed_agy_version": version, "probed_executable": binding}
 
 
 def resolve_selection(
-    model: str,
-    effort: str | None,
-    model_source: str,
-    effort_source: str | None,
-    *,
-    probe_version: bool,
-    compatibility_disposition: str | None = None,
-    approve_help_sha: str | None = None,
+    model: str, effort: str | None, model_source: str, effort_source: str | None,
+    *, probe_version: bool, provider_isolation: str = "session",
 ) -> dict[str, Any]:
-    if not model or model.strip() != model:
-        raise CallerError("--model must be non-empty and unpadded")
-    if effort is not None and (not effort or effort.strip() != effort):
-        raise CallerError("--effort must be non-empty and unpadded")
+    transport_value(model, "--model")
     if model_source not in SOURCE_NAMES or (effort_source is not None and effort_source not in SOURCE_NAMES):
         raise CallerError("selector provenance must be cli or environment")
-    if effort is None and effort_source is not None:
-        raise CallerError("effort provenance was supplied without an effort")
-    if effort is not None and effort_source is None:
-        raise CallerError("effort provenance is required with an effort")
-    if (compatibility_disposition is None) != (approve_help_sha is None):
-        # The pair is checked again after the local version probe so an
-        # omitted approval produces review-required rather than usage.
-        if compatibility_disposition is not None and compatibility_disposition != "proceed":
-            raise CallerError("--compatibility-disposition must be exactly proceed")
-        if approve_help_sha is not None and SHA256_RE.fullmatch(approve_help_sha) is None:
-            raise CallerError("--approve-help-sha must be one lowercase SHA-256")
-    elif compatibility_disposition is not None:
-        if compatibility_disposition != "proceed":
-            raise CallerError("--compatibility-disposition must be exactly proceed")
-        if SHA256_RE.fullmatch(approve_help_sha or "") is None:
-            raise CallerError("--approve-help-sha must be one lowercase SHA-256")
-
-    matrix, matrix_sha, matrix_version, matrix_revision = load_policy()
-    resolved, mode = resolve_model(matrix, model, effort)
-    executable, executable_record = resolve_safe_executable() if probe_version else (None, None)
-    installed = probe_installed_version(executable) if executable else None
-    capability_sha = help_sha = None
-    if executable:
-        capability_sha, help_sha = probe_critical_interface(executable, installed)
-    result: dict[str, Any] = {
-        "schema_version": 2 if installed is not None else 1,
-        "kind": "agy-worker-selection",
-        "selection_mode": mode,
-        "user_model": model,
-        "user_model_source": model_source,
-        "resolved_agy_model": resolved,
-        "matrix_sha256": matrix_sha,
-        "matrix_agy_version": matrix_version,
-        "matrix_source_revision": matrix_revision,
-    }
-    if installed is not None:
-        relation = "match" if installed == matrix_version else "drift"
-        evidence = compatibility_review_evidence(
-            installed=installed, matrix_version=matrix_version, relation=relation,
-            capability_sha=capability_sha or "", help_sha=help_sha or "",
-            user_model=model, user_model_source=model_source, resolved_model=resolved,
-            user_effort=effort, user_effort_source=effort_source,
-            compatibility_disposition=compatibility_disposition,
-            approve_help_sha=approve_help_sha,
-        )
-        if relation == "match":
-            if compatibility_disposition is not None or approve_help_sha is not None:
-                raise CallerError("compatibility approval is reserved for version drift")
-        elif compatibility_disposition is None or approve_help_sha is None:
-            raise ReviewRequired(
-                "version drift needs --compatibility-disposition proceed and --approve-help-sha SHA256",
-                evidence,
-            )
-        if relation == "drift" and approve_help_sha != help_sha:
-            raise ReviewRequired("approved help SHA-256 does not match the structural probe", evidence)
-        result.update({
-            "schema_version": 3 if relation == "drift" else 2,
-            "installed_agy_version": installed,
-            "version_relation": relation,
-            "compatibility_status": (
-                "reviewed-version-match" if relation == "match"
-                else "critical-interface-compatible-version-drift"
-            ),
-            "critical_interface_probe_version": 1,
-            "critical_interface_status": "compatible",
-            "critical_capabilities_sha256": capability_sha,
-            "help_sha256": help_sha,
-            "model_availability": "not_assessed",
-            "probed_executable": executable_record,
-        })
-    if effort is not None:
-        result["user_effort"] = effort
-        result["user_effort_source"] = effort_source
-    if installed is not None and relation == "drift":
-        result.update({
-            "compatibility_disposition": "proceed",
-            "approved_help_sha256": approve_help_sha,
-        })
-        result["compatibility_decision_sha256"] = compatibility_decision_sha256(result)
-    return result
-
-
-def compatibility_decision_sha256(record: dict[str, Any]) -> str:
-    """Hash the exact Codex disposition and every fact it is allowed to approve."""
-
-    fields = (
-        "compatibility_disposition", "approved_help_sha256", "help_sha256",
-        "critical_capabilities_sha256", "installed_agy_version", "matrix_agy_version",
-        "matrix_sha256", "matrix_source_revision", "selection_mode",
-        "user_model", "user_model_source", "resolved_agy_model", "probed_executable",
-    )
-    decision = {key: record[key] for key in fields}
-    if record["selection_mode"] == "model-effort":
-        decision["user_effort"] = record["user_effort"]
-        decision["user_effort_source"] = record["user_effort_source"]
-    raw = json.dumps(decision, ensure_ascii=True, sort_keys=True, separators=(",", ":")).encode("ascii")
-    return hashlib.sha256(raw).hexdigest()
-
-
-def resolve_tier_selection(tier: str, source: str) -> dict[str, Any]:
-    if not tier:
-        raise CallerError("--tier must not be empty")
-    if source not in TIER_SOURCES:
-        raise CallerError("tier provenance must be cli, environment, or implicit-default")
+    if (effort is None) != (effort_source is None):
+        raise CallerError("effort and its provenance must be supplied together")
     record: dict[str, Any] = {
-        "schema_version": 1,
-        "kind": "agy-worker-selection",
-        "selection_mode": "tier",
-        "selected_tier": tier,
-        "selected_tier_source": source,
-        "resolved_agy_model": None,
+        "schema_version": SELECTION_SCHEMA, "kind": "agy-worker-selection",
+        "selection_mode": "exact-model" if effort is None else "model-effort",
+        "user_model": model, "user_model_source": model_source, "resolved_agy_model": model,
     }
-    if tier != "default":
-        record["resolved_agy_model"] = TIER_MODEL_BY_NAME.get(tier, tier)
-    return record
-
-
-def resolve_literal_selection(model: str) -> dict[str, Any]:
-    """Record one caller-owned literal without consulting compatibility policy."""
-
-    if not isinstance(model, str) or len(model) > 128 or LITERAL_MODEL_RE.fullmatch(model) is None:
-        raise CallerError("--literal-model must be one exact lowercase model slug")
-    return {
-        "schema_version": 1,
-        "kind": "agy-worker-selection",
-        "selection_mode": "literal-model",
-        "user_model": model,
-        "user_model_source": "cli",
-        "resolved_agy_model": model,
-        "compatibility_status": "unreconciled-pass-through",
-    }
+    if effort is not None:
+        record.update(user_effort=transport_value(effort, "--effort"), user_effort_source=effort_source)
+    return bind_selection(record, provider_isolation=provider_isolation) if probe_version else record
 
 
 def require_exact_fields(record: dict[str, Any], expected: set[str]) -> None:
@@ -955,12 +651,7 @@ def validate_probed_executable(value: Any) -> None:
 
 
 def has_current_probed_executable_binding(value: Any) -> bool:
-    """Whether a decoded binding contains every field required to launch now.
-
-    V2 artifacts written before content digests and ctime observations existed
-    remain readable evidence.  They are deliberately not equivalent to a
-    current launch binding, even if their relation says ``match``.
-    """
+    """Require complete descriptor, content, and path authority observations."""
 
     current_lstat = {
         "device", "inode", "mode", "uid", "gid", "size", "mtime_ns", "ctime_ns",
@@ -985,199 +676,59 @@ def has_current_probed_executable_binding(value: Any) -> bool:
 
 
 def validate_selection_record_shape(record: dict[str, Any]) -> None:
-    """Validate strict v1/v2 selection-record shape and provenance without probing."""
-
-    if not isinstance(record, dict):
-        raise CallerError("selection record must be one JSON object")
-    schema_version = record.get("schema_version")
-    if type(schema_version) is not int or schema_version not in (1, 2, 3):
-        raise CallerError("selection record schema_version must be 1, 2, or 3")
+    if not isinstance(record, dict) or type(record.get("schema_version")) is not int or record["schema_version"] != SELECTION_SCHEMA:
+        raise CallerError("selection record format is retired or unsupported; finish or discard the job with the release that created it")
     if record.get("kind") != "agy-worker-selection":
         raise CallerError("selection record kind is invalid")
     mode = record.get("selection_mode")
-    if mode == "tier":
-        if schema_version != 1:
-            raise CallerError("selection record tier schema_version is invalid")
-        require_exact_fields(record, TIER_RECORD_FIELDS)
-        tier = require_string(record, "selected_tier")
-        source = record.get("selected_tier_source")
-        if source not in TIER_SOURCES:
-            raise CallerError("selection record tier source is invalid")
-        if source == "implicit-default" and tier != "default":
-            raise CallerError("implicit-default provenance is reserved for the agy-owned default")
-        expected = None if tier == "default" else TIER_MODEL_BY_NAME.get(tier, tier)
-        if record.get("resolved_agy_model") != expected:
-            raise CallerError("selection record tier resolution is inconsistent")
-        return
-
-    if mode == "literal-model":
-        if schema_version != 1:
-            raise CallerError("selection record literal schema_version is invalid")
-        require_exact_fields(record, LITERAL_RECORD_FIELDS)
-        user_model = require_string(record, "user_model")
-        if len(user_model) > 128 or LITERAL_MODEL_RE.fullmatch(user_model) is None:
-            raise CallerError("selection record literal model is invalid")
-        if record.get("user_model_source") != "cli":
-            raise CallerError("selection record literal source is invalid")
-        if record.get("resolved_agy_model") != user_model:
-            raise CallerError("selection record literal resolution is inconsistent")
-        if record.get("compatibility_status") != "unreconciled-pass-through":
-            raise CallerError("selection record literal compatibility status is invalid")
-        return
-
-    if mode not in ("exact-model", "model-effort"):
+    fields = set(COMMON_RECORD_FIELDS)
+    if mode == "agy-default":
+        expected = {"schema_version": SELECTION_SCHEMA, "kind": "agy-worker-selection",
+                    "selection_mode": "agy-default", "resolved_agy_model": None}
+    elif mode in {"exact-model", "model-effort"}:
+        fields |= {"user_model", "user_model_source"}
+        if mode == "model-effort":
+            fields |= {"user_effort", "user_effort_source"}
+        expected = resolve_selection(require_string(record, "user_model"), record.get("user_effort"),
+                                     require_string(record, "user_model_source"), record.get("user_effort_source"), probe_version=False)
+        expected["selection_mode"] = mode
+    else:
         raise CallerError("selection record mode is invalid")
-    if schema_version == 1:
-        expected_fields = EFFORT_V1_RECORD_FIELDS if mode == "model-effort" else DIRECT_V1_RECORD_FIELDS
-    elif schema_version == 2:
-        expected_fields = EFFORT_V2_RECORD_FIELDS if mode == "model-effort" else DIRECT_V2_RECORD_FIELDS
-    else:
-        expected_fields = EFFORT_V3_RECORD_FIELDS if mode == "model-effort" else DIRECT_V3_RECORD_FIELDS
-    require_exact_fields(
-        record, expected_fields,
-    )
-    user_model = require_string(record, "user_model")
-    resolved_model = require_string(record, "resolved_agy_model")
-    if schema_version == 3:
-        for key, value in (("user_model", user_model), ("resolved_agy_model", resolved_model)):
-            if len(value) > 128 or LITERAL_MODEL_RE.fullmatch(value) is None:
-                raise CallerError(f"selection record {key} is invalid")
-    if record.get("user_model_source") not in SOURCE_NAMES:
-        raise CallerError("selection record model source is invalid")
-    installed = require_string(record, "installed_agy_version")
-    matrix_version = require_string(record, "matrix_agy_version")
-    if VERSION_RE.fullmatch(installed) is None:
-        raise CallerError("selection record installed version is invalid")
-    if VERSION_RE.fullmatch(matrix_version) is None:
-        raise CallerError("selection record matrix version is invalid")
-    matrix_sha = require_string(record, "matrix_sha256")
-    revision = require_string(record, "matrix_source_revision")
-    if SHA256_RE.fullmatch(matrix_sha) is None:
-        raise CallerError("selection record matrix SHA-256 is invalid")
-    if REVISION_RE.fullmatch(revision) is None:
-        raise CallerError("selection record source revision is invalid")
-    if schema_version == 1:
-        if installed != matrix_version:
-            raise CallerError("selection record installed version is invalid")
-    else:
-        relation = record.get("version_relation")
-        status = record.get("compatibility_status")
-        expected_relation = "match" if installed == matrix_version else "drift"
-        expected_status = (
-            "reviewed-version-match"
-            if expected_relation == "match"
-            else "critical-interface-compatible-version-drift"
-        )
-        if relation != expected_relation or status != expected_status:
-            raise CallerError("selection record version relation is invalid")
-        if schema_version == 3 and expected_relation != "drift":
-            raise CallerError("selection record version relation is invalid")
-        if record.get("critical_interface_probe_version") != 1:
-            raise CallerError("selection record critical interface version is invalid")
-        if record.get("critical_interface_status") != "compatible":
-            raise CallerError("selection record critical interface status is invalid")
-        for key in ("critical_capabilities_sha256", "help_sha256"):
-            if SHA256_RE.fullmatch(require_string(record, key)) is None:
-                raise CallerError("selection record critical interface digest is invalid")
-        if record.get("model_availability") != "not_assessed":
-            raise CallerError("selection record model availability is invalid")
-        if schema_version == 3:
-            if record.get("approved_help_sha256") != record["help_sha256"]:
-                raise CallerError("selection record approved help binding is invalid")
+    if "probed_executable" in record or "installed_agy_version" in record:
+        fields |= PROBE_FIELDS
+        version = require_string(record, "installed_agy_version")
+        if len(version.encode("utf-8")) > VERSION_OUTPUT_LIMIT or any(ord(c) < 32 or ord(c) == 127 for c in version):
+            raise CallerError("selection diagnostic version is invalid")
         validate_probed_executable(record.get("probed_executable"))
-        if schema_version == 3:
-            if not has_current_probed_executable_binding(record["probed_executable"]):
-                raise CallerError("selection record executable binding is legacy-only")
-            if record.get("compatibility_disposition") != "proceed":
-                raise CallerError("selection record compatibility disposition is invalid")
-            if record.get("approved_help_sha256") != record.get("help_sha256"):
-                raise CallerError("selection record approved help SHA-256 is invalid")
-            decision = record.get("compatibility_decision_sha256")
-            if not isinstance(decision, str) or SHA256_RE.fullmatch(decision) is None:
-                raise CallerError("selection record compatibility decision is invalid")
-            if decision != compatibility_decision_sha256(record):
-                raise CallerError("selection record compatibility decision is invalid")
-    effort = None
-    if mode == "model-effort":
-        effort = require_string(record, "user_effort")
-        if effort not in compatibility.EFFORTS:
-            raise CallerError("selection record effort is invalid")
-        if record.get("user_effort_source") not in SOURCE_NAMES:
-            raise CallerError("selection record effort source is invalid")
-    elif resolved_model != user_model:
-        raise CallerError("selection record exact model resolution is inconsistent")
+        if not has_current_probed_executable_binding(record["probed_executable"]):
+            raise CallerError("selection executable binding is retired")
+    require_exact_fields(record, fields)
+    if any(record[key] != value for key, value in expected.items()):
+        raise CallerError("selection record caller choice is inconsistent")
 
 
 def validate_selection_record(record: dict[str, Any]) -> None:
-    """Validate the exact semantic artifact contract against reviewed policy."""
-
     validate_selection_record_shape(record)
-    mode = record["selection_mode"]
-    if mode in ("tier", "literal-model"):
-        return
-    user_model = record["user_model"]
-    resolved_model = record["resolved_agy_model"]
-    matrix_sha = record["matrix_sha256"]
-    matrix_version = record["matrix_agy_version"]
-    revision = record["matrix_source_revision"]
-    effort = record.get("user_effort")
-    matrix, current_sha, current_version, current_revision = load_policy()
-    if (matrix_sha, matrix_version, revision) != (
-        current_sha,
-        current_version,
-        current_revision,
-    ):
-        raise ReviewRequired("selection record compatibility provenance drifted")
-    expected_model, expected_mode = resolve_model(matrix, user_model, effort)
-    if mode != expected_mode or resolved_model != expected_model:
-        raise CallerError("selection record direct resolution is inconsistent")
 
 
-def reprobe_selection_record(record: dict[str, Any]) -> tuple[str, dict[str, Any]]:
-    """Re-resolve and prove a frozen direct selection immediately before launch.
-
-    This is intentionally the sole API which returns the local executable path;
-    command-line modes never print it.  Version and inode changes are acceptable
-    only before a fresh safe-target, version, and critical-interface probe.  The
-    target and its content-related lstat binding must then remain exact through a
-    final re-resolution immediately before the controller launch boundary.
-    """
-
-    # This is a controller launch path, not a new caller choice.  The dispatch
-    # command passes the record decoded from the exact bytes it SHA/identity-
-    # bound, so this probe must not reopen a mutable record path.  Its shape
-    # still authenticates the record's own matrix identity and direct-interface
-    # evidence before the fresh executable probe.
+def reprobe_selection_record(
+    record: dict[str, Any], *, provider_isolation: str = "session", conversation: bool = False,
+) -> tuple[str, dict[str, Any]]:
+    """Probe every launch and preserve the initial executable authority binding."""
     validate_selection_record_shape(record)
-    schema_version = record.get("schema_version")
-    if record.get("selection_mode") not in ("exact-model", "model-effort") or schema_version not in (2, 3):
-        raise CallerError("selection record has no direct executable binding")
-    if not has_current_probed_executable_binding(record["probed_executable"]):
-        raise CallerError("selection record executable binding is legacy-only")
-    executable, binding = resolve_safe_executable()
-    installed = probe_installed_version(executable)
-    capabilities, help_sha = probe_critical_interface(executable, installed)
-    if (
-        installed != record["installed_agy_version"]
-        or capabilities != record["critical_capabilities_sha256"]
-        or help_sha != record["help_sha256"]
-        or not frozen_executable_binding_matches(record["probed_executable"], binding)
-    ):
-        raise EvidenceUnavailable("agy direct-selection compatibility facts changed")
-    final_executable, final_binding = resolve_safe_executable()
-    if final_executable != executable or not executable_bindings_match(binding, final_binding):
-        raise EvidenceUnavailable("agy executable changed during final interface probe")
-    return final_executable, final_binding
+    if "probed_executable" not in record:
+        raise CallerError("selection record has no executable binding")
+    executable, binding, _version = probe_capabilities(
+        provider_isolation=provider_isolation, conversation=conversation,
+        effort=record.get("user_effort") is not None,
+    )
+    if not frozen_executable_binding_matches(record["probed_executable"], binding):
+        raise EvidenceUnavailable("agy selection executable changed")
+    return executable, binding
 
 
 def frozen_executable_binding_matches(before: dict[str, Any], after: dict[str, Any]) -> bool:
-    """Compare target bytes plus all path identity and authority observations.
-
-    Path digests are normalized only when written through the documented macOS
-    ``/var`` -> ``/private/var`` alias.  A legacy V2/V3 record can still be
-    decoded, but cannot authorize a current direct-selection launch because it
-    lacks the required descriptor-bound content digest.
-    """
+    """Compare the frozen target bytes and every path authority observation."""
 
     return executable_bindings_match(before, after)
 
@@ -1249,15 +800,7 @@ def decode_selection_record(payload: bytes, *, frozen: bool = False) -> dict[str
 
 
 def read_selection_record(path: Path, *, frozen: bool = False) -> dict[str, Any]:
-    """Read one record, with live policy validation only for a new selection.
-
-    A controller consumes immutable bytes that its dispatch command and state
-    have already bound cryptographically.  Those bytes retain their own matrix
-    SHA/version/revision and interface-evidence fields, which are checked by
-    ``validate_selection_record_shape``.  Consulting the mutable current
-    matrix here would turn unrelated policy drift into a change to the caller's
-    already-approved model choice.
-    """
+    """Read strict caller provenance without provider execution."""
 
     if path.is_symlink() or not path.is_file():
         raise CallerError("selection record input must be one real file")
@@ -1298,19 +841,11 @@ def publish_record(path: Path, record: dict[str, Any]) -> None:
 
 def build_parser() -> UsageParser:
     parser = UsageParser(prog="model-selection.sh")
-    parser.add_argument("--tier", action="append")
-    parser.add_argument("--tier-source", action="append", choices=TIER_SOURCES)
-    parser.add_argument("--model", action="append")
-    parser.add_argument("--literal-model", action="append")
-    parser.add_argument("--effort", action="append")
-    parser.add_argument("--model-source", action="append", choices=SOURCE_NAMES)
-    parser.add_argument("--effort-source", action="append", choices=SOURCE_NAMES)
-    parser.add_argument("--compatibility-disposition", action="append")
-    parser.add_argument("--approve-help-sha", action="append")
-    parser.add_argument("--output", action="append")
-    parser.add_argument("--validate-record", action="append")
-    parser.add_argument("--verify-record-executable", action="append")
-    parser.add_argument("--observe-installed-version", action="store_true")
+    for name in ("model", "effort", "model-source", "effort-source", "provider-isolation", "output", "validate-record", "verify-record-executable"):
+        parser.add_argument("--" + name, action="append")
+    observation = parser.add_mutually_exclusive_group()
+    observation.add_argument("--observe-installed-version", action="store_true")
+    observation.add_argument("--probe-interface", action="store_true")
     parser.add_argument("--child-env", action="append", default=[])
     return parser
 
@@ -1318,161 +853,61 @@ def build_parser() -> UsageParser:
 def main(argv: list[str] | None = None) -> int:
     global ACTIVE_CHILD_ENV
     parser = build_parser()
+    if any(arg == "--literal-model" or arg.startswith("--literal-model=") for arg in (sys.argv[1:] if argv is None else argv)):
+        parser.error("--literal-model is retired; use --model")
     args = parser.parse_args(argv)
     try:
         ACTIVE_CHILD_ENV = validate_child_environment_names(args.child_env)
-    except EvidenceUnavailable as exc:
-        parser.error(str(exc))
-    tier = one(parser, args.tier, "--tier", False)
-    tier_source = one(parser, args.tier_source, "--tier-source", False)
-    model = one(parser, args.model, "--model", False)
-    literal_model = one(parser, args.literal_model, "--literal-model", False)
-    effort = one(parser, args.effort, "--effort", False)
-    model_source = one(parser, args.model_source, "--model-source", False) or "cli"
-    effort_source = one(parser, args.effort_source, "--effort-source", False)
-    compatibility_disposition = one(parser, args.compatibility_disposition, "--compatibility-disposition", False)
-    approve_help_sha = one(parser, args.approve_help_sha, "--approve-help-sha", False)
-    output = one(parser, args.output, "--output", False)
-    validate_record = one(parser, args.validate_record, "--validate-record", False)
-    verify_record_executable = one(
-        parser, args.verify_record_executable, "--verify-record-executable", False,
-    )
-    if args.observe_installed_version:
-        if any(
-            value is not None
-            for value in (
-                args.tier, args.tier_source, args.model, args.literal_model,
-                args.effort, args.model_source, args.effort_source,
-                args.compatibility_disposition, args.approve_help_sha, args.output,
-                args.validate_record, args.verify_record_executable,
-            )
-        ):
-            parser.error("--observe-installed-version is mutually exclusive with selection inputs")
-        try:
-            print(probe_installed_version())
-        except EvidenceUnavailable as exc:
-            print(f"model-selection: evidence-unavailable - {exc}", file=sys.stderr)
-            return 8
-        except ProbeInterrupted as exc:
-            return 128 + exc.signal_number
-        return 0
-    if validate_record is not None:
-        if any(
-            value is not None
-            for value in (
-                args.tier,
-                args.tier_source,
-                args.model,
-                args.literal_model,
-                args.effort,
-                args.model_source,
-                args.effort_source,
-                args.compatibility_disposition,
-                args.approve_help_sha,
-                args.output,
-                args.verify_record_executable,
-            )
-        ):
-            parser.error("--validate-record is mutually exclusive with selection inputs")
-        try:
-            read_selection_record(Path(validate_record))
-        except CallerError as exc:
-            print(f"model-selection: {exc}", file=sys.stderr)
-            return 64
-        except ReviewRequired as exc:
-            print_review_required(exc)
-            return 7
-        except EvidenceUnavailable as exc:
-            print(f"model-selection: evidence-unavailable - {exc}", file=sys.stderr)
-            return 8
-        return 0
-    if verify_record_executable is not None:
-        if any(
-            value is not None
-            for value in (
-                args.tier, args.tier_source, args.model, args.literal_model,
-                args.effort, args.model_source, args.effort_source,
-                args.compatibility_disposition, args.approve_help_sha, args.output,
-                args.validate_record,
-            )
-        ):
-            parser.error("--verify-record-executable is mutually exclusive with selection inputs")
-        try:
-            # This compatibility flag proves the record but deliberately does
-            # not make an executable path a public CLI output.
-            record = read_selection_record(Path(verify_record_executable), frozen=True)
-            reprobe_selection_record(record)
-        except CallerError as exc:
-            print(f"model-selection: {exc}", file=sys.stderr)
-            return 64
-        except ReviewRequired as exc:
-            print_review_required(exc)
-            return 7
-        except EvidenceUnavailable as exc:
-            print(f"model-selection: evidence-unavailable - {exc}", file=sys.stderr)
-            return 8
-        return 0
-    if sum(value is not None for value in (tier, model, literal_model)) != 1:
-        parser.error("exactly one of --tier, --model, or --literal-model is required")
-    if tier is not None and (
-        effort is not None or args.model_source is not None or effort_source is not None
-    ):
-        parser.error("--tier is mutually exclusive with model and effort inputs")
-    if literal_model is not None and (
-        effort is not None
-        or args.model_source is not None
-        or effort_source is not None
-        or tier_source is not None
-    ):
-        parser.error("--literal-model is CLI-only and mutually exclusive with tier/model/effort provenance")
-    if (compatibility_disposition is not None or approve_help_sha is not None) and model is None:
-        parser.error("compatibility approval requires --model")
-    if tier is None and tier_source is not None:
-        parser.error("--tier-source requires --tier")
-    if tier is not None and tier_source is None:
-        tier_source = "cli"
-    if effort is not None and effort_source is None:
-        effort_source = "cli"
-    if effort is None and effort_source is not None:
-        parser.error("--effort-source requires --effort")
-    try:
-        if tier is not None:
-            record = resolve_tier_selection(tier, tier_source or "cli")
-        elif literal_model is not None:
-            record = resolve_literal_selection(literal_model)
+        values = {key: one(parser, value, "--" + key.replace("_", "-"), False)
+                  for key, value in vars(args).items() if isinstance(value, list) and key != "child_env"}
+        if args.observe_installed_version or args.probe_interface:
+            if values:
+                parser.error("interface observation is mutually exclusive with selection inputs")
+            if args.probe_interface:
+                _executable, _binding, version = probe_capabilities()
+                print(version)
+                print("required capabilities: " + " ".join(REQUIRED_AGY_CAPABILITIES))
+            else:
+                print(probe_installed_version())
+            return 0
+        def get(key: str) -> str | None:
+            return values.get(key)
+        for action in ("validate_record", "verify_record_executable"):
+            if get(action):
+                if set(values) != {action}:
+                    parser.error("record operation is mutually exclusive with selection inputs")
+                record = read_selection_record(Path(get(action) or ""), frozen=True)
+                if action == "verify_record_executable":
+                    reprobe_selection_record(record)
+                return 0
+        provider_isolation = get("provider_isolation") or "session"
+        required_agy_capabilities(provider_isolation=provider_isolation)
+        model, effort = get("model"), get("effort")
+        if model is None:
+            if effort is not None or get("model_source") or get("effort_source"):
+                parser.error("effort and provenance require --model")
+            record = bind_selection({
+                "schema_version": SELECTION_SCHEMA, "kind": "agy-worker-selection",
+                "selection_mode": "agy-default", "resolved_agy_model": None,
+            }, provider_isolation=provider_isolation)
         else:
-            record = resolve_selection(
-                model or "", effort, model_source, effort_source, probe_version=True,
-                compatibility_disposition=compatibility_disposition,
-                approve_help_sha=approve_help_sha,
-            )
-        if output is None:
-            json.dump(record, sys.stdout, indent=2, sort_keys=True)
-            sys.stdout.write("\n")
-        else:
-            publish_record(Path(output), record)
+            record = resolve_selection(model, effort, get("model_source") or "cli",
+                (get("effort_source") or "cli") if effort is not None else get("effort_source"),
+                probe_version=True, provider_isolation=provider_isolation)
+        if get("output"):
+            publish_record(Path(get("output") or ""), record)
             print(record.get("resolved_agy_model") or "")
+        else:
+            print(json.dumps(record, indent=2, sort_keys=True))
+        return 0
     except CallerError as exc:
         print(f"model-selection: {exc}", file=sys.stderr)
         return 64
-    except ReviewRequired as exc:
-        print_review_required(exc)
-        return 7
     except EvidenceUnavailable as exc:
         print(f"model-selection: evidence-unavailable - {exc}", file=sys.stderr)
         return 8
     except ProbeInterrupted as exc:
         return 128 + exc.signal_number
-    return 0
-
-
-def print_review_required(exc: ReviewRequired) -> None:
-    """Emit the bounded public evidence shape without changing success stdout."""
-    if exc.evidence is None:
-        print(f"model-selection: review-required - {exc}", file=sys.stderr)
-        return
-    raw = json.dumps(exc.evidence, ensure_ascii=True, sort_keys=True, separators=(",", ":"))
-    print(f"model-selection: review-required {raw}", file=sys.stderr)
 
 
 if __name__ == "__main__":

@@ -1,37 +1,38 @@
 # agy-worker package
 
-`agy-worker` is a Codex Agent Skill for delegating repository exploration and
+`agy-worker` is an Agent Skill for delegating repository exploration and
 implementation to Google Antigravity CLI (`agy`) while keeping acceptance with
-Codex. The package includes its complete portable runtime, so an installed skill does
-not need a repository checkout or a network fetch to resolve its commands.
+the driver. The package includes its complete portable core runtime, so an installed
+skill does not need a repository checkout or a network fetch for ordinary workflows.
+Maintenance tools require a repository checkout.
 
-Use it when a repository task benefits from delegated discovery or edits and Codex
+Use it when a repository task benefits from delegated discovery or edits and the driver
 can independently inspect the candidate and run the relevant project checks. It is
 not a general-purpose provider client, a security sandbox, or evidence that worker
 output is correct.
 
 ## Requirements
 
-- OpenAI Codex CLI
+- OpenAI Codex CLI or Claude Code
 - Bash, Python 3, and Git
 - `agy` on `PATH` with provider access for live dispatch
 - A branch-backed disposable Git worktree whose complete provider-readable content
   has been reviewed and approved
 
-Claude and Claude Code hosts are not supported. A provider model slug containing
-`claude` does not change the host requirement.
+A provider model slug containing `claude` does not establish driver-host support.
 
-## Start from Codex
+## Start from your driver
 
-After installing the skill, start a new Codex session and make the scope and checks
+After installing the skill, start a new driver session and make the scope and checks
 concrete. For example:
 
 > Use the agy-worker skill to add parser error-path tests in this repository. Allow
 > edits only under tests, verify with the existing parser test suite, and preserve
 > useful partial work if a check fails.
 
-Before a live dispatch, Codex must show the public-safe task and caller-owned model
-selection, obtain any missing provider-transmission approval, and ensure secrets,
+Before a live dispatch, the driver must show the owner the exact task and selected
+settings beside the content digest; a later provider notice may use a public-safe
+summary. Obtain any missing provider-transmission approval, and ensure secrets,
 denied paths, and unrelated private files are absent from the disposable worktree.
 Installation alone grants none of those permissions.
 
@@ -39,17 +40,11 @@ Prefer selected-content `--provider-scope` for bounded jobs. Whole-worktree disp
 remains an explicit content-bound exception, and neither the ordinary facade nor the
 advanced raw initial launch has an implicit transmission mode.
 
-For an explicitly accepted higher-authority experiment, the advanced raw dispatcher
-supports one-cycle `--boost` task mode. Its first provider-free invocation prints the
-job-bound risk digest required by `--approve-boost-risk-sha`; review the warning before
-rerunning. Boost may invoke provider-side subagents and protected tools, but the digest
-does not grant permissions, widen the approved transmission, or authorize Git or
-publication. Boost results require a matching provider init identity and are never
-eligible for resume, restart, or continuation.
-
 ## Resolve the bundled runtime
 
-The skill instructions receive the package root as `SKILL_ROOT`. Resolve the runtime
+`SKILL_ROOT` is the directory containing `SKILL.md`; Claude Code substitutes
+`${CLAUDE_SKILL_DIR}` in skill content. Set it explicitly in each Bash call; do not
+read a Claude path variable from the environment. Resolve the runtime
 instead of assuming a repository path:
 
 ```bash
@@ -62,7 +57,7 @@ or this folder with its bundled `runtime/`. It fails closed when required compon
 are missing. `doctor.sh` is an offline prerequisite check; `ready` does not prove
 provider authentication or future job success.
 
-For ordinary work, Codex uses the resolved `workflow.sh` facade to preview the
+For ordinary work, the driver uses the resolved `workflow.sh` facade to preview the
 provider-readable path boundary, run an approved workflow, inspect status, and bind
 driver-owned verification before finalization. The lower-level dispatcher, lifecycle,
 gate, and receipt commands remain advanced recovery surfaces.

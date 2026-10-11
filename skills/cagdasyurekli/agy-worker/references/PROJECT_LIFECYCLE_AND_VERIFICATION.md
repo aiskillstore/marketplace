@@ -2,7 +2,7 @@
 
 This guide owns the operational lifecycle after the repository, task, provider
 transmission, and caller-selected model inputs are approved. The worker envelope is
-input, never acceptance evidence. Codex reviews the bound candidate and supplies the
+input, never acceptance evidence. The driver reviews the bound candidate and supplies the
 verification evidence.
 
 Read [Security and compatibility](SECURITY_AND_COMPATIBILITY.md) before a first live
@@ -11,97 +11,158 @@ lifecycle, or verifier step fails.
 
 ## Approval, bindings, and launch notices
 
-Human approval authorizes an exact provider transmission boundary and its intended
-work. `launch_approval_sha256`, `transmission_sha256`, `state_sha256`, candidate, and
-dispatch SHA values mechanically bind that decision to current reviewed facts; they do
-not themselves grant authority. Refresh a binding only when the already-approved
-action remains available. Request fresh human authority when content exposure,
-destination, isolation mode, scope, or budget materially changes. A normal job needs
-no hand-authored JSON or Goal. Preserve Goal as an ordinary-use
-opt-in, not a prerequisite.
+Human approval covers exact work and provider exposure. Preview, transmission, state,
+candidate and dispatch SHA values bind their specified controller inputs; they grant
+no authority by themselves. Refresh them only for an action still covered and
+mechanically available. Whole-worktree launch approval binds content, kinds, full
+file mode bits, symlink target hashes, readable manifest, provider isolation and
+native grant profile.
+Scoped transmission approval binds canonical read/write policy, readable path/kind
+manifest, selected bytes and executable bits, isolation and grant profile; scoped
+mode rejects symlinks and does not bind full POSIX permissions. These content
+subdigests are inputs to the single human-approved `launch_approval_sha256`.
+Its canonical `launch_authority` also binds the destination and Git base, normalized
+task, constructed prompt and fixed transport templates, workflow/edit mode, model/effort,
+cycle/time budgets, scoped repair, private self-verification manifest digest,
+provider-env names, slash policy, additional directories and provider schema digest.
+The preview displays the full task and every bound field. UTF-8 task input rejects
+NUL and removes trailing LF only; stdin and `--task` use the same rule.
+The controller recomputes actual initial authority before provider start; a stale
+record names the changed field. The facade saves that record in private workflow
+state. Advanced raw launches require the saved mode-0600 preview JSON through
+`--approval-record`, alongside the human-approved digest.
 
-One exact upfront approval may cover predictable same-scope repairs and mechanical
-digest/state refresh. Use initial `--allow-scoped-repair` for approved multi-turn
-scoped work; provider-launch notices are status, not repeated permission requests.
-For whole-worktree mode, use the preview's exact `launch_approval_sha256`; for provider
-scope, use the exact `transmission_sha256`. Approval reuse does not authorize a Git
-action, acceptance, publication, installation, account action, or a new provider
-execution beyond the approved job. New scope, content exposure, destination,
-isolation, permissions or budget still require authority. Preserve required current
-raw-help/semantic version preflight on each launch; add no cache or alternate controller.
+The constructed task prompt and transport-template hashes bind fixed instructions.
+The controller adds the validated attempt root and bounded current change hint;
+these dynamic annotations are checked with the final provider `--print` bytes at
+spawn, including native containment. Same-conversation repair feedback stays outside
+the initial task hash and uses the existing approved repair lineage. Environment
+values and private manifest contents are excluded from approval metadata.
+Before an initial provider launch, show the owner a private review packet with:
 
-Before every provider-launch attempt (initial start/run, resume, continue, and restart), tell the user in one or two concise user-facing sentences what task is being sent to AGY.
-Include a short public-safe task label, caller-selected model information, caller-selected effort when separately selectable, and the exact resolved model slug.
-For default selection where no model is selected or the default tier is used, state truthfully that the provider default model is used and that model or effort is unresolved, without inventing a resolved slug or thinking level.
-For fixed/compound/literal models where effort is not separately selectable, state that accurately without inferring backend reasoning or inventing a thinking level.
+- The exact task text (not the shorter public-safe launch notice), workflow/edit
+  mode, selected model/effort or unresolved default, and retry/time budget.
+- The exact scope policy and preview digest, or whole-worktree manifest and digest;
+  the provider isolation mode and native grant profile when selected.
+- Whether `--allow-scoped-repair` is enabled and, if self-verification is enabled,
+  each manifest check's exact `argv`, ID, required/optional flag, timeout and output
+  limit, plus the manifest's total time limit.
+- Each `--provider-env` and `--verify-env` name and its resulting child exposure.
+
+Keep any owner-private self-verification manifest outside the worktree and out of
+the provider preview and prompt. The manifest's digest binds the reviewed private
+commands; a later launch notice may summarize the task safely.
+One upfront approval may cover predictable same-scope repairs; use initial
+`--allow-scoped-repair` for multi-turn scoped work. New exposure, destination,
+isolation, permissions or budget requires authority. A normal job needs neither
+hand-authored JSON nor Goal. Capability preflight and the executable recheck still
+run before every launch.
+
+Before every provider-launch attempt (initial start/run, resume, continue, and restart), tell the user what task is being sent to AGY.
+Include a short public-safe task label and the exact resolved model slug when known.
+For default selection, say the provider default is used and the model is unresolved; do not invent a slug.
+Report caller-supplied effort when present; otherwise say effort is unresolved, without inferring backend reasoning.
 The notice must precede every dispatch attempt and remain accurate afterward.
 If preflight fails before provider launch, explicitly state that the task was not sent to AGY.
 If provider reach is genuinely uncertain, state that it is unverified rather than claiming success.
-Direct model and effort selection remain caller-owned; recommendations are advisory.
+Direct model and effort selection remain caller-owned.
 
-The notice does not require another response while the existing approval applies.
+The notice is status, not another approval request. Covered repairs do not authorize
+Git actions, acceptance, publication, installation, account actions or provider work
+outside the approved job.
 
 ## Lifecycle at a glance
 
-1. Capture an immutable base commit and create a branch-backed disposable worktree.
-2. Keep owner-private controller state outside the worktree.
-3. Generate the content-free transmission preview and review its exact digest.
-4. Obtain approval for the complete provider-readable content and dispatch with the
-   same repository, worktree, base, branch, and job bindings.
-5. Retrieve the bound candidate, inspect its Git diff, and select checks independently
-   of worker prose.
-6. Run writable checks in an isolated verification copy.
-7. Bind sanitized findings to the current candidate in Verification v2.
-8. Continue the same conversation for a bounded repair or finalize an honest
-   disposition. Preserve useful partial work when the budget ends.
+1. Bind an immutable base and branch-backed disposable worktree; keep private state outside it.
+2. Review the content-free preview and obtain exact transmission/execution approval.
+3. Dispatch, retrieve the bound candidate and inspect its actual Git diff.
+4. Run driver-selected checks in an isolated copy; bind sanitized Verification v2 findings.
+5. Repair in the same conversation within budget, or finalize and preserve useful work.
 
-Whole-worktree mode requires the preview’s `launch_approval_sha256`, binding content, kinds, permissions, symlink targets, and execution mode; requested paths
-and gate policies constrain writes or candidate acceptance, not provider reads.
-Provider-scope mode narrows staged content and reconciled writes. New jobs default
-to `--provider-isolation session`, retaining the existing AGY session and normal user
-host access. Explicit native mode adds macOS containment with private HOME for scoped
-jobs. The selected mode stays bound through the lifecycle; failures do not switch it.
-Read [Security and compatibility](SECURITY_AND_COMPATIBILITY.md) for the limits.
+Whole-worktree approval covers every entry; provider scope stages reviewed content
+and limits reconciliation. Session mode retains normal host access. Native mode adds
+supported macOS scoped containment without fallback. See
+[Security and compatibility](SECURITY_AND_COMPATIBILITY.md).
 
 ## Primary `run`, `status`, `verify-finalize` path
 
+`SKILL_ROOT` is the directory containing `SKILL.md`; in Claude Code, use its
+inline `${CLAUDE_SKILL_DIR}` substitution, not a Bash environment variable.
 Resolve the installed runtime first:
 
 ```bash
 PIPELINE="$(bash "$SKILL_ROOT/scripts/resolve-pipeline.sh")" || exit $?
 ```
 
-Codex creates and reviews the branch-backed disposable worktree. The following names
-are illustrative local variables; the actual repository and state paths remain
-caller-owned:
+For ordinary use, the facade creates the branch-backed disposable worktree and
+owner-private state on the first preview call. Choose a unique job ID and a scope
+file outside the target repository. Both `read` and `write` entries must be sorted
+by path; `write` must be covered by `read`. For example, after selecting actual paths
+that exist in the reviewed repository:
+
+```json
+{"schema_version":1,"kind":"agy-worker-provider-scope","read":[{"path":"src/parser.py","kind":"file"},{"path":"tests","kind":"tree"}],"write":[{"path":"tests","kind":"tree"}]}
+```
+
+Create the file with `umask 077` and keep it owner-private mode `0600`. The smallest
+ordinary preview is:
 
 ```bash
 TARGET=/absolute/path/to/approved-repository
+JOB_ID=job-12345
+SCOPE=/absolute/private/provider-scope.json
+TASK='the exact approved bounded task'
+"$PIPELINE/workflow.sh" run --preview --repo "$TARGET" --job-id "$JOB_ID" \
+  --provider-scope "$SCOPE" --task "$TASK"
+```
+
+The preview gives `launch_approval_sha256`; the facade derives its state path under
+`XDG_STATE_HOME` or `HOME/.local/state` as described below. Review the preview's
+content and selected settings with the user before the approved run. Repeat the same
+binding without `--preview`, supplying the exact approved digest and task:
+
+```bash
+STATE_HOME="${XDG_STATE_HOME:-$HOME/.local/state}"
+STATE_HOME="$(cd "$STATE_HOME" && pwd -P)" || exit $?
+REPO_KEY="$(python3 -c 'import hashlib,pathlib,sys; p=str(pathlib.Path(sys.argv[1]).resolve(strict=True)); print(hashlib.sha256(p.encode()).hexdigest()[:24])' "$TARGET")"
+STATE="$STATE_HOME/agy-worker/workflows/$REPO_KEY/$JOB_ID/workflow.json"
+TRANSMISSION_SHA='paste the exact reviewed launch_approval_sha256'
+TASK='paste the exact privately reviewed task text'
+ENVELOPE="$(dirname "$STATE")/envelope.json"
+test ! -e "$ENVELOPE" || { echo "envelope path already exists" >&2; exit 64; }
+( umask 077
+  "$PIPELINE/workflow.sh" run --repo "$TARGET" --job-id "$JOB_ID" \
+    --provider-scope "$SCOPE" --approve-transmission-sha "$TRANSMISSION_SHA" \
+    --workflow task --task "$TASK" > "$ENVELOPE"
+) || exit $?
+test -s "$ENVELOPE" || { echo "approved run produced no envelope" >&2; exit 1; }
+"$PIPELINE/workflow.sh" status --state "$STATE" --format json
+```
+
+This path creates the worktree; do not create one manually for ordinary use. The
+preview starts no provider process and grants no approval. Record the returned state
+path, keep it owner-private and outside the worktree, and emit the provider notice
+immediately before the approved run. Whole-worktree approval is an explicit
+exception; the advanced invocation below illustrates owner-chosen paths:
+
+```bash
 BASE="$(git -C "$TARGET" rev-parse HEAD)"
 STATE_DIR="$(mktemp -d -t agyworker-state.XXXXXX)"
 WT="$(mktemp -d -t agyworker-worktree.XXXXXX)"
+STATE_DIR="$(cd "$STATE_DIR" && pwd -P)" || exit $?
+WT="$(cd "$WT" && pwd -P)" || exit $?
 rmdir "$WT"
-JOB_ID=job-12345
 JOB_BRANCH=agy/job-12345
 git -C "$TARGET" worktree add -b "$JOB_BRANCH" "$WT" "$BASE"
-```
-
-Keep `STATE_DIR` owner-private and outside both the repository and worktree. Before
-provider approval, obtain the canonical content-free preview:
-
-```bash
 "$PIPELINE/workflow.sh" run --preview \
   --state "$STATE_DIR/workflow.json" --repo "$TARGET" --worktree "$WT" \
   --branch "$JOB_BRANCH" --base "$BASE" --job-id "$JOB_ID" \
+  --workflow task --task "$TASK" \
   > "$STATE_DIR/preview.json"
 ```
 
-Review the preview, its authority summary, and its `launch_approval_sha256`. It reads
-content locally to bind the selected boundary without printing file contents or symlink
-target strings, starts no provider process, and grants no approval. After the user
-approves that exact boundary, capture the approved run's envelope in the owner-private
-state directory. Emit the required user-facing provider notice immediately before this
-attempt:
+Keep `STATE_DIR` owner-private and outside both the repository and worktree. Review
+the preview's whole-worktree manifest and `launch_approval_sha256` before this run:
 
 ```bash
 ENVELOPE="$STATE_DIR/envelope.json"
@@ -123,17 +184,16 @@ to both facade calls and approve the scoped preview with
 `--approve-transmission-sha SHA256`. It stages only selected entries, but remains subject to
 the boundaries in [Security and compatibility](SECURITY_AND_COMPATIBILITY.md).
 
-Omitting both modes fails before provider launch. The old `--approve-preview-sha`
-spelling remains available through at least v0.16.x only when paired with
-`--legacy-preview-approval`; it emits a deprecation warning and never restores an
-implicit whole-worktree default.
+Omitting both transmission modes fails before provider launch; use only the current
+approval flags above.
 
 The facade does not choose a model, assurance label, repair, retry, Git action, or
 external write. `status --state "$STATE_DIR/workflow.json"` is read-only. For a bound
 controller dispatch, copy `dispatch.state_sha256` from facade status and pass it as
-`--approve-dispatch-sha` to `verify-finalize`; the deprecated facade spelling
-`--approve-state-sha` is an exact mutually exclusive alias. Rejected or routed gate
-receipts are preserved without calling the lifecycle finalizer.
+`--approve-dispatch-sha` to `verify-finalize`; its former facade alias
+`--approve-state-sha` is rejected. Advanced dispatcher and job lifecycle commands
+retain their own `--approve-state-sha` flag. Rejected or routed gate receipts are
+preserved without calling the lifecycle finalizer.
 
 Pass each driver-owned verifier as a canonical JSON argv array:
 
@@ -147,13 +207,17 @@ test ! -e "$RECEIPT" || { echo "receipt path already exists" >&2; exit 64; }
   --envelope "$ENVELOPE" \
   --approve-dispatch-sha "$DISPATCH_STATE_SHA" \
   --verify-argv '["/usr/bin/git","diff","--check"]' \
-  --verify-argv '["python3","-m","pytest","-q"]' \
   --verification-json "$STATE_DIR/verification-v2.json" \
   --assurance verified
 ```
 
-Choose commands from the candidate repository and its configured automation. Never
-execute `commands_run` or `tests_run` from the worker envelope. An explicit
+Gate and `verify-finalize --verify-argv` verifiers run in the bound candidate; use
+only commands known to be read-only there. Snapshot rejection detects changes to bound candidate state after
+they happen, not isolation. Verifiers run untrusted candidate code with the user's
+authority; the gate does not detect changes outside the candidate, including Git
+hooks and configuration. Run Python, build, and test commands in the verification
+copy below with `PYTHONDONTWRITEBYTECODE=1`, and record those driver results in
+Verification v2. Never execute `commands_run` or `tests_run` from the worker envelope. An explicit
 `--verify-shell SCRIPT` is an advanced compatibility surface requiring both verifier
 network and credential-access acknowledgements. Historical `--verify SCRIPT` also
 requires the legacy-shell acknowledgement.
@@ -163,14 +227,24 @@ requires the legacy-shell acknowledgement.
 Use `status` first. Treat `available_actions` as the canonical mechanical action set;
 deprecated `next_action`, `next_action_command`, `phase`, and `has_prior_candidate`
 are compatibility aliases, not recommendations or acceptance facts.
+For a facade-backed advanced `restart`, pass the same `--state "$WORKFLOW_STATE"`
+alongside `--job-id "$JOB_ID"` and the current `--approve-state-sha "$STATE_SHA"`;
+the workflow state resolves the bound log root. A fresh restart still needs an
+explicit user decision and the usual provider notice.
 
-New bound jobs expose `provider_isolation` (`session` or `native`) and
-`provider_execution` facts (`scope`, `agy_sandbox`, `native_containment`, `legacy`).
-Legacy isolation labels remain null: use the bound execution facts, which preserve
-scoped command V1–V8 behavior without native containment and V9 behavior with it.
-Unbound jobs may have no execution facts yet.
+Current bound jobs expose `provider_isolation` (`session` or `native`) and
+`provider_execution` facts (`scope`, `agy_sandbox`, `native_containment`, `legacy`,
+with `legacy` false). Unbound jobs may have no execution facts yet.
 
-Current V14 uses `dispatching` for an active initial, resume, or restart attempt;
+Only current dispatch/command formats load; finish or discard older jobs with their
+creating release. Keep old artifacts untouched: there is no in-place migration or
+capability-approval bypass. Format constants are `CURRENT_STATE_SCHEMA` and
+`CURRENT_COMMAND_SCHEMA` in `runtime/scripts/agy_dispatch.py`, and
+`BOUND_SCHEMA_VERSION`/`BOUND_FACADE_SCHEMA_VERSION` in `runtime/scripts/workflow.py`.
+This also applies to ordinary old-format jobs that used no removed feature.
+
+The current state (defined by `CURRENT_STATE_SCHEMA` in
+`runtime/scripts/agy_dispatch.py`) uses `dispatching` for an active initial, resume, or restart attempt;
 `attempt-failed` for a pre-candidate failure; `awaiting-verification` for a recognized
 candidate; `repairing` for an active continuation; and `repair-failed` for a failed
 continuation. `self-verifying` denotes the optional local check action. Terminal controller phases are `completed` and `blocked`. Driver
@@ -208,53 +282,47 @@ There is no automatic retry or continuation:
 
 ## Optional checks and scoped repair
 
-At initial dispatch, `--allow-scoped-repair` binds permission to continue the same
-scoped task/project within its approved write scope, selected model, conversation,
-and budgets. One exact upfront approval may cover predictable same-scope repairs and
-mechanical digest/state refresh; candidate evolution inside that grant does not
-require a new human approval. External drift or a changed grant is rejected before
-another provider turn. Without that initial grant, a scoped candidate is result/finalize-only.
-A fresh state or candidate binding does not by itself require fresh human approval, but it cannot
-extend the original grant.
+Initial `--allow-scoped-repair` binds the approved write scope, model, conversation
+and budgets for task/project continuation. Covered candidate evolution can reuse that
+approval; external drift or changed grants reject before another turn. Without the
+initial grant, a changed scoped candidate is result/finalize-only.
 
-For optional local checks, the driver prepares an owner-private manifest and supplies
-`--self-verification-manifest PATH` at initial task/project dispatch. Both options
-are available through `workflow.sh run`. Checks default off; explore and Boost do
-not support them. The driver chooses exact commands, required checks, optional IDs,
-and limits. The worker may request only approved optional IDs; required checks always
-run. Users need not prepare JSON or create a Goal.
+The optional `--self-verification-manifest PATH` is driver-authored and owner-private.
+It binds exact commands, required checks, optional IDs and limits at initial task/project
+dispatch; explore does not support it. The worker may request approved optional IDs,
+but required checks always run. Both options are available through `workflow.sh run`.
 
-After a candidate arrives, use the available `self-verify` action from status. It
-runs once per candidate attempt in a fresh copy of approved content, with no network
-or ambient credentials on supported macOS hosts. Approved system interpreters and
-explicit relative shell scripts are supported; unqualified toolchains fail before
-execution. Raw output stays private. Check execution and preparation spend the
-existing total job allowance; an interrupted action is conservatively charged and
-is not automatically rerun.
+Use the offered `self-verify` action once per candidate attempt. It runs in a fresh
+approved-content copy, without network or ambient credentials on supported macOS.
+Approved system interpreters and explicit relative shell scripts are supported;
+unqualified toolchains fail before execution. Logs stay private, preparation/execution
+spend the existing total budget, and interrupted work is charged without automatic replay.
 
-When bound advisory results are available, status offers `continue
---use-self-verification` to reuse them without a separate input JSON. The driver
-still decides whether repair is useful and issues the provider notice before using
-that action. Manual Verification v2 input remains available. Existing self-verification
-is optional advisory feedback when a focused command is known; an unknown first command
-or architecture does not prohibit useful delegation. Self-verification never
-finalizes a candidate or substitutes for independent diff review and driver checks.
-Keep final Codex independent acceptance.
+Bound advisory results may be reused with the offered `continue --use-self-verification`.
+The driver decides whether to repair and emits the provider notice; manual Verification v2
+remains available. These checks are optional when a focused command is known, never
+finalize work and never substitute for independent diff review and driver acceptance.
 
 ## Isolated verification copy
 
-Driver checks may create bytecode, caches, coverage data, generated files, or other
-artifacts. Do not alter or clean the bound candidate to make those outputs disappear.
-Inspect Git-dependent facts read-only against the candidate, then create a separate
-copy for writable checks:
+Driver build/test commands and Python imports may create bytecode, caches, coverage
+data, generated files, or other artifacts. Do not alter or clean the bound candidate
+to make those outputs disappear. Inspect Git-dependent facts read-only against the
+candidate, then run those checks in a separate copy with
+`PYTHONDONTWRITEBYTECODE=1`:
+For the ordinary facade path, `$STATE` above is the saved workflow state. In the
+advanced path, replace the `WORKFLOW_STATE` assignment below with
+`WORKFLOW_STATE="$STATE_DIR/workflow.json"`. The explicit state binds the existing
+job and resolves its private log root.
 
 ```bash
+WORKFLOW_STATE="$STATE"
 VERIFY_PARENT="$(mktemp -d -t agyworker-verify.XXXXXX)" || exit $?
 VERIFY_PARENT="$(CDPATH= cd -- "$VERIFY_PARENT" && pwd -P)" || exit $?
 VERIFY_DIR="$VERIFY_PARENT/candidate"
-"$PIPELINE/agy-worker.sh" verification-copy --job-id "$JOB_ID" \
+"$PIPELINE/agy-worker.sh" verification-copy --job-id "$JOB_ID" --state "$WORKFLOW_STATE" \
   --destination "$VERIFY_DIR" --format text
-( cd "$VERIFY_DIR" && /usr/bin/python3 -m pytest -q )
+( cd "$VERIFY_DIR" && PYTHONDONTWRITEBYTECODE=1 /usr/bin/python3 -m pytest -q )
 ```
 
 The helper rebinds result, command, schemas, root, and candidate before and after a
@@ -271,12 +339,10 @@ Verification v2 has no separate public schema. The canonical validator is
 `"$PIPELINE/scripts/agy_dispatch.py"` after runtime resolution. It rejects unknown
 fields and requires the current public candidate digest.
 
-Build the record only from driver-owned observations. Do not include prompts, source
-bytes, raw logs, secrets, worker prose, account data, or private paths. Worker envelopes
-are not evidence. Reuse driver-owned checks only for identical candidate bytes and
-relevant environment; after changes rerun affected checks and run the required full
-suite once the final executable candidate is stable. This example
-records one passing check and a completed diff review:
+Use only sanitized driver observations, never prompts, source, raw logs, secrets,
+worker prose, account data or private paths. Reuse checks only for identical candidate
+bytes and relevant environment. This example records a passing check and completed
+diff review:
 
 ```bash
 : "${PIPELINE:?set PIPELINE to the resolved skill runtime}"
@@ -327,23 +393,19 @@ Use the current `STATE_SHA` with eligible lower-level `continue` or `finalize`
 commands. A bounded repair request may cite failed checks, missing checks, advisory
 results, coverage gaps, or review findings. Failed product checks return concrete
 sanitized feedback to the same AGY conversation for bounded repair; do not allow
-silent direct-Codex fallback after provider failure or exhausted budget. It must
+silent direct-driver fallback after provider failure or exhausted budget. It must
 continue the same conversation while budget remains and must be preceded by the
 provider notice.
 
 ## Material planning governance
 
-For material UX, lifecycle, trust-boundary, security, data-semantics, or other domain plans:
-A coordinator and suitable domain expert must co-plan.
-Freeze user journeys, acceptance tests, and authority/privacy constraints before implementation.
-The final acceptor must be a different agent or fresh context; no planner or implementer may self-accept.
-Purely mechanical changes are exempt.
-Verification v2 and the controller bind candidate evidence, not agent identity or governance.
-The final human-readable handoff must report the planner/reviewer separation.
+For trust-boundary changes, write a short design note covering options considered and residual risk, and obtain independent review.
+No author is the sole acceptor of material work.
+Verification v2 binds candidate evidence; it does not establish reviewer identity.
 
 ## Assurance and preservation
 
-The controller validates and persists Codex's exact disposition; it does not infer a
+The controller validates and persists the driver's exact disposition; it does not infer a
 different label from counters.
 
 - `verified`: for `task` and `project`, at least one driver check passed, none failed
@@ -351,7 +413,7 @@ different label from counters.
   complete coverage and no unresolved gaps.
 - `partially_verified`: useful candidate with a failed, missing, unavailable, or
   incomplete check, or an unresolved coverage gap.
-- `rejected`: Codex has reviewed and declines the candidate.
+- `rejected`: the driver has reviewed and declines the candidate.
 - `blocked`: a real authority, repository-boundary, provider, or execution block.
 
 Keep accepted or useful partial work on its branch when a repair or time budget ends.
@@ -368,11 +430,55 @@ no-op is unacceptable, and at least one driver-authored verifier:
 ```bash
 "$PIPELINE/qa-gate.sh" --envelope "$ENVELOPE" --repo "$WT" --base "$BASE" \
   --only 'tests/**' --expect-edits \
-  --verify-argv '["/usr/bin/git","diff","--check"]' \
-  --verify-argv '["python3","-m","pytest","-q","tests/test_parser.py"]'
+  --verify-argv '["/usr/bin/git","diff","--check"]'
 ```
 
 Exit zero means only that the gate accepted the exact exercised state and verifier
 commands. It is not a merge, security certification, or general correctness proof.
 Use `verify-job.sh` when a private unsigned receipt is required; receipt serialization
 does not create a second acceptance authority.
+
+## Claude Code host operation
+
+Claude Code was live-tested with synthetic jobs. The Bash tool has a default
+two-minute foreground timeout and a ten-minute default ceiling. In interactive
+sessions, an approved long `workflow.sh run` may use Bash `run_in_background: true`;
+this is a host tool parameter, not a workflow flag or shell `&`. In non-interactive
+`claude -p` or SDK runs, use foreground execution within the host ceiling or keep
+the turn alive and monitor the background task until it exits. Never end a turn while
+a job runs: headless session exit cancels background work. Do not launch a second
+dispatch for the same job. A Bash timeout/background notification is not a provider
+failure; inspect the existing task and bound workflow status.
+
+Bash variables do not persist between Claude tool calls. In every call, repeat the
+reviewed path/value assignments from the example or replace them with the reviewed
+absolute values. Status itself needs only the resolved runtime and saved state:
+
+```bash
+/absolute/path/to/runtime/workflow.sh status \
+  --state /absolute/private/state/workflow.json --format json
+```
+
+Read `dispatch.status`, `dispatch.reason`, `dispatch.state_sha256`, `phase`,
+`controller_phase`, and `available_actions`. A missing or unreadable dispatch record
+is unresolved, not success or permission to start another job. While queued/running,
+observe the same host task. Once it exits, inspect its output and the saved envelope,
+review the candidate, then run the existing `verify-finalize` command with fresh
+bound verification. Status never grants acceptance or further provider authority.
+
+Keep the main driver session active until completion. Foreground subagent background
+commands end when that subagent returns; non-interactive `claude -p` background tasks
+end shortly after its final result. Session exit also cleans up background tasks.
+If background tools are disabled or unavailable, report that host limitation rather
+than inventing a detach/restart path. See the official
+[Bash tools reference](https://code.claude.com/docs/en/tools-reference) and
+[background behavior](https://code.claude.com/docs/en/interactive-mode#background-bash-commands).
+
+Bash permission approval is separate from provider-transmission approval. If the
+host sandbox blocks execution, discover exact required paths/hosts through violation
+reports and grant narrowly with `sandbox.filesystem.allowWrite` and
+`sandbox.network.allowedDomains`. AGY session state under `~/.gemini`, private
+controller/staging paths, and the disposable worktree may need access outside cwd/tmp.
+Offline tests do not establish the complete write/domain allowlist. Do not disable
+sandboxing or exempt AGY via `excludedCommands`; see the official
+[sandbox guide](https://code.claude.com/docs/en/sandboxing).

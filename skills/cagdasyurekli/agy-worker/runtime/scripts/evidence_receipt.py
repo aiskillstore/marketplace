@@ -19,7 +19,7 @@ import signal
 import stat
 import subprocess
 import sys
-from typing import Any
+from typing import Any, NoReturn, Sequence, Iterator
 
 sys.dont_write_bytecode = True
 RUNTIME_SCRIPTS = str(Path(__file__).resolve(strict=True).parent)
@@ -29,15 +29,10 @@ if RUNTIME_SCRIPTS not in sys.path:
 from model_selection import (  # noqa: E402
     CallerError as SelectionError,
     EvidenceUnavailable,
-    ReviewRequired,
     child_environment,
     validate_child_environment_names,
     validate_selection_record,
     validate_selection_record_shape,
-)
-from recommendation_record import (  # noqa: E402
-    RecommendationRecordError,
-    validate_recommendation_record,
 )
 
 
@@ -130,7 +125,7 @@ class SignalController:
         raise SignalInterruption("receipt operation interrupted")
 
     @contextmanager
-    def blocked(self):
+    def blocked(self) -> Iterator[None]:
         previous_mask = signal.pthread_sigmask(signal.SIG_BLOCK, HANDLED_SIGNALS)
         try:
             yield
@@ -428,81 +423,6 @@ def validate_integrity(value: Any) -> None:
         raise ValidationFailure("integrity must state the fixed unsigned limitation")
 
 
-def recommendation_argv(value: dict[str, Any]) -> list[str]:
-    if value.get("stage") != "pre-dispatch":
-        raise ValidationFailure("only a pre-dispatch recommendation may be bound")
-    evidence = value.get("evidence")
-    if not isinstance(evidence, dict) or set(evidence) != {"owner", "code", "description"}:
-        raise ValidationFailure("recommendation evidence is invalid")
-    code = require_unpadded_string(evidence.get("code"), "recommendation evidence code", 64)
-    argv = ["--stage", "pre-dispatch"]
-    tier = value.get("selected_tier")
-    model = value.get("user_model")
-    if (tier is None) == (model is None):
-        raise ValidationFailure("recommendation must contain exactly one selection mode")
-    if tier is not None:
-        argv += ["--selected-tier", require_unpadded_string(tier, "selected tier", 128)]
-        if "user_effort" in value:
-            raise ValidationFailure("tier recommendation cannot contain effort")
-    else:
-        argv += ["--selected-model", require_unpadded_string(model, "user model", 128)]
-        if "user_effort" in value:
-            argv += [
-                "--selected-effort",
-                require_unpadded_string(value["user_effort"], "user effort", 16),
-            ]
-    argv += ["--evidence", code]
-    return argv
-
-
-def validate_recommendation_for_publication(
-    value: Any, recommendation_script: Path
-) -> dict[str, Any]:
-    try:
-        validate_recommendation_record(value, required_stage="pre-dispatch")
-    except RecommendationRecordError as exc:
-        raise ValidationFailure("pre-dispatch recommendation is invalid") from exc
-    assert isinstance(value, dict)
-    argv = recommendation_argv(value)
-    try:
-        completed = subprocess.run(
-            [sys.executable, "-B", str(recommendation_script), *argv],
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL,
-            check=False,
-            timeout=5,
-        )
-    except (OSError, subprocess.TimeoutExpired) as exc:
-        raise ValidationFailure("canonical recommendation validation failed") from exc
-    if completed.returncode != 0 or len(completed.stdout) > MAX_JSON_BYTES:
-        raise ValidationFailure("recommendation is not canonical")
-    expected = parse_json_bytes(completed.stdout, "canonical recommendation")
-    if value != expected:
-        raise ValidationFailure("recommendation differs from canonical policy output")
-    return value
-
-
-def selection_matches_recommendation(
-    selection: dict[str, Any], recommendation: dict[str, Any]
-) -> bool:
-    if selection["selection_mode"] == "tier":
-        return (
-            recommendation.get("selected_tier") == selection["selected_tier"]
-            and "user_model" not in recommendation
-        )
-    keys = [
-        "user_model",
-        "resolved_agy_model",
-        "matrix_sha256",
-        "matrix_agy_version",
-        "matrix_source_revision",
-    ]
-    if any(recommendation.get(key) != selection.get(key) for key in keys):
-        return False
-    return recommendation.get("user_effort") == selection.get("user_effort")
-
-
 def validate_receipt(
     value: Any,
     schema: dict[str, Any],
@@ -510,8 +430,8 @@ def validate_receipt(
     validate_schema(value, schema)
     if not isinstance(value, dict):
         raise ValidationFailure("receipt must be one object")
-    if type(value.get("schema_version")) is not int or value["schema_version"] != 1:
-        raise ValidationFailure("schema_version must be integer 1")
+    if type(value.get("schema_version")) is not int or value["schema_version"] != 2:
+        raise ValidationFailure("schema_version must be integer 2")
     resolved_base = value.get("resolved_base")
     if not isinstance(resolved_base, str) or COMMIT_RE.fullmatch(resolved_base) is None:
         raise ValidationFailure("resolved_base is invalid")
@@ -531,8 +451,6 @@ def validate_receipt(
         raise ValidationFailure("receipt verdict and exit are inconsistent")
     if value.get("gate_authority") != "qa-gate":
         raise ValidationFailure("gate authority is invalid")
-    if value.get("recommendations_participated_in_acceptance") is not False:
-        raise ValidationFailure("recommendation cannot participate in acceptance")
     validate_integrity(value.get("integrity"))
     verifiers = value.get("verifiers")
     if not isinstance(verifiers, list) or not verifiers:
@@ -555,19 +473,8 @@ def validate_receipt(
             if not isinstance(selection, dict):
                 raise SelectionError("selection record must be one object")
             validate_selection_record_shape(selection)
-        except (SelectionError, ReviewRequired, EvidenceUnavailable) as exc:
+        except (SelectionError, EvidenceUnavailable) as exc:
             raise ValidationFailure("caller selection is not a valid G1 record") from exc
-    recommendation = value.get("pre_dispatch_recommendation")
-    if recommendation is not None:
-        try:
-            recommendation = validate_recommendation_record(
-                recommendation, required_stage="pre-dispatch"
-            )
-        except RecommendationRecordError as exc:
-            raise ValidationFailure("pre-dispatch recommendation is invalid") from exc
-    if selection is not None and recommendation is not None:
-        if not selection_matches_recommendation(selection, recommendation):
-            raise ValidationFailure("selection and recommendation are inconsistent")
     return value
 
 
@@ -582,35 +489,10 @@ def load_selection(path: Path) -> dict[str, Any]:
         return value
     except (
         SelectionError,
-        ReviewRequired,
-        EvidenceUnavailable,
+            EvidenceUnavailable,
         ValidationFailure,
     ) as exc:
         raise UsageFailure("selection input is not a current valid G1 record") from exc
-
-
-def load_recommendation_record(path: Path) -> dict[str, Any]:
-    try:
-        value = parse_json_bytes(
-            read_real_file(path, "pre-dispatch recommendation"),
-            "pre-dispatch recommendation",
-        )
-        return validate_recommendation_record(value, required_stage="pre-dispatch")
-    except (ValidationFailure, RecommendationRecordError) as exc:
-        raise UsageFailure("pre-dispatch recommendation is not canonical") from exc
-
-
-def load_recommendation_for_publication(
-    path: Path, recommendation_script: Path
-) -> dict[str, Any]:
-    try:
-        value = parse_json_bytes(
-            read_real_file(path, "pre-dispatch recommendation"),
-            "pre-dispatch recommendation",
-        )
-        return validate_recommendation_for_publication(value, recommendation_script)
-    except ValidationFailure as exc:
-        raise UsageFailure("pre-dispatch recommendation is not canonical") from exc
 
 
 def validate_target(target: Path, repo: Path) -> tuple[Path, str]:
@@ -846,7 +728,6 @@ def publish_receipt(
     parent: Path,
     value: dict[str, Any],
     schema: dict[str, Any],
-    _legacy_recommendation_script: Path | None = None,
     controller: SignalController | None = None,
 ) -> None:
     owns_controller = controller is None
@@ -923,7 +804,7 @@ def publish_receipt(
 
 
 class UsageParser(argparse.ArgumentParser):
-    def error(self, message: str) -> None:
+    def error(self, message: str) -> NoReturn:
         self.print_usage(sys.stderr)
         self.exit(64, f"verify-job: {message}\n")
 
@@ -935,7 +816,7 @@ class VerifierAction(argparse.Action):
         self,
         parser: argparse.ArgumentParser,
         namespace: argparse.Namespace,
-        values: str,
+        values: str | Sequence[Any] | None,
         option_string: str | None = None,
     ) -> None:
         del parser, option_string
@@ -1095,7 +976,6 @@ def build_parser() -> UsageParser:
     parser.add_argument("--verify-credential-env", action="append", default=[])
     parser.add_argument("--expect-edits", action="count", default=0)
     parser.add_argument("--selection", action="append")
-    parser.add_argument("--pre-recommendation", action="append")
     return parser
 
 
@@ -1210,9 +1090,6 @@ def verify_main(
     repo_text = one(parser, args.repo, "--repo", True)
     base = one(parser, args.base, "--base", True)
     selection_text = one(parser, args.selection, "--selection", False)
-    recommendation_text = one(
-        parser, args.pre_recommendation, "--pre-recommendation", False
-    )
     if args.expect_edits > 1:
         parser.error("--expect-edits must be provided at most once")
     for flag, count in (
@@ -1283,20 +1160,8 @@ def verify_main(
     repo = Path(repo_text)
     parent, _name = validate_target(target, repo)
     schema_path = runtime_root / "schemas/evidence-receipt.schema.json"
-    recommendation_script = runtime_root / "scripts/model-recommendation.py"
     schema = load_schema(schema_path)
     selection = load_selection(Path(selection_text)) if selection_text else None
-    recommendation = (
-        load_recommendation_for_publication(
-            Path(recommendation_text), recommendation_script
-        )
-        if recommendation_text
-        else None
-    )
-    if selection is not None and recommendation is not None:
-        if not selection_matches_recommendation(selection, recommendation):
-            raise UsageFailure("selection and recommendation inputs do not match")
-
     envelope_snapshot: Path | None = None
     handoff_path: Path | None = None
     write_fd = -1
@@ -1382,7 +1247,7 @@ def verify_main(
             },
         }
         receipt: dict[str, Any] = {
-            "schema_version": 1,
+            "schema_version": 2,
             "kind": "agy-worker-evidence-receipt",
             "gate_authority": "qa-gate",
             "resolved_base": handoff["resolved_base"],
@@ -1404,7 +1269,6 @@ def verify_main(
             "gate_exit": gate_rc,
             "gate_outcome": handoff["gate_outcome"],
             "verdict": VERDICTS[gate_rc],
-            "recommendations_participated_in_acceptance": False,
             "integrity": {
                 "signed": False,
                 "tamper_evident": False,
@@ -1413,15 +1277,12 @@ def verify_main(
         }
         if selection is not None:
             receipt["caller_selection"] = selection
-        if recommendation is not None:
-            receipt["pre_dispatch_recommendation"] = recommendation
         validate_receipt(receipt, schema)
         publish_receipt(
             target,
             parent,
             receipt,
             schema,
-            None,
             controller,
         )
         result = gate_rc
@@ -1459,16 +1320,12 @@ def validate_main(argv: list[str], runtime_root: Path) -> int:
     parser.add_argument("--receipt", action="append")
     parser.add_argument("--envelope", action="append")
     parser.add_argument("--selection", action="append")
-    parser.add_argument("--pre-recommendation", action="append")
     parser.add_argument("--initial-state-digest", action="append")
     parser.add_argument("--final-state-digest", action="append")
     parsed = parser.parse_args(argv)
     receipt_text = one(parser, parsed.receipt, "--receipt", True)
     envelope_text = one(parser, parsed.envelope, "--envelope", False)
     selection_text = one(parser, parsed.selection, "--selection", False)
-    recommendation_text = one(
-        parser, parsed.pre_recommendation, "--pre-recommendation", False
-    )
     initial_digest = one(
         parser, parsed.initial_state_digest, "--initial-state-digest", False
     )
@@ -1489,10 +1346,6 @@ def validate_main(argv: list[str], runtime_root: Path) -> int:
         selection = load_selection(Path(selection_text))
         if receipt.get("caller_selection") != selection:
             raise ValidationFailure("bound selection does not match receipt")
-    if recommendation_text:
-        recommendation = load_recommendation_record(Path(recommendation_text))
-        if receipt.get("pre_dispatch_recommendation") != recommendation:
-            raise ValidationFailure("bound recommendation does not match receipt")
     if initial_digest:
         require_sha(initial_digest, "bound initial state digest")
         if receipt["initial_candidate_state_sha256"] != initial_digest:

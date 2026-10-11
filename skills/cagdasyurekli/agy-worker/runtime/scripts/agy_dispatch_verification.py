@@ -18,7 +18,7 @@ import signal
 import stat
 import subprocess
 import time
-from typing import Any
+from typing import Any, IO, cast
 
 
 MAX_MANIFEST_BYTES = 64 * 1024
@@ -107,7 +107,7 @@ def run_check(check: Check, prepared: Any, *, containment: Any,
                 outcome = "timeout"
                 break
             for key, _events in selector.select(min(0.05, max(0, deadline - time.monotonic()))):
-                chunk = os.read(key.fileobj.fileno(), min(65536, check.output_limit_bytes + 1))
+                chunk = os.read(cast(IO[bytes], key.fileobj).fileno(), min(65536, check.output_limit_bytes + 1))
                 if not chunk:
                     selector.unregister(key.fileobj)
                     continue
@@ -153,9 +153,9 @@ def run_check(check: Check, prepared: Any, *, containment: Any,
         finally:
             selector.close()
             if process is not None:
-                for stream in (process.stdout, process.stderr):
-                    if stream is not None:
-                        stream.close()
+                for remaining_stream in (process.stdout, process.stderr):
+                    if remaining_stream is not None:
+                        remaining_stream.close()
             for descriptor in descriptors.values():
                 try:
                     os.fsync(descriptor)
@@ -380,16 +380,16 @@ def command_self_verify(api: Any, job: Path, approve_sha: str, output_format: st
             state, raw, sha = api.load_state(job)
             if sha != approve_sha:
                 raise api.DispatchError("dispatch state changed before self-verification")
-            if (state["schema_version"] not in {12, 13, 14}
+            if (state["schema_version"] != api.CURRENT_STATE_SCHEMA
                     or not state["allow_self_verification"]
                     or state["phase"] not in {"awaiting-verification", "repair-failed"}
                     or state["self_verification_run"] >= state["attempt"]):
                 raise api.DispatchError("self-verification is unavailable")
             command, candidate_raw = api._bound_current_candidate(job, state)
             if ((state["schema_version"], command["schema_version"])
-                    not in {(12, 9), (13, 9), (13, 10), (14, 9), (14, 10), (14, 11)}
+                    != (api.CURRENT_STATE_SCHEMA, api.CURRENT_COMMAND_SCHEMA)
                     or not command["allow_self_verification"]
-                    or command["workflow"] not in {"task", "project"} or command["boost"]):
+                    or command["workflow"] not in {"task", "project"}):
                 raise api.DispatchError("self-verification was not enabled for this job")
             if api._job_is_inside_worktree(job, command["workdir"]):
                 raise api.DispatchError("self-verification job must be outside the candidate")

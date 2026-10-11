@@ -36,7 +36,7 @@ import stat
 import subprocess
 import sys
 import time
-from typing import Mapping, Sequence
+from typing import Mapping, Sequence, cast
 import uuid
 
 
@@ -431,7 +431,7 @@ def _ensure_private_directory(path: Path, *, existing_ok: bool) -> DirectoryBind
         os.mkdir(path, 0o700)
     except FileExistsError:
         if not existing_ok:
-            raise ContainmentError("per-attempt containment directory already exists")
+            raise ContainmentError("per-attempt containment directory already exists")  # noqa: B904 -- preserve existing exception context and public diagnostics
     except OSError as exc:
         raise ContainmentError("cannot create containment directory") from exc
     try:
@@ -762,7 +762,7 @@ def render_profile(
     (global-name "com.apple.trustd")
     (global-name "com.apple.trustd.agent"))
   (allow file-read*
-    (literal {_scheme_string(keychain_path)})))
+    (literal {_scheme_string(cast(str, keychain_path))})))
 """
         keychain = "\n"
         if grant_profile not in {GRANT_PROFILE_A, GRANT_PROFILE_AB}:

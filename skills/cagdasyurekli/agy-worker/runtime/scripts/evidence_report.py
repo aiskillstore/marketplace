@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Render a compact human report from one validated Evidence Receipt v1.
+"""Render a compact human report from one validated Evidence Receipt v2.
 
 The stdout-only ``main(argv)`` path returns normally. File-output ``main(argv)``
 is process-owning: it keeps signal rollback authority through ``os._exit(0)``.
@@ -32,10 +32,6 @@ from evidence_receipt import (  # noqa: E402
     sha256_bytes,
     validate_receipt,
 )
-from recommendation_record import (  # noqa: E402
-    RecommendationRecordError,
-    validate_recommendation_record,
-)
 
 
 MAX_REPORT_BYTES = 64 * 1024
@@ -62,7 +58,7 @@ class PublishedReport:
         parent_fd: int,
         final_name: str,
         identity: tuple[int, int],
-        prior_mask: set[signal.Signals],
+        prior_mask: set[int | signal.Signals],
     ) -> None:
         self.parent_fd = parent_fd
         self.final_name = final_name
@@ -80,7 +76,7 @@ class PublishedReport:
 
 
 class Parser(argparse.ArgumentParser):
-    def error(self, message: str) -> None:
+    def error(self, message: str) -> NoReturn:
         del message
         self.print_usage(sys.stderr)
         self.exit(64, "evidence-report: invalid arguments\n")
@@ -117,10 +113,8 @@ def build_report(receipt: dict[str, Any]) -> dict[str, Any]:
         },
         "kind": "agy-worker-evidence-report",
         "path_policy_sha256": receipt["path_policy_sha256"],
-        "pre_dispatch_recommendation_bound": "pre_dispatch_recommendation" in receipt,
-        "recommendations_participated_in_acceptance": False,
         "resolved_base": receipt["resolved_base"],
-        "schema_version": 1,
+        "schema_version": 2,
         "verdict": receipt["verdict"],
         "verification_labels": [entry["label"] for entry in receipt["verifiers"]],
     }
@@ -158,7 +152,7 @@ def render_json(receipt: dict[str, Any]) -> bytes:
 def render_text(receipt: dict[str, Any]) -> bytes:
     labels = [entry["label"] for entry in receipt["verifiers"]]
     lines = [
-        "Evidence Report v1",
+        "Evidence Report v2",
         f"Verdict: {receipt['verdict']}",
         f"Gate outcome: {receipt['gate_outcome']} (exit {receipt['gate_exit']})",
         f"Gate authority: {receipt['gate_authority']}",
@@ -169,8 +163,6 @@ def render_text(receipt: dict[str, Any]) -> bytes:
         f"Final candidate state SHA-256: {receipt['final_candidate_state_sha256']}",
         f"Verification labels ({len(labels)}): {', '.join(labels)}",
         f"Caller selection bound: {_yes('caller_selection' in receipt)}",
-        f"Pre-dispatch recommendation bound: {_yes('pre_dispatch_recommendation' in receipt)}",
-        "Recommendations participated in acceptance: no",
         "Integrity: unsigned and not tamper-evident",
         "Human review: required before calling a gate-passed candidate accepted.",
     ]
@@ -180,7 +172,7 @@ def render_text(receipt: dict[str, Any]) -> bytes:
 def render_markdown(receipt: dict[str, Any], *, step_summary: bool = False) -> bytes:
     labels = [_safe_markdown_atom(entry["label"]) for entry in receipt["verifiers"]]
     label_text = ", ".join(f"`{label}`" for label in labels)
-    heading = "# Evidence Report v1 (GitHub Step Summary)" if step_summary else "# Evidence Report v1"
+    heading = "# Evidence Report v2 (GitHub Step Summary)" if step_summary else "# Evidence Report v2"
     lines = [
         heading,
         "",
@@ -194,8 +186,6 @@ def render_markdown(receipt: dict[str, Any], *, step_summary: bool = False) -> b
         f"- Final candidate state SHA-256: `{_safe_markdown_atom(receipt['final_candidate_state_sha256'])}`",
         f"- Verification labels ({len(labels)}): {label_text}",
         f"- Caller selection bound: **{_yes('caller_selection' in receipt)}**",
-        f"- Pre-dispatch recommendation bound: **{_yes('pre_dispatch_recommendation' in receipt)}**",
-        "- Recommendations participated in acceptance: **no**",
         "- Integrity: **unsigned and not tamper-evident**",
         "",
         "> Human review is required before calling a gate-passed candidate accepted.",
@@ -212,7 +202,6 @@ def validate_bindings(
     *,
     envelope: str | None,
     selection: str | None,
-    recommendation: str | None,
     initial_digest: str | None,
     final_digest: str | None,
 ) -> None:
@@ -222,14 +211,6 @@ def validate_bindings(
     if selection is not None:
         if _read_bound_json(Path(selection), "bound selection") != receipt.get("caller_selection"):
             raise ValidationFailure("bound selection does not match receipt")
-    if recommendation is not None:
-        value = _read_bound_json(Path(recommendation), "bound recommendation")
-        try:
-            validate_recommendation_record(value, required_stage="pre-dispatch")
-        except RecommendationRecordError as exc:
-            raise ValidationFailure("bound recommendation is invalid") from exc
-        if value != receipt.get("pre_dispatch_recommendation"):
-            raise ValidationFailure("bound recommendation does not match receipt")
     if initial_digest is not None:
         require_sha(initial_digest, "bound initial state digest")
         if initial_digest != receipt["initial_candidate_state_sha256"]:
@@ -271,7 +252,7 @@ def _pending_signal() -> int | None:
 
 
 def _restore_mask_preserving(
-    prior_mask: set[signal.Signals], first_signal: int | None, *, raise_after: bool = True
+    prior_mask: set[int | signal.Signals], first_signal: int | None, *, raise_after: bool = True
 ) -> None:
     pending = _pending_signal()
     if first_signal is None:
@@ -390,7 +371,6 @@ def run(arguments: list[str]) -> PublishedReport | None:
     parser.add_argument("--output", action="append")
     parser.add_argument("--envelope", action="append")
     parser.add_argument("--selection", action="append")
-    parser.add_argument("--pre-recommendation", action="append")
     parser.add_argument("--initial-state-digest", action="append")
     parser.add_argument("--final-state-digest", action="append")
     parsed = parser.parse_args(arguments)
@@ -399,7 +379,6 @@ def run(arguments: list[str]) -> PublishedReport | None:
     output_path = one(parser, parsed.output, "--output", False)
     envelope = one(parser, parsed.envelope, "--envelope", False)
     selection = one(parser, parsed.selection, "--selection", False)
-    recommendation = one(parser, parsed.pre_recommendation, "--pre-recommendation", False)
     initial_digest = one(parser, parsed.initial_state_digest, "--initial-state-digest", False)
     final_digest = one(parser, parsed.final_state_digest, "--final-state-digest", False)
     assert receipt_path is not None and output_format is not None
@@ -413,7 +392,6 @@ def run(arguments: list[str]) -> PublishedReport | None:
         receipt,
         envelope=envelope,
         selection=selection,
-        recommendation=recommendation,
         initial_digest=initial_digest,
         final_digest=final_digest,
     )

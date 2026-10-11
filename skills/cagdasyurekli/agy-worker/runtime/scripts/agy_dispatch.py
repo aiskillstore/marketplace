@@ -11,9 +11,10 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import dataclasses
 import fcntl
 import hashlib
-import importlib.util
+from functools import partial
 import json
 import math
 import os
@@ -26,7 +27,7 @@ import stat
 import subprocess
 import sys
 import time
-from typing import Any, Iterator, NamedTuple
+from typing import Callable, Mapping, TypedDict, TypeVar, AbstractSet, Any, Iterator, NamedTuple, NoReturn, IO, cast
 
 sys.dont_write_bytecode = True
 
@@ -34,19 +35,66 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
-import legacy_dispatch_state as LEGACY
-import agy_dispatch_verification as SELF_VERIFICATION
-import agy_dispatch_containment as CONTAINMENT
+import agy_dispatch_verification as SELF_VERIFICATION  # noqa: E402 -- sibling imports follow startup isolation/path setup
+import agy_dispatch_containment as CONTAINMENT  # noqa: E402 -- sibling imports follow startup isolation/path setup
+import agy_dispatch_worktree as WORKTREE  # noqa: E402 -- sibling imports follow startup isolation/path setup
+import candidate_state as CANDIDATE_STATE  # noqa: E402 -- shared hardened Git reads
 
 
-class _DispatchAPI:
-    """Expose this module's private helpers to the legacy compatibility adapter."""
+# Compatibility names share the implementation and exception identities owned by WORKTREE.
+MODEL_SELECTION = WORKTREE.MODEL_SELECTION
+LAUNCH_AUTHORITY = WORKTREE.LAUNCH_AUTHORITY
+DispatchError = WORKTREE.DispatchError
+WorktreeBaselineError = WORKTREE.WorktreeBaselineError
+ResolveUndoPresentError = WORKTREE.ResolveUndoPresentError
+canonical = WORKTREE.canonical
+digest = WORKTREE.digest
+_identity = WORKTREE._identity
+_parse_resolve_undo = WORKTREE._parse_resolve_undo
+_bound_git_worktree_root = WORKTREE._bound_git_worktree_root
+_bounded_git_read = WORKTREE._bounded_git_read
+_build_selected_content_manifest = WORKTREE._build_selected_content_manifest
+_canonical_digest = WORKTREE._canonical_digest
+_cleanup_stage = WORKTREE._cleanup_stage
+_compute_transmission_sha256 = WORKTREE._compute_transmission_sha256
+_compute_v11_launch_approval_sha256 = WORKTREE._compute_v11_launch_approval_sha256
+_confirm_safe_git_executable = WORKTREE._confirm_safe_git_executable
+_fixed_git_read_argv = WORKTREE._fixed_git_read_argv
+_full_stat_binding = WORKTREE._full_stat_binding
+_git_boundary_identity = WORKTREE._git_boundary_identity
+_manifest_digest = WORKTREE._manifest_digest
+_marker_only_preflight = WORKTREE._marker_only_preflight
+_materialize_stage = WORKTREE._materialize_stage
+_parse_provider_scope = WORKTREE._parse_provider_scope
+_project_boundary = WORKTREE._project_boundary
+_read_provider_scope_file = partial(WORKTREE._read_provider_scope_file, error_type=WORKTREE.DispatchError)
+_reconcile_stage_to_source = WORKTREE._reconcile_stage_to_source
+_recover_reconciliation = WORKTREE._recover_reconciliation
+_resolved_path_is_git_administration = WORKTREE._resolved_path_is_git_administration
+_safe_git_executable = WORKTREE._safe_git_executable
+_safe_git_is_outside_worktree = WORKTREE._safe_git_is_outside_worktree
+_safe_git_owner_mode = WORKTREE._safe_git_owner_mode
+_scan_readable_worktree = WORKTREE._scan_readable_worktree
+_scan_stage_mutations = WORKTREE._scan_stage_mutations
+_selected_content_digest = WORKTREE._selected_content_digest
+_stable_git_authority = WORKTREE._stable_git_authority
+_validate_manifest = WORKTREE._validate_manifest
+_validate_scope_against_worktree = WORKTREE._validate_scope_against_worktree
+_worktree_git_admin_alias_boundary = WORKTREE._worktree_git_admin_alias_boundary
+_worktree_snapshot = WORKTREE._worktree_snapshot
+_worktree_symlink_boundary = WORKTREE._worktree_symlink_boundary
+whole_worktree_content_manifest = WORKTREE.whole_worktree_content_manifest
+_MarkerPreflightLimit = WORKTREE._MarkerPreflightLimit
+_FIXED_GIT_READ_ARGV = WORKTREE._FIXED_GIT_READ_ARGV
+
+class _VerificationAPI:
+    """Expose dispatcher dependencies to the optional verification adapter."""
 
     def __getattr__(self, name: str) -> Any:
         return globals()[name]
 
 
-LEGACY_API = _DispatchAPI()
+VERIFICATION_API = _VerificationAPI()
 
 STATE_NAME = "dispatch-state.json"
 COMMAND_NAME = "dispatch-command.json"
@@ -58,40 +106,57 @@ MAX_VERIFICATION_BYTES = 16 * 1024
 MAX_CHECK_ITEMS = 32
 MAX_CHECK_LABEL = 160
 MAX_CHECK_SUMMARY = 512
-MAX_BOUNDARY_ENTRIES = 100000
+MAX_BOUNDARY_ENTRIES = WORKTREE.MAX_BOUNDARY_ENTRIES
 MAX_INLINE_PROMPT_BYTES = 100000
-MAX_STREAM_BYTES = 32 * 1024 * 1024
+MAX_STREAM_BYTES = WORKTREE.MAX_STREAM_BYTES
 MAX_EVENT_BYTES = 1024 * 1024
 MAX_STATUS_WAIT = 60.0
-TERM_GRACE = 1.0
+TERM_GRACE = WORKTREE.TERM_GRACE
 CONTROL_POLL = 0.20
 CONVERSATION_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}")
 JOB_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,79}")
 SHA_RE = re.compile(r"[0-9a-f]{64}")
-COMMAND_V1_FIELDS = {
-    "schema_version", "kind", "job_id", "workdir", "argv", "agy_version",
-    "idle_seconds", "hard_seconds", "max_seconds", "notice_seconds",
-    "stage_dir", "stage_file", "child_umask", "resume_prompt",
-}
-COMMAND_V2_FIELDS = COMMAND_V1_FIELDS | {"workflow", "max_cycles", "continue_prompt"}
-COMMAND_V3_FIELDS = COMMAND_V2_FIELDS | {"agy_version_observed"}
-COMMAND_V4_FIELDS = COMMAND_V3_FIELDS | {"selection_path", "selection_sha256", "selection_identity"}
-COMMAND_V5_FIELDS = COMMAND_V4_FIELDS | {"provider_env"}
-COMMAND_V6_FIELDS = COMMAND_V5_FIELDS | {
-    "provider_scope_path", "provider_scope_sha256", "provider_scope_identity", "approved_transmission_sha256",
-}
-COMMAND_V7_FIELDS = COMMAND_V6_FIELDS | {"approved_whole_worktree_sha256"}
-COMMAND_V8_FIELDS = COMMAND_V7_FIELDS | {
-    "boost", "boost_policy_sha256", "approved_boost_risk_sha256",
-}
-COMMAND_V9_FIELDS = COMMAND_V8_FIELDS | {
-    "allow_scoped_repair", "repair_authority_sha256",
-    "allow_self_verification", "self_verification_manifest_path",
-    "self_verification_manifest_sha256", "self_verification_manifest_identity",
-}
-COMMAND_V10_FIELDS = COMMAND_V9_FIELDS | {"provider_isolation"}
-COMMAND_V11_FIELDS = COMMAND_V10_FIELDS | {
-    "whole_worktree_content_sha256", "native_grant_profile",
+COMMIT_RE = re.compile(r"[0-9a-f]{40}|[0-9a-f]{64}")
+CURRENT_COMMAND_FIELDS = {
+    'launch_authority',
+    'launch_approval_sha256',
+    'agy_version',
+    'agy_version_observed',
+    'allow_scoped_repair',
+    'allow_self_verification',
+    'approved_transmission_sha256',
+    'approved_whole_worktree_sha256',
+    'argv',
+    'base_commit',
+    'child_umask',
+    'continue_prompt',
+    'hard_seconds',
+    'idle_seconds',
+    'job_id',
+    'kind',
+    'max_cycles',
+    'max_seconds',
+    'native_grant_profile',
+    'notice_seconds',
+    'provider_env',
+    'provider_isolation',
+    'provider_scope_identity',
+    'provider_scope_path',
+    'provider_scope_sha256',
+    'repair_authority_sha256',
+    'resume_prompt',
+    'schema_version',
+    'selection_identity',
+    'selection_path',
+    'selection_sha256',
+    'self_verification_manifest_identity',
+    'self_verification_manifest_path',
+    'self_verification_manifest_sha256',
+    'stage_dir',
+    'stage_file',
+    'whole_worktree_content_sha256',
+    'workdir',
+    'workflow',
 }
 SCOPED_REPAIR_POLICY_TEXT = (
     "Scoped repair may transmit only controller-reconciled descendants under the "
@@ -100,56 +165,131 @@ SCOPED_REPAIR_POLICY_TEXT = (
 SCOPED_REPAIR_POLICY_SHA256 = hashlib.sha256(
     SCOPED_REPAIR_POLICY_TEXT.encode("utf-8")
 ).hexdigest()
-BOOST_RISK_POLICY_TEXT = (
-    "Boost may invoke subagents and protected tools; this acknowledgement does not grant runtime permissions."
-)
-BOOST_RISK_POLICY_SHA256 = hashlib.sha256(BOOST_RISK_POLICY_TEXT.encode("utf-8")).hexdigest()
-STATE_PROJECT_FIELDS = {
-    "workflow", "max_cycles", "cycle", "phase", "assurance",
-    "check_summary", "check_counts", "verification_path", "verification_sha256",
-    "verification_identity", "continue_available", "last_success_path",
-    "last_success_sha256", "last_success_identity",
-    "project_boundary",
+CURRENT_STATE_FIELDS = {
+    'initial_content_transmission_sha256',
+    'agy_returncode',
+    'allow_scoped_repair',
+    'allow_self_verification',
+    'approved_transmission_sha256',
+    'assurance',
+    'attempt',
+    'attempt_base_elapsed',
+    'attempt_origin',
+    'cancel_requested',
+    'candidate_recognized',
+    'candidate_source',
+    'candidate_worktree_entries',
+    'candidate_worktree_path_facts',
+    'candidate_worktree_sha256',
+    'canonical_schema_identity',
+    'canonical_schema_sha256',
+    'check_counts',
+    'check_summary',
+    'command_identity',
+    'command_sha256',
+    'continue_available',
+    'controller_pid',
+    'conversation_id',
+    'created_epoch',
+    'cycle',
+    'driver_disposition',
+    'elapsed_seconds',
+    'exit_code',
+    'failure_stage',
+    'finished_epoch',
+    'hard_seconds',
+    'idle_seconds',
+    'job_id',
+    'kind',
+    'last_activity',
+    'last_progress_epoch',
+    'last_success_identity',
+    'last_success_path',
+    'last_success_sha256',
+    'limit_kind',
+    'max_cycles',
+    'max_seconds',
+    'native_grant_profile',
+    'next_action',
+    'next_action_command',
+    'notice_count',
+    'phase',
+    'previous_state_sha256',
+    'progress_count',
+    'project_boundary',
+    'provider_isolation',
+    'provider_retry_after_seconds',
+    'provider_retry_observed_epoch',
+    'provider_schema_identity',
+    'provider_schema_sha256',
+    'provider_scope_identity',
+    'provider_scope_path',
+    'provider_scope_sha256',
+    'provider_stage_identity',
+    'provider_stage_manifest_sha256',
+    'provider_stage_path',
+    'provider_terminal_status',
+    'reason',
+    'reconciliation_manifest_sha256',
+    'remote_cancel_unverified',
+    'repair_authority_sha256',
+    'repair_lineage_attempt',
+    'repair_lineage_sha256',
+    'repair_parent_result_sha256',
+    'repair_parent_worktree_sha256',
+    'result_available',
+    'result_identity',
+    'result_path',
+    'result_sha256',
+    'resume_available',
+    'schema_version',
+    'selected_content_sha256',
+    'selected_file_count',
+    'selected_tree_count',
+    'selection_identity',
+    'selection_sha256',
+    'self_verification_elapsed_seconds',
+    'self_verification_return_phase',
+    'self_verification_run',
+    'self_verification_started_epoch',
+    'sequence',
+    'stage_identity',
+    'stage_sha256',
+    'started_epoch',
+    'status',
+    'stderr_path',
+    'stream_path',
+    'transmission_sha256',
+    'updated_epoch',
+    'verification_identity',
+    'verification_path',
+    'verification_sha256',
+    'whole_worktree_content_sha256',
+    'workdir',
+    'workflow',
+    'worktree_baseline',
+    'worktree_changed_since_dispatch',
+    'worktree_changes_present',
+    'worktree_reconciliation',
+    'worktree_root_identity',
+    'worktree_snapshot_algorithm',
 }
-STATE_V5_FIELDS = {
-    "candidate_recognized", "candidate_source", "result_available",
-    "worktree_reconciliation", "worktree_changes_present",
-    "worktree_changed_since_dispatch", "driver_disposition", "failure_stage",
-    "last_activity", "next_action", "next_action_command", "worktree_baseline",
-    "provider_schema_sha256", "provider_schema_identity",
-    "canonical_schema_sha256", "canonical_schema_identity",
-    "candidate_worktree_sha256", "candidate_worktree_entries",
-}
-STATE_V6_FIELDS = {"selection_sha256", "selection_identity"}
-STATE_V8_FIELDS = {"worktree_snapshot_algorithm"}
-STATE_V9_FIELDS = {"worktree_root_identity"}
-STATE_V10_FIELDS = {"provider_terminal_status"}
-STATE_V11_FIELDS = {
-    "provider_scope_path", "provider_scope_sha256", "provider_scope_identity",
-    "approved_transmission_sha256", "transmission_sha256",
-    "selected_content_sha256", "selected_file_count", "selected_tree_count",
-    "provider_stage_path", "provider_stage_identity",
-    "provider_stage_manifest_sha256", "reconciliation_manifest_sha256",
-}
-STATE_V12_FIELDS = {
-    "allow_scoped_repair", "repair_authority_sha256", "repair_lineage_sha256",
-    "repair_parent_result_sha256", "repair_parent_worktree_sha256",
-    "repair_lineage_attempt",
-    "allow_self_verification", "self_verification_elapsed_seconds",
-    "self_verification_run", "self_verification_started_epoch",
-    "self_verification_return_phase",
-}
-STATE_V13_FIELDS = {"provider_isolation"}
-STATE_V14_FIELDS = {"whole_worktree_content_sha256", "native_grant_profile"}
 PUBLIC_LAUNCHER = '"$PIPELINE/agy-worker.sh"'
-CURRENT_STATE_SCHEMA = 14
-WORKTREE_SNAPSHOT_LEGACY_V6 = "legacy-v6"
+CURRENT_STATE_SCHEMA = 18
+CURRENT_COMMAND_SCHEMA = 16
+LAST_DOCUMENTED_LEGACY_SCHEMA_RELEASE = "v0.22.0"
 WORKTREE_SNAPSHOT_SEMANTIC_V1 = "semantic-v1"
 CURRENT_WORKTREE_SNAPSHOT_ALGORITHM = WORKTREE_SNAPSHOT_SEMANTIC_V1
 FAILURE_STAGES = {
     "framing", "outer_status", "missing_structured_output", "schema_rejection",
-    "binding_failure", "selection_preflight", "boost_contract",
+    "binding_failure", "selection_preflight",
 }
+FAILURE_STAGES.update(
+    f"launch_authority_changed:{field}" for field in LAUNCH_AUTHORITY.AUTHORITY_FIELDS
+)
+FAILURE_STAGES.update(f"launch_authority_changed:content.{field}" for field in (
+    "manifest_sha256", "policy_sha256", "selected_content_sha256", "content_manifest_sha256",
+    "provider_isolation", "native_grant_profile"))
 LIFECYCLE_PHASES = {
     "dispatching", "awaiting-verification", "repairing", "completed",
     "blocked", "attempt-failed", "repair-failed", "self-verifying",
@@ -162,7 +302,8 @@ REASONS = {
     "permission_required", "empty_output", "invalid_envelope",
     "output_oversized", "interrupted", "provider_quota_exhausted",
     "provider_terminal_error", "provider_terminal_cancelled",
-    "selection_preflight_failed", "resolve_undo_present",
+    "selection_preflight_failed", "model_selection_rejected", "resolve_undo_present",
+    "native_host_sandbox_unavailable",
 }
 EXIT_BY_REASON = {
     "empty_output": 3,
@@ -181,89 +322,36 @@ EXIT_BY_REASON = {
     "provider_quota_exhausted": 24,
     "provider_terminal_error": 25,
     "selection_preflight_failed": 26,
+    "model_selection_rejected": 26,
+    "native_host_sandbox_unavailable": 27,
     "provider_terminal_cancelled": 22,
     "interrupted": 143,
 }
 
-# These are exact, version-scoped observations.  Unknown text remains unclassified;
-# no broad substring or prose inference may decide auth/provider state.
-# Populated only from retained, version-bound observations.  There is currently no
-# reviewed 1.1.12 stderr evidence in the repository, so every provider diagnostic
-# remains deliberately unclassified.
-EXACT_FAILURE_LINES: dict[str, dict[bytes, str]] = {"1.1.12": {}}
-
-# agy 1.1.13 emitted this exact provider-owned terminal error shape in three
-# retained same-conversation observations. The reset duration is the only
-# variable part. Do not broaden this to free-form quota/message matching or to
-# another agy version without separately reviewed evidence.
-QUOTA_ERROR_1_1_13_RE = re.compile(
-    r"rpc error: Individual quota reached\. Contact your administrator to enable "
-    r"overages\. Resets in (?P<hours>[0-9]{1,3})h"
-    r"(?P<minutes>[0-9]{2})m(?P<seconds>[0-9]{2})s\."
+MODEL_SELECTION_REJECTED_MESSAGE = (
+    "AGY rejected the model/effort selection. Check `agy models` and the "
+    "`--model`/`--effort` pair before starting a new job."
 )
-QUOTA_RESULT_FIELDS = {
-    "conversation_id", "status", "response", "error", "duration_seconds",
-    "num_turns", "json_schema", "usage",
-}
+
 MAX_PROVIDER_RETRY_SECONDS = 30 * 24 * 3600
-
-
-class DispatchError(ValueError):
-    pass
 
 
 class SelectionPreflightError(DispatchError):
     """A direct caller selection could not be safely reprobed for one launch."""
 
 
-class WorktreeBaselineError(DispatchError):
-    """The queued worktree baseline is unavailable or no longer exact."""
-
-class ResolveUndoPresentError(WorktreeBaselineError):
-    """A valid, non-empty REUC observation is present in the worktree index."""
-
-_selection_spec = importlib.util.spec_from_file_location(
-    "agy_dispatch_model_selection", Path(__file__).with_name("model_selection.py"),
-)
-if _selection_spec is None or _selection_spec.loader is None:  # pragma: no cover - package invariant
-    raise RuntimeError("model selection runtime is unavailable")
-# Loading this sibling as a module (rather than a subprocess) keeps the re-probe
-# path private.  Its local compatibility dependency is package-owned too.
-if str(Path(__file__).parent) not in sys.path:
-    sys.path.insert(0, str(Path(__file__).parent))
-MODEL_SELECTION = importlib.util.module_from_spec(_selection_spec)
-_selection_spec.loader.exec_module(MODEL_SELECTION)
-
-
 class Parser(argparse.ArgumentParser):
-    def error(self, message: str) -> None:
+    def error(self, message: str) -> NoReturn:
         del message
         self.print_usage(sys.stderr)
         self.exit(64, "agy-dispatch: invalid arguments\n")
 
 
-def canonical(value: Any) -> bytes:
-    try:
-        return json.dumps(
-            value, ensure_ascii=True, sort_keys=True, separators=(",", ":")
-        ).encode("ascii") + b"\n"
-    except RecursionError as exc:
-        raise DispatchError("JSON structure is invalid") from exc
-
-
-def digest(raw: bytes) -> str:
-    return hashlib.sha256(raw).hexdigest()
-
-
 def _provider_isolation_for_command(command: dict[str, Any]) -> str:
-    """Derive the execution mode without rewriting historical command bytes."""
-    schema = command.get("schema_version")
-    if schema == 9:
-        return "native"
-    if isinstance(schema, int) and schema <= 8:
-        return "session"
+    """Read the current command's explicit execution mode."""
+    _require_supported_schema(command, label="dispatch command", supported=(CURRENT_COMMAND_SCHEMA,))
     mode = command.get("provider_isolation")
-    if schema not in {10, 11} or mode not in {"session", "native"}:
+    if mode not in {"session", "native"}:
         raise DispatchError("dispatch provider isolation is invalid")
     return mode
 
@@ -282,7 +370,7 @@ def scoped_repair_authority_sha256(
     payload = {
         "kind": "agy-worker-scoped-repair-authority-v1",
         "policy_sha256": SCOPED_REPAIR_POLICY_SHA256,
-        "initial_transmission_sha256": command.get("approved_transmission_sha256"),
+        "initial_launch_approval_sha256": command.get("launch_approval_sha256"),
         "provider_scope_sha256": command.get("provider_scope_sha256"),
         "selection_sha256": command.get("selection_sha256"),
         "agy_version": command.get("agy_version"),
@@ -295,10 +383,8 @@ def scoped_repair_authority_sha256(
         "max_seconds": command.get("max_seconds"),
         "verification_binding_sha256": verification_binding_sha256,
     }
-    if command.get("schema_version") in {10, 11}:
-        payload["provider_isolation"] = command.get("provider_isolation")
-    if command.get("schema_version") == 11:
-        payload["native_grant_profile"] = command.get("native_grant_profile")
+    payload["provider_isolation"] = command.get("provider_isolation")
+    payload["native_grant_profile"] = command.get("native_grant_profile")
     return digest(canonical(payload))
 
 
@@ -320,47 +406,6 @@ def _repair_authority_for_command(command: dict[str, Any]) -> str | None:
         command,
         verification_binding_sha256=self_verification_binding_sha256(command),
     )
-
-
-def _parse_resolve_undo(
-    raw: bytes, object_length: int,
-) -> dict[tuple[bytes, int], tuple[int, bytes]] | None:
-    """Strictly parse ``ls-files --resolve-undo -z`` records.
-
-    V7 does not persist REUC records: any well-formed record makes the semantic
-    snapshot unavailable.  Parsing first keeps malformed, duplicate, and
-    unsupported output fail-closed instead of treating it as an empty result.
-    """
-    if object_length not in {40, 64}:
-        return None
-    if not raw:
-        return {}
-    if not raw.endswith(b"\0"):
-        return None
-    parsed: dict[tuple[bytes, int], tuple[int, bytes]] = {}
-    for record in raw.split(b"\0")[:-1]:
-        try:
-            header, relative = record.split(b"\t", 1)
-            mode_raw, oid, stage_raw = header.split(b" ")
-            mode = int(mode_raw, 8)
-            stage = int(stage_raw, 10)
-        except (ValueError, TypeError):
-            return None
-        parts = relative.split(b"/")
-        key = (relative, stage)
-        if (
-            mode not in {0o100644, 0o100755, 0o120000, 0o160000}
-            or len(oid) != object_length
-            or any(char not in b"0123456789abcdef" for char in oid)
-            or stage not in {1, 2, 3}
-            or not relative or relative.startswith(b"/")
-            or any(part in {b"", b".", b".."} for part in parts)
-            or parts[0] == b".git"
-            or key in parsed
-        ):
-            return None
-        parsed[key] = (mode, oid)
-    return parsed
 
 
 def _duplicates(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
@@ -394,13 +439,6 @@ def _valid_max_cycles(workflow: str, value: Any) -> bool:
     if workflow in {"explore", "task"}:
         return 1 <= value <= 2
     return workflow == "project" and 1 <= value <= 5
-
-
-def _identity(info: os.stat_result) -> tuple[int, int, int, int, int]:
-    return (
-        info.st_dev, info.st_ino, info.st_uid, info.st_gid,
-        stat.S_IMODE(info.st_mode),
-    )
 
 
 def canonical_job(path: Path) -> Path:
@@ -535,6 +573,7 @@ def write_atomic(job: Path, name: str, value: Any) -> tuple[bytes, str]:
 
 @contextlib.contextmanager
 def lifecycle_lock(job: Path, *, blocking: bool) -> Iterator[int]:
+    _check_existing_dispatch_schemas(job)
     path = job / LOCK_NAME
     descriptor = os.open(
         path,
@@ -557,6 +596,7 @@ def lifecycle_lock(job: Path, *, blocking: bool) -> Iterator[int]:
 def state_lock(job: Path) -> Iterator[int]:
     """Serialize short state replacements without sharing controller ownership."""
 
+    _check_existing_dispatch_schemas(job)
     path = job / STATE_LOCK_NAME
     descriptor = os.open(
         path,
@@ -592,14 +632,65 @@ def inherited_lifecycle_lock(job: Path, descriptor: int) -> Iterator[int]:
         os.close(descriptor)
 
 
-def load_state(job: Path) -> tuple[dict[str, Any], bytes, str]:
+class UnsupportedSchemaError(DispatchError):
+    """A fixed diagnostic for a record outside the supported schema boundary."""
+
+
+def _require_supported_schema(
+    value: Any, *, label: str, supported: tuple[int, ...],
+) -> None:
+    version = value.get("schema_version") if isinstance(value, dict) else None
+    if type(version) is int and version in supported:
+        return
+    # Only bounded, retired positive integers enter a diagnostic. Never echo
+    # arbitrary JSON values, strings, or unbounded/future version numbers.
+    found = f"v{version}" if type(version) is int and 0 < version < max(supported) else "invalid or unsupported"
+    expected = " or ".join(f"v{item}" for item in supported)
+    raise UnsupportedSchemaError(
+        f"{label} schema {found} is not supported by this agy-worker release; "
+        f"supported: {expected}. Finish or discard the job with the "
+        "release that created it."
+    )
+
+
+def _check_existing_command_schema(job: Path) -> None:
+    """Reject retired commands before a state reader can recover or project."""
+    try:
+        raw, _info = read_regular(job / COMMAND_NAME, MAX_COMMAND_BYTES, "dispatch command")
+        value = parse_json(raw, "dispatch command")
+    except (OSError, DispatchError):
+        # Preserve the existing handling of missing/corrupt command artifacts.
+        # Their full binding remains owned by the ordinary command binder.
+        return
+    _require_supported_schema(value, label="dispatch command", supported=(CURRENT_COMMAND_SCHEMA,))
+
+
+def _check_existing_dispatch_schemas(job: Path) -> None:
+    """Reject decoded unsupported records before creating or chmodding locks.
+
+    This bounded read is only an early rejection, never transition authority.
+    Callers still reload and fully validate under their existing locks. Missing
+    or corrupt bytes retain the ordinary reader's existing error handling.
+    """
+    try:
+        raw, _info = read_regular(job / STATE_NAME, MAX_STATE_BYTES, "dispatch state")
+        value = parse_json(raw, "dispatch state")
+    except (OSError, DispatchError):
+        pass
+    else:
+        _require_supported_schema(value, label="dispatch state", supported=(CURRENT_STATE_SCHEMA,))
+    _check_existing_command_schema(job)
+
+
+def load_state(job: Path) -> tuple[DispatchState, bytes, str]:
     raw, _info = read_regular(job / STATE_NAME, MAX_STATE_BYTES, "dispatch state")
     value = parse_json(raw, "dispatch state")
     value = validate_state(value)
+    _check_existing_command_schema(job)
     return value, raw, digest(raw)
 
 
-def read_state_snapshot(job: Path) -> tuple[dict[str, Any], bytes, str]:
+def read_state_snapshot(job: Path) -> tuple[DispatchState, bytes, str]:
     """Read one strict state snapshot without racing an approved replacement."""
 
     with state_lock(job):
@@ -609,132 +700,29 @@ def read_state_snapshot(job: Path) -> tuple[dict[str, Any], bytes, str]:
 def load_command(job: Path) -> tuple[dict[str, Any], bytes, tuple[int, int, int, int, int]]:
     raw, info = read_regular(job / COMMAND_NAME, MAX_COMMAND_BYTES, "dispatch command")
     value = parse_json(raw, "dispatch command")
+    _require_supported_schema(value, label="dispatch command", supported=(CURRENT_COMMAND_SCHEMA,))
     if not isinstance(value, dict):
         raise DispatchError("dispatch command fields are invalid")
-    if set(value) == COMMAND_V1_FIELDS and value.get("schema_version") == 1:
-        if raw != canonical(value):
-            raise DispatchError("legacy dispatch command is not canonical")
-        value = dict(value)
-        value.update({
-            "workflow": "legacy", "max_cycles": 1,
-            "continue_prompt": "legacy commands cannot continue projects",
-            "agy_version_observed": False,
-            "selection_path": None, "selection_sha256": None, "selection_identity": None,
-            "provider_env": [],
-        })
-    elif set(value) == COMMAND_V2_FIELDS and value.get("schema_version") == 2:
-        if raw != canonical(value):
-            raise DispatchError("dispatch command is not canonical")
-        value = dict(value)
-        value["agy_version_observed"] = False
-        value.update({
-            "selection_path": None, "selection_sha256": None, "selection_identity": None,
-            "provider_env": [],
-        })
-    elif set(value) == COMMAND_V3_FIELDS and value.get("schema_version") == 3:
-        if raw != canonical(value):
-            raise DispatchError("dispatch command is not canonical")
-        value = dict(value)
-        value.update({
-            "selection_path": None, "selection_sha256": None, "selection_identity": None,
-            "provider_env": [],
-        })
-    elif set(value) == COMMAND_V4_FIELDS and value.get("schema_version") == 4:
-        if raw != canonical(value):
-            raise DispatchError("dispatch command is not canonical")
-        value = dict(value)
-        value["provider_env"] = []
-    elif set(value) == COMMAND_V5_FIELDS and value.get("schema_version") == 5:
-        if raw != canonical(value):
-            raise DispatchError("dispatch command is not canonical")
-        value = dict(value)
-        value.update({
-            "provider_scope_path": None,
-            "provider_scope_sha256": None,
-            "provider_scope_identity": None,
-            "approved_transmission_sha256": None,
-            "approved_whole_worktree_sha256": None,
-        })
-    elif set(value) == COMMAND_V6_FIELDS and value.get("schema_version") == 6:
-        if raw != canonical(value):
-            raise DispatchError("dispatch command is not canonical")
-        value = dict(value)
-        value["approved_whole_worktree_sha256"] = None
-    elif set(value) == COMMAND_V7_FIELDS and value.get("schema_version") == 7:
-        if raw != canonical(value):
-            raise DispatchError("dispatch command is not canonical")
-        value = dict(value)
-        value.update({
-            "boost": False, "boost_policy_sha256": None,
-            "approved_boost_risk_sha256": None,
-        })
-    elif set(value) == COMMAND_V8_FIELDS and value.get("schema_version") == 8:
-        if raw != canonical(value):
-            raise DispatchError("dispatch command is not canonical")
-        value = dict(value)
-        value.update({
-            "allow_scoped_repair": False,
-            "repair_authority_sha256": None,
-            "allow_self_verification": False,
-            "self_verification_manifest_path": None,
-            "self_verification_manifest_sha256": None,
-            "self_verification_manifest_identity": None,
-        })
-    elif set(value) == COMMAND_V9_FIELDS and value.get("schema_version") == 9:
-        if raw != canonical(value):
-            raise DispatchError("dispatch command is not canonical")
-        value = dict(value)
-        value["provider_isolation"] = "native"
-    elif set(value) == COMMAND_V10_FIELDS and value.get("schema_version") == 10:
-        if raw != canonical(value):
-            raise DispatchError("dispatch command is not canonical")
-        value = dict(value)
-        value.update({
-            "whole_worktree_content_sha256": None,
-            "native_grant_profile": "baseline",
-        })
-    elif set(value) != COMMAND_V11_FIELDS or value.get("schema_version") != 11:
+    if set(value) != CURRENT_COMMAND_FIELDS:
         raise DispatchError("dispatch command fields are invalid")
-    elif raw != canonical(value):
+    if raw != canonical(value):
         raise DispatchError("dispatch command is not canonical")
-    if "boost" not in value:
-        value = dict(value)
-        value.update({
-            "boost": False, "boost_policy_sha256": None,
-            "approved_boost_risk_sha256": None,
-        })
-    if "allow_scoped_repair" not in value:
-        value = dict(value)
-        value.update({
-            "allow_scoped_repair": False,
-            "repair_authority_sha256": None,
-        })
-    if "allow_self_verification" not in value:
-        value = dict(value)
-        value.update({
-            "allow_self_verification": False,
-            "self_verification_manifest_path": None,
-            "self_verification_manifest_sha256": None,
-            "self_verification_manifest_identity": None,
-        })
-    if "provider_isolation" not in value:
-        value = dict(value)
-        value["provider_isolation"] = "native" if value["schema_version"] == 9 else "session"
-    if "native_grant_profile" not in value:
-        value = dict(value)
-        value["native_grant_profile"] = "baseline"
-        value["whole_worktree_content_sha256"] = None
     if value["kind"] != "agy-worker-dispatch-command":
         raise DispatchError("dispatch command version is invalid")
-    if (
-        not isinstance(value["agy_version"], str)
-        or re.fullmatch(
-            r"(?:0|[1-9][0-9]{0,4})\.(?:0|[1-9][0-9]{0,4})\."
-            r"(?:0|[1-9][0-9]{0,4})",
-            value["agy_version"],
-        ) is None
-    ):
-        raise DispatchError("dispatch agy version is invalid")
+    try:
+        if (LAUNCH_AUTHORITY.approval_sha256(value["launch_authority"])
+                != value["launch_approval_sha256"]
+                or value["launch_approval_sha256"] != (
+                    value["approved_transmission_sha256"]
+                    if value["provider_scope_path"] is not None
+                    else value["approved_whole_worktree_sha256"])):
+            raise DispatchError("dispatch launch approval binding changed")
+    except (LAUNCH_AUTHORITY.LaunchAuthorityError, TypeError, AttributeError) as exc:
+        raise DispatchError("dispatch launch authority is invalid") from exc
+    version = value["agy_version"]
+    if (not isinstance(version, str) or not version or len(version.encode("utf-8")) > 128
+            or any(ord(c) < 32 or ord(c) == 127 for c in version)):
+        raise DispatchError("dispatch agy diagnostic version is invalid")
     if not isinstance(value["job_id"], str) or JOB_RE.fullmatch(value["job_id"]) is None:
         raise DispatchError("dispatch command job ID is invalid")
     if not isinstance(value["argv"], list) or not value["argv"] or any(
@@ -743,6 +731,19 @@ def load_command(job: Path) -> tuple[dict[str, Any], bytes, tuple[int, int, int,
         raise DispatchError("dispatch argv is invalid")
     if value["argv"][0] != "agy" or value["argv"].count("--print") != 1:
         raise DispatchError("dispatch argv contract is invalid")
+    arguments = iter(value["argv"][1:])
+    for argument in arguments:
+        option = argument.partition("=")[0]
+        if option in {
+            "--agent", "--boost", "--approve-boost-risk-sha", "--persona",
+            "--remote-control", "--input-format", "--project", "--new-project",
+        }:
+            raise DispatchError("dispatch argv contains a retired feature")
+        if "=" not in argument and option in {
+            "--print", "--model", "--mode", "--json-schema", "--add-dir",
+            "--conversation", "--print-timeout", "--output-format",
+        }:
+            next(arguments, None)
     if not isinstance(value["workdir"], str) or not Path(value["workdir"]).is_absolute():
         raise DispatchError("dispatch workdir is invalid")
     for key in ("idle_seconds", "hard_seconds", "max_seconds", "notice_seconds"):
@@ -772,6 +773,16 @@ def load_command(job: Path) -> tuple[dict[str, Any], bytes, tuple[int, int, int,
         raise DispatchError("dispatch provider environment is invalid") from exc
     if value["workflow"] not in {"legacy", "explore", "task", "project"}:
         raise DispatchError("dispatch workflow is invalid")
+    base_commit = value["base_commit"]
+    if base_commit is not None and (
+        not isinstance(base_commit, str) or COMMIT_RE.fullmatch(base_commit) is None
+    ):
+        raise DispatchError("dispatch base commit is invalid")
+    if value["provider_scope_path"] is not None and base_commit is not None:
+        raise DispatchError("scoped dispatch cannot carry a whole-worktree base")
+    if (value["provider_scope_path"] is None
+            and value["workflow"] in {"task", "project"} and base_commit is None):
+        raise DispatchError("whole-worktree task base is missing")
     if not _valid_max_cycles(value["workflow"], value["max_cycles"]):
         raise DispatchError("dispatch max cycles is invalid for workflow")
     if type(value["agy_version_observed"]) is not bool:
@@ -803,14 +814,11 @@ def load_command(job: Path) -> tuple[dict[str, Any], bytes, tuple[int, int, int,
         or not isinstance(approved_sha, str) or SHA_RE.fullmatch(approved_sha) is None
     ):
         raise DispatchError("dispatch provider scope binding is invalid")
-    if value["schema_version"] in {7, 8, 9, 10, 11}:
-        if scope_path is None:
-            if not isinstance(approved_whole_sha, str) or SHA_RE.fullmatch(approved_whole_sha) is None:
-                raise DispatchError("dispatch whole-worktree approval binding is invalid")
-        elif approved_whole_sha is not None:
-            raise DispatchError("dispatch transmission modes conflict")
+    if scope_path is None:
+        if not isinstance(approved_whole_sha, str) or SHA_RE.fullmatch(approved_whole_sha) is None:
+            raise DispatchError("dispatch whole-worktree approval binding is invalid")
     elif approved_whole_sha is not None:
-        raise DispatchError("legacy dispatch command cannot carry whole-worktree approval")
+        raise DispatchError("dispatch transmission modes conflict")
     provider_isolation = value["provider_isolation"]
     if provider_isolation not in {"session", "native"}:
         raise DispatchError("dispatch provider isolation is invalid")
@@ -820,41 +828,18 @@ def load_command(job: Path) -> tuple[dict[str, Any], bytes, tuple[int, int, int,
     ):
         raise DispatchError("dispatch native grant profile is invalid")
     whole_content_sha = value["whole_worktree_content_sha256"]
-    if value["schema_version"] == 11:
-        if scope_path is None:
-            if not isinstance(whole_content_sha, str) or SHA_RE.fullmatch(whole_content_sha) is None:
-                raise DispatchError("dispatch V11 whole-worktree content binding is invalid")
-        elif whole_content_sha is not None:
-            raise DispatchError("scoped V11 dispatch cannot carry whole-worktree content")
+    if scope_path is None:
+        if not isinstance(whole_content_sha, str) or SHA_RE.fullmatch(whole_content_sha) is None:
+            raise DispatchError("dispatch whole-worktree content binding is invalid")
     elif whole_content_sha is not None:
-        raise DispatchError("legacy dispatch cannot carry V11 whole-worktree content")
-    if value["schema_version"] in {10, 11}:
-        sandbox_count = value["argv"].count("--sandbox")
-        if provider_isolation == "session" and sandbox_count != 0:
-            raise DispatchError("session dispatch cannot request AGY sandbox")
-        if provider_isolation == "native" and (
-            scope_path is None or sandbox_count != 1
-        ):
-            raise DispatchError("native dispatch must be scoped and sandboxed")
-    boost = value["boost"]
-    boost_policy = value["boost_policy_sha256"]
-    boost_approval = value["approved_boost_risk_sha256"]
-    if type(boost) is not bool or (not boost and (boost_policy is not None or boost_approval is not None)):
-        raise DispatchError("dispatch Boost binding is invalid")
-    if boost:
-        expected_approval = hashlib.sha256(
-            f"{BOOST_RISK_POLICY_SHA256}\n{value['job_id']}\n".encode("ascii")
-        ).hexdigest()
-        argv = value["argv"]
-        valid_mode = argv.count("--mode") == 1 and argv[argv.index("--mode") + 1:argv.index("--mode") + 2] == ["accept-edits"]
-        if (
-            boost_policy != BOOST_RISK_POLICY_SHA256 or boost_approval != expected_approval
-            or value["workflow"] != "task" or value["max_cycles"] != 1
-            or argv.count("--agent") != 1 or argv[argv.index("--agent") + 1:argv.index("--agent") + 2] != ["Boost"]
-            or argv.count("--disable-slash-commands") != 1 or not valid_mode
-            or any(flag in argv for flag in ("--conversation", "--continue", "-c"))
-        ):
-            raise DispatchError("dispatch Boost contract is invalid")
+        raise DispatchError("scoped dispatch cannot carry whole-worktree content")
+    sandbox_count = value["argv"].count("--sandbox")
+    if provider_isolation == "session" and sandbox_count != 0:
+        raise DispatchError("session dispatch cannot request AGY sandbox")
+    if provider_isolation == "native" and (
+        scope_path is None or sandbox_count != 1
+    ):
+        raise DispatchError("native dispatch must be scoped and sandboxed")
     if scope_path is not None and "--add-dir" in value["argv"]:
         raise DispatchError("narrow provider scope cannot grant an additional directory")
     allow_self_verification = value["allow_self_verification"]
@@ -871,9 +856,7 @@ def load_command(job: Path) -> tuple[dict[str, Any], bytes, tuple[int, int, int,
         if any(item is not None for item in self_verification_fields):
             raise DispatchError("disabled self-verification cannot carry a manifest")
     elif (
-        value["schema_version"] not in {9, 10, 11}
-        or value["workflow"] not in {"task", "project"}
-        or value["boost"]
+        value["workflow"] not in {"task", "project"}
         or not isinstance(self_verification_fields[0], str)
         or not Path(self_verification_fields[0]).is_absolute()
         or not isinstance(self_verification_fields[1], str)
@@ -894,7 +877,6 @@ def load_command(job: Path) -> tuple[dict[str, Any], bytes, tuple[int, int, int,
         scope_path is None
         or value["workflow"] not in {"task", "project"}
         or value["max_cycles"] < 2
-        or value["boost"]
         or not isinstance(repair_authority, str)
         or SHA_RE.fullmatch(repair_authority) is None
         or repair_authority != _repair_authority_for_command(value)
@@ -914,267 +896,295 @@ def _require_initial_transmission_choice(command: dict[str, Any], origin: str) -
         raise DispatchError("initial whole-worktree dispatch lacks explicit approval")
 
 
-def validate_state(value: Any) -> dict[str, Any]:
-    fields = {
-        "schema_version", "kind", "sequence", "previous_state_sha256", "job_id",
-        "status", "attempt", "attempt_origin", "reason", "exit_code",
-        "controller_pid", "workdir", "created_epoch", "started_epoch",
-        "updated_epoch", "finished_epoch", "elapsed_seconds", "progress_count",
-        "last_progress_epoch", "notice_count", "hard_seconds", "max_seconds",
-        "cancel_requested", "conversation_id", "resume_available",
-        "remote_cancel_unverified", "result_path", "stream_path", "stderr_path",
-        "agy_returncode", "limit_kind", "command_sha256", "command_identity",
-        "stage_sha256", "stage_identity", "result_sha256", "result_identity",
-        "idle_seconds", "attempt_base_elapsed",
-        "workflow", "max_cycles", "cycle", "phase", "assurance",
-        "check_summary", "check_counts", "verification_path", "verification_sha256",
-        "verification_identity", "continue_available", "last_success_path",
-        "last_success_sha256", "last_success_identity", "project_boundary",
-        "provider_retry_after_seconds", "provider_retry_observed_epoch",
-        "candidate_recognized", "candidate_source", "result_available",
-        "worktree_reconciliation", "worktree_changes_present",
-        "worktree_changed_since_dispatch", "driver_disposition", "failure_stage",
-        "last_activity", "next_action", "next_action_command", "worktree_baseline",
-        "provider_schema_sha256", "provider_schema_identity",
-        "canonical_schema_sha256", "canonical_schema_identity",
-        "candidate_worktree_sha256", "candidate_worktree_entries",
-        "selection_sha256", "selection_identity",
-        "worktree_snapshot_algorithm", "worktree_root_identity",
-        "provider_terminal_status",
-    }
-    fields |= STATE_V11_FIELDS
-    fields |= STATE_V12_FIELDS
-    fields |= STATE_V13_FIELDS
-    fields |= STATE_V14_FIELDS
-    projected = LEGACY.project_for_read(LEGACY_API, value, fields)
-    if projected is not None:
-        value = projected
-    elif not isinstance(value, dict) or set(value) != fields:
-        raise DispatchError("dispatch state fields are invalid")
-    if value["kind"] != "agy-worker-dispatch-state":
-        raise DispatchError("dispatch state version is invalid")
-    if value["provider_isolation"] not in {"session", "native"}:
-        raise DispatchError("dispatch provider isolation state is invalid")
-    if not isinstance(value.get("native_grant_profile"), str) or value.get("native_grant_profile") not in {"baseline", "A", "B", "AB"} or (
-        value["provider_isolation"] == "session" and value.get("native_grant_profile") != "baseline"
-    ):
-        raise DispatchError("dispatch native grant profile state is invalid")
-    whole_content_sha = value.get("whole_worktree_content_sha256")
-    if whole_content_sha is not None and (
-        not isinstance(whole_content_sha, str) or SHA_RE.fullmatch(whole_content_sha) is None
-    ):
-        raise DispatchError("dispatch whole-worktree content state is invalid")
-    if value["schema_version"] in {9, 10, 11, 12, 13, CURRENT_STATE_SCHEMA} and (
-        value["worktree_snapshot_algorithm"] != CURRENT_WORKTREE_SNAPSHOT_ALGORITHM
-    ):
-        raise DispatchError("dispatch worktree snapshot algorithm is invalid")
-    if value["schema_version"] in {10, 11, 12, 13, CURRENT_STATE_SCHEMA} and (
-        value.get("provider_terminal_status") not in {"unknown", "success", "error", "cancelled"}
-    ):
-        raise DispatchError("dispatch provider terminal status is invalid")
-    root_identity = value.get("worktree_root_identity")
-    if value["schema_version"] in {9, 10, 11, 12, 13, CURRENT_STATE_SCHEMA}:
-        def valid_authority(authority: Any, *, directory: bool | None = None) -> bool:
-            if not isinstance(authority, dict) or set(authority) != {
-                "dev", "ino", "type", "mode", "uid", "gid",
-            }:
-                return False
-            if any(type(authority[key]) is not int or authority[key] < 0 for key in authority):
-                return False
-            if authority["type"] not in {stat.S_IFDIR, stat.S_IFREG}:
-                return False
-            return directory is None or (authority["type"] == stat.S_IFDIR) == directory
+class FileAuthority(TypedDict):
+    dev: int
+    ino: int
+    type: int
+    mode: int
+    uid: int
+    gid: int
 
-        if (
-            not isinstance(root_identity, dict)
-            or set(root_identity) != {
-                "root", "git_marker", "git_dir", "common_dir", "object_format", "show_toplevel",
-            }
-            or not isinstance(root_identity["root"], dict)
-            or set(root_identity["root"]) != {"realpath", "dev", "ino"}
-            or not isinstance(root_identity["root"]["realpath"], str)
-            or not os.path.isabs(root_identity["root"]["realpath"])
-            or type(root_identity["root"]["dev"]) is not int or root_identity["root"]["dev"] < 0
-            or type(root_identity["root"]["ino"]) is not int or root_identity["root"]["ino"] < 0
-            or root_identity["show_toplevel"] != root_identity["root"]["realpath"]
-            or root_identity["object_format"] not in {"sha1", "sha256"}
-            or not isinstance(root_identity["git_marker"], dict)
-            or set(root_identity["git_marker"]) != {"kind", "authority", "content_sha256"}
-            or root_identity["git_marker"]["kind"] not in {"directory", "file"}
-            or not valid_authority(
-                root_identity["git_marker"]["authority"],
-                directory=root_identity["git_marker"]["kind"] == "directory",
-            )
-            or (
-                root_identity["git_marker"]["content_sha256"] is not None
-                if root_identity["git_marker"]["kind"] == "directory" else
-                not isinstance(root_identity["git_marker"]["content_sha256"], str)
-                or SHA_RE.fullmatch(root_identity["git_marker"]["content_sha256"]) is None
-            )
-            or any(
-                not isinstance(root_identity[key], dict)
-                or set(root_identity[key]) != {"realpath", "authority"}
-                or not isinstance(root_identity[key]["realpath"], str)
-                or not os.path.isabs(root_identity[key]["realpath"])
-                or not valid_authority(root_identity[key]["authority"], directory=True)
-                for key in ("git_dir", "common_dir")
-            )
-        ):
-            raise DispatchError("dispatch worktree root identity is invalid")
-    if type(value["sequence"]) is not int or value["sequence"] < 1:
-        raise DispatchError("dispatch sequence is invalid")
-    previous = value["previous_state_sha256"]
-    if previous is not None and (not isinstance(previous, str) or SHA_RE.fullmatch(previous) is None):
-        raise DispatchError("dispatch history is invalid")
-    if (value["sequence"] == 1) != (previous is None):
-        raise DispatchError("dispatch history is inconsistent")
-    if value["status"] not in {"queued", "running", "cancel-requested", *TERMINAL}:
-        raise DispatchError("dispatch status is invalid")
-    if value["reason"] is not None and value["reason"] not in REASONS:
-        raise DispatchError("dispatch reason is invalid")
-    if type(value["candidate_recognized"]) is not bool or type(value["result_available"]) is not bool:
-        raise DispatchError("dispatch candidate flags are invalid")
-    if value["candidate_source"] not in {"none", "provider_success", "provider_error", "provider_cancelled"}:
-        raise DispatchError("dispatch candidate source is invalid")
+
+class RootIdentity(TypedDict):
+    realpath: str
+    dev: int
+    ino: int
+
+
+class GitMarkerIdentity(TypedDict):
+    kind: str
+    authority: FileAuthority
+    content_sha256: str | None
+
+
+class GitDirectoryIdentity(TypedDict):
+    realpath: str
+    authority: FileAuthority
+
+
+class WorktreeRootIdentity(TypedDict):
+    root: RootIdentity
+    git_marker: GitMarkerIdentity
+    git_dir: GitDirectoryIdentity
+    common_dir: GitDirectoryIdentity
+    object_format: str
+    show_toplevel: str
+
+
+class WorktreeBaseline(TypedDict):
+    sha256: str
+    entries: int
+
+
+class CheckCounts(TypedDict):
+    passed: int
+    failed: int
+    advisory: int
+    missing: int
+
+
+class ProjectBoundary(TypedDict):
+    kind: str
+    # Validation guarantees the list's length, but does not constrain its elements.
+    identity: list[object]
+    sha256: str
+
+
+class DispatchState(TypedDict):
+    initial_content_transmission_sha256: str | None
+    """Fields proven by validate_state; optional values remain explicitly nullable."""
+    schema_version: int
+    kind: str
+    sequence: int
+    previous_state_sha256: str | None
+    job_id: str
+    status: str
+    attempt: int
+    attempt_origin: str
+    reason: str | None
+    exit_code: int | None
+    controller_pid: int | None
+    workdir: str | None
+    created_epoch: float
+    started_epoch: float | None
+    updated_epoch: float
+    finished_epoch: float | None
+    elapsed_seconds: float
+    progress_count: int
+    last_progress_epoch: float | None
+    notice_count: int
+    hard_seconds: float
+    max_seconds: float
+    idle_seconds: float
+    attempt_base_elapsed: float
+    cancel_requested: bool
+    conversation_id: str | None
+    resume_available: bool
+    remote_cancel_unverified: bool
+    result_path: str | None
+    stream_path: str | None
+    stderr_path: str | None
+    agy_returncode: int | None
+    limit_kind: str | None
+    command_sha256: str | None
+    command_identity: list[int] | None
+    stage_sha256: str | None
+    stage_identity: list[int] | None
+    result_sha256: str | None
+    result_identity: list[int] | None
+    workflow: str
+    max_cycles: int
+    cycle: int
+    phase: str
+    assurance: str
+    check_summary: str | None
+    check_counts: CheckCounts
+    verification_path: str | None
+    verification_sha256: str | None
+    verification_identity: list[int] | None
+    continue_available: bool
+    last_success_path: str | None
+    last_success_sha256: str | None
+    last_success_identity: list[int] | None
+    project_boundary: ProjectBoundary | None
+    provider_retry_after_seconds: int | None
+    provider_retry_observed_epoch: float | None
+    candidate_recognized: bool
+    candidate_source: str
+    result_available: bool
+    worktree_reconciliation: str
+    worktree_changes_present: bool | None
+    worktree_changed_since_dispatch: bool | None
+    driver_disposition: str
+    failure_stage: str | None
+    last_activity: str | None
+    next_action: str
+    next_action_command: str | None
+    worktree_baseline: WorktreeBaseline | None
+    provider_schema_sha256: str | None
+    provider_schema_identity: list[int] | None
+    canonical_schema_sha256: str | None
+    canonical_schema_identity: list[int] | None
+    candidate_worktree_sha256: str | None
+    candidate_worktree_entries: int | None
+    candidate_worktree_path_facts: dict[str, Any] | None
+    selection_sha256: str | None
+    selection_identity: list[int] | None
+    worktree_snapshot_algorithm: str
+    worktree_root_identity: WorktreeRootIdentity
+    provider_terminal_status: str
+    allow_scoped_repair: bool
+    repair_authority_sha256: str | None
+    repair_lineage_sha256: str | None
+    repair_parent_result_sha256: str | None
+    repair_parent_worktree_sha256: str | None
+    repair_lineage_attempt: int | None
+    allow_self_verification: bool
+    self_verification_elapsed_seconds: float
+    self_verification_run: int
+    self_verification_started_epoch: float | None
+    self_verification_return_phase: str | None
+    provider_isolation: str
+    provider_scope_path: str | None
+    provider_scope_sha256: str | None
+    provider_scope_identity: list[int] | None
+    approved_transmission_sha256: str | None
+    transmission_sha256: str | None
+    selected_content_sha256: str | None
+    selected_file_count: int | None
+    selected_tree_count: int | None
+    provider_stage_path: str | None
+    provider_stage_identity: list[int] | None
+    provider_stage_manifest_sha256: str | None
+    reconciliation_manifest_sha256: str | None
+    whole_worktree_content_sha256: str | None
+    native_grant_profile: str
+
+
+def _invalid_if(invalid: bool, message: str) -> None:
+    if invalid:
+        raise DispatchError(message)
+
+
+def _validate_worktree_observation(item: Any) -> None:
+    if item is not None and type(item) is not bool:
+        raise DispatchError("dispatch worktree observation is invalid")
+
+
+def _validate_boolean(item: Any) -> None:
+    if type(item) is not bool:
+        raise DispatchError("dispatch boolean is invalid")
+
+
+def _validate_counter(item: Any) -> None:
+    if type(item) is not int or item < 0:
+        raise DispatchError("dispatch counter is invalid")
+
+
+def _validate_time(item: Any) -> None:
+    if type(item) not in (int, float) or item < 0:
+        raise DispatchError("dispatch time is invalid")
+
+
+def _validate_optional_time(item: Any) -> None:
+    if item is not None and (type(item) not in (int, float) or item < 0):
+        raise DispatchError("dispatch optional time is invalid")
+
+
+def _validate_optional_integer(item: Any) -> None:
+    if item is not None and type(item) is not int:
+        raise DispatchError("dispatch integer is invalid")
+
+
+def _validate_optional_path(item: Any) -> None:
+    if item is not None and not isinstance(item, str):
+        raise DispatchError("dispatch path is invalid")
+
+
+def _validate_optional_digest(item: Any) -> None:
+    if item is not None and (
+        not isinstance(item, str) or SHA_RE.fullmatch(item) is None
+    ):
+        raise DispatchError("dispatch digest is invalid")
+
+
+def _validate_optional_identity(item: Any) -> None:
+    identity = item
+    if identity is not None and (
+        not isinstance(identity, list) or len(identity) != 5
+        or any(type(item) is not int or item < 0 for item in identity)
+    ):
+        raise DispatchError("dispatch identity is invalid")
+
+
+def _validate_fields(value: Mapping[str, Any], validators: dict[str, Callable[[Any], None]]) -> None:
+    """Run one phase's field checks in their declared first-error order."""
+    for key, validate in validators.items():
+        validate(value[key])
+
+
+def _validate_root_identity(value: Mapping[str, Any]) -> None:
+    root_identity = value.get("worktree_root_identity")
+    def valid_authority(authority: Any, *, directory: bool | None = None) -> bool:
+        if not isinstance(authority, dict) or set(authority) != {
+            "dev", "ino", "type", "mode", "uid", "gid",
+        }:
+            return False
+        if any(type(authority[key]) is not int or authority[key] < 0 for key in authority):
+            return False
+        if authority["type"] not in {stat.S_IFDIR, stat.S_IFREG}:
+            return False
+        return directory is None or (authority["type"] == stat.S_IFDIR) == directory
+
     if (
-        value["candidate_recognized"] != (value["candidate_source"] != "none")
-        or (value["result_available"] and not value["candidate_recognized"])
+        not isinstance(root_identity, dict)
+        or set(root_identity) != {
+            "root", "git_marker", "git_dir", "common_dir", "object_format", "show_toplevel",
+        }
+        or not isinstance(root_identity["root"], dict)
+        or set(root_identity["root"]) != {"realpath", "dev", "ino"}
+        or not isinstance(root_identity["root"]["realpath"], str)
+        or not os.path.isabs(root_identity["root"]["realpath"])
+        or type(root_identity["root"]["dev"]) is not int or root_identity["root"]["dev"] < 0
+        or type(root_identity["root"]["ino"]) is not int or root_identity["root"]["ino"] < 0
+        or root_identity["show_toplevel"] != root_identity["root"]["realpath"]
+        or root_identity["object_format"] not in {"sha1", "sha256"}
+        or not isinstance(root_identity["git_marker"], dict)
+        or set(root_identity["git_marker"]) != {"kind", "authority", "content_sha256"}
+        or root_identity["git_marker"]["kind"] not in {"directory", "file"}
+        or not valid_authority(
+            root_identity["git_marker"]["authority"],
+            directory=root_identity["git_marker"]["kind"] == "directory",
+        )
+        or (
+            root_identity["git_marker"]["content_sha256"] is not None
+            if root_identity["git_marker"]["kind"] == "directory" else
+            not isinstance(root_identity["git_marker"]["content_sha256"], str)
+            or SHA_RE.fullmatch(root_identity["git_marker"]["content_sha256"]) is None
+        )
+        or any(
+            not isinstance(root_identity[key], dict)
+            or set(root_identity[key]) != {"realpath", "authority"}
+            or not isinstance(root_identity[key]["realpath"], str)
+            or not os.path.isabs(root_identity[key]["realpath"])
+            or not valid_authority(root_identity[key]["authority"], directory=True)
+            for key in ("git_dir", "common_dir")
+        )
     ):
-        raise DispatchError("dispatch candidate state is inconsistent")
-    if value["worktree_reconciliation"] not in {"available", "unavailable", "not_applicable"}:
-        raise DispatchError("dispatch worktree reconciliation is invalid")
-    for key in ("worktree_changes_present", "worktree_changed_since_dispatch"):
-        if value[key] is not None and type(value[key]) is not bool:
-            raise DispatchError("dispatch worktree observation is invalid")
-    if value["worktree_reconciliation"] == "available" and (
-        value["worktree_changes_present"] is None or value["worktree_changed_since_dispatch"] is None
-    ):
-        raise DispatchError("dispatch worktree reconciliation is incomplete")
-    if value["worktree_reconciliation"] != "available" and (
-        value["worktree_changes_present"] is not None or value["worktree_changed_since_dispatch"] is not None
-    ):
-        raise DispatchError("dispatch unavailable worktree reconciliation has observations")
-    if value["driver_disposition"] not in {"not_applicable", "unreviewed", "verified", "partially_verified", "rejected", "blocked"}:
-        raise DispatchError("dispatch driver disposition is invalid")
-    if value["failure_stage"] not in {None, *FAILURE_STAGES}:
-        raise DispatchError("dispatch failure stage is invalid")
-    if value["last_activity"] not in {None, "provider_initialized", "progress_signal", "terminal_received"}:
-        raise DispatchError("dispatch activity is invalid")
-    if value["next_action"] not in {"none", "wait", "resume", "restart", "driver_review", "driver_finalize", "blocked"}:
-        raise DispatchError("dispatch next action is invalid")
-    if value["next_action_command"] is not None and (not isinstance(value["next_action_command"], str) or not value["next_action_command"]):
-        raise DispatchError("dispatch next action command is invalid")
-    baseline = value["worktree_baseline"]
-    if baseline is not None and (
-        not isinstance(baseline, dict) or set(baseline) != {"sha256", "entries"}
-        or not isinstance(baseline["sha256"], str) or SHA_RE.fullmatch(baseline["sha256"]) is None
-        or type(baseline["entries"]) is not int or not (0 <= baseline["entries"] <= MAX_BOUNDARY_ENTRIES)
-    ):
-        raise DispatchError("dispatch worktree baseline is invalid")
+        raise DispatchError("dispatch worktree root identity is invalid")
+
+
+def _validate_scope_state(value: Mapping[str, Any]) -> None:
     candidate_worktree_sha = value["candidate_worktree_sha256"]
-    candidate_worktree_entries = value["candidate_worktree_entries"]
-    if (candidate_worktree_sha is None) != (candidate_worktree_entries is None):
-        raise DispatchError("dispatch candidate worktree binding is incomplete")
-    if candidate_worktree_sha is not None and (
-        not isinstance(candidate_worktree_sha, str)
-        or SHA_RE.fullmatch(candidate_worktree_sha) is None
-        or type(candidate_worktree_entries) is not int
-        or not (0 <= candidate_worktree_entries <= MAX_BOUNDARY_ENTRIES)
-    ):
-        raise DispatchError("dispatch candidate worktree binding is invalid")
-    for digest_key, identity_key in (
-        ("provider_schema_sha256", "provider_schema_identity"),
-        ("canonical_schema_sha256", "canonical_schema_identity"),
-    ):
-        bound_digest, bound_identity = value[digest_key], value[identity_key]
-        if (bound_digest is None) != (bound_identity is None):
-            raise DispatchError("dispatch schema binding is incomplete")
-        if bound_digest is not None and (
-            not isinstance(bound_digest, str) or SHA_RE.fullmatch(bound_digest) is None
-            or not isinstance(bound_identity, list) or len(bound_identity) != 5
-            or any(type(item) is not int or item < 0 for item in bound_identity)
-        ):
-            raise DispatchError("dispatch schema binding is invalid")
-    if value["attempt_origin"] not in {"initial", "conversation-resume", "fresh-restart", "conversation-continue"}:
-        raise DispatchError("dispatch attempt origin is invalid")
-    if type(value["attempt"]) is not int or value["attempt"] < 1:
-        raise DispatchError("dispatch attempt is invalid")
-    if value["workflow"] not in {"legacy", "explore", "task", "project"}:
-        raise DispatchError("dispatch workflow state is invalid")
-    if not _valid_max_cycles(value["workflow"], value["max_cycles"]):
-        raise DispatchError("dispatch max cycles state is invalid")
-    if type(value["cycle"]) is not int or value["cycle"] != value["attempt"] or (
-        value["workflow"] != "legacy" and value["cycle"] > value["max_cycles"]
-    ):
-        raise DispatchError("dispatch cycle state is invalid")
-    if not isinstance(value["job_id"], str) or JOB_RE.fullmatch(value["job_id"]) is None:
-        raise DispatchError("dispatch job ID is invalid")
-    conversation = value["conversation_id"]
-    if conversation is not None and (
-        not isinstance(conversation, str) or CONVERSATION_RE.fullmatch(conversation) is None
-    ):
-        raise DispatchError("dispatch conversation ID is invalid")
-    for key in ("cancel_requested", "resume_available", "continue_available", "remote_cancel_unverified"):
-        if type(value[key]) is not bool:
-            raise DispatchError("dispatch boolean is invalid")
-    for key in ("progress_count", "notice_count"):
-        if type(value[key]) is not int or value[key] < 0:
-            raise DispatchError("dispatch counter is invalid")
-    for key in (
-        "created_epoch", "updated_epoch", "elapsed_seconds", "hard_seconds",
-        "max_seconds", "idle_seconds", "attempt_base_elapsed",
-    ):
-        if type(value[key]) not in (int, float) or value[key] < 0:
-            raise DispatchError("dispatch time is invalid")
-    for key in ("started_epoch", "finished_epoch", "last_progress_epoch"):
-        if value[key] is not None and (type(value[key]) not in (int, float) or value[key] < 0):
-            raise DispatchError("dispatch optional time is invalid")
-    retry_after = value["provider_retry_after_seconds"]
-    retry_observed = value["provider_retry_observed_epoch"]
-    if (retry_after is None) != (retry_observed is None):
-        raise DispatchError("dispatch provider retry binding is incomplete")
-    if retry_after is not None and (
-        type(retry_after) is not int or not (1 <= retry_after <= MAX_PROVIDER_RETRY_SECONDS)
-        or type(retry_observed) not in (int, float)
-        or not math.isfinite(retry_observed) or retry_observed < 0
-    ):
-        raise DispatchError("dispatch provider retry binding is invalid")
-    if value["reason"] != "provider_quota_exhausted" and retry_after is not None:
-        raise DispatchError("dispatch provider retry reason is inconsistent")
-    for key in ("exit_code", "controller_pid", "agy_returncode"):
-        if value[key] is not None and type(value[key]) is not int:
-            raise DispatchError("dispatch integer is invalid")
-    for key in ("workdir", "result_path", "stream_path", "stderr_path", "verification_path", "last_success_path"):
-        if value[key] is not None and not isinstance(value[key], str):
-            raise DispatchError("dispatch path is invalid")
-    if value["limit_kind"] not in {None, "idle", "hard", "max-runtime"}:
-        raise DispatchError("dispatch limit kind is invalid")
-    for key in ("command_sha256", "stage_sha256", "result_sha256", "verification_sha256", "last_success_sha256"):
-        if value[key] is not None and (
-            not isinstance(value[key], str) or SHA_RE.fullmatch(value[key]) is None
-        ):
-            raise DispatchError("dispatch digest is invalid")
-    for key in ("command_identity", "stage_identity", "result_identity", "verification_identity", "last_success_identity"):
-        identity = value[key]
-        if identity is not None and (
-            not isinstance(identity, list) or len(identity) != 5
-            or any(type(item) is not int or item < 0 for item in identity)
-        ):
-            raise DispatchError("dispatch identity is invalid")
-    selection_sha = value["selection_sha256"]
-    selection_identity = value["selection_identity"]
-    if (selection_sha is None) != (selection_identity is None):
-        raise DispatchError("dispatch selection state binding is incomplete")
-    if selection_sha is not None and (
-        not isinstance(selection_sha, str) or SHA_RE.fullmatch(selection_sha) is None
-        or not isinstance(selection_identity, list) or len(selection_identity) != 5
-        or any(type(item) is not int or item < 0 for item in selection_identity)
-    ):
-        raise DispatchError("dispatch selection state binding is invalid")
     scope_path = value.get("provider_scope_path")
     scope_sha = value.get("provider_scope_sha256")
     scope_identity = value.get("provider_scope_identity")
     approved_sha = value.get("approved_transmission_sha256")
+    initial_content_sha = value.get("initial_content_transmission_sha256")
+    if (scope_path is None) != (initial_content_sha is None) or (
+            initial_content_sha is not None and (not isinstance(initial_content_sha, str)
+                                                or SHA_RE.fullmatch(initial_content_sha) is None)):
+        raise DispatchError("dispatch initial content transmission binding is invalid")
     transmission_sha = value.get("transmission_sha256")
     selected_content_sha = value.get("selected_content_sha256")
     selected_file_count = value.get("selected_file_count")
@@ -1259,11 +1269,14 @@ def validate_state(value: Any) -> dict[str, Any]:
             reconciliation_sha256=reconciliation_manifest_sha,
             result_sha256=value["result_sha256"],
             candidate_worktree_sha256=candidate_worktree_sha,
-            selected_content_sha256=selected_content_sha,
-            transmission_sha256=transmission_sha,
+            selected_content_sha256=cast(str, selected_content_sha),
+            transmission_sha256=cast(str, transmission_sha),
         )
     ):
         raise DispatchError("dispatch repair lineage is invalid")
+
+
+def _validate_self_verification_state(value: Mapping[str, Any]) -> None:
     allow_self_verification = value["allow_self_verification"]
     self_verification_elapsed = value["self_verification_elapsed_seconds"]
     self_verification_run = value["self_verification_run"]
@@ -1271,16 +1284,10 @@ def validate_state(value: Any) -> dict[str, Any]:
     self_verification_return = value["self_verification_return_phase"]
     if type(allow_self_verification) is not bool:
         raise DispatchError("dispatch self-verification choice is invalid")
-    if allow_self_verification and value["workflow"] not in {"task", "project"}:
-        raise DispatchError("dispatch self-verification workflow is invalid")
-    if (
-        type(self_verification_elapsed) not in (int, float)
-        or not math.isfinite(self_verification_elapsed)
-        or self_verification_elapsed < 0
-        or type(self_verification_run) is not int
-        or not (0 <= self_verification_run <= value["attempt"])
-    ):
-        raise DispatchError("dispatch self-verification accounting is invalid")
+    _validate_fields(value, {
+        "workflow": lambda item: _invalid_if(allow_self_verification and item not in {'task', 'project'}, 'dispatch self-verification workflow is invalid'),
+        "attempt": lambda item: _invalid_if(type(self_verification_elapsed) not in (int, float) or not math.isfinite(self_verification_elapsed) or self_verification_elapsed < 0 or (type(self_verification_run) is not int) or (not 0 <= self_verification_run <= item), 'dispatch self-verification accounting is invalid'),
+    })
     if self_verification_started is not None and (
         type(self_verification_started) not in (int, float)
         or not math.isfinite(self_verification_started)
@@ -1310,6 +1317,9 @@ def validate_state(value: Any) -> dict[str, Any]:
             raise DispatchError("active self-verification state is invalid")
     elif self_verification_started is not None or self_verification_return is not None:
         raise DispatchError("inactive self-verification has active state")
+
+
+def _validate_candidate_lifecycle(value: Mapping[str, Any]) -> None:
     current_result = [value["result_path"], value["result_sha256"], value["result_identity"]]
     if any(item is None for item in current_result) != all(item is None for item in current_result):
         raise DispatchError("dispatch result binding is incomplete")
@@ -1334,69 +1344,58 @@ def validate_state(value: Any) -> dict[str, Any]:
     if value["status"] in TERMINAL:
         if value["finished_epoch"] is None or value["exit_code"] is None:
             raise DispatchError("terminal dispatch state is incomplete")
-    lifecycle_enabled = value["schema_version"] >= 5
-    if lifecycle_enabled:
-        if value["phase"] not in LIFECYCLE_PHASES:
-            raise DispatchError("dispatch lifecycle phase is invalid")
-        if value["assurance"] not in {"pending", "verified", "partially_verified", "rejected", "blocked"}:
-            raise DispatchError("dispatch lifecycle assurance is invalid")
-        if inaccessible_candidate and (
+    _validate_fields(value, {
+        "phase": lambda item: _invalid_if(item not in LIFECYCLE_PHASES, 'dispatch lifecycle phase is invalid'),
+        "assurance": lambda item: _invalid_if(item not in {'pending', 'verified', 'partially_verified', 'rejected', 'blocked'}, 'dispatch lifecycle assurance is invalid'),
+    })
+    if inaccessible_candidate and (
+        value["phase"] != "blocked" or value["assurance"] != "blocked"
+    ):
+        raise DispatchError("dispatch inaccessible candidate lifecycle is invalid")
+    if value["continue_available"] and not (
+        value["assurance"] == "pending"
+        and value["candidate_recognized"]
+        and value["candidate_source"] != "provider_cancelled"
+        and value["cycle"] < value["max_cycles"]
+        and value["status"] in {"succeeded", "failed"}
+        and value["phase"] in {"awaiting-verification", "repair-failed"}
+    ):
+        raise DispatchError("dispatch continuation availability is invalid")
+    if value["assurance"] != "pending" and value["phase"] not in {"completed", "blocked"}:
+        raise DispatchError("terminal dispatch assurance has an invalid phase")
+    if value["status"] == "orphaned" and (
+        value["assurance"] != "pending"
+        or value["phase"] in {"completed", "blocked"}
+        or value["resume_available"] or value["continue_available"]
+    ):
+        raise DispatchError("orphaned dispatch state must remain preserve-only")
+    if value["workflow"] == "legacy":
+        active = value["status"] in {"queued", "running", "cancel-requested"}
+        if value["continue_available"]:
+            raise DispatchError("legacy lifecycle cannot continue as repair")
+        if active and (
+            value["phase"] != "dispatching"
+            or value["assurance"] != "pending"
+            or value["driver_disposition"] != "not_applicable"
+        ):
+            raise DispatchError("active legacy lifecycle is invalid")
+        if not active and inaccessible_candidate and (
             value["phase"] != "blocked" or value["assurance"] != "blocked"
         ):
-            raise DispatchError("dispatch inaccessible candidate lifecycle is invalid")
-        if value["continue_available"] and not (
-            value["assurance"] == "pending"
-            and value["candidate_recognized"]
-            and value["candidate_source"] != "provider_cancelled"
-            and value["cycle"] < value["max_cycles"]
-            and value["status"] in {"succeeded", "failed"}
-            and value["phase"] in {"awaiting-verification", "repair-failed"}
+            raise DispatchError("blocked legacy candidate lifecycle is invalid")
+        if not active and value["candidate_recognized"] and not inaccessible_candidate and (
+            value["phase"] != "awaiting-verification"
+            or value["assurance"] != "pending"
+            or value["driver_disposition"] != "unreviewed"
         ):
-            raise DispatchError("dispatch continuation availability is invalid")
-        if value["assurance"] != "pending" and value["phase"] not in {"completed", "blocked"}:
-            raise DispatchError("terminal dispatch assurance has an invalid phase")
-        if value["status"] == "orphaned" and (
-            value["assurance"] != "pending"
-            or value["phase"] in {"completed", "blocked"}
-            or value["resume_available"] or value["continue_available"]
+            raise DispatchError("legacy candidate lifecycle is invalid")
+        if not active and not value["candidate_recognized"] and (
+            value["phase"] != "attempt-failed" or value["assurance"] != "pending"
         ):
-            raise DispatchError("orphaned dispatch state must remain preserve-only")
-        if value["workflow"] == "legacy":
-            active = value["status"] in {"queued", "running", "cancel-requested"}
-            if value["continue_available"]:
-                raise DispatchError("legacy lifecycle cannot continue as repair")
-            if active and (
-                value["phase"] != "dispatching"
-                or value["assurance"] != "pending"
-                or value["driver_disposition"] != "not_applicable"
-            ):
-                raise DispatchError("active legacy lifecycle is invalid")
-            if not active and inaccessible_candidate and (
-                value["phase"] != "blocked" or value["assurance"] != "blocked"
-            ):
-                raise DispatchError("blocked legacy candidate lifecycle is invalid")
-            if not active and value["candidate_recognized"] and not inaccessible_candidate and (
-                value["phase"] != "awaiting-verification"
-                or value["assurance"] != "pending"
-                or value["driver_disposition"] != "unreviewed"
-            ):
-                raise DispatchError("legacy candidate lifecycle is invalid")
-            if not active and not value["candidate_recognized"] and (
-                value["phase"] != "attempt-failed" or value["assurance"] != "pending"
-            ):
-                raise DispatchError("failed legacy lifecycle is invalid")
-    elif value["schema_version"] >= 5 and (value["phase"] is not None or value["assurance"] is not None or value["continue_available"]):
-        raise DispatchError("legacy state has lifecycle status")
-    elif value["schema_version"] < 5 and value["workflow"] == "project":
-        if value["phase"] not in {
-            "dispatching", "awaiting-verification", "repairing", "completed",
-            "blocked", "provider-failed", "repair-failed",
-        } or value["assurance"] not in {"pending", "verified", "partially_verified", "blocked"}:
-            raise DispatchError("legacy project lifecycle state is invalid")
-    elif value["schema_version"] < 5 and (
-        value["phase"] is not None or value["assurance"] is not None or value["continue_available"]
-    ):
-        raise DispatchError("legacy non-project state has lifecycle status")
+            raise DispatchError("failed legacy lifecycle is invalid")
+
+
+def _validate_verification_state(value: Mapping[str, Any]) -> None:
     summary = value["check_summary"]
     if summary is not None and (
         not isinstance(summary, str) or not (1 <= len(summary) <= MAX_CHECK_SUMMARY)
@@ -1424,31 +1423,218 @@ def validate_state(value: Any) -> dict[str, Any]:
             raise DispatchError("project boundary marker digest is invalid")
     elif boundary is not None:
         raise DispatchError("non-project state has a boundary binding")
-    return value
+
+
+def _validate_worktree_state(value: Mapping[str, Any]) -> None:
+    if value["worktree_reconciliation"] not in {"available", "unavailable", "not_applicable"}:
+        raise DispatchError("dispatch worktree reconciliation is invalid")
+    _validate_fields(value, dict.fromkeys(('worktree_changes_present', 'worktree_changed_since_dispatch'), _validate_worktree_observation))
+    if value["worktree_reconciliation"] == "available" and (
+        value["worktree_changes_present"] is None or value["worktree_changed_since_dispatch"] is None
+    ):
+        raise DispatchError("dispatch worktree reconciliation is incomplete")
+    if value["worktree_reconciliation"] != "available" and (
+        value["worktree_changes_present"] is not None or value["worktree_changed_since_dispatch"] is not None
+    ):
+        raise DispatchError("dispatch unavailable worktree reconciliation has observations")
+    _validate_fields(value, {
+        "driver_disposition": lambda item: _invalid_if(item not in {'not_applicable', 'unreviewed', 'verified', 'partially_verified', 'rejected', 'blocked'}, 'dispatch driver disposition is invalid'),
+        "failure_stage": lambda item: _invalid_if(item not in {None, *FAILURE_STAGES}, 'dispatch failure stage is invalid'),
+        "last_activity": lambda item: _invalid_if(item not in {None, 'provider_initialized', 'progress_signal', 'terminal_received'}, 'dispatch activity is invalid'),
+        "next_action": lambda item: _invalid_if(item not in {'none', 'wait', 'resume', 'restart', 'driver_review', 'driver_finalize', 'blocked'}, 'dispatch next action is invalid'),
+        "next_action_command": lambda item: _invalid_if(item is not None and (not isinstance(item, str) or not item), 'dispatch next action command is invalid'),
+    })
+    baseline = value["worktree_baseline"]
+    if baseline is not None and (
+        not isinstance(baseline, dict) or set(baseline) != {"sha256", "entries"}
+        or not isinstance(baseline["sha256"], str) or SHA_RE.fullmatch(baseline["sha256"]) is None
+        or type(baseline["entries"]) is not int or not (0 <= baseline["entries"] <= MAX_BOUNDARY_ENTRIES)
+    ):
+        raise DispatchError("dispatch worktree baseline is invalid")
+    candidate_worktree_sha = value["candidate_worktree_sha256"]
+    candidate_worktree_entries = value["candidate_worktree_entries"]
+    path_facts = value["candidate_worktree_path_facts"]
+    if (candidate_worktree_sha is None) != (candidate_worktree_entries is None):
+        raise DispatchError("dispatch candidate worktree binding is incomplete")
+    if candidate_worktree_sha is not None and (
+        not isinstance(candidate_worktree_sha, str)
+        or SHA_RE.fullmatch(candidate_worktree_sha) is None
+        or type(candidate_worktree_entries) is not int
+        or not (0 <= candidate_worktree_entries <= MAX_BOUNDARY_ENTRIES)
+    ):
+        raise DispatchError("dispatch candidate worktree binding is invalid")
+    if path_facts is not None:
+        if (
+            candidate_worktree_sha is None or not isinstance(path_facts, dict)
+            or set(path_facts) != {"complete", "items"}
+            or type(path_facts["complete"]) is not bool
+            or not isinstance(path_facts["items"], list)
+            or len(path_facts["items"]) > WORKTREE.DIAGNOSTIC_MAX_PATHS
+        ):
+            raise DispatchError("dispatch candidate path facts are invalid")
+        path_bytes = 0
+        seen_paths: set[str] = set()
+        for item in path_facts["items"]:
+            if not isinstance(item, list) or len(item) != 4:
+                raise DispatchError("dispatch candidate path fact is invalid")
+            path, kind, mode, fingerprint = item
+            if (
+                not isinstance(path, str) or not path or "\x00" in path
+                or path.startswith("/") or any(part in {"", ".", ".."} for part in path.split("/"))
+                or path in seen_paths or not isinstance(kind, str)
+                or kind not in {"missing", "file", "symlink", "special"}
+                or ((kind == "missing") != (mode is None))
+                or (mode is not None and (type(mode) is not int or not 0 <= mode <= 0o7777))
+                or not isinstance(fingerprint, str) or SHA_RE.fullmatch(fingerprint) is None
+            ):
+                raise DispatchError("dispatch candidate path fact is invalid")
+            try:
+                path_bytes += len(os.fsencode(path))
+            except UnicodeError as exc:
+                raise DispatchError("dispatch candidate path fact is invalid") from exc
+            seen_paths.add(path)
+        if path_bytes > WORKTREE.DIAGNOSTIC_MAX_PATH_BYTES:
+            raise DispatchError("dispatch candidate path facts exceed limit")
+    for digest_key, identity_key in (
+        ("provider_schema_sha256", "provider_schema_identity"),
+        ("canonical_schema_sha256", "canonical_schema_identity"),
+    ):
+        bound_digest, bound_identity = value[digest_key], value[identity_key]
+        if (bound_digest is None) != (bound_identity is None):
+            raise DispatchError("dispatch schema binding is incomplete")
+        if bound_digest is not None and (
+            not isinstance(bound_digest, str) or SHA_RE.fullmatch(bound_digest) is None
+            or not isinstance(bound_identity, list) or len(bound_identity) != 5
+            or any(type(item) is not int or item < 0 for item in bound_identity)
+        ):
+            raise DispatchError("dispatch schema binding is invalid")
+
+
+def _validate_attempt_state(value: Mapping[str, Any]) -> None:
+    _validate_fields(value, {
+        "attempt_origin": lambda item: _invalid_if(item not in {'initial', 'conversation-resume', 'fresh-restart', 'conversation-continue'}, 'dispatch attempt origin is invalid'),
+        "attempt": lambda item: _invalid_if(type(item) is not int or item < 1, 'dispatch attempt is invalid'),
+        "workflow": lambda item: _invalid_if(item not in {'legacy', 'explore', 'task', 'project'}, 'dispatch workflow state is invalid'),
+    })
+    if not _valid_max_cycles(value["workflow"], value["max_cycles"]):
+        raise DispatchError("dispatch max cycles state is invalid")
+    if type(value["cycle"]) is not int or value["cycle"] != value["attempt"] or (
+        value["workflow"] != "legacy" and value["cycle"] > value["max_cycles"]
+    ):
+        raise DispatchError("dispatch cycle state is invalid")
+    if not isinstance(value["job_id"], str) or JOB_RE.fullmatch(value["job_id"]) is None:
+        raise DispatchError("dispatch job ID is invalid")
+    conversation = value["conversation_id"]
+    if conversation is not None and (
+        not isinstance(conversation, str) or CONVERSATION_RE.fullmatch(conversation) is None
+    ):
+        raise DispatchError("dispatch conversation ID is invalid")
+    _validate_fields(value, dict.fromkeys(('cancel_requested', 'resume_available', 'continue_available', 'remote_cancel_unverified'), _validate_boolean))
+    _validate_fields(value, dict.fromkeys(('progress_count', 'notice_count'), _validate_counter))
+    _validate_fields(value, dict.fromkeys(('created_epoch', 'updated_epoch', 'elapsed_seconds', 'hard_seconds', 'max_seconds', 'idle_seconds', 'attempt_base_elapsed'), _validate_time))
+    _validate_fields(value, dict.fromkeys(('started_epoch', 'finished_epoch', 'last_progress_epoch'), _validate_optional_time))
+    retry_after = value["provider_retry_after_seconds"]
+    retry_observed = value["provider_retry_observed_epoch"]
+    if (retry_after is None) != (retry_observed is None):
+        raise DispatchError("dispatch provider retry binding is incomplete")
+    if retry_after is not None and (
+        type(retry_after) is not int or not (1 <= retry_after <= MAX_PROVIDER_RETRY_SECONDS)
+        or type(retry_observed) not in (int, float)
+        or not math.isfinite(retry_observed) or retry_observed < 0
+    ):
+        raise DispatchError("dispatch provider retry binding is invalid")
+    if value["reason"] != "provider_quota_exhausted" and retry_after is not None:
+        raise DispatchError("dispatch provider retry reason is inconsistent")
+    _validate_fields(value, dict.fromkeys(('exit_code', 'controller_pid', 'agy_returncode'), _validate_optional_integer))
+    _validate_fields(value, dict.fromkeys(('workdir', 'result_path', 'stream_path', 'stderr_path', 'verification_path', 'last_success_path'), _validate_optional_path))
+    if value["limit_kind"] not in {None, "idle", "hard", "max-runtime"}:
+        raise DispatchError("dispatch limit kind is invalid")
+    _validate_fields(value, dict.fromkeys(('command_sha256', 'stage_sha256', 'result_sha256', 'verification_sha256', 'last_success_sha256'), _validate_optional_digest))
+    _validate_fields(value, dict.fromkeys(('command_identity', 'stage_identity', 'result_identity', 'verification_identity', 'last_success_identity'), _validate_optional_identity))
+    selection_sha = value["selection_sha256"]
+    selection_identity = value["selection_identity"]
+    if (selection_sha is None) != (selection_identity is None):
+        raise DispatchError("dispatch selection state binding is incomplete")
+    if selection_sha is not None and (
+        not isinstance(selection_sha, str) or SHA_RE.fullmatch(selection_sha) is None
+        or not isinstance(selection_identity, list) or len(selection_identity) != 5
+        or any(type(item) is not int or item < 0 for item in selection_identity)
+    ):
+        raise DispatchError("dispatch selection state binding is invalid")
+
+
+def validate_state(value: Any) -> DispatchState:
+    _require_supported_schema(value, label="dispatch state", supported=(CURRENT_STATE_SCHEMA,))
+    if not isinstance(value, dict) or set(value) != CURRENT_STATE_FIELDS:
+        raise DispatchError("dispatch state fields are invalid")
+    _validate_fields(value, {
+        "kind": lambda item: _invalid_if(item != 'agy-worker-dispatch-state', 'dispatch state version is invalid'),
+        "provider_isolation": lambda item: _invalid_if(item not in {'session', 'native'}, 'dispatch provider isolation state is invalid'),
+    })
+    if not isinstance(value.get("native_grant_profile"), str) or value.get("native_grant_profile") not in {"baseline", "A", "B", "AB"} or (
+        value["provider_isolation"] == "session" and value.get("native_grant_profile") != "baseline"
+    ):
+        raise DispatchError("dispatch native grant profile state is invalid")
+    whole_content_sha = value.get("whole_worktree_content_sha256")
+    if whole_content_sha is not None and (
+        not isinstance(whole_content_sha, str) or SHA_RE.fullmatch(whole_content_sha) is None
+    ):
+        raise DispatchError("dispatch whole-worktree content state is invalid")
+    if (value["worktree_snapshot_algorithm"] != CURRENT_WORKTREE_SNAPSHOT_ALGORITHM):
+        raise DispatchError("dispatch worktree snapshot algorithm is invalid")
+    if (value.get("provider_terminal_status") not in {"unknown", "success", "error", "cancelled"}):
+        raise DispatchError("dispatch provider terminal status is invalid")
+    _validate_root_identity(value)
+    if type(value["sequence"]) is not int or value["sequence"] < 1:
+        raise DispatchError("dispatch sequence is invalid")
+    previous = value["previous_state_sha256"]
+    if previous is not None and (not isinstance(previous, str) or SHA_RE.fullmatch(previous) is None):
+        raise DispatchError("dispatch history is invalid")
+    _validate_fields(value, {
+        "sequence": lambda item: _invalid_if((item == 1) != (previous is None), 'dispatch history is inconsistent'),
+        "status": lambda item: _invalid_if(item not in {'queued', 'running', 'cancel-requested', *TERMINAL}, 'dispatch status is invalid'),
+        "reason": lambda item: _invalid_if(item is not None and item not in REASONS, 'dispatch reason is invalid'),
+    })
+    if type(value["candidate_recognized"]) is not bool or type(value["result_available"]) is not bool:
+        raise DispatchError("dispatch candidate flags are invalid")
+    if value["candidate_source"] not in {"none", "provider_success", "provider_error", "provider_cancelled"}:
+        raise DispatchError("dispatch candidate source is invalid")
+    if (
+        value["candidate_recognized"] != (value["candidate_source"] != "none")
+        or (value["result_available"] and not value["candidate_recognized"])
+    ):
+        raise DispatchError("dispatch candidate state is inconsistent")
+    _validate_worktree_state(value)
+    _validate_attempt_state(value)
+    _validate_scope_state(value)
+    _validate_self_verification_state(value)
+    _validate_candidate_lifecycle(value)
+    _validate_verification_state(value)
+    # Exact shape and every field/cross-field rule have passed; preserve input identity.
+    return cast(DispatchState, value)
 
 
 def initial_state(
     command: dict[str, Any], origin: str, attempt: int, *, command_sha: str,
     command_identity: tuple[int, int, int, int, int], stage_sha: str | None,
     stage_identity: tuple[int, int, int, int, int] | None,
-    project_boundary: dict[str, Any] | None = None,
+    project_boundary: Mapping[str, Any] | None = None,
     schema_bindings: dict[str, Any] | None = None,
-    state_schema: int = CURRENT_STATE_SCHEMA,
     explain_worktree_rejection: bool = False,
-    repair_authority_state: dict[str, Any] | None = None,
+    repair_authority_state: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
-    if state_schema not in {6, 7, 8, 9, 10, 11, 12, 13, CURRENT_STATE_SCHEMA}:
-        raise DispatchError("dispatch state schema is invalid")
     now = time.time()
     workflow = command.get("workflow", "legacy")
     max_cycles = command.get("max_cycles", 1)
     try:
-        worktree_baseline = _worktree_snapshot(
-            command["workdir"], legacy=state_schema == 6, explain_unsupported=explain_worktree_rejection)
+        worktree_baseline = WORKTREE._worktree_snapshot(
+            command["workdir"], explain_unsupported=explain_worktree_rejection)
     except ResolveUndoPresentError:
         worktree_baseline = None
+    if worktree_baseline is not None:
+        worktree_baseline = {key: worktree_baseline[key] for key in ("sha256", "entries")}
     state = {
-        "schema_version": state_schema,
+        "schema_version": CURRENT_STATE_SCHEMA,
         "kind": "agy-worker-dispatch-state",
         "sequence": 1,
         "previous_state_sha256": None,
@@ -1503,7 +1689,7 @@ def initial_state(
         "last_success_identity": None,
         "project_boundary": (
             project_boundary if project_boundary is not None
-            else _project_boundary(command["workdir"]) if workflow == "project"
+            else WORKTREE._project_boundary(command["workdir"]) if workflow == "project"
             else None
         ),
         "provider_retry_after_seconds": None,
@@ -1528,212 +1714,129 @@ def initial_state(
         "canonical_schema_identity": None if schema_bindings is None else schema_bindings["canonical_schema_identity"],
         "candidate_worktree_sha256": None,
         "candidate_worktree_entries": None,
+        "candidate_worktree_path_facts": None,
         "selection_sha256": command.get("selection_sha256"),
         "selection_identity": command.get("selection_identity"),
     }
-    if state_schema >= 8:
-        state["worktree_snapshot_algorithm"] = CURRENT_WORKTREE_SNAPSHOT_ALGORITHM
-    if state_schema >= 9:
-        root_identity = _dispatch_root_identity(command["workdir"])
-        if root_identity is None:
-            raise DispatchError("dispatch worktree root cannot be bound")
-        state["worktree_root_identity"] = root_identity
-    if state_schema >= 10:
-        state["provider_terminal_status"] = "unknown"
-    if state_schema >= 12:
+    state["worktree_snapshot_algorithm"] = CURRENT_WORKTREE_SNAPSHOT_ALGORITHM
+    root_identity = _dispatch_root_identity(command["workdir"])
+    if root_identity is None:
+        raise DispatchError("dispatch worktree root cannot be bound")
+    state["worktree_root_identity"] = root_identity
+    state["provider_terminal_status"] = "unknown"
+    state.update({
+        "allow_scoped_repair": command.get("allow_scoped_repair", False),
+        "repair_authority_sha256": command.get("repair_authority_sha256"),
+        "repair_lineage_sha256": None,
+        "repair_parent_result_sha256": None,
+        "repair_parent_worktree_sha256": None,
+        "repair_lineage_attempt": None,
+        "allow_self_verification": command.get("allow_self_verification", False),
+        "self_verification_elapsed_seconds": 0.0,
+        "self_verification_run": 0,
+        "self_verification_started_epoch": None,
+        "self_verification_return_phase": None,
+    })
+    state["provider_isolation"] = _provider_isolation_for_command(command)
+    if command.get("provider_scope_path") is not None:
+        _scope_path, raw_scope, scope_info = _read_provider_scope_file(
+            command["provider_scope_path"], MAX_COMMAND_BYTES,
+        )
+        if digest(raw_scope) != command["provider_scope_sha256"]:
+            raise DispatchError("provider scope file changed since dispatch")
+        if list(_identity(scope_info)) != command["provider_scope_identity"]:
+            raise DispatchError("provider scope file identity changed since dispatch")
+        try:
+            scope = WORKTREE._parse_provider_scope(raw_scope)
+        except ValueError as exc:
+            raise DispatchError(f"invalid provider scope: {exc}") from exc
+        readable_manifest = WORKTREE._scan_readable_worktree(command["workdir"])
+        manifest_sha = WORKTREE._manifest_digest(readable_manifest)
+        WORKTREE._validate_scope_against_worktree(scope, command["workdir"], readable_manifest)
+        selected_manifest = WORKTREE._build_selected_content_manifest(command["workdir"], scope)
+        selected_sha = WORKTREE._selected_content_digest(selected_manifest)
+        policy_sha = WORKTREE._canonical_digest(scope)
+        transmission_sha = _bound_transmission_sha256(
+            command, policy_sha, manifest_sha, selected_sha,
+        )
+        _require_scoped_transmission_authority(
+            command,
+            state if repair_authority_state is None else repair_authority_state,
+            selected_content_sha256=selected_sha,
+            transmission_sha256=transmission_sha,
+            provider_origin=origin,
+        )
         state.update({
-            "allow_scoped_repair": command.get("allow_scoped_repair", False),
-            "repair_authority_sha256": command.get("repair_authority_sha256"),
-            "repair_lineage_sha256": None,
-            "repair_parent_result_sha256": None,
-            "repair_parent_worktree_sha256": None,
-            "repair_lineage_attempt": None,
-            "allow_self_verification": command.get("allow_self_verification", False),
-            "self_verification_elapsed_seconds": 0.0,
-            "self_verification_run": 0,
-            "self_verification_started_epoch": None,
-            "self_verification_return_phase": None,
+            "provider_scope_path": command["provider_scope_path"],
+            "provider_scope_sha256": command["provider_scope_sha256"],
+            "provider_scope_identity": command["provider_scope_identity"],
+            "approved_transmission_sha256": command["approved_transmission_sha256"],
+            "transmission_sha256": transmission_sha,
+            "initial_content_transmission_sha256": _initial_content_transmission(command),
+            "selected_content_sha256": selected_sha,
+            "selected_file_count": sum(1 for e in selected_manifest if e["kind"] == "file"),
+            "selected_tree_count": sum(1 for e in selected_manifest if e["kind"] == "directory"),
+            "provider_stage_path": None,
+            "provider_stage_identity": None,
+            "provider_stage_manifest_sha256": None,
+            "reconciliation_manifest_sha256": None,
         })
-    if state_schema >= 13:
-        state["provider_isolation"] = _provider_isolation_for_command(command)
-    if state_schema == CURRENT_STATE_SCHEMA:
-        if command.get("provider_scope_path") is not None:
-            _scope_path, raw_scope, scope_info = _read_provider_scope_file(
-                command["provider_scope_path"], MAX_COMMAND_BYTES,
-            )
-            if digest(raw_scope) != command["provider_scope_sha256"]:
-                raise DispatchError("provider scope file changed since dispatch")
-            if list(_identity(scope_info)) != command["provider_scope_identity"]:
-                raise DispatchError("provider scope file identity changed since dispatch")
-            try:
-                scope = _parse_provider_scope(raw_scope)
-            except ValueError as exc:
-                raise DispatchError(f"invalid provider scope: {exc}") from exc
-            readable_manifest = _scan_readable_worktree(command["workdir"])
-            manifest_sha = _manifest_digest(readable_manifest)
-            _validate_scope_against_worktree(scope, command["workdir"], readable_manifest)
-            selected_manifest = _build_selected_content_manifest(command["workdir"], scope)
-            selected_sha = _selected_content_digest(selected_manifest)
-            policy_sha = _canonical_digest(scope)
-            transmission_sha = _bound_transmission_sha256(
-                command, policy_sha, manifest_sha, selected_sha,
-            )
-            _require_scoped_transmission_authority(
-                command,
-                state if repair_authority_state is None else repair_authority_state,
-                selected_content_sha256=selected_sha,
-                transmission_sha256=transmission_sha,
-                provider_origin=origin,
-            )
-            state.update({
-                "provider_scope_path": command["provider_scope_path"],
-                "provider_scope_sha256": command["provider_scope_sha256"],
-                "provider_scope_identity": command["provider_scope_identity"],
-                "approved_transmission_sha256": command["approved_transmission_sha256"],
-                "transmission_sha256": transmission_sha,
-                "selected_content_sha256": selected_sha,
-                "selected_file_count": sum(1 for e in selected_manifest if e["kind"] == "file"),
-                "selected_tree_count": sum(1 for e in selected_manifest if e["kind"] == "directory"),
-                "provider_stage_path": None,
-                "provider_stage_identity": None,
-                "provider_stage_manifest_sha256": None,
-                "reconciliation_manifest_sha256": None,
-            })
-        else:
-            approved_whole_sha = command.get("approved_whole_worktree_sha256")
-            if approved_whole_sha is not None and origin == "initial":
-                if command["schema_version"] == 11:
-                    content = whole_worktree_content_manifest(command["workdir"])
-                    content_sha = content["manifest_sha256"]
-                    readable_manifest = _scan_readable_worktree(command["workdir"])
-                    expected_approval = _compute_v11_launch_approval_sha256(
-                        _provider_isolation_for_command(command), command["native_grant_profile"],
-                        whole_worktree_content_sha256=content_sha,
-                        readable_manifest_sha256=_manifest_digest(readable_manifest),
-                    )
-                    if content_sha != command["whole_worktree_content_sha256"]:
-                        raise DispatchError("whole-worktree content binding changed")
-                else:
-                    readable_manifest = _scan_readable_worktree(command["workdir"])
-                    expected_approval = _compute_provider_launch_approval_sha256(
-                        _provider_isolation_for_command(command), _manifest_digest(readable_manifest),
-                    ) if command["schema_version"] == 10 else _manifest_digest(readable_manifest)
-                if expected_approval != approved_whole_sha:
-                    raise DispatchError(
-                        "approved whole-worktree manifest does not match current worktree"
-                    )
-            state.update({
-                "provider_scope_path": None,
-                "provider_scope_sha256": None,
-                "provider_scope_identity": None,
-                "approved_transmission_sha256": None,
-                "transmission_sha256": None,
-                "selected_content_sha256": None,
-                "selected_file_count": None,
-                "selected_tree_count": None,
-                "provider_stage_path": None,
-                "provider_stage_identity": None,
-                "provider_stage_manifest_sha256": None,
-                "reconciliation_manifest_sha256": None,
-            })
-    if state_schema >= 14:
-        state["whole_worktree_content_sha256"] = command.get("whole_worktree_content_sha256")
-        state["native_grant_profile"] = command.get("native_grant_profile", "baseline")
+    else:
+        approved_whole_sha = command.get("approved_whole_worktree_sha256")
+        if approved_whole_sha is not None and origin == "initial":
+            content = WORKTREE.whole_worktree_content_manifest(command["workdir"])
+            content_sha = content["manifest_sha256"]
+            readable_manifest = WORKTREE._scan_readable_worktree(command["workdir"])
+            if content_sha != command["whole_worktree_content_sha256"]:
+                raise DispatchError("whole-worktree content binding changed")
+            if WORKTREE._manifest_digest(readable_manifest) != command["launch_authority"]["content"]["manifest_sha256"]:
+                raise DispatchError(
+                    "approved whole-worktree manifest does not match current worktree"
+                )
+        state.update({
+            "provider_scope_path": None,
+            "provider_scope_sha256": None,
+            "provider_scope_identity": None,
+            "approved_transmission_sha256": None,
+            "initial_content_transmission_sha256": None,
+            "transmission_sha256": None,
+            "selected_content_sha256": None,
+            "selected_file_count": None,
+            "selected_tree_count": None,
+            "provider_stage_path": None,
+            "provider_stage_identity": None,
+            "provider_stage_manifest_sha256": None,
+            "reconciliation_manifest_sha256": None,
+        })
+    state["whole_worktree_content_sha256"] = command.get("whole_worktree_content_sha256")
+    state["native_grant_profile"] = command.get("native_grant_profile", "baseline")
     return state
 
 
-def _upgrade_legacy_state(
-    state: dict[str, Any], command: dict[str, Any], *,
-    migration_facts: dict[str, Any] | None = None,
-) -> dict[str, Any]:
-    """Delegate retired state upgrades to the compatibility adapter."""
-    return LEGACY.upgrade(LEGACY_API, state, command, migration_facts=migration_facts)
-
-
-def _legacy_migration_facts(
-    job: Path, state: dict[str, Any], state_sha: str,
-) -> dict[str, Any]:
-    """Delegate retired V3/V4 migration proof to the compatibility adapter."""
-    return LEGACY.migration_facts(LEGACY_API, job, state, state_sha)
-
-
-def _legacy_migration_sha(job: Path | None, state: dict[str, Any], state_sha: str) -> str | None:
-    """Delegate retired V3/V4 migration-digest calculation."""
-    return LEGACY.migration_sha(LEGACY_API, job, state, state_sha)
-
-
-def _approved_legacy_migration(
-    job: Path, state: dict[str, Any], raw: bytes, approve_migration_sha: str | None,
-) -> tuple[dict[str, Any], dict[str, Any]]:
-    """Delegate approved V3/V4 recovery to the compatibility adapter."""
-    return LEGACY.approved_migration(
-        LEGACY_API, job, state, raw, approve_migration_sha,
-    )
-
-
 def _transition_locked(
-    job: Path, state: dict[str, Any], prior_raw: bytes, updates: dict[str, Any], *,
-    legacy_control_only: bool = False,
-) -> tuple[dict[str, Any], bytes, str]:
+    job: Path, state: Mapping[str, Any], prior_raw: bytes, updates: dict[str, Any],
+) -> tuple[DispatchState, bytes, str]:
     current, _info = read_regular(job / STATE_NAME, MAX_STATE_BYTES, "dispatch state")
     if current != prior_raw:
         raise DispatchError("dispatch state changed before transition")
     value = dict(state)
     value.update(updates)
-    if value["schema_version"] < CURRENT_STATE_SCHEMA and not legacy_control_only:
-        command = _load_bound_command(job, state, stage_readonly=False)
-        value = _upgrade_legacy_state(value, command)
-    elif legacy_control_only:
-        # ``validate_state`` projects additive facts while reading old bytes.
-        # A cheap active control must write the old generation's exact field
-        # shape back, not accidentally persist a partial migration.
-        omitted = set(STATE_V12_FIELDS)
-        if value["schema_version"] < 14:
-            omitted |= set(STATE_V14_FIELDS)
-        if value["schema_version"] < 13:
-            omitted |= set(STATE_V13_FIELDS)
-        if value["schema_version"] < 11:
-            omitted |= set(STATE_V11_FIELDS)
-        if value["schema_version"] < 10:
-            omitted |= set(STATE_V10_FIELDS)
-        if value["schema_version"] < 9:
-            omitted |= set(STATE_V9_FIELDS)
-        if value["schema_version"] < 8:
-            omitted |= set(STATE_V8_FIELDS)
-        if value["schema_version"] < 6:
-            omitted |= set(STATE_V6_FIELDS)
-        if value["schema_version"] < 5:
-            omitted |= set(STATE_V5_FIELDS)
-        if value["schema_version"] == 1:
-            omitted |= set(STATE_PROJECT_FIELDS) | {
-                "provider_retry_after_seconds", "provider_retry_observed_epoch",
-            }
-        elif value["schema_version"] == 3:
-            omitted |= {"provider_retry_after_seconds", "provider_retry_observed_epoch"}
-        for key in omitted:
-            value.pop(key, None)
-    # New V7+ writes retain these only for private legacy read compatibility.
-    # A control-only legacy transition preserves its original field shape.
-    if not legacy_control_only:
-        value["next_action"] = "none"
-        value["next_action_command"] = None
+    value["next_action"] = "none"
+    value["next_action_command"] = None
     value["sequence"] = state["sequence"] + 1
     value["previous_state_sha256"] = digest(prior_raw)
     value["updated_epoch"] = time.time()
     validate_state(value)
     raw, sha = write_atomic(job, STATE_NAME, value)
-    # Return the same additive read projection that ordinary callers receive;
-    # control-only V1/V3/V4 writes intentionally used their historical storage
-    # shape above and must still be safe for the public status formatter.
     return validate_state(value), raw, sha
 
 
-def transition(job: Path, state: dict[str, Any], prior_raw: bytes, updates: dict[str, Any]) -> tuple[dict[str, Any], bytes, str]:
+def transition(job: Path, state: Mapping[str, Any], prior_raw: bytes, updates: dict[str, Any]) -> tuple[DispatchState, bytes, str]:
     with state_lock(job):
         return _transition_locked(job, state, prior_raw, updates)
 
 
-def _live_elapsed(value: dict[str, Any], now: float) -> float:
+def _live_elapsed(value: Mapping[str, Any], now: float) -> float:
     elapsed = float(value["elapsed_seconds"])
     if value["status"] in {"running", "cancel-requested"} and value["started_epoch"] is not None:
         elapsed = max(
@@ -1743,7 +1846,7 @@ def _live_elapsed(value: dict[str, Any], now: float) -> float:
     return elapsed
 
 
-def _verification_live_elapsed(value: dict[str, Any], now: float) -> float:
+def _verification_live_elapsed(value: Mapping[str, Any], now: float) -> float:
     elapsed = float(value.get("self_verification_elapsed_seconds", 0.0))
     started = value.get("self_verification_started_epoch")
     if value.get("phase") == "self-verifying" and started is not None:
@@ -1751,11 +1854,11 @@ def _verification_live_elapsed(value: dict[str, Any], now: float) -> float:
     return elapsed
 
 
-def _total_live_elapsed(value: dict[str, Any], now: float) -> float:
+def _total_live_elapsed(value: Mapping[str, Any], now: float) -> float:
     return _live_elapsed(value, now) + _verification_live_elapsed(value, now)
 
 
-def _provider_max_seconds(value: dict[str, Any]) -> float:
+def _provider_max_seconds(value: Mapping[str, Any]) -> float:
     """Keep provider hard/idle clocks separate from the shared job allowance."""
     return max(0.0, float(value["max_seconds"])
                - float(value.get("self_verification_elapsed_seconds", 0.0)))
@@ -1763,7 +1866,7 @@ def _provider_max_seconds(value: dict[str, Any]) -> float:
 
 def _freeze_reaped_runtime(
     job: Path, attempt: int, controller_pid: int, elapsed: float,
-) -> tuple[dict[str, Any], bytes, str, str | None]:
+) -> tuple[DispatchState, bytes, str, str | None]:
     """Atomically stop the provider clock and classify its locked deadline.
 
     Reaping is the last provider-owned operation.  Everything after this
@@ -1798,11 +1901,11 @@ def _freeze_reaped_runtime(
         return current, raw, sha, deadline
 
 
-def _is_active(value: dict[str, Any]) -> bool:
+def _is_active(value: Mapping[str, Any]) -> bool:
     return value["status"] in {"queued", "running", "cancel-requested"}
 
 
-def _extend_is_eligible(value: dict[str, Any], now: float) -> bool:
+def _extend_is_eligible(value: Mapping[str, Any], now: float) -> bool:
     """One cheap state/time predicate shared by status and the lock guard."""
     elapsed = _live_elapsed(value, now)
     return bool(
@@ -1822,35 +1925,24 @@ def _extend_is_eligible(value: dict[str, Any], now: float) -> bool:
     )
 
 
-def _legacy_prior_result_is_unknown(value: dict[str, Any]) -> bool:
-    """Recognize only the historical V3/V4 last-success pointer as unknown."""
-    return bool(
-        value["schema_version"] in {3, 4}
-        and value["result_path"] is None
-        and all(value[key] is not None for key in (
-            "last_success_path", "last_success_sha256", "last_success_identity",
-        ))
-    )
-
-
-def _resume_is_eligible(value: dict[str, Any], now: float) -> bool:
+def _resume_is_eligible(value: Mapping[str, Any], now: float) -> bool:
     """Mirror the strict same-conversation resume guard used before staging."""
     return bool(
         value["status"] == "failed"
         and not value["candidate_recognized"]
-        and value.get("reason") not in {"selection_preflight_failed", "permission_required"}
+        and value.get("reason") not in {"selection_preflight_failed", "model_selection_rejected", "permission_required"}
         and value["resume_available"]
         and isinstance(value["conversation_id"], str)
         and _restart_guard_accepts(value, elapsed_seconds=_live_elapsed(value, now))
     )
 
 
-def _continue_is_eligible(value: dict[str, Any], now: float) -> bool:
+def _continue_is_eligible(value: Mapping[str, Any], now: float) -> bool:
     """Return the state-only half of the exact continuation guard."""
     return bool(value["continue_available"] and _continue_from_facts(value, now))
 
 
-def _continue_from_facts(value: dict[str, Any], now: float) -> bool:
+def _continue_from_facts(value: Mapping[str, Any], now: float) -> bool:
     """Recompute eligibility after verification without a circular stored flag."""
     return bool(
         value["workflow"] != "legacy"
@@ -1860,7 +1952,7 @@ def _continue_from_facts(value: dict[str, Any], now: float) -> bool:
         # another same-conversation continuation.
         # A provider-reported permission denial likewise preserves the candidate
         # for review, but is not authority for an automatic continuation.
-        and value["reason"] not in {"selection_preflight_failed", "permission_required"}
+        and value["reason"] not in {"selection_preflight_failed", "model_selection_rejected", "permission_required"}
         and value["candidate_recognized"]
         and value["result_available"]
         and value["candidate_source"] != "provider_cancelled"
@@ -1871,7 +1963,7 @@ def _continue_from_facts(value: dict[str, Any], now: float) -> bool:
         and _total_live_elapsed(value, now) < float(value["max_seconds"])
         and (
             value.get("provider_scope_path") is None
-            or value.get("transmission_sha256") == value.get("approved_transmission_sha256")
+            or value.get("transmission_sha256") == value.get("initial_content_transmission_sha256")
             or (
                 value.get("allow_scoped_repair", False)
                 and value.get("repair_lineage_sha256") is not None
@@ -1881,36 +1973,28 @@ def _continue_from_facts(value: dict[str, Any], now: float) -> bool:
     )
 
 
-def _finalize_is_eligible(value: dict[str, Any]) -> bool:
+def _finalize_is_eligible(value: Mapping[str, Any]) -> bool:
     """Return the state-only half of the exact finalization guard."""
     return bool(
         value["candidate_recognized"] and value["result_available"]
         and value["result_path"] and value["workflow"] != "legacy"
         and value["driver_disposition"] == "unreviewed"
-        and (value["assurance"] == "pending" or value["schema_version"] in {3, 4})
+        and (value["assurance"] == "pending")
         and _controller_phase(value) in {"awaiting-verification", "repair-failed"}
     )
 
 
-def _verification_copy_is_eligible(value: dict[str, Any]) -> bool:
-    """Return the exact state predicate for the non-migrating copy helper.
-
-    A V3/V4 finalization can first obtain an explicit migration capability, but
-    ``verification-copy`` deliberately accepts no migration approval.  Keep it
-    current-state-only so status never advertises a command the helper rejects.
-    """
+def _verification_copy_is_eligible(value: Mapping[str, Any]) -> bool:
+    """Return the exact state predicate for the current candidate copy helper."""
     return bool(
-        value["schema_version"] >= 9
-        and _finalize_is_eligible(value)
+        _finalize_is_eligible(value)
     )
 
 
-def _controller_phase(value: dict[str, Any]) -> str | None:
-    """Project controller-owned mechanics without trusting legacy raw phase."""
+def _controller_phase(value: Mapping[str, Any]) -> str | None:
+    """Project controller-owned mechanics from the current bound state."""
     if value.get("phase") == "self-verifying":
         return "self-verifying"
-    if value["schema_version"] in {3, 4} and _legacy_prior_result_is_unknown(value):
-        return None
     if value["driver_disposition"] in {"verified", "partially_verified", "rejected"}:
         return "completed"
     if value["driver_disposition"] == "blocked" or (
@@ -1928,18 +2012,20 @@ def _controller_phase(value: dict[str, Any]) -> str | None:
     return None
 
 
-def _candidate_actions_are_bound(job: Path | None, value: dict[str, Any]) -> bool:
+def _candidate_actions_are_bound(job: Path | None, value: Mapping[str, Any]) -> bool:
     """Keep public candidate actions as strict as their mutating commands."""
     if job is None:
         return False
     try:
         _bound_current_candidate(job, value)
+    except UnsupportedSchemaError:
+        raise
     except (OSError, DispatchError):
         return False
     return True
 
 
-def _post_candidate_selection_binding_drift(job: Path | None, value: dict[str, Any]) -> bool:
+def _post_candidate_selection_binding_drift(job: Path | None, value: Mapping[str, Any]) -> bool:
     """Identify a frozen direct-selection failure without publishing its bytes.
 
     The candidate action binder uses the same selection record, but can also
@@ -1954,19 +2040,23 @@ def _post_candidate_selection_binding_drift(job: Path | None, value: dict[str, A
     try:
         bound_job = canonical_job(Path(job).resolve(strict=True))
         command = _load_bound_command(bound_job, value, stage_readonly=False)
+    except UnsupportedSchemaError:
+        raise
     except (OSError, DispatchError):
         return False
     if command.get("selection_path") is None:
         return False
     try:
         _load_bound_selection(command, value)
+    except UnsupportedSchemaError:
+        raise
     except (OSError, DispatchError):
         return True
     return False
 
 
 def _lifecycle_mutation_bindings(
-    job: Path | None, value: dict[str, Any],
+    job: Path | None, value: Mapping[str, Any],
 ) -> tuple[bool, bool]:
     """Return driver-write and provider-launch binding availability.
 
@@ -1980,6 +2070,8 @@ def _lifecycle_mutation_bindings(
     try:
         bound_job = canonical_job(Path(job).resolve(strict=True))
         command = _load_bound_command(bound_job, value, stage_readonly=False)
+    except UnsupportedSchemaError:
+        raise
     except (OSError, DispatchError):
         return False, False
     try:
@@ -1990,20 +2082,21 @@ def _lifecycle_mutation_bindings(
                 _load_bound_selection(command, value)
             )
         )
+    except UnsupportedSchemaError:
+        raise
     except (OSError, DispatchError):
         # A changed current scoped candidate is valid driver evidence, but
         # transmitting those new bytes again requires a fresh exact approval
         # that the continuation interface cannot collect. Keep result/finalize
-        # available while declining to advertise provider continuation. Legacy
-        # mutation authority retains its original strict migration binder.
+        # available while declining to advertise provider continuation.
         if not (
-            value["schema_version"] >= 9
-            and value["candidate_recognized"]
-            and value["status"] in TERMINAL
+            value['candidate_recognized'] and value['status'] in TERMINAL
         ):
             return False, False
         try:
             _bound_current_candidate(bound_job, value)
+        except UnsupportedSchemaError:
+            raise
         except (OSError, DispatchError):
             return False, False
         return True, False
@@ -2011,39 +2104,17 @@ def _lifecycle_mutation_bindings(
 
 
 def _selection_launch_is_authorized(record: dict[str, Any] | None) -> bool:
-    """Allow exact-match V2 or explicitly approved V3 direct provenance."""
-    if record is None or record.get("selection_mode") not in {
-        "exact-model", "model-effort",
-    }:
-        return True
-    if not MODEL_SELECTION.has_current_probed_executable_binding(record.get("probed_executable")):
-        return False
-    if record.get("schema_version") == 3:
-        return True
-    return (
-        record.get("schema_version") == 2
-        and record.get("version_relation") == "match"
-        and record.get("compatibility_status") == "reviewed-version-match"
+    return record is None or (
+        record.get("schema_version") == MODEL_SELECTION.SELECTION_SCHEMA
+        and MODEL_SELECTION.has_current_probed_executable_binding(record.get("probed_executable"))
     )
 
 
-def _legacy_result_action_is_bound(job: Path | None, value: dict[str, Any]) -> bool:
-    """Probe an unknown-provenance legacy result with its command guard."""
-    if job is None:
-        return False
-    try:
-        _bound_legacy_unknown_result(job, value)
-    except (OSError, DispatchError):
-        return False
-    return True
-
-
 def _available_actions(
-    value: dict[str, Any], sha: str, now: float, *, job: Path | None = None,
-    candidate_bound: bool | None = None, legacy_result_bound: bool | None = None,
+    value: Mapping[str, Any], sha: str, now: float, *, job: Path | None = None,
+    candidate_bound: bool | None = None,
     lifecycle_mutation_bound: bool | None = None,
     provider_launch_bound: bool | None = None,
-    legacy_migration_sha: str | None = None,
 ) -> list[dict[str, Any]]:
     """Return only state/time-applicable mechanical controller operations.
 
@@ -2130,24 +2201,12 @@ def _available_actions(
                 ),
                 "requires": ["new owner-private destination outside the candidate"],
             })
-    elif (
-        not active and value["status"] in TERMINAL
-        and _legacy_prior_result_is_unknown(value) and legacy_result_bound
-    ):
-        actions.append({
-            "action": "result",
-            "command": f"{PUBLIC_LAUNCHER} result --job-id {job_id} --format json",
-        })
     # A public recovery operation is useful only when the same frozen command,
     # schemas, worktree root/boundary, and selector the command will use are
     # still present.  ``None`` keeps pure in-memory compatibility callers from
     # claiming a failed local probe; CLI status always supplies a concrete bool.
-    # V1 remains result-only.  V3/V4 may advertise a lifecycle action only
-    # with a fresh public migration digest which the command recomputes under
-    # its transition lock.  V5-V8 retain their existing migration proof.
     lifecycle_mutation_available = bool(
-        (value["schema_version"] >= 5 and lifecycle_mutation_bound is not False)
-        or (value["schema_version"] in {3, 4} and legacy_migration_sha is not None)
+        lifecycle_mutation_bound is not False
     )
     provider_mutation_available = bool(
         lifecycle_mutation_available and provider_launch_bound is not False
@@ -2157,7 +2216,6 @@ def _available_actions(
             "action": "resume",
             "command": (
                 f"{PUBLIC_LAUNCHER} resume --job-id {job_id} --approve-state-sha {sha}"
-                + (f" --approve-migration-sha {legacy_migration_sha}" if value["schema_version"] in {3, 4} else "")
                 + " --format text"
             ),
         })
@@ -2169,7 +2227,6 @@ def _available_actions(
             "action": "restart",
             "command": (
                 f"{PUBLIC_LAUNCHER} restart --job-id {job_id} --approve-state-sha {sha}"
-                + (f" --approve-migration-sha {legacy_migration_sha}" if value["schema_version"] in {3, 4} else "")
                 + " --format text"
             ),
         })
@@ -2182,13 +2239,14 @@ def _available_actions(
             try:
                 _bound_self_verification_feedback(job, value)
                 stored_feedback = True
+            except UnsupportedSchemaError:
+                raise
             except (DispatchError, OSError):
                 pass
         actions.append({
             "action": "continue",
             "command": (
                 f"{PUBLIC_LAUNCHER} continue --job-id {job_id} --approve-state-sha {sha} "
-                + (f"--approve-migration-sha {legacy_migration_sha} " if value["schema_version"] in {3, 4} else "")
                 + ("--use-self-verification" if stored_feedback else "< DRIVER_VERIFICATION_JSON")
             ),
             "requires": [] if stored_feedback else ["verification JSON"],
@@ -2201,7 +2259,6 @@ def _available_actions(
             "action": "finalize",
             "command": (
                 f"{PUBLIC_LAUNCHER} finalize --job-id {job_id} --approve-state-sha {sha} "
-                + (f"--approve-migration-sha {legacy_migration_sha} " if value["schema_version"] in {3, 4} else "")
                 + "--assurance ASSURANCE < DRIVER_VERIFICATION_JSON"
             ),
             "requires": ["--assurance", "verification JSON"],
@@ -2221,22 +2278,18 @@ def _public_next_action(actions: list[dict[str, Any]]) -> tuple[str, str | None]
     return str(first["action"]), first.get("command") if isinstance(first.get("command"), str) else None
 
 
+def _cycle_budget_explanation(value: Mapping[str, Any]) -> str | None:
+    if value["status"] == "cancelled" and value["reason"] == "interrupted" and not value["candidate_recognized"]:
+        return "The interrupted attempt consumed one cycle even though it produced no candidate; a fresh restart consumes another cycle."
+    return None
+
+
 def _provider_execution_from_bound_command(command: dict[str, Any]) -> dict[str, Any]:
-    """Describe the bound launch mechanics without reclassifying old whole jobs."""
+    """Describe the current bound launch mechanics."""
 
     provider_isolation = _provider_isolation_for_command(command)
-    legacy = command["schema_version"] < 10
     scoped = command.get("provider_scope_path") is not None
     sandboxed = "--sandbox" in command["argv"]
-    if legacy:
-        if not sandboxed:
-            raise DispatchError("legacy dispatch sandbox binding is unavailable")
-        return {
-            "legacy": True,
-            "scope": "provider-scope" if scoped else "whole-worktree",
-            "agy_sandbox": True,
-            "native_containment": scoped and command["schema_version"] == 9,
-        }
     return {
         "legacy": False,
         "scope": "provider-scope" if scoped else "whole-worktree",
@@ -2245,14 +2298,17 @@ def _provider_execution_from_bound_command(command: dict[str, Any]) -> dict[str,
     }
 
 
-def bound_provider_execution(job: Path, state: dict[str, Any]) -> dict[str, Any]:
+def bound_provider_execution(job: Path, state: Mapping[str, Any]) -> dict[str, Any]:
     """Bind execution facts to the command, not the state projection."""
 
     command = _load_bound_command(job, state, stage_readonly=False)
     return _provider_execution_from_bound_command(command)
 
 
-def public_status(value: dict[str, Any], sha: str, *, job: Path | None = None) -> dict[str, Any]:
+def public_status(value: Mapping[str, Any], sha: str, *, job: Path | None = None) -> dict[str, Any]:
+    _require_supported_schema(value, label="dispatch state", supported=(CURRENT_STATE_SCHEMA,))
+    if job is not None:
+        _check_existing_command_schema(job)
     now = time.time()
     elapsed = _live_elapsed(value, now)
     last_age = None
@@ -2268,10 +2324,8 @@ def public_status(value: dict[str, Any], sha: str, *, job: Path | None = None) -
             )),
         )
     candidate_bound: bool | None = None
-    legacy_result_bound: bool | None = None
     lifecycle_mutation_bound: bool | None = None
     provider_launch_bound: bool | None = None
-    legacy_migration_sha: str | None = None
     terminal_candidate = bool(
         not _is_active(value) and value.get("phase") != "self-verifying" and value["status"] in TERMINAL
         and value["candidate_recognized"] and value["result_available"]
@@ -2282,37 +2336,7 @@ def public_status(value: dict[str, Any], sha: str, *, job: Path | None = None) -
         # the clocks so an extension that expired during that scan is omitted.
         now = time.time()
         elapsed = _live_elapsed(value, now)
-    elif (
-        job is not None and not _is_active(value) and value["status"] in TERMINAL
-        and _legacy_prior_result_is_unknown(value)
-    ):
-        legacy_result_bound = _legacy_result_action_is_bound(job, value)
-        # Legacy reconciliation is also a bounded terminal scan.  Do not let
-        # its duration publish stale elapsed-time action eligibility.
-        now = time.time()
-        elapsed = _live_elapsed(value, now)
-    if (
-        job is not None and not _is_active(value) and value["schema_version"] in {3, 4}
-        and (
-            _resume_is_eligible(value, now)
-            or _restart_guard_accepts(value, elapsed_seconds=_live_elapsed(value, now))
-            or _continue_is_eligible(value, now)
-            or _finalize_is_eligible(value)
-        )
-    ):
-        try:
-            migration_facts = _legacy_migration_facts(job, value, sha)
-            legacy_migration_sha = digest(canonical(migration_facts))
-            lifecycle_mutation_bound = True
-            provider_launch_bound = bool(migration_facts["provider_launch_authorized"])
-            if terminal_candidate:
-                candidate_bound = True
-        except (OSError, DispatchError):
-            # A stale root, artifact, schema, selector, or boundary may not be
-            # advertised as a migration route.  Terminal result readback keeps
-            # its own stricter, non-mutating binder.
-            legacy_migration_sha = None
-    elif job is not None and (
+    if job is not None and (
         _resume_is_eligible(value, now)
         or _restart_guard_accepts(value, elapsed_seconds=_live_elapsed(value, now))
         or _continue_is_eligible(value, now)
@@ -2323,10 +2347,8 @@ def public_status(value: dict[str, Any], sha: str, *, job: Path | None = None) -
         )
     available_actions = _available_actions(
         value, sha, now, job=job, candidate_bound=candidate_bound,
-        legacy_result_bound=legacy_result_bound,
         lifecycle_mutation_bound=lifecycle_mutation_bound,
         provider_launch_bound=provider_launch_bound,
-        legacy_migration_sha=legacy_migration_sha,
     )
     action_names = {item["action"] for item in available_actions}
     public_result_available = bool(
@@ -2355,11 +2377,11 @@ def public_status(value: dict[str, Any], sha: str, *, job: Path | None = None) -
     if job is not None:
         try:
             provider_execution = bound_provider_execution(job, value)
+        except UnsupportedSchemaError:
+            raise
         except (OSError, DispatchError):
             provider_execution = None
     public_provider_isolation = (
-        None
-        if job is None and value["schema_version"] < 13 else
         value["provider_isolation"]
         if job is None else
         None
@@ -2404,6 +2426,7 @@ def public_status(value: dict[str, Any], sha: str, *, job: Path | None = None) -
         "limit_kind": value["limit_kind"],
         "max_seconds": value["max_seconds"],
         "max_cycles": value["max_cycles"],
+        "cycle_budget_explanation": _cycle_budget_explanation(value),
         "notice_count": value["notice_count"],
         "progress_count": value["progress_count"],
         "provider_isolation": public_provider_isolation,
@@ -2411,10 +2434,14 @@ def public_status(value: dict[str, Any], sha: str, *, job: Path | None = None) -
         "controller_phase": _controller_phase(value),
         "phase": value["phase"],
         "legacy_result_provenance": (
-            "unknown_bound_legacy" if _legacy_prior_result_is_unknown(value) else "none"
+            "none"
         ),
-        "migration_binding_sha256": legacy_migration_sha,
+        "migration_binding_sha256": None,
         "reason": value["reason"],
+        "reason_message": (
+            MODEL_SELECTION_REJECTED_MESSAGE
+            if value["reason"] == "model_selection_rejected" else None
+        ),
         "retry_after_seconds": retry_remaining,
         "remote_cancel_unverified": value["remote_cancel_unverified"],
         "resume_available": "resume" in action_names,
@@ -2430,7 +2457,7 @@ def print_json(value: Any) -> None:
     sys.stdout.buffer.flush()
 
 
-def print_text_status(value: dict[str, Any], sha: str, *, job: Path | None = None) -> None:
+def print_text_status(value: Mapping[str, Any], sha: str, *, job: Path | None = None) -> None:
     """Print exactly three private-data-free lines for the human CLI surface."""
     counts = value["check_counts"]
     public = public_status(value, sha, job=job)
@@ -2449,10 +2476,6 @@ def print_text_status(value: dict[str, Any], sha: str, *, job: Path | None = Non
         item.get("command") for item in actions
         if item["action"] == "restart" and isinstance(item.get("command"), str)
     ), None)
-    historical_result = bool(
-        result_command is not None
-        and public["legacy_result_provenance"] == "unknown_bound_legacy"
-    )
     finalized_result = bool(
         result_command is not None
         and value["driver_disposition"] in {
@@ -2460,11 +2483,11 @@ def print_text_status(value: dict[str, Any], sha: str, *, job: Path | None = Non
         }
     )
     candidate_decision = (
-        "then Codex—not the controller—chooses an eligible continue or finalize."
+        "then the driver chooses an eligible continue or finalize."
         if {"continue", "finalize"} <= action_names else
-        "then Codex—not the controller—may choose the eligible continue action."
+        "then the driver may choose the eligible continue action."
         if "continue" in action_names else
-        "then Codex—not the controller—may choose the eligible finalize action."
+        "then the driver may choose the eligible finalize action."
         if "finalize" in action_names else
         "then no further driver decision is currently listed."
     )
@@ -2510,19 +2533,20 @@ def print_text_status(value: dict[str, Any], sha: str, *, job: Path | None = Non
         and value["attempt"] >= value["max_cycles"]
     )
     lines = (
-        f"Provider attempt: {value['status']}; reason: {reason}; failure stage: {failure_stage}; bound result available: {'yes' if public['result_available'] else 'no'}; driver disposition: {value['driver_disposition']}.",
-        f"Driver evidence: {counts['passed']} passed, {counts['failed']} failed, {counts['advisory']} advisory, {counts['missing']} missing; cycle: {public['cycle']}/{public['max_cycles']}.",
+        f"Provider attempt: {value['status']}; reason: {reason}; failure stage: {failure_stage}; bound result available: {'yes' if public['result_available'] else 'no'}; driver disposition: {value['driver_disposition']}."
+        + (f" {public['reason_message']}" if public["reason_message"] else "")
+        + (" macOS denied native sandbox_apply; this can occur when the driver host is already sandboxed. Use a compatible driver host with the same approved native mode." if reason == "native_host_sandbox_unavailable" else ""),
+        f"Driver evidence: {counts['passed']} passed, {counts['failed']} failed, {counts['advisory']} advisory, {counts['missing']} missing; cycle: {public['cycle']}/{public['max_cycles']}."
+        + (f" {public['cycle_budget_explanation']}" if public['cycle_budget_explanation'] else ""),
         (
             (
-                f"Next safe action: retrieve current bound result JSON with {result_command}; review it and run driver checks, then Codex—not the controller—may finalize after review. No provider-launching same-job recovery is available."
+                f"Next safe action: retrieve current bound result JSON with {result_command}; review it and run driver checks, then the driver may finalize after review. No provider-launching same-job recovery is available."
                 if result_command is not None and "finalize" in action_names else
                 f"Next safe action: retrieve current bound result JSON with {result_command}; no provider-launching same-job recovery is available."
                 if result_command is not None else
                 "Next safe action: create a fresh job using the unchanged caller selection after reviewing the current sanitized agy interface evidence. No same-job action is available."
             )
             if selection_preflight_recovery_blocked else
-            f"Next safe action: retrieve historical result evidence only with {result_command}; do not use it for Verification v2, continue, or finalize."
-            if historical_result else
             (
                 f"Next safe action: optional finalized result JSON readback with {result_command}; driver disposition is already recorded; do not construct Verification v2, continue, or finalize. Available fresh restart command: {restart_command}."
                 if restart_command is not None else
@@ -2549,7 +2573,7 @@ def print_text_status(value: dict[str, Any], sha: str, *, job: Path | None = Non
 
 
 def print_control_status(
-    value: dict[str, Any], sha: str, output_format: str, *, job: Path | None = None,
+    value: Mapping[str, Any], sha: str, output_format: str, *, job: Path | None = None,
 ) -> None:
     if output_format == "text":
         print_text_status(value, sha, job=job)
@@ -2557,7 +2581,7 @@ def print_control_status(
         print_json(public_status(value, sha, job=job))
 
 
-def _state_approval_error(state: dict[str, Any], sha: str, action: str) -> DispatchError:
+def _state_approval_error(state: Mapping[str, Any], sha: str, action: str) -> DispatchError:
     """Keep stale approval recovery useful without exposing private controller data."""
     suffix = {
         "continue": " < DRIVER_VERIFICATION_JSON",
@@ -2584,10 +2608,70 @@ def _attempt_paths(job: Path, attempt: int) -> tuple[Path, Path, Path]:
     return job / f"{prefix}.stream.ndjson", job / f"{prefix}.stderr.txt", job / f"{prefix}.envelope.json"
 
 
+def _bound_whole_worktree_base(workdir: str, expected: str | None, workflow: str) -> str | None:
+    """Bind the gate's Git reference to HEAD before the first worker launch."""
+    if expected is not None and COMMIT_RE.fullmatch(expected) is None:
+        raise DispatchError("base commit is invalid")
+    try:
+        actual = CANDIDATE_STATE._git(
+            Path(workdir), "rev-parse", "--verify", "HEAD^{commit}",
+        ).decode("ascii", "strict").strip()
+    except (CANDIDATE_STATE.CandidateStateError, UnicodeError):
+        if expected is not None or workflow in {"task", "project"}:
+            raise DispatchError("Git base is unavailable") from None
+        return None
+    if COMMIT_RE.fullmatch(actual) is None or (expected is not None and expected != actual):
+        raise DispatchError("Git HEAD differs from the immutable base commit")
+    return actual
+
+
+def _whole_worktree_change_hint(workdir: Path, base: str) -> str:
+    """Show preexisting and prior-cycle changes without making worker claims evidence."""
+    try:
+        raw = CANDIDATE_STATE._git(
+            workdir, "diff", "--name-status", "--no-renames", "-z", base, "--",
+        )
+        parts = [part for part in raw.split(b"\0") if part]
+        if len(parts) % 2:
+            raise DispatchError("Git change summary is invalid")
+        changes = [
+            {"path": parts[index + 1].decode("utf-8", "surrogateescape"),
+             "change": {b"A": "created", b"D": "deleted"}.get(parts[index], "modified")}
+            for index in range(0, len(parts), 2)
+        ]
+        untracked = CANDIDATE_STATE._git(
+            workdir, "ls-files", "--others", "--exclude-standard", "-z", "--",
+        )
+        changes.extend(
+            {"path": path.decode("utf-8", "surrogateescape"), "change": "created"}
+            for path in untracked.split(b"\0") if path
+        )
+        ignored = CANDIDATE_STATE._git(
+            workdir, "ls-files", "--others", "--ignored", "--exclude-standard", "-z", "--",
+        )
+        changes.extend(
+            {"path": path.decode("utf-8", "surrogateescape"), "change": "created"}
+            for path in ignored.split(b"\0") if path
+        )
+    except CANDIDATE_STATE.CandidateStateError as exc:
+        raise DispatchError("Git change summary is unavailable") from exc
+    if len(changes) > 64:
+        return (f"Driver currently observes {len(changes)} changed paths against the base; "
+                "the list is too long for this prompt. Report all net changes you can establish; "
+                "the gate will reject omissions.")
+    changes.sort(key=lambda item: item["path"])
+    encoded = json.dumps(changes, ensure_ascii=True, separators=(",", ":"))
+    if len(encoded.encode("utf-8")) > 8192:
+        return (f"Driver currently observes {len(changes)} changed paths against the base; "
+                "the list is too long for this prompt. Report all net changes you can establish; "
+                "the gate will reject omissions.")
+    return "Driver currently observes these net changes against the base: " + encoded
+
+
 def _bind_workspace_prompt(
-    argv: list[str], workspace_root: Path, *, scoped: bool, boost: bool,
-    provider_isolation: str, legacy_sandbox: bool,
-) -> None:
+    argv: list[str], workspace_root: Path, *, scoped: bool,
+    provider_isolation: str, base_commit: str | None = None,
+) -> str:
     """Bind every worker's file tools to the exact provider launch cwd."""
     if argv.count("--print") != 1:
         raise DispatchError("dispatch argv contract is invalid")
@@ -2595,48 +2679,15 @@ def _bind_workspace_prompt(
     if print_index + 1 >= len(argv):
         raise DispatchError("dispatch argv contract is invalid")
     prompt = argv[print_index + 1]
-    encoded_root = json.dumps(str(workspace_root), ensure_ascii=True)
     if provider_isolation not in {"session", "native"}:
         raise DispatchError("dispatch provider isolation is invalid")
-    workspace_shape = (
-        "the complete approved Gitless selected-content stage"
-        if scoped else "the complete explicitly approved whole worktree"
-    )
-    profile = "BOOST " if boost else ""
-    authority_note = (
-        "This legacy launch retains AGY sandbox behavior without native scoped containment."
-        if legacy_sandbox else
-        "This session has normal same-user filesystem and network authority; this prompt "
-        "does not confine host access. Work only beneath the stated root."
-        if provider_isolation == "session" else
-        "Native scoped containment limits this provider to the stated root."
-        if scoped else
-        "This legacy whole-worktree launch retains AGY sandbox behavior without native scoped containment."
-    )
-    prefix = (
-        f"{profile}FILE-TOOL ROOT — non-negotiable:\n"
-        f"- The exact absolute workspace root for this attempt is the JSON string {encoded_root}.\n"
-        "- File tools require absolute paths. Begin by listing that exact root. For each "
-        "task-relative path, use an absolute child path beneath that root; never pass the "
-        "relative path alone and never guess or search for another root.\n"
-        "- In the final schema envelope, report each files_changed[].path relative to this "
-        "workspace (for example, candidate.py), never as an absolute stage path.\n"
-        f"- This is {workspace_shape}. {authority_note} Do not inspect its parent, HOME, "
-        "`~/.gemini`, or any other directory. Do not call shell or terminal tools.\n"
-        + (
-            "- If you delegate, include this exact root and all these restrictions in every "
-            "subagent task. If file-tool access fails, return the schema-valid blocked envelope "
-            "without searching elsewhere.\n\n"
-            if boost else "\n"
-        )
-    )
-    bound_prompt = prefix + prompt
-    # The raw launcher already owns normal-worker prompt admission. Preserve
-    # its accepted range after adding this trusted root binding; Boost keeps
-    # its historical post-prefix inline limit.
-    if boost and len(bound_prompt.encode("utf-8")) > MAX_INLINE_PROMPT_BYTES:
-        raise DispatchError("workspace-root prompt exceeds inline byte limit")
-    argv[print_index + 1] = bound_prompt
+    hint = _whole_worktree_change_hint(workspace_root, base_commit) if not scoped and base_commit else ""
+    prefix = LAUNCH_AUTHORITY.workspace_prefix(
+        workspace_root, scoped=scoped, provider_isolation=provider_isolation,
+        base_commit=base_commit, change_hint=hint)
+    expected = prefix + prompt
+    argv[print_index + 1] = expected
+    return expected
 
 
 def _init_cwd_matches_launch(init_value: dict[str, Any], launch_cwd: str) -> bool:
@@ -2864,7 +2915,7 @@ def _verification_is_verified(value: dict[str, Any], workflow: str) -> bool:
     return counts["passed"] >= 1 and value["diff_review_complete"]
 
 
-def _require_current_candidate_verification(value: dict[str, Any], state: dict[str, Any]) -> None:
+def _require_current_candidate_verification(value: Mapping[str, Any], state: Mapping[str, Any]) -> None:
     """V1 is readable for compatibility, but never authorizes a lifecycle write."""
     if value["schema_version"] != 2:
         raise DispatchError("verification v2 is required for candidate disposition")
@@ -2962,7 +3013,7 @@ def _discard_new_verification(path: Path | None, identity: tuple[int, int, int, 
         pass
 
 
-def _bound_verification(job: Path, state: dict[str, Any]) -> Path | None:
+def _bound_verification(job: Path, state: Mapping[str, Any]) -> Path | None:
     path_text = state["verification_path"]
     if path_text is None:
         return None
@@ -2985,217 +3036,18 @@ def _bound_verification(job: Path, state: dict[str, Any]) -> Path | None:
     return path
 
 
-# Worktree/Git snapshot implementation is path-pinned to the sibling helper.
-# Each façade call supplies this module's current globals so test and controller
-# monkeypatches remain observable while the portable runtime has no package import.
-_worktree_helper_path = Path(__file__).with_name("agy_dispatch_worktree.py")
-_worktree_helper_spec = importlib.util.spec_from_file_location(
-    "agy_dispatch_worktree", _worktree_helper_path,
-)
-if _worktree_helper_spec is None or _worktree_helper_spec.loader is None:  # pragma: no cover - bundle invariant
-    raise RuntimeError("dispatch worktree helper is unavailable")
-_WORKTREE_HELPER = importlib.util.module_from_spec(_worktree_helper_spec)
-exec(
-    compile(_worktree_helper_path.read_bytes(), str(_worktree_helper_path), "exec"),
-    _WORKTREE_HELPER.__dict__,
-)
-
-
-class _MarkerPreflightLimit(Exception):
-    """The marker-only scan hit its documented bounded entry cap."""
-
-
-_FIXED_GIT_READ_ARGV = _WORKTREE_HELPER._FIXED_GIT_READ_ARGV
-_WORKTREE_FACADE_DEFAULTS: dict[str, Any] = {}
-
-
-def _worktree_call(name: str, *args: Any, **kwargs: Any) -> Any:
-    dependencies = dict(globals())
-    for dependency in _WORKTREE_HELPER._IMPLEMENTATION_FUNCTIONS:
-        if dependencies.get(dependency) is _WORKTREE_FACADE_DEFAULTS.get(dependency):
-            dependencies[dependency] = _WORKTREE_HELPER._IMPLEMENTATION_DEFAULTS[dependency]
-    return _WORKTREE_HELPER.call(name, dependencies, *args, **kwargs)
-
-
-def _marker_only_preflight(root_fd: int, *, deadline: float | None = None) -> bool:
-    return _worktree_call("_marker_only_preflight", root_fd, deadline=deadline)
-
-
-def _resolved_path_is_git_administration(root: str, resolved: str) -> bool:
-    return _worktree_call("_resolved_path_is_git_administration", root, resolved)
-
-
-def _worktree_symlink_boundary(workdir: str) -> bool:
-    return _worktree_call("_worktree_symlink_boundary", workdir)
-
-
-def _worktree_git_admin_alias_boundary(workdir: str) -> bool:
-    return _worktree_call("_worktree_git_admin_alias_boundary", workdir)
-
-
-def _project_boundary(workdir: str) -> dict[str, Any]:
-    return _worktree_call("_project_boundary", workdir)
-
-
-def _safe_git_owner_mode(metadata: os.stat_result, *, directory: bool) -> bool:
-    return _worktree_call("_safe_git_owner_mode", metadata, directory=directory)
-
-
-def _safe_git_executable() -> tuple[str, dict[str, Any]] | None:
-    return _worktree_call("_safe_git_executable")
-
-
-def _confirm_safe_git_executable(executable: str, expected: dict[str, Any]) -> bool:
-    return _worktree_call("_confirm_safe_git_executable", executable, expected)
-
-
-def _safe_git_is_outside_worktree(executable: str, worktree_root: str) -> bool:
-    return _worktree_call("_safe_git_is_outside_worktree", executable, worktree_root)
-
-
-def _stable_git_authority(info: os.stat_result) -> dict[str, int]:
-    return _worktree_call("_stable_git_authority", info)
-
-
-def _full_stat_binding(info: os.stat_result) -> tuple[int, ...]:
-    return _worktree_call("_full_stat_binding", info)
-
-
-def _bound_git_worktree_root(
-    raw: bytes, canonical_root: str, root_binding: tuple[int, ...],
-) -> bool:
-    return _worktree_call("_bound_git_worktree_root", raw, canonical_root, root_binding)
-
-
-def _fixed_git_read_argv(arguments: list[str]) -> bool:
-    return _worktree_call("_fixed_git_read_argv", arguments)
-
-
-def _bounded_git_read(
-    executable: str, executable_authority: dict[str, Any], root: str,
-    arguments: list[str], *, deadline: float, payload: bytes = b"",
-    allowed: tuple[int, ...] = (0,), stdout_limit: int | None = None,
-) -> tuple[int, bytes] | None:
-    return _worktree_call(
-        "_bounded_git_read", executable, executable_authority, root, arguments,
-        deadline=deadline, payload=payload, allowed=allowed, stdout_limit=stdout_limit,
-    )
-
-
-def _git_boundary_identity(workdir: str) -> dict[str, Any] | None:
-    return _worktree_call("_git_boundary_identity", workdir)
-
-
-def _worktree_snapshot(
-    workdir: str, *, legacy: bool = False, explain_unsupported: bool = False,
-) -> dict[str, Any] | None:
-    try:
-        return _worktree_call(
-            "_worktree_snapshot", workdir, legacy=legacy,
-            explain_unsupported=explain_unsupported,
-        )
-    except _WORKTREE_HELPER._ResolveUndoPresentError as exc:
-        raise ResolveUndoPresentError(str(exc)) from None
-    except _WORKTREE_HELPER._UnsupportedWorktreeError as exc:
-        raise WorktreeBaselineError(str(exc)) from None
-
-def _scan_readable_worktree(worktree: str | Path) -> list[dict[str, str]]:
-    return _worktree_call("_scan_readable_worktree", worktree)
-
-
-def _validate_manifest(manifest: Any) -> list[dict[str, str]]:
-    return _worktree_call("_validate_manifest", manifest)
-
-
-def _manifest_digest(manifest: list[dict[str, str]]) -> str:
-    return _worktree_call("_manifest_digest", manifest)
-
-
-def _read_provider_scope_file(
-    path: str | Path, limit: int,
-) -> tuple[str, bytes, os.stat_result]:
-    return _worktree_call("_read_provider_scope_file", path, limit)
-
-
-def _parse_provider_scope(raw_bytes: bytes) -> dict[str, Any]:
-    return _worktree_call("_parse_provider_scope", raw_bytes)
-
-
-def _validate_scope_against_worktree(
-    scope: dict[str, Any], worktree_root: str | Path, readable_manifest: list[dict[str, str]],
-) -> None:
-    return _worktree_call("_validate_scope_against_worktree", scope, worktree_root, readable_manifest)
-
-
-def _build_selected_content_manifest(
-    root_dir: str | Path, scope: dict[str, Any], *, is_stage: bool = False,
-) -> list[dict[str, Any]]:
-    return _worktree_call("_build_selected_content_manifest", root_dir, scope, is_stage=is_stage)
-
-
-def _selected_content_digest(manifest: list[dict[str, Any]]) -> str:
-    return _worktree_call("_selected_content_digest", manifest)
-
-
-def _canonical_digest(value: Any) -> str:
-    return _worktree_call("_canonical_digest", value)
-
-
-def _compute_transmission_sha256(
-    policy_sha256: str, readable_manifest_sha256: str, selected_content_sha256: str,
-) -> str:
-    return _worktree_call(
-        "_compute_transmission_sha256", policy_sha256, readable_manifest_sha256, selected_content_sha256,
-    )
-
-
-def _compute_provider_launch_approval_sha256(
-    provider_isolation: str, readable_manifest_sha256: str,
-    transmission_sha256: str | None = None,
-) -> str:
-    return _worktree_call(
-        "_compute_provider_launch_approval_sha256",
-        provider_isolation, readable_manifest_sha256, transmission_sha256,
-    )
-
-
-def whole_worktree_content_manifest(worktree: str | Path) -> dict[str, Any]:
-    return _worktree_call("whole_worktree_content_manifest", worktree)
-
-
-def _compute_v11_launch_approval_sha256(
-    provider_isolation: str, native_grant_profile: str, *,
-    whole_worktree_content_sha256: str | None = None,
-    readable_manifest_sha256: str | None = None,
-    transmission_sha256: str | None = None,
-) -> str:
-    return _worktree_call(
-        "_compute_v11_launch_approval_sha256",
-        provider_isolation, native_grant_profile,
-        whole_worktree_content_sha256=whole_worktree_content_sha256,
-        readable_manifest_sha256=readable_manifest_sha256,
-        transmission_sha256=transmission_sha256,
-    )
-
-
 def _bound_transmission_sha256(
     command: dict[str, Any], policy_sha256: str,
     readable_manifest_sha256: str, selected_content_sha256: str,
 ) -> str:
-    """Keep legacy scoped approval bytes while binding V10 mode authority."""
+    """Bind current mode and content authority without changing approval bytes."""
 
-    base = _compute_transmission_sha256(
+    base = WORKTREE._compute_transmission_sha256(
         policy_sha256, readable_manifest_sha256, selected_content_sha256,
     )
-    if command["schema_version"] < 10:
-        return base
-    if command["schema_version"] == 11:
-        return _compute_v11_launch_approval_sha256(
-            _provider_isolation_for_command(command), command["native_grant_profile"],
-            transmission_sha256=base,
-        )
-    return _compute_provider_launch_approval_sha256(
-        _provider_isolation_for_command(command), readable_manifest_sha256, base,
+    return WORKTREE._compute_v11_launch_approval_sha256(
+        _provider_isolation_for_command(command), command["native_grant_profile"],
+        transmission_sha256=base,
     )
 
 
@@ -3220,13 +3072,21 @@ def _compute_repair_lineage_sha256(
     }))
 
 
+def _initial_content_transmission(command: dict[str, Any]) -> str:
+    content = command["launch_authority"]["content"]
+    return _bound_transmission_sha256(
+        command, content["policy_sha256"], content["manifest_sha256"],
+        content["selected_content_sha256"])
+
+
 def _require_scoped_transmission_authority(
-    command: dict[str, Any], state: dict[str, Any], *,
+    command: dict[str, Any], state: Mapping[str, Any], *,
     selected_content_sha256: str, transmission_sha256: str,
     provider_origin: str | None = None,
 ) -> None:
     """Apply the one exact rule used at every scoped transmission check."""
-    if transmission_sha256 == command["approved_transmission_sha256"]:
+    initial_transmission_sha = _initial_content_transmission(command)
+    if transmission_sha256 == initial_transmission_sha:
         if state.get("transmission_sha256") not in {None, transmission_sha256} or (
             state.get("selected_content_sha256") not in {None, selected_content_sha256}
         ):
@@ -3254,45 +3114,6 @@ def _require_scoped_transmission_authority(
         raise DispatchError("scoped repair transmission lineage is unavailable")
 
 
-def _materialize_stage(
-    source_root: str | Path, stage_dir: str | Path, scope: dict[str, Any],
-    selected_manifest: list[dict[str, Any]],
-) -> tuple[tuple[int, int, int, int, int], str]:
-    return _worktree_call(
-        "_materialize_stage", source_root, stage_dir, scope, selected_manifest,
-    )
-
-
-def _scan_stage_mutations(
-    stage_dir: str | Path, scope: dict[str, Any], pre_launch_manifest: list[dict[str, Any]],
-) -> tuple[list[dict[str, Any]], str]:
-    return _worktree_call(
-        "_scan_stage_mutations", stage_dir, scope, pre_launch_manifest,
-    )
-
-
-def _reconcile_stage_to_source(
-    source_root: str | Path, stage_dir: str | Path, operation_manifest: list[dict[str, Any]],
-    job_dir: Path,
-) -> str:
-    return _worktree_call(
-        "_reconcile_stage_to_source", source_root, stage_dir, operation_manifest, job_dir,
-    )
-
-
-def _recover_reconciliation(source_root: str | Path, job_dir: Path) -> bool:
-    return _worktree_call("_recover_reconciliation", source_root, job_dir)
-
-
-def _cleanup_stage(stage_dir: str | Path, recorded_identity: tuple[int, int, int, int, int]) -> None:
-    return _worktree_call("_cleanup_stage", stage_dir, recorded_identity)
-
-
-_WORKTREE_FACADE_DEFAULTS = {
-    name: globals()[name] for name in _WORKTREE_HELPER._IMPLEMENTATION_FUNCTIONS
-}
-
-
 def _dispatch_root_identity(workdir: str) -> dict[str, Any] | None:
     """Return V9's stable root/Git-administration authority record.
 
@@ -3301,27 +3122,16 @@ def _dispatch_root_identity(workdir: str) -> dict[str, Any] | None:
     HEAD/ref moves, and object maintenance.  Those remain candidate-binding
     facts; this record detects a substituted repository boundary.
     """
-    return _git_boundary_identity(workdir)
+    return WORKTREE._git_boundary_identity(workdir)
 
 
-def _state_worktree_snapshot(state: dict[str, Any], workdir: str) -> dict[str, Any] | None:
-    """Use a persisted algorithm identity; historical snapshots stay exact."""
-    if state.get("schema_version") in {5, 6}:
-        algorithm = WORKTREE_SNAPSHOT_LEGACY_V6
-    elif state.get("schema_version") == 7:
-        # V7 predates the explicit field but its semantic digest is frozen.
-        algorithm = WORKTREE_SNAPSHOT_SEMANTIC_V1
-    elif state.get("schema_version") is None:
-        # This private helper also accepts a baseline-only test/launch probe;
-        # it is never a validated persisted state.
-        algorithm = WORKTREE_SNAPSHOT_SEMANTIC_V1
-    else:
-        algorithm = state.get("worktree_snapshot_algorithm")
-    if algorithm == WORKTREE_SNAPSHOT_LEGACY_V6:
-        return _worktree_snapshot(workdir, legacy=True)
-    if algorithm == WORKTREE_SNAPSHOT_SEMANTIC_V1:
-        return _worktree_snapshot(workdir)
-    raise DispatchError("dispatch worktree snapshot algorithm is unavailable")
+def _state_worktree_snapshot(state: Mapping[str, Any], workdir: str) -> dict[str, Any] | None:
+    """Use the one persisted semantic algorithm without changing its digest."""
+    if state.get("schema_version") is not None:
+        _require_supported_schema(state, label="dispatch state", supported=(CURRENT_STATE_SCHEMA,))
+        if state.get("worktree_snapshot_algorithm") != CURRENT_WORKTREE_SNAPSHOT_ALGORITHM:
+            raise DispatchError("dispatch worktree snapshot algorithm is unavailable")
+    return WORKTREE._worktree_snapshot(workdir)
 
 
 def _reconciliation_from_snapshot(
@@ -3342,9 +3152,9 @@ def _reconciliation_from_snapshot(
 
 
 def _reconcile_worktree(
-    workdir: str, baseline: dict[str, Any] | None, *, state: dict[str, Any] | None = None,
+    workdir: str, baseline: dict[str, Any] | None, *, state: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
-    current = _worktree_snapshot(workdir) if state is None else _state_worktree_snapshot(state, workdir)
+    current = WORKTREE._worktree_snapshot(workdir) if state is None else _state_worktree_snapshot(state, workdir)
     return _reconciliation_from_snapshot(current, baseline)
 
 
@@ -3403,7 +3213,7 @@ def _schema_bindings(command: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _bound_schemas(command: dict[str, Any], state: dict[str, Any]) -> tuple[Path, Path]:
+def _bound_schemas(command: dict[str, Any], state: Mapping[str, Any]) -> tuple[Path, Path]:
     paths = _schema_paths(command)
     if paths is None:
         raise DispatchError("dispatch schema argument is unavailable")
@@ -3414,7 +3224,7 @@ def _bound_schemas(command: dict[str, Any], state: dict[str, Any]) -> tuple[Path
     return paths
 
 
-def _bound_candidate_worktree(state: dict[str, Any], command: dict[str, Any]) -> None:
+def _bound_candidate_worktree(state: Mapping[str, Any], command: dict[str, Any]) -> None:
     """Reject post-review worktree drift before a continuation or final disposition."""
     quiescent = (
         state["status"] in TERMINAL and state["controller_pid"] is None
@@ -3432,10 +3242,8 @@ def _bound_candidate_worktree(state: dict[str, Any], command: dict[str, Any]) ->
     # same V9 extractor used by lifecycle recovery is repeated here so a
     # direct candidate-binding caller cannot turn a substituted Git boundary
     # into a content-only comparison.
-    if state.get("schema_version") in {9, 10, 11, 12, 13, CURRENT_STATE_SCHEMA} and (
-        _git_boundary_identity(command["workdir"])
-        != state.get("worktree_root_identity")
-    ):
+    if (WORKTREE._git_boundary_identity(command["workdir"])
+        != state.get("worktree_root_identity")):
         raise DispatchError("dispatch worktree root binding changed")
     expected_sha = state["candidate_worktree_sha256"]
     expected_entries = state["candidate_worktree_entries"]
@@ -3443,16 +3251,19 @@ def _bound_candidate_worktree(state: dict[str, Any], command: dict[str, Any]) ->
     if current is None or expected_sha is None or expected_entries is None:
         raise DispatchError("candidate worktree reconciliation is unavailable")
     if current["sha256"] != expected_sha or current["entries"] != expected_entries:
-        # The snapshot exposes a digest and an entry count, not path-level
-        # provenance. Do not infer or disclose a changed path from that count.
         drift = "entry count and snapshot digest" if current["entries"] != expected_entries else "snapshot digest"
+        details = WORKTREE._snapshot_drift_details(
+            state["candidate_worktree_path_facts"], current.get("path_facts"),
+        )
         raise DispatchError(
-            f"candidate worktree binding changed ({drift}); inspect volatile "
-            "ignored/cache artifacts and other edits in the disposable worktree"
+            f"candidate worktree binding changed ({drift})"
+            + (f": {details}" if details else "")
+            + "; inspect candidate drift and request repair in the same worker "
+            "conversation; do not edit the bound candidate by hand"
         )
 
 
-def _bound_current_candidate(job: Path, state: dict[str, Any]) -> tuple[dict[str, Any], bytes]:
+def _bound_current_candidate(job: Path, state: Mapping[str, Any]) -> tuple[dict[str, Any], bytes]:
     """Reopen every current-candidate authority before exposing or mutating it.
 
     This is intentionally one bounded no-follow binding sequence, reused by
@@ -3472,10 +3283,6 @@ def _bound_current_candidate(job: Path, state: dict[str, Any]) -> tuple[dict[str
         bound_job = canonical_job(Path(job).resolve(strict=True))
     except OSError as exc:
         raise DispatchError("job directory is unavailable") from exc
-    # Old snapshots are readable evidence only.  Do not synthesize a V9 root
-    # identity during a result/status read: that would make a replacement root
-    # look approved before an explicit, provable transition.
-    legacy_read = state["schema_version"] < 9
     result_path = Path(state["result_path"])
     try:
         result_parent = result_path.parent.resolve(strict=True)
@@ -3485,7 +3292,7 @@ def _bound_current_candidate(job: Path, state: dict[str, Any]) -> tuple[dict[str
         raise DispatchError("dispatch result path is outside this job")
     command = _load_bound_command(bound_job, state, stage_readonly=False)
     command, state = _bound_lifecycle_inputs(
-        bound_job, state, command, read_legacy=legacy_read,
+        bound_job, state, command,
         bind_terminal_candidate=True,
     )
     schema_paths = _schema_paths(command)
@@ -3511,7 +3318,7 @@ def _bound_current_candidate(job: Path, state: dict[str, Any]) -> tuple[dict[str
     # The validator opened both schema pathnames; bind them and the project
     # marker again before accepting its answer.
     _bound_lifecycle_inputs(
-        bound_job, state, command, read_legacy=legacy_read,
+        bound_job, state, command,
         bind_terminal_candidate=True,
     )
     # Project jobs created before the external-log-root boundary can place their
@@ -3519,7 +3326,7 @@ def _bound_current_candidate(job: Path, state: dict[str, Any]) -> tuple[dict[str
     # changes the semantic snapshot, so that stored snapshot is self-invalidating.
     # Keep exact command/schema/root/result bindings for readback and a driver-only
     # final disposition; provider recovery is denied by the inside-worktree guard.
-    if not legacy_read and not _job_is_inside_worktree(bound_job, command["workdir"]):
+    if not _job_is_inside_worktree(bound_job, command["workdir"]):
         _bound_candidate_worktree(state, command)
     return command, raw
 
@@ -3611,7 +3418,8 @@ def _copy_bound_candidate(worktree: Path, destination: Path) -> None:
         if not stat.S_ISLNK(before.st_mode):
             raise DispatchError("verification copy source link changed")
         try:
-            target_text = os.readlink(source)
+            # Validate that the source still supports reading its symlink target.
+            os.readlink(source)
             resolved = os.path.realpath(source)
             after = source.lstat()
         except OSError as exc:
@@ -3624,7 +3432,7 @@ def _copy_bound_candidate(worktree: Path, destination: Path) -> None:
             contained = False
         if (
             not contained or not os.path.exists(resolved)
-            or _resolved_path_is_git_administration(str(root), resolved)
+            or WORKTREE._resolved_path_is_git_administration(str(root), resolved)
         ):
             raise DispatchError("verification copy source link is unsafe")
         # A relative source spelling can still escape a sibling copy (for
@@ -3745,57 +3553,12 @@ def command_verification_copy(job: Path, destination: Path, output_format: str) 
     return 0
 
 
-def _bound_legacy_unknown_result(job: Path, state: dict[str, Any]) -> bytes:
-    """Revalidate a V3/V4 historical result without promoting its provenance."""
-    if not _legacy_prior_result_is_unknown(state):
-        raise DispatchError("dispatch has no unknown legacy result")
-    try:
-        bound_job = canonical_job(Path(job).resolve(strict=True))
-    except OSError as exc:
-        raise DispatchError("job directory is unavailable") from exc
-    result_path = Path(state["last_success_path"])
-    try:
-        result_parent = result_path.parent.resolve(strict=True)
-    except OSError as exc:
-        raise DispatchError("legacy dispatch result path is unavailable") from exc
-    if not result_path.is_absolute() or result_parent != bound_job:
-        raise DispatchError("legacy dispatch result path is outside this job")
-    command = _load_bound_command(bound_job, state, stage_readonly=False)
-    command, state = _bound_lifecycle_inputs(bound_job, state, command, read_legacy=True)
-    if state["workflow"] != "project" or (
-        _project_boundary(command["workdir"]) != state["project_boundary"]
-    ):
-        raise DispatchError("legacy dispatch result boundary is unavailable")
-    schema_paths = _schema_paths(command)
-    if schema_paths is None:
-        raise DispatchError("dispatch result schema is unavailable")
-    raw, info = read_regular(result_path, 1024 * 1024, "dispatch result")
-    if digest(raw) != state["last_success_sha256"] or list(_identity(info)) != state["last_success_identity"]:
-        raise DispatchError("dispatch result binding changed")
-    validator = Path(__file__).with_name("validate-envelope.py")
-    checked = [
-        subprocess.run(
-            [sys.executable, "-I", "-S", "-B", str(validator), str(schema), str(result_path)],
-            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-            check=False,
-        )
-        for schema in schema_paths
-    ]
-    if any(item.returncode != 0 for item in checked):
-        raise DispatchError("dispatch result is no longer valid")
-    rebound, rebound_info = read_regular(result_path, 1024 * 1024, "dispatch result")
-    if rebound != raw or _identity(rebound_info) != _identity(info):
-        raise DispatchError("dispatch result binding changed")
-    _bound_lifecycle_inputs(bound_job, state, command, read_legacy=True)
-    return raw
-
-def _bound_worktree_baseline(state: dict[str, Any], command: dict[str, Any]) -> None:
+def _bound_worktree_baseline(state: Mapping[str, Any], command: dict[str, Any]) -> None:
     """Require the queued worktree fact set immediately before provider launch."""
     expected = state["worktree_baseline"]
     current = _state_worktree_snapshot(state, command["workdir"])
     if expected is None or current is None:
-        if state.get("schema_version", CURRENT_STATE_SCHEMA) >= 7:
-            _worktree_snapshot(command["workdir"], explain_unsupported=True)
+        WORKTREE._worktree_snapshot(command["workdir"], explain_unsupported=True)
         raise WorktreeBaselineError("queued worktree baseline is unavailable")
     if (
         current["sha256"] != expected["sha256"]
@@ -3805,7 +3568,7 @@ def _bound_worktree_baseline(state: dict[str, Any], command: dict[str, Any]) -> 
 
 
 def _restart_guard_accepts(
-    state: dict[str, Any], *, status: str | None = None,
+    state: Mapping[str, Any], *, status: str | None = None,
     elapsed_seconds: float | None = None,
 ) -> bool:
     """Share the state-only fresh-restart guard with public recovery projection."""
@@ -3829,11 +3592,14 @@ def _restart_guard_accepts(
 
 
 def _load_bound_command(
-    job: Path, state: dict[str, Any], *, stage_readonly: bool,
+    job: Path, state: Mapping[str, Any], *, stage_readonly: bool,
 ) -> dict[str, Any]:
     command, raw, identity = load_command(job)
     if digest(raw) != state["command_sha256"] or list(identity) != state["command_identity"]:
         raise DispatchError("dispatch command binding changed")
+    expected_content = _initial_content_transmission(command) if command["provider_scope_path"] else None
+    if state["initial_content_transmission_sha256"] != expected_content:
+        raise DispatchError("dispatch initial content transmission binding changed")
     stage_sha, stage_identity = _bound_stage(command, readonly=stage_readonly)
     if stage_sha != state["stage_sha256"] or (
         stage_identity is not None and list(stage_identity[:4]) != state["stage_identity"][:4]
@@ -3843,8 +3609,7 @@ def _load_bound_command(
 
 
 def _load_bound_selection(
-    command: dict[str, Any], state: dict[str, Any], *,
-    legacy_command_binding: bool = False,
+    command: dict[str, Any], state: Mapping[str, Any],
 ) -> dict[str, Any] | None:
     """Read the frozen selection bytes and bind them to command and state.
 
@@ -3857,16 +3622,8 @@ def _load_bound_selection(
         if state["selection_sha256"] is not None or state["selection_identity"] is not None:
             raise DispatchError("dispatch selection state binding changed")
         return None
-    # V1-V5 predate the duplicate state-level selection fields.  Their bound
-    # command still freezes the selection path, digest, and identity, which is
-    # sufficient for a read-only result revalidation.  Provider-causing and
-    # V6+ paths retain the stricter duplicate state binding.
-    if not (
-        legacy_command_binding and state["schema_version"] < 6
-    ) and (
-        state["selection_sha256"] != command["selection_sha256"]
-        or state["selection_identity"] != command["selection_identity"]
-    ):
+    if (state["selection_sha256"] != command["selection_sha256"]
+        or state["selection_identity"] != command["selection_identity"]):
         raise DispatchError("dispatch selection state binding changed")
     try:
         raw, info = read_regular(Path(path_value), MAX_COMMAND_BYTES, "dispatch selection")
@@ -3877,17 +3634,20 @@ def _load_bound_selection(
     try:
         # A direct selection is an immutable dispatch input.  Its raw bytes and
         # identity have just been compared to the command/state bindings; do
-        # not reapply a mutable current compatibility matrix to it here.
+        # not reopen or substitute the caller selection here.
         record = MODEL_SELECTION.decode_selection_record(raw, frozen=True)
-    except (MODEL_SELECTION.CallerError, MODEL_SELECTION.ReviewRequired, MODEL_SELECTION.EvidenceUnavailable) as exc:
+    except (MODEL_SELECTION.CallerError, MODEL_SELECTION.EvidenceUnavailable) as exc:
         raise DispatchError("dispatch selection is invalid") from exc
     return record
 
 
+StateMapping = TypeVar("StateMapping", bound=Mapping[str, Any])
+
+
 def _bound_lifecycle_inputs(
-    job: Path, state: dict[str, Any], command: dict[str, Any] | None = None,
-    *, read_legacy: bool = False, bind_terminal_candidate: bool = False,
-) -> tuple[dict[str, Any], dict[str, Any]]:
+    job: Path, state: StateMapping, command: dict[str, Any] | None = None,
+    *, bind_terminal_candidate: bool = False,
+) -> tuple[dict[str, Any], StateMapping]:
     """Bind non-provider recovery/finalization inputs before any state write.
 
     This never writes state or launches a provider, but it does perform the
@@ -3898,47 +3658,26 @@ def _bound_lifecycle_inputs(
     if command is None:
         command = _load_bound_command(job, state, stage_readonly=False)
     checked = state
-    if checked["schema_version"] < CURRENT_STATE_SCHEMA and not read_legacy:
-        checked = _upgrade_legacy_state(checked, command)
-    # V3/V4 still carry their own lifecycle copy.  Before those historical
-    # bytes can produce a migration approval (or be upgraded under one), bind
-    # every immutable overlap to the frozen command.  ``hard_seconds`` is not
-    # included: an approved local extend is allowed to change that one limit.
-    # V1 has no comparable workflow contract and remains result-only.
-    if checked["schema_version"] in {3, 4}:
-        for key in ("job_id", "workflow", "max_cycles"):
-            if checked[key] != command[key]:
-                raise DispatchError("dispatch immutable lifecycle binding changed")
-        for key in ("idle_seconds", "max_seconds"):
-            if float(checked[key]) != float(command[key]):
-                raise DispatchError("dispatch immutable lifecycle binding changed")
     if checked["workdir"] != command["workdir"]:
         raise DispatchError("dispatch worktree root binding changed")
-    if checked["schema_version"] >= 13 and (
-        checked["provider_isolation"] != _provider_isolation_for_command(command)
-    ):
+    if (checked["provider_isolation"] != _provider_isolation_for_command(command)):
         raise DispatchError("dispatch provider isolation binding changed")
-    if checked["schema_version"] >= 14 and (
-        checked["native_grant_profile"]
+    if (checked["native_grant_profile"]
         != command.get("native_grant_profile", "baseline")
         or checked["whole_worktree_content_sha256"]
-        != command.get("whole_worktree_content_sha256")
-    ):
-        raise DispatchError("dispatch V11 authority binding changed")
+        != command.get("whole_worktree_content_sha256")):
+        raise DispatchError("dispatch authority binding changed")
     root = Path(command["workdir"])
     try:
         root_info = root.lstat()
     except OSError as exc:
         raise DispatchError("dispatch worktree root is unavailable") from exc
-    if checked["schema_version"] in {9, 10, 11, 12, 13, CURRENT_STATE_SCHEMA}:
-        root_identity = _dispatch_root_identity(command["workdir"])
-        if (
-            root_identity is None
-            or root_identity != checked["worktree_root_identity"]
-        ):
-            raise DispatchError("dispatch worktree root binding changed")
-    elif not read_legacy:
-        raise DispatchError("legacy dispatch root identity cannot be proved")
+    root_identity = _dispatch_root_identity(command["workdir"])
+    if (
+        root_identity is None
+        or root_identity != checked["worktree_root_identity"]
+    ):
+        raise DispatchError("dispatch worktree root binding changed")
     if not stat.S_ISDIR(root_info.st_mode) or stat.S_ISLNK(root_info.st_mode):
         raise DispatchError("dispatch worktree root binding changed")
     try:
@@ -3951,31 +3690,25 @@ def _bound_lifecycle_inputs(
             raise DispatchError("dispatch worktree root binding changed")
     except OSError as exc:
         raise DispatchError("dispatch worktree root is unavailable") from exc
-    if not _worktree_symlink_boundary(command["workdir"]):
+    if not WORKTREE._worktree_symlink_boundary(command["workdir"]):
         raise DispatchError("dispatch worktree symlink boundary changed")
     _load_bound_selection(
-        command, checked, legacy_command_binding=read_legacy,
+        command, checked,
     )
-    if checked["schema_version"] in {9, 10, 11, 12, 13, CURRENT_STATE_SCHEMA}:
-        _bound_schemas(command, checked)
-    elif not read_legacy or _schema_paths(command) is None:
-        raise DispatchError("legacy dispatch schema binding cannot be proved")
+    _bound_schemas(command, checked)
     if checked["workflow"] == "project" and (
-        _project_boundary(command["workdir"]) != checked["project_boundary"]
+        WORKTREE._project_boundary(command["workdir"]) != checked["project_boundary"]
     ):
         raise DispatchError("project worktree boundary changed")
-    if checked["schema_version"] >= 12 and (
-        checked["allow_scoped_repair"] != command.get("allow_scoped_repair", False)
+    if (checked["allow_scoped_repair"] != command.get("allow_scoped_repair", False)
         or checked["repair_authority_sha256"] != command.get("repair_authority_sha256")
-        or command.get("repair_authority_sha256") != _repair_authority_for_command(command)
-    ):
+        or command.get("repair_authority_sha256") != _repair_authority_for_command(command)):
         raise DispatchError("dispatch scoped repair authority changed")
-    if checked["schema_version"] >= 12:
-        if checked["allow_self_verification"] != command.get(
-            "allow_self_verification", False
-        ):
-            raise DispatchError("dispatch self-verification authority changed")
-        _bound_self_verification_manifest(command, job)
+    if checked["allow_self_verification"] != command.get(
+        "allow_self_verification", False
+    ):
+        raise DispatchError("dispatch self-verification authority changed")
+    _bound_self_verification_manifest(command, job)
     if checked.get("provider_scope_path") is not None:
         _scope_path, raw_scope, scope_info = _read_provider_scope_file(
             checked["provider_scope_path"], MAX_COMMAND_BYTES,
@@ -3985,7 +3718,7 @@ def _bound_lifecycle_inputs(
         if list(_identity(scope_info)) != checked["provider_scope_identity"]:
             raise DispatchError("provider scope file identity changed since dispatch")
         try:
-            scope = _parse_provider_scope(raw_scope)
+            scope = WORKTREE._parse_provider_scope(raw_scope)
         except ValueError as exc:
             raise DispatchError(f"invalid provider scope: {exc}") from exc
         if bind_terminal_candidate:
@@ -4002,12 +3735,12 @@ def _bound_lifecycle_inputs(
             ):
                 raise DispatchError("terminal candidate binding is unavailable")
         else:
-            readable_manifest = _scan_readable_worktree(command["workdir"])
-            manifest_sha = _manifest_digest(readable_manifest)
-            _validate_scope_against_worktree(scope, command["workdir"], readable_manifest)
-            selected_manifest = _build_selected_content_manifest(command["workdir"], scope)
-            selected_sha = _selected_content_digest(selected_manifest)
-            policy_sha = _canonical_digest(scope)
+            readable_manifest = WORKTREE._scan_readable_worktree(command["workdir"])
+            manifest_sha = WORKTREE._manifest_digest(readable_manifest)
+            WORKTREE._validate_scope_against_worktree(scope, command["workdir"], readable_manifest)
+            selected_manifest = WORKTREE._build_selected_content_manifest(command["workdir"], scope)
+            selected_sha = WORKTREE._selected_content_digest(selected_manifest)
+            policy_sha = WORKTREE._canonical_digest(scope)
             transmission_sha = _bound_transmission_sha256(
                 command, policy_sha, manifest_sha, selected_sha,
             )
@@ -4025,38 +3758,34 @@ def _bound_lifecycle_inputs(
 
 
 def _reprobe_direct_selection(
-    command: dict[str, Any], state: dict[str, Any], argv: list[str],
-) -> tuple[str, dict[str, Any]] | None:
-    """Prove direct selection compatibility immediately before provider launch."""
-
+    command: dict[str, Any], state: Mapping[str, Any], argv: list[str],
+) -> tuple[str, dict[str, Any]]:
+    """Probe every provider launch and bind exact caller model/effort arguments."""
     record = _load_bound_selection(command, state)
-    if record is None:
-        return None
-    mode = record["selection_mode"]
-    if mode not in {"exact-model", "model-effort"}:
-        return None
-    if not _selection_launch_is_authorized(record):
-        # A current exact-version V2 record is mechanically sufficient.  V2
-        # drift remains historical evidence only; drift needs a bound V3 Codex
-        # disposition before any provider-causing lifecycle.
-        raise DispatchError("dispatch direct selection lacks approved compatibility disposition")
-    if argv.count("--model") != 1:
-        raise DispatchError("dispatch direct selection model argument is invalid")
-    model_index = argv.index("--model")
-    if model_index + 1 >= len(argv) or argv[model_index + 1] != record["resolved_agy_model"]:
-        raise DispatchError("dispatch direct selection model argument drifted")
-    # The worker does not support an effort flag; selection resolves effort into
-    # one immutable compound model slug.  A new one would be a fallback surface.
-    if "--effort" in argv:
-        raise DispatchError("dispatch direct selection effort fallback is invalid")
+    if record is not None:
+        if not _selection_launch_is_authorized(record):
+            raise DispatchError("dispatch selection has no current executable binding")
+        for flag, key in (("--model", "resolved_agy_model"), ("--effort", "user_effort")):
+            expected = record.get(key)
+            if expected is None:
+                if flag in argv:
+                    raise DispatchError("dispatch selection argument drifted: " + flag)
+            elif argv.count(flag) != 1 or argv.index(flag) + 1 >= len(argv) or argv[argv.index(flag) + 1] != expected:
+                raise DispatchError("dispatch selection argument drifted: " + flag)
     try:
-        # Keep both facts through the subsequent bounded worktree scan.  The
-        # final confirmation belongs after that scan, immediately before the
-        # provider process is created; otherwise an A->B replacement can make
-        # a successfully probed A authorize an unprobed B.
-        return MODEL_SELECTION.reprobe_selection_record(record)
-    except (MODEL_SELECTION.CallerError, MODEL_SELECTION.ReviewRequired, MODEL_SELECTION.EvidenceUnavailable) as exc:
-        raise SelectionPreflightError("dispatch direct selection reprobe failed") from exc
+        provider_isolation = _provider_isolation_for_command(command)
+        conversation = "--conversation" in argv
+        if record is not None:
+            return MODEL_SELECTION.reprobe_selection_record(
+                record, provider_isolation=provider_isolation, conversation=conversation,
+            )
+        executable, binding, _version = MODEL_SELECTION.probe_capabilities(
+            provider_isolation=provider_isolation, conversation=conversation,
+            effort="--effort" in argv,
+        )
+        return executable, binding
+    except (MODEL_SELECTION.CallerError, MODEL_SELECTION.EvidenceUnavailable) as exc:
+        raise SelectionPreflightError("dispatch capability preflight failed") from exc
 
 
 def _terminate(process: subprocess.Popen[bytes]) -> int:
@@ -4112,10 +3841,10 @@ def _revalidate_scoped_provider_stage(
         or stat.S_ISLNK(current.st_mode)
         or current.st_uid != os.getuid()
         or stat.S_IMODE(current.st_mode) != 0o700
-        or _selected_content_digest(selected_manifest) != stage_manifest_sha
+        or WORKTREE._selected_content_digest(selected_manifest) != stage_manifest_sha
     ):
         raise DispatchError("provider stage binding changed before launch")
-    mutations, _operation_sha = _scan_stage_mutations(
+    mutations, _operation_sha = WORKTREE._scan_stage_mutations(
         stage_dir, scope, selected_manifest,
     )
     if mutations:
@@ -4205,8 +3934,10 @@ def _reviewed_provider_timeout_lines(version: str, seconds: object) -> set[bytes
     wrapper always supplies a positive integer number of seconds.  Accept only
     those two equivalent spellings for that exact bound value.
     """
-    if version not in {"1.2.2", "1.2.6", "1.2.7"} or type(seconds) not in (int, float):
+    if type(seconds) not in (int, float):
         return set()
+    # The exact-type guard above excludes bool and all non-numeric objects.
+    seconds = cast("int | float", seconds)
     if not math.isfinite(seconds) or seconds <= 0 or seconds != int(seconds):
         return set()
     total = int(seconds)
@@ -4245,6 +3976,7 @@ def _has_reviewed_provider_timeout(
 
 def _classify_stderr(
     path: Path, version: str, returncode: int, provider_timeout_seconds: object = None,
+    *, native: bool = False,
 ) -> str:
     try:
         raw = path.read_bytes()
@@ -4263,7 +3995,7 @@ def _classify_stderr(
             return "agy_failed_unclassified"
         if not m_line.startswith(b"AGY_ERROR: "):
             return "agy_failed_unclassified"
-        if version not in {"1.2.6", "1.2.7", "1.2.10", "1.2.11"} or returncode != 3:
+        if returncode != 3:
             return "agy_failed_unclassified"
         payload = parse_agy_error(m_line)
         if payload is None:
@@ -4272,10 +4004,6 @@ def _classify_stderr(
         if expected_timeout and bool(expected_timeout.intersection(raw_lines)):
             return "agy_failed_unclassified"
         if any(b"permission that headless mode cannot prompt for" in line for line in raw_lines):
-            return "agy_failed_unclassified"
-        stripped_lines = {line.strip() for line in raw_lines if line.strip()}
-        signatures = EXACT_FAILURE_LINES.get(version, {})
-        if any(sig in stripped_lines for sig in signatures):
             return "agy_failed_unclassified"
         return "provider_terminal_error"
 
@@ -4288,18 +4016,70 @@ def _classify_stderr(
     if returncode == 0:
         return "empty_output"
 
-    # 4. Legacy permission
+    native_host_denials = {
+        b"sandbox_apply: Operation not permitted",
+        b"sandbox-exec: sandbox_apply: Operation not permitted",
+    }
+    if native and any(line.strip() in native_host_denials for line in raw_lines):
+        return "native_host_sandbox_unavailable"
+
+    # Preserve the existing nonzero headless-permission restriction.
     if any(b"permission that headless mode cannot prompt for" in line for line in raw_lines):
         return "permission_required"
 
-    # 5. Exact failure signatures
-    stripped_lines = {line.strip() for line in raw_lines if line.strip()}
-    signatures = EXACT_FAILURE_LINES.get(version, {})
-    matched_reasons = {r for sig, r in signatures.items() if sig in stripped_lines}
-    if len(matched_reasons) == 1:
-        return matched_reasons.pop()
-
     return "agy_failed_unclassified"
+
+
+def _selection_rejection_result(line: bytes) -> bool:
+    """Recognize only a strict diagnostic frame, never a worker envelope."""
+    if not line or len(line) > MAX_EVENT_BYTES:
+        return False
+    try:
+        frame = json.loads(
+            line.decode("utf-8", "strict"), object_pairs_hook=_duplicates,
+            parse_constant=_invalid_json_constant,
+        )
+    except (UnicodeError, ValueError, OverflowError, DispatchError, RecursionError):
+        return False
+    result = frame.get("result") if isinstance(frame, dict) else None
+    return bool(
+        isinstance(frame, dict) and frame.get("event") == "result"
+        and isinstance(result, dict) and result.get("status") == "ERROR"
+        and type(result.get("num_turns")) is int and result["num_turns"] == 0
+    )
+
+
+def _model_selection_rejected(
+    stream: Path, stderr: Path, returncode: int, version: str,
+    provider_timeout_seconds: object, *, native: bool,
+) -> bool:
+    """Require the complete bounded evidence and actual reaped exit code."""
+    if returncode != 1:
+        return False
+    try:
+        with stderr.open("rb") as handle:
+            diagnostic = handle.read(MAX_STREAM_BYTES + 1)
+        with stream.open("rb") as handle:
+            output = handle.read(MAX_EVENT_BYTES + 2)
+    except OSError:
+        return False
+    lines = diagnostic.splitlines()
+    if (
+        len(diagnostic) > MAX_STREAM_BYTES
+        or b"AGY_ERROR" in diagnostic
+        or sum(line.startswith(b"error: invalid model selection (") for line in lines) != 1
+        or any(line.strip() in {
+            b"sandbox_apply: Operation not permitted",
+            b"sandbox-exec: sandbox_apply: Operation not permitted",
+        } for line in lines)
+        or _classify_stderr(stderr, version, returncode, provider_timeout_seconds, native=native)
+        != "agy_failed_unclassified"
+    ):
+        return False
+    return not output or bool(
+        output.endswith(b"\n") and output.count(b"\n") == 1
+        and _selection_rejection_result(output[:-1])
+    )
 
 
 def _terminal_result(stream: Path, *, strict: bool = False) -> dict[str, Any] | None:
@@ -4367,104 +4147,10 @@ def _terminal_result(stream: Path, *, strict: bool = False) -> dict[str, Any] | 
     return result
 
 
-def _quota_terminal_failure(stream: Path, version: str) -> tuple[str, int | None] | None:
-    if version != "1.1.13":
-        return None
+def _has_denied_actions(stream: Path) -> bool:
+    """Opaque denial-key presence restricts reuse only after strict framing."""
     result = _terminal_result(stream, strict=True)
-    if result is None or set(result) != QUOTA_RESULT_FIELDS:
-        return None
-    if result.get("status") != "ERROR" or result.get("response") != "":
-        return None
-    conversation = result.get("conversation_id")
-    if not isinstance(conversation, str) or CONVERSATION_RE.fullmatch(conversation) is None:
-        return None
-    if (
-        type(result.get("duration_seconds")) not in (int, float)
-        or not math.isfinite(result["duration_seconds"])
-        or result["duration_seconds"] < 0
-    ):
-        return None
-    if type(result.get("num_turns")) is not int or result["num_turns"] < 0:
-        return None
-    if not isinstance(result.get("usage"), dict) or not isinstance(result.get("json_schema"), dict):
-        return None
-    error = result.get("error")
-    if not isinstance(error, str) or len(error) > 256:
-        return None
-    match = QUOTA_ERROR_1_1_13_RE.fullmatch(error)
-    if match is None:
-        return None
-    hours = int(match.group("hours") or 0)
-    minutes = int(match.group("minutes") or 0)
-    seconds = int(match.group("seconds") or 0)
-    retry = hours * 3600 + minutes * 60 + seconds
-    if minutes >= 60 or seconds >= 60 or not (1 <= retry <= MAX_PROVIDER_RETRY_SECONDS):
-        retry = None
-    return "provider_quota_exhausted", retry
-
-
-def _has_reviewed_denied_actions(stream: Path, version: str) -> bool:
-    """Recognize only reviewed exact-version top-level denial signals.
-
-    Its payload is provider-owned and deliberately never interpreted or copied
-    into public state. Call this only after the terminal envelope has passed
-    schema validation, so presence cannot turn an invalid report into a candidate.
-    """
-    if version not in {"1.1.27", "1.2.2", "1.2.11"}:
-        return False
-    result = _terminal_result(stream, strict=True)
-    return isinstance(result, dict) and "denied_actions" in result
-
-
-REFUSAL_RESULT_FIELDS_1_2_6 = {
-    "conversation_id", "denied_actions", "duration_seconds",
-    "json_schema", "num_turns", "response", "status", "usage",
-}
-REFUSAL_RESULT_FIELDS_1_2_7 = REFUSAL_RESULT_FIELDS_1_2_6
-
-
-def _has_reviewed_terminal_refusal(stream: Path, version: str) -> bool:
-    """Recognize only reviewed exact-shape headless refusal results.
-
-    The observed native refusal returns exit 0, terminal status SUCCESS, empty
-    response, exact result keys (no structured_output), valid conversation,
-    finite nonnegative duration, int nonnegative turns, dict json_schema/usage,
-    and a nonempty bounded list of denied_actions with exact action/display_name keys.
-    Any deviation or unknown shape fails closed.
-    """
-    if version not in {"1.2.6", "1.2.7", "1.2.11"}:
-        return False
-    result = _terminal_result(stream, strict=True)
-    if result is None or set(result) != REFUSAL_RESULT_FIELDS_1_2_6:
-        return False
-    if result.get("status") != "SUCCESS" or result.get("response") != "":
-        return False
-    conversation = result.get("conversation_id")
-    if not isinstance(conversation, str) or CONVERSATION_RE.fullmatch(conversation) is None:
-        return False
-    duration = result.get("duration_seconds")
-    if type(duration) not in (int, float) or duration < 0:
-        return False
-    if isinstance(duration, float) and not math.isfinite(duration):
-        return False
-    turns = result.get("num_turns")
-    if type(turns) is not int or turns < 0:
-        return False
-    if not isinstance(result.get("json_schema"), dict) or not isinstance(result.get("usage"), dict):
-        return False
-    denied = result.get("denied_actions")
-    if not isinstance(denied, list) or len(denied) != 1:
-        return False
-    item = denied[0]
-    if not isinstance(item, dict) or set(item) != {"action", "display_name"}:
-        return False
-    action = item["action"]
-    display_name = item["display_name"]
-    if not isinstance(action, str) or not (1 <= len(action) <= 256) or "\n" in action or "\r" in action:
-        return False
-    if not isinstance(display_name, str) or not (1 <= len(display_name) <= 256) or "\n" in display_name or "\r" in display_name:
-        return False
-    return True
+    return isinstance(result, dict) and isinstance(result.get("status"), str) and result["status"] in {"SUCCESS", "ERROR", "CANCELLED", "CANCELED"} and "denied_actions" in result
 
 
 AGY_ERROR_PAYLOAD_FIELDS = {
@@ -4597,24 +4283,11 @@ def parse_agy_error(raw: str | bytes) -> AgyErrorPayload | None:
     )
 
 
-def _boost_stream_is_bound(stream: Path) -> bool:
-    """Require provider-observed Boost identity before accepting a result."""
-    try:
-        first = stream.read_bytes().splitlines()[0]
-        frame = json.loads(first.decode("utf-8", "strict"), object_pairs_hook=_duplicates)
-    except (IndexError, OSError, UnicodeError, json.JSONDecodeError, DispatchError):
-        return False
-    init = frame.get("init") if isinstance(frame, dict) and frame.get("event") == "init" else None
-    return bool(isinstance(init, dict) and init.get("agent") == "Boost" and init.get("permission_mode") == "request-review")
-
-
 def _validate_terminal_envelope(
-    stream: Path, envelope: Path, provider_schema: Path, canonical_schema: Path, *, boost: bool = False,
+    stream: Path, envelope: Path, provider_schema: Path, canonical_schema: Path, *,
     stage_dir: Path | None = None,
 ) -> tuple[tuple[str, tuple[int, int, int, int, int]] | None, str | None, str | None]:
     """Keep framing, provider status, extraction, and canonical validation distinct."""
-    if boost and not _boost_stream_is_bound(stream):
-        return None, None, "boost_contract"
     result = _terminal_result(stream, strict=True)
     if result is None:
         return None, None, "framing"
@@ -4665,18 +4338,1704 @@ def _validate_terminal_envelope(
     return (digest(raw), _identity(info)), outer_status, None
 
 
-def controller(job: Path, ownership_fd: int) -> int:
+@dataclasses.dataclass
+class _ControllerBinding:
+    state: Mapping[str, Any] = dataclasses.field(default_factory=dict)
+    prior_raw: bytes = b""
+    command: dict[str, Any] = dataclasses.field(default_factory=dict)
+    feedback: Path | None = None
+    schema_paths: tuple[Path, Path] | None = None
+
+
+@dataclasses.dataclass
+class _ProviderExecution:
     stop_signal: int | None = None
     process: subprocess.Popen[bytes] | None = None
     started_mono: float | None = None
     runtime_end_mono: float | None = None
-    runtime_frozen = False
-    idle_timeout_with_exited_provider = False
+    runtime_frozen: bool = False
+    idle_timeout_with_exited_provider: bool = False
+    elapsed: float = 0.0
+    heartbeat_mono: float = 0.0
+    next_notice: float = 0.0
+    returncode: int = 0
+
+
+@dataclasses.dataclass
+class _ControllerStreams:
+    stream_path: Path
+    stderr_path: Path
+    envelope_path: Path
+    stdout_fd: int = -1
+    stderr_fd: int = -1
+    selector: selectors.BaseSelector | None = None
+    buffers: dict[str, bytearray] = dataclasses.field(
+        default_factory=lambda: {"stdout": bytearray(), "stderr": bytearray()},
+    )
+    sizes: dict[str, int] = dataclasses.field(
+        default_factory=lambda: {"stdout": 0, "stderr": 0},
+    )
+
+
+@dataclasses.dataclass
+class _ScopedLaunch:
+    argv: list[str] = dataclasses.field(default_factory=list)
+    expected_print: str | None = None
+    launch_cwd: str = ""
+    executable_binding: tuple[str, dict[str, Any]] | None = None
+    stage_dir: Path | None = None
+    scope: dict[str, Any] | None = None
+    selected_manifest: list[dict[str, Any]] | None = None
+    stage_manifest_sha: str | None = None
+    stage_identity: tuple[int, int, int, int, int] | None = None
+    narrow_source_snapshot: dict[str, Any] | None = None
+    scoped_executable: str | None = None
+    prepared_containment: CONTAINMENT.PreparedContainedLaunch | None = None
+    contained_root: CONTAINMENT.ProcessIdentity | None = None
+
+
+@dataclasses.dataclass
+class _ControllerOutcome:
+    reason: str | None = None
+    limit_kind: str | None = None
+    failure_stage: str | None = None
+    saw_init: bool = False
+    saw_terminal: bool = False
+    provisional_orphan_result: bool = False
+    result_binding: tuple[str, tuple[int, int, int, int, int]] | None = None
+    outer_status: str | None = None
+    provider_retry_after: int | None = None
+    provider_retry_observed: float | None = None
+    boundary_failed: bool = False
+    cleanup_failed: bool = False
+    final_status: str = "failed"
+    exit_code: int = 0
+    result_path: str | None = None
+
+
+@dataclasses.dataclass
+class _CandidateReconciliation:
+    candidate_worktree: dict[str, Any] | None = None
+    reconciliation: dict[str, Any] = dataclasses.field(default_factory=dict)
+    reconciliation_manifest_sha: str | None = None
+    derived_selected_sha: str | None = None
+    derived_selected_files: int | None = None
+    derived_selected_trees: int | None = None
+    derived_transmission_sha: str | None = None
+
+
+def _controller_monitor_limit(
+    state: Mapping[str, Any], stop_signal: int | None, elapsed: float,
+    now_mono: float, heartbeat_mono: float, *, float_hard: bool,
+) -> tuple[str, str | None] | None:
+    """Classify a sample without evaluating limits after a winning control."""
+    if state["cancel_requested"] or stop_signal is not None:
+        return ("cancelled" if stop_signal is None else "interrupted"), None
+    if elapsed >= _provider_max_seconds(state):
+        return "hard_deadline_exceeded", "max-runtime"
+    hard_seconds = float(state["hard_seconds"]) if float_hard else state["hard_seconds"]
+    if elapsed >= hard_seconds:
+        return "hard_deadline_exceeded", "hard"
+    if now_mono - heartbeat_mono >= float(state["idle_seconds"]):
+        return "idle_timeout", "idle"
+    return None
+
+
+def _controller_wait_seconds(
+    state: Mapping[str, Any], started_mono: float, heartbeat_mono: float,
+    next_notice: float, now_mono: float,
+) -> float:
+    """Bound a selector wait by the first controller-owned clock."""
+    wait_until = min(
+        started_mono + max(0.0, _provider_max_seconds(state) - float(state["attempt_base_elapsed"])),
+        started_mono + max(0.0, float(state["hard_seconds"]) - float(state["attempt_base_elapsed"])),
+        heartbeat_mono + float(state["idle_seconds"]),
+        next_notice,
+    )
+    return min(CONTROL_POLL, max(0.0, wait_until - now_mono))
+
+
+def _controller_terminal_status(
+    reason: str | None, stop_signal: int | None,
+) -> tuple[str, int]:
+    if reason is None:
+        return "succeeded", 0
+    status = "cancelled" if reason in {
+        "cancelled", "interrupted", "provider_terminal_cancelled",
+    } else "failed"
+    return status, 128 + stop_signal if stop_signal is not None else EXIT_BY_REASON[reason]
+
+
+def _controller_completion_signal(
+    watched: tuple[int, ...], pending: AbstractSet[int], stop_signal: int | None,
+) -> int | None:
+    for candidate in watched:
+        if candidate in pending or candidate == stop_signal:
+            return candidate
+    return stop_signal
+
+
+def _latch_controller_signal(execution: _ProviderExecution, number: int) -> None:
+    if execution.stop_signal is None:
+        execution.stop_signal = number
+
+
+@dataclasses.dataclass
+class _CandidateDisposition:
+    preserve_candidate_forensics: bool = False
+    terminal_snapshot_unavailable: bool = False
+    candidate_recognized: bool = False
+    candidate_unavailable: bool = False
+    candidate_source: str = "none"
+    provider_terminal_status: str = "unknown"
+    preserved_path: str | None = None
+    preserved_sha: str | None = None
+    preserved_identity: list[int] | None = None
+
+
+def _claim_controller_attempt(
+    job: Path,
+    binding: _ControllerBinding,
+) -> int | None:
+    # Claim the queued attempt under one state lock.  A cancel can land
+    # between process spawn and this point, but never between this exact
+    # queued observation and controller ownership publication.
+    cancelled_before_claim = False
+    with state_lock(job):
+        binding.state, binding.prior_raw, _sha = load_state(job)
+        if binding.state["status"] == "cancel-requested" and binding.state["cancel_requested"]:
+            cancelled_before_claim = True
+        elif binding.state["status"] != "queued" or binding.state["cancel_requested"]:
+            raise DispatchError("dispatch is not queued")
+        else:
+            # A queued state with this exact PID is the startup handshake; it
+            # means the private controller is alive, not that a provider
+            # process exists or that provider runtime has started.
+            binding.state, binding.prior_raw, _sha = _transition_locked(job, binding.state, binding.prior_raw, {
+                "controller_pid": os.getpid(),
+            })
+    if cancelled_before_claim:
+        _terminalize_owned(
+            job, binding.state, status="cancelled", reason="cancelled",
+            exit_code=EXIT_BY_REASON["cancelled"], expected_controller_pid=None,
+        )
+        return EXIT_BY_REASON["cancelled"]
+    return None
+
+
+def _bind_controller_inputs(
+    job: Path,
+    binding: _ControllerBinding,
+) -> int | None:
+    binding.feedback = None
+    binding.schema_paths = None
+    try:
+        binding.command = _load_bound_command(job, binding.state, stage_readonly=False)
+        MODEL_SELECTION.ACTIVE_CHILD_ENV = list(binding.command["provider_env"])
+        _load_bound_selection(binding.command, binding.state)
+        binding.schema_paths = _bound_schemas(binding.command, binding.state)
+        if not WORKTREE._worktree_symlink_boundary(binding.command["workdir"]):
+            raise DispatchError("dispatch worktree symlink boundary changed")
+        if binding.state["workflow"] == "project":
+            if WORKTREE._project_boundary(binding.command["workdir"]) != binding.state["project_boundary"]:
+                raise DispatchError("project worktree boundary changed")
+        if binding.state["attempt_origin"] == "conversation-continue":
+            binding.feedback = _bound_verification(job, binding.state)
+            if binding.feedback is None:
+                raise DispatchError("project continuation has no verification feedback")
+            binding.command, _candidate_raw = _bound_current_candidate(job, binding.state)
+    except (OSError, DispatchError):
+        terminal, _raw, _sha = _terminalize_owned(
+            job, binding.state, status="failed", reason="status_unavailable",
+            exit_code=EXIT_BY_REASON["status_unavailable"],
+            failure_stage="binding_failure", expected_controller_pid=os.getpid(),
+        )
+        # Terminal validation guarantees an integer exit code.
+        assert terminal["exit_code"] is not None
+        return int(terminal["exit_code"])
+    return None
+
+
+def _open_controller_artifacts(
+    job: Path,
+    binding: _ControllerBinding,
+    execution: _ProviderExecution,
+    streams: _ControllerStreams,
+) -> int | None:
+    # ``elapsed_seconds`` is provider execution time.  The strict local
+    # command/root/schema/worktree proofs below happen before a provider
+    # process exists, so they cannot consume the provider hard, maximum,
+    # or idle budgets.  This is especially important when a safe platform
+    # Git fallback makes those bounded probes materially slower.
+    execution.elapsed = float(binding.state["attempt_base_elapsed"])
+    try:
+        streams.stdout_fd = _ensure_new_private(streams.stream_path)
+        streams.stderr_fd = _ensure_new_private(streams.stderr_path)
+        _stage(binding.command, True)
+        _load_bound_command(job, binding.state, stage_readonly=True)
+        _load_bound_selection(binding.command, binding.state)
+        binding.schema_paths = _bound_schemas(binding.command, binding.state)
+    except (OSError, DispatchError):
+        if streams.stdout_fd >= 0: os.close(streams.stdout_fd)
+        if streams.stderr_fd >= 0: os.close(streams.stderr_fd)
+        with contextlib.suppress(OSError): _stage(binding.command, False)
+        terminal, _raw, _sha = _terminalize_owned(
+            job, binding.state, status="failed", reason="status_unavailable",
+            exit_code=EXIT_BY_REASON["status_unavailable"],
+            failure_stage="binding_failure", expected_controller_pid=os.getpid(),
+        )
+        # Terminal validation guarantees an integer exit code.
+        assert terminal["exit_code"] is not None
+        return int(terminal["exit_code"])
+    return None
+
+
+def _build_controller_argv(
+    binding: _ControllerBinding,
+    launch: _ScopedLaunch,
+) -> None:
+    launch.argv = list(binding.command["argv"])
+    if binding.state["attempt_origin"] in {"conversation-resume", "conversation-continue"}:
+        conversation = binding.state["conversation_id"]
+        if not isinstance(conversation, str):
+            raise DispatchError("resume has no conversation")
+        print_index = launch.argv.index("--print")
+        prefix = ["--conversation", conversation]
+        prompt = binding.command["resume_prompt"]
+        if binding.state["attempt_origin"] == "conversation-continue":
+            if binding.feedback is None:
+                raise DispatchError("project continuation feedback was not prevalidated")
+            if binding.state.get("provider_scope_path") is None:
+                prefix.extend(["--add-dir", str(binding.feedback.parent)])
+                prompt = binding.command["continue_prompt"] + f" Feedback file: '{binding.feedback}'."
+            else:
+                feedback_raw, _feedback_info = read_regular(
+                    binding.feedback, MAX_VERIFICATION_BYTES, "verification feedback",
+                    allowed_modes=(0o400,),
+                )
+                prompt = (
+                    binding.command["continue_prompt"]
+                    + " Driver verification JSON follows inline:\n"
+                    + feedback_raw.decode("utf-8", "strict")
+                )
+        launch.argv[print_index + 1] = prompt
+        launch.argv[print_index:print_index] = prefix
+
+
+def _controller_transition(
+    job: Path,
+    binding: _ControllerBinding,
+    updates: dict[str, Any],
+) -> bool:
+    """Do not turn a concurrent approved control into a controller crash."""
+    try:
+        binding.state, binding.prior_raw, _sha = transition(job, binding.state, binding.prior_raw, updates)
+        return True
+    except DispatchError as exc:
+        if str(exc) != "dispatch state changed before transition":
+            raise
+        current, current_raw, _current_sha = read_state_snapshot(job)
+        if current["attempt"] != binding.state["attempt"]:
+            raise DispatchError("dispatch attempt changed during control")  # noqa: B904 -- preserve existing exception context and public diagnostics
+        binding.state, binding.prior_raw = current, current_raw
+        return False
+
+
+def _refresh_control_snapshot(
+    job: Path,
+    binding: _ControllerBinding,
+) -> None:
+    """Reload an approved control transition before using live limits."""
+    current, current_raw, _current_sha = read_state_snapshot(job)
+    if current_raw == binding.prior_raw:
+        return
+    if (
+        current["previous_state_sha256"] != digest(binding.prior_raw)
+        or current["sequence"] != binding.state["sequence"] + 1
+        or current["attempt"] != binding.state["attempt"]
+    ):
+        raise DispatchError("dispatch changed during provider control")
+    binding.state, binding.prior_raw = current, current_raw
+
+
+def _drain_reaped_streams(
+    streams: _ControllerStreams,
+    outcome: _ControllerOutcome,
+) -> None:
+    """Bind bytes emitted before reap without treating them as activity."""
+    for key in list(cast(selectors.BaseSelector, streams.selector).get_map().values()):
+        name = key.data
+        while True:
+            try:
+                chunk = os.read(key.fd, 65536)
+            except BlockingIOError:
+                break
+            except OSError:
+                outcome.reason = "status_unavailable"
+                outcome.failure_stage = "binding_failure"
+                return
+            if not chunk:
+                try:
+                    cast(selectors.BaseSelector, streams.selector).unregister(key.fileobj)
+                    cast(IO[bytes], key.fileobj).close()
+                except OSError:
+                    outcome.reason = "status_unavailable"
+                    outcome.failure_stage = "binding_failure"
+                break
+            streams.sizes[name] += len(chunk)
+            if streams.sizes[name] > MAX_STREAM_BYTES:
+                outcome.reason = "output_oversized"
+                return
+            try:
+                os.write(streams.stdout_fd if name == "stdout" else streams.stderr_fd, chunk)
+            except OSError:
+                outcome.reason = "status_unavailable"
+                outcome.failure_stage = "binding_failure"
+                return
+
+
+def _prepare_scoped_controller_launch(
+    job: Path,
+    binding: _ControllerBinding,
+    launch: _ScopedLaunch,
+) -> None:
+    _scope_path, raw_scope, scope_info = _read_provider_scope_file(
+        binding.state["provider_scope_path"], MAX_COMMAND_BYTES,
+    )
+    if digest(raw_scope) != binding.state["provider_scope_sha256"]:
+        raise DispatchError("provider scope file changed since dispatch")
+    if list(_identity(scope_info)) != binding.state["provider_scope_identity"]:
+        raise DispatchError("provider scope file identity changed since dispatch")
+    launch.scope = WORKTREE._parse_provider_scope(raw_scope)
+    readable_manifest = WORKTREE._scan_readable_worktree(binding.command["workdir"])
+    manifest_sha = WORKTREE._manifest_digest(readable_manifest)
+    WORKTREE._validate_scope_against_worktree(launch.scope, binding.command["workdir"], readable_manifest)
+    launch.selected_manifest = WORKTREE._build_selected_content_manifest(binding.command["workdir"], launch.scope)
+    selected_sha = WORKTREE._selected_content_digest(launch.selected_manifest)
+    policy_sha = WORKTREE._canonical_digest(launch.scope)
+    transmission_sha = _bound_transmission_sha256(
+        binding.command, policy_sha, manifest_sha, selected_sha,
+    )
+    _require_scoped_transmission_authority(
+        binding.command, binding.state,
+        selected_content_sha256=selected_sha,
+        transmission_sha256=transmission_sha,
+        provider_origin=binding.state["attempt_origin"],
+    )
+    launch.narrow_source_snapshot = WORKTREE._worktree_snapshot(binding.command["workdir"])
+    launch.stage_dir = job / f"stage-{binding.state['attempt']:03d}"
+    launch.stage_identity, launch.stage_manifest_sha = WORKTREE._materialize_stage(binding.command["workdir"], launch.stage_dir, launch.scope, launch.selected_manifest)
+    launch.launch_cwd = str(launch.stage_dir)
+    if launch.executable_binding is None:
+        try:
+            launch.executable_binding = MODEL_SELECTION.resolve_safe_executable()
+        except MODEL_SELECTION.EvidenceUnavailable as exc:
+            raise SelectionPreflightError(
+                "scoped dispatch executable binding is unavailable",
+            ) from exc
+    launch.scoped_executable = launch.executable_binding[0]
+
+
+def _confirm_whole_controller_approval(
+    binding: _ControllerBinding,
+) -> None:
+    approved_whole_sha = binding.command.get("approved_whole_worktree_sha256")
+    if (
+        approved_whole_sha is not None
+        and (
+            binding.state["attempt_origin"] == "initial"
+            or (
+                binding.state.get("conversation_id") is None
+            )
+        )
+    ):
+        readable_manifest = WORKTREE._scan_readable_worktree(binding.command["workdir"])
+        content = WORKTREE.whole_worktree_content_manifest(binding.command["workdir"])
+        content_sha = content["manifest_sha256"]
+        if content_sha != binding.command["whole_worktree_content_sha256"]:
+            raise DispatchError("whole-worktree content binding changed")
+        if WORKTREE._manifest_digest(readable_manifest) != binding.command["launch_authority"]["content"]["manifest_sha256"]:
+            raise DispatchError("whole-worktree transmission binding changed")
+
+
+def _prepare_native_controller_launch(
+    job: Path,
+    binding: _ControllerBinding,
+    launch: _ScopedLaunch,
+) -> None:
+    if launch.stage_dir is None:
+        raise DispatchError("scoped provider stage is unavailable")
+    contained_argv = [cast(str, launch.scoped_executable), *launch.argv[1:]]
+    if contained_argv.count("--json-schema") != 1:
+        raise DispatchError("scoped provider schema argument is invalid")
+    schema_index = contained_argv.index("--json-schema") + 1
+    if schema_index >= len(contained_argv):
+        raise DispatchError("scoped provider schema argument is invalid")
+    # The native binder canonicalizes the exact file. Use the
+    # same spelling in argv so /var -> /private/var aliases do
+    # not make the provider's approved schema unreadable.
+    contained_argv[schema_index] = os.path.realpath(cast(tuple[Path, Path], binding.schema_paths)[0])
+    launch.prepared_containment = CONTAINMENT.prepare_contained_launch(
+        role=CONTAINMENT.ROLE_PROVIDER,
+        network_policy=CONTAINMENT.NETWORK_PROVIDER_TLS,
+        job_dir=job,
+        attempt=binding.state['attempt'],
+        stage_dir=launch.stage_dir,
+        target_executable=cast(str, launch.scoped_executable),
+        target_argv=contained_argv,
+        child_environment=MODEL_SELECTION.child_environment(
+            binding.command["provider_env"],
+        ),
+        allow_keychain=True,
+        read_only_inputs=(contained_argv[schema_index],),
+        provider_max_cycles=binding.command["max_cycles"],
+        provider_write_selectors=cast(dict[str, Any], launch.scope)["write"],
+        grant_profile=binding.command["native_grant_profile"],
+    )
+
+
+def _spawn_controller_provider(
+    job: Path,
+    binding: _ControllerBinding,
+    execution: _ProviderExecution,
+    streams: _ControllerStreams,
+    launch: _ScopedLaunch,
+    outcome: _ControllerOutcome,
+) -> None:
+    # The prior attempt budget is still a hard stop, but bounded
+    # controller-local proofs do not become a provider timeout.
+    # Commit the running state/CAS boundary after slow preflight.
+    # The provider hard/runtime lease starts at the invocation
+    # boundary, immediately before Popen.  The value is committed
+    # only after Popen succeeds, so failed local creation still
+    # has no provider runtime.  This leaves no post-Popen window
+    # in which a child can schedule work beyond the hard limit.
+    # The final executable confirmation remains immediately
+    # adjacent to the provider-causing call.
+    if execution.stop_signal is not None:
+        outcome.reason = "interrupted"
+        execution.returncode = 128 + execution.stop_signal
+    elif execution.elapsed >= _provider_max_seconds(binding.state):
+        outcome.reason, outcome.limit_kind = "hard_deadline_exceeded", "max-runtime"
+        execution.returncode = EXIT_BY_REASON[outcome.reason]
+    elif execution.elapsed >= float(binding.state["hard_seconds"]):
+        outcome.reason, outcome.limit_kind = "hard_deadline_exceeded", "hard"
+        execution.returncode = EXIT_BY_REASON[outcome.reason]
+    else:
+        # Linearize cancellation against the provider-causing
+        # operation.  The final executable confirmation and Popen
+        # stay in this same short critical section: cancellation
+        # before it wins without a provider; cancellation after
+        # it is necessarily a post-launch request.
+        with state_lock(job):
+            current, current_raw, _current_sha = load_state(job)
+            if (
+                current["attempt"] != binding.state["attempt"]
+                or current["controller_pid"] != os.getpid()
+                or current["status"] in TERMINAL
+            ):
+                raise DispatchError("dispatch changed before provider launch")
+            binding.state, binding.prior_raw = current, current_raw
+            if binding.state["cancel_requested"]:
+                outcome.reason = "cancelled"
+                execution.returncode = EXIT_BY_REASON[outcome.reason]
+            else:
+                running_updates = {
+                    "status": "running", "controller_pid": os.getpid(),
+                    "started_epoch": None, "last_progress_epoch": None,
+                    "stream_path": str(streams.stream_path), "stderr_path": str(streams.stderr_path),
+                    "next_action": "wait",
+                }
+                if launch.stage_dir is not None:
+                    running_updates.update({
+                        "provider_stage_path": str(launch.stage_dir),
+                        "provider_stage_identity": list(launch.stage_identity) if launch.stage_identity is not None else None,
+                        "provider_stage_manifest_sha256": launch.stage_manifest_sha,
+                    })
+                binding.state, binding.prior_raw, _sha = _transition_locked(job, binding.state, binding.prior_raw, running_updates)
+                exact_executable = None
+                if launch.executable_binding is not None:
+                    try:
+                        exact_executable = MODEL_SELECTION.confirm_executable_binding(
+                            *launch.executable_binding,
+                        )
+                    except MODEL_SELECTION.EvidenceUnavailable as exc:
+                        raise SelectionPreflightError(
+                            "dispatch direct selection launch binding changed",
+                        ) from exc
+                provider_argv: list[str] | tuple[str, ...] = launch.argv
+                provider_cwd = launch.launch_cwd
+                provider_environment = _provider_environment(binding.command)
+                if launch.prepared_containment is not None:
+                    if (
+                        launch.stage_dir is None
+                        or launch.scope is None
+                        or launch.selected_manifest is None
+                        or launch.stage_identity is None
+                        or launch.stage_manifest_sha is None
+                    ):
+                        raise DispatchError("scoped provider launch binding is incomplete")
+                    _revalidate_scoped_provider_stage(
+                        launch.stage_dir, launch.scope, launch.selected_manifest,
+                        launch.stage_identity, launch.stage_manifest_sha,
+                    )
+                    confirmed_containment = CONTAINMENT.confirm_contained_launch(
+                        launch.prepared_containment,
+                    )
+                    provider_argv = confirmed_containment.argv
+                    exact_executable = confirmed_containment.executable
+                    provider_cwd = confirmed_containment.cwd
+                    provider_environment = confirmed_containment.environment
+                if (launch.expected_print is None or provider_argv.count("--print") != 1
+                        or provider_argv[provider_argv.index("--print") + 1] != launch.expected_print):
+                    raise DispatchError("dispatch final transport prompt changed")
+                launch_mono = time.monotonic()
+                execution.process = subprocess.Popen(
+                    provider_argv,
+                    executable=exact_executable,
+                    cwd=provider_cwd,
+                    stdin=subprocess.DEVNULL,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    env=provider_environment,
+                    start_new_session=True,
+                    close_fds=True,
+                    preexec_fn=lambda: os.umask(int(binding.command["child_umask"], 8)),
+                )
+                execution.started_mono = launch_mono
+                execution.heartbeat_mono = execution.started_mono
+                execution.next_notice = execution.started_mono + float(binding.command["notice_seconds"])
+                if launch.prepared_containment is not None:
+                    launch.contained_root = CONTAINMENT.bind_new_process_group(
+                        execution.process.pid,
+                    )
+                binding.state, binding.prior_raw, _sha = _transition_locked(
+                    job, binding.state, binding.prior_raw, {"started_epoch": time.time()},
+                )
+
+
+def _confirm_launch_authority(job: Path, command: dict[str, Any], state: Mapping[str, Any]) -> None:
+    """Recompute caller authority from actual immutable inputs before spawning."""
+    try:
+        task_raw = LAUNCH_AUTHORITY.read_bound_file(
+            job / "task.txt", LAUNCH_AUTHORITY.MAX_TASK_BYTES, private=True, label="initial task")
+        task, _text = LAUNCH_AUTHORITY.normalize_task(task_raw)
+        if digest(task) != command["launch_authority"]["task_sha256"]:
+            raise DispatchError("launch authority changed: task_sha256")
+        argv = command["argv"]
+
+        def option(name: str) -> str | None:
+            positions = [index for index, item in enumerate(argv) if item == name]
+            if len(positions) > 1 or (positions and positions[0] + 1 >= len(argv)):
+                raise DispatchError("dispatch launch argument is invalid")
+            return argv[positions[0] + 1] if positions else None
+
+        if option("--print-timeout") != f'{command["max_seconds"]}s':
+            raise DispatchError("launch authority changed: max_seconds")
+        if option("--output-format") != "stream-json":
+            raise DispatchError("dispatch launch output format is invalid")
+        _load_bound_selection(command, state)
+        mode = option("--mode")
+        if mode not in {"plan", "accept-edits"}:
+            raise DispatchError("dispatch launch mode is invalid")
+        if mode != command["launch_authority"]["mode"]:
+            raise DispatchError("launch authority changed: mode")
+        block = ""
+        manifest_sha = None
+        if command["self_verification_manifest_path"] is not None:
+            raw = LAUNCH_AUTHORITY.read_bound_file(
+                Path(command["self_verification_manifest_path"]), SELF_VERIFICATION.MAX_MANIFEST_BYTES,
+                private=True, label="verification manifest")
+            manifest = SELF_VERIFICATION.parse_manifest(raw)
+            block = LAUNCH_AUTHORITY.verification_request_block(
+                [check.identifier for check in manifest.checks if check.required],
+                [check.identifier for check in manifest.checks if not check.required])
+            manifest_sha = digest(raw)
+        prompt = LAUNCH_AUTHORITY.full_prompt(
+            task, mode=mode, provider_isolation=command["provider_isolation"], verification_block=block)
+        retained_prompt = LAUNCH_AUTHORITY.read_bound_file(
+            job / "full-prompt.txt", LAUNCH_AUTHORITY.MAX_TASK_BYTES + 65536,
+            private=True, label="initial prompt")
+        if prompt != retained_prompt:
+            raise DispatchError("launch authority changed: full_prompt_sha256")
+        initial_prompt = option("--print")
+        if command["stage_file"] is not None:
+            initial_expected = LAUNCH_AUTHORITY.STAGED_INSTRUCTION.format(stage_file=command["stage_file"])
+            staged, _info = read_regular(Path(command["stage_file"]), MAX_COMMAND_BYTES,
+                                        "staged prompt", allowed_modes=(0o600, 0o444))
+            if staged != prompt:
+                raise DispatchError("launch authority changed: full_prompt_sha256")
+        else:
+            initial_expected = prompt.decode("utf-8")
+        if initial_prompt != initial_expected:
+            raise DispatchError("launch authority changed: full_prompt_sha256")
+        schema = option("--json-schema")
+        if schema is None:
+            raise DispatchError("dispatch launch schema is missing")
+        schema_raw = LAUNCH_AUTHORITY.read_bound_file(Path(schema), 512 * 1024,
+                                                     private=False, label="provider schema")
+        root = Path(command["workdir"]).resolve()
+        add_dirs = []
+        for index, argument in enumerate(argv):
+            if argument == "--add-dir":
+                path = Path(argv[index + 1]).resolve(strict=True)
+                if command["stage_dir"] is not None and path == Path(command["stage_dir"]).resolve():
+                    continue
+                add_dirs.append(path.relative_to(root).as_posix())
+        actual = LAUNCH_AUTHORITY.build_authority(
+            content=command["launch_authority"]["content"], task=task, prompt=prompt,
+            workflow=command["workflow"], mode=mode, max_cycles=command["max_cycles"],
+            idle_seconds=command["idle_seconds"], hard_seconds=command["hard_seconds"],
+            max_seconds=command["max_seconds"], notice_seconds=command["notice_seconds"],
+            model=option("--model"), effort=option("--effort"),
+            allow_scoped_repair=command["allow_scoped_repair"],
+            self_verification_manifest_sha256=manifest_sha,
+            provider_env_names=command["provider_env"],
+            allow_slash_commands=mode == "accept-edits" and "--disable-slash-commands" not in argv,
+            add_dirs=sorted(set(add_dirs)), provider_schema_sha256=digest(schema_raw),
+            base_commit=command["base_commit"], workdir=str(root))
+        field = LAUNCH_AUTHORITY.changed_field(command["launch_authority"], actual)
+        if field:
+            raise DispatchError(f"launch authority changed: {field}")
+        if LAUNCH_AUTHORITY.approval_sha256(actual) != command["launch_approval_sha256"]:
+            raise DispatchError("dispatch launch approval digest changed")
+    except DispatchError:
+        raise
+    except (LAUNCH_AUTHORITY.LaunchAuthorityError, ValueError, IndexError) as exc:
+        raise DispatchError("dispatch launch authority is unavailable") from exc
+
+
+def _launch_controller_provider(
+    job: Path,
+    binding: _ControllerBinding,
+    execution: _ProviderExecution,
+    streams: _ControllerStreams,
+    launch: _ScopedLaunch,
+    outcome: _ControllerOutcome,
+) -> None:
+    try:
+        # Re-read the frozen record and re-probe *after* all controller
+        # mutations and immediately before the provider-causing launch.
+        # argv[0] stays the portable public spelling while executable=
+        # pins the safe, freshly-probed target for this one process.
+        launch.executable_binding = _reprobe_direct_selection(binding.command, binding.state, launch.argv)
+        _bound_worktree_baseline(binding.state, binding.command)
+        if not WORKTREE._worktree_symlink_boundary(binding.command["workdir"]):
+            raise DispatchError("dispatch worktree symlink boundary changed")
+        launch.launch_cwd = binding.command["workdir"]
+        if binding.state.get("provider_scope_path") is not None:
+            _prepare_scoped_controller_launch(job, binding, launch)
+        else:
+            _confirm_whole_controller_approval(binding)
+            if binding.command["base_commit"] is not None:
+                _bound_whole_worktree_base(
+                    binding.command["workdir"], binding.command["base_commit"],
+                    binding.command["workflow"],
+                )
+        _confirm_launch_authority(job, binding.command, binding.state)
+        launch.expected_print = _bind_workspace_prompt(
+            launch.argv, Path(os.path.realpath(launch.launch_cwd)),
+            scoped=launch.scope is not None,
+            provider_isolation=_provider_isolation_for_command(binding.command),
+            base_commit=binding.command["base_commit"],
+        )
+        if launch.scoped_executable is not None and _provider_isolation_for_command(binding.command) == "native":
+            _prepare_native_controller_launch(job, binding, launch)
+        _spawn_controller_provider(job, binding, execution, streams, launch, outcome)
+    except MODEL_SELECTION.ProbeInterrupted as exc:
+        # model_selection owns and reaps its short-lived probe group;
+        # the controller owns the terminal dispatch projection.
+        execution.stop_signal = exc.signal_number
+        outcome.reason = "interrupted"
+        execution.returncode = 128 + exc.signal_number
+    except SelectionPreflightError as exc:
+        outcome.reason = "selection_preflight_failed"
+        outcome.failure_stage = "selection_preflight"
+        cause = exc.__cause__
+        if isinstance(cause, MODEL_SELECTION.MissingCapabilities):
+            diagnostic = (cause.diagnostic() + "\n").encode("ascii")
+            try:
+                if os.write(streams.stderr_fd, diagnostic) != len(diagnostic):
+                    raise OSError("short capability diagnostic write")
+            except OSError:
+                outcome.reason = "status_unavailable"
+                outcome.failure_stage = "binding_failure"
+        execution.returncode = EXIT_BY_REASON[outcome.reason]
+    except WorktreeBaselineError as exc:
+        outcome.reason = "resolve_undo_present" if isinstance(exc, ResolveUndoPresentError) else "status_unavailable"
+        outcome.failure_stage = "binding_failure"
+        execution.returncode = EXIT_BY_REASON[outcome.reason]
+    except (DispatchError, CONTAINMENT.ContainmentError) as exc:
+        message = str(exc)
+        if re.fullmatch(r"launch authority changed: [a-z0-9_]+(?:\.[a-z0-9_]+)?", message):
+            outcome.failure_stage = "launch_authority_changed:" + message.removeprefix("launch authority changed: ")
+            with contextlib.suppress(OSError):
+                os.write(streams.stderr_fd, (message + "\n").encode("ascii"))
+        outcome.reason = "status_unavailable"
+        execution.returncode = EXIT_BY_REASON["status_unavailable"]
+    except OSError:
+        # A selection reaches this point even when agy is
+        # absent.  Publish a terminal, sanitized dispatch failure rather
+        # than leaking an interpreter traceback or leaving a queued job.
+        outcome.reason = "agy_failed_unclassified"
+        execution.returncode = 127
+    else:
+        if execution.process is not None:
+            try:
+                assert execution.process.stdout is not None and execution.process.stderr is not None
+                for name, pipe in (("stdout", execution.process.stdout), ("stderr", execution.process.stderr)):
+                    os.set_blocking(pipe.fileno(), False)
+                    cast(selectors.BaseSelector, streams.selector).register(pipe, selectors.EVENT_READ, name)
+            except (OSError, DispatchError):
+                outcome.reason = "status_unavailable"
+                outcome.failure_stage = "binding_failure"
+
+
+def _consume_controller_events(
+    job: Path,
+    binding: _ControllerBinding,
+    execution: _ProviderExecution,
+    streams: _ControllerStreams,
+    launch: _ScopedLaunch,
+    outcome: _ControllerOutcome,
+    events: list[tuple[selectors.SelectorKey, int]],
+) -> None:
+    for key, _mask in events:
+        name = key.data
+        try:
+            chunk = os.read(key.fd, 65536)
+        except BlockingIOError:
+            continue
+        except OSError:
+            outcome.reason = "status_unavailable"
+            outcome.failure_stage = "binding_failure"
+            break
+        if not chunk:
+            try:
+                cast(selectors.BaseSelector, streams.selector).unregister(key.fileobj)
+                cast(IO[bytes], key.fileobj).close()
+            except OSError:
+                outcome.reason = "status_unavailable"
+                outcome.failure_stage = "binding_failure"
+                break
+            continue
+        streams.sizes[name] += len(chunk)
+        if streams.sizes[name] > MAX_STREAM_BYTES:
+            outcome.reason = "output_oversized"
+            break
+        try:
+            os.write(streams.stdout_fd if name == "stdout" else streams.stderr_fd, chunk)
+        except OSError:
+            outcome.reason = "status_unavailable"
+            outcome.failure_stage = "binding_failure"
+            break
+        if name == "stdout" and outcome.reason is None:
+            streams.buffers[name].extend(chunk)
+            while b"\n" in streams.buffers[name]:
+                line, _, remainder = streams.buffers[name].partition(b"\n")
+                streams.buffers[name] = bytearray(remainder)
+                if len(line) > MAX_EVENT_BYTES:
+                    outcome.reason = "output_oversized"
+                    break
+                if outcome.provisional_orphan_result:
+                    # Keep subsequent bytes as evidence only. No progress,
+                    # conversation binding, or heartbeat credit is authorized.
+                    continue
+                valid, conversation, event_kind = _event(line)
+                if valid:
+                    if outcome.saw_terminal or (event_kind == "init" and outcome.saw_init) or (
+                        event_kind != "init" and not outcome.saw_init
+                    ):
+                        if (
+                            not outcome.saw_init and not outcome.saw_terminal
+                            and streams.sizes[name] - len(remainder) == len(line) + 1
+                            and _selection_rejection_result(line)
+                        ):
+                            # Preserve framing as a provisional fallback while
+                            # the existing bounded monitor observes EOF/reap.
+                            outcome.provisional_orphan_result = True
+                            continue
+                        outcome.reason = "invalid_envelope"
+                        outcome.failure_stage = "framing"
+                        break
+                    if event_kind == "init":
+                        try:
+                            init_frame = json.loads(
+                                line.decode("utf-8", "strict"),
+                                object_pairs_hook=_duplicates,
+                            )
+                        except (UnicodeError, json.JSONDecodeError, ValueError, OverflowError, DispatchError):
+                            init_frame = None
+                        init_value = init_frame.get("init") if isinstance(init_frame, dict) else None
+                        if not isinstance(init_value, dict) or not _init_cwd_matches_launch(init_value, launch.launch_cwd):
+                            outcome.reason = "status_unavailable"
+                            outcome.failure_stage = "binding_failure"
+                            break
+                        outcome.saw_init = True
+                    elif event_kind == "result":
+                        outcome.saw_terminal = True
+                    execution.heartbeat_mono = time.monotonic()
+                    updates: dict[str, Any] = {
+                        "progress_count": binding.state["progress_count"] + 1,
+                        "last_progress_epoch": time.time(),
+                        "elapsed_seconds": float(binding.state["attempt_base_elapsed"]) + execution.heartbeat_mono - cast(float, execution.started_mono),
+                        "last_activity": (
+                            "provider_initialized" if event_kind == "init"
+                            else "progress_signal" if event_kind == "step_update"
+                            else "terminal_received"
+                        ),
+                    }
+                    if conversation is not None:
+                        if binding.state["conversation_id"] not in {None, conversation}:
+                            outcome.reason = "status_unavailable"
+                            break
+                        updates["conversation_id"] = conversation
+                        updates["resume_available"] = True
+                    try:
+                        _controller_transition(job, binding, updates)
+                    except DispatchError:
+                        outcome.reason = "status_unavailable"
+                        outcome.failure_stage = "binding_failure"
+                        break
+            if len(streams.buffers[name]) > MAX_EVENT_BYTES:
+                # A newline-free oversized frame cannot be safely
+                # resynchronized.  It is neither a heartbeat nor a
+                # candidate terminal result.
+                outcome.reason = "output_oversized"
+        if outcome.reason is not None:
+            break
+
+
+def _monitor_controller_provider(
+    job: Path,
+    binding: _ControllerBinding,
+    execution: _ProviderExecution,
+    streams: _ControllerStreams,
+    launch: _ScopedLaunch,
+    outcome: _ControllerOutcome,
+) -> None:
+    # Pipe EOF is the completion observation.  Do not poll/reap the leader
+    # before process-group closure; its PID reserves the group identifier.
+    while execution.process is not None and cast(selectors.BaseSelector, streams.selector).get_map() and outcome.reason is None:
+        now_mono = time.monotonic()
+        execution.elapsed = float(binding.state["attempt_base_elapsed"]) + now_mono - cast(float, execution.started_mono)
+        try:
+            _refresh_control_snapshot(job, binding)
+        except DispatchError:
+            outcome.reason = "status_unavailable"
+            break
+        decision = _controller_monitor_limit(binding.state, execution.stop_signal, execution.elapsed, now_mono, execution.heartbeat_mono, float_hard=False)
+        if decision is not None:
+            outcome.reason, outcome.limit_kind = decision
+            break
+        if now_mono >= execution.next_notice:
+            try:
+                _controller_transition(job, binding, {
+                    "notice_count": binding.state["notice_count"] + 1,
+                    "elapsed_seconds": execution.elapsed,
+                })
+            except DispatchError:
+                outcome.reason = "status_unavailable"
+                outcome.failure_stage = "binding_failure"
+                break
+            execution.next_notice += float(binding.command["notice_seconds"])
+            if sys.stderr.isatty():
+                print(
+                    f"agy-worker: still running; elapsed={int(execution.elapsed)}s "
+                    f"progress={binding.state['progress_count']}", file=sys.stderr, flush=True,
+                )
+        try:
+            # A fixed poll can return after a nearer hard, maximum,
+            # idle, or notice boundary.  Bound the kernel wait to the
+            # first controller-owned clock, then reload any extension
+            # and classify the resampled time before consuming ready
+            # bytes as semantic progress.
+            wait_seconds = _controller_wait_seconds(binding.state, cast(float, execution.started_mono), execution.heartbeat_mono, execution.next_notice, now_mono)
+            events = cast(selectors.BaseSelector, streams.selector).select(wait_seconds)
+        except OSError:
+            outcome.reason = "status_unavailable"
+            outcome.failure_stage = "binding_failure"
+            break
+        post_wait_mono = time.monotonic()
+        try:
+            _refresh_control_snapshot(job, binding)
+        except DispatchError:
+            outcome.reason = "status_unavailable"
+            outcome.failure_stage = "binding_failure"
+            break
+        execution.elapsed = (
+            float(binding.state["attempt_base_elapsed"])
+            + post_wait_mono - cast(float, execution.started_mono)
+        )
+        decision = _controller_monitor_limit(binding.state, execution.stop_signal, execution.elapsed, post_wait_mono, execution.heartbeat_mono, float_hard=True)
+        if decision is not None:
+            outcome.reason, outcome.limit_kind = decision
+            break
+        _consume_controller_events(job, binding, execution, streams, launch, outcome, events)
+        if outcome.reason is not None:
+            break
+
+
+def _reap_controller_provider(
+    job: Path,
+    binding: _ControllerBinding,
+    execution: _ProviderExecution,
+    streams: _ControllerStreams,
+    launch: _ScopedLaunch,
+    outcome: _ControllerOutcome,
+) -> None:
+    if execution.process is not None:
+        # The candidate worktree binding below is taken only after the
+        # provider process group has been terminated and reaped.  The
+        # controller-owned stream artifacts are flushed afterward.
+        # Freeze first: fsync, envelope parsing, and reconciliation
+        # are controller-local work and must not keep the provider
+        # clock or extension window alive.
+        execution.returncode = _terminate_provider_process(
+            execution.process, launch.contained_root,
+            contained=launch.prepared_containment is not None,
+        )
+        execution.idle_timeout_with_exited_provider = bool(
+            outcome.reason == "idle_timeout" and execution.returncode == 0
+        )
+        execution.process = None
+        execution.runtime_end_mono = time.monotonic()
+        # A hard/max boundary stops semantic event processing, but a
+        # complete terminal frame already present in the reaped pipes
+        # remains bounded provider evidence.  Drain it without
+        # incrementing progress or moving the heartbeat.
+        _drain_reaped_streams(streams, outcome)
+        assert execution.started_mono is not None
+        execution.elapsed = float(binding.state["attempt_base_elapsed"]) + max(
+            0.0, execution.runtime_end_mono - execution.started_mono,
+        )
+        binding.state, binding.prior_raw, _sha, frozen_limit = _freeze_reaped_runtime(
+            job, binding.state["attempt"], os.getpid(), execution.elapsed,
+        )
+        execution.runtime_frozen = True
+        if outcome.reason == "hard_deadline_exceeded":
+            # A valid extension may have landed after this controller
+            # observed its old limit but before the reaped-runtime CAS.
+            # The frozen locked limit is authoritative in either
+            # direction; do not retain a stale timeout projection.
+            if frozen_limit is None:
+                outcome.reason, outcome.limit_kind = None, None
+            else:
+                outcome.reason, outcome.limit_kind = "hard_deadline_exceeded", frozen_limit
+        elif outcome.reason is None and frozen_limit is not None:
+            outcome.reason, outcome.limit_kind = "hard_deadline_exceeded", frozen_limit
+
+
+def _observe_controller_terminal(
+    binding: _ControllerBinding,
+    execution: _ProviderExecution,
+    streams: _ControllerStreams,
+    launch: _ScopedLaunch,
+    outcome: _ControllerOutcome,
+) -> None:
+    try:
+        os.fsync(streams.stdout_fd)
+        os.fsync(streams.stderr_fd)
+    except OSError:
+        outcome.reason = "status_unavailable"
+        outcome.failure_stage = "binding_failure"
+    outcome.result_binding = None
+    outcome.outer_status = None
+    outcome.provider_retry_after = None
+    outcome.provider_retry_observed = None
+    if outcome.provisional_orphan_result and outcome.reason in {
+        None, "idle_timeout", "hard_deadline_exceeded",
+    }:
+        # These limits still stopped and reaped the child. Deferral alone
+        # exposed them; retain the orphan's original framing diagnosis.
+        if outcome.reason is None and _model_selection_rejected(
+            streams.stream_path, streams.stderr_path, execution.returncode,
+            binding.command["agy_version"] if binding.command["agy_version_observed"] else "",
+            binding.command["max_seconds"],
+            native=binding.command["provider_isolation"] == "native",
+        ):
+            outcome.reason = "model_selection_rejected"
+            outcome.failure_stage = None
+        else:
+            outcome.reason = "invalid_envelope"
+            outcome.failure_stage = "framing"
+    if outcome.reason is None and streams.sizes["stdout"] == 0 and _model_selection_rejected(
+        streams.stream_path, streams.stderr_path, execution.returncode,
+        binding.command["agy_version"] if binding.command["agy_version_observed"] else "",
+        binding.command["max_seconds"],
+        native=binding.command["provider_isolation"] == "native",
+    ):
+        outcome.reason = "model_selection_rejected"
+    reviewed_idle_partial = bool(
+        not outcome.provisional_orphan_result
+        and execution.idle_timeout_with_exited_provider
+        and _has_reviewed_provider_timeout(
+            streams.stderr_path,
+            binding.command["agy_version"] if binding.command["agy_version_observed"] else "",
+            binding.command["max_seconds"],
+        )
+    )
+    # A deadline is a controller fact, not a reason to discard a
+    # terminal report already emitted by the bounded provider.  Parse
+    # that report for candidate/provenance evidence, but never let its
+    # outer SUCCESS/ERROR/CANCELLED disposition publish past the
+    # frozen deadline.  Cancellation and binding failures retain their
+    # existing fail-closed precedence and do not enter this path.
+    if outcome.reason in {None, "hard_deadline_exceeded"} or reviewed_idle_partial:
+        if outcome.reason in {None, "hard_deadline_exceeded"} and streams.sizes["stdout"] == 0:
+            if outcome.reason is None:
+                outcome.reason = (
+                    _classify_stderr(
+                        streams.stderr_path,
+                        binding.command["agy_version"] if binding.command["agy_version_observed"] else "",
+                        execution.returncode,
+                        binding.command["max_seconds"],
+                        native=binding.command["provider_isolation"] == "native",
+                    )
+                )
+        elif outcome.reason in {None, "hard_deadline_exceeded"} or reviewed_idle_partial:
+            try:
+                if binding.schema_paths is None:
+                    raise DispatchError("dispatch schema binding is unavailable")
+                binding.schema_paths = _bound_schemas(binding.command, binding.state)
+                outcome.result_binding, outcome.outer_status, outcome.failure_stage = _validate_terminal_envelope(
+                    streams.stream_path, streams.envelope_path, binding.schema_paths[0], binding.schema_paths[1],
+                    stage_dir=launch.stage_dir,
+                )
+                if outcome.failure_stage == "binding_failure":
+                    outcome.reason = "status_unavailable"
+                    outcome.result_binding = None
+                elif _has_denied_actions(streams.stream_path):
+                    # Keep hard-limit diagnostics and persist the reuse prohibition.
+                    outcome.reason = "permission_required"
+                    if outcome.limit_kind not in {"hard", "max-runtime"}:
+                        outcome.limit_kind = None
+                elif outcome.result_binding is None and outcome.reason is None:
+                    outcome.reason = "invalid_envelope"
+                elif (
+                    outcome.result_binding is not None
+                    and outcome.reason != "hard_deadline_exceeded"
+                    and _has_reviewed_provider_timeout(
+                        streams.stderr_path, binding.command["agy_version"], binding.command["max_seconds"],
+                    )
+                ):
+                    outcome.reason, outcome.limit_kind = "provider_timeout", None
+                elif outcome.reason is None and outcome.outer_status == "ERROR":
+                    outcome.reason = "provider_terminal_error"
+                elif outcome.reason is None and outcome.outer_status == "CANCELLED":
+                    outcome.reason = "provider_terminal_cancelled"
+                elif outcome.reason is None and execution.returncode != 0:
+                    outcome.reason = "agy_failed_unclassified"
+            except DispatchError:
+                # A binding/schema failure is security-relevant even
+                # when a deadline was observed.  Do not preserve a
+                # candidate whose terminal bytes could not be bound.
+                outcome.reason = "status_unavailable"
+                outcome.result_binding = None
+                outcome.failure_stage = "binding_failure"
+    outcome.boundary_failed = False
+    if binding.command["workflow"] == "project":
+        try:
+            if WORKTREE._project_boundary(binding.command["workdir"]) != binding.state["project_boundary"]:
+                raise DispatchError("project worktree boundary changed")
+        except DispatchError:
+            outcome.boundary_failed = True
+            outcome.reason = "status_unavailable"
+            outcome.result_binding = None
+            outcome.failure_stage = "binding_failure"
+
+
+def _begin_controller_completion(
+    execution: _ProviderExecution,
+    streams: _ControllerStreams,
+    outcome: _ControllerOutcome,
+    candidate_data: _CandidateReconciliation,
+    prior_handlers: dict[signal.Signals, Any],
+) -> None:
+    # One blocked completion snapshot linearizes terminal state against
+    # late HUP/INT/TERM just as the foreground result publisher does.
+    watched = tuple(prior_handlers)
+    signal.pthread_sigmask(signal.SIG_BLOCK, watched)
+    pending = signal.sigpending()
+    completion_signal = _controller_completion_signal(watched, pending, execution.stop_signal)
+    if completion_signal is not None:
+        execution.stop_signal = completion_signal
+        outcome.reason = "interrupted"
+        outcome.result_binding = None
+        outcome.failure_stage = None
+    outcome.final_status, outcome.exit_code = _controller_terminal_status(outcome.reason, execution.stop_signal)
+    outcome.result_path = str(streams.envelope_path) if outcome.reason is None or outcome.result_binding is not None else None
+    outcome.cleanup_failed = False
+    candidate_data.reconciliation_manifest_sha = None
+    candidate_data.derived_selected_sha = None
+    candidate_data.derived_selected_files = None
+    candidate_data.derived_selected_trees = None
+    candidate_data.derived_transmission_sha = None
+
+
+def _cleanup_controller_stage(
+    job: Path,
+    binding: _ControllerBinding,
+    streams: _ControllerStreams,
+    launch: _ScopedLaunch,
+    outcome: _ControllerOutcome,
+    candidate_data: _CandidateReconciliation,
+) -> None:
+    if launch.stage_dir is not None and launch.stage_dir.exists():
+        try:
+            if (
+                launch.narrow_source_snapshot is None
+                or WORKTREE._worktree_snapshot(binding.command["workdir"]) != launch.narrow_source_snapshot
+            ):
+                raise DispatchError(
+                    "source worktree changed while the narrow provider stage was active"
+                )
+            mutations, op_manifest = WORKTREE._scan_stage_mutations(launch.stage_dir, cast(dict[str, Any], launch.scope), cast(list[dict[str, Any]], launch.selected_manifest))
+            if outcome.result_binding is not None and not _declared_scoped_mutations_match(
+                streams.envelope_path, outcome.result_binding, mutations, launch.stage_dir,
+            ):
+                raise DispatchError(
+                    "worker files_changed does not match scoped stage mutations"
+                )
+            if outcome.result_binding is not None and outcome.outer_status in {
+                "SUCCESS", "ERROR", "CANCELLED",
+            }:
+                candidate_data.reconciliation_manifest_sha = WORKTREE._reconcile_stage_to_source(
+                    binding.command["workdir"], launch.stage_dir, mutations, job,
+                )
+                if WORKTREE._build_selected_content_manifest(
+                    binding.command["workdir"], cast(dict[str, Any], launch.scope),
+                ) != WORKTREE._build_selected_content_manifest(
+                    launch.stage_dir, cast(dict[str, Any], launch.scope), is_stage=True,
+                ):
+                    raise DispatchError(
+                        "source reconciliation does not match the provider stage"
+                    )
+            else:
+                candidate_data.reconciliation_manifest_sha = WORKTREE._selected_content_digest([])
+        except Exception:
+            outcome.cleanup_failed = True
+        finally:
+            try:
+                if launch.stage_identity is None:
+                    raise DispatchError("stage cleanup identity is unavailable")
+                WORKTREE._cleanup_stage(launch.stage_dir, launch.stage_identity)
+            except (OSError, DispatchError):
+                outcome.cleanup_failed = True
+    try:
+        cast(selectors.BaseSelector, streams.selector).close()
+        os.close(streams.stdout_fd); streams.stdout_fd = -1
+        os.close(streams.stderr_fd); streams.stderr_fd = -1
+        _stage(binding.command, False)
+        _load_bound_command(job, binding.state, stage_readonly=False)
+        _bound_schemas(binding.command, binding.state)
+        if binding.state["attempt_origin"] == "conversation-continue":
+            _bound_verification(job, binding.state)
+    except (OSError, DispatchError):
+        outcome.cleanup_failed = True
+    if outcome.cleanup_failed:
+        outcome.reason, outcome.final_status = "status_unavailable", "failed"
+        outcome.exit_code = EXIT_BY_REASON["status_unavailable"]
+        outcome.result_path = None
+        outcome.result_binding = None
+        outcome.failure_stage = "binding_failure"
+
+
+def _observe_controller_cancel(
+    job: Path,
+    binding: _ControllerBinding,
+    outcome: _ControllerOutcome,
+) -> None:
+    # A SHA-approved cancellation may arrive after the last pipe-loop
+    # observation (or after reaping) and before candidate work begins.
+    # Observe it under the short ownership lock before selecting the
+    # expensive reconciliation path.  The final transition reloads
+    # again, but that later check is too late to keep a cheap cancel
+    # from being delayed by a repository-controlled Git probe.
+    with state_lock(job):
+        current, current_raw, _current_sha = load_state(job)
+        if (
+            current["attempt"] != binding.state["attempt"]
+            or current["controller_pid"] != os.getpid()
+            or current["status"] in TERMINAL
+        ):
+            raise DispatchError("dispatch changed before terminal reconciliation")
+        binding.state, binding.prior_raw = current, current_raw
+        if current["cancel_requested"]:
+            outcome.reason, outcome.final_status = "cancelled", "cancelled"
+            outcome.exit_code = EXIT_BY_REASON["cancelled"]
+            outcome.result_path = None
+            outcome.result_binding = None
+            outcome.failure_stage = None
+
+
+def _reconcile_controller_candidate(
+    binding: _ControllerBinding,
+    launch: _ScopedLaunch,
+    outcome: _ControllerOutcome,
+    candidate_data: _CandidateReconciliation,
+) -> None:
+    # This may use a bounded Git fallback.  The provider clock was
+    # already frozen above, so keep this outside the final short state
+    # lock: status/control readers can observe the frozen record and
+    # reject stale extensions while reconciliation is in progress.
+    # A local cancellation/interruption with no current terminal
+    # report has no new worktree fact to reconcile.  Do not make the
+    # cheap control wait for a candidate/worktree Git scan after the
+    # provider group is already reaped.  A continuation's prior
+    # candidate remains exact-bound and unreviewed; result/finalize
+    # rebind it before use.  A provider-CANCELLED report still has a
+    # current result_binding and retains the reconciliation path.
+    skip_cancel_reconciliation = bool(
+        outcome.reason in {"cancelled", "interrupted"}
+        and outcome.result_binding is None
+    )
+    if skip_cancel_reconciliation:
+        candidate_data.candidate_worktree = None
+        candidate_data.reconciliation = {
+            "worktree_reconciliation": "unavailable",
+            "worktree_changes_present": None,
+            "worktree_changed_since_dispatch": None,
+        }
+    else:
+        candidate_data.candidate_worktree = (
+            _state_worktree_snapshot(binding.state, binding.command["workdir"])
+            if outcome.result_binding is not None else None
+        )
+        candidate_data.reconciliation = (
+            _reconciliation_from_snapshot(
+                candidate_data.candidate_worktree, binding.state["worktree_baseline"],
+            )
+            if outcome.result_binding is not None else _reconcile_worktree(
+                binding.command["workdir"], binding.state["worktree_baseline"], state=binding.state,
+            )
+        )
+    if (
+        outcome.result_binding is not None
+        and candidate_data.candidate_worktree is not None
+        and candidate_data.reconciliation_manifest_sha is not None
+        and launch.scope is not None
+    ):
+        try:
+            derived_readable = WORKTREE._scan_readable_worktree(binding.command["workdir"])
+            WORKTREE._validate_scope_against_worktree(
+                launch.scope, binding.command["workdir"], derived_readable,
+            )
+            derived_selected = WORKTREE._build_selected_content_manifest(
+                binding.command["workdir"], launch.scope,
+            )
+            candidate_data.derived_selected_sha = WORKTREE._selected_content_digest(derived_selected)
+            candidate_data.derived_selected_files = sum(
+                1 for item in derived_selected if item["kind"] == "file"
+            )
+            candidate_data.derived_selected_trees = sum(
+                1 for item in derived_selected if item["kind"] == "directory"
+            )
+            candidate_data.derived_transmission_sha = _bound_transmission_sha256(
+                binding.command, WORKTREE._canonical_digest(launch.scope),
+                WORKTREE._manifest_digest(derived_readable), candidate_data.derived_selected_sha,
+            )
+        except Exception:
+            candidate_data.derived_selected_sha = None
+            candidate_data.derived_selected_files = None
+            candidate_data.derived_selected_trees = None
+            candidate_data.derived_transmission_sha = None
+
+
+def _classify_controller_candidate(
+    outcome: _ControllerOutcome,
+    candidate_data: _CandidateReconciliation,
+    current: Mapping[str, Any],
+) -> tuple[_ControllerOutcome, _CandidateDisposition]:
+    outcome = dataclasses.replace(outcome)
+    disposition = _CandidateDisposition()
+    if current["cancel_requested"]:
+        outcome.reason, outcome.final_status, outcome.exit_code = "cancelled", "cancelled", EXIT_BY_REASON["cancelled"]
+        outcome.result_path = None
+        outcome.result_binding = None
+        outcome.failure_stage = None
+    if outcome.reason != "provider_quota_exhausted":
+        outcome.provider_retry_after = None
+        outcome.provider_retry_observed = None
+    prior_candidate_exists = bool(
+        current["attempt_origin"] == "conversation-continue"
+        and current["candidate_recognized"]
+    )
+    prior_candidate_is_bound = bool(
+        prior_candidate_exists
+        and current["candidate_source"] != "none"
+        and current["result_available"]
+        and current["failure_stage"] is None
+        and all(current[key] is not None for key in (
+            "result_path", "result_sha256", "result_identity",
+            "candidate_worktree_sha256", "candidate_worktree_entries",
+        ))
+    )
+    # An old continuation candidate remains readable only when all
+    # of its exact report/worktree bindings are still complete.
+    # Keep an incomplete one as inaccessible forensic state and
+    # fail closed; do not let a concurrent local cancel convert it
+    # into an apparently usable candidate.
+    disposition.preserve_candidate_forensics = bool(
+        outcome.result_binding is None and prior_candidate_exists
+    )
+    disposition.terminal_snapshot_unavailable = bool(
+        outcome.result_binding is not None
+        and outcome.outer_status in {"SUCCESS", "ERROR", "CANCELLED"}
+        and candidate_data.candidate_worktree is None
+    )
+    if disposition.terminal_snapshot_unavailable:
+        # Keep the exact terminal report binding and its outer
+        # provenance for forensics, but it is not a reviewable
+        # candidate without a worktree binding.
+        outcome.reason, outcome.final_status = "status_unavailable", "failed"
+        outcome.exit_code = EXIT_BY_REASON["status_unavailable"]
+        outcome.failure_stage = "binding_failure"
+    if disposition.preserve_candidate_forensics and not prior_candidate_is_bound:
+        outcome.reason, outcome.final_status = "status_unavailable", "failed"
+        outcome.exit_code = EXIT_BY_REASON["status_unavailable"]
+        outcome.failure_stage = "binding_failure"
+    disposition.candidate_recognized = outcome.result_binding is not None or disposition.preserve_candidate_forensics
+    disposition.candidate_unavailable = bool(
+        disposition.candidate_recognized and outcome.failure_stage == "binding_failure"
+    )
+    disposition.candidate_source = (
+        "provider_success" if outcome.result_binding is not None and outcome.outer_status == "SUCCESS"
+        else "provider_error" if outcome.result_binding is not None and outcome.outer_status == "ERROR"
+        else "provider_cancelled" if outcome.result_binding is not None and outcome.outer_status == "CANCELLED"
+        else current["candidate_source"] if disposition.preserve_candidate_forensics
+        else "none"
+    )
+    if outcome.failure_stage in {"schema_rejection", "binding_failure", "framing", "outer_status", "invalid_envelope"}:
+        disposition.provider_terminal_status = "unknown"
+    else:
+        disposition.provider_terminal_status = (
+            "success" if outcome.outer_status == "SUCCESS"
+            else "error" if outcome.outer_status == "ERROR"
+            else "cancelled" if outcome.outer_status in {"CANCELLED", "CANCELED"}
+            else "unknown"
+        )
+    disposition.preserved_path = current["result_path"] if disposition.preserve_candidate_forensics else None
+    disposition.preserved_sha = current["result_sha256"] if disposition.preserve_candidate_forensics else None
+    disposition.preserved_identity = current["result_identity"] if disposition.preserve_candidate_forensics else None
+    return outcome, disposition
+
+
+def _controller_repair_lineage(
+    outcome: _ControllerOutcome,
+    candidate_data: _CandidateReconciliation,
+    current: Mapping[str, Any],
+) -> dict[str, Any]:
+    repair_lineage_updates: dict[str, Any] = {}
+    if (outcome.result_binding is not None):
+        repair_lineage_updates = {
+            "repair_lineage_sha256": None,
+            "repair_parent_result_sha256": None,
+            "repair_parent_worktree_sha256": None,
+            "repair_lineage_attempt": None,
+        }
+        if (
+            candidate_data.derived_selected_sha is not None
+            and candidate_data.derived_selected_files is not None
+            and candidate_data.derived_selected_trees is not None
+            and candidate_data.derived_transmission_sha is not None
+        ):
+            repair_lineage_updates.update({
+                "selected_content_sha256": candidate_data.derived_selected_sha,
+                "selected_file_count": candidate_data.derived_selected_files,
+                "selected_tree_count": candidate_data.derived_selected_trees,
+                "transmission_sha256": candidate_data.derived_transmission_sha,
+            })
+        if (
+            current["allow_scoped_repair"]
+            and candidate_data.candidate_worktree is not None
+            and candidate_data.reconciliation_manifest_sha is not None
+            and candidate_data.derived_selected_sha is not None
+            and candidate_data.derived_selected_files is not None
+            and candidate_data.derived_selected_trees is not None
+            and candidate_data.derived_transmission_sha is not None
+        ):
+            parent_result_sha = (
+                current["result_sha256"]
+                if current["attempt_origin"] == "conversation-continue"
+                else None
+            )
+            parent_worktree_sha = (
+                current["candidate_worktree_sha256"]
+                if current["attempt_origin"] == "conversation-continue"
+                else current["worktree_baseline"]["sha256"]
+            )
+            repair_lineage_updates = {
+                **repair_lineage_updates,
+                "repair_parent_result_sha256": parent_result_sha,
+                "repair_parent_worktree_sha256": parent_worktree_sha,
+                "repair_lineage_attempt": current["attempt"],
+                "repair_lineage_sha256": _compute_repair_lineage_sha256(
+                    authority_sha256=current["repair_authority_sha256"],
+                    attempt=current["attempt"],
+                    parent_result_sha256=parent_result_sha,
+                    parent_worktree_sha256=parent_worktree_sha,
+                    reconciliation_sha256=candidate_data.reconciliation_manifest_sha,
+                    result_sha256=outcome.result_binding[0],
+                    candidate_worktree_sha256=candidate_data.candidate_worktree["sha256"],
+                    selected_content_sha256=candidate_data.derived_selected_sha,
+                    transmission_sha256=candidate_data.derived_transmission_sha,
+                ),
+            }
+    return repair_lineage_updates
+
+
+def _controller_terminal_updates(
+    execution: _ProviderExecution,
+    streams: _ControllerStreams,
+    outcome: _ControllerOutcome,
+    candidate_data: _CandidateReconciliation,
+    disposition: _CandidateDisposition,
+    current: Mapping[str, Any],
+    repair_lineage_updates: dict[str, Any],
+) -> dict[str, Any]:
+    updates = {
+        "status": outcome.final_status,
+        "reason": outcome.reason,
+        "exit_code": outcome.exit_code,
+        "controller_pid": None,
+        "finished_epoch": time.time(),
+        "elapsed_seconds": execution.elapsed,
+        "agy_returncode": execution.returncode,
+        "result_path": str(streams.envelope_path) if outcome.result_binding is not None else disposition.preserved_path,
+        "result_sha256": outcome.result_binding[0] if outcome.result_binding is not None else disposition.preserved_sha,
+        "result_identity": list(outcome.result_binding[1]) if outcome.result_binding is not None else disposition.preserved_identity,
+        "candidate_recognized": disposition.candidate_recognized,
+        "candidate_source": disposition.candidate_source,
+        "provider_terminal_status": disposition.provider_terminal_status,
+        # Preserve an exact old candidate after a binding failure for
+        # forensics, but never claim it can still be read or reviewed.
+        "result_available": disposition.candidate_recognized and not disposition.candidate_unavailable,
+        "candidate_worktree_sha256": (
+            candidate_data.candidate_worktree["sha256"] if candidate_data.candidate_worktree is not None
+            else current["candidate_worktree_sha256"] if disposition.preserve_candidate_forensics else None
+        ),
+        "candidate_worktree_entries": (
+            candidate_data.candidate_worktree["entries"] if candidate_data.candidate_worktree is not None
+            else current["candidate_worktree_entries"] if disposition.preserve_candidate_forensics else None
+        ),
+        "candidate_worktree_path_facts": (
+            candidate_data.candidate_worktree.get("path_facts") if candidate_data.candidate_worktree is not None
+            else current["candidate_worktree_path_facts"] if disposition.preserve_candidate_forensics else None
+        ),
+        "driver_disposition": "unreviewed" if disposition.candidate_recognized else "not_applicable",
+        "failure_stage": outcome.failure_stage,
+        "last_activity": "terminal_received" if outcome.saw_terminal else current["last_activity"],
+        "next_action": (
+            "blocked" if disposition.candidate_unavailable else "driver_review"
+        ) if disposition.candidate_recognized else (
+            "none" if outcome.reason in {"selection_preflight_failed", "model_selection_rejected", "permission_required"} else
+            "resume" if current["conversation_id"] else "blocked"
+        ),
+        "next_action_command": None,
+        **(
+            {
+                "worktree_reconciliation": "unavailable",
+                "worktree_changes_present": None,
+                "worktree_changed_since_dispatch": None,
+            }
+            if disposition.terminal_snapshot_unavailable else candidate_data.reconciliation
+        ),
+        "resume_available": bool(
+            current["conversation_id"] and not disposition.candidate_recognized
+            and outcome.final_status == "failed"
+            and outcome.reason not in {"selection_preflight_failed", "model_selection_rejected", "permission_required"}
+        ),
+        "continue_available": False,
+        "remote_cancel_unverified": outcome.reason in {"cancelled", "interrupted"},
+        "limit_kind": outcome.limit_kind,
+        "provider_retry_after_seconds": outcome.provider_retry_after,
+        "provider_retry_observed_epoch": outcome.provider_retry_observed,
+        **repair_lineage_updates,
+    }
+    if current.get("provider_scope_path") is not None:
+        updates["reconciliation_manifest_sha256"] = (
+            current["reconciliation_manifest_sha256"] if disposition.preserve_candidate_forensics
+            else candidate_data.reconciliation_manifest_sha
+        )
+    if outcome.result_binding is not None:
+        # Continuation feedback remains bound audit evidence for
+        # the prior candidate. A newly returned candidate starts
+        # unreviewed, so it cannot inherit prior check evidence.
+        updates.update({
+            "check_summary": None,
+            "check_counts": {
+                "passed": 0, "failed": 0,
+                "advisory": 0, "missing": 0,
+            },
+        })
+    if outcome.boundary_failed or disposition.candidate_unavailable:
+        updates.update({"phase": "blocked", "assurance": "blocked"})
+    elif disposition.candidate_recognized:
+        updates.update({
+            "phase": (
+                "repair-failed"
+                if outcome.final_status == "failed" and current["attempt_origin"] == "conversation-continue"
+                else "awaiting-verification"
+            ),
+            "assurance": "pending",
+            "continue_available": bool(
+                outcome.final_status in {"succeeded", "failed"}
+                and outcome.reason not in {"selection_preflight_failed", "model_selection_rejected", "permission_required"}
+                and disposition.candidate_source != "provider_cancelled"
+                and current["conversation_id"]
+                and current["attempt"] < current["max_cycles"]
+                and execution.elapsed < _provider_max_seconds(current)
+                and (
+                    current.get("provider_scope_path") is None
+                    or candidate_data.derived_transmission_sha
+                    == current.get("initial_content_transmission_sha256")
+                    or repair_lineage_updates.get(
+                        "repair_lineage_sha256"
+                    ) is not None
+                    or (
+                        outcome.result_binding is None
+                        and (
+                            current.get("transmission_sha256")
+                            == current.get("initial_content_transmission_sha256")
+                            or current.get("repair_lineage_sha256") is not None
+                        )
+                    )
+                )
+            ),
+        })
+    else:
+        updates.update({
+            "phase": (
+                "repair-failed"
+                if outcome.final_status == "failed" and current["attempt_origin"] == "conversation-continue"
+                else "attempt-failed"
+            ),
+            "assurance": "pending",
+            "continue_available": False,
+        })
+    return updates
+
+
+def _publish_controller_terminal(
+    job: Path,
+    binding: _ControllerBinding,
+    execution: _ProviderExecution,
+    streams: _ControllerStreams,
+    outcome: _ControllerOutcome,
+    candidate_data: _CandidateReconciliation,
+) -> int:
+    # An approved control may land after the last loop observation.  Bind
+    # finalization to the current state under the same short transition lock.
+    with state_lock(job):
+        current, current_raw, _current_sha = load_state(job)
+        if (
+            current["attempt"] != binding.state["attempt"]
+            or current["controller_pid"] != os.getpid()
+            or current["status"] in TERMINAL
+        ):
+            raise DispatchError("dispatch changed before terminalization")
+        # Persist the provider runtime measured before local terminal
+        # parsing/reconciliation.  Those controller-local checks must
+        # not silently consume a later repair/recovery budget.
+        execution.elapsed = max(
+            execution.elapsed,
+            float(current["elapsed_seconds"]),
+        )
+        outcome, disposition = _classify_controller_candidate(outcome, candidate_data, current)
+        repair_lineage_updates = _controller_repair_lineage(outcome, candidate_data, current)
+        updates = _controller_terminal_updates(execution, streams, outcome, candidate_data, disposition, current, repair_lineage_updates)
+        binding.state, binding.prior_raw, _sha = _transition_locked(job, current, current_raw, updates)
+    return outcome.exit_code
+
+
+def _cleanup_controller_resources(
+    binding: _ControllerBinding,
+    execution: _ProviderExecution,
+    streams: _ControllerStreams,
+    launch: _ScopedLaunch,
+) -> None:
+    if execution.process is not None:
+        # If an exception is leaving the provider loop, transfer
+        # ownership to the outer recovery only after this exact group
+        # termination/reap has succeeded.  It then freezes elapsed
+        # time from this reap boundary.  If termination itself raises,
+        # keep ``process`` live so the outer recovery retains the one
+        # retry opportunity instead of assuming the group is gone.
+        _terminate_provider_process(
+            execution.process, launch.contained_root,
+            contained=launch.prepared_containment is not None,
+        )
+        execution.runtime_end_mono = time.monotonic()
+        execution.process = None
+    with contextlib.suppress(Exception):
+        cast(selectors.BaseSelector, streams.selector).close()
+    if streams.stdout_fd >= 0:
+        os.close(streams.stdout_fd)
+    if streams.stderr_fd >= 0:
+        os.close(streams.stderr_fd)
+    with contextlib.suppress(OSError):
+        _stage(binding.command, False)
+
+
+def _recover_controller_failure(
+    job: Path,
+    binding: _ControllerBinding,
+    execution: _ProviderExecution,
+    launch: _ScopedLaunch,
+) -> int:
+    # Once Popen succeeds, no ordinary controller exception may be left to
+    # the cleanup-only finally path.  Reap first, freeze if the state still
+    # belongs to this controller, then publish one fail-closed terminal
+    # projection.  Pre-launch errors retain their narrower existing paths.
+    if execution.process is not None:
+        with contextlib.suppress(Exception):
+            _terminate_provider_process(
+                execution.process, launch.contained_root,
+                contained=launch.prepared_containment is not None,
+            )
+        execution.process = None
+        execution.runtime_end_mono = time.monotonic()
+    frozen_elapsed = float(binding.state["elapsed_seconds"])
+    if not execution.runtime_frozen:
+        frozen_elapsed = float(binding.state["attempt_base_elapsed"])
+        if execution.started_mono is not None:
+            end = execution.runtime_end_mono if execution.runtime_end_mono is not None else time.monotonic()
+            frozen_elapsed += max(0.0, end - execution.started_mono)
+        try:
+            binding.state, binding.prior_raw, _sha, _limit = _freeze_reaped_runtime(
+                job, binding.state["attempt"], os.getpid(), frozen_elapsed,
+            )
+            execution.runtime_frozen = True
+        except Exception:
+            # The final state write below still clears an active controller
+            # record; preserve the largest local elapsed observation if the
+            # dedicated freeze CAS itself could not complete.
+            pass
+    try:
+        terminal, _raw, _sha = _terminalize_owned(
+            job, binding.state, status="failed", reason="status_unavailable",
+            exit_code=EXIT_BY_REASON["status_unavailable"],
+            failure_stage="binding_failure", expected_controller_pid=os.getpid(),
+            elapsed_seconds=frozen_elapsed, postlaunch_cancel=True,
+        )
+        # Terminal validation guarantees an integer exit code.
+        assert terminal["exit_code"] is not None
+        return int(terminal["exit_code"])
+    except Exception:
+        # A failed final write is still not allowed to disguise the
+        # controller exception; the strict helper has already attempted
+        # its unavailable fallback without holding a scan under the lock.
+        return EXIT_BY_REASON["status_unavailable"]
+
+
+def controller(job: Path, ownership_fd: int) -> int:
+    binding = _ControllerBinding()
+    execution = _ProviderExecution()
+    launch = _ScopedLaunch()
 
     def interrupted(number: int, _frame: Any) -> None:
-        nonlocal stop_signal
-        if stop_signal is None:
-            stop_signal = number
+        _latch_controller_signal(execution, number)
 
     prior_handlers = {
         number: signal.getsignal(number)
@@ -4685,1272 +6044,37 @@ def controller(job: Path, ownership_fd: int) -> int:
     for number in prior_handlers:
         signal.signal(number, interrupted)
     try:
-      with inherited_lifecycle_lock(job, ownership_fd):
-        # Claim the queued attempt under one state lock.  A cancel can land
-        # between process spawn and this point, but never between this exact
-        # queued observation and controller ownership publication.
-        cancelled_before_claim = False
-        with state_lock(job):
-            state, prior_raw, _sha = load_state(job)
-            if state["status"] == "cancel-requested" and state["cancel_requested"]:
-                cancelled_before_claim = True
-            elif state["status"] != "queued" or state["cancel_requested"]:
-                raise DispatchError("dispatch is not queued")
-            else:
-                # A queued state with this exact PID is the startup handshake; it
-                # means the private controller is alive, not that a provider
-                # process exists or that provider runtime has started.
-                state, prior_raw, _sha = _transition_locked(job, state, prior_raw, {
-                    "controller_pid": os.getpid(),
-                })
-        if cancelled_before_claim:
-            _terminalize_owned(
-                job, state, status="cancelled", reason="cancelled",
-                exit_code=EXIT_BY_REASON["cancelled"], expected_controller_pid=None,
-            )
-            return EXIT_BY_REASON["cancelled"]
-        feedback: Path | None = None
-        schema_paths: tuple[Path, Path] | None = None
-        try:
-            command = _load_bound_command(job, state, stage_readonly=False)
-            MODEL_SELECTION.ACTIVE_CHILD_ENV = list(command["provider_env"])
-            _load_bound_selection(command, state)
-            schema_paths = _bound_schemas(command, state)
-            if not _worktree_symlink_boundary(command["workdir"]):
-                raise DispatchError("dispatch worktree symlink boundary changed")
-            if state["workflow"] == "project":
-                if _project_boundary(command["workdir"]) != state["project_boundary"]:
-                    raise DispatchError("project worktree boundary changed")
-            if state["attempt_origin"] == "conversation-continue":
-                feedback = _bound_verification(job, state)
-                if feedback is None:
-                    raise DispatchError("project continuation has no verification feedback")
-                command, _candidate_raw = _bound_current_candidate(job, state)
-        except (OSError, DispatchError):
-            terminal, _raw, _sha = _terminalize_owned(
-                job, state, status="failed", reason="status_unavailable",
-                exit_code=EXIT_BY_REASON["status_unavailable"],
-                failure_stage="binding_failure", expected_controller_pid=os.getpid(),
-            )
-            return int(terminal["exit_code"])
-        attempt = state["attempt"]
-        stream_path, stderr_path, envelope_path = _attempt_paths(job, attempt)
-        stdout_fd = -1; stderr_fd = -1
-        # ``elapsed_seconds`` is provider execution time.  The strict local
-        # command/root/schema/worktree proofs below happen before a provider
-        # process exists, so they cannot consume the provider hard, maximum,
-        # or idle budgets.  This is especially important when a safe platform
-        # Git fallback makes those bounded probes materially slower.
-        elapsed = float(state["attempt_base_elapsed"])
-        try:
-            stdout_fd = _ensure_new_private(stream_path)
-            stderr_fd = _ensure_new_private(stderr_path)
-            _stage(command, True)
-            _load_bound_command(job, state, stage_readonly=True)
-            _load_bound_selection(command, state)
-            schema_paths = _bound_schemas(command, state)
-        except (OSError, DispatchError):
-            if stdout_fd >= 0: os.close(stdout_fd)
-            if stderr_fd >= 0: os.close(stderr_fd)
-            with contextlib.suppress(OSError): _stage(command, False)
-            terminal, _raw, _sha = _terminalize_owned(
-                job, state, status="failed", reason="status_unavailable",
-                exit_code=EXIT_BY_REASON["status_unavailable"],
-                failure_stage="binding_failure", expected_controller_pid=os.getpid(),
-            )
-            return int(terminal["exit_code"])
-        argv = list(command["argv"])
-        if state["attempt_origin"] in {"conversation-resume", "conversation-continue"}:
-            conversation = state["conversation_id"]
-            if not isinstance(conversation, str):
-                raise DispatchError("resume has no conversation")
-            print_index = argv.index("--print")
-            prefix = ["--conversation", conversation]
-            prompt = command["resume_prompt"]
-            if state["attempt_origin"] == "conversation-continue":
-                if feedback is None:
-                    raise DispatchError("project continuation feedback was not prevalidated")
-                if state.get("provider_scope_path") is None:
-                    prefix.extend(["--add-dir", str(feedback.parent)])
-                    prompt = command["continue_prompt"] + f" Feedback file: '{feedback}'."
-                else:
-                    feedback_raw, _feedback_info = read_regular(
-                        feedback, MAX_VERIFICATION_BYTES, "verification feedback",
-                        allowed_modes=(0o400,),
-                    )
-                    prompt = (
-                        command["continue_prompt"]
-                        + " Driver verification JSON follows inline:\n"
-                        + feedback_raw.decode("utf-8", "strict")
-                    )
-            argv[print_index + 1] = prompt
-            argv[print_index:print_index] = prefix
-        selector = selectors.DefaultSelector()
-        buffers = {"stdout": bytearray(), "stderr": bytearray()}
-        sizes = {"stdout": 0, "stderr": 0}
-        next_notice = 0.0
-        reason: str | None = None
-        limit_kind: str | None = None
-        failure_stage: str | None = None
-        saw_init = False
-        saw_terminal = False
-        stage_dir: Path | None = None
-        scope: dict[str, Any] | None = None
-        selected_manifest: list[dict[str, Any]] | None = None
-        stage_manifest_sha: str | None = None
-        stage_identity: tuple[int, int, int, int, int] | None = None
-        narrow_source_snapshot: dict[str, Any] | None = None
-        scoped_executable: str | None = None
-        prepared_containment: CONTAINMENT.PreparedContainedLaunch | None = None
-        contained_root: CONTAINMENT.ProcessIdentity | None = None
-
-        def controller_transition(updates: dict[str, Any]) -> bool:
-            """Do not turn a concurrent approved control into a controller crash."""
-            nonlocal state, prior_raw
+        with inherited_lifecycle_lock(job, ownership_fd):
+            early_exit = _claim_controller_attempt(job, binding)
+            if early_exit is not None:
+                return early_exit
+            early_exit = _bind_controller_inputs(job, binding)
+            if early_exit is not None:
+                return early_exit
+            streams = _ControllerStreams(*_attempt_paths(job, binding.state["attempt"]))
+            early_exit = _open_controller_artifacts(job, binding, execution, streams)
+            if early_exit is not None:
+                return early_exit
+            _build_controller_argv(binding, launch)
+            streams.selector = selectors.DefaultSelector()
+            outcome = _ControllerOutcome()
+            candidate_data = _CandidateReconciliation()
             try:
-                state, prior_raw, _sha = transition(job, state, prior_raw, updates)
-                return True
-            except DispatchError as exc:
-                if str(exc) != "dispatch state changed before transition":
-                    raise
-                current, current_raw, _current_sha = read_state_snapshot(job)
-                if current["attempt"] != state["attempt"]:
-                    raise DispatchError("dispatch attempt changed during control")
-                state, prior_raw = current, current_raw
-                return False
-
-        def refresh_control_snapshot() -> None:
-            """Reload an approved control transition before using live limits."""
-            nonlocal state, prior_raw
-            current, current_raw, _current_sha = read_state_snapshot(job)
-            if current_raw == prior_raw:
-                return
-            if (
-                current["previous_state_sha256"] != digest(prior_raw)
-                or current["sequence"] != state["sequence"] + 1
-                or current["attempt"] != state["attempt"]
-            ):
-                raise DispatchError("dispatch changed during provider control")
-            state, prior_raw = current, current_raw
-
-        def drain_reaped_streams() -> None:
-            """Bind bytes emitted before reap without treating them as activity."""
-            nonlocal reason, failure_stage
-            for key in list(selector.get_map().values()):
-                name = key.data
-                while True:
-                    try:
-                        chunk = os.read(key.fd, 65536)
-                    except BlockingIOError:
-                        break
-                    except OSError:
-                        reason = "status_unavailable"
-                        failure_stage = "binding_failure"
-                        return
-                    if not chunk:
-                        try:
-                            selector.unregister(key.fileobj)
-                            key.fileobj.close()
-                        except OSError:
-                            reason = "status_unavailable"
-                            failure_stage = "binding_failure"
-                        break
-                    sizes[name] += len(chunk)
-                    if sizes[name] > MAX_STREAM_BYTES:
-                        reason = "output_oversized"
-                        return
-                    try:
-                        os.write(stdout_fd if name == "stdout" else stderr_fd, chunk)
-                    except OSError:
-                        reason = "status_unavailable"
-                        failure_stage = "binding_failure"
-                        return
-        try:
-            try:
-                # Re-read the frozen record and re-probe *after* all controller
-                # mutations and immediately before the provider-causing launch.
-                # argv[0] stays the portable public spelling while executable=
-                # pins the safe, freshly-probed target for this one process.
-                executable_binding = _reprobe_direct_selection(command, state, argv)
-                _bound_worktree_baseline(state, command)
-                if not _worktree_symlink_boundary(command["workdir"]):
-                    raise DispatchError("dispatch worktree symlink boundary changed")
-                launch_cwd = command["workdir"]
-                if state.get("provider_scope_path") is not None:
-                    _scope_path, raw_scope, scope_info = _read_provider_scope_file(
-                        state["provider_scope_path"], MAX_COMMAND_BYTES,
-                    )
-                    if digest(raw_scope) != state["provider_scope_sha256"]:
-                        raise DispatchError("provider scope file changed since dispatch")
-                    if list(_identity(scope_info)) != state["provider_scope_identity"]:
-                        raise DispatchError("provider scope file identity changed since dispatch")
-                    scope = _parse_provider_scope(raw_scope)
-                    readable_manifest = _scan_readable_worktree(command["workdir"])
-                    manifest_sha = _manifest_digest(readable_manifest)
-                    _validate_scope_against_worktree(scope, command["workdir"], readable_manifest)
-                    selected_manifest = _build_selected_content_manifest(command["workdir"], scope)
-                    selected_sha = _selected_content_digest(selected_manifest)
-                    policy_sha = _canonical_digest(scope)
-                    transmission_sha = _bound_transmission_sha256(
-                        command, policy_sha, manifest_sha, selected_sha,
-                    )
-                    _require_scoped_transmission_authority(
-                        command, state,
-                        selected_content_sha256=selected_sha,
-                        transmission_sha256=transmission_sha,
-                        provider_origin=state["attempt_origin"],
-                    )
-                    narrow_source_snapshot = _worktree_snapshot(command["workdir"])
-                    stage_dir = job / f"stage-{attempt:03d}"
-                    stage_identity, stage_manifest_sha = _materialize_stage(command["workdir"], stage_dir, scope, selected_manifest)
-                    launch_cwd = str(stage_dir)
-                    if executable_binding is None:
-                        try:
-                            executable_binding = MODEL_SELECTION.resolve_safe_executable()
-                        except MODEL_SELECTION.EvidenceUnavailable as exc:
-                            raise SelectionPreflightError(
-                                "scoped dispatch executable binding is unavailable",
-                            ) from exc
-                    scoped_executable = executable_binding[0]
-                else:
-                    approved_whole_sha = command.get("approved_whole_worktree_sha256")
-                    if (
-                        approved_whole_sha is not None
-                        and (
-                            state["attempt_origin"] == "initial"
-                            or (
-                                command["schema_version"] == 11
-                                and state.get("conversation_id") is None
-                            )
-                        )
-                    ):
-                        readable_manifest = _scan_readable_worktree(command["workdir"])
-                        if command["schema_version"] == 11:
-                            content = whole_worktree_content_manifest(command["workdir"])
-                            content_sha = content["manifest_sha256"]
-                            if content_sha != command["whole_worktree_content_sha256"]:
-                                raise DispatchError("whole-worktree content binding changed")
-                            expected_approval = _compute_v11_launch_approval_sha256(
-                                _provider_isolation_for_command(command), command["native_grant_profile"],
-                                whole_worktree_content_sha256=content_sha,
-                                readable_manifest_sha256=_manifest_digest(readable_manifest),
-                            )
-                        else:
-                            expected_approval = _compute_provider_launch_approval_sha256(
-                                _provider_isolation_for_command(command), _manifest_digest(readable_manifest),
-                            ) if command["schema_version"] == 10 else _manifest_digest(readable_manifest)
-                        if expected_approval != approved_whole_sha:
-                            raise DispatchError("whole-worktree transmission binding changed")
-                _bind_workspace_prompt(
-                    argv, Path(os.path.realpath(launch_cwd)),
-                    scoped=scope is not None, boost=bool(command["boost"]),
-                    provider_isolation=_provider_isolation_for_command(command),
-                    legacy_sandbox=command["schema_version"] < 9,
-                )
-                if scoped_executable is not None and _provider_isolation_for_command(command) == "native":
-                    if stage_dir is None:
-                        raise DispatchError("scoped provider stage is unavailable")
-                    contained_argv = [scoped_executable, *argv[1:]]
-                    if contained_argv.count("--json-schema") != 1:
-                        raise DispatchError("scoped provider schema argument is invalid")
-                    schema_index = contained_argv.index("--json-schema") + 1
-                    if schema_index >= len(contained_argv):
-                        raise DispatchError("scoped provider schema argument is invalid")
-                    # The native binder canonicalizes the exact file. Use the
-                    # same spelling in argv so /var -> /private/var aliases do
-                    # not make the provider's approved schema unreadable.
-                    contained_argv[schema_index] = os.path.realpath(schema_paths[0])
-                    prepared_containment = CONTAINMENT.prepare_contained_launch(
-                        role=CONTAINMENT.ROLE_PROVIDER,
-                        network_policy=CONTAINMENT.NETWORK_PROVIDER_TLS,
-                        job_dir=job,
-                        attempt=attempt,
-                        stage_dir=stage_dir,
-                        target_executable=scoped_executable,
-                        target_argv=contained_argv,
-                        child_environment=MODEL_SELECTION.child_environment(
-                            command["provider_env"],
-                        ),
-                        allow_keychain=True,
-                        read_only_inputs=(contained_argv[schema_index],),
-                        provider_max_cycles=command["max_cycles"],
-                        provider_write_selectors=scope["write"],
-                        grant_profile=command["native_grant_profile"],
-                    )
-                # The prior attempt budget is still a hard stop, but bounded
-                # controller-local proofs do not become a provider timeout.
-                # Commit the running state/CAS boundary after slow preflight.
-                # The provider hard/runtime lease starts at the invocation
-                # boundary, immediately before Popen.  The value is committed
-                # only after Popen succeeds, so failed local creation still
-                # has no provider runtime.  This leaves no post-Popen window
-                # in which a child can schedule work beyond the hard limit.
-                # The final executable confirmation remains immediately
-                # adjacent to the provider-causing call.
-                if stop_signal is not None:
-                    reason = "interrupted"
-                    returncode = 128 + stop_signal
-                elif elapsed >= _provider_max_seconds(state):
-                    reason, limit_kind = "hard_deadline_exceeded", "max-runtime"
-                    returncode = EXIT_BY_REASON[reason]
-                elif elapsed >= float(state["hard_seconds"]):
-                    reason, limit_kind = "hard_deadline_exceeded", "hard"
-                    returncode = EXIT_BY_REASON[reason]
-                else:
-                    # Linearize cancellation against the provider-causing
-                    # operation.  The final executable confirmation and Popen
-                    # stay in this same short critical section: cancellation
-                    # before it wins without a provider; cancellation after
-                    # it is necessarily a post-launch request.
-                    with state_lock(job):
-                        current, current_raw, _current_sha = load_state(job)
-                        if (
-                            current["attempt"] != state["attempt"]
-                            or current["controller_pid"] != os.getpid()
-                            or current["status"] in TERMINAL
-                        ):
-                            raise DispatchError("dispatch changed before provider launch")
-                        state, prior_raw = current, current_raw
-                        if state["cancel_requested"]:
-                            reason = "cancelled"
-                            returncode = EXIT_BY_REASON[reason]
-                        else:
-                            running_updates = {
-                                "status": "running", "controller_pid": os.getpid(),
-                                "started_epoch": None, "last_progress_epoch": None,
-                                "stream_path": str(stream_path), "stderr_path": str(stderr_path),
-                                "next_action": "wait",
-                            }
-                            if stage_dir is not None:
-                                running_updates.update({
-                                    "provider_stage_path": str(stage_dir),
-                                    "provider_stage_identity": list(stage_identity) if stage_identity is not None else None,
-                                    "provider_stage_manifest_sha256": stage_manifest_sha,
-                                })
-                            state, prior_raw, _sha = _transition_locked(job, state, prior_raw, running_updates)
-                            exact_executable = None
-                            if executable_binding is not None:
-                                try:
-                                    exact_executable = MODEL_SELECTION.confirm_executable_binding(
-                                        *executable_binding,
-                                    )
-                                except MODEL_SELECTION.EvidenceUnavailable as exc:
-                                    raise SelectionPreflightError(
-                                        "dispatch direct selection launch binding changed",
-                                    ) from exc
-                            provider_argv: list[str] | tuple[str, ...] = argv
-                            provider_cwd = launch_cwd
-                            provider_environment = _provider_environment(command)
-                            if prepared_containment is not None:
-                                if (
-                                    stage_dir is None
-                                    or scope is None
-                                    or selected_manifest is None
-                                    or stage_identity is None
-                                    or stage_manifest_sha is None
-                                ):
-                                    raise DispatchError("scoped provider launch binding is incomplete")
-                                _revalidate_scoped_provider_stage(
-                                    stage_dir, scope, selected_manifest,
-                                    stage_identity, stage_manifest_sha,
-                                )
-                                confirmed_containment = CONTAINMENT.confirm_contained_launch(
-                                    prepared_containment,
-                                )
-                                provider_argv = confirmed_containment.argv
-                                exact_executable = confirmed_containment.executable
-                                provider_cwd = confirmed_containment.cwd
-                                provider_environment = confirmed_containment.environment
-                            launch_mono = time.monotonic()
-                            process = subprocess.Popen(
-                                provider_argv,
-                                executable=exact_executable,
-                                cwd=provider_cwd,
-                                stdin=subprocess.DEVNULL,
-                                stdout=subprocess.PIPE,
-                                stderr=subprocess.PIPE,
-                                env=provider_environment,
-                                start_new_session=True,
-                                close_fds=True,
-                                preexec_fn=lambda: os.umask(int(command["child_umask"], 8)),
-                            )
-                            started_mono = launch_mono
-                            heartbeat_mono = started_mono
-                            next_notice = started_mono + float(command["notice_seconds"])
-                            if prepared_containment is not None:
-                                contained_root = CONTAINMENT.bind_new_process_group(
-                                    process.pid,
-                                )
-                            state, prior_raw, _sha = _transition_locked(
-                                job, state, prior_raw, {"started_epoch": time.time()},
-                            )
-            except MODEL_SELECTION.ProbeInterrupted as exc:
-                # model_selection owns and reaps its short-lived probe group;
-                # the controller owns the terminal dispatch projection.
-                stop_signal = exc.signal_number
-                reason = "interrupted"
-                returncode = 128 + exc.signal_number
-            except SelectionPreflightError:
-                reason = "selection_preflight_failed"
-                failure_stage = "selection_preflight"
-                returncode = EXIT_BY_REASON[reason]
-            except WorktreeBaselineError as exc:
-                reason = "resolve_undo_present" if isinstance(exc, ResolveUndoPresentError) else "status_unavailable"
-                failure_stage = "binding_failure"
-                returncode = EXIT_BY_REASON[reason]
-            except (DispatchError, CONTAINMENT.ContainmentError):
-                reason = "status_unavailable"
-                returncode = EXIT_BY_REASON["status_unavailable"]
-            except OSError:
-                # A legacy tier deliberately reaches this point even when agy is
-                # absent.  Publish a terminal, sanitized dispatch failure rather
-                # than leaking an interpreter traceback or leaving a queued job.
-                reason = "agy_failed_unclassified"
-                returncode = 127
-            else:
-                if process is not None:
-                    try:
-                        assert process.stdout is not None and process.stderr is not None
-                        for name, pipe in (("stdout", process.stdout), ("stderr", process.stderr)):
-                            os.set_blocking(pipe.fileno(), False)
-                            selector.register(pipe, selectors.EVENT_READ, name)
-                    except (OSError, DispatchError):
-                        reason = "status_unavailable"
-                        failure_stage = "binding_failure"
-            # Pipe EOF is the completion observation.  Do not poll/reap the leader
-            # before process-group closure; its PID reserves the group identifier.
-            while process is not None and selector.get_map() and reason is None:
-                now_mono = time.monotonic()
-                elapsed = float(state["attempt_base_elapsed"]) + now_mono - started_mono
-                try:
-                    refresh_control_snapshot()
-                except DispatchError:
-                    reason = "status_unavailable"
-                    break
-                if state["cancel_requested"] or stop_signal is not None:
-                    reason = "cancelled" if stop_signal is None else "interrupted"
-                    break
-                if elapsed >= _provider_max_seconds(state):
-                    reason, limit_kind = "hard_deadline_exceeded", "max-runtime"
-                    break
-                if elapsed >= state["hard_seconds"]:
-                    reason, limit_kind = "hard_deadline_exceeded", "hard"
-                    break
-                if now_mono - heartbeat_mono >= float(state["idle_seconds"]):
-                    reason, limit_kind = "idle_timeout", "idle"
-                    break
-                if now_mono >= next_notice:
-                    try:
-                        controller_transition({
-                            "notice_count": state["notice_count"] + 1,
-                            "elapsed_seconds": elapsed,
-                        })
-                    except DispatchError:
-                        reason = "status_unavailable"
-                        failure_stage = "binding_failure"
-                        break
-                    next_notice += float(command["notice_seconds"])
-                    if sys.stderr.isatty():
-                        print(
-                            f"agy-worker: still running; elapsed={int(elapsed)}s "
-                            f"progress={state['progress_count']}", file=sys.stderr, flush=True,
-                        )
-                try:
-                    # A fixed poll can return after a nearer hard, maximum,
-                    # idle, or notice boundary.  Bound the kernel wait to the
-                    # first controller-owned clock, then reload any extension
-                    # and classify the resampled time before consuming ready
-                    # bytes as semantic progress.
-                    wait_until = min(
-                        started_mono
-                        + max(0.0, _provider_max_seconds(state) - float(state["attempt_base_elapsed"])),
-                        started_mono
-                        + max(0.0, float(state["hard_seconds"]) - float(state["attempt_base_elapsed"])),
-                        heartbeat_mono + float(state["idle_seconds"]),
-                        next_notice,
-                    )
-                    wait_seconds = min(CONTROL_POLL, max(0.0, wait_until - now_mono))
-                    events = selector.select(wait_seconds)
-                except OSError:
-                    reason = "status_unavailable"
-                    failure_stage = "binding_failure"
-                    break
-                post_wait_mono = time.monotonic()
-                try:
-                    refresh_control_snapshot()
-                except DispatchError:
-                    reason = "status_unavailable"
-                    failure_stage = "binding_failure"
-                    break
-                elapsed = (
-                    float(state["attempt_base_elapsed"])
-                    + post_wait_mono - started_mono
-                )
-                if state["cancel_requested"] or stop_signal is not None:
-                    reason = "cancelled" if stop_signal is None else "interrupted"
-                    break
-                if elapsed >= _provider_max_seconds(state):
-                    reason, limit_kind = "hard_deadline_exceeded", "max-runtime"
-                    break
-                if elapsed >= float(state["hard_seconds"]):
-                    reason, limit_kind = "hard_deadline_exceeded", "hard"
-                    break
-                if post_wait_mono - heartbeat_mono >= float(state["idle_seconds"]):
-                    reason, limit_kind = "idle_timeout", "idle"
-                    break
-                for key, _mask in events:
-                    name = key.data
-                    try:
-                        chunk = os.read(key.fd, 65536)
-                    except BlockingIOError:
-                        continue
-                    except OSError:
-                        reason = "status_unavailable"
-                        failure_stage = "binding_failure"
-                        break
-                    if not chunk:
-                        try:
-                            selector.unregister(key.fileobj)
-                            key.fileobj.close()
-                        except OSError:
-                            reason = "status_unavailable"
-                            failure_stage = "binding_failure"
-                            break
-                        continue
-                    sizes[name] += len(chunk)
-                    if sizes[name] > MAX_STREAM_BYTES:
-                        reason = "output_oversized"
-                        break
-                    try:
-                        os.write(stdout_fd if name == "stdout" else stderr_fd, chunk)
-                    except OSError:
-                        reason = "status_unavailable"
-                        failure_stage = "binding_failure"
-                        break
-                    if name == "stdout" and reason is None:
-                        buffers[name].extend(chunk)
-                        while b"\n" in buffers[name]:
-                            line, _, remainder = buffers[name].partition(b"\n")
-                            buffers[name] = bytearray(remainder)
-                            if len(line) > MAX_EVENT_BYTES:
-                                reason = "output_oversized"
-                                break
-                            valid, conversation, event_kind = _event(line)
-                            if valid:
-                                if saw_terminal or (event_kind == "init" and saw_init) or (
-                                    event_kind != "init" and not saw_init
-                                ):
-                                    reason = "invalid_envelope"
-                                    failure_stage = "framing"
-                                    break
-                                if event_kind == "init":
-                                    try:
-                                        init_frame = json.loads(
-                                            line.decode("utf-8", "strict"),
-                                            object_pairs_hook=_duplicates,
-                                        )
-                                    except (UnicodeError, json.JSONDecodeError, ValueError, OverflowError, DispatchError):
-                                        init_frame = None
-                                    init_value = init_frame.get("init") if isinstance(init_frame, dict) else None
-                                    if not isinstance(init_value, dict) or not _init_cwd_matches_launch(init_value, launch_cwd):
-                                        reason = "status_unavailable"
-                                        failure_stage = "binding_failure"
-                                        break
-                                    if command.get("boost") and (
-                                        init_value.get("agent") != "Boost"
-                                        or init_value.get("permission_mode") != "request-review"
-                                    ):
-                                        reason = "invalid_envelope"
-                                        failure_stage = "boost_contract"
-                                        break
-                                    saw_init = True
-                                elif event_kind == "result":
-                                    saw_terminal = True
-                                heartbeat_mono = time.monotonic()
-                                updates: dict[str, Any] = {
-                                    "progress_count": state["progress_count"] + 1,
-                                    "last_progress_epoch": time.time(),
-                                    "elapsed_seconds": float(state["attempt_base_elapsed"]) + heartbeat_mono - started_mono,
-                                    "last_activity": (
-                                        "provider_initialized" if event_kind == "init"
-                                        else "progress_signal" if event_kind == "step_update"
-                                        else "terminal_received"
-                                    ),
-                                }
-                                if conversation is not None:
-                                    if state["conversation_id"] not in {None, conversation}:
-                                        reason = "status_unavailable"
-                                        break
-                                    updates["conversation_id"] = conversation
-                                    updates["resume_available"] = True
-                                try:
-                                    controller_transition(updates)
-                                except DispatchError:
-                                    reason = "status_unavailable"
-                                    failure_stage = "binding_failure"
-                                    break
-                        if len(buffers[name]) > MAX_EVENT_BYTES:
-                            # A newline-free oversized frame cannot be safely
-                            # resynchronized.  It is neither a heartbeat nor a
-                            # candidate terminal result.
-                            reason = "output_oversized"
-                    if reason is not None:
-                        break
-                if reason is not None:
-                    break
-            if process is not None:
-                # The candidate worktree binding below is taken only after the
-                # provider process group has been terminated and reaped.  The
-                # controller-owned stream artifacts are flushed afterward.
-                # Freeze first: fsync, envelope parsing, and reconciliation
-                # are controller-local work and must not keep the provider
-                # clock or extension window alive.
-                returncode = _terminate_provider_process(
-                    process, contained_root,
-                    contained=prepared_containment is not None,
-                )
-                idle_timeout_with_exited_provider = bool(
-                    reason == "idle_timeout" and returncode == 0
-                )
-                process = None
-                runtime_end_mono = time.monotonic()
-                # A hard/max boundary stops semantic event processing, but a
-                # complete terminal frame already present in the reaped pipes
-                # remains bounded provider evidence.  Drain it without
-                # incrementing progress or moving the heartbeat.
-                drain_reaped_streams()
-                assert started_mono is not None
-                elapsed = float(state["attempt_base_elapsed"]) + max(
-                    0.0, runtime_end_mono - started_mono,
-                )
-                state, prior_raw, _sha, frozen_limit = _freeze_reaped_runtime(
-                    job, state["attempt"], os.getpid(), elapsed,
-                )
-                runtime_frozen = True
-                if reason == "hard_deadline_exceeded":
-                    # A valid extension may have landed after this controller
-                    # observed its old limit but before the reaped-runtime CAS.
-                    # The frozen locked limit is authoritative in either
-                    # direction; do not retain a stale timeout projection.
-                    if frozen_limit is None:
-                        reason, limit_kind = None, None
-                    else:
-                        reason, limit_kind = "hard_deadline_exceeded", frozen_limit
-                elif reason is None and frozen_limit is not None:
-                    reason, limit_kind = "hard_deadline_exceeded", frozen_limit
-            try:
-                os.fsync(stdout_fd)
-                os.fsync(stderr_fd)
-            except OSError:
-                reason = "status_unavailable"
-                failure_stage = "binding_failure"
-            result_binding: tuple[str, tuple[int, int, int, int, int]] | None = None
-            outer_status: str | None = None
-            provider_retry_after: int | None = None
-            provider_retry_observed: float | None = None
-            reviewed_idle_partial = bool(
-                idle_timeout_with_exited_provider
-                and _has_reviewed_provider_timeout(
-                    stderr_path,
-                    command["agy_version"] if command["agy_version_observed"] else "",
-                    command["max_seconds"],
-                )
-            )
-            # A deadline is a controller fact, not a reason to discard a
-            # terminal report already emitted by the bounded provider.  Parse
-            # that report for candidate/provenance evidence, but never let its
-            # outer SUCCESS/ERROR/CANCELLED disposition publish past the
-            # frozen deadline.  Cancellation and binding failures retain their
-            # existing fail-closed precedence and do not enter this path.
-            if reason in {None, "hard_deadline_exceeded"} or reviewed_idle_partial:
-                if reason is None:
-                    terminal_failure = _quota_terminal_failure(
-                        stream_path,
-                        command["agy_version"] if command["agy_version_observed"] else "",
-                    )
-                    if terminal_failure is not None:
-                        reason, provider_retry_after = terminal_failure
-                        outer_status = "ERROR"
-                        # The exact 1.1.13 quota terminal has a valid outer ERROR
-                        # fact but intentionally carries no structured report.
-                        # Preserve both facts without treating quota as a report.
-                        failure_stage = "missing_structured_output"
-                        if provider_retry_after is not None:
-                            provider_retry_observed = time.time()
-                if reason in {None, "hard_deadline_exceeded"} and sizes["stdout"] == 0:
-                    if reason is None:
-                        reason = (
-                            _classify_stderr(
-                                stderr_path,
-                                command["agy_version"] if command["agy_version_observed"] else "",
-                                returncode,
-                                command["max_seconds"],
-                            )
-                        )
-                elif reason in {None, "hard_deadline_exceeded"} or reviewed_idle_partial:
-                    try:
-                        if schema_paths is None:
-                            raise DispatchError("dispatch schema binding is unavailable")
-                        schema_paths = _bound_schemas(command, state)
-                        result_binding, outer_status, failure_stage = _validate_terminal_envelope(
-                            stream_path, envelope_path, schema_paths[0], schema_paths[1],
-                            boost=bool(command.get("boost")), stage_dir=stage_dir,
-                        )
-                        if result_binding is None and reason is None:
-                            if (
-                                failure_stage == "missing_structured_output"
-                                and returncode == 0
-                                and _has_reviewed_terminal_refusal(
-                                    stream_path,
-                                    command["agy_version"] if command["agy_version_observed"] else "",
-                                )
-                            ):
-                                reason, limit_kind = "permission_required", None
-                                failure_stage = None
-                            else:
-                                reason = "invalid_envelope"
-                        elif (
-                            result_binding is not None
-                            and reason != "hard_deadline_exceeded"
-                            and _has_reviewed_denied_actions(
-                                stream_path,
-                                command["agy_version"] if command["agy_version_observed"] else "",
-                            )
-                        ):
-                            reason, limit_kind = "permission_required", None
-                        elif (
-                            result_binding is not None
-                            and reason != "hard_deadline_exceeded"
-                            and _has_reviewed_provider_timeout(
-                                stderr_path,
-                                command["agy_version"] if command["agy_version_observed"] else "",
-                                command["max_seconds"],
-                            )
-                        ):
-                            reason, limit_kind = "provider_timeout", None
-                        elif reason is None and outer_status == "ERROR":
-                            reason = "provider_terminal_error"
-                        elif reason is None and outer_status == "CANCELLED":
-                            reason = "provider_terminal_cancelled"
-                    except DispatchError:
-                        # A binding/schema failure is security-relevant even
-                        # when a deadline was observed.  Do not preserve a
-                        # candidate whose terminal bytes could not be bound.
-                        reason = "status_unavailable"
-                        result_binding = None
-                        failure_stage = "binding_failure"
-            boundary_failed = False
-            if command["workflow"] == "project":
-                try:
-                    if _project_boundary(command["workdir"]) != state["project_boundary"]:
-                        raise DispatchError("project worktree boundary changed")
-                except DispatchError:
-                    boundary_failed = True
-                    reason = "status_unavailable"
-                    result_binding = None
-                    failure_stage = "binding_failure"
-            # One blocked completion snapshot linearizes terminal state against
-            # late HUP/INT/TERM just as the foreground result publisher does.
-            watched = tuple(prior_handlers)
-            signal.pthread_sigmask(signal.SIG_BLOCK, watched)
-            pending = signal.sigpending()
-            completion_signal = stop_signal
-            for candidate in watched:
-                if candidate in pending or candidate == stop_signal:
-                    completion_signal = candidate
-                    break
-            if completion_signal is not None:
-                stop_signal = completion_signal
-                reason = "interrupted"
-                result_binding = None
-                failure_stage = None
-            if reason is None:
-                final_status, exit_code = "succeeded", 0
-                result_path: str | None = str(envelope_path)
-            else:
-                final_status = "cancelled" if reason in {"cancelled", "interrupted"} else "failed"
-                if reason == "provider_terminal_cancelled":
-                    final_status = "cancelled"
-                exit_code = 128 + stop_signal if stop_signal is not None else EXIT_BY_REASON[reason]
-                result_path = str(envelope_path) if result_binding is not None else None
-            cleanup_failed = False
-            reconciliation_manifest_sha: str | None = None
-            derived_selected_sha: str | None = None
-            derived_selected_files: int | None = None
-            derived_selected_trees: int | None = None
-            derived_transmission_sha: str | None = None
-            if stage_dir is not None and stage_dir.exists():
-                try:
-                    if (
-                        narrow_source_snapshot is None
-                        or _worktree_snapshot(command["workdir"]) != narrow_source_snapshot
-                    ):
-                        raise DispatchError(
-                            "source worktree changed while the narrow provider stage was active"
-                        )
-                    mutations, op_manifest = _scan_stage_mutations(stage_dir, scope, selected_manifest)
-                    if result_binding is not None and not _declared_scoped_mutations_match(
-                        envelope_path, result_binding, mutations, stage_dir,
-                    ):
-                        raise DispatchError(
-                            "worker files_changed does not match scoped stage mutations"
-                        )
-                    if result_binding is not None and outer_status in {
-                        "SUCCESS", "ERROR", "CANCELLED",
-                    }:
-                        reconciliation_manifest_sha = _reconcile_stage_to_source(
-                            command["workdir"], stage_dir, mutations, job,
-                        )
-                        if _build_selected_content_manifest(
-                            command["workdir"], scope,
-                        ) != _build_selected_content_manifest(
-                            stage_dir, scope, is_stage=True,
-                        ):
-                            raise DispatchError(
-                                "source reconciliation does not match the provider stage"
-                            )
-                    else:
-                        reconciliation_manifest_sha = _selected_content_digest([])
-                except Exception:
-                    cleanup_failed = True
-                finally:
-                    try:
-                        if stage_identity is None:
-                            raise DispatchError("stage cleanup identity is unavailable")
-                        _cleanup_stage(stage_dir, stage_identity)
-                    except (OSError, DispatchError):
-                        cleanup_failed = True
-            try:
-                selector.close()
-                os.close(stdout_fd); stdout_fd = -1
-                os.close(stderr_fd); stderr_fd = -1
-                _stage(command, False)
-                _load_bound_command(job, state, stage_readonly=False)
-                _bound_schemas(command, state)
-                if state["attempt_origin"] == "conversation-continue":
-                    _bound_verification(job, state)
-            except (OSError, DispatchError):
-                cleanup_failed = True
-            if cleanup_failed:
-                reason, final_status = "status_unavailable", "failed"
-                exit_code = EXIT_BY_REASON["status_unavailable"]
-                result_path = None
-                result_binding = None
-                failure_stage = "binding_failure"
-            # A SHA-approved cancellation may arrive after the last pipe-loop
-            # observation (or after reaping) and before candidate work begins.
-            # Observe it under the short ownership lock before selecting the
-            # expensive reconciliation path.  The final transition reloads
-            # again, but that later check is too late to keep a cheap cancel
-            # from being delayed by a repository-controlled Git probe.
-            with state_lock(job):
-                current, current_raw, _current_sha = load_state(job)
-                if (
-                    current["attempt"] != state["attempt"]
-                    or current["controller_pid"] != os.getpid()
-                    or current["status"] in TERMINAL
-                ):
-                    raise DispatchError("dispatch changed before terminal reconciliation")
-                state, prior_raw = current, current_raw
-                if current["cancel_requested"]:
-                    reason, final_status = "cancelled", "cancelled"
-                    exit_code = EXIT_BY_REASON["cancelled"]
-                    result_path = None
-                    result_binding = None
-                    failure_stage = None
-            # This may use a bounded Git fallback.  The provider clock was
-            # already frozen above, so keep this outside the final short state
-            # lock: status/control readers can observe the frozen record and
-            # reject stale extensions while reconciliation is in progress.
-            # A local cancellation/interruption with no current terminal
-            # report has no new worktree fact to reconcile.  Do not make the
-            # cheap control wait for a candidate/worktree Git scan after the
-            # provider group is already reaped.  A continuation's prior
-            # candidate remains exact-bound and unreviewed; result/finalize
-            # rebind it before use.  A provider-CANCELLED report still has a
-            # current result_binding and retains the reconciliation path.
-            skip_cancel_reconciliation = bool(
-                reason in {"cancelled", "interrupted"}
-                and result_binding is None
-            )
-            if skip_cancel_reconciliation:
-                candidate_worktree = None
-                reconciliation = {
-                    "worktree_reconciliation": "unavailable",
-                    "worktree_changes_present": None,
-                    "worktree_changed_since_dispatch": None,
-                }
-            else:
-                candidate_worktree = (
-                    _state_worktree_snapshot(state, command["workdir"])
-                    if result_binding is not None else None
-                )
-                reconciliation = (
-                    _reconciliation_from_snapshot(
-                        candidate_worktree, state["worktree_baseline"],
-                    )
-                    if result_binding is not None else _reconcile_worktree(
-                        command["workdir"], state["worktree_baseline"], state=state,
-                    )
-                )
-            if (
-                result_binding is not None
-                and candidate_worktree is not None
-                and reconciliation_manifest_sha is not None
-                and scope is not None
-            ):
-                try:
-                    derived_readable = _scan_readable_worktree(command["workdir"])
-                    _validate_scope_against_worktree(
-                        scope, command["workdir"], derived_readable,
-                    )
-                    derived_selected = _build_selected_content_manifest(
-                        command["workdir"], scope,
-                    )
-                    derived_selected_sha = _selected_content_digest(derived_selected)
-                    derived_selected_files = sum(
-                        1 for item in derived_selected if item["kind"] == "file"
-                    )
-                    derived_selected_trees = sum(
-                        1 for item in derived_selected if item["kind"] == "directory"
-                    )
-                    derived_transmission_sha = _bound_transmission_sha256(
-                        command, _canonical_digest(scope),
-                        _manifest_digest(derived_readable), derived_selected_sha,
-                    )
-                except Exception:
-                    derived_selected_sha = None
-                    derived_selected_files = None
-                    derived_selected_trees = None
-                    derived_transmission_sha = None
-            # An approved control may land after the last loop observation.  Bind
-            # finalization to the current state under the same short transition lock.
-            with state_lock(job):
-                current, current_raw, _current_sha = load_state(job)
-                if (
-                    current["attempt"] != state["attempt"]
-                    or current["controller_pid"] != os.getpid()
-                    or current["status"] in TERMINAL
-                ):
-                    raise DispatchError("dispatch changed before terminalization")
-                # Persist the provider runtime measured before local terminal
-                # parsing/reconciliation.  Those controller-local checks must
-                # not silently consume a later repair/recovery budget.
-                elapsed = max(
-                    elapsed,
-                    float(current["elapsed_seconds"]),
-                )
-                if current["cancel_requested"]:
-                    reason, final_status, exit_code = "cancelled", "cancelled", EXIT_BY_REASON["cancelled"]
-                    result_path = None
-                    result_binding = None
-                    failure_stage = None
-                if reason != "provider_quota_exhausted":
-                    provider_retry_after = None
-                    provider_retry_observed = None
-                prior_candidate_exists = bool(
-                    current["attempt_origin"] == "conversation-continue"
-                    and current["candidate_recognized"]
-                )
-                prior_candidate_is_bound = bool(
-                    prior_candidate_exists
-                    and current["candidate_source"] != "none"
-                    and current["result_available"]
-                    and current["failure_stage"] is None
-                    and all(current[key] is not None for key in (
-                        "result_path", "result_sha256", "result_identity",
-                        "candidate_worktree_sha256", "candidate_worktree_entries",
-                    ))
-                )
-                # An old continuation candidate remains readable only when all
-                # of its exact report/worktree bindings are still complete.
-                # Keep an incomplete one as inaccessible forensic state and
-                # fail closed; do not let a concurrent local cancel convert it
-                # into an apparently usable candidate.
-                preserve_candidate = bool(
-                    result_binding is None and prior_candidate_is_bound
-                )
-                preserve_candidate_forensics = bool(
-                    result_binding is None and prior_candidate_exists
-                )
-                terminal_snapshot_unavailable = bool(
-                    result_binding is not None
-                    and outer_status in {"SUCCESS", "ERROR", "CANCELLED"}
-                    and candidate_worktree is None
-                )
-                if terminal_snapshot_unavailable:
-                    # Keep the exact terminal report binding and its outer
-                    # provenance for forensics, but it is not a reviewable
-                    # candidate without a worktree binding.
-                    reason, final_status = "status_unavailable", "failed"
-                    exit_code = EXIT_BY_REASON["status_unavailable"]
-                    failure_stage = "binding_failure"
-                if preserve_candidate_forensics and not prior_candidate_is_bound:
-                    reason, final_status = "status_unavailable", "failed"
-                    exit_code = EXIT_BY_REASON["status_unavailable"]
-                    failure_stage = "binding_failure"
-                candidate_recognized = result_binding is not None or preserve_candidate_forensics
-                candidate_unavailable = bool(
-                    candidate_recognized and failure_stage == "binding_failure"
-                )
-                candidate_source = (
-                    "provider_success" if result_binding is not None and outer_status == "SUCCESS"
-                    else "provider_error" if result_binding is not None and outer_status == "ERROR"
-                    else "provider_cancelled" if result_binding is not None and outer_status == "CANCELLED"
-                    else current["candidate_source"] if preserve_candidate_forensics
-                    else "none"
-                )
-                if failure_stage in {"schema_rejection", "binding_failure", "framing", "outer_status", "invalid_envelope"}:
-                    provider_terminal_status = "unknown"
-                else:
-                    provider_terminal_status = (
-                        "success" if outer_status == "SUCCESS"
-                        else "error" if outer_status == "ERROR"
-                        else "cancelled" if outer_status in {"CANCELLED", "CANCELED"}
-                        else "unknown"
-                    )
-                preserved_path = current["result_path"] if preserve_candidate_forensics else None
-                preserved_sha = current["result_sha256"] if preserve_candidate_forensics else None
-                preserved_identity = current["result_identity"] if preserve_candidate_forensics else None
-                is_boost = bool(command.get("boost"))
-                repair_lineage_updates: dict[str, Any] = {}
-                if current["schema_version"] >= 12 and result_binding is not None:
-                    repair_lineage_updates = {
-                        "repair_lineage_sha256": None,
-                        "repair_parent_result_sha256": None,
-                        "repair_parent_worktree_sha256": None,
-                        "repair_lineage_attempt": None,
-                    }
-                    if (
-                        derived_selected_sha is not None
-                        and derived_selected_files is not None
-                        and derived_selected_trees is not None
-                        and derived_transmission_sha is not None
-                    ):
-                        repair_lineage_updates.update({
-                            "selected_content_sha256": derived_selected_sha,
-                            "selected_file_count": derived_selected_files,
-                            "selected_tree_count": derived_selected_trees,
-                            "transmission_sha256": derived_transmission_sha,
-                        })
-                    if (
-                        current["allow_scoped_repair"]
-                        and candidate_worktree is not None
-                        and reconciliation_manifest_sha is not None
-                        and derived_selected_sha is not None
-                        and derived_selected_files is not None
-                        and derived_selected_trees is not None
-                        and derived_transmission_sha is not None
-                    ):
-                        parent_result_sha = (
-                            current["result_sha256"]
-                            if current["attempt_origin"] == "conversation-continue"
-                            else None
-                        )
-                        parent_worktree_sha = (
-                            current["candidate_worktree_sha256"]
-                            if current["attempt_origin"] == "conversation-continue"
-                            else current["worktree_baseline"]["sha256"]
-                        )
-                        repair_lineage_updates = {
-                            **repair_lineage_updates,
-                            "repair_parent_result_sha256": parent_result_sha,
-                            "repair_parent_worktree_sha256": parent_worktree_sha,
-                            "repair_lineage_attempt": current["attempt"],
-                            "repair_lineage_sha256": _compute_repair_lineage_sha256(
-                                authority_sha256=current["repair_authority_sha256"],
-                                attempt=current["attempt"],
-                                parent_result_sha256=parent_result_sha,
-                                parent_worktree_sha256=parent_worktree_sha,
-                                reconciliation_sha256=reconciliation_manifest_sha,
-                                result_sha256=result_binding[0],
-                                candidate_worktree_sha256=candidate_worktree["sha256"],
-                                selected_content_sha256=derived_selected_sha,
-                                transmission_sha256=derived_transmission_sha,
-                            ),
-                        }
-                updates = {
-                    "status": final_status,
-                    "reason": reason,
-                    "exit_code": exit_code,
-                    "controller_pid": None,
-                    "finished_epoch": time.time(),
-                    "elapsed_seconds": elapsed,
-                    "agy_returncode": returncode,
-                    "result_path": str(envelope_path) if result_binding is not None else preserved_path,
-                    "result_sha256": result_binding[0] if result_binding is not None else preserved_sha,
-                    "result_identity": list(result_binding[1]) if result_binding is not None else preserved_identity,
-                    "candidate_recognized": candidate_recognized,
-                    "candidate_source": candidate_source,
-                    "provider_terminal_status": provider_terminal_status,
-                    # Preserve an exact old candidate after a binding failure for
-                    # forensics, but never claim it can still be read or reviewed.
-                    "result_available": candidate_recognized and not candidate_unavailable,
-                    "candidate_worktree_sha256": (
-                        candidate_worktree["sha256"] if candidate_worktree is not None
-                        else current["candidate_worktree_sha256"] if preserve_candidate_forensics else None
-                    ),
-                    "candidate_worktree_entries": (
-                        candidate_worktree["entries"] if candidate_worktree is not None
-                        else current["candidate_worktree_entries"] if preserve_candidate_forensics else None
-                    ),
-                    "driver_disposition": "unreviewed" if candidate_recognized else "not_applicable",
-                    "failure_stage": failure_stage,
-                    "last_activity": "terminal_received" if saw_terminal else current["last_activity"],
-                    "next_action": (
-                        "blocked" if candidate_unavailable else "driver_review"
-                    ) if candidate_recognized else (
-                        "none" if reason in {"selection_preflight_failed", "permission_required"} else
-                        "resume" if current["conversation_id"] and not is_boost else "blocked"
-                    ),
-                    "next_action_command": None,
-                    **(
-                        {
-                            "worktree_reconciliation": "unavailable",
-                            "worktree_changes_present": None,
-                            "worktree_changed_since_dispatch": None,
-                        }
-                        if terminal_snapshot_unavailable else reconciliation
-                    ),
-                    "resume_available": bool(
-                        current["conversation_id"] and not candidate_recognized
-                        and final_status == "failed"
-                        and reason not in {"selection_preflight_failed", "permission_required"} and not is_boost
-                    ),
-                    "continue_available": False,
-                    "remote_cancel_unverified": reason in {"cancelled", "interrupted"},
-                    "limit_kind": limit_kind,
-                    "provider_retry_after_seconds": provider_retry_after,
-                    "provider_retry_observed_epoch": provider_retry_observed,
-                    **repair_lineage_updates,
-                }
-                if current.get("provider_scope_path") is not None:
-                    updates["reconciliation_manifest_sha256"] = reconciliation_manifest_sha
-                if result_binding is not None:
-                    # Continuation feedback remains bound audit evidence for
-                    # the prior candidate. A newly returned candidate starts
-                    # unreviewed, so it cannot inherit prior check evidence.
-                    updates.update({
-                        "check_summary": None,
-                        "check_counts": {
-                            "passed": 0, "failed": 0,
-                            "advisory": 0, "missing": 0,
-                        },
-                    })
-                if current["schema_version"] >= 5:
-                    if boundary_failed or candidate_unavailable:
-                        updates.update({"phase": "blocked", "assurance": "blocked"})
-                    elif candidate_recognized:
-                        updates.update({
-                            "phase": (
-                                "repair-failed"
-                                if final_status == "failed" and current["attempt_origin"] == "conversation-continue"
-                                else "awaiting-verification"
-                            ),
-                            "assurance": "pending",
-                            "continue_available": bool(
-                                final_status in {"succeeded", "failed"}
-                                and reason not in {"selection_preflight_failed", "permission_required"}
-                                and candidate_source != "provider_cancelled"
-                                and current["conversation_id"] and not is_boost
-                                and current["attempt"] < current["max_cycles"]
-                                and elapsed < _provider_max_seconds(current)
-                                and (
-                                    current.get("provider_scope_path") is None
-                                    or derived_transmission_sha
-                                    == current.get("approved_transmission_sha256")
-                                    or repair_lineage_updates.get(
-                                        "repair_lineage_sha256"
-                                    ) is not None
-                                    or (
-                                        result_binding is None
-                                        and (
-                                            current.get("transmission_sha256")
-                                            == current.get("approved_transmission_sha256")
-                                            or current.get("repair_lineage_sha256") is not None
-                                        )
-                                    )
-                                )
-                            ),
-                        })
-                    else:
-                        updates.update({
-                            "phase": (
-                                "repair-failed"
-                                if final_status == "failed" and current["attempt_origin"] == "conversation-continue"
-                                else "attempt-failed"
-                            ),
-                            "assurance": "pending",
-                            "continue_available": False,
-                        })
-                state, prior_raw, _sha = _transition_locked(job, current, current_raw, updates)
-            return exit_code
-        finally:
-            if process is not None:
-                # If an exception is leaving the provider loop, transfer
-                # ownership to the outer recovery only after this exact group
-                # termination/reap has succeeded.  It then freezes elapsed
-                # time from this reap boundary.  If termination itself raises,
-                # keep ``process`` live so the outer recovery retains the one
-                # retry opportunity instead of assuming the group is gone.
-                _terminate_provider_process(
-                    process, contained_root,
-                    contained=prepared_containment is not None,
-                )
-                runtime_end_mono = time.monotonic()
-                process = None
-            with contextlib.suppress(Exception):
-                selector.close()
-            if stdout_fd >= 0:
-                os.close(stdout_fd)
-            if stderr_fd >= 0:
-                os.close(stderr_fd)
-            with contextlib.suppress(OSError):
-                _stage(command, False)
+                _launch_controller_provider(job, binding, execution, streams, launch, outcome)
+                _monitor_controller_provider(job, binding, execution, streams, launch, outcome)
+                _reap_controller_provider(job, binding, execution, streams, launch, outcome)
+                _observe_controller_terminal(binding, execution, streams, launch, outcome)
+                _begin_controller_completion(execution, streams, outcome, candidate_data, prior_handlers)
+                _cleanup_controller_stage(job, binding, streams, launch, outcome, candidate_data)
+                _observe_controller_cancel(job, binding, outcome)
+                _reconcile_controller_candidate(binding, launch, outcome, candidate_data)
+                return _publish_controller_terminal(job, binding, execution, streams, outcome, candidate_data)
+            finally:
+                _cleanup_controller_resources(binding, execution, streams, launch)
     except Exception:
-        # Once Popen succeeds, no ordinary controller exception may be left to
-        # the cleanup-only finally path.  Reap first, freeze if the state still
-        # belongs to this controller, then publish one fail-closed terminal
-        # projection.  Pre-launch errors retain their narrower existing paths.
-        if process is None and started_mono is None:
+        if execution.process is None and execution.started_mono is None:
             raise
-        if process is not None:
-            with contextlib.suppress(Exception):
-                _terminate_provider_process(
-                    process, contained_root,
-                    contained=prepared_containment is not None,
-                )
-            process = None
-            runtime_end_mono = time.monotonic()
-        frozen_elapsed = float(state["elapsed_seconds"])
-        if not runtime_frozen:
-            frozen_elapsed = float(state["attempt_base_elapsed"])
-            if started_mono is not None:
-                end = runtime_end_mono if runtime_end_mono is not None else time.monotonic()
-                frozen_elapsed += max(0.0, end - started_mono)
-            try:
-                state, prior_raw, _sha, _limit = _freeze_reaped_runtime(
-                    job, state["attempt"], os.getpid(), frozen_elapsed,
-                )
-                runtime_frozen = True
-            except Exception:
-                # The final state write below still clears an active controller
-                # record; preserve the largest local elapsed observation if the
-                # dedicated freeze CAS itself could not complete.
-                pass
-        try:
-            terminal, _raw, _sha = _terminalize_owned(
-                job, state, status="failed", reason="status_unavailable",
-                exit_code=EXIT_BY_REASON["status_unavailable"],
-                failure_stage="binding_failure", expected_controller_pid=os.getpid(),
-                elapsed_seconds=frozen_elapsed, postlaunch_cancel=True,
-            )
-            return int(terminal["exit_code"])
-        except Exception:
-            # A failed final write is still not allowed to disguise the
-            # controller exception; the strict helper has already attempted
-            # its unavailable fallback without holding a scan under the lock.
-            return EXIT_BY_REASON["status_unavailable"]
+        return _recover_controller_failure(job, binding, execution, launch)
     finally:
         for number, handler in prior_handlers.items():
             signal.signal(number, handler)
@@ -5958,9 +6082,9 @@ def controller(job: Path, ownership_fd: int) -> int:
 
 def create_state(
     job: Path, origin: str, *, resume: bool, approve_sha: str | None = None,
-    approve_migration_sha: str | None = None, verification: dict[str, Any] | None = None,
+    verification: dict[str, Any] | None = None,
     require_initial_choice: bool = False,
-) -> tuple[dict[str, Any], str]:
+) -> tuple[DispatchState, str]:
     command, command_raw, command_info = load_command(job)
     if require_initial_choice:
         _require_initial_transmission_choice(command, origin)
@@ -5988,19 +6112,12 @@ def create_state(
                     raise DispatchError("dispatch fresh restart is unavailable")
                 if origin == "conversation-resume" and not _resume_is_eligible(state, time.time()):
                     raise DispatchError("dispatch is not resume-eligible")
-            if state["schema_version"] in {3, 4}:
-                command, state = _approved_legacy_migration(
-                    job, state, raw, approve_migration_sha,
-                )
-            else:
-                command = _load_bound_command(job, state, stage_readonly=False)
-            if command.get("boost") and origin in {"conversation-resume", "fresh-restart", "conversation-continue"}:
-                raise DispatchError("Boost dispatches do not resume, restart, or continue")
+            command = _load_bound_command(job, state, stage_readonly=False)
             if _job_is_inside_worktree(job, command["workdir"]):
                 raise DispatchError("dispatch job directory cannot be inside the target workdir")
             command, state = _bound_lifecycle_inputs(job, state, command)
             if not _selection_launch_is_authorized(_load_bound_selection(command, state)):
-                raise DispatchError("dispatch direct selection lacks approved compatibility disposition")
+                raise DispatchError("dispatch selection has no current executable binding")
             if origin == "conversation-continue":
                 if (
                     verification is None
@@ -6034,7 +6151,6 @@ def create_state(
                     stage_sha=stage_sha, stage_identity=stage_info,
                     project_boundary=state["project_boundary"],
                     schema_bindings=schema_bindings,
-                    state_schema=state["schema_version"],
                     explain_worktree_rejection=True,
                     repair_authority_state=(
                         state if origin == "conversation-continue" else None
@@ -6051,13 +6167,12 @@ def create_state(
                     float(state["elapsed_seconds"]) + float(command["hard_seconds"]),
                 )
                 next_state["max_seconds"] = float(state["max_seconds"])
-                if state["schema_version"] >= 12:
-                    next_state["self_verification_elapsed_seconds"] = float(
-                        state["self_verification_elapsed_seconds"]
-                    )
-                    next_state["self_verification_run"] = state[
-                        "self_verification_run"
-                    ]
+                next_state["self_verification_elapsed_seconds"] = float(
+                    state["self_verification_elapsed_seconds"]
+                )
+                next_state["self_verification_run"] = state[
+                    "self_verification_run"
+                ]
                 if state["workflow"] != "legacy":
                     next_state["phase"] = "repairing" if origin == "conversation-continue" else "dispatching"
                     next_state["check_summary"] = state["check_summary"]
@@ -6066,38 +6181,39 @@ def create_state(
                     next_state["last_success_sha256"] = state["result_sha256"] or state["last_success_sha256"]
                     next_state["last_success_identity"] = state["result_identity"] or state["last_success_identity"]
                     if origin == "conversation-continue":
+                        state_fields: Mapping[str, object] = state
                         for key in (
                             "result_path", "result_sha256", "result_identity",
                             "candidate_recognized", "candidate_source", "result_available",
                             "candidate_worktree_sha256", "candidate_worktree_entries",
+                            "candidate_worktree_path_facts",
                             "driver_disposition", "worktree_reconciliation",
                             "worktree_changes_present",
                             "worktree_changed_since_dispatch",
                         ):
-                            next_state[key] = state[key]
-                        if state["schema_version"] >= 12:
-                            for key in (
-                                "repair_lineage_sha256",
-                                "repair_parent_result_sha256",
-                                "repair_parent_worktree_sha256",
-                                "repair_lineage_attempt",
-                                "reconciliation_manifest_sha256",
-                            ):
-                                next_state[key] = state[key]
+                            next_state[key] = state_fields[key]
+                        for key in (
+                            "repair_lineage_sha256",
+                            "repair_parent_result_sha256",
+                            "repair_parent_worktree_sha256",
+                            "repair_lineage_attempt",
+                            "reconciliation_manifest_sha256",
+                        ):
+                            next_state[key] = state_fields[key]
                 if verification_path is not None:
                     next_state.update({
                         "verification_path": str(verification_path),
                         "verification_sha256": verification_sha,
-                        "verification_identity": list(verification_identity),
-                        "check_summary": verification["summary"],
-                        "check_counts": _verification_counts(verification),
+                        "verification_identity": list(cast(tuple[int, int, int, int, int], verification_identity)),
+                        "check_summary": cast(dict[str, Any], verification)["summary"],
+                        "check_counts": _verification_counts(cast(dict[str, Any], verification)),
                     })
-                validate_state(next_state)
+                validated_next = validate_state(next_state)
                 current, _info = read_regular(path, MAX_STATE_BYTES, "dispatch state")
                 if current != raw:
                     raise DispatchError("dispatch state changed before continuation")
                 _new_raw, new_sha = write_atomic(job, STATE_NAME, next_state)
-                return next_state, new_sha
+                return validated_next, new_sha
             except Exception:
                 _discard_new_verification(verification_path, verification_identity)
                 raise
@@ -6105,13 +6221,13 @@ def create_state(
             raise DispatchError("dispatch state already exists")
         if command.get("workflow") == "project" and _job_is_inside_worktree(job, command["workdir"]):
             raise DispatchError("dispatch job directory cannot be inside the target workdir")
-        state = initial_state(
+        initial = initial_state(
             command, origin, 1, command_sha=digest(command_raw),
             command_identity=command_info, stage_sha=stage_sha, stage_identity=stage_info,
             schema_bindings=schema_bindings,
             explain_worktree_rejection=True,
         )
-        validate_state(state)
+        state = validate_state(initial)
         _raw, sha = write_atomic(job, STATE_NAME, state)
         return state, sha
 
@@ -6119,7 +6235,6 @@ def create_state(
 def spawn(
     job: Path, origin: str, *, resume: bool, foreground: bool,
     approve_sha: str | None = None, verification: dict[str, Any] | None = None,
-    approve_migration_sha: str | None = None,
     output_format: str = "json",
 ) -> int:
     parent_signal: int | None = None
@@ -6136,94 +6251,94 @@ def spawn(
         signal.signal(number, latch)
     controller_process: subprocess.Popen[bytes] | None = None
     try:
-      with lifecycle_lock(job, blocking=False) as ownership_fd:
-        state, _sha = create_state(
-            job, origin, resume=resume, approve_sha=approve_sha,
-            approve_migration_sha=approve_migration_sha, verification=verification,
-            require_initial_choice=True,
-        )
-        if parent_signal is not None:
-            _terminalize_queued_signal(job, parent_signal)
-            return 128 + parent_signal
-        bound_command = _load_bound_command(job, state, stage_readonly=False)
-        controller_environment = _provider_environment(bound_command)
-        controller_argv = [
-            sys.executable, "-I", "-S", "-B", str(Path(__file__).resolve()),
-            "controller", "--job-dir", str(job), "--ownership-fd", str(ownership_fd),
-        ]
-        controller_process = subprocess.Popen(
-            controller_argv, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL, start_new_session=True, close_fds=True,
-            pass_fds=(ownership_fd,),
-            env=controller_environment,
-        )
-      deadline = time.monotonic() + 5.0
-      forwarded = False
-      while time.monotonic() < deadline:
-        current, _raw, sha = read_state_snapshot(job)
-        if parent_signal is not None and not forwarded:
-            with contextlib.suppress(ProcessLookupError, PermissionError):
-                os.killpg(controller_process.pid, parent_signal)
-            forwarded = True
-        if current["status"] in TERMINAL:
-            break
-        if controller_process.poll() is not None:
-            _terminalize_start_failure(job)
-            raise DispatchError("controller exited before startup handshake")
-        if (
-            current["status"] in {"queued", "running", "cancel-requested"}
-            and current["controller_pid"] == controller_process.pid
-        ):
-            break
-        time.sleep(0.02)
-      else:
-        _terminate(controller_process)
-        controller_process = None
-        _terminalize_start_failure(job)
-        raise DispatchError("controller startup handshake timed out")
-      if parent_signal is not None and not foreground:
-        try:
-            controller_process.wait(timeout=5.0)
-        except subprocess.TimeoutExpired:
+        with lifecycle_lock(job, blocking=False) as ownership_fd:
+            state, _sha = create_state(
+                job, origin, resume=resume, approve_sha=approve_sha,
+                verification=verification,
+                require_initial_choice=True,
+            )
+            if parent_signal is not None:
+                _terminalize_queued_signal(job, parent_signal)
+                return 128 + parent_signal
+            bound_command = _load_bound_command(job, state, stage_readonly=False)
+            controller_environment = _provider_environment(bound_command)
+            controller_argv = [
+                sys.executable, "-I", "-S", "-B", str(Path(__file__).resolve()),
+                "controller", "--job-dir", str(job), "--ownership-fd", str(ownership_fd),
+            ]
+            controller_process = subprocess.Popen(
+                controller_argv, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL, start_new_session=True, close_fds=True,
+                pass_fds=(ownership_fd,),
+                env=controller_environment,
+            )
+        deadline = time.monotonic() + 5.0
+        forwarded = False
+        while time.monotonic() < deadline:
+            current, _raw, sha = read_state_snapshot(job)
+            if parent_signal is not None and not forwarded:
+                with contextlib.suppress(ProcessLookupError, PermissionError):
+                    os.killpg(controller_process.pid, parent_signal)
+                forwarded = True
+            if current["status"] in TERMINAL:
+                break
+            if controller_process.poll() is not None:
+                _terminalize_start_failure(job)
+                raise DispatchError("controller exited before startup handshake")
+            if (
+                current["status"] in {"queued", "running", "cancel-requested"}
+                and current["controller_pid"] == controller_process.pid
+            ):
+                break
+            time.sleep(0.02)
+        else:
             _terminate(controller_process)
-        return 128 + parent_signal
-      if not foreground:
-        print_control_status(current, sha, output_format, job=job)
-        return 0
-      while controller_process.poll() is None:
-        if parent_signal is not None and not forwarded:
-            with contextlib.suppress(ProcessLookupError, PermissionError):
-                os.killpg(controller_process.pid, parent_signal)
-            forwarded = True
-        time.sleep(0.02)
-      result_code = controller_process.returncode
-      # Linearize foreground completion: after this snapshot lifecycle signals stay
-      # blocked until process exit, so success bytes cannot race a late cancellation.
-      signal.pthread_sigmask(signal.SIG_BLOCK, watched)
-      completion_blocked = True
-      pending = signal.sigpending()
-      completion_signal = parent_signal
-      for candidate in watched:
-        if candidate in pending or candidate == parent_signal:
-            completion_signal = candidate
-            break
-      if completion_signal is not None:
-        result_code = 128 + completion_signal
-      final, _raw, sha = read_state_snapshot(job)
-      if completion_signal is None and final["status"] == "succeeded" and final["result_path"] is not None:
-        command_result(job)
-      else:
-        sys.stderr.buffer.write(canonical(public_status(final, sha, job=job)))
-        sys.stderr.buffer.flush()
-      return result_code
+            controller_process = None
+            _terminalize_start_failure(job)
+            raise DispatchError("controller startup handshake timed out")
+        if parent_signal is not None and not foreground:
+            try:
+                controller_process.wait(timeout=5.0)
+            except subprocess.TimeoutExpired:
+                _terminate(controller_process)
+            return 128 + parent_signal
+        if not foreground:
+            print_control_status(current, sha, output_format, job=job)
+            return 0
+        while controller_process.poll() is None:
+            if parent_signal is not None and not forwarded:
+                with contextlib.suppress(ProcessLookupError, PermissionError):
+                    os.killpg(controller_process.pid, parent_signal)
+                forwarded = True
+            time.sleep(0.02)
+        result_code = controller_process.returncode
+        # Linearize foreground completion: after this snapshot lifecycle signals stay
+        # blocked until process exit, so success bytes cannot race a late cancellation.
+        signal.pthread_sigmask(signal.SIG_BLOCK, watched)
+        completion_blocked = True
+        pending = signal.sigpending()
+        completion_signal = parent_signal
+        for candidate in watched:
+            if candidate in pending or candidate == parent_signal:
+                completion_signal = candidate
+                break
+        if completion_signal is not None:
+            result_code = 128 + completion_signal
+        final, _raw, sha = read_state_snapshot(job)
+        if completion_signal is None and final["status"] == "succeeded" and final["result_path"] is not None:
+            command_result(job)
+        else:
+            sys.stderr.buffer.write(canonical(public_status(final, sha, job=job)))
+            sys.stderr.buffer.flush()
+        return result_code
     finally:
-      if not completion_blocked:
-        for number, handler in previous.items():
-            signal.signal(number, handler)
+        if not completion_blocked:
+            for number, handler in previous.items():
+                signal.signal(number, handler)
 
 
 def _terminal_projection(
-    state: dict[str, Any], *, status: str, reason: str, exit_code: int,
+    state: Mapping[str, Any], *, status: str, reason: str, exit_code: int,
     failure_stage: str | None = None, remote_cancel_unverified: bool = False,
     allow_continue: bool = True,
 ) -> dict[str, Any]:
@@ -6245,6 +6360,7 @@ def _terminal_projection(
         and state["attempt"] < state["max_cycles"]
         and float(state["elapsed_seconds"]) < _provider_max_seconds(state)
         and status == "failed"
+        and reason not in {"permission_required", "selection_preflight_failed", "model_selection_rejected"}
         and allow_continue
         and not candidate_unavailable
     )
@@ -6273,6 +6389,7 @@ def _terminal_projection(
     else:
         resume_eligible = bool(
             status == "failed" and state["conversation_id"]
+            and reason not in {"permission_required", "selection_preflight_failed", "model_selection_rejected"}
             and state["attempt_origin"] != "conversation-continue"
         )
         updates.update({
@@ -6281,19 +6398,18 @@ def _terminal_projection(
             "next_action": "resume" if resume_eligible else "blocked",
             "next_action_command": None,
         })
-    if state["schema_version"] >= 5:
-        updates.update({
-            "phase": "blocked" if candidate_unavailable else ("awaiting-verification" if candidate else "attempt-failed"),
-            "assurance": "blocked" if candidate_unavailable else "pending",
-        })
+    updates.update({
+        "phase": "blocked" if candidate_unavailable else ("awaiting-verification" if candidate else "attempt-failed"),
+        "assurance": "blocked" if candidate_unavailable else "pending",
+    })
     return updates
 
 
 def _terminalize_owned(
-    job: Path, state: dict[str, Any], *, status: str, reason: str, exit_code: int,
+    job: Path, state: Mapping[str, Any], *, status: str, reason: str, exit_code: int,
     failure_stage: str | None = None, expected_controller_pid: int | None = None,
     elapsed_seconds: float | None = None, postlaunch_cancel: bool = False,
-) -> tuple[dict[str, Any], bytes, str]:
+) -> tuple[DispatchState, bytes, str]:
     """Publish one owned terminal state without holding a lock across scans."""
     projection_unavailable = False
     try:
@@ -6330,13 +6446,14 @@ def _terminalize_owned(
             # are internally complete and still advertised as available.  Its
             # command paths will independently bind it again before result,
             # continue, or finalize is allowed.
+            current_fields: Mapping[str, object] = current
             prior_candidate_is_bound = bool(
                 current["attempt_origin"] == "conversation-continue"
                 and current["candidate_recognized"]
                 and current["candidate_source"] != "none"
                 and current["result_available"]
                 and current["failure_stage"] is None
-                and all(current[key] is not None for key in (
+                and all(current_fields[key] is not None for key in (
                     "result_path", "result_sha256", "result_identity",
                     "candidate_worktree_sha256", "candidate_worktree_entries",
                 ))
@@ -6346,16 +6463,16 @@ def _terminalize_owned(
             # protect, so it remains cancelled.  Only an *incomplete* prior
             # candidate takes fail-closed precedence over cancellation: that
             # combination cannot truthfully expose a readable result.
-            cancelled = bool(
+            was_cancelled = bool(
                 current["cancel_requested"]
                 and (not candidate or prior_candidate_is_bound)
             )
             candidate_unavailable = bool(candidate and not prior_candidate_is_bound)
             updates = {
-                "status": "cancelled" if cancelled else "failed",
-                "reason": "cancelled" if cancelled else "status_unavailable",
+                "status": "cancelled" if was_cancelled else "failed",
+                "reason": "cancelled" if was_cancelled else "status_unavailable",
                 "exit_code": (
-                    EXIT_BY_REASON["cancelled"] if cancelled
+                    EXIT_BY_REASON["cancelled"] if was_cancelled
                     else EXIT_BY_REASON["status_unavailable"]
                 ),
                 "controller_pid": None,
@@ -6372,17 +6489,16 @@ def _terminalize_owned(
                 # A successful local cancellation has no failed binding to
                 # report.  An unbound/incomplete prior candidate is the one
                 # case that must retain binding_failure fail-closed.
-                "failure_stage": None if (cancelled or prior_candidate_is_bound) else "binding_failure",
-                "remote_cancel_unverified": bool(cancelled and postlaunch_cancel),
+                "failure_stage": None if (was_cancelled or prior_candidate_is_bound) else "binding_failure",
+                "remote_cancel_unverified": bool(was_cancelled and postlaunch_cancel),
                 "provider_terminal_status": current.get("provider_terminal_status", "unknown"),
             }
-            if current["schema_version"] >= 5:
-                updates.update({
-                    "phase": "blocked" if candidate_unavailable else (
-                        "awaiting-verification" if candidate else "attempt-failed"
-                    ),
-                    "assurance": "blocked" if candidate_unavailable else "pending",
-                })
+            updates.update({
+                "phase": "blocked" if candidate_unavailable else (
+                    "awaiting-verification" if candidate else "attempt-failed"
+                ),
+                "assurance": "blocked" if candidate_unavailable else "pending",
+            })
         else:
             updates = dict(cancelled if current["cancel_requested"] else primary)
         if elapsed_seconds is not None:
@@ -6427,7 +6543,7 @@ def _terminalize_queued_signal(job: Path, number: int) -> None:
         ))
 
 
-def _recover_interrupted_self_verification(job: Path) -> tuple[dict[str, Any], bytes, str]:
+def _recover_interrupted_self_verification(job: Path) -> tuple[DispatchState, bytes, str]:
     """Recover only while holding the lifecycle lock; never rerun a check."""
     with state_lock(job):
         state, raw, sha = load_state(job)
@@ -6437,7 +6553,11 @@ def _recover_interrupted_self_verification(job: Path) -> tuple[dict[str, Any], b
             state["max_seconds"], state["elapsed_seconds"],
             state["self_verification_elapsed_seconds"],
         )
-        charge = min(remaining, max(0.0, time.time() - state["self_verification_started_epoch"]))
+        started = state["self_verification_started_epoch"]
+        result_sha = state["result_sha256"]
+        # validate_state proves both bindings for the self-verifying phase above.
+        assert started is not None and result_sha is not None
+        charge = min(remaining, max(0.0, time.time() - started))
         updates = {
             "phase": state["self_verification_return_phase"],
             "self_verification_started_epoch": None,
@@ -6445,7 +6565,7 @@ def _recover_interrupted_self_verification(job: Path) -> tuple[dict[str, Any], b
             "self_verification_elapsed_seconds": state["self_verification_elapsed_seconds"] + charge,
             "verification_path": None, "verification_sha256": None,
             "verification_identity": None,
-            "check_counts": _verification_counts(SELF_VERIFICATION.advisory_feedback(state["result_sha256"], [])),
+            "check_counts": _verification_counts(SELF_VERIFICATION.advisory_feedback(result_sha, [])),
             "check_summary": "Self-verification was interrupted; wall-clock time was conservatively charged.",
         }
         updates["continue_available"] = _continue_from_facts({**state, **updates}, time.time())
@@ -6511,14 +6631,6 @@ def command_result(job: Path, output_format: str = "json") -> int:
             sys.stdout.buffer.write(candidate_raw)
             sys.stdout.buffer.flush()
         return 0
-    if _legacy_prior_result_is_unknown(state):
-        legacy_raw = _bound_legacy_unknown_result(job, state)
-        if output_format == "text":
-            print_text_status(state, sha, job=job)
-        else:
-            sys.stdout.buffer.write(legacy_raw)
-            sys.stdout.buffer.flush()
-        return 0
     result_path = state["result_path"]
     result_sha = state["result_sha256"]
     result_identity = state["result_identity"]
@@ -6541,8 +6653,7 @@ def command_result(job: Path, output_format: str = "json") -> int:
     schema_paths = _schema_paths(command)
     if schema_paths is None:
         raise DispatchError("dispatch result schema is unavailable")
-    if state["schema_version"] >= 5:
-        schema_paths = _bound_schemas(command, state)
+    schema_paths = _bound_schemas(command, state)
     validator = Path(__file__).with_name("validate-envelope.py")
     checked = [
         subprocess.run(
@@ -6562,7 +6673,7 @@ def command_result(job: Path, output_format: str = "json") -> int:
     return 0
 
 
-def _bound_self_verification_feedback(job: Path, state: dict[str, Any]) -> dict[str, Any]:
+def _bound_self_verification_feedback(job: Path, state: Mapping[str, Any]) -> dict[str, Any]:
     """Read only the advisory artifact published for this candidate attempt."""
     expected = job / "continue-staged" / f"self-verify-{state['attempt']:03d}.json"
     if (
@@ -6587,7 +6698,7 @@ def _bound_self_verification_feedback(job: Path, state: dict[str, Any]) -> dict[
 
 
 def command_continue(
-    job: Path, approve_sha: str, approve_migration_sha: str | None,
+    job: Path, approve_sha: str,
     output_format: str = "json",
     use_self_verification: bool = False,
 ) -> int:
@@ -6601,13 +6712,13 @@ def command_continue(
         verification = _verification_from_stdin()
     return spawn(
         job, "conversation-continue", resume=True, foreground=False,
-        approve_sha=approve_sha, approve_migration_sha=approve_migration_sha,
+        approve_sha=approve_sha,
         verification=verification, output_format=output_format,
     )
 
 
 def command_finalize(
-    job: Path, approve_sha: str, approve_migration_sha: str | None,
+    job: Path, approve_sha: str,
     assurance: str, output_format: str = "json",
 ) -> int:
     if assurance not in {"verified", "partially_verified", "rejected", "blocked"}:
@@ -6617,12 +6728,7 @@ def command_finalize(
         state, raw, sha = load_state(job)
         if sha != approve_sha:
             raise _state_approval_error(state, sha, "finalize")
-        if state["schema_version"] in {3, 4}:
-            command, state = _approved_legacy_migration(
-                job, state, raw, approve_migration_sha,
-            )
-        else:
-            command = _load_bound_command(job, state, stage_readonly=False)
+        command = _load_bound_command(job, state, stage_readonly=False)
         command, state = _bound_lifecycle_inputs(
             job, state, command, bind_terminal_candidate=True,
         )
@@ -6685,10 +6791,6 @@ def command_control(job: Path, action: str, approve_sha: str, seconds: float | N
             updates = {"hard_seconds": state["hard_seconds"] + seconds}
         state, _raw, sha = _transition_locked(
             job, state, raw, updates,
-            # Cancel/extend are cheap active-process controls.  They must not
-            # trigger a candidate/root migration scan or turn an active V3/V4
-            # record into a different lifecycle state.
-            legacy_control_only=state["schema_version"] in {1, 3, 4},
         )
     print_json(public_status(state, sha, job=job))
     return 0
@@ -6715,7 +6817,6 @@ def parser() -> Parser:
             item.add_argument("--ownership-fd", required=True, type=int)
         if name in {"resume", "restart", "continue"}:
             item.add_argument("--approve-state-sha", required=name != "resume")
-            item.add_argument("--approve-migration-sha")
         if name in {"resume", "restart", "continue", "status", "result", "verification-copy"}:
             item.add_argument("--format", choices=("json", "text"), default="json")
         if name == "verification-copy":
@@ -6728,7 +6829,6 @@ def parser() -> Parser:
     finalize = commands.add_parser("finalize")
     finalize.add_argument("--job-dir", required=True)
     finalize.add_argument("--approve-state-sha", required=True)
-    finalize.add_argument("--approve-migration-sha")
     finalize.add_argument("--assurance", required=True)
     finalize.add_argument("--format", choices=("json", "text"), default="json")
     wait = commands.add_parser("wait")
@@ -6746,7 +6846,13 @@ def parser() -> Parser:
 
 
 def main(argv: list[str] | None = None) -> int:
-    args = parser().parse_args(argv)
+    arguments = list(sys.argv[1:] if argv is None else argv)
+    if any(arg.partition("=")[0] == "--approve-migration-sha" for arg in arguments):
+        raise DispatchError(
+            f"--approve-migration-sha was removed after {LAST_DOCUMENTED_LEGACY_SCHEMA_RELEASE}; "
+            "finish or discard the old job with the release that created it."
+        )
+    args = parser().parse_args(arguments)
     job = canonical_job(Path(args.job_dir))
     if args.command == "controller":
         if args.ownership_fd < 3:
@@ -6762,17 +6868,17 @@ def main(argv: list[str] | None = None) -> int:
         return spawn(
             job, "conversation-resume", resume=True, foreground=False,
             approve_sha=args.approve_state_sha,
-            approve_migration_sha=args.approve_migration_sha, output_format=args.format,
+            output_format=args.format,
         )
     if args.command == "restart":
         return spawn(
             job, "fresh-restart", resume=True, foreground=False,
             approve_sha=args.approve_state_sha,
-            approve_migration_sha=args.approve_migration_sha, output_format=args.format,
+            output_format=args.format,
         )
     if args.command == "continue":
         return command_continue(
-            job, args.approve_state_sha, args.approve_migration_sha, args.format,
+            job, args.approve_state_sha, args.format,
             use_self_verification=args.use_self_verification,
         )
     if args.command == "status":
@@ -6786,13 +6892,13 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "self-verify":
         try:
             return SELF_VERIFICATION.command_self_verify(
-                LEGACY_API, job, args.approve_state_sha, args.format, containment=CONTAINMENT,
+                VERIFICATION_API, job, args.approve_state_sha, args.format, containment=CONTAINMENT,
             )
         except (SELF_VERIFICATION.VerificationError, OSError) as exc:
             raise DispatchError("self-verification could not bind or execute the approved checks") from exc
     if args.command == "finalize":
         return command_finalize(
-            job, args.approve_state_sha, args.approve_migration_sha,
+            job, args.approve_state_sha,
             args.assurance, args.format,
         )
     if args.command in {"cancel", "extend"}:
@@ -6810,7 +6916,7 @@ if __name__ == "__main__":
         print(f"agy-dispatch: {exc}", file=sys.stderr)
         command_name = sys.argv[1] if len(sys.argv) > 1 else ""
         if command_name == "resume":
-            raise SystemExit(EXIT_BY_REASON["resume_failed"])
+            raise SystemExit(EXIT_BY_REASON["resume_failed"])  # noqa: B904 -- preserve existing exception context and public diagnostics
         if command_name in {"status", "wait", "result", "verification-copy", "self-verify"}:
-            raise SystemExit(EXIT_BY_REASON["status_unavailable"])
-        raise SystemExit(64)
+            raise SystemExit(EXIT_BY_REASON["status_unavailable"])  # noqa: B904 -- preserve existing exception context and public diagnostics
+        raise SystemExit(64)  # noqa: B904 -- preserve existing exception context and public diagnostics
