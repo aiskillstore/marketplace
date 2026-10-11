@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { readFileSync } from 'node:fs';
+import { readFileSync, mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { parse } from 'yaml';
-import { trustedMerged, publicationIdentity, chooseAttempt, preflightContext, publicationFiles } from '../continue-merged-publications.mjs';
+import { trustedMerged, publicationIdentity, chooseAttempt, preflightContext, publicationFiles, main, reportContinuation } from '../continue-merged-publications.mjs';
 
 test('61-skill approvals fit the 64-skill bound; 65-skill approvals still fail closed', async () => {
   const { main } = await import('../continue-merged-publications.mjs');
@@ -66,6 +68,10 @@ test('merged-only continuation runs trusted main code and reuses the existing re
   assert.ok(workflow.on.schedule.length);
   assert.equal(workflow.jobs.continue.steps[0].with.ref, 'main');
   assert.equal(workflow.jobs.continue.steps[0].with['persist-credentials'], false);
+  assert.ok(workflow.on.workflow_run.workflows.includes('Reconcile submission provider sync'));
+  assert.equal(workflow.jobs.continue.outputs.outcome, '${{ steps.continue.outputs.outcome }}');
+  assert.equal(workflow.jobs.continue.steps.at(-1).id, 'continue');
+  assert.equal(workflow.jobs.continue.steps.at(-1)['continue-on-error'], undefined);
   const script = readFileSync('scripts/continue-merged-publications.mjs', 'utf8');
   assert.match(script, /publish-approved-batch.yml\/dispatches/);
   assert.match(script, /syncRuns.some\(r => r.status !== 'completed'\)/);
@@ -105,9 +111,96 @@ test('current pending inventory stops after its exact owners; fresh A prevents d
   main(request);
   assert.ok(!calls.some(p => p.endsWith('/pulls/2')));
   syncRuns = [{ id: 12, event: 'push', status: 'completed', conclusion: 'failure', created_at: '2026-09-08T00:00:00Z' }];
-  assert.throws(() => main(request), /Previous push sync 12 is failure/);
+  calls.length = 0;
+  assert.equal(main(request).outcome, 'blocked');
+  assert.ok(!calls.some(p => p.includes('/pulls')), 'blocked dependencies must not rescan all approvals');
   syncRuns = [{id:13,status:'pending',created_at:new Date(Date.now()-3_600_001).toISOString()}];
   assert.throws(() => main(request), /stalled over 60 minutes: 13/);
+});
+
+test('repeated failed dependencies stay blocked without writes; only verified reconciliation releases the next batch', () => {
+  const sha = 'b'.repeat(40);
+  const push = { id: 41, event: 'push', status: 'completed', conclusion: 'failure', head_sha: sha, created_at: '2026-01-01T00:00:00Z' };
+  const pr = { number: 7, changed_files: 1, merged_at: '2026-01-01T01:00:00Z', base: { ref: 'main' },
+    user: { id: 254047988, login: 'ai-skill-store[bot]' },
+    head: { repo: { full_name: 'aiskillstore/marketplace' }, ref: 'submission/test', sha: 'a'.repeat(40) }, merge_commit_sha: 'c'.repeat(40) };
+  const proof = { id: 42, run_attempt: 1, event: 'workflow_dispatch', status: 'completed', conclusion: 'success',
+    path: '.github/workflows/reconcile-submission-sync.yml', head_branch: 'main', head_repository: { full_name: 'aiskillstore/marketplace' },
+    display_title: 'Reconcile submission push 41 using recovery 40', created_at: '2026-01-01T02:00:00Z' };
+  const attestation = { context: 'agentcrew/provider-reconciliation/41', state: 'success',
+    creator: { id: 41898282, login: 'github-actions[bot]' }, target_url: 'https://github.com/aiskillstore/marketplace/actions/runs/42' };
+  let statuses = [], runs = [push], brokenApi = false, truncated = false;
+  const calls = [], writes = [];
+  const request = (endpoint, data) => {
+    calls.push(endpoint);
+    if (data) { writes.push({ endpoint, data }); return; }
+    if (endpoint.endsWith('/git/trees/main')) return { tree: [{ path: 'pending', sha: 'tree' }] };
+    if (endpoint.includes('/git/trees/tree?')) return { truncated, tree: [{ path: 'owner/demo/skill-report.json', sha: 'blob' }] };
+    if (endpoint.includes('/actions/workflows/sync-to-supabase')) {
+      if (brokenApi) throw new Error('GitHub API unavailable');
+      return { workflow_runs: runs };
+    }
+    if (endpoint.includes(`/commits/${sha}/statuses?`)) return statuses;
+    if (endpoint.endsWith('/actions/runs/42')) return proof;
+    if (endpoint.includes('/actions/runs/42/attempts/1/jobs?')) return { total_count: 1, jobs: [{ steps:
+      ['Verify exact recovery and provider state', 'Record separate reconciliation result'].map(name => ({ name, conclusion: 'success' })) }] };
+    if (endpoint.includes('/actions/workflows/')) return { workflow_runs: [] };
+    if (endpoint.includes('/pulls?')) return [pr];
+    if (endpoint.includes('/pulls/7/files?')) return [{ filename: 'pending/owner/demo/skill-report.json', sha: 'blob' }];
+    if (endpoint.endsWith('/pulls/7')) return pr;
+    if (endpoint.includes('/git/matching-refs/') || endpoint.includes('/statuses?')) return [];
+    throw new Error(`Unexpected ${endpoint}`);
+  };
+  process.argv.push('--apply');
+  try {
+    for (const conclusion of ['failure', 'cancelled', 'timed_out', 'failure']) {
+      push.conclusion = conclusion;
+      const result = main(request);
+      assert.equal(result.outcome, 'blocked');
+      assert.deepEqual(result.runIds, [41]);
+      assert.match(result.reason, /verified reconciliation/);
+    }
+    assert.equal(writes.length, 0);
+    assert.ok(!calls.some(p => p.includes('/pulls')), 'do not inventory or dispatch while blocked');
+    runs = [{ ...push, status: 'in_progress', created_at: new Date().toISOString() }];
+    assert.equal(main(request).outcome, 'waiting');
+    runs = [push];
+    statuses = [{ ...attestation, creator: { id: 1, login: 'untrusted' } }];
+    assert.equal(main(request).outcome, 'blocked');
+    statuses = [attestation];
+    proof.conclusion = 'failure';
+    assert.equal(main(request).outcome, 'blocked');
+    assert.equal(writes.length, 0);
+    proof.conclusion = 'success';
+    const result = main(request);
+    assert.equal(result.outcome, 'dispatched');
+    assert.equal(result.skillCount, 1);
+    assert.equal(writes.length, 1);
+    assert.match(writes[0].endpoint, /publish-approved-batch.yml\/dispatches$/);
+    assert.equal(writes[0].data.inputs.pr_numbers, '7');
+    assert.equal(push.conclusion, 'failure', 'never rewrite the original failed run');
+    writes.length = 0;
+    brokenApi = true;
+    assert.throws(() => main(request), /GitHub API unavailable/);
+    brokenApi = false; truncated = true;
+    assert.throws(() => main(request), /Truncated pending inventory/);
+    assert.equal(writes.length, 0);
+  } finally { process.argv.pop(); }
+});
+
+test('blocked outcomes expose the original dependency and never claim publication succeeded', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'publication-outcome-'));
+  try {
+    const env = { GITHUB_OUTPUT: join(dir, 'outputs'), GITHUB_STEP_SUMMARY: join(dir, 'summary') };
+    const result = reportContinuation('blocked', 'Provider needs verified reconciliation', { runIds: [41] }, env);
+    const output = readFileSync(env.GITHUB_OUTPUT, 'utf8');
+    assert.match(output, /^outcome=blocked\n/);
+    assert.deepEqual(JSON.parse(output.split('\n')[1].slice('result='.length)), result);
+    const summary = readFileSync(env.GITHUB_STEP_SUMMARY, 'utf8');
+    assert.match(summary, /Publication queue: blocked/);
+    assert.match(summary, /No publication was dispatched/);
+    assert.match(summary, /https:\/\/github.com\/aiskillstore\/marketplace\/actions\/runs\/41/);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
 test('automatic continuation dispatches at most 25 approvals and leaves reservations to the receiver', async () => {

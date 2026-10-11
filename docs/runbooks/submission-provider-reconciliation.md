@@ -17,6 +17,22 @@ Intentionally unsupported: cancelled original push, multiple publication trailer
 
 ## Governed operation
 
+### Reading continuation outcomes
+
+`Continue merged Skill publications` is a queue planner. Its `outcome` job output and run summary distinguish:
+
+- `idle`: no pending skills.
+- `waiting`: a provider sync, publication receiver or fresh dispatch is still active; no new batch was dispatched.
+- `blocked`: a completed dependency needs verified reconciliation, a receiver has unresolved durable evidence, or no pending approval can safely proceed. The summary links the original failed provider run or identifies the affected PRs. A successful planner run does not mean publication succeeded.
+- `ready`: a read-only invocation found a batch; it did not dispatch it.
+- `dispatched`: the batch receiver was invoked; its publication, provider sync, callbacks, scores and cache still need separate acceptance.
+
+Repeated checks of the same failed dependency do not throw another execution error or replay a write. Recovery remains explicit and scoped; only the existing verified reconciliation proof releases the guard. Completion of the reconciliation workflow wakes the planner immediately, with the schedule retained as a fallback. A failed verification does not release it.
+
+API errors, invalid/truncated evidence, publication holds and provider runs stalled beyond the existing time limit still fail visibly. Do not use `continue-on-error`, rerun the failed provider blindly, or clear its history to release the queue.
+
+### Reconciliation procedure
+
 1. Get implementation independently reviewed; merge only the approved exact repair head through the normal repository/human gate. The workflow runs only from main and pins runtime checkout to `github.sha`.
 2. Inspect both exact run IDs and confirm provider recovery already completed. Do not rerun either sync workflow, and do not change the old publication status.
 3. Obtain the runtime's exact dispatch approval, then dispatch:
