@@ -28,7 +28,8 @@ function trustedRun(run, event, conclusion) {
 export function verifySubmissionRecovery(e) {
   trustedRun(e.push, 'push', 'failure');
   trustedRun(e.recovery, 'workflow_dispatch', 'success');
-  assert.ok(e.recovery.head_sha === e.push.head_sha && e.recovery.id !== e.push.id
+  const resumed = e.recovery.display_title === `Recover provider sync ${e.push.id}`;
+  assert.ok((e.recovery.head_sha === e.push.head_sha || resumed) && e.recovery.id !== e.push.id
     && Date.parse(e.recovery.created_at) > Date.parse(e.push.created_at), 'Recovery version mismatch');
   assert.ok(e.baseline?.conclusion === 'success' && sha40.test(e.baseline.head_sha));
   const trailers = [...e.commit.message.matchAll(/^AgentCrew-Publication: (submission-pr-([1-9][0-9]*)-([a-f0-9]{40})-([a-f0-9]{40}))$/gm)];
@@ -41,6 +42,15 @@ export function verifySubmissionRecovery(e) {
     && p.head?.sha === head && p.head.ref?.startsWith('submission/')
     && p.head.repo?.full_name === repo && p.base?.ref === 'main' && p.base.repo?.full_name === repo, 'Untrusted publication owner');
   const original = closedJobs(e.originalJobs), recovered = closedJobs(e.recoveryJobs);
+  if (resumed) {
+    step(recovered, 'Validate trusted sync correlation', 'success');
+    assert.ok(e.recoveryTrees?.length === e.reports.length, 'Missing resumed tree evidence');
+    for (const { root } of e.reports) {
+      const matches = e.recoveryTrees.filter(t => t.root === root);
+      assert.ok(matches.length === 1 && sha40.test(matches[0].published)
+        && matches[0].published === matches[0].recovered, 'Resumed source tree mismatch');
+    }
+  }
   step(original, 'Wait for authoritative publication completion', 'success');
   step(original, 'Sync skills to Supabase', 'failure');
   for (const name of ['Sync skills to Supabase', 'Upload provider-complete synced slugs artifact',
@@ -138,6 +148,7 @@ export async function main() {
   const pr=api(`${prefix}/pulls/${trailer[1]}`);
   const roots=[...new Set(comparison.files.map(f=>f.filename.split('/').slice(0,3).join('/')))];
   assert.ok(roots.length>0 && roots.length<=25);
+  const recoveryTrees=[];
   const reports=roots.map(root=> {
     assert.ok(/^skills\/[a-z0-9][a-z0-9._-]*\/[a-z0-9][a-z0-9._-]*$/.test(root));
     const pinned=api(`${prefix}/contents/${root}?ref=${push.head_sha}`);
@@ -148,13 +159,20 @@ export async function main() {
       return list.map(f=>({name:f.name,type:f.type,sha:f.sha})).sort((a,b)=>a.name.localeCompare(b.name));
     };
     assert.deepEqual(entries(pinned),entries(pending),'Publication differs from trusted pending tree');
+    if (recovery.display_title === `Recover provider sync ${push.id}`) {
+      const recovered=api(`${prefix}/contents/${root}?ref=${recovery.head_sha}`);
+      assert.deepEqual(entries(pinned),entries(recovered),'Recovery main has a different source tree');
+      // Tree IDs are computed from authenticated GitHub directory entries.
+      const digest=list=>createHash('sha1').update(JSON.stringify(entries(list))).digest('hex');
+      recoveryTrees.push({root,published:digest(pinned),recovered:digest(recovered)});
+    }
     const report=api(`${prefix}/contents/${root}/skill-report.json?ref=${push.head_sha}`);
     assert.equal(report.encoding,'base64'); assert.ok(report.size<=1024*1024);
     const {meta}=JSON.parse(Buffer.from(report.content,'base64').toString('utf8'));
     return {root,meta:{slug:meta.slug,content_hash:meta.content_hash,tree_hash:meta.tree_hash}};
   });
   const jobs=run=>api(`${prefix}/actions/runs/${run.id}/attempts/${run.run_attempt}/jobs?per_page=100`);
-  const plan=verifySubmissionRecovery({push,recovery,baseline,commit,pr,files:comparison.files,reports,slugs:artifactSlugs(recovery.id),originalJobs:jobs(push),recoveryJobs:jobs(recovery)});
+  const plan=verifySubmissionRecovery({push,recovery,baseline,commit,pr,files:comparison.files,reports,recoveryTrees,slugs:artifactSlugs(recovery.id),originalJobs:jobs(push),recoveryJobs:jobs(recovery)});
   for(const expected of plan) {
     const skills=await providerRead('skills',['slug',expected.slug],'id,slug,plugin_path,marketplace_commit_sha,content_hash,tree_hash,current_artifact_version_id,artifact_revision');
     assert.equal(skills.length,1);

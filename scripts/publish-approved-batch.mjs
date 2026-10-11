@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, lstatSync, mkdirSync, renameSync, rmSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { publicationIdentity, chooseAttempt, batchIdentity, preflightContext, maxBatchSkills } from './continue-merged-publications.mjs';
+import { publicationIdentity, chooseAttempt, batchIdentity, preflightContext, maxBatchSkills, publicationFiles } from './continue-merged-publications.mjs';
 import { resolveApprovedSubmission, PublicationValidationError } from './resolve-approved-submission.mjs';
 import { recoveredPushSync } from './recovered-push-sync.mjs';
 
@@ -70,7 +70,7 @@ export async function main() {
   const rows = numbers.map(number => {
     const pr = api(`pulls/${number}`);
     const identity = publicationIdentity(pr);
-    const files = all(`pulls/${number}/files?per_page=100`).map(f => f.filename);
+    const files = publicationFiles(pr, endpoint => api(endpoint.slice(`repos/${repository}/`.length))).map(f => f.filename);
     const roots = [...new Set(files.filter(f => /\/(SKILL\.md|skill-report\.json)$/.test(f)).map(f => f.slice(0, f.lastIndexOf('/'))))];
     if (!roots.length || roots.some(r => !/^pending\/[a-zA-Z0-9._-]+(?:\/[a-zA-Z0-9._-]+)?$/.test(r) || r.split('/').some(s => s === '.' || s === '..'))) throw new Error('Invalid batch pending roots');
     return { pr, ...identity, files, roots, submissionId: pr.body?.match(/Submission ID.*`([0-9a-f-]{36})`/)?.[1],

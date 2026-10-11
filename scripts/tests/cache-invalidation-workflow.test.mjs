@@ -187,7 +187,7 @@ test('incremental detection resolves both sides from pinned Git trees', () => {
 
   assert.match(detectJob, /node \.\/scripts\/detect-changed-skills\.mjs/);
   assert.match(detectJob, /node \.\/scripts\/resolve-manual-skills\.mjs/);
-  assert.match(detectJob, /INPUT_SLUGS: \$\{\{ inputs\.slugs \}\}/);
+  assert.match(detectJob, /INPUT_SLUGS: \$\{\{ steps\.trusted-correlation\.outputs\.recovery_slugs \|\| inputs\.slugs \}\}/);
   assert.match(detectJob, /HEAD_SHA: \$\{\{ github\.sha \}\}/);
   assert.doesNotMatch(detectJob.slice(detectJob.indexOf('run: |')), /\$\{\{\s*inputs\./);
   assert.match(detectJob, /--commit "\$SYNC_COMMIT_SHA"/);
@@ -370,8 +370,8 @@ test('sync downloads the security-event-capable CLI release', () => {
   const workflow = readFileSync(WORKFLOW, 'utf8');
   const download = section(workflow, '      - name: Download skillstore-cli', '      - name: Sync skills to Supabase');
 
-  assert.match(download, /version: '2\.4\.4'/);
-  assert.match(download, /minimum-version: '2\.4\.4'/);
+  assert.match(download, /version: '2\.17\.0'/);
+  assert.match(download, /minimum-version: '2\.17\.0'/);
 });
 
 test('one permanently failed shard makes the aggregate fail closed', () => {

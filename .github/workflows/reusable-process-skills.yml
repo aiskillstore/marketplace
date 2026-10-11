@@ -50,16 +50,16 @@ on:
         value: ${{ jobs.merge-and-create-pr.outputs.pr_url }}
       processed_count:
         description: 'Number of skills successfully processed'
-        value: ${{ jobs.discover-and-plan.outputs.target_disposition == 'all_existing' && '0' || jobs.merge-and-create-pr.outputs.processed_count }}
+        value: ${{ contains(fromJSON('["all_existing","invalid_source"]'), jobs.discover-and-plan.outputs.target_disposition) && '0' || jobs.merge-and-create-pr.outputs.processed_count }}
       highest_risk:
         description: 'Highest security risk level found'
-        value: ${{ jobs.discover-and-plan.outputs.target_disposition == 'all_existing' && 'not_evaluated' || jobs.merge-and-create-pr.outputs.highest_risk }}
+        value: ${{ contains(fromJSON('["all_existing","invalid_source"]'), jobs.discover-and-plan.outputs.target_disposition) && 'not_evaluated' || jobs.merge-and-create-pr.outputs.highest_risk }}
       outcome:
         description: 'Terminal outcome: pr_created, no_op, or rejected'
-        value: ${{ jobs.discover-and-plan.outputs.target_disposition == 'all_existing' && 'rejected' || jobs.merge-and-create-pr.outputs.outcome }}
+        value: ${{ contains(fromJSON('["all_existing","invalid_source"]'), jobs.discover-and-plan.outputs.target_disposition) && 'rejected' || jobs.merge-and-create-pr.outputs.outcome }}
       outcome_reason:
         description: 'Machine-readable terminal outcome reason'
-        value: ${{ jobs.discover-and-plan.outputs.target_disposition == 'all_existing' && jobs.discover-and-plan.outputs.target_reason || jobs.merge-and-create-pr.outputs.outcome_reason }}
+        value: ${{ contains(fromJSON('["all_existing","invalid_source"]'), jobs.discover-and-plan.outputs.target_disposition) && jobs.discover-and-plan.outputs.target_reason || jobs.merge-and-create-pr.outputs.outcome_reason }}
       existing_targets:
         description: 'Comma-separated exact published targets found during classification'
         value: ${{ jobs.discover-and-plan.outputs.existing_targets }}
@@ -106,6 +106,8 @@ env:
   SHARD_THRESHOLD: 30
   MAX_SHARDS: 6
   SUBMISSION_RUNTIME_SPARSE_PATHS: |
+    /package.json
+    /package-lock.json
     /schemas/skill-report.schema.json
     /governance/submission-slug-aliases.json
     /.github/actions/download-skillstore-cli/action.yml
@@ -146,8 +148,8 @@ jobs:
       ignored_count: ${{ steps.discover.outputs.ignored_count }}
       identical_count: ${{ steps.discover.outputs.identical_count }}
       conflicting_count: ${{ steps.discover.outputs.conflicting_count }}
-      target_disposition: ${{ steps.targets.outputs.disposition }}
-      target_reason: ${{ steps.targets.outputs.reason_code }}
+      target_disposition: ${{ steps.discover.outputs.rejection_reason != '' && 'invalid_source' || steps.targets.outputs.disposition }}
+      target_reason: ${{ steps.discover.outputs.rejection_reason || steps.targets.outputs.reason_code }}
       existing_count: ${{ steps.targets.outputs.existing_count }}
       existing_targets: ${{ steps.targets.outputs.existing_targets }}
       update_targets: ${{ steps.targets.outputs.update_targets }}
@@ -207,6 +209,8 @@ jobs:
         run: |
           set -euo pipefail
           REQUIRED_RUNTIME_FILES=(
+            "package.json"
+            "package-lock.json"
             "schemas/skill-report.schema.json"
             "governance/submission-slug-aliases.json"
             ".github/actions/download-skillstore-cli/action.yml"
@@ -313,6 +317,9 @@ jobs:
           echo "source_dir=$SOURCE_DIR" >> "$GITHUB_OUTPUT"
           echo "📦 Cloned $OWNER/$REPO at immutable $REF ($REF_SHA)"
 
+      - name: Install locked discovery parser
+        run: npm ci --ignore-scripts --no-audit --no-fund
+
       - name: Discover skills (fast - no AI)
         id: discover
         env:
@@ -323,11 +330,20 @@ jobs:
         run: |
           set -euo pipefail
           DISCOVERY=$(node "$GITHUB_WORKSPACE/scripts/discover-submission-skills.mjs" \
+            --report-rejection \
             --source-dir "$SOURCE_DIR" \
             --skill-path "$SKILL_PATH" \
             --explicit-path "${{ steps.clone.outputs.explicit_path }}" \
             --repository "$SOURCE_REPOSITORY" \
             --slug-aliases-file "$GITHUB_WORKSPACE/governance/submission-slug-aliases.json")
+          if [ "$(jq -r '.outcome // ""' <<< "$DISCOVERY")" = rejected ]; then
+            echo "rejection_reason=invalid_skill_frontmatter" >> "$GITHUB_OUTPUT"
+            echo "skill_count=0" >> "$GITHUB_OUTPUT"
+            echo "skills_json=[]" >> "$GITHUB_OUTPUT"
+            echo "::notice title=SUBMISSION_REJECTED::Invalid upstream SKILL.md frontmatter; no processing or publication was attempted."
+            jq -r '.reason' <<< "$DISCOVERY" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
           FULL_PLAN=$(jq -ce --arg repository "$SOURCE_REPOSITORY" --arg sourceCommit "$SOURCE_SHA" \
             '{schemaVersion: 1, repository: $repository, sourceCommit: $sourceCommit, scope: .scope, skills: .skills}' <<< "$DISCOVERY")
           PLAN_FILE="${RUNNER_TEMP:?}/selection-plan-${{ github.run_id }}-${{ github.run_attempt }}.json"
@@ -374,6 +390,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Materialize exact Marketplace candidate paths
+        if: steps.discover.outputs.rejection_reason == ''
         env:
           FULL_SELECTION_PLAN: ${{ steps.discover.outputs.selection_plan }}
         run: |
@@ -437,6 +454,7 @@ jobs:
           fi
 
       - name: Classify submission targets
+        if: steps.discover.outputs.rejection_reason == ''
         id: targets
         env:
           FULL_SELECTION_PLAN: ${{ steps.discover.outputs.selection_plan }}
@@ -652,6 +670,8 @@ jobs:
           test -f "$(git rev-parse --git-path info/sparse-checkout)"
 
           REQUIRED_RUNTIME_FILES=(
+            "package.json"
+            "package-lock.json"
             "schemas/skill-report.schema.json"
             "governance/submission-slug-aliases.json"
             ".github/actions/download-skillstore-cli/action.yml"
@@ -857,6 +877,8 @@ jobs:
         run: |
           set -euo pipefail
           REQUIRED_RUNTIME_FILES=(
+            "package.json"
+            "package-lock.json"
             "schemas/skill-report.schema.json"
             ".github/actions/download-skillstore-cli/action.yml"
             ".github/workflows/reusable-process-skills.yml"

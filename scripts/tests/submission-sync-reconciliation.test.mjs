@@ -93,3 +93,14 @@ test('status list is bounded, paginated and never falls back past a newer matchi
  assert.throws(()=>latestStatus(sha,'wanted',()=>{pages++;return full;}),/limit/);
  assert.equal(pages,10);
 });
+
+test('a resumed run on newer main needs the exact failed-run binding, validated scope and unchanged trees',()=>{
+  const e=structuredClone(evidence());
+  e.recovery.head_sha='9'.repeat(40);e.recovery.display_title=`Recover provider sync ${e.push.id}`;
+  e.recoveryJobs.jobs[0].steps.push({name:'Validate trusted sync correlation',conclusion:'success'});
+  e.recoveryTrees=[{root,published:'8'.repeat(40),recovered:'8'.repeat(40)}];
+  assert.equal(verifySubmissionRecovery(e)[0].marketplace_commit_sha,sha);
+  for(const mutate of [x=>x.recovery.display_title='Recover provider sync 999',x=>x.recoveryTrees=[],x=>x.recoveryTrees[0].recovered='7'.repeat(40),x=>x.recoveryJobs.jobs[0].steps.at(-1).conclusion='skipped']) {
+    const x=structuredClone(e);mutate(x);assert.throws(()=>verifySubmissionRecovery(x));
+  }
+});

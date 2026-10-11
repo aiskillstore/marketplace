@@ -255,6 +255,10 @@ export function verifySourceMonitorUpdate({ repositoryRoot, allowDestructiveSkil
   const root = resolve(repositoryRoot);
   const allowed = new Set(allowDestructiveSkills.map(safeRelative));
   const entries = changedEntries(root);
+  // Invalid upstream candidates are recorded by selection accounting. A batch
+  // with no applied changes is a valid no-op, including an all-failed batch.
+  // Still reject allowlists and every non-skill mutation below.
+  if (entries.length === 0 && allowed.size === 0) return { changedSkills: 0, changedPaths: 0, deletedPaths: 0 };
   const reportPaths = publishedReportPaths(root, entries);
   const directories = resolveChangedSkillPaths(entries.map(({ path }) => path), reportPaths)
     .map((directory) => `skills/${directory}`);

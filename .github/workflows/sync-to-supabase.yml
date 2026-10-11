@@ -1,5 +1,5 @@
 name: Sync to Supabase (Incremental)
-run-name: ${{ github.event_name == 'workflow_dispatch' && inputs.correlation_id != '' && format('Provider sync {0}', inputs.correlation_id) || 'Sync to Supabase (Incremental)' }}
+run-name: ${{ inputs.resume_failed_run != '' && format('Recover provider sync {0}', inputs.resume_failed_run) || github.event_name == 'workflow_dispatch' && inputs.correlation_id != '' && format('Provider sync {0}', inputs.correlation_id) || 'Sync to Supabase (Incremental)' }}
 
 on:
   push:
@@ -8,6 +8,10 @@ on:
       - 'skills/**'
   workflow_dispatch:
     inputs:
+      resume_failed_run:
+        description: 'Resume ancillary stages for an inspected failed push; exact current artifact required'
+        type: string
+        default: ''
       slugs:
         description: 'Specific skill slugs to sync (comma or space separated, optional)'
         type: string
@@ -72,6 +76,7 @@ jobs:
           /scripts/validate-correlated-sync-roots.mjs
           /scripts/guard-provider-rerun.mjs
           /scripts/recovered-push-sync.mjs
+          /scripts/prepare-sync-recovery.mjs
           /scripts/refresh-security-research-stats.sh
           /.github/actions/download-skillstore-cli/
           EOF
@@ -126,6 +131,7 @@ jobs:
             scripts/validate-correlated-sync-roots.mjs \
             scripts/guard-provider-rerun.mjs \
             scripts/recovered-push-sync.mjs \
+            scripts/prepare-sync-recovery.mjs \
             scripts/refresh-security-research-stats.sh \
             .github/actions/download-skillstore-cli/action.yml; do
             if git ls-files -v -- "$required_path" | awk '$1 ~ /^S/ { found=1 } END { exit !found }'; then
@@ -147,6 +153,7 @@ jobs:
       - name: Validate trusted sync correlation
         id: trusted-correlation
         env:
+          RESUME_FAILED_RUN: ${{ inputs.resume_failed_run }}
           CORRELATION_ID: ${{ inputs.correlation_id }}
           INPUT_SLUGS: ${{ inputs.slugs }}
           MERGE_COMMIT_SHA: ${{ inputs.merge_commit_sha }}
@@ -157,6 +164,10 @@ jobs:
           REPOSITORY: ${{ github.repository }}
         run: |
           set -euo pipefail
+          if [ -n "$RESUME_FAILED_RUN" ]; then
+            node scripts/prepare-sync-recovery.mjs
+            exit 0
+          fi
           if [ -z "$CORRELATION_ID" ]; then
             echo "sync_commit_sha=$CURRENT_MAIN_SHA" >> "$GITHUB_OUTPUT"
             exit 0
@@ -404,7 +415,7 @@ jobs:
           repositories: marketplace,skillstore
 
       - name: Find last successful sync commit
-        if: inputs.slugs == ''
+        if: inputs.slugs == '' && inputs.resume_failed_run == ''
         id: last_sync
         env:
           GH_TOKEN: ${{ github.token }}
@@ -483,7 +494,7 @@ jobs:
           BASE_RUN_CREATED_AT: ${{ steps.last_sync.outputs.base_run_created_at }}
           HEAD_SHA: ${{ github.sha }}
           SYNC_COMMIT_SHA: ${{ steps.trusted-correlation.outputs.sync_commit_sha }}
-          INPUT_SLUGS: ${{ inputs.slugs }}
+          INPUT_SLUGS: ${{ steps.trusted-correlation.outputs.recovery_slugs || inputs.slugs }}
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
@@ -622,10 +633,12 @@ jobs:
         if: steps.changes.outputs.skip_sync != 'true'
         uses: ./.github/actions/download-skillstore-cli
         with:
-          version: '2.4.4'
+          version: '2.17.0'
           token: ${{ steps.app-token.outputs.token }}
           cache-dir: /home/runner/_work/_cache/skillstore-cli
-          minimum-version: '2.4.4'
+          minimum-version: '2.17.0'
+          require-checksum: 'true'
+          expected-sha256: '8b14ae2fe644a74c6035e235c85e6b28f38251eda96ba2da6106cd9a5ee2d4aa'
 
       - name: Materialize changed skills
         if: steps.changes.outputs.skip_sync != 'true'
@@ -645,6 +658,7 @@ jobs:
           PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
           CHANGED_SKILLS: ${{ steps.changes.outputs.changed_skills }}
+          RESUME_FAILED_RUN: ${{ inputs.resume_failed_run }}
           SYNC_MODE: ${{ steps.changes.outputs.mode }}
           SECURITY_PASSPORT_MODE: ${{ vars.SECURITY_PASSPORT_MODE || 'off' }}
           SECURITY_NOTIFICATIONS_ENABLED: ${{ vars.SECURITY_NOTIFICATIONS_ENABLED || 'false' }}
@@ -711,12 +725,14 @@ jobs:
             local concurrency="$2"
             local output_file="$3"
 
+            local resume_args=()
+            if [ -n "$RESUME_FAILED_RUN" ]; then resume_args+=(--resume-current); fi
             set +e
             timeout --signal=TERM --kill-after=30s 60m \
               "$GITHUB_WORKSPACE/skillstore-cli" skill sync \
                 --slugs "$paths" \
                 --concurrency "$concurrency" \
-                --marketplace-commit "$SYNC_COMMIT_SHA" 2>&1 | tee "$output_file"
+                --marketplace-commit "$SYNC_COMMIT_SHA" "${resume_args[@]}" 2>&1 | tee "$output_file"
             local rc=${PIPESTATUS[0]}
             # Keep errexit disabled until the caller captures rc. Returning a
             # non-zero status with errexit enabled exits before retry handling.
@@ -1010,6 +1026,7 @@ jobs:
         id: published_submissions
         if: steps.changes.outputs.skip_sync != 'true' && steps.sync.outputs.synced_count != '0' && !startsWith(inputs.correlation_id, 'source-monitor-pr-')
         env:
+          RECOVERY_COMMIT: ${{ inputs.resume_failed_run != '' && steps.trusted-correlation.outputs.sync_commit_sha || '' }}
           BASE_SHA: ${{ steps.last_sync.outputs.base_sha }}
           SYNC_MODE: ${{ steps.changes.outputs.mode }}
           CHANGED_SKILLS: ${{ steps.changes.outputs.changed_skills }}
@@ -1071,7 +1088,7 @@ jobs:
             return skillPath.replace(/\//g, '-');
           }
 
-          const commits = syncMode === 'manual-slugs'
+          const commits = process.env.RECOVERY_COMMIT ? [process.env.RECOVERY_COMMIT] : syncMode === 'manual-slugs'
             ? [...new Set(changedSkills
                 .map((skillPath) => safeGit(['log', '-1', '--format=%H', '--grep=\\[submission:', '--', `skills/${skillPath}`]))
                 .filter(Boolean))]
