@@ -1,5 +1,10 @@
 # Implementation notes
 
+## 2026-10-11 — Submission author identity
+
+- CLI reports preserve the upstream YAML author as a display name; it is not required to equal the GitHub owner login. Existing-target classification now uses the owner-scoped path, report slug and canonical source repository/ref as authority, while requiring a nonempty display author.
+- This applies to both published and pending updates without rewriting old reports. Snapshot hashing, source mismatch rejection, symlink rejection and approval provenance stay unchanged.
+
 ## 2026-10-11 — General Actions recovery
 
 - Recovery uses a failed run ID to derive immutable scope. No skill names, incident IDs or source-specific exceptions enter the implementation.
