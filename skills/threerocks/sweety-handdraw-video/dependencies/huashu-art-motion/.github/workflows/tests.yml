@@ -1,0 +1,43 @@
+name: Media contracts
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  contracts:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python: ['3.10', '3.12']
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - run: python -m pip install requests Pillow
+      - run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      - run: python -m unittest discover -s tests -v
+      - run: python scripts/check_release.py check --repo . --ref HEAD --base HEAD~1
+  windows-render:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    env:
+      PYTHONUTF8: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install playwright numpy Pillow
+      - run: python -m playwright install chromium
+      - run: python -m unittest discover -s tests -p test_local_server.py -v
+      - run: python scripts/engine/render.py --solo 09_postimp --stills 0.3 --out smoke-stills
+      - run: python scripts/qa.py --project scripts/engine --ids 09_postimp --fps 5 --out smoke-qa
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: windows-render-smoke
+          path: |
+            smoke-stills/
+            smoke-qa/
