@@ -1,0 +1,80 @@
+# #3.1 蜡笔童涂-潦草自画版验证记录
+
+## 目标与视觉真源
+
+- 用户在 2026-08-03 再次指定的主视觉锚点:[../../assets/style-3.1/anchor-family.png](https://gentle-starburst-99bd99.netlify.app/hand-drawn/assets/style-3.1/anchor-family.png)。新附件与仓库锚点的文件字节不同,但解码像素完全一致;因此视觉真源无需换图。
+- 目标不是复刻锚点里的家庭成员,而是稳定继承线条、五官、人物比例、蜡笔填色、留白和明亮白底。
+- 配方与调用合同:`STYLES.md` #3.1 + `scripts/render_prompt.py`。
+
+判定维度:
+
+- 五官:小竖椭圆黑点眼、小折线鼻、随情绪变化的极短歪线嘴、珊瑚红乱涂圆腮红;不得复制同一张笑脸,也不得出现眼白、大虹膜、睫毛或商业萌脸。
+- 比例:成人与孩子高矮清楚,身体简化但不是 Q 版巨头、火柴四肢或写实人体。
+- 线条:细到中等粗黑色歪线,压力不匀、轻微断线与重复描,不得统一粗黑卡通描边。
+- 填色:随机蜡笔短笔画、大片露白、自然越界,不得把露白与越界按固定比例平均分配。
+- 构图:主体在中下部,上方大留白,只保留讲清动作所需的极少道具。
+- 泛化:换成非家庭身份后仍保持同一视觉语言,不复制锚点人物与站位。
+- 人物灵魂:同页人物的头型、肩宽、躯干歪斜、五官高低和涂色缺陷必须各不相同,不能用同一骨架批量换装。
+
+## 回归场景
+
+### 参考图同构的亲子叙事
+
+- 文件:[parent-snack-cabinet.png](https://gentle-starburst-99bd99.netlify.app/hand-drawn/benchmarks/style-3.1/parent-snack-cabinet.png)。
+- 内容:爸爸弯腰把零食袋放回两层小柜子,短发男孩在旁边看着。
+- 输入:渲染器生成的完整 #3.1 prompt;画幅 3:4;每次请求附 [anchor-family.png](https://gentle-starburst-99bd99.netlify.app/hand-drawn/assets/style-3.1/anchor-family.png) 作为 `style-only` 参考。
+- 结果:通过。五官、父子高矮、黑线身份、蜡笔露白与越界均命中;没有复制锚点中的四人站位与衣服。
+
+### 跨身份场景
+
+- 文件:[librarian-book-return.png](https://gentle-starburst-99bd99.netlify.app/hand-drawn/benchmarks/style-3.1/librarian-book-return.png)。
+- 内容:灰色卷发的老奶奶图书管理员帮助双马尾女孩把绿书放回矮书架。
+- 输入:渲染器生成的完整 #3.1 prompt;画幅 3:4;每次请求附 [anchor-family.png](https://gentle-starburst-99bd99.netlify.app/hand-drawn/assets/style-3.1/anchor-family.png) 作为 `style-only` 参考。
+- 结果:通过。老年人、儿童、书与书架均被翻译成同一线条和填色语言;没有回退成商业绘本脸或规整人体。
+
+## 2026-08-03 主视觉强化回归
+
+### 亲子同构场景
+
+- 文件:[parent-listening-v2.png](https://gentle-starburst-99bd99.netlify.app/hand-drawn/benchmarks/style-3.1/parent-listening-v2.png)。
+- 内容:妈妈坐在小板凳上听女儿讲学校里的事,女儿抬手比划,旁边只有书包。
+- 结果:不通过。母女头型、肩宽、身高和手势有差异,但衣服、裙子、凳子与书包大多退化成同向、等距、近似等密度的斜线排线;只是套了蜡笔纹理,没有复现主锚点的停笔、换向、交叉、重压、漏空和随机越界。
+
+### 跨身份场景
+
+- 文件:[librarian-book-return-v2.png](https://gentle-starburst-99bd99.netlify.app/hand-drawn/benchmarks/style-3.1/librarian-book-return-v2.png)。
+- 内容:灰发老奶奶图书管理员把绿书递给双马尾女孩,旁边是矮书架。
+- 结果:不通过。老人与孩子的年龄、姿态和轮廓差异清楚,但衣服、裙子、头发、书架和书脊仍以重复斜线和均匀覆盖为主;模型还把矮书架画成两层。人物结构改善不能抵消蜡笔涂抹身份漂移。
+
+## 2026-08-03 涂抹轨迹第一轮强化
+
+- 文件:[parent-listening-v3-failed.png](https://gentle-starburst-99bd99.netlify.app/hand-drawn/benchmarks/style-3.1/parent-listening-v3-failed.png)、[librarian-book-return-v3-failed.png](https://gentle-starburst-99bd99.netlify.app/hand-drawn/benchmarks/style-3.1/librarian-book-return-v3-failed.png)。
+- 结果:均不通过。新版已出现少量越界和局部方向变化,但大部分衣服、裤子、裙子、头发与书架仍由细密同向斜线覆盖,白纸多为细缝而非主锚点中的大片漏空。
+- 结论:“随机、换向、交叉”等抽象词仍不足以压过模型的整齐排线惯性;下一轮必须前置禁止细密斜线,并正向要求粗钝长短悬殊、多个方向区域、醒目白洞和明显错位。
+
+## 2026-08-03 强制两阶段回归
+
+- 文件:[parent-listening-v4-two-pass.png](https://gentle-starburst-99bd99.netlify.app/hand-drawn/benchmarks/style-3.1/parent-listening-v4-two-pass.png)、[librarian-book-return-v4-two-pass.png](https://gentle-starburst-99bd99.netlify.app/hand-drawn/benchmarks/style-3.1/librarian-book-return-v4-two-pass.png)。
+- 流程:第一阶段生成完整人物与场景;第二阶段只把第一阶段输出作为编辑目标,同时再次传入主锚点,锁定人物、动作、构图、轮廓和配色,只打散蜡笔涂抹轨迹。
+- 结果:不通过。相较单次生成,衣服与道具出现更粗钝的长短混合笔触、更大白洞、更明显的提前停笔和越界;但亲子图的裤子和裙子、跨身份图的衣裙和书架仍保留成片斜向惯性,与主锚点仍有明显差距。
+- 结论:基础生成 + 一次修正仍不稳定,该版本只作为第二阶段中间证据。
+
+## 2026-08-04 三阶段递进修正回归
+
+- 文件:[parent-listening-v5-three-stage.png](https://gentle-starburst-99bd99.netlify.app/hand-drawn/benchmarks/style-3.1/parent-listening-v5-three-stage.png)、[librarian-book-return-v5-three-stage.png](https://gentle-starburst-99bd99.netlify.app/hand-drawn/benchmarks/style-3.1/librarian-book-return-v5-three-stage.png)。
+- 流程:基础生成 → 第一轮温和 `scribble-correction` → 第二轮更强的 `scribble-chaos-correction`;每轮都把前一阶段输出作为 Image 1、主锚点作为 Image 2。
+- 结果:内部通过,待用户复核。两张图的主要色块都由连续细密斜排线变成断裂的粗钝笔触、35%-55% 的不规则大片漏白、相邻色区不同方向、重色结块与孤立越界;人物、动作、构图、黑线和既有配色保持稳定。
+- 反例:[parent-listening-v5-single-strong-correction-failed.png](https://gentle-starburst-99bd99.netlify.app/hand-drawn/benchmarks/style-3.1/parent-listening-v5-single-strong-correction-failed.png)。对原失败图直接做一次强修正虽然乱度达标,却把女孩黄衣紫裙改成绿衣蓝裙,并改变局部人物形态;证明不能把两轮递进编辑压成一次强编辑。
+- 结论:正式合同升级为 `family-crayon-card-v3`;只有第三阶段输出有资格进入 final。
+
+## 隐私与来源审计
+
+- 画风锚点已使用 `sweety-image-privacy --mode generated-asset` 成功处理;无 GPS、相机、设备序列号、主机或本地路径字段;像素摘要处理前后相同。审计见 `../../assets/style-3.1/anchor-family.png.privacy.json` 与 `.provenance.json`。
+- 本页回归图均调用了同一 skill,但检测到 Codex 内置生成器写入的 C2PA/JUMBF 内容凭证。`sweety-image-privacy` 按 fail-closed 规则拒绝改写,以免破坏或伪造签名。ExifTool 只读复核显示 1086×1448 PNG 和 C2PA/JUMBF,未见 EXIF/GPS/相机字段;原始文件作为内部验证证据保留,不冒充“已清理发布图”。
+
+## 入库结论
+
+- 稳定身份迁移为 `3.1` / `family-crayon-card` / `parent-child-crayon` / `submission-crayon`;旧编号 `1.2` 不再可调用。
+- 正式生产、多页和连续故事必须对每张图附同一内置画风锚点;只有 prompt 没有 `references` 即判调用不合格。
+- 锚点身份按解码像素而非整文件字节固定;隐私与来源元数据可以变化,实际画面像素不能变化。
+- 业务项目只能传画风编号、内容、文字和比例,不能维护或追加第二套画风规则。
