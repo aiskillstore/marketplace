@@ -83,7 +83,7 @@ def validate_input(data: Any) -> dict[str, Any]:
         raise DelegationPolicyError("prior_candidate_available must be a boolean")
 
     provider_state = data.get("provider_state")
-    if provider_state not in {"available", "unavailable", "quota_exhausted", "rate_limited", "unverified"}:
+    if provider_state not in {"available", "unavailable", "rate_limited", "unverified"}:
         raise DelegationPolicyError(f"invalid provider_state {provider_state!r}")
 
     hard_stop_reasons = data.get("hard_stop_reasons", [])
@@ -203,16 +203,6 @@ def evaluate_policy(data: dict[str, Any]) -> dict[str, Any]:
         return decision_record
 
     # 6. Provider availability check
-    if provider_state == "quota_exhausted":
-        decision_record.update({
-            "decision": "blocked",
-            "first_substantive_actor": "none",
-            "reason_code": "provider-quota-exhausted",
-            "direct_codex_authorized": False,
-            "rationale": "Provider quota is exhausted; silent fallback to the driver is prohibited.",
-        })
-        return decision_record
-
     if provider_state != "available":
         decision_record.update({
             "decision": "blocked",

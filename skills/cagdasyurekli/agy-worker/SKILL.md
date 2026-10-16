@@ -5,7 +5,7 @@ license: MIT
 compatibility: "OpenAI Codex CLI and Claude Code. Requires Bash, Python 3, git, and agy with provider network access."
 metadata:
   author: cagdasyurekli
-  version: "0.24.2"
+  version: "0.24.6"
 ---
 
 # Delegate repository work and verify the result
@@ -55,6 +55,15 @@ in [Project lifecycle and verification](references/PROJECT_LIFECYCLE_AND_VERIFIC
 commands, IDs and limits; keep that manifest out of the provider preview and prompt.
 Retired dispatch and workflow job formats are rejected; finish or discard them with their creating release, without migration.
 Default `--provider-isolation session` uses the existing AGY session. AGY has normal user filesystem/network authority; staging and reconciliation are not host isolation.
+The controller compares a bounded observation of the verified main source checkout
+against one immutable job baseline before later launches and before candidate
+admission or retention. No-candidate failures and cancellations without a report
+defer the post-exit comparison until the next launch; a cancelled repair defers it
+until its inherited candidate is next used. A detected change blocks
+the candidate; ignored untracked files and writes elsewhere on the host are outside
+this check. The main-workdir helper skips this comparison, while public launch
+preview still requires a linked disposable worktree. See
+[Security and compatibility](references/SECURITY_AND_COMPATIBILITY.md#session-and-native-modes).
 Explicit `--provider-isolation native` requires supported macOS scoped containment; it never falls back to session mode. Preserve the recorded isolation mode and grant profile across repairs.
 Provider-scope approval grants neither provider execution, Git action, driver acceptance, nor publication.
 Exclude secrets, denied paths and unrelated private content from every approved entry; telling the worker not to read an approved entry is not a control.
@@ -66,7 +75,12 @@ name. Installation grants no provider or Git authority.
 
 Read [Security and compatibility](references/SECURITY_AND_COMPATIBILITY.md) before a
 first live dispatch or changing execution exposure. It owns native network/Keychain
-limits, verifier environments and no-follow boundaries. Read the required
+limits, verifier environments and no-follow boundaries. Workspace MCP startup was
+observed on AGY 1.3.5: preview rejects known executable configuration; each launch
+also checks actual cwd ancestry, in both modes. Prefer scoped mode excluding
+`.agents/` configuration, then a disposable worktree without it; ancestors must
+also be clear. Session mode can start enabled user-plugin MCP servers; the guide
+owns the reserved paths, native exclusion evidence and unresolved hook behavior. Read the required
 [launch notices](references/PROJECT_LIFECYCLE_AND_VERIFICATION.md#approval-bindings-and-launch-notices)
 before initial, resume, continue or restart attempts; notices do not repeat approvals.
 

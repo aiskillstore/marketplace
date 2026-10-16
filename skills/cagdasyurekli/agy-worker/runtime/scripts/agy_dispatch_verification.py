@@ -17,6 +17,7 @@ import selectors
 import signal
 import stat
 import subprocess
+import sys
 import time
 from typing import Any, IO, cast
 
@@ -136,31 +137,75 @@ def run_check(check: Check, prepared: Any, *, containment: Any,
             except subprocess.TimeoutExpired:
                 outcome = "timeout"
     finally:
+        original_error = sys.exc_info()[1]
+        cleanup_error: BaseException | None = None
+        cleanup_signals: tuple[int, ...] = (signal.SIGHUP, signal.SIGINT, signal.SIGTERM, signal.SIGALRM)
+        previous_mask = signal.pthread_sigmask(signal.SIG_BLOCK, cleanup_signals)
         try:
-            if process is not None:
-                if root_identity is None:
-                    # No unbound group signal: kill only our still-unreaped child.
-                    process.kill()
+            try:
+                if process is not None:
+                    if root_identity is None:
+                        # No unbound group signal: kill only our still-unreaped child.
+                        process.kill()
+                        process.wait(timeout=2)
+                        raise VerificationError("verification process lineage could not be bound")
+                    containment.terminate_bound_process_group(root_identity, signal.SIGKILL)
                     process.wait(timeout=2)
-                    raise VerificationError("verification process lineage could not be bound")
-                containment.terminate_bound_process_group(root_identity, signal.SIGKILL)
-                process.wait(timeout=2)
-                cleanup_deadline = time.monotonic() + 2
-                while containment.terminate_bound_process_group(root_identity, signal.SIGKILL):
-                    if time.monotonic() >= cleanup_deadline:
-                        raise VerificationError("verification descendants remain unconfirmed")
-                    time.sleep(0.02)
-        finally:
-            selector.close()
+                    cleanup_deadline = time.monotonic() + 2
+                    while containment.terminate_bound_process_group(root_identity, signal.SIGKILL):
+                        if time.monotonic() >= cleanup_deadline:
+                            raise VerificationError("verification descendants remain unconfirmed")
+                        time.sleep(0.02)
+            except BaseException as exc:
+                cleanup_error = exc
+            # Attempt every close, even if another cleanup operation failed.
+            handles: list[selectors.BaseSelector | IO[bytes]] = [selector]
             if process is not None:
-                for remaining_stream in (process.stdout, process.stderr):
-                    if remaining_stream is not None:
-                        remaining_stream.close()
+                handles.extend(stream for stream in (process.stdout, process.stderr)
+                               if stream is not None)
+            for handle in handles:
+                try:
+                    handle.close()
+                except BaseException as exc:
+                    if cleanup_error is None:
+                        cleanup_error = exc
             for descriptor in descriptors.values():
                 try:
-                    os.fsync(descriptor)
-                finally:
-                    os.close(descriptor)
+                    try:
+                        os.fsync(descriptor)
+                    finally:
+                        os.close(descriptor)
+                except BaseException as exc:
+                    if cleanup_error is None:
+                        cleanup_error = exc
+        finally:
+            # Deliver every pending handler after closing handles. A raising
+            # handler must not strand another pending signal outside this guard.
+            pending_signals: list[int] = []
+            previous_handlers = {number: signal.getsignal(number) for number in cleanup_signals}
+
+            def defer(number: int, _frame: Any) -> None:
+                pending_signals.append(number)
+
+            try:
+                for number in cleanup_signals:
+                    signal.signal(number, defer)
+                signal.pthread_sigmask(signal.SIG_SETMASK, previous_mask)
+            finally:
+                for number, handler in previous_handlers.items():
+                    signal.signal(number, handler)
+            for number in pending_signals:
+                handler = previous_handlers[number]
+                try:
+                    if callable(handler):
+                        handler(number, None)
+                    elif handler == signal.SIG_DFL:
+                        signal.raise_signal(number)
+                except BaseException as exc:
+                    if cleanup_error is None:
+                        cleanup_error = exc
+        if original_error is None and cleanup_error is not None:
+            raise cleanup_error
     return CheckResult(check.identifier, outcome, process.returncode if process else None,
                        time.monotonic() - started, sizes["stdout"], sizes["stderr"])
 

@@ -41,6 +41,63 @@ class GitCommitState(TypedDict):
 GitReader = Callable[[Path, str], bytes]
 
 
+def stat_binding(info: os.stat_result) -> tuple[int, ...]:
+    """Bind transient content/identity facts; reads may advance the excluded atime."""
+    return (
+        info.st_dev, info.st_ino, info.st_mode, info.st_nlink,
+        info.st_uid, info.st_gid, info.st_size, info.st_mtime_ns,
+        info.st_ctime_ns,
+    )
+
+
+def read_regular_at(
+    parent_fd: int | None,
+    name: str,
+    maximum: int,
+    label: str,
+    *,
+    private: bool,
+    error_type: type[ValueError],
+) -> tuple[bytes, os.stat_result]:
+    """Read one bounded no-follow file using the caller-owned error class."""
+    try:
+        before = os.stat(name, dir_fd=parent_fd, follow_symlinks=False)
+        descriptor = os.open(
+            name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK,
+            dir_fd=parent_fd,
+        )
+    except OSError as exc:
+        raise error_type(f"{label} is unavailable") from exc
+    try:
+        metadata = os.fstat(descriptor)
+        if not stat.S_ISREG(metadata.st_mode):
+            raise error_type(f"{label} must be one real file")
+        if stat_binding(metadata) != stat_binding(before):
+            raise error_type(f"{label} changed while opened")
+        if private and (
+            metadata.st_uid != os.getuid() or stat.S_IMODE(metadata.st_mode) != 0o600
+        ):
+            raise error_type(f"{label} must be owner-private mode 0600")
+        if metadata.st_size > maximum:
+            raise error_type(f"{label} is oversized")
+        chunks: list[bytes] = []
+        remaining = metadata.st_size
+        while remaining:
+            chunk = os.read(descriptor, min(65536, remaining))
+            if not chunk:
+                raise error_type(f"{label} changed while read")
+            chunks.append(chunk)
+            remaining -= len(chunk)
+        if (os.read(descriptor, 1)
+                or stat_binding(os.fstat(descriptor)) != stat_binding(metadata)
+                or stat_binding(os.stat(name, dir_fd=parent_fd, follow_symlinks=False))
+                != stat_binding(metadata)):
+            raise error_type(f"{label} changed while read")
+        return b"".join(chunks), metadata
+    finally:
+        os.close(descriptor)
+
+
 def _checked_git_reader(repo: Path) -> Callable[..., bytes]:
     # Caller Git variables can redirect even `git -C`; local configuration can
     # execute helpers or make a dirty worktree appear clean. A reader belongs
@@ -261,29 +318,79 @@ def candidate_state_digest(
             git_reader=git_reader,
         )
     )
-    for raw_path in sorted(paths):
-        try:
-            relative = raw_path.decode("utf-8", "surrogateescape")
-        except UnicodeDecodeError as exc:  # pragma: no cover - surrogateescape is total
-            raise CandidateStateError("candidate path is invalid") from exc
-        full_path = os.path.join(repo, relative)
-        digest.update(len(raw_path).to_bytes(8, "big"))
-        digest.update(raw_path)
-        try:
-            metadata = os.lstat(full_path)
-        except FileNotFoundError:
-            digest.update(b"deleted")
-            continue
-        digest.update(str(stat.S_IFMT(metadata.st_mode)).encode("ascii"))
-        digest.update(str(stat.S_IMODE(metadata.st_mode)).encode("ascii"))
-        if stat.S_ISLNK(metadata.st_mode):
-            digest.update(os.readlink(full_path).encode("utf-8", "surrogateescape"))
-        elif stat.S_ISREG(metadata.st_mode):
-            with open(full_path, "rb") as handle:
-                for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-                    digest.update(chunk)
-        else:
-            digest.update(b"non-regular")
+    root_fd = os.open(repo, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    root_before = os.fstat(root_fd)
+    try:
+        for raw_path in sorted(paths):
+            parts = raw_path.split(b"/")
+            if any(part in (b"", b".", b"..") for part in parts):
+                raise CandidateStateError("candidate path is invalid")
+            digest.update(len(raw_path).to_bytes(8, "big"))
+            digest.update(raw_path)
+            descriptors = [os.dup(root_fd)]
+            ancestors: list[tuple[int, bytes, os.stat_result]] = []
+            try:
+                missing_parent = False
+                for part in parts[:-1]:
+                    parent_fd = descriptors[-1]
+                    try:
+                        before = os.stat(part, dir_fd=parent_fd, follow_symlinks=False)
+                    except FileNotFoundError:
+                        missing_parent = True
+                        break
+                    child_fd = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+                                       dir_fd=parent_fd)
+                    descriptors.append(child_fd)
+                    if stat_binding(os.fstat(child_fd)) != stat_binding(before):
+                        raise CandidateStateError("candidate ancestor changed while opened")
+                    ancestors.append((parent_fd, part, before))
+                parent_fd = descriptors[-1]
+                try:
+                    if missing_parent:
+                        raise FileNotFoundError
+                    metadata = os.stat(parts[-1], dir_fd=parent_fd, follow_symlinks=False)
+                except FileNotFoundError:
+                    digest.update(b"deleted")
+                else:
+                    digest.update(str(stat.S_IFMT(metadata.st_mode)).encode("ascii"))
+                    digest.update(str(stat.S_IMODE(metadata.st_mode)).encode("ascii"))
+                    if stat.S_ISLNK(metadata.st_mode):
+                        digest.update(os.readlink(parts[-1], dir_fd=parent_fd))
+                    elif stat.S_ISREG(metadata.st_mode):
+                        handle = os.open(parts[-1], os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK,
+                                         dir_fd=parent_fd)
+                        try:
+                            opened = os.fstat(handle)
+                            if not stat.S_ISREG(opened.st_mode) or stat_binding(opened) != stat_binding(metadata):
+                                raise CandidateStateError("candidate file changed while opened")
+                            remaining = opened.st_size
+                            while remaining:
+                                chunk = os.read(handle, min(1024 * 1024, remaining))
+                                if not chunk:
+                                    raise CandidateStateError("candidate file changed while read")
+                                digest.update(chunk)
+                                remaining -= len(chunk)
+                            if os.read(handle, 1) or stat_binding(os.fstat(handle)) != stat_binding(metadata):
+                                raise CandidateStateError("candidate file changed while read")
+                        finally:
+                            os.close(handle)
+                    else:
+                        digest.update(b"non-regular")
+                    if stat_binding(os.stat(parts[-1], dir_fd=parent_fd, follow_symlinks=False)) != stat_binding(metadata):
+                        raise CandidateStateError("candidate path changed while read")
+                for parent, name, before in ancestors:
+                    if stat_binding(os.stat(name, dir_fd=parent, follow_symlinks=False)) != stat_binding(before):
+                        raise CandidateStateError("candidate ancestor changed while read")
+            except OSError as exc:
+                raise CandidateStateError("candidate path is unavailable or changed") from exc
+            finally:
+                for descriptor in reversed(descriptors):
+                    os.close(descriptor)
+        if (stat_binding(os.fstat(root_fd)) != stat_binding(root_before)
+                or stat_binding(os.stat(repo, follow_symlinks=False)) != stat_binding(root_before)):
+            raise CandidateStateError("candidate root changed while read")
+    finally:
+        os.close(root_fd)
     return digest.hexdigest()
 
 
@@ -322,6 +429,257 @@ def git_commit_state(
         raise CandidateStateError("Git commit target is invalid")
     return {"branch": branch, "head": head, "entries": entries}
 
+
+
+SOURCE_CHECKOUT_ALGORITHM = "source-checkout-v1"
+SOURCE_CHECKOUT_SECONDS = 5.0
+SOURCE_CHECKOUT_PATH_LIMIT = 100000
+SOURCE_CHECKOUT_LIST_LIMIT = 8 * 1024 * 1024
+SOURCE_CHECKOUT_LIST_TOTAL = 32 * 1024 * 1024
+SOURCE_CHECKOUT_CONTENT_LIMIT = 64 * 1024 * 1024
+
+
+def source_directory_identity(path: Path) -> list[int]:
+    """Bind a canonical, no-follow directory without volatile Git timestamps."""
+    if not path.is_absolute() or Path(os.path.realpath(path)) != path:
+        raise CandidateStateError("source authority is not canonical")
+    info = path.lstat()
+    if not stat.S_ISDIR(info.st_mode):
+        raise CandidateStateError("source authority is not a directory")
+    return [info.st_dev, info.st_ino, stat.S_IFMT(info.st_mode), info.st_uid]
+
+
+def _source_binding(
+    workdir: Path,
+    batch_reader: Callable[[Path, tuple[tuple[str, ...], ...]], list[bytes]],
+) -> dict[str, object]:
+    """Resolve the verified main registration, including separate Git dirs."""
+    source_directory_identity(workdir)
+
+    def marker(root: Path) -> None:
+        info = (root / ".git").lstat()
+        if not (stat.S_ISREG(info.st_mode) or stat.S_ISDIR(info.st_mode)):
+            raise CandidateStateError("source Git marker is unsupported")
+
+    marker(workdir)
+
+    def path_read(root: Path, raw: bytes) -> Path:
+        if not raw.endswith(b"\n") or b"\0" in raw:
+            raise CandidateStateError("source Git path is invalid")
+        path = Path(raw[:-1].decode("utf-8", "strict"))
+        if not path.is_absolute():
+            path = root / path
+        path = Path(os.path.abspath(path))
+        source_directory_identity(path)
+        return path
+
+    path_command = ("rev-parse", "--show-toplevel", "--absolute-git-dir", "--git-common-dir")
+
+    def path_values(raw: bytes) -> tuple[bytes, bytes, bytes]:
+        # Fixed LF framing is deliberately unavailable for LF-bearing paths.
+        # Keep CR/whitespace bytes and relative-common resolution unchanged.
+        parts = raw.split(b"\n")
+        if len(parts) != 4 or parts[-1] or not all(parts[:3]) or b"\0" in raw:
+            raise CandidateStateError("source Git paths are ambiguous")
+        return parts[0] + b"\n", parts[1] + b"\n", parts[2] + b"\n"
+
+    raw_paths, records = batch_reader(
+        workdir, (path_command, ("worktree", "list", "--porcelain", "-z")),
+    )
+    top_raw, git_raw, common_raw = path_values(raw_paths)
+    if path_read(workdir, top_raw) != workdir:
+        raise CandidateStateError("source workdir is redirected")
+    work_git = path_read(workdir, git_raw)
+    common = path_read(workdir, common_raw)
+    if not records.endswith(b"\0\0"):
+        raise CandidateStateError("source registrations are incomplete")
+    registrations: list[Path] = []
+    for record in records[:-2].split(b"\0\0"):
+        fields = record.split(b"\0")
+        if (not fields or not fields[0].startswith(b"worktree ")
+                or any(field == b"bare" or field.startswith(b"prunable") for field in fields)):
+            raise CandidateStateError("source registration is unsupported")
+        root = Path(fields[0][9:].decode("utf-8", "strict"))
+        source_directory_identity(root)
+        registrations.append(root)
+    if not registrations or len(set(registrations)) != len(registrations) or workdir not in registrations:
+        raise CandidateStateError("source registration is ambiguous")
+    source = registrations[0]
+    marker(source)
+    top_raw, git_raw, common_raw = path_values(batch_reader(source, (path_command,))[0])
+    if (path_read(source, top_raw) != source
+            or path_read(source, git_raw) != common
+            or path_read(source, common_raw) != common
+            or (workdir == source) != (work_git == common)):
+        raise CandidateStateError("source main authority is redirected")
+    return {"source_path": str(source), "source_identity": source_directory_identity(source),
+            "common_dir": str(common), "common_identity": source_directory_identity(common)}
+
+
+def source_checkout_observation(
+    workdir: Path, *, git_reader: Callable[..., bytes], deadline: float,
+    git_batch_reader: Callable[[Path, tuple[tuple[str, ...], ...]], list[bytes]] | None = None,
+) -> dict[str, object]:
+    """Observe bounded Git-visible source state; ignored untracked bytes are excluded.
+
+    Clean tracked content uses its index OID and no-follow stat binding. Dirty
+    tracked/untracked bytes are streamed; no repository helper or filter runs.
+    The caller owns one deadline and the bounded Git process-group transport.
+    """
+    listed_bytes = 0
+
+    def read(root: Path, *arguments: str, **_limits: object) -> bytes:
+        nonlocal listed_bytes
+        if time.monotonic() >= deadline:
+            raise CandidateStateLimitError("source observation deadline")
+        raw = git_reader(root, *arguments)
+        listed_bytes += len(raw)
+        if len(raw) > SOURCE_CHECKOUT_LIST_LIMIT or listed_bytes > SOURCE_CHECKOUT_LIST_TOTAL:
+            raise CandidateStateLimitError("source observation listing budget")
+        return raw
+
+    def batch(root: Path, arguments: tuple[tuple[str, ...], ...]) -> list[bytes]:
+        nonlocal listed_bytes
+        if git_batch_reader is None:
+            return [read(root, *item) for item in arguments]
+        if time.monotonic() >= deadline:
+            raise CandidateStateLimitError("source observation deadline")
+        outputs = git_batch_reader(root, arguments)
+        if len(outputs) != len(arguments):
+            raise CandidateStateError("source Git batch is incomplete")
+        for raw in outputs:
+            listed_bytes += len(raw)
+            if len(raw) > SOURCE_CHECKOUT_LIST_LIMIT or listed_bytes > SOURCE_CHECKOUT_LIST_TOTAL:
+                raise CandidateStateLimitError("source observation listing budget")
+        return outputs
+
+    commit_commands: tuple[tuple[str, ...], ...] = (
+        ("ls-files", "--stage", "-z"), ("ls-files", "-v", "-z"),
+        ("rev-parse", "--symbolic-full-name", "HEAD"),
+        ("rev-parse", "--verify", "HEAD^{commit}"),
+    )
+
+    def commit_sample(outputs: list[bytes]) -> GitCommitState:
+        sampled_outputs = dict(zip(commit_commands, outputs))
+        def sampled(_root: Path, *arguments: str, **_limits: object) -> bytes:
+            return sampled_outputs[arguments]
+        return git_commit_state(source, git_reader=sampled)
+
+    def paths(raw: bytes) -> set[bytes]:
+        if raw and not raw.endswith(b"\0"):
+            raise CandidateStateError("source path listing is incomplete")
+        return set(raw.split(b"\0")) - {b""}
+
+    binding = _source_binding(workdir, batch)
+    if binding["source_path"] == str(workdir):
+        return {**binding, "status": "skipped_main_worktree", "sha256": None}
+    source = Path(str(binding["source_path"]))
+    untracked_command = ("ls-files", "-z", "--others", "--exclude-standard")
+    suspect_command = ("-c", "core.trustctime=true", "-c", "core.checkStat=default",
+                       "-c", "core.ignoreStat=false", "-c", "core.filemode=true",
+                       "-c", "core.symlinks=true", "diff-files", "--no-ext-diff",
+                       "--no-textconv", "--name-only", "-z", "--")
+    # Fixed reads within a sample are independent; begin and end samples
+    # remain separate, with every content/stat observation between them.
+    initial_outputs = batch(source, (*commit_commands, untracked_command, suspect_command))
+    commit = commit_sample(initial_outputs[:4])
+    untracked_raw, suspect_raw = initial_outputs[4:]
+    untracked, suspect = paths(untracked_raw), paths(suspect_raw)
+    tracked: set[bytes] = set()
+    for relative, header in commit["entries"]:
+        mode, oid, stage = header.split(" ")
+        if stage != "0" or mode not in {"100644", "100755", "120000"} or COMMIT_RE.fullmatch(oid) is None:
+            raise CandidateStateError("source index entry is unsupported")
+        tracked.add(os.fsencode(relative))
+    all_paths = tracked | untracked
+    if len(all_paths) > SOURCE_CHECKOUT_PATH_LIMIT or not suspect <= tracked:
+        raise CandidateStateLimitError("source observation path budget")
+    digest = hashlib.sha256()
+    digest.update(SOURCE_CHECKOUT_ALGORITHM.encode("ascii") + b"\0")
+    digest.update(json.dumps(binding, sort_keys=True, separators=(",", ":")).encode())
+    digest.update(json.dumps(commit, sort_keys=True, separators=(",", ":")).encode())
+    content_bytes = 0
+
+    def facts(info: os.stat_result) -> tuple[int, ...]:
+        return (info.st_dev, info.st_ino, info.st_mode, info.st_uid,
+                info.st_size, info.st_mtime_ns, info.st_ctime_ns)
+
+    observations: dict[bytes, tuple[int, ...] | None] = {}
+    root_fd = os.open(source, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+
+    def inspect(raw_path: bytes, *, hash_content: bool, recheck: bool = False) -> tuple[int, ...] | None:
+        nonlocal content_bytes
+        if time.monotonic() >= deadline:
+            raise CandidateStateLimitError("source observation deadline")
+        parts = raw_path.split(b"/")
+        if any(part in {b"", b".", b"..", b".git"} for part in parts):
+            raise CandidateStateError("source content path is invalid")
+        parent_fd = os.dup(root_fd)
+        try:
+            for part in parts[:-1]:
+                child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=parent_fd)
+                os.close(parent_fd)
+                parent_fd = child
+            before = os.stat(parts[-1], dir_fd=parent_fd, follow_symlinks=False)
+            if not (stat.S_ISREG(before.st_mode) or stat.S_ISLNK(before.st_mode)):
+                raise CandidateStateError("source content kind is unsupported")
+            payload_digest = hashlib.sha256()
+            if not recheck and (hash_content or stat.S_ISLNK(before.st_mode)):
+                if content_bytes + before.st_size > SOURCE_CHECKOUT_CONTENT_LIMIT:
+                    raise CandidateStateLimitError("source observation content budget")
+                if stat.S_ISLNK(before.st_mode):
+                    payload = os.fsencode(os.readlink(parts[-1], dir_fd=parent_fd))
+                    content_bytes += len(payload)
+                    payload_digest.update(payload)
+                else:
+                    descriptor = os.open(parts[-1], os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC,
+                                         dir_fd=parent_fd)
+                    try:
+                        if facts(os.fstat(descriptor)) != facts(before):
+                            raise CandidateStateError("source file changed while opening")
+                        while chunk := os.read(descriptor, 65536):
+                            content_bytes += len(chunk)
+                            if content_bytes > SOURCE_CHECKOUT_CONTENT_LIMIT or time.monotonic() >= deadline:
+                                raise CandidateStateLimitError("source observation content budget")
+                            payload_digest.update(chunk)
+                        if facts(os.fstat(descriptor)) != facts(before):
+                            raise CandidateStateError("source file changed while reading")
+                    finally:
+                        os.close(descriptor)
+                if content_bytes > SOURCE_CHECKOUT_CONTENT_LIMIT:
+                    raise CandidateStateLimitError("source observation content budget")
+                digest.update(payload_digest.digest())
+            if facts(os.stat(parts[-1], dir_fd=parent_fd, follow_symlinks=False)) != facts(before):
+                raise CandidateStateError("source file changed while observing")
+            return facts(before)
+        except FileNotFoundError:
+            if raw_path in untracked:
+                raise CandidateStateError("source untracked file disappeared") from None
+            return None
+        finally:
+            os.close(parent_fd)
+
+    try:
+        for raw_path in sorted(all_paths):
+            digest.update(len(raw_path).to_bytes(8, "big") + raw_path)
+            observation = inspect(raw_path, hash_content=raw_path in untracked or raw_path in suspect)
+            observations[raw_path] = observation
+            digest.update(json.dumps(observation, separators=(",", ":")).encode())
+        # Revalidate all named paths and the semantic lists before accepting a
+        # sample. Stat-only checks do not charge content twice or rehash bytes.
+        for raw_path, observation in observations.items():
+            if inspect(raw_path, hash_content=False, recheck=True) != observation:
+                raise CandidateStateError("source sample raced")
+        final_outputs = batch(source, (*commit_commands, untracked_command))
+        if (commit_sample(final_outputs[:4]) != commit
+                or paths(final_outputs[4]) != untracked
+                or _source_binding(workdir, batch) != binding
+                or source_directory_identity(source) != [os.fstat(root_fd).st_dev, os.fstat(root_fd).st_ino,
+                                                        stat.S_IFMT(os.fstat(root_fd).st_mode), os.fstat(root_fd).st_uid]):
+            raise CandidateStateError("source sample authority changed")
+    finally:
+        os.close(root_fd)
+    return {**binding, "status": "observed", "sha256": digest.hexdigest()}
 
 def candidate_state_is_empty(repo: Path, base: str) -> bool:
     """Check that neither the index nor working tree adds a committable change."""
@@ -468,12 +826,6 @@ def _diagnostic_facts(repo: Path) -> dict[str, object]:
     except OSError:
         return {"complete": False, "items": []}
 
-    def binding(info: os.stat_result) -> tuple[int, ...]:
-        # Reads may advance atime; it is not evidence of a path replacement.
-        return (info.st_dev, info.st_ino, info.st_mode, info.st_nlink,
-                info.st_uid, info.st_gid, info.st_size, info.st_mtime_ns,
-                info.st_ctime_ns)
-
     def scan(directory_fd: int, prefix: bytes) -> bool:
         nonlocal path_bytes, content_bytes
         with os.scandir(directory_fd) as entries:
@@ -499,16 +851,16 @@ def _diagnostic_facts(repo: Path) -> dict[str, object]:
                     descriptor = os.open(name, os.O_RDONLY | os.O_NOFOLLOW,
                                          dir_fd=directory_fd)
                     try:
-                        if binding(os.fstat(descriptor)) != binding(metadata):
+                        if stat_binding(os.fstat(descriptor)) != stat_binding(metadata):
                             return False
                         while chunk := os.read(descriptor, 1024 * 1024):
                             content_bytes += len(chunk)
                             if content_bytes > 8 * 1024 * 1024 or time.monotonic() > deadline:
                                 return False
                             fingerprint.update(chunk)
-                        if (binding(os.fstat(descriptor)) != binding(metadata)
-                                or binding(os.stat(name, dir_fd=directory_fd,
-                                                    follow_symlinks=False)) != binding(metadata)):
+                        if (stat_binding(os.fstat(descriptor)) != stat_binding(metadata)
+                                or stat_binding(os.stat(name, dir_fd=directory_fd,
+                                                    follow_symlinks=False)) != stat_binding(metadata)):
                             return False
                     finally:
                         os.close(descriptor)
@@ -520,19 +872,19 @@ def _diagnostic_facts(repo: Path) -> dict[str, object]:
                     child_fd = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
                                        dir_fd=directory_fd)
                     try:
-                        if (binding(os.fstat(child_fd)) != binding(metadata)
+                        if (stat_binding(os.fstat(child_fd)) != stat_binding(metadata)
                                 or not scan(child_fd, path + b"/")):
                             return False
                     finally:
                         os.close(child_fd)
-                    if (binding(os.stat(name, dir_fd=directory_fd, follow_symlinks=False))
-                            != binding(metadata)):
+                    if (stat_binding(os.stat(name, dir_fd=directory_fd, follow_symlinks=False))
+                            != stat_binding(metadata)):
                         return False
         return True
 
     try:
         original = os.fstat(root_fd)
-        complete = scan(root_fd, b"") and binding(os.fstat(root_fd)) == binding(original)
+        complete = scan(root_fd, b"") and stat_binding(os.fstat(root_fd)) == stat_binding(original)
     except (OSError, UnicodeError, RecursionError):
         complete = False
     finally:

@@ -16,7 +16,7 @@
 #       14 driver verification failed/mutated repo · 15 worker escalation
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SCHEMA="${AGY_WORKER_SCHEMA:-$SCRIPT_DIR/schemas/worker-result.schema.json}"
 
 envelope=""; repo="$PWD"; base=""; expect_edits=0
@@ -225,11 +225,11 @@ done
 [[ -n "$envelope" && -f "$envelope" ]] || {
     echo "qa-gate.sh: --envelope FILE required" >&2; exit 64;
 }
-envelope="$(cd "$(dirname "$envelope")" && pwd)/$(basename "$envelope")"
+envelope="$(CDPATH= cd -- "$(dirname "$envelope")" && pwd)/$(basename "$envelope")"
 [[ -d "$repo" ]] || { echo "qa-gate.sh: --repo DIR required" >&2; exit 64; }
-repo="$(cd "$repo" && pwd -P)"
+repo="$(CDPATH= cd -- "$repo" && pwd -P)"
 [[ -f "$SCHEMA" ]] || { echo "qa-gate.sh: schema not found: $SCHEMA" >&2; exit 64; }
-SCHEMA="$(cd "$(dirname "$SCHEMA")" && pwd)/$(basename "$SCHEMA")"
+SCHEMA="$(CDPATH= cd -- "$(dirname "$SCHEMA")" && pwd)/$(basename "$SCHEMA")"
 
 case "$base" in
     ''|*[!0-9a-f]*)
@@ -683,7 +683,7 @@ for (( i=0; i<${#verify_specs[@]}; i++ )); do
         if (
             builtin eval "exec ${evidence_fd}>&-" || exit 126
             unset AGY_WORKER_INTERNAL_EVIDENCE_TOKEN AGY_WORKER_INTERNAL_PYTHON
-            cd "$repo" || exit 126
+            CDPATH= cd -- "$repo" || exit 126
             if [[ "$verifier_mode" == argv ]]; then
                 printf '%s' "${verify_specs[$i]}" | exec /usr/bin/env -i \
                     "${verifier_environment[@]}" "$verifier_python" -I -S -B \
@@ -699,7 +699,7 @@ for (( i=0; i<${#verify_specs[@]}; i++ )); do
         fi
     else
         if (
-            cd "$repo" || exit 126
+            CDPATH= cd -- "$repo" || exit 126
             if [[ "$verifier_mode" == argv ]]; then
                 printf '%s' "${verify_specs[$i]}" | exec /usr/bin/env -i \
                     "${verifier_environment[@]}" "$verifier_python" -I -S -B \

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Create and validate one private, unsigned Evidence Receipt v1.
+"""Create and validate one private, unsigned Evidence Receipt.
 
 The gate remains the sole authority for its outcome.  This module binds the gate's
 structured handoff to caller-owned input hashes and publishes the resulting record;
@@ -1041,43 +1041,52 @@ def run_gate(
         controller.set_group(child.pid)
         os.close(verify_read_fd)
         verify_read_fd = -1
-        while payload:
-            written = os.write(verify_write_fd, payload)
-            payload = payload[written:]
+        early_close = False
+        try:
+            while payload:
+                written = os.write(verify_write_fd, payload)
+                if written <= 0:
+                    raise ProtocolFailure("gate environment write made no progress")
+                payload = payload[written:]
+        except BrokenPipeError:
+            early_close = True
         os.close(verify_write_fd)
         verify_write_fd = -1
-        gate_exit = child.wait()
+        if early_close:
+            try:
+                with controller.blocked():
+                    gate_exit = child.wait(timeout=5)
+                    controller.set_group(None)
+            except subprocess.TimeoutExpired as exc:
+                raise ProtocolFailure("gate closed environment input without exiting") from exc
+        else:
+            gate_exit = child.wait()
         return gate_exit
-    except SignalInterruption:
-        if child is not None:
-            try:
-                os.killpg(child.pid, signal.SIGKILL)
-            except ProcessLookupError:
-                pass
-            try:
-                child.wait(timeout=5)
-            except (subprocess.TimeoutExpired, OSError):
-                pass
-        raise
-    except OSError as exc:
-        if child is not None:
-            try:
-                os.killpg(child.pid, signal.SIGKILL)
-            except ProcessLookupError:
-                pass
-            try:
-                child.wait(timeout=5)
-            except (subprocess.TimeoutExpired, OSError):
-                pass
-        raise ProtocolFailure("gate could not start") from exc
-    finally:
-        for descriptor in (verify_read_fd, verify_write_fd):
-            if descriptor >= 0:
+    except (SignalInterruption, OSError, ProtocolFailure) as exc:
+        with controller.blocked():
+            if child is not None:
+                if controller.active_group == child.pid and child.returncode is None:
+                    try:
+                        os.killpg(child.pid, signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass
                 try:
-                    os.close(descriptor)
-                except OSError:
+                    child.wait(timeout=5)
+                except (subprocess.TimeoutExpired, OSError):
                     pass
-        controller.set_group(None)
+            controller.set_group(None)
+        if isinstance(exc, OSError):
+            raise ProtocolFailure("gate could not start") from exc
+        raise
+    finally:
+        with controller.blocked():
+            for descriptor in (verify_read_fd, verify_write_fd):
+                if descriptor >= 0:
+                    try:
+                        os.close(descriptor)
+                    except OSError:
+                        pass
+            controller.set_group(None)
 
 
 def verify_main(

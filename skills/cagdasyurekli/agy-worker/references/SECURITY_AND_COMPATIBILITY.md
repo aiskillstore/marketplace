@@ -86,6 +86,60 @@ jobs with their creating release; see
 Default `--provider-isolation session` retains the caller's existing HOME/session
 and normal filesystem/network authority. Environment filtering and selected staging
 cannot prevent or exhaustively observe host access.
+AGY 1.3.5 was observed starting workspace `.agents/mcp_config.json` commands
+before worker activity, including a whole-worktree session explore/plan run. It also
+started MCP servers from enabled user-installed plugins in session mode. Disabling slash
+commands does not suppress those servers. Hook execution remains unresolved.
+
+Preview rejects known executable provider configuration in provider content; every
+launch, including repairs, additionally checks the actual cwd and bounded ancestors.
+The same policy applies in session and native modes. Reserved
+leaves anywhere below `.agents/` are `mcp_config.json`, `hooks.json`, `skills.json`,
+`rules.json`, `agents.json` and `plugins.json`; `plugin.json` below `.agents/plugins/`
+is also rejected, including nested plugin manifest directories. The policy rejects
+these nodes regardless of contents/type, symlinked `.agents`, and symlinks at/below
+`.agents/plugins/`, using NFC/casefold path classification. Only workspace MCP startup
+was confirmed live; the other reserved paths are conservative execution candidates.
+Plain instructions, skills/rules Markdown and `marketplace.json` remain content.
+
+Use scoped mode excluding `.agents/` configuration; otherwise use a disposable
+worktree without it. Unselected source configuration is allowed when it is not an
+actual provider ancestor. Scoped preview checks known selected content; the final
+stage/job path is resolved later and its actual ancestry is checked before launch.
+Ancestors stop at the nearest `.git` file or directory, or conservatively at the
+filesystem root for Gitless stages; this overapproximation can reject configuration
+beyond AGY's actual project root. Trusted ambient HOME is exempt only as an ancestor,
+never as the actual cwd or a repository/job-controlled directory. No user settings,
+`.gemini` configuration or installed plugins are read, modified or suppressed by
+this rejection. Finite checks do not isolate a hostile same-user process replacing
+paths after observation or adding previously absent subtrees after enumeration.
+
+Native's private HOME and generated private settings exclude ambient plugins.
+`tests/test-provider-containment.py` cases `profile_and_environment_are_private` and
+`native_boundary_is_enforced` prove that local mechanism; they are not a live AGY
+1.3.5 native plugin negative canary.
+
+For each attempt, the controller derives the owning main worktree from the bound
+workdir's Git common directory and compares a bounded source observation against
+one immutable baseline per job, before later launches and before admitting a report
+or retaining an inherited candidate. No-candidate cancellations and failures record
+`deferred`; their next resume/continue/repair/restart must pass the comparison. A
+cancelled repair also records `deferred` while keeping its inherited candidate; result,
+finalize, verification copy, self-verification, and any relaunch compare first. The observation binds HEAD, index, tracked paths, and non-ignored
+untracked paths. Clean tracked files use Git object IDs plus metadata; dirty tracked
+and non-ignored untracked files are hashed from bytes. Ignored untracked files and
+other host paths are excluded. A detected change, including an owner edit, blocks
+candidate recognition and reuse; inspect the source and start a new job. The finite
+before/after observations do not detect changes wholly reverted between them and do
+not confine writes. A verified main-workdir helper skips the comparison; public
+transmission preview still requires a linked disposable worktree.
+
+The observation caps paths, listings, directly read bytes, and elapsed work. If the
+prelaunch observation fails, the provider is not started; if the post-exit observation
+fails, the candidate and reuse are blocked. Status gives an actionable next step. These
+limits are not a throughput benchmark or a whole-file-byte guarantee for clean tracked
+files.
+
 Explicit native mode requires supported macOS scoped containment; failure never falls
 back to session. Preserve the selected mode and grant profile throughout repairs.
 Whole-worktree mode does not acquire native containment.

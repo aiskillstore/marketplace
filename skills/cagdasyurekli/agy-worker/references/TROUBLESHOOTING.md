@@ -89,6 +89,15 @@ finalization, or an explicitly directed fresh restart. It is never resumed or
 continued. Local cancellation proves local process closure only; report remote
 cancellation as unverified unless independently established.
 
+## Model selection rejected or source checkout guard stop
+
+`model_selection_rejected` (exit 26): AGY rejected the caller's `--model`/`--effort`
+pair. Check `agy models` and start a new job; the controller never substitutes a model.
+
+`source_checkout_changed` (28) / `source_checkout_guard_unavailable` (29): the main
+source checkout changed since the job baseline, or could not be observed within limits.
+No candidate or repair reuse is available; inspect the source checkout and start a new job.
+
 ## Scoped native launch is unavailable
 
 Explicit `--provider-isolation native` requires supported macOS scoped containment.

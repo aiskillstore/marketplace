@@ -6,6 +6,8 @@ import importlib.util
 from pathlib import Path
 import sys
 
+sys.dont_write_bytecode = True
+
 HERE = Path(__file__).resolve().parent
 RUNTIME_HELPER = HERE / "agy_dispatch_worktree.py"
 if not RUNTIME_HELPER.is_file():
