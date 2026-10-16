@@ -37,6 +37,7 @@ from candidate_state import (  # noqa: E402
     GIT_EXECUTABLE,
     candidate_state_digest,
     candidate_state_is_empty,
+    read_regular_at as _read_regular_at,
 )
 from evidence_receipt import (  # noqa: E402
     ValidationFailure,
@@ -249,71 +250,22 @@ def validate_private_parent(parent: Path) -> tuple[Path, int]:
     return parent, descriptor
 
 
-def _read_fd(descriptor: int, maximum: int) -> bytes:
-    chunks: list[bytes] = []
-    total = 0
-    while True:
-        chunk = os.read(descriptor, min(65536, maximum + 1 - total))
-        if not chunk:
-            break
-        chunks.append(chunk)
-        total += len(chunk)
-        if total > maximum:
-            raise JobError("local artifact is oversized")
-    return b"".join(chunks)
-
 
 def read_regular(path: Path, maximum: int, label: str, *, private: bool) -> tuple[bytes, os.stat_result]:
-    try:
-        descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
-    except OSError as exc:
-        raise JobError(f"{label} is unavailable") from exc
-    try:
-        metadata = os.fstat(descriptor)
-        if not stat.S_ISREG(metadata.st_mode):
-            raise JobError(f"{label} must be one real file")
-        if private and (
-            metadata.st_uid != os.getuid() or stat.S_IMODE(metadata.st_mode) != 0o600
-        ):
-            raise JobError(f"{label} must be owner-private mode 0600")
-        data = _read_fd(descriptor, maximum)
-        if len(data) != metadata.st_size:
-            raise JobError(f"{label} changed while read")
-        return data, metadata
-    finally:
-        os.close(descriptor)
+    return read_regular_at(None, str(path), maximum, label, private=private)
 
 
 def read_regular_at(
-    parent_fd: int,
+    parent_fd: int | None,
     name: str,
     maximum: int,
     label: str,
     *,
     private: bool,
 ) -> tuple[bytes, os.stat_result]:
-    try:
-        descriptor = os.open(
-            name,
-            os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0),
-            dir_fd=parent_fd,
-        )
-    except OSError as exc:
-        raise JobError(f"{label} is unavailable") from exc
-    try:
-        metadata = os.fstat(descriptor)
-        if not stat.S_ISREG(metadata.st_mode):
-            raise JobError(f"{label} must be one real file")
-        if private and (
-            metadata.st_uid != os.getuid() or stat.S_IMODE(metadata.st_mode) != 0o600
-        ):
-            raise JobError(f"{label} must be owner-private mode 0600")
-        data = _read_fd(descriptor, maximum)
-        if len(data) != metadata.st_size:
-            raise JobError(f"{label} changed while read")
-        return data, metadata
-    finally:
-        os.close(descriptor)
+    return _read_regular_at(
+        parent_fd, name, maximum, label, private=private, error_type=JobError,
+    )
 
 
 def parse_strict(data: bytes, label: str) -> Any:
@@ -533,7 +485,8 @@ def _validate_phase_fields(value: Mapping[str, Any]) -> None:
             worktree_identity is not None
             and receipt is not None
             and dispatch is None
-            and receipt["verdict"] == "rejected"
+            and ((receipt["verdict"] == "rejected" and receipt["gate_exit"] in {10, 11, 12, 13, 14})
+                 or (receipt["verdict"] == "routed" and receipt["gate_exit"] == 15))
             and cleanup_step in {"none", "worktree-removed"}
             and (
                 (last_result is None and failure is None)
@@ -545,7 +498,8 @@ def _validate_phase_fields(value: Mapping[str, Any]) -> None:
             worktree_identity is not None
             and receipt is not None
             and dispatch is None
-            and receipt["verdict"] == "rejected"
+            and ((receipt["verdict"] == "rejected" and receipt["gate_exit"] in {10, 11, 12, 13, 14})
+                 or (receipt["verdict"] == "routed" and receipt["gate_exit"] == 15))
             and cleanup_step == "branch-removed"
             and last_result == 0
             and failure is None
@@ -1348,7 +1302,7 @@ def command_verify(args: argparse.Namespace) -> int:
     try:
         state = store.value
         assert state is not None
-        if state["phase"] not in {"ready", "verify-failed"}:
+        if state["phase"] not in {"ready", "verify-failed", "verify-interrupted"}:
             raise JobError("state is not eligible for verification")
         facts = validate_ready_state(state)
         receipt = real_absolute(Path(args.receipt), "receipt", must_exist=False)
@@ -1421,12 +1375,10 @@ def command_verify(args: argparse.Namespace) -> int:
 def validate_receipt_binding(state: LifecycleState) -> dict[str, Any]:
     binding = state["receipt"]
     if not isinstance(binding, dict):
-        raise JobError("rejected state has no receipt binding")
+        raise JobError("state has no receipt binding")
     current = _receipt_binding(Path(binding["path"]), binding["gate_exit"], state["base"])
     if current != binding:
         raise JobError("receipt binding changed")
-    if current["gate_exit"] not in {10, 11, 12, 13, 14} or current["verdict"] != "rejected":
-        raise JobError("receipt is not cleanup-eligible")
     return current
 
 
@@ -1785,9 +1737,12 @@ def command_cleanup(args: argparse.Namespace) -> int:
             raise JobError("cleanup state approval does not match current bytes")
         if not isinstance(args.approve_candidate_sha, str) or SHA_RE.fullmatch(args.approve_candidate_sha) is None:
             raise JobError("cleanup candidate approval is invalid")
-        if state["phase"] not in {"verified-rejected", "cleanup-in-progress"}:
+        if state["phase"] not in {"verified-rejected", "verified-routed", "cleanup-in-progress"}:
             raise JobError("state is not cleanup-eligible")
         receipt = validate_receipt_binding(state)
+        if not ((receipt["verdict"] == "rejected" and receipt["gate_exit"] in {10, 11, 12, 13, 14})
+                or (receipt["verdict"] == "routed" and receipt["gate_exit"] == 15)):
+            raise JobError("receipt is not cleanup-eligible")
         if args.approve_candidate_sha != receipt["final_candidate_state_sha256"]:
             raise JobError("cleanup candidate approval does not match receipt")
         if state["phase"] == "cleanup-in-progress":

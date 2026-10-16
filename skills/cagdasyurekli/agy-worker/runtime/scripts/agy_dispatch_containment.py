@@ -721,6 +721,15 @@ def render_profile(
         or not provider_settings_path.startswith("/")
     ):
         raise ContainmentError("containment provider settings input is invalid")
+    if provider_settings_path is not None:
+        settings = Path(provider_settings_path)
+        if (
+            str(settings) != provider_settings_path
+            or ".." in settings.parts
+            or settings.parts[-3:] != (".gemini", "antigravity-cli", "settings.json")
+            or settings.parents[2] == Path("/")
+        ):
+            raise ContainmentError("containment provider settings input is invalid")
     if len(read_only_inputs) > 8 or any(
         not isinstance(path, str) or not path.startswith("/") for path in read_only_inputs
     ):
@@ -789,7 +798,15 @@ def render_profile(
 """
     provider_settings = ""
     if provider_settings_path is not None:
+        # Protect the directory entries as well as the leaf: replacing an
+        # ancestor otherwise changes which policy the same pathname names.
+        # Literal rules keep mutable logs and state below these parents writable.
+        settings = Path(provider_settings_path)
         provider_settings = f"""
+(deny file-write*
+  (literal (param "HOME"))
+  (literal {_scheme_string(str(settings.parent.parent))})
+  (literal {_scheme_string(str(settings.parent))}))
 (deny file-write*
   (literal {_scheme_string(provider_settings_path)}))
 """

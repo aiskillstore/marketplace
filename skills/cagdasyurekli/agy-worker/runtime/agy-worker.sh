@@ -159,8 +159,9 @@ stdout is NOT a valid envelope. Artifacts land in $AGY_WORKER_LOG_DIR.
 Exit codes: 0 ok · 2 no prompt · 3 empty output · 4 schema invalid · 5 unclassified agy failure
             6 permission gate · 8 capability evidence unavailable
             9 idle timeout · 16 hard deadline · 17 provider timeout · 20 status, binding, or verification-copy runtime unavailable · 21 resume failed
-            22 cancelled · 23 output oversized · 24 quota exhausted · 25 provider terminal error
+            22 cancelled · 23 output oversized · 25 provider terminal error
             26 model selection failed · 27 native host sandbox unavailable
+            28 source checkout changed · 29 source checkout guard unavailable
             64 invalid usage
 
 Advanced controls accept --state WORKFLOW_STATE to resolve the bound dispatch log root.
@@ -455,7 +456,7 @@ fi
 if (( ${#provider_env[@]} )); then
     for provider_env_name in "${provider_env[@]}"; do
         case "$provider_env_name" in
-            ''|*[!A-Za-z0-9_]*|[0-9]*|BASH_ENV|ENV|SHELLOPTS|BASHOPTS|PS4|CDPATH|GLOBIGNORE|BASH_LOADABLES_PATH|BASH_XTRACEFD|BASH_COMPAT|NODE_OPTIONS|RUBYOPT|RUBYLIB|PERL5OPT|PERL5LIB|JAVA_TOOL_OPTIONS|JDK_JAVA_OPTIONS|CLASSPATH|BASH_FUNC_*|PYTHON*|LD_*|DYLD_*|AGY_WORKER_INTERNAL_*)
+            ''|*[!A-Za-z0-9_]*|[0-9]*|BASH_ENV|ENV|SHELLOPTS|BASHOPTS|PS4|CDPATH|GLOBIGNORE|BASH_LOADABLES_PATH|BASH_XTRACEFD|BASH_COMPAT|NODE_OPTIONS|RUBYOPT|RUBYLIB|PERL5OPT|PERL5LIB|JAVA_TOOL_OPTIONS|JDK_JAVA_OPTIONS|CLASSPATH|BASH_FUNC_*|PYTHON*|LD_*|DYLD_*|AGY_WORKER_INTERNAL_*|AGY_WORKER_SCHEMA|GIT_*)
                 echo "agy-worker.sh: unsafe --provider-env name" >&2; exit 64 ;;
         esac
         [[ ${#provider_env_name} -le 128 ]] || {
