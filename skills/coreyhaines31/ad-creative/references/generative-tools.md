@@ -10,8 +10,8 @@ Reference for using AI image generators, video generators, and code-based video 
 |------|---------------|----------|
 | Static ad images (banners, social) | Image generation | ChatGPT Images 2.0, Nano Banana Pro, Flux, Ideogram |
 | Ad images with text overlays | Image generation (text-capable) | Ideogram, Nano Banana Pro |
-| Short video ads (6-30 sec) | Video generation | Veo, Kling, Runway, Sora, Seedance |
-| Video ads with voiceover | Video gen + voice | Veo/Sora (native), or Runway + ElevenLabs |
+| Short video ads (6-30 sec) | Video generation | Veo, Kling, Runway, Seedance |
+| Video ads with voiceover | Video gen + voice | Veo (native), or Runway + ElevenLabs |
 | Voiceover tracks for ads | Voice generation | ElevenLabs, OpenAI TTS, Cartesia |
 | Multi-language ad versions | Voice generation | ElevenLabs, PlayHT |
 | Brand voice cloning | Voice generation | ElevenLabs, Resemble AI |
@@ -198,36 +198,13 @@ Video generation and editing platform with strong controllability.
 
 ---
 
-### Sora 2 (OpenAI)
-
-OpenAI's video generation model with synchronized audio.
-
-**Best for:** High-fidelity video with dialogue and sound
-**API:** OpenAI API
-**Pricing:** Free tier available; Pro from $0.10-0.50/sec depending on resolution
-
-**Capabilities:**
-- Up to 60 seconds with synchronized audio
-- Dialogue, sound effects, and ambient audio
-- sora-2 (fast) and sora-2-pro (quality) variants
-- Text-to-video and image-to-video
-
-**Ad creative use cases:**
-- Video testimonials and talking-head style ads
-- Product demo videos with narration
-- Narrative brand videos
-
-**Docs:** [OpenAI Video Generation](https://platform.openai.com/docs/guides/video-generation)
-
----
-
 ### Seedance 2.0 (ByteDance)
 
 ByteDance's video generation model with simultaneous audio-visual generation and multimodal inputs.
 
 **Best for:** Fast, affordable video ads with native audio, multimodal reference inputs
 **API:** BytePlus (official), Replicate, WaveSpeedAI, fal.ai (third-party); OpenAI-compatible API format
-**Pricing:** ~$0.10-0.80/min depending on resolution (estimated 10-100x cheaper than Sora 2 per clip)
+**Pricing:** ~$0.10-0.80/min depending on resolution
 
 **Capabilities:**
 - Up to 20 seconds at up to 2K resolution
@@ -274,7 +251,6 @@ Full-stack video creation platform with cinematic camera controls.
 | **Veo 3.1** | 60 sec | Native | 1080p/4K | Gemini | Vertical social video |
 | **Kling 2.6** | 3 min | Native | 1080p | Third-party | Longer cinematic |
 | **Runway Gen-4** | 10 sec | No | 1080p | Official | Controlled, consistent |
-| **Sora 2** | 60 sec | Native | 1080p | Official | Dialogue-heavy |
 | **Seedance 2.0** | 20 sec | Native | 2K | Official + third-party | Affordable high-volume |
 | **Higgsfield** | Varies | Yes | 1080p | Web-based | Social, mobile-first |
 
@@ -286,7 +262,7 @@ For layering realistic voiceovers onto video ads, adding narration to product de
 
 ### When to Use Voice Tools
 
-Many video generators (Veo, Kling, Sora, Seedance) now include native audio. Use standalone voice tools when you need:
+Many video generators (Veo, Kling, Seedance) now include native audio. Use standalone voice tools when you need:
 
 - **Voiceover on silent video** — Runway Gen-4 and Remotion produce silent output
 - **Brand voice consistency** — Clone a specific voice for all ads
@@ -475,7 +451,7 @@ Need voiceover for ads?
 2. Generate voiceover with ElevenLabs/OpenAI TTS
 3. Generate or render video:
    a. Silent video from Runway/Remotion → layer voice track
-   b. Or use Veo/Sora/Seedance with native audio (skip separate VO)
+   b. Or use Veo/Seedance with native audio (skip separate VO)
 4. Combine with ffmpeg if layering separately:
    ffmpeg -i video.mp4 -i voiceover.mp3 -c:v copy -c:a aac output.mp4
 5. Generate variations (different scripts, voices, or languages)
@@ -580,7 +556,7 @@ Need video ads?
 ├── Templated, data-driven (same structure, different data)
 │   └── Use Remotion
 ├── Unique creative from prompts (exploratory)
-│   ├── Need dialogue/voiceover? → Sora 2, Veo 3.1, Kling 2.6, Seedance 2.0
+│   ├── Need dialogue/voiceover? → Veo 3.1, Kling 2.6, Seedance 2.0
 │   ├── Need consistency across scenes? → Runway Gen-4
 │   ├── Need vertical social video? → Veo 3.1 (native 9:16)
 │   ├── Need high volume at low cost? → Seedance 2.0

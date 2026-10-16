@@ -11,12 +11,13 @@
   THE DATA BLOCK IS JSON, NOT JAVASCRIPT:
     - double-quoted keys and strings, no comments, no trailing commas
     - it is inert data (parsed with JSON.parse), so a value can never execute
-    - SECURITY: escape every literal "<" in your text values as < so a
+    - SECURITY: escape every literal "<" in your text values as \u003c so a
       value like "</script>" can never break out of the tag. All values are
       also HTML-escaped again at render time.
 
   DATA SHAPE — see references/creative-review-page.md for the annotated spec.
-  Images: each frame's "image" may be a URL, a relative path, or a data URI.
+  Images: each frame's "image" may be a local path/file URL or a data URI.
+  Remote and protocol-relative URLs are blocked; package images with the page.
   If omitted (or the file is missing), a placeholder shows the frame label +
   the image prompt — use this for concepts not yet rendered to image.
 -->
@@ -47,7 +48,7 @@
   .concept { text-align: left; background: var(--card); border: 1.5px solid var(--line); border-radius: var(--radius);
     padding: 14px 16px; cursor: pointer; transition: border-color .12s, box-shadow .12s; font: inherit; color: inherit; }
   .concept:hover { border-color: #cfcdc6; }
-  .concept[aria-selected="true"] { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); background: #fff; }
+  .concept[aria-pressed="true"] { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); background: #fff; }
   .concept .row1 { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
   .concept .num { font-size: 11px; font-weight: 700; color: var(--muted); }
   .concept .frames { font-size: 11px; color: var(--muted); }
@@ -175,6 +176,7 @@
         "We tested our protein for heavy metals. Here's what an independent lab found.",
         "Most protein powders are never tested for heavy metals. Ours is."
       ],
+      "likes": "6,240",
       "primaryText": "We tested our Plant-Based Protein for the heavy metals that hide in “clean” powders — lead, arsenic and cadmium. Here's exactly what an independent lab measured.",
       "destination": { "url": "shop.truvani.com", "cta": "Shop now", "offer": "72% OFF Protein Starter Kit" },
       "rollout": {
@@ -214,7 +216,7 @@
 <div class="wrap">
   <header class="project" id="project"></header>
   <div class="eyebrow">Creative concept · toggle between ideas</div>
-  <div class="concepts" id="concepts" role="tablist"></div>
+  <div class="concepts" id="concepts"></div>
   <div class="grid">
     <section>
       <div class="eyebrow col-label" id="preview-label">In-feed preview</div>
@@ -249,6 +251,18 @@ try {
   throw e;
 }
 
+function invalid(msg) {
+  document.querySelector(".wrap").innerHTML =
+    '<div class="err"><b>The review data is missing something.</b><br/>' + esc(msg) + '</div>';
+  throw new Error(msg);
+}
+if (!DATA || !Array.isArray(DATA.concepts) || !DATA.concepts.length)
+  invalid('"concepts" must be a non-empty array.');
+DATA.concepts.forEach((c, i) => {
+  if (!c || typeof c !== "object") invalid(`concepts[${i}] must be an object.`);
+  if (!Array.isArray(c.frames) || !c.frames.length) invalid(`concepts[${i}].frames must be a non-empty array.`);
+});
+
 const state = { concept: 0, frame: 0, platform: null, handle: 0, headline: 0 };
 const concept = () => DATA.concepts[state.concept];
 
@@ -273,7 +287,7 @@ function renderProject() {
 
 function renderConcepts() {
   document.getElementById("concepts").innerHTML = DATA.concepts.map((c, i) => `
-    <button class="concept" role="tab" aria-selected="${i === state.concept}" data-i="${i}">
+    <button class="concept" aria-pressed="${i === state.concept}" data-i="${i}">
       <div class="row1"><span class="num">${String(i + 1).padStart(2, "0")}</span>
         <span class="frames">${c.frames.length} frame${c.frames.length === 1 ? "" : "s"}</span></div>
       <div class="name">${esc(c.name)}</div>
@@ -309,10 +323,28 @@ function renderToggles() {
   document.getElementById("preview-label").textContent = (hs.length > 1 ? "Whitelisted ad · " : "") + "In-feed preview";
 }
 
+// Classify with the browser URL parser; tabs/newlines and backslashes can hide a remote URL.
+function localImageSource(value) {
+  if (typeof value !== "string") return "";
+  const syntax = value.replace(/[\t\n\r]/g, "").replace(/\\/g, "/")
+    .replace(/^[\u0000-\u0020]+|[\u0000-\u0020]+$/g, "");
+  if (/^\/\//.test(syntax)) return "";
+  try {
+    const base = new URL(document.baseURI);
+    const image = new URL(value, base);
+    if (image.protocol === "data:" || (image.protocol === "file:" && !image.host)) return value;
+    // Hosted relative assets stay on the review page's origin; absolute network URLs stay blocked.
+    if (!/^[a-z][a-z0-9+.-]*:/i.test(syntax) && image.origin === base.origin) return value;
+  } catch (_) { /* An invalid source falls back to the placeholder. */ }
+  return "";
+}
+
 // placeholder underneath + image on top; a missing/broken image removes itself → placeholder shows
 function frameVisual(f, phCls) {
   const ph = `<div class="${phCls}"><div class="plabel">${esc(f.label)}</div><div class="pprompt">${esc(f.prompt || "")}</div></div>`;
-  const img = f.image ? `<img src="${esc(f.image)}" alt="${esc(f.label)}" onerror="this.remove()" />` : "";
+  // Only local/relative or data: image sources — block remote URLs so the page stays offline and cannot beacon on open.
+  const localImg = localImageSource(f.image);
+  const img = localImg ? `<img src="${esc(localImg)}" alt="${esc(f.label)}" onerror="this.remove()" />` : "";
   return ph + img;
 }
 
@@ -348,7 +380,7 @@ function renderPost() {
   } else {
     chrome = `<div class="ig-cta"><span>${esc(dest.cta || "Learn more")}</span><span class="chev">›</span></div>
       <div class="ig-actions">${heart}${comment}${share}<span class="save">${bookmark}</span></div>
-      <div class="likes">6,240 likes</div>
+      ${c.likes ? `<div class="likes">${esc(c.likes)} likes</div>` : ""}
       <div class="caption"><span class="h">${esc(h.name)}</span> ${esc((c.primaryText || "").slice(0, 90))}<span class="more"> … more</span></div>`;
   }
 
