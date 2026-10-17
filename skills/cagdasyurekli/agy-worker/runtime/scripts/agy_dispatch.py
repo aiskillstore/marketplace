@@ -5709,6 +5709,8 @@ def _observe_controller_terminal(
     launch: _ScopedLaunch,
     outcome: _ControllerOutcome,
 ) -> None:
+    # A flush failure must not reopen parsing for an already-observed cancel.
+    cancelled_before_terminal = outcome.reason == "cancelled"
     try:
         os.fsync(streams.stdout_fd)
         os.fsync(streams.stderr_fd)
@@ -5717,7 +5719,7 @@ def _observe_controller_terminal(
         outcome.failure_stage = "binding_failure"
     outcome.result_binding = None
     outcome.outer_status = None
-    if outcome.provisional_orphan_result and outcome.reason in {
+    if not cancelled_before_terminal and outcome.provisional_orphan_result and outcome.reason in {
         None, "idle_timeout", "hard_deadline_exceeded",
     }:
         # These limits still stopped and reaped the child. Deferral alone
@@ -5733,7 +5735,7 @@ def _observe_controller_terminal(
         else:
             outcome.reason = "invalid_envelope"
             outcome.failure_stage = "framing"
-    if outcome.reason is None and streams.sizes["stdout"] == 0 and _model_selection_rejected(
+    if not cancelled_before_terminal and outcome.reason is None and streams.sizes["stdout"] == 0 and _model_selection_rejected(
         streams.stream_path, streams.stderr_path, execution.returncode,
         binding.command["agy_version"] if binding.command["agy_version_observed"] else "",
         binding.command["max_seconds"],
@@ -5741,7 +5743,8 @@ def _observe_controller_terminal(
     ):
         outcome.reason = "model_selection_rejected"
     reviewed_idle_partial = bool(
-        not outcome.provisional_orphan_result
+        not cancelled_before_terminal
+        and not outcome.provisional_orphan_result
         and execution.idle_timeout_with_exited_provider
         and _has_reviewed_provider_timeout(
             streams.stderr_path,
@@ -5755,7 +5758,7 @@ def _observe_controller_terminal(
     # outer SUCCESS/ERROR/CANCELLED disposition publish past the
     # frozen deadline.  Cancellation and binding failures retain their
     # existing fail-closed precedence and do not enter this path.
-    if outcome.reason in {None, "hard_deadline_exceeded"} or reviewed_idle_partial:
+    if not cancelled_before_terminal and (outcome.reason in {None, "hard_deadline_exceeded"} or reviewed_idle_partial):
         if outcome.reason in {None, "hard_deadline_exceeded"} and streams.sizes["stdout"] == 0:
             if outcome.reason is None:
                 outcome.reason = (
@@ -5922,9 +5925,9 @@ def _observe_controller_cancel(
     outcome: _ControllerOutcome,
 ) -> None:
     # A SHA-approved cancellation may arrive after the last pipe-loop
-    # observation (or after reaping) and before candidate work begins.
-    # Observe it under the short ownership lock before selecting the
-    # expensive reconciliation path.  The final transition reloads
+    # observation (or after reaping) and before source or candidate work.
+    # Observe it under the short ownership lock before selecting an
+    # after-source proof or expensive reconciliation. The final transition reloads
     # again, but that later check is too late to keep a cheap cancel
     # from being delayed by a repository-controlled Git probe.
     with state_lock(job):
@@ -6432,6 +6435,10 @@ def controller(job: Path, ownership_fd: int) -> int:
     }
     for number in prior_handlers:
         signal.signal(number, interrupted)
+    # spawn() protects the fresh interpreter's import/handler interval. Deliver
+    # pending lifecycle signals only after their controller owner exists; the
+    # provider and local proof children must inherit these signals unblocked.
+    signal.pthread_sigmask(signal.SIG_UNBLOCK, tuple(prior_handlers))
     try:
         with inherited_lifecycle_lock(job, ownership_fd):
             early_exit = _claim_controller_attempt(job, binding)
@@ -6452,8 +6459,10 @@ def controller(job: Path, ownership_fd: int) -> int:
                 _launch_controller_provider(job, binding, execution, streams, launch, outcome)
                 _monitor_controller_provider(job, binding, execution, streams, launch, outcome)
                 _reap_controller_provider(job, binding, execution, streams, launch, outcome)
+                _observe_controller_cancel(job, binding, outcome)
                 _observe_controller_terminal(binding, execution, streams, launch, outcome)
                 _begin_controller_completion(execution, streams, outcome, candidate_data, prior_handlers)
+                _observe_controller_cancel(job, binding, outcome)
                 _finish_controller_source(binding, execution, report=outcome.result_binding is not None)
                 source_reason = _source_guard_reason({"source_checkout_guard": execution.source_guard_result or {}})
                 if source_reason is not None:
@@ -6669,12 +6678,19 @@ def spawn(
                 sys.executable, "-I", "-S", "-B", str(Path(__file__).resolve()),
                 "controller", "--job-dir", str(job), "--ownership-fd", str(ownership_fd),
             ]
-            controller_process = subprocess.Popen(
-                controller_argv, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL, start_new_session=True, close_fds=True,
-                pass_fds=(ownership_fd,),
-                env=controller_environment,
-            )
+            # The child inherits the blocked mask across exec and installs its
+            # handlers before unblocking. Restore the caller's exact mask even
+            # if process creation fails; its pending signals then reach latch.
+            spawn_mask = signal.pthread_sigmask(signal.SIG_BLOCK, watched)
+            try:
+                controller_process = subprocess.Popen(
+                    controller_argv, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL, start_new_session=True, close_fds=True,
+                    pass_fds=(ownership_fd,),
+                    env=controller_environment,
+                )
+            finally:
+                signal.pthread_sigmask(signal.SIG_SETMASK, spawn_mask)
         deadline = time.monotonic() + 5.0
         forwarded = False
         while time.monotonic() < deadline:
@@ -6704,6 +6720,7 @@ def spawn(
                 controller_process.wait(timeout=5.0)
             except subprocess.TimeoutExpired:
                 _terminate(controller_process)
+            _recover_reaped_startup_signal(job, state, controller_process, parent_signal)
             return 128 + parent_signal
         if not foreground:
             print_control_status(current, sha, output_format, job=job)
@@ -6936,6 +6953,42 @@ def _terminalize_start_failure(job: Path) -> None:
                 state, status="failed", reason="status_unavailable",
                 exit_code=EXIT_BY_REASON["status_unavailable"],
             ))
+
+
+def _recover_reaped_startup_signal(
+    job: Path, state: Mapping[str, Any], process: subprocess.Popen[bytes], number: int,
+) -> None:
+    """Finish only the reaped child's still-owned, unpublished provider attempt."""
+    if process.returncode is None:
+        raise DispatchError("controller has not been reaped")
+    with lifecycle_lock(job, blocking=False):
+        with state_lock(job):
+            current, _raw, _sha = load_state(job)
+            if current["attempt"] != state["attempt"]:
+                raise DispatchError("dispatch changed before startup signal recovery")
+            if current["status"] in TERMINAL:
+                return
+            current_fields: Mapping[str, object] = current
+            if (
+                current["controller_pid"] != process.pid
+                or not (
+                    current["status"] == "queued"
+                    or (current["status"] == "cancel-requested" and current["cancel_requested"])
+                )
+                or any(current_fields[key] is not None for key in (
+                    "started_epoch", "stream_path", "stderr_path", "provider_stage_path",
+                    "provider_stage_identity", "provider_stage_manifest_sha256",
+                ))
+                or current["elapsed_seconds"] != current["attempt_base_elapsed"]
+            ):
+                raise DispatchError("dispatch has no owned prelaunch signal recovery")
+        # Running/stream publication precedes provider Popen under the state
+        # lock. The child is reaped and lifecycle ownership excludes a relaunch;
+        # reconcile outside the state lock, retaining the terminalizer's CAS/veto.
+        _terminalize_owned(
+            job, current, status="cancelled", reason="interrupted", exit_code=128 + number,
+            expected_controller_pid=process.pid,
+        )
 
 
 def _terminalize_queued_signal(job: Path, number: int) -> None:

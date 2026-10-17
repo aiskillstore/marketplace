@@ -5,7 +5,7 @@ license: MIT
 compatibility: "OpenAI Codex CLI and Claude Code. Requires Bash, Python 3, git, and agy with provider network access."
 metadata:
   author: cagdasyurekli
-  version: "0.24.6"
+  version: "0.24.7"
 ---
 
 # Delegate repository work and verify the result
@@ -79,8 +79,10 @@ limits, verifier environments and no-follow boundaries. Workspace MCP startup wa
 observed on AGY 1.3.5: preview rejects known executable configuration; each launch
 also checks actual cwd ancestry, in both modes. Prefer scoped mode excluding
 `.agents/` configuration, then a disposable worktree without it; ancestors must
-also be clear. Session mode can start enabled user-plugin MCP servers; the guide
-owns the reserved paths, native exclusion evidence and unresolved hook behavior. Read the required
+also be clear. Session mode can start enabled user-plugin MCP servers and run global
+and enabled-plugin hooks in headless mode with slash commands disabled; hooks can
+observe or rewrite tool calls, including shell commands. The guide owns the reserved
+paths, native plugin/hook exclusion evidence and remaining limits. Read the required
 [launch notices](references/PROJECT_LIFECYCLE_AND_VERIFICATION.md#approval-bindings-and-launch-notices)
 before initial, resume, continue or restart attempts; notices do not repeat approvals.
 
@@ -92,13 +94,14 @@ before initial, resume, continue or restart attempts; notices do not repeat appr
 | Bounded feature, refactor or tests | `task` | default 2, allowed 1..2 | Review the diff; run relevant checks. |
 | Project build or broad audit-and-fix | `project` | default 5, allowed 1..5 | Review changes; run build, tests and lint. |
 
-Use `workflow.sh run --preview`, approved `run`, read-only `status`, and
-`verify-finalize`. The facade does not choose a model, assurance, repair or external
-action. [Project lifecycle and verification](references/PROJECT_LIFECYCLE_AND_VERIFICATION.md)
-owns copyable commands, Verification v2 candidate bindings and recovery.
+Select only needed files and direct tests, name exact files/functions and the expected
+change, size the budget to that scope, and split large changes into bounded jobs.
+See [the maximum-runtime observation and cleanup test](references/TROUBLESHOOTING.md#hard_deadline_exceeded).
 
-Quick path: save the reviewed scope file outside the target repository with mode
-`0600`, then run the facade with a unique job ID:
+Use `workflow.sh run --preview`, approved `run`, read-only `status`, and `verify-finalize`; the facade does not choose a model, assurance, repair or external action.
+[Project lifecycle and verification](references/PROJECT_LIFECYCLE_AND_VERIFICATION.md) owns copyable commands, Verification v2 candidate bindings and recovery.
+
+Quick path: save the reviewed scope file outside the target repository with mode `0600`, then run the facade with a unique job ID:
 
 ```bash
 TARGET=/absolute/path/to/approved-repository

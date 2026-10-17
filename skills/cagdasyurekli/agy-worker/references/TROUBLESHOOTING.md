@@ -74,9 +74,35 @@ A valid candidate remains reviewable; a missing report does not become a candida
 An exact duration-bound partial-timeout signal or nonzero provider exit also prevents
 successful completion. Follow the recorded reason and available actions.
 
+There is no separate quota reason. A valid, unambiguous `AGY_ERROR` terminal payload
+with provider exit 3 maps to `provider_terminal_error` (worker exit 25); other
+nonzero shapes can map to `agy_failed_unclassified`, including a marker with exit
+1 or 2. Inspect the bounded `short_error` / `error_code` diagnostic to distinguish
+quota, rate-limit or credit exhaustion; the reason alone does not establish which
+occurred. Do not retry automatically; use only the recovery action authorized by
+the owner and offered in `available_actions`. Falsifier: `static_agy_error_metadata_offline_parser_contracts` in
+`tests/test-agy-worker-remediation.py` tests metadata and classification.
+
 For a candidate-free failure, consult `available_actions`. A mechanically eligible
 `resume` keeps the exact stored conversation; a fresh `restart` requires explicit user
 direction. Both require the current state SHA and a new provider notice.
+
+## hard_deadline_exceeded
+
+Use the [driver's task-sizing guidance](../SKILL.md#choose-and-run-the-workflow).
+Observation (2026-10-16, agy 1.4.0,
+`gemini-4-argon-medium`, native scoped mode): a 157-file read scope reached its
+30-minute maximum runtime after 147 file views and two write events, without a
+report or recognized candidate; the private stage was absent afterward. This is
+one observed run, not a task-capacity guarantee.
+
+The `source guard preserves stage workdir dirty-source and ignored-output controls`
+check in `tests/agy_worker_remediation_runtime_boundary_cases.py` tests the
+narrow cleanup claim: after a scoped provider writes partially and reaches maximum
+runtime without a report, its owned stage is removed and the candidate worktree
+stays unchanged. It does not prove remote provider cancellation or recoverability
+of those partial writes. A timeout with a valid report has a separate candidate
+review path; inspect status before choosing recovery.
 
 ## A provider error or cancellation still has a candidate
 

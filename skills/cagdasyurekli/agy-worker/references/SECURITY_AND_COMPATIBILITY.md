@@ -89,7 +89,12 @@ cannot prevent or exhaustively observe host access.
 AGY 1.3.5 was observed starting workspace `.agents/mcp_config.json` commands
 before worker activity, including a whole-worktree session explore/plan run. It also
 started MCP servers from enabled user-installed plugins in session mode. Disabling slash
-commands does not suppress those servers. Hook execution remains unresolved.
+commands does not suppress those servers. Global hooks in `~/.gemini/config/hooks.json`
+and enabled-plugin hooks were observed executing in headless `-p` runs with
+`--disable-slash-commands`. These hooks can observe or rewrite tool calls, including
+shell commands. Hooks embedded in `~/.gemini/antigravity-cli/settings.json` and
+`PreToolUse` decision outputs (`allow`/`auto_approve`/deny), including their effect on
+headless permission prompts, were not tested.
 
 Preview rejects known executable provider configuration in provider content; every
 launch, including repairs, additionally checks the actual cwd and bounded ancestors.
@@ -98,8 +103,9 @@ leaves anywhere below `.agents/` are `mcp_config.json`, `hooks.json`, `skills.js
 `rules.json`, `agents.json` and `plugins.json`; `plugin.json` below `.agents/plugins/`
 is also rejected, including nested plugin manifest directories. The policy rejects
 these nodes regardless of contents/type, symlinked `.agents`, and symlinks at/below
-`.agents/plugins/`, using NFC/casefold path classification. Only workspace MCP startup
-was confirmed live; the other reserved paths are conservative execution candidates.
+`.agents/plugins/`, using NFC/casefold path classification. Workspace MCP startup and
+`.agents/hooks.json` execution were confirmed live; preview rejects the latter.
+The other reserved paths are conservative execution candidates.
 Plain instructions, skills/rules Markdown and `marketplace.json` remain content.
 
 Use scoped mode excluding `.agents/` configuration; otherwise use a disposable
@@ -114,10 +120,10 @@ never as the actual cwd or a repository/job-controlled directory. No user settin
 this rejection. Finite checks do not isolate a hostile same-user process replacing
 paths after observation or adding previously absent subtrees after enumeration.
 
-Native's private HOME and generated private settings exclude ambient plugins.
-`tests/test-provider-containment.py` cases `profile_and_environment_are_private` and
-`native_boundary_is_enforced` prove that local mechanism; they are not a live AGY
-1.3.5 native plugin negative canary.
+Native's private HOME and generated private settings exclude ambient plugins and
+global/plugin hooks. `tests/test-provider-containment.py` cases
+`profile_and_environment_are_private` and `native_boundary_is_enforced` prove that
+local mechanism; they are not a live AGY 1.3.5 native plugin or hook negative canary.
 
 For each attempt, the controller derives the owning main worktree from the bound
 workdir's Git common directory and compares a bounded source observation against
