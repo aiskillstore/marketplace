@@ -316,7 +316,7 @@ def read_bound_file(path: Path, limit: int, *, private: bool, label: str) -> byt
 def duration(value: str) -> int:
     match = re.fullmatch(r"([1-9][0-9]*)(s|m|h)", value)
     if match is None:
-        raise LaunchAuthorityError("timeout is invalid")
+        raise LaunchAuthorityError("timeout must be a positive integer with s, m or h (for example 30m)")
     seconds = int(match[1]) * {"s": 1, "m": 60, "h": 3600}[match[2]]
     if seconds > 7 * 24 * 3600:
         raise LaunchAuthorityError("timeout exceeds limit")
