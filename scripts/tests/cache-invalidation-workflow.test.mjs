@@ -370,8 +370,8 @@ test('sync downloads the security-event-capable CLI release', () => {
   const workflow = readFileSync(WORKFLOW, 'utf8');
   const download = section(workflow, '      - name: Download skillstore-cli', '      - name: Sync skills to Supabase');
 
-  assert.match(download, /version: '2\.17\.0'/);
-  assert.match(download, /minimum-version: '2\.17\.0'/);
+  assert.match(download, /version: '2\.18\.0'/);
+  assert.match(download, /minimum-version: '2\.18\.0'/);
 });
 
 test('one permanently failed shard makes the aggregate fail closed', () => {

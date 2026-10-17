@@ -105,8 +105,9 @@ else if(endpoint.startsWith('commits/'))out=state.statuses[endpoint.split('/')[1
 else throw new Error(endpoint);
 fs.writeFileSync(process.env.TEST_STATE,JSON.stringify(state));process.stdout.write(JSON.stringify(args.includes('--slurp')?[out]:out));
 `,{mode:0o755});
+    writeFileSync(join(bin,'curl'),`#!${process.execPath}\nprocess.stdin.resume();process.stdin.on('end',()=>process.stdout.write(JSON.stringify({allowed:true,repositoryId:7})));`,{mode:0o755});
     const run = (selected=prs) => new Promise(resolveRun => {
-      const child=spawn(process.execPath,[script],{cwd:root,env:{...process.env,PATH:`${bin}:${process.env.PATH}`,TEST_STATE:state,PR_NUMBERS:selected.map(p=>p.number).join(','),BATCH_ID:batchIdentity(selected.map(p=>publicationIdentity(p).correlation)),GITHUB_REF:'refs/heads/main',GITHUB_REPOSITORY:'aiskillstore/marketplace',GITHUB_RUN_ID:'123',SKILLSTORE_API_URL:`http://127.0.0.1:${server.address().port}`,SKILLSTORE_CALLBACK_TOKEN:'test-only'}});
+      const child=spawn(process.execPath,[script],{cwd:root,env:{...process.env,PATH:`${bin}:${process.env.PATH}`,TEST_STATE:state,PR_NUMBERS:selected.map(p=>p.number).join(','),BATCH_ID:batchIdentity(selected.map(p=>publicationIdentity(p).correlation)),GITHUB_REF:'refs/heads/main',GITHUB_REPOSITORY:'aiskillstore/marketplace',GITHUB_RUN_ID:'123',SKILLSTORE_API_URL:`http://127.0.0.1:${server.address().port}`,SKILLSTORE_CALLBACK_TOKEN:'test-only',CACHE_INVALIDATE_SECRET:'local-test-only'}});
       let output='';child.stdout.on('data',s=>output+=s);child.stderr.on('data',s=>output+=s);child.on('close',code=>resolveRun({code,output}));
     });
     const result=await run();
