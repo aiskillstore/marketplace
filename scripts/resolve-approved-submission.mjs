@@ -46,16 +46,22 @@ export function assertDistributionAllowed(repositoryRoot, report, targetDir, ref
   }
 }
 
-function verifyDistributionSource(repository,upstreamPath) {
-  const secret=process.env.CACHE_INVALIDATE_SECRET;
+export function verifyDistributionSource(repository,upstreamPath,{secret=process.env.CACHE_INVALIDATE_SECRET,spawn=spawnSync}={}) {
   if(!secret) fail('Source distribution verification is not configured');
   // Header travels through stdin, never the process arguments or error output.
-  const result=spawnSync('curl',['--config','-','--silent','--show-error','--fail','--max-time','20',
+  const result=spawn('curl',['--config','-','--silent','--show-error','--fail','--max-time','20',
+    '--write-out','\n%{http_code}',
     '-X','POST','https://skillstore.io/api/automation/skill-distribution/source',
     '-H','Content-Type: application/json','--data',JSON.stringify({repository,upstreamPath})],
     {encoding:'utf8',input:`header = "Authorization: Bearer ${secret}"\n`,timeout:25000});
-  if(result.status!==0) fail('Source distribution verification unavailable');
-  let response;try{response=JSON.parse(result.stdout);}catch{fail('Invalid distribution authority response');}
+  const output=String(result.stdout??'');
+  const split=output.lastIndexOf('\n');
+  const code=output.slice(split+1);
+  // Never log response bodies, stderr, child errors or credential-bearing options.
+  // Keep the original fail-closed preflight contract; expose only numeric evidence.
+  const http=split>=0 && /^[1-5][0-9]{2}$/.test(code)?code:'unknown';
+  if(result.status!==0) fail(`Source distribution verification unavailable (HTTP ${http}; curl exit ${Number.isInteger(result.status)?result.status:'unavailable'})`);
+  let response;try{response=JSON.parse(output.slice(0,split));}catch{fail('Invalid distribution authority response');}
   if(response.allowed!==true || !Number.isSafeInteger(response.repositoryId)) fail('Distribution suppressed or identity unavailable');
   return response.repositoryId;
 }
