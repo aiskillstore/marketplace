@@ -876,3 +876,23 @@ test('rejects symlinked resources from the frozen file set', () => withRepositor
     /not a regular file/,
   );
 }));
+
+test('distribution suppression survives sparse trees and blocks renamed source aliases', async () => {
+  const { assertDistributionAllowed } = await import('../resolve-approved-submission.mjs');
+  withRepository(root => {
+    git(root,'init','-q');git(root,'config','user.email','test@example.com');git(root,'config','user.name','Test');
+    write(root,'governance/distribution/original.json',JSON.stringify({schema:1,state:'withdrawn',repositoryId:7,slug:'original',path:'skills/owner/original',repository:'https://github.com/owner/repo',upstreamPath:'skills/skill'}));
+    git(root,'add','.');git(root,'commit','-qm','suppression');
+    const report={meta:{slug:'renamed',source_ref:'1'.repeat(40),source_url:`https://github.com/owner/repo/tree/${'1'.repeat(40)}/skills/skill`}};
+    assert.throws(()=>assertDistributionAllowed(root,report,'skills/owner/renamed','HEAD',()=>7),/suppressed/);
+    const transferred=structuredClone(report);transferred.meta.source_url=transferred.meta.source_url.replace('owner/repo','new-owner/new-name');
+    assert.throws(()=>assertDistributionAllowed(root,transferred,'skills/new-owner/new-name','HEAD',()=>7),/suppressed/);
+    const unrelated=structuredClone(report);unrelated.meta.source_url=unrelated.meta.source_url.replace('/skills/skill','/skills/different');
+    assert.doesNotThrow(()=>assertDistributionAllowed(root,unrelated,'skills/owner/different','HEAD',()=>8));
+    write(root,'governance/distribution/original.json',JSON.stringify({schema:1,state:'active'}));
+    // An uncommitted removal does not change the committed authority.
+    assert.throws(()=>assertDistributionAllowed(root,report,'skills/owner/renamed','HEAD',()=>7),/suppressed/);
+    git(root,'add','.');git(root,'commit','-qm','reviewed restoration');
+    assert.doesNotThrow(()=>assertDistributionAllowed(root,report,'skills/owner/renamed','HEAD',()=>7));
+  });
+});

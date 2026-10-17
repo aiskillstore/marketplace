@@ -6,6 +6,7 @@ import { existsSync, lstatSync, readFileSync, readdirSync, realpathSync, writeFi
 import { posix, relative, resolve, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
+let enforceSourceAuthority = false;
 export class PublicationValidationError extends Error {}
 function fail(message) { throw new PublicationValidationError(message); }
 
@@ -17,6 +18,46 @@ export function assertPublicationReportNotHeld(reportPath, blobSha) {
     && blobSha === '9db4ee7c8a2fe82d3dd189dfb36198d10ffd583f') {
     fail('Publication hold: Issue #3703 requires safe replacement of the superseded agy-worker report before release');
   }
+}
+
+// Read committed suppression records even in sparse publication worktrees.
+// No report or PR label can authorize removal of one of these records.
+export function assertDistributionAllowed(repositoryRoot, report, targetDir, ref = 'HEAD', verifySource = verifyDistributionSource) {
+  const probe = spawnSync('git', ['rev-parse', '--git-dir'], {cwd:repositoryRoot,encoding:'utf8'});
+  if (probe.status !== 0) {
+    // Non-git fixture trees cannot publish; the production caller is always git-backed.
+    if (existsSync(resolve(repositoryRoot,'.git'))) fail('Cannot read distribution authority');
+    return;
+  }
+  const paths = gitBuffer(repositoryRoot,['ls-tree','-r','--name-only',ref,'--','governance/distribution/']).toString('utf8').trim().split('\n').filter(Boolean);
+  const identity=sourceIdentity(report,'distribution candidate');
+  let verifiedId=enforceSourceAuthority?verifySource(report.meta.source_url,identity.path):undefined;
+  for(const path of paths) {
+    if(!path.endsWith('.json')) continue;
+    const record=JSON.parse(gitBuffer(repositoryRoot,['show',`${ref}:${path}`]).toString('utf8'));
+    if(record.schema!==1 || !['active','withdrawn','erased'].includes(record.state)) fail('Invalid distribution authority');
+    if(record.state==='active') continue;
+    const u=new URL(record.repository);
+    const repository=u.pathname.split('/').filter(Boolean).slice(0,2).join('/').replace(/\.git$/,'').toLowerCase();
+    if(verifiedId===undefined) verifiedId=verifySource(report.meta.source_url,identity.path);
+    if(record.slug===report.meta.slug || record.path===targetDir || ((repository===identity.repository || record.repositoryId===verifiedId) && record.upstreamPath===identity.path)) {
+      fail(`Distribution suppressed for ${report.meta.slug}; reviewed restoration is required`);
+    }
+  }
+}
+
+function verifyDistributionSource(repository,upstreamPath) {
+  const secret=process.env.CACHE_INVALIDATE_SECRET;
+  if(!secret) fail('Source distribution verification is not configured');
+  // Header travels through stdin, never the process arguments or error output.
+  const result=spawnSync('curl',['--config','-','--silent','--show-error','--fail','--max-time','20',
+    '-X','POST','https://skillstore.io/api/automation/skill-distribution/source',
+    '-H','Content-Type: application/json','--data',JSON.stringify({repository,upstreamPath})],
+    {encoding:'utf8',input:`header = "Authorization: Bearer ${secret}"\n`,timeout:25000});
+  if(result.status!==0) fail('Source distribution verification unavailable');
+  let response;try{response=JSON.parse(result.stdout);}catch{fail('Invalid distribution authority response');}
+  if(response.allowed!==true || !Number.isSafeInteger(response.repositoryId)) fail('Distribution suppressed or identity unavailable');
+  return response.repositoryId;
 }
 
 export function publicationReportBlobSha(bytes) {
@@ -536,6 +577,7 @@ export function resolveApprovedSubmission({
     }
 
     const targetDir = `skills/${segments.slice(1).join('/')}`;
+    assertDistributionAllowed(root,report,targetDir);
     const targetPath = resolve(root, targetDir);
     let update = existsSync(targetPath);
     let duplicate = false;
@@ -612,6 +654,16 @@ export function resolveApprovedSubmission({
 
 function main() {
   const args = process.argv.slice(2);
+  enforceSourceAuthority = args.includes('--enforce-distribution');
+  if (args.includes('--check-distribution-plan')) {
+    const root=readOption(args,'--repo-root');
+    const plan=JSON.parse(readFileSync(readOption(args,'--plan'),'utf8'));
+    for(const skill of plan.skills) {
+      const report=JSON.parse(readFileSync(resolve(root,skill.targetDir,'skill-report.json'),'utf8'));
+      assertDistributionAllowed(root,report,skill.targetDir,'HEAD^');
+    }
+    return;
+  }
   if (args.includes('--tree-hash-at-commit')) {
     process.stdout.write(`${calculateCanonicalTreeHashAtCommit(
       readOption(args, '--repo-root'),

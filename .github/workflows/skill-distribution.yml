@@ -1,0 +1,27 @@
+name: Process reviewed Skill distribution requests
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+permissions: {}
+concurrency:
+  group: skill-distribution-worker
+  cancel-in-progress: false
+jobs:
+  process:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Advance bounded reviewed operations
+        env:
+          DISTRIBUTION_KEY: ${{ secrets.CACHE_INVALIDATE_SECRET }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          for step in 1 2 3 4 5; do
+            response=$(curl --fail-with-body --silent --show-error --max-time 55 \
+              -X POST https://skillstore.io/api/automation/skill-distribution \
+              -H "Authorization: Bearer $DISTRIBUTION_KEY")
+            echo "$response" | jq -e '.processed >= 0 and .failed == 0' >/dev/null
+            if [ "$(echo "$response" | jq -r '.processed')" = 0 ]; then break; fi
+          done
