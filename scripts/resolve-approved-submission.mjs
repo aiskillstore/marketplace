@@ -22,7 +22,7 @@ export function assertPublicationReportNotHeld(reportPath, blobSha) {
 
 // Read committed suppression records even in sparse publication worktrees.
 // No report or PR label can authorize removal of one of these records.
-export function assertDistributionAllowed(repositoryRoot, report, targetDir, ref = 'HEAD', verifySource = verifyDistributionSource) {
+export function assertDistributionAllowed(repositoryRoot, report, targetDir, ref = 'HEAD', verifySource = verifyDistributionSource, enforce = enforceSourceAuthority) {
   const probe = spawnSync('git', ['rev-parse', '--git-dir'], {cwd:repositoryRoot,encoding:'utf8'});
   if (probe.status !== 0) {
     // Non-git fixture trees cannot publish; the production caller is always git-backed.
@@ -31,7 +31,7 @@ export function assertDistributionAllowed(repositoryRoot, report, targetDir, ref
   }
   const paths = gitBuffer(repositoryRoot,['ls-tree','-r','--name-only',ref,'--','governance/distribution/']).toString('utf8').trim().split('\n').filter(Boolean);
   const identity=sourceIdentity(report,'distribution candidate');
-  let verifiedId=enforceSourceAuthority?verifySource(report.meta.source_url,identity.path):undefined;
+  let verifiedId=enforce?verifySource(report.meta.source_url,identity.path):undefined;
   for(const path of paths) {
     if(!path.endsWith('.json')) continue;
     const record=JSON.parse(gitBuffer(repositoryRoot,['show',`${ref}:${path}`]).toString('utf8'));
@@ -402,6 +402,7 @@ function rootFromPublicationIdentityFile(path) {
 export function resolveApprovedSubmission({
   repositoryRoot,
   changedFiles,
+  enforceDistribution = enforceSourceAuthority,
   reportOnlyBaseCommit = null,
   reportOnlyMergeCommit = null,
 }) {
@@ -577,7 +578,7 @@ export function resolveApprovedSubmission({
     }
 
     const targetDir = `skills/${segments.slice(1).join('/')}`;
-    assertDistributionAllowed(root,report,targetDir);
+    assertDistributionAllowed(root,report,targetDir,'HEAD',verifyDistributionSource,enforceDistribution);
     const targetPath = resolve(root, targetDir);
     let update = existsSync(targetPath);
     let duplicate = false;

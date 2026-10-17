@@ -107,7 +107,7 @@ export async function main() {
   git(['sparse-checkout', 'set', '--no-cone', '--stdin'], ['/scripts/', ...paths.map(p => `/${p}/`)].join('\n') + '\n');
   for (const row of rows) {
     try {
-      row.plan = resolveApprovedSubmission({ repositoryRoot: process.cwd(), changedFiles: row.files,
+      row.plan = resolveApprovedSubmission({ repositoryRoot: process.cwd(), changedFiles: row.files, enforceDistribution: true,
         reportOnlyBaseCommit: row.pr.base.sha, reportOnlyMergeCommit: row.pr.merge_commit_sha });
     } catch (error) {
       rejectPreflight(row, error);
