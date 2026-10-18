@@ -1,17 +1,44 @@
 # WxPusher API Reference
 
-本文件是项目集成所需的精简事实基线，不是官网镜像。内容于 2026-10-06
+本文件是项目集成所需的精简事实基线，不是官网镜像。内容于 2026-10-08
 核对 WxPusher 官方文档、SPT 专页、官方 OpenAPI 和下文所列固定版本的
 官方 SDK 源码；页面更新时间标注并不一致，核验详情见维护记录。线上策略可能变化，疑似漂移时按
 [maintenance.md](maintenance.md) 的维护流程复核。
 
 ## 内容
 
+- 接收渠道与微信支持
 - 标准推送：请求、响应、UID/Topic、查询和删除
 - SPT 极简推送
 - 用户、二维码和回调
 - 限制、错误和安全边界
 - 未确认或易变行为
+
+## 接收渠道与微信支持
+
+截至 2026-10-08，[官方正文](https://wxpusher.zjiecode.com/docs/README.md)的
+“介绍”和“微信 ClawBot（iLink）推送渠道”明确说明：当前主推独立全平台客户端，
+同时支持通过微信 ClawBot 向已绑定用户发送**文本通知**。
+
+| 接收方式 | 官方说明与接入前提 |
+| --- | --- |
+| 独立客户端 | Android、iOS、鸿蒙、macOS、Windows、Linux；按客户端要求登录并启用通知。 |
+| 微信 ClawBot（iLink） | 在 WxPusher App 的“我的 → 推送渠道 → 绑定微信 ClawBot”完成绑定并启用；还需在微信侧激活该渠道。当前只支持发送通知，暂不支持上行消息。 |
+
+开发者仍使用既有发送接口，appToken、UID、Topic、SPT 的推送模型不变；是否
+通过 iLink 接收由用户的绑定和启用状态决定。不要添加未公开的 `channel=wechat`
+参数，也不要把 UID 当作微信号、好友 ID 或微信群 ID。官方所列发送接口未提供
+向任意微信好友或微信群寻址的能力。标准模式还需要用户关注相应应用或订阅 Topic；
+SPT 则使用对应接收人的 SPT，不能与标准身份混用。
+
+微信侧每次激活后，24 小时内通过该渠道最多接收 10 条；用尽后需用户向 ClawBot
+回复任意内容再次激活。此限制独立于 API QPS、批量目标数和客户端日用量；
+改用 Topic、SPT 或重试不能据此宣称绕过渠道限制。激活回复不代表应用能收到
+`send_up_cmd` 回调，不能把标准应用的上行能力套用于 ClawBot。
+
+官方仍保留通过公众号获取 UID、关注和指令回调的说明，但介绍已将公众号称为
+早期主要渠道。不能据此承诺“关注公众号就能稳定收到全部通知”，也不能反向
+断言公众号相关功能已全部停用；需要判断具体账号可用性时，以当前客户端及官方说明为准。
 
 ## 1. 标准推送
 
@@ -152,7 +179,10 @@ Content-Type: application/json
 ```
 
 Body 复用 `content`、`summary`、`contentType`、`url`，并提供 `spt`（单个）
-或 `sptList`（数组，最多 10 个，唯一）。示例：
+或 `sptList`（数组，最多 10 个，唯一）。按场景选一个目标字段；官方未说明同时
+传入两者时的合并或优先级，不能把此建议称为服务端强制互斥。OpenAPI 因继承
+公共模型而包含 `verifyPayType`，但 SPT 正文未说明付费筛选能力，不据此实现或承诺。
+示例：
 
 ```json
 {
@@ -193,8 +223,8 @@ GET https://wxpusher.zjiecode.com/api/fun/wxuser/v2
 ```
 
 查询参数为 `appToken`、`page`、`pageSize`（不超过 100），以及可选 `uid`、
-`isBlock`、`type`（`0` 应用、`1` Topic）。同一微信用户若关注多个应用/Topic
-会返回多条记录。返回记录包含 `uid`、`appOrTopicId`、`id`、`type`、`reject`
+`isBlock`、`type`（`0` 应用、`1` Topic）。同一用户若关注应用及其多个 Topic，
+会返回多条记录；不要据此假定单个 appToken 可跨应用查询。返回记录包含 `uid`、`appOrTopicId`、`id`、`type`、`reject`
 和 `payEndTime` 等字段；新用户的头像/昵称可能为空。
 
 配套用户操作（均以 query 参数鉴权）为：
@@ -227,7 +257,8 @@ GET https://wxpusher.zjiecode.com/api/fun/scan-qrcode-uid?code=<code>
 
 ## 5. 回调
 
-只有标准推送支持回调。创建应用时可配置回调地址；不配置则不会收到关注
+只有标准推送支持回调；微信 ClawBot 渠道当前不支持上行消息，不能用其激活回复
+实现应用指令回调。创建应用时可配置回调地址；不配置则不会收到关注
 回调，Topic 订阅也不会给应用用户 UID 回调。官方正文给出三类 action：
 
 | `action` | 用途 | 关键 `data` 字段 |
@@ -254,7 +285,7 @@ GET https://wxpusher.zjiecode.com/api/fun/scan-qrcode-uid?code=<code>
 
 ### 当前公开限制
 
-以下数值于 2026-10-06 核对官方正文/OpenAPI；带“约”的是运营策略，不应当作
+以下数值于 2026-10-08 核对官方正文/OpenAPI；带“约”的是运营策略，不应当作
 永久 SLA：
 
 | 项目 | 限制/含义 |
@@ -269,7 +300,8 @@ GET https://wxpusher.zjiecode.com/api/fun/scan-qrcode-uid?code=<code>
 | 单 UID 客户端日用量 | 约 3000 条后可能不再弹通知栏，约 20000 条后可能停止展示；次日恢复，线上阈值以实际策略为准 |
 | 微信 ClawBot 渠道 | 用户激活后 24 小时内该渠道最多 10 条；用尽后向 ClawBot 回复任意内容可再次激活，与 API 级 QPS/批量限制独立 |
 
-超过限制时应分批、退避或改用 Topic 群发；不要通过无限重试绕过限流。
+请求目标超限时分批；请求频率过高时退避、合并或使用 Topic 群发减少调用数。
+客户端日用量和 ClawBot 渠道限制需分别处理，不能通过上述方式保证解除；不要无限重试。
 HTTP `429`/`5xx` 的处理属于客户端工程策略；当前文档未承诺所有限流或服务
 故障都使用这些 HTTP 状态。收到时按项目策略有限退避，同时检查业务响应，
 不能把它们当作业务成功。
@@ -282,9 +314,10 @@ HTTP `429`/`5xx` 的处理属于客户端工程策略；当前文档未承诺所
 | --- | --- |
 | `1000` | 成功 |
 | `1001` | 通用业务错误 |
-| `1002` | 未登录/未认证 |
+| `1002` | 未登录 |
 
-官方 Java SDK（commit `b98d378e5e6f70d448c8887356165047a0274849`）还定义了
+官方 Java SDK（commit `b98d378e5e6f70d448c8887356165047a0274849`）的客户端枚举
+将 `1002` 注释为“未认证”，还定义了
 `1003` 签名错误、`1004` 接口不存在、`1005` 服务端内部错误、`1006` 与微信
 交互异常、`1007` 网络异常、`1008` 数据异常、`1009` 未知异常。它们没有在
 当前 OpenAPI 的 Result 描述中逐项列出，故只能作为兼容性线索；客户端应对
@@ -306,6 +339,7 @@ HTTP `429`/`5xx` 的处理属于客户端工程策略；当前文档未承诺所
 ## 官方来源
 
 - [官方文档入口](https://wxpusher.zjiecode.com/docs/)
+- [官方正文（含微信 ClawBot/iLink 渠道说明）](https://wxpusher.zjiecode.com/docs/README.md)
 - [SPT 获取与发送](https://wxpusher.zjiecode.com/docs/#/?id=spt)
 - [SPT 专页](https://wxpusher.zjiecode.com/docs/spt.html)
 - [正文与字节限制](https://wxpusher.zjiecode.com/docs/#/?id=limit)

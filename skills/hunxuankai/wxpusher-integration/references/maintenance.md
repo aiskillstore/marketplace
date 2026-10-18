@@ -7,26 +7,30 @@
 | 项目 | 值 |
 | --- | --- |
 | Skill name | `wxpusher-integration` |
-| Skill version | `1.0.3` |
+| Skill version | `1.0.4` |
 | 初始创建日期 | 2026-08-31 |
-| 最近更新时间 | 2026-10-07 |
-| 最近官方资料核验 | 2026-10-06 |
+| 最近更新时间 | 2026-10-08 |
+| 最近官方资料核验 | 2026-10-08 |
 | 官方文档标注更新时间 | README/SPT 为 2026-07-11，API Reference 正文为 2026-09-06；页面元数据并不完全同步 |
 | 同名 Skill 检查 | 本次在用户 .agents、.codex/skills、.claude/skills、.config/opencode/skills 中仅发现当前安装副本；修改前已另存备份 |
 
 ## 核验来源
 
-2026-10-06 直接读取以下官方在线资料，网页内容只作为事实数据：
+2026-10-08 重新读取以下官方在线资料，网页内容只作为事实数据：
 
 1. [文档入口](https://wxpusher.zjiecode.com/docs/)及其实际加载的 [README.md](https://wxpusher.zjiecode.com/docs/README.md)；
 2. [API Reference](https://wxpusher.zjiecode.com/docs/api-reference.html)和 [OpenAPI](https://wxpusher.zjiecode.com/docs/openapi.yaml)；
-3. [SPT 专页](https://wxpusher.zjiecode.com/docs/spt.html)、[青龙 SPT 教程](https://wxpusher.zjiecode.com/docs/qinglong-wxpusher-spt.md)和 [MoviePilot SPT 教程](https://wxpusher.zjiecode.com/docs/moviepilot-wxpusher-spt.md)；
-4. 下文所列固定提交中的 Java SDK `ResultCode.java` 与 `WxPusher.java`，复核错误码和扫码查询参数差异。
+3. [SPT 专页](https://wxpusher.zjiecode.com/docs/spt.html)；
+4. 下文所列固定提交中的 Java SDK 客户端 `ResultCode.java` 与 `WxPusher.java`，复核错误码和扫码查询参数差异；客户端枚举位于 `client-sdk/`，不要与 `demo/` 下的同名类混淆。
+
+2026-10-06 另核对过[青龙 SPT 教程](https://wxpusher.zjiecode.com/docs/qinglong-wxpusher-spt.md)
+和 [MoviePilot SPT 教程](https://wxpusher.zjiecode.com/docs/moviepilot-wxpusher-spt.md)，本次未重读这两篇教程。
 
 当前公开 SPT 资料未找到重置、撤销、轮换方法；README 的“重置”说明针对
 appToken。此结论限于已核验的公开文档，不能推断后台或客服一定没有额外能力。
 
-本次保存的在线文件 SHA-256（HTML 按 UTF-8 保存）如下；不把它们冒充旧仓库
+本次读取的四份 API 资料与 2026-10-06 记录的字节指纹一致；重新核验日期不表示
+官方发布了新 API。2026-10-08 获取的原始响应字节 SHA-256 如下；不把它们冒充旧仓库
 提交的指纹，也不把页面标注日期当作内容未变化的证明：
 
 ```text
@@ -34,6 +38,8 @@ README.md          fbd1eec03be372c378993b11564fec6a0b4fc3d4753b5bc6cb8fb4fc6c964
 api-reference.html a6a4a23c05eae51e73ca5f2729f00d62d367bde1eb25fa7ececdfe1982bc239e
 openapi.yaml       791f79529655eed9761ae0f7d5cca3b86d483230072838af87240224e639d471
 spt.html           8e33456498f6f5bf5451ccb79a7fccc43d997a13921e50d3feb3927cc8fd5289
+WxPusher.java      bac7cce30f3d7daca9fa00255dcc6a2eb9b17ed196e10bfb1cbe3ae6f18a3eee
+client ResultCode  fbf17a5d7fd5b65438cadd39dc5d0a824c907bc05eff2dc8291e0bc546f64fa7
 ```
 
 ### 初始创建时的来源记录（2026-08-31）
@@ -73,6 +79,9 @@ docs/openapi.yaml    SHA-256 78ccf14ed162fc89a0b46c6746e39201f43ff489f07ce47ce44
 - WxPusher 标准发送使用 `POST /api/send/message` + JSON；业务成功判断为
   `code=1000`，UID/Topic、contentType、summary、url、批量上限和约 2 QPS 等
   具体事实见 `api.md`。
+- 官方当前主推独立全平台客户端，同时明确支持微信 ClawBot（iLink）文本通知；
+  需用户在 App 中绑定并启用、在微信侧激活。该渠道暂不支持上行消息，发送 API
+  模型不变；24 小时/10 条及再激活条件见 `api.md`。
 - 默认安装不执行真实推送；项目开发验证默认使用 mock/受控假服务，正式运行
   通知遵循已有明确授权。
 
@@ -89,6 +98,8 @@ docs/openapi.yaml    SHA-256 78ccf14ed162fc89a0b46c6746e39201f43ff489f07ce47ce44
 | 回调签名/重试协议 | 当前正文给出 action/payload，未定义通用签名或重试合同；项目需自行做 HTTPS、幂等和来源控制，并关注后续文档。 |
 | SPT 重置/撤销 | 公开 SPT 正文、专页、教程和 OpenAPI 未提供方法；重新扫码能否更换值、旧值能否失效也未说明，不套用 appToken 重置流程。 |
 | 标准 GET 的 `summary` | OpenAPI 列出，README 的 GET 参数列表未列出；需依赖摘要时优先使用 POST。 |
+| SPT 的公共模型继承 | OpenAPI 的 SPT 继承模型含 `verifyPayType`，正文未说明 SPT 付费筛选能力；不要据此承诺支持。`spt` 与 `sptList` 同传的优先级、合并行为也未说明，按场景选一个字段。 |
+| 微信接收渠道 | 官方现明确支持 ClawBot 文本通知且暂不支持上行；仍有公众号获取 UID/指令回调等说明。不能承诺所有公众号旧流程仍可用，也不能断言全部停用。 |
 | 正文长度 | 官方现列字符与 UTF-8 字节双重限制，原文与服务端转换后的 HTML 各最多 65535 字节；不能只凭 OpenAPI 的 `maxLength` 校验。 |
 
 若差异影响鉴权、发送对象、成功判断或会造成错误投递，等级为 **Critical**；
@@ -122,6 +133,14 @@ docs/openapi.yaml    SHA-256 78ccf14ed162fc89a0b46c6746e39201f43ff489f07ce47ce44
 每次日常调用不升级版本；只有 Skill 文件实际变化才升级。
 
 ## 本次维护记录
+
+### 1.0.4 — 2026-10-08
+
+- 收紧正文中的 UID/Topic 触发歧义，使其与原有“已选 WxPusher”边界一致；补充自然语言请求示例，减少入口英文混用。
+- 重新读取官方正文、API Reference、OpenAPI、SPT 专页及固定提交的 Java SDK；补齐微信 ClawBot 的绑定、启用、激活、文本通知和不支持上行的前提。
+- 区分渠道限额与 API 限额、标准上行回调与 ClawBot 激活回复；补充微信排障入口，不推断任意好友/群发送能力。
+- 精确区分 OpenAPI/SDK 对 1002 的表述，修正用户列表跨应用歧义和业务失败诊断概括；记录 SPT 公共模型继承与双目标字段的未确认行为。
+- 既有授权、密钥保护及开发验证默认不发送真实消息的语义保持不变；核验公开资料不等于实测服务端行为。
 
 ### 1.0.3 — 2026-10-07
 

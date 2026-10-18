@@ -98,7 +98,7 @@ services:
 - **appToken：** 官方明确支持在管理后台的 appToken 菜单重置，旧值立即失效。
   预先准备配置更新和调用方切换；重置后把新值写入 secret store 并更新所有
   调用方。重置至切换完成之间旧配置会失效，不承诺双 token 并行或无中断轮换。
-- **SPT：** 截至 2026-10-06，[官方 SPT 说明](https://wxpusher.zjiecode.com/docs/#/?id=spt)、
+- **SPT：** 截至 2026-10-08，[官方 SPT 说明](https://wxpusher.zjiecode.com/docs/#/?id=spt)、
   [SPT 专页](https://wxpusher.zjiecode.com/docs/spt.html)及 OpenAPI 未提供重置、撤销
   或轮换方法。不要指示用户去 appToken 菜单重置 SPT，也不要承诺重新扫码会产生
   新值或令旧值失效。文档未记载不等于断言产品内部绝无此能力。
