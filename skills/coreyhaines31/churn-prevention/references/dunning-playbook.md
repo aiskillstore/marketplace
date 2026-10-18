@@ -316,7 +316,12 @@ Final:   Mark subscription as unpaid after last retry
 **Managed dunning:**
 - Paddle handles retries and dunning automatically
 - Limited customization (Paddle manages the relationship)
-- Webhook: `subscription.payment_failed`, `subscription.cancelled`
+- **Paddle Billing webhooks** (dot-separated `event_type` names):
+  - `transaction.payment_failed` reports a failed payment attempt. Use its `subscription_id` to associate a subscription renewal; a failed one-off transaction is not subscription churn.
+  - `subscription.past_due` reports that the subscription is past due.
+  - `subscription.canceled` reports an effective cancellation. A cancellation scheduled for the next billing period emits `subscription.updated` first; retain access according to the current subscription state until that change takes effect.
+- Configure notification subscriptions for these exact names. `subscription.payment_failed` and `subscription.cancelled` are not Paddle Billing event types; do not mix Billing webhooks with the separate Paddle Classic alert names.
+- Verify the [payment-failure](https://developer.paddle.com/webhooks/transactions/transaction-payment-failed/) and [cancellation](https://developer.paddle.com/webhooks/subscriptions/subscription-canceled/) contracts before wiring account state changes.
 - Best for hands-off approach
 
 ### Recurly
@@ -398,11 +403,14 @@ Don't rely on email alone. Show payment failures in the app:
 ### ROI Calculation
 
 ```
-Monthly failed payment MRR:        $10,000
-Current recovery rate:              30% ($3,000 recovered)
-Target recovery rate:               60% ($6,000 recovered)
-Monthly improvement:                $3,000/month
-Annual improvement:                 $36,000/year
-Cost of dunning optimization:       ~$200-500/month (tooling)
-ROI:                                6-15x
+Assumed failed invoice amount:       $10,000/month
+Baseline collected amount:           30% ($3,000/month)
+Scenario collected amount:           60% ($6,000/month)
+Additional recovered cash:           $3,000/month
+If repeated for 12 months:           $36,000/year
+Assumed incremental tooling cost:    $200-500/month
+Recovered-revenue / tooling ratio:   6-15x
+After tooling alone / tooling cost:  5-14x (500-1,400%)
 ```
+
+The 6–15x is recovered cash ÷ tooling cost. Net of tooling it is 5–14x (`(3,000 - 500) / 500 = 5`; `(3,000 - 200) / 200 = 14`), before labor and payment fees. Validate the 60% recovery target against your own baseline. See [gross versus net profit](https://stripe.com/resources/more/gross-vs-net-profit-what-businesses-need-to-know).
