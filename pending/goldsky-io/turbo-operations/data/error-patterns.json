@@ -1,0 +1,308 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "description": "Common error patterns in Turbo pipeline logs and their solutions",
+  "lastUpdated": "2025-01-29",
+  "patterns": [
+    {
+      "id": "auth_failed",
+      "pattern": "password authentication failed for user",
+      "category": "authentication",
+      "severity": "error",
+      "description": "Database credentials in secret are incorrect",
+      "causes": [
+        "Wrong password in secret",
+        "Wrong username in secret",
+        "User doesn't exist in database"
+      ],
+      "solutions": [
+        "Verify credentials work: psql 'postgresql://user:pass@host/db'",
+        "Update secret: goldsky secret update SECRET_NAME --value '...'",
+        "Check username spelling in secret JSON"
+      ],
+      "relatedSkill": "/secrets"
+    },
+    {
+      "id": "connection_refused",
+      "pattern": "connection refused",
+      "category": "network",
+      "severity": "error",
+      "description": "Cannot reach the database server",
+      "causes": [
+        "Database server is down",
+        "Wrong host/port in secret",
+        "Firewall blocking Goldsky IPs",
+        "Database not accepting remote connections"
+      ],
+      "solutions": [
+        "Verify database is running",
+        "Check host and port in secret are correct",
+        "Whitelist Goldsky IP ranges in firewall",
+        "Enable remote connections in database config"
+      ],
+      "relatedSkill": "/secrets"
+    },
+    {
+      "id": "secret_not_found",
+      "pattern": "Secret '.+' not found",
+      "category": "configuration",
+      "severity": "error",
+      "description": "Pipeline references a secret that doesn't exist",
+      "causes": [
+        "Secret was never created",
+        "Secret name is misspelled in YAML",
+        "Secret was deleted"
+      ],
+      "solutions": [
+        "List secrets: goldsky secret list",
+        "Create secret: goldsky secret create --name NAME --value '...'",
+        "Check secret_name spelling in pipeline YAML"
+      ],
+      "relatedSkill": "/secrets"
+    },
+    {
+      "id": "storage_limit",
+      "pattern": "project size limit.*has been exceeded",
+      "category": "storage",
+      "severity": "error",
+      "description": "Database storage quota exceeded (common with Neon free tier)",
+      "causes": [
+        "Neon free tier is limited to 512MB",
+        "Table grew too large",
+        "Too much historical data processed"
+      ],
+      "solutions": [
+        "Upgrade Neon plan",
+        "Use a different database provider",
+        "Clear existing data from tables",
+        "Add filtering to reduce data volume"
+      ],
+      "note": "Neon free tier has 512MB limit"
+    },
+    {
+      "id": "ssl_required",
+      "pattern": "SSL connection is required",
+      "category": "network",
+      "severity": "error",
+      "description": "Database requires SSL but connection isn't using it",
+      "causes": [
+        "Self-hosted database requires SSL",
+        "Connection string missing SSL params"
+      ],
+      "solutions": [
+        "Most managed databases (Neon, Supabase) handle SSL automatically",
+        "For self-hosted, configure SSL in database settings"
+      ]
+    },
+    {
+      "id": "dataset_not_found",
+      "pattern": "references unknown dataset",
+      "category": "configuration",
+      "severity": "error",
+      "description": "Pipeline references a dataset that doesn't exist",
+      "causes": [
+        "Wrong chain prefix (e.g., 'polygon' instead of 'matic')",
+        "Wrong dataset type (e.g., 'transactions' instead of 'raw_transactions')",
+        "Dataset not available for that chain"
+      ],
+      "solutions": [
+        "Check chain prefix: matic (not polygon), ethereum (not eth)",
+        "Use raw_transactions not transactions",
+        "Validate YAML: goldsky turbo validate pipeline.yaml"
+      ],
+      "relatedSkill": "/datasets"
+    },
+    {
+      "id": "sql_syntax_error",
+      "pattern": "SQL syntax error|Parser error",
+      "category": "configuration",
+      "severity": "error",
+      "description": "SQL transform has invalid syntax",
+      "causes": [
+        "Typo in SQL query",
+        "Invalid column name",
+        "Missing quotes around strings",
+        "Wrong SQL dialect"
+      ],
+      "solutions": [
+        "Validate YAML first: goldsky turbo validate pipeline.yaml",
+        "Test SQL syntax in a SQL client",
+        "Check column names match source schema",
+        "Use lowercase for WHERE comparisons"
+      ]
+    },
+    {
+      "id": "duplicate_key",
+      "pattern": "duplicate key|primary key violation",
+      "category": "data",
+      "severity": "error",
+      "description": "Duplicate values in primary key column",
+      "causes": [
+        "SQL transform produces non-unique IDs",
+        "Joining data creates duplicates",
+        "Using wrong column as primary_key"
+      ],
+      "solutions": [
+        "Ensure primary_key column has unique values",
+        "Add DISTINCT to SQL query",
+        "Use a different primary_key column"
+      ]
+    },
+    {
+      "id": "kafka_timeout",
+      "pattern": "kafka.*timeout|broker.*not available",
+      "category": "network",
+      "severity": "error",
+      "description": "Cannot connect to Kafka broker",
+      "causes": [
+        "Wrong bootstrap servers in secret",
+        "Kafka cluster unreachable",
+        "Wrong security protocol"
+      ],
+      "solutions": [
+        "Verify bootstrap servers are correct",
+        "Check security protocol (SASL_SSL, PLAINTEXT, etc.)",
+        "Verify Kafka credentials"
+      ]
+    },
+    {
+      "id": "out_of_memory",
+      "pattern": "out of memory|OOM|memory limit exceeded",
+      "category": "resources",
+      "severity": "error",
+      "description": "Pipeline exceeded memory allocation",
+      "causes": [
+        "Resource size too small for data volume",
+        "Transform accumulating too much data",
+        "Large batch sizes"
+      ],
+      "solutions": [
+        "Increase resource_size: s -> m -> l",
+        "Add filtering to reduce data volume",
+        "Break into multiple pipelines"
+      ]
+    },
+    {
+      "id": "processing_slow",
+      "pattern": "processing.*slow|backpressure|lag",
+      "category": "performance",
+      "severity": "warning",
+      "description": "Pipeline processing slower than data arrival rate",
+      "causes": [
+        "Resource size too small",
+        "Slow sink (database overloaded)",
+        "Complex transforms"
+      ],
+      "solutions": [
+        "Increase resource_size",
+        "Optimize database (add indexes)",
+        "Simplify transforms",
+        "Consider multiple sinks for load distribution"
+      ]
+    },
+    {
+      "id": "checkpoint_reset",
+      "pattern": "checkpoint.*reset|starting from beginning",
+      "category": "data",
+      "severity": "info",
+      "description": "Pipeline checkpoint was reset, reprocessing from start",
+      "causes": [
+        "Source name was changed",
+        "Pipeline name was changed",
+        "Manual checkpoint reset"
+      ],
+      "note": "This may be intentional if you wanted to reprocess data"
+    },
+    {
+      "id": "script_transform_error",
+      "pattern": "WASM execution failed|script transform error|invoke is not a function",
+      "category": "transform",
+      "severity": "error",
+      "description": "TypeScript/WASM script transform failed during execution",
+      "causes": [
+        "Runtime error in TypeScript code (null access, type error)",
+        "Missing invoke() function in script",
+        "Return value doesn't match declared schema",
+        "Script uses unsupported APIs (no network, no imports)"
+      ],
+      "solutions": [
+        "Check script defines function invoke(data) { ... }",
+        "Add null checks for input fields: input.field ?? ''",
+        "Ensure returned object has all fields from schema",
+        "Remove any require/import statements (sandboxed environment)",
+        "Simplify script and add logic incrementally to isolate issue"
+      ],
+      "relatedSkill": "/turbo-transforms"
+    },
+    {
+      "id": "dynamic_table_error",
+      "pattern": "dynamic.table.*error|lookup.*failed|backend.*connection",
+      "category": "transform",
+      "severity": "error",
+      "description": "Dynamic table transform failed to connect or query backend",
+      "causes": [
+        "PostgreSQL backend unreachable",
+        "Backing table doesn't exist in database",
+        "Secret for dynamic table backend is invalid",
+        "Column names don't match between config and actual table"
+      ],
+      "solutions": [
+        "Verify secret exists: goldsky secret list",
+        "Check backing table exists in your database",
+        "Verify column names match between YAML and database table",
+        "Test database connectivity outside Goldsky"
+      ],
+      "relatedSkill": "/turbo-transforms"
+    },
+    {
+      "id": "handler_timeout",
+      "pattern": "handler.*timeout|external.*handler.*failed|HTTP.*timeout",
+      "category": "transform",
+      "severity": "error",
+      "description": "External HTTP handler transform timed out or failed",
+      "causes": [
+        "Handler endpoint is slow or unresponsive",
+        "Handler endpoint URL is incorrect",
+        "Network issue between Goldsky and handler",
+        "Handler returning malformed response"
+      ],
+      "solutions": [
+        "Increase timeout_ms in handler config",
+        "Verify handler URL is reachable",
+        "Check handler returns JSON array of same length as input",
+        "Reduce batch_size to send fewer records per request"
+      ],
+      "relatedSkill": "/turbo-transforms"
+    },
+    {
+      "id": "job_already_exists",
+      "pattern": "pipeline.*already exists|cannot update.*job",
+      "category": "configuration",
+      "severity": "error",
+      "description": "Cannot redeploy a job-mode pipeline without deleting first",
+      "causes": [
+        "Job-mode pipelines cannot be updated in place",
+        "Previous job run hasn't been cleaned up yet"
+      ],
+      "solutions": [
+        "Delete the existing job: goldsky turbo delete <name>",
+        "Then redeploy: goldsky turbo apply <file.yaml>",
+        "Wait for auto-cleanup (~1 hour after job completion)"
+      ],
+      "relatedSkill": "/turbo-operations"
+    }
+  ],
+  "healthyIndicators": [
+    {
+      "pattern": "Processing block",
+      "meaning": "Pipeline is actively processing data"
+    },
+    {
+      "pattern": "Checkpoint updated",
+      "meaning": "Progress is being saved"
+    },
+    {
+      "pattern": "rows written",
+      "meaning": "Data is being written to sink"
+    }
+  ]
+}
