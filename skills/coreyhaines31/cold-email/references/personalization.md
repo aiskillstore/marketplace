@@ -24,19 +24,19 @@ Challenges specific to their role and seniority.
 
 Specific, timely observations about that person connected to the problem you solve.
 
-> Noticed you're hiring 3 SDRs — sounds like you're scaling outbound fast. Most teams hit follow-up fatigue during onboarding.
+> Noticed you're hiring 3 SDRs. Sounds like you're scaling outbound fast. Most teams hit follow-up fatigue during onboarding.
 
 ## Research Signal Stack
 
 | Signal            | Where to find it                   | How to use it                                                                |
 | ----------------- | ---------------------------------- | ---------------------------------------------------------------------------- |
-| Recent funding    | Crunchbase, LinkedIn, press        | "Congrats on Series B — scaling teams fast usually creates X challenge"      |
-| Job postings      | LinkedIn Jobs, careers page        | "Noticed you're hiring 3 SDRs — sounds like you're scaling outbound"         |
-| Tech stack        | BuiltWith, Wappalyzer, HG Insights | "I see you're using HubSpot — most teams at your stage hit a ceiling with X" |
+| Recent funding    | Crunchbase, LinkedIn, press        | "Congrats on Series B. Scaling teams fast usually creates X challenge"      |
+| Job postings      | LinkedIn Jobs, careers page        | "Noticed you're hiring 3 SDRs. Sounds like you're scaling outbound"         |
+| Tech stack        | BuiltWith, Wappalyzer, HG Insights | "I see you're using HubSpot. Most teams at your stage hit a ceiling with X" |
 | LinkedIn activity | Posts, comments, job changes       | "Really enjoyed your post about X"                                           |
-| Company news      | Google News, press releases        | "Congrats on acquiring X — integrating teams usually creates Y challenge"    |
-| Podcast/talks     | Google, YouTube, podcasts          | "Caught your talk at SaaStr on X — really insightful"                        |
-| Website changes   | Manual review                      | "Your new pricing page caught my eye — curious how it's converting"          |
+| Company news      | Google News, press releases        | "Congrats on acquiring X. Integrating teams usually creates Y challenge"    |
+| Podcast/talks     | Google, YouTube, podcasts          | "Caught your talk at SaaStr on X. Really insightful"                        |
+| Website changes   | Manual review                      | "Your new pricing page caught my eye. Curious how it's converting"          |
 
 ## The 3-Minute Personalization System
 
@@ -61,11 +61,11 @@ Tapping into what prospects are passionate about drives significantly higher res
 
 ## Observation-Based Openers (highest performing)
 
-**Trigger-event:** "Congrats on the recent funding round — scaling the team from here is exciting, and I imagine [challenge] is top of mind."
+**Trigger-event:** "Congrats on the recent funding round. Scaling the team from here is exciting, and I imagine [challenge] is top of mind."
 
-**Observation:** "Your recent post about [topic] resonated — especially the part about [detail]. Got me thinking about how that applies to [challenge]."
+**Observation:** "Your recent post about [topic] resonated. Especially the part about [detail]. Got me thinking about how that applies to [challenge]."
 
-**Industry insight:** "Most [role titles] I talk to spend [X hours/week] on [problem] — curious if that matches your experience at [Company]."
+**Industry insight:** "Most [role titles] I talk to spend [X hours/week] on [problem]. Curious if that matches your experience at [Company]."
 
 ## What Feels Fake (avoid)
 
@@ -77,3 +77,14 @@ Tapping into what prospects are passionate about drives significantly higher res
 ## The "So What?" Test
 
 After writing any opening line, read from prospect's perspective: "So what? Why would I care?" If the answer is nothing, rewrite.
+
+## Personalizing With AI
+
+Agents make Level 4 research affordable at scale, and they make invented personalization just as cheap. Buyers in 2026 spot it fast: praise for the company mission, congratulations on a year-old funding round, "I noticed you're in SaaS."
+
+- **Relevance beats personalization.** A specific trigger, the pain it implies, and a concrete offer outperform a clever personal line attached to a generic pitch.
+- **Facts first, then the angle,** in two separate steps, with a source URL for every fact.
+- **Allow "no hook found."** When research turns up nothing specific, use the segment-level message instead of a manufactured one.
+- **Review before sending** for Tier 1 and a sample of Tier 2.
+
+The full research rules and the account brief template are in the prospecting skill's account research reference.
