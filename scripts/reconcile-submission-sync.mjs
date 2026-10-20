@@ -8,6 +8,44 @@ const prefix = `repos/${repo}`;
 const sha40 = /^[a-f0-9]{40}$/;
 const sha64 = /^[a-f0-9]{64}$/;
 const syncPath = '.github/workflows/sync-to-supabase.yml';
+
+export function publicationRoots(files) {
+  assert.ok(Array.isArray(files) && files.length > 0 && files.length <= 10000);
+  const paths = files.map(f => f.filename ?? f.path);
+  assert.equal(new Set(paths).size, paths.length, 'Duplicate publication files');
+  for (const path of paths) assert.ok(typeof path === 'string' && !path.split('/').some(s => !s || s === '.' || s === '..') && !path.includes('\\\\'), 'Unsafe publication path');
+  const roots = [...new Set(paths.map(path => path.match(/^(skills\/[a-z0-9][a-z0-9._-]*(?:\/[a-z0-9][a-z0-9._-]*)?)\/(?:SKILL\.md|skill-report\.json)$/)?.[1]).filter(Boolean))].sort();
+  assert.ok(roots.length > 0 && roots.length <= 25, 'Missing or oversized publication roots');
+  for (const path of paths) assert.equal(roots.filter(root => path.startsWith(`${root}/`)).length, 1, 'Ambiguous or unfrozen publication file');
+  return roots;
+}
+
+export function verifyRootIdentity(root, meta) {
+  if (root.split('/').length === 2) {
+    assert.equal(meta.source_type, 'official', 'Flat publication must be official');
+    assert.equal(meta.slug, root.split('/')[1]);
+    assert.ok(sha40.test(meta.source_ref));
+    assert.equal(meta.source_url, `https://github.com/anthropics/skills/tree/${meta.source_ref}/skills/${meta.slug}`, 'Untrusted official source');
+  }
+}
+export function submissionIdentity(pr, message) {
+  const fromPr = [...String(pr.body ?? '').matchAll(/Submission ID[^`\n]*`([0-9a-f-]{36})`/g)].map(m => m[1]);
+  const fromCommit = [...String(message).matchAll(/\[submission:\s*([0-9a-f-]{36})\]/g)].map(m => m[1]);
+  assert.equal(fromPr.length, 1, 'Missing/ambiguous PR submission identity');
+  assert.equal(fromCommit.length, 1, 'Missing/ambiguous publication submission identity');
+  assert.match(fromPr[0], /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/);
+  assert.equal(fromPr[0], fromCommit[0], 'Callback identity differs from approved submission');
+  return fromPr[0];
+}
+
+export function verifyPublishedSubmission(slugs, rows) {
+  assert.equal(rows.length, 1, 'Missing/ambiguous callback receiver');
+  assert.equal(rows[0].status, 'published', 'Published callback has not committed');
+  assert.ok(Number.isFinite(Date.parse(rows[0].published_at)), 'Missing publication timestamp');
+  assert.ok(Array.isArray(rows[0].published_skill_slugs));
+  assert.deepEqual([...rows[0].published_skill_slugs].sort(), [...slugs].sort(), 'Published callback scope mismatch');
+}
+
 function closedJobs(result) {
   assert.ok(result.jobs?.length > 0 && result.total_count === result.jobs.length, 'Incomplete jobs evidence');
   return result.jobs;
@@ -52,25 +90,28 @@ export function verifySubmissionRecovery(e) {
     }
   }
   step(original, 'Wait for authoritative publication completion', 'success');
-  step(original, 'Sync skills to Supabase', 'failure');
+  const originalProvider = original.flatMap(j => j.steps ?? []).filter(s => s.name === 'Sync skills to Supabase');
+  assert.equal(originalProvider.length, 1);
+  if (originalProvider[0].conclusion === 'success') {
+    assert.ok(resumed, 'Provider-complete recovery requires inspected resume mode');
+    step(original, 'Upload provider-complete synced slugs artifact', 'success');
+    step(original, 'Notify skillstore - Published submissions', 'failure');
+  } else step(original, 'Sync skills to Supabase', 'failure');
   for (const name of ['Sync skills to Supabase', 'Upload provider-complete synced slugs artifact',
-    'Reconcile durable security change events', 'Notify skillstore - Published submissions']) step(recovered, name, 'success');
+    'Notify skillstore - Published submissions']) step(recovered, name, 'success');
+  step(recovered, 'Reconcile durable security change events', originalProvider[0].conclusion === 'success' ? 'skipped' : 'success');
   for (const name of ['calculate-scores', 'cache-invalidate']) {
     const matches = recovered.filter(j => j.name === name);
     assert.ok(matches.length === 1 && matches[0].conclusion === 'success', `Incomplete ${name}`);
   }
   assert.ok(e.files.length > 0 && e.files.length < 300, 'Incomplete changed files');
-  const roots = new Set();
-  for (const f of e.files) {
-    const match = f.filename.match(/^(skills\/[a-z0-9][a-z0-9._-]*\/[a-z0-9][a-z0-9._-]*)\/(.+)$/);
-    assert.ok(match && !match[0].split('/').some(s => s === '.' || s === '..')
-      && ['added','modified'].includes(f.status) && !f.previous_filename, 'Unsafe publication range');
-    roots.add(match[1]);
-  }
+  const roots = new Set(publicationRoots(e.files));
+  for (const f of e.files) assert.ok(['added','modified'].includes(f.status) && !f.previous_filename, 'Unsafe publication range');
   assert.ok(roots.size > 0 && roots.size <= 25 && e.reports.length === roots.size);
   const seen = new Set();
   const plan = e.reports.map(({root,meta}) => {
     assert.ok(roots.has(root) && !seen.has(root)); seen.add(root);
+    verifyRootIdentity(root, meta);
     assert.ok(/^[a-z0-9][a-z0-9._-]*$/.test(meta.slug) && sha64.test(meta.content_hash) && sha64.test(meta.tree_hash), 'Missing pinned identity');
     assert.ok(e.files.some(f => f.filename === `${root}/SKILL.md`) && e.files.some(f => f.filename === `${root}/skill-report.json`));
     return {root,slug:meta.slug,content_hash:meta.content_hash,tree_hash:meta.tree_hash,marketplace_commit_sha:e.push.head_sha};
@@ -98,7 +139,7 @@ function rawApi(endpoint) {
   return execFileSync('gh',['api',endpoint],{maxBuffer:2*1024*1024,timeout:30000});
 }
 const api = endpoint => JSON.parse(rawApi(endpoint));
-function artifactSlugs(runId) {
+export function artifactSlugs(runId) {
   const result=api(`${prefix}/actions/runs/${runId}/artifacts?per_page=100`);
   assert.ok(result.total_count === result.artifacts.length && result.total_count < 100);
   const matches=result.artifacts.filter(a=>a.name==='synced-slugs');
@@ -115,7 +156,7 @@ export function verifiedArtifactSlugs(zip,a) {
   const text=execFileSync('python3',['-c',`import sys,io,zipfile,stat\nz=zipfile.ZipFile(io.BytesIO(sys.stdin.buffer.read()))\ni=z.infolist()\nassert len(i)==1 and i[0].filename=='synced-slugs.txt' and i[0].file_size<=8192\nassert not stat.S_ISLNK(i[0].external_attr >> 16)\nsys.stdout.buffer.write(z.read(i[0]))`],{input:zip,maxBuffer:8192,timeout:10000}).toString('utf8');
   return text.trim().split('\n').map(s=>s.trim());
 }
-async function providerRead(table, filter, select) {
+export async function providerRead(table, filter, select) {
   const base=new URL(process.env.SUPABASE_URL);
   assert.ok(base.protocol==='https:' && !base.username && !base.password);
   const url=new URL(`/rest/v1/${table}`,base);
@@ -146,11 +187,11 @@ export async function main() {
   const trailer=commit.message.match(/^AgentCrew-Publication: submission-pr-([1-9][0-9]*)-[a-f0-9]{40}-[a-f0-9]{40}$/m);
   assert.ok(trailer,'No exact submission publication');
   const pr=api(`${prefix}/pulls/${trailer[1]}`);
-  const roots=[...new Set(comparison.files.map(f=>f.filename.split('/').slice(0,3).join('/')))];
+  const roots=publicationRoots(comparison.files);
   assert.ok(roots.length>0 && roots.length<=25);
   const recoveryTrees=[];
   const reports=roots.map(root=> {
-    assert.ok(/^skills\/[a-z0-9][a-z0-9._-]*\/[a-z0-9][a-z0-9._-]*$/.test(root));
+    assert.ok(/^skills\/[a-z0-9][a-z0-9._-]*(?:\/[a-z0-9][a-z0-9._-]*)?$/.test(root));
     const pinned=api(`${prefix}/contents/${root}?ref=${push.head_sha}`);
     const pending=api(`${prefix}/contents/${root.replace(/^skills\//,'pending/')}?ref=${pr.head.sha}`);
     const entries=list=> {
@@ -169,7 +210,7 @@ export async function main() {
     const report=api(`${prefix}/contents/${root}/skill-report.json?ref=${push.head_sha}`);
     assert.equal(report.encoding,'base64'); assert.ok(report.size<=1024*1024);
     const {meta}=JSON.parse(Buffer.from(report.content,'base64').toString('utf8'));
-    return {root,meta:{slug:meta.slug,content_hash:meta.content_hash,tree_hash:meta.tree_hash}};
+    return {root,meta:{slug:meta.slug,source_type:meta.source_type,source_ref:meta.source_ref,source_url:meta.source_url,content_hash:meta.content_hash,tree_hash:meta.tree_hash}};
   });
   const jobs=run=>api(`${prefix}/actions/runs/${run.id}/attempts/${run.run_attempt}/jobs?per_page=100`);
   const plan=verifySubmissionRecovery({push,recovery,baseline,commit,pr,files:comparison.files,reports,recoveryTrees,slugs:artifactSlugs(recovery.id),originalJobs:jobs(push),recoveryJobs:jobs(recovery)});
@@ -179,6 +220,9 @@ export async function main() {
     const artifacts=await providerRead('skill_artifact_versions',['id',skills[0].current_artifact_version_id],'id,skill_id,source_path,marketplace_commit_sha,content_hash,tree_hash,artifact_revision,snapshot_status');
     verifyProviderProjection(expected,skills,artifacts);
   }
+  const submissionId = submissionIdentity(pr, commit.message);
+  const callback = await providerRead('submissions',['id',submissionId],'status,published_at,published_skill_slugs');
+  verifyPublishedSubmission(plan.map(p=>p.slug),callback);
   // Output only safe control identifiers, never provider response or credentials.
   console.log(JSON.stringify({failedRunId:push.id,recoveryRunId:recovery.id,publicationSha:push.head_sha,verifiedSlugs:plan.map(p=>p.slug)}));
   const {appendFileSync}=await import('node:fs');

@@ -77,6 +77,7 @@ jobs:
           /scripts/guard-provider-rerun.mjs
           /scripts/recovered-push-sync.mjs
           /scripts/prepare-sync-recovery.mjs
+          /scripts/reconcile-submission-sync.mjs
           /scripts/refresh-security-research-stats.sh
           /.github/actions/download-skillstore-cli/
           EOF
@@ -132,6 +133,7 @@ jobs:
             scripts/guard-provider-rerun.mjs \
             scripts/recovered-push-sync.mjs \
             scripts/prepare-sync-recovery.mjs \
+            scripts/reconcile-submission-sync.mjs \
             scripts/refresh-security-research-stats.sh \
             .github/actions/download-skillstore-cli/action.yml; do
             if git ls-files -v -- "$required_path" | awk '$1 ~ /^S/ { found=1 } END { exit !found }'; then
@@ -153,6 +155,8 @@ jobs:
       - name: Validate trusted sync correlation
         id: trusted-correlation
         env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
           RESUME_FAILED_RUN: ${{ inputs.resume_failed_run }}
           CORRELATION_ID: ${{ inputs.correlation_id }}
           INPUT_SLUGS: ${{ inputs.slugs }}
@@ -660,6 +664,8 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
           CHANGED_SKILLS: ${{ steps.changes.outputs.changed_skills }}
           RESUME_FAILED_RUN: ${{ inputs.resume_failed_run }}
+          PROVIDER_COMPLETE: ${{ steps.trusted-correlation.outputs.provider_complete }}
+          VERIFIED_RECOVERY_SLUGS: ${{ steps.trusted-correlation.outputs.recovery_slugs }}
           SYNC_MODE: ${{ steps.changes.outputs.mode }}
           SECURITY_PASSPORT_MODE: ${{ vars.SECURITY_PASSPORT_MODE || 'off' }}
           SECURITY_NOTIFICATIONS_ENABLED: ${{ vars.SECURITY_NOTIFICATIONS_ENABLED || 'false' }}
@@ -667,6 +673,19 @@ jobs:
           AUTOMATION_API_KEY: ${{ secrets.SECURITY_ATTESTATION_AUTOMATION_KEY }}
           SYNC_COMMIT_SHA: ${{ steps.trusted-correlation.outputs.sync_commit_sha }}
         run: |
+          if [ "$PROVIDER_COMPLETE" = true ]; then
+            # prepare-sync-recovery verified the original archive digest, current
+            # provider artifact/revision and an unreceived callback under this mutex.
+            # Never invoke the provider CLI again for this mode.
+            test -n "$RESUME_FAILED_RUN"
+            test -n "$VERIFIED_RECOVERY_SLUGS"
+            printf '%s\n' "$VERIFIED_RECOVERY_SLUGS" | tr ',' '\n' | LC_ALL=C sort > synced-slugs.txt
+            SYNCED_COUNT=$(wc -l < synced-slugs.txt | tr -d ' ')
+            test "$SYNCED_COUNT" -gt 0
+            echo "synced_count=$SYNCED_COUNT" >> "$GITHUB_OUTPUT"
+            echo "::notice::Reused verified provider-complete artifact; provider writes skipped"
+            exit 0
+          fi
           echo "Sync mode: $SYNC_MODE"
           echo "Syncing skills: $CHANGED_SKILLS"
 
@@ -803,7 +822,7 @@ jobs:
 
       - name: Reconcile durable security change events
         id: reconcile-security-events
-        if: ${{ !cancelled() && steps.download-cli.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.download-cli.outcome == 'success' && steps.trusted-correlation.outputs.provider_complete != 'true' }}
         continue-on-error: true
         env:
           PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
@@ -825,7 +844,7 @@ jobs:
           EOF
 
       - name: Remove generated report evidence from synced audits
-        if: steps.changes.outputs.skip_sync != 'true' && steps.sync.outputs.synced_count != '0'
+        if: steps.changes.outputs.skip_sync != 'true' && steps.sync.outputs.synced_count != '0' && steps.trusted-correlation.outputs.provider_complete != 'true'
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
@@ -998,7 +1017,7 @@ jobs:
 
       - name: Refresh security research snapshot
         id: security-research-refresh
-        if: steps.changes.outputs.skip_sync != 'true' && steps.sync.outputs.synced_count != '0'
+        if: steps.changes.outputs.skip_sync != 'true' && steps.sync.outputs.synced_count != '0' && steps.trusted-correlation.outputs.provider_complete != 'true'
         continue-on-error: true
         env:
           SKILLSTORE_API_URL: https://skillstore.io
@@ -1028,6 +1047,7 @@ jobs:
         if: steps.changes.outputs.skip_sync != 'true' && steps.sync.outputs.synced_count != '0' && !startsWith(inputs.correlation_id, 'source-monitor-pr-')
         env:
           RECOVERY_COMMIT: ${{ inputs.resume_failed_run != '' && steps.trusted-correlation.outputs.sync_commit_sha || '' }}
+          RECOVERY_SUBMISSION_ID: ${{ steps.trusted-correlation.outputs.recovery_submission_id }}
           BASE_SHA: ${{ steps.last_sync.outputs.base_sha }}
           SYNC_MODE: ${{ steps.changes.outputs.mode }}
           CHANGED_SKILLS: ${{ steps.changes.outputs.changed_skills }}
@@ -1045,6 +1065,14 @@ jobs:
               .map((slug) => slug.trim())
               .filter(Boolean),
           );
+
+          if (process.env.RECOVERY_SUBMISSION_ID) {
+            const submission_id = process.env.RECOVERY_SUBMISSION_ID;
+            if (!/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(submission_id) || syncedSlugs.size === 0) throw new Error('Invalid verified recovery callback scope');
+            fs.writeFileSync('published-submissions.json', JSON.stringify([{submission_id,skill_slugs:[...syncedSlugs].sort()}]));
+            fs.appendFileSync(process.env.GITHUB_OUTPUT, 'count=1\n');
+            process.exit(0);
+          }
 
           function git(args) {
             return execFileSync('git', args, { encoding: 'utf8' }).trim();
@@ -1171,13 +1199,15 @@ jobs:
               }')
 
             echo "📤 Notifying skillstore: submission $SUBMISSION_ID published ($SKILL_SLUGS)"
-            curl --fail-with-body -sS -X POST "$SKILLSTORE_API_URL/api/submit/callback" \
+            CALLBACK_HTTP=$(curl --fail-with-body -sS --max-time 90 -o callback-response.json -w '%{http_code}' -X POST "$SKILLSTORE_API_URL/api/submit/callback" \
               -H "Authorization: Bearer $SKILLSTORE_CALLBACK_TOKEN" \
               -H "Content-Type: application/json" \
               -H "User-Agent: GitHub-Actions/SkillstoreBot" \
               -H "X-Skillstore-Callback: true" \
               -H "Idempotency-Key: publication-published-${SUBMISSION_ID}" \
-              -d "$PAYLOAD"
+              -d "$PAYLOAD")
+            [[ "$CALLBACK_HTTP" =~ ^2[0-9][0-9]$ ]] || { echo "::error::Callback did not return 2xx (HTTP $CALLBACK_HTTP)"; exit 1; }
+            jq -e '.success == true' callback-response.json >/dev/null
           done
 
       - name: Record durable publication provider result
