@@ -96,20 +96,32 @@ shell commands. Hooks embedded in `~/.gemini/antigravity-cli/settings.json` and
 `PreToolUse` decision outputs (`allow`/`auto_approve`/deny), including their effect on
 headless permission prompts, were not tested.
 
+A direct synthetic headless AGY 1.4.2 run with `--disable-slash-commands`
+started MCP server commands from `mcp_config.json` in each of `.agents/`, `_agents/`,
+`.agent/` and `_agent/`. Each server wrote a distinct marker outside the synthetic
+workspace. This observed MCP startup, not a chained agy-worker dispatch; native
+containment and ancestor-root loading were not exercised. Hooks, custom agents and
+plugins under the three alias roots were not tested live.
+
 Preview rejects known executable provider configuration in provider content; every
 launch, including repairs, additionally checks the actual cwd and bounded ancestors.
-The same policy applies in session and native modes. Reserved
-leaves anywhere below `.agents/` are `mcp_config.json`, `hooks.json`, `skills.json`,
-`rules.json`, `agents.json` and `plugins.json`; `plugin.json` below `.agents/plugins/`
-is also rejected, including nested plugin manifest directories. The policy rejects
-these nodes regardless of contents/type, symlinked `.agents`, and symlinks at/below
-`.agents/plugins/`, using NFC/casefold path classification. Workspace MCP startup and
-`.agents/hooks.json` execution were confirmed live; preview rejects the latter.
-The other reserved paths are conservative execution candidates.
+The same policy applies in session and native modes to all four roots:
+`.agents/`, `_agents/`, `.agent/` and `_agent/`. For each root, reserved leaves
+anywhere below it are `mcp_config.json`, `hooks.json`, `skills.json`, `rules.json`,
+`agents.json` and `plugins.json`; `plugin.json` below its `plugins/` directory is
+also rejected, including nested plugin manifest directories. Immediate `agents/*.md`
+and `agents/*/agent.md` nodes below each root are also reserved:
+[AGY documents](https://www.antigravity.google/docs/subagents/) their discovery as
+custom-agent configuration. The policy rejects these nodes regardless of
+contents/type, symlinked roots, symlinks at/below each root's `plugins/`, and symlinked
+`agents/` directories or their immediate children, using NFC/casefold path
+classification. These are offline policy checks, not live discovery or invocation
+proof for every reserved form. `.agents/hooks.json` execution was confirmed live;
+the other reserved paths are conservative execution candidates.
 Plain instructions, skills/rules Markdown and `marketplace.json` remain content.
 
-Use scoped mode excluding `.agents/` configuration; otherwise use a disposable
-worktree without it. Unselected source configuration is allowed when it is not an
+Use scoped mode excluding executable configuration under all four roots; otherwise
+use a disposable worktree without it. Unselected source configuration is allowed when it is not an
 actual provider ancestor. Scoped preview checks known selected content; the final
 stage/job path is resolved later and its actual ancestry is checked before launch.
 Ancestors stop at the nearest `.git` file or directory, or conservatively at the
