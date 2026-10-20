@@ -5,7 +5,7 @@ license: MIT
 compatibility: "OpenAI Codex CLI and Claude Code. Requires Bash, Python 3, git, and agy with provider network access."
 metadata:
   author: cagdasyurekli
-  version: "0.24.7"
+  version: "0.24.9"
 ---
 
 # Delegate repository work and verify the result
@@ -73,16 +73,16 @@ requires capability preflight and immediate executable-binding recheck. Model an
 effort stay caller-owned. Child environment opt-ins require approval per variable
 name. Installation grants no provider or Git authority.
 
-Read [Security and compatibility](references/SECURITY_AND_COMPATIBILITY.md) before a
-first live dispatch or changing execution exposure. It owns native network/Keychain
-limits, verifier environments and no-follow boundaries. Workspace MCP startup was
-observed on AGY 1.3.5: preview rejects known executable configuration; each launch
-also checks actual cwd ancestry, in both modes. Prefer scoped mode excluding
-`.agents/` configuration, then a disposable worktree without it; ancestors must
-also be clear. Session mode can start enabled user-plugin MCP servers and run global
-and enabled-plugin hooks in headless mode with slash commands disabled; hooks can
-observe or rewrite tool calls, including shell commands. The guide owns the reserved
-paths, native plugin/hook exclusion evidence and remaining limits. Read the required
+Read [Security and compatibility](references/SECURITY_AND_COMPATIBILITY.md) before a first
+live dispatch or changing execution exposure. It owns native network/Keychain limits,
+verifier environments and no-follow boundaries. AGY 1.4.2 was observed starting workspace
+MCP commands from `.agents/`, `_agents/`, `.agent/` and `_agent/`. Preview rejects known
+executable configuration under all four roots. Each launch checks actual cwd ancestry in
+both modes. Prefer scoped mode excluding it, then a disposable worktree without it;
+ancestors must be clear. Session mode can start enabled user-plugin MCP servers and run
+global and enabled-plugin hooks in headless mode with slash commands disabled; hooks can
+observe or rewrite tool calls, including shell commands. The guide details reserved paths,
+native plugin/hook exclusion evidence and limits. Read the required
 [launch notices](references/PROJECT_LIFECYCLE_AND_VERIFICATION.md#approval-bindings-and-launch-notices)
 before initial, resume, continue or restart attempts; notices do not repeat approvals.
 
