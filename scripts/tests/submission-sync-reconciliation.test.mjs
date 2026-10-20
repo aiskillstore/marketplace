@@ -104,3 +104,18 @@ test('a resumed run on newer main needs the exact failed-run binding, validated 
     const x=structuredClone(e);mutate(x);assert.throws(()=>verifySubmissionRecovery(x));
   }
 });
+
+test('provider-complete official callback recovery is separately reconciled without replaying completed provider stages',()=>{
+  const e=structuredClone(evidence());
+  e.recovery.display_title=`Recover provider sync ${e.push.id}`;
+  e.recoveryJobs.jobs[0].steps.push({name:'Validate trusted sync correlation',conclusion:'success'});
+  e.originalJobs.jobs[0].steps[1].conclusion='success';
+  e.originalJobs.jobs[0].steps.push({name:'Upload provider-complete synced slugs artifact',conclusion:'success'},{name:'Notify skillstore - Published submissions',conclusion:'failure'});
+  e.recoveryJobs.jobs[0].steps.find(s=>s.name==='Reconcile durable security change events').conclusion='skipped';
+  e.files=e.files.map(f=>({...f,filename:f.filename.replace(root,'skills/demo')}));
+  e.reports=[{root:'skills/demo',meta:{...meta,slug:'demo',source_type:'official',source_ref:head,source_url:`https://github.com/anthropics/skills/tree/${head}/skills/demo`}}];
+  e.slugs=['demo'];e.recoveryTrees=[{root:'skills/demo',published:sha,recovered:sha}];
+  assert.equal(verifySubmissionRecovery(e)[0].slug,'demo');
+  const changed=structuredClone(e);changed.recoveryTrees[0].recovered=before;
+  assert.throws(()=>verifySubmissionRecovery(changed));
+});
