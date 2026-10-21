@@ -9,7 +9,7 @@ import os
 from pathlib import Path
 import secrets
 import sys
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 ASSETS = Path(__file__).resolve().parents[1] / "assets"
 MAX_BYTES = 25 * 1024 * 1024
@@ -73,6 +73,8 @@ def export_report(destination, html):
 def create_server(html):
     token = secrets.token_urlsafe(24)
     class Handler(BaseHTTPRequestHandler):
+        timeout = 10
+
         def log_message(self, *_):
             pass
 
@@ -91,7 +93,7 @@ def create_server(html):
             self.send_header("X-Frame-Options", "DENY")
             self.end_headers()
             self.wfile.write(html)
-    server = HTTPServer(("127.0.0.1", 0), Handler)
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
     return server, f"http://127.0.0.1:{server.server_port}/{token}"
 
 

@@ -33,6 +33,32 @@
     const s=e('select',cls);s.setAttribute('aria-label',label);for(const [v,l]of values){const o=e('option','',l);o.value=v;o.selected=v===value;s.append(o);}s.addEventListener('change',()=>onChange(s.value));return s;
   }
   function hint(text){const wrap=e('span','hint');const b=btn('i','info',()=>{});b.setAttribute('aria-label',text);const tip=e('span','tooltip',text);tip.setAttribute('role','tooltip');wrap.append(b,tip);return wrap;}
+  const chartTip=e('div','chart-tooltip');
+  chartTip.id='chart-tooltip';chartTip.hidden=true;chartTip.setAttribute('role','tooltip');document.body.append(chartTip);
+  let tipOwner=null;
+  function hideChartTip(){chartTip.hidden=true;tipOwner?.removeAttribute('aria-describedby');tipOwner=null;}
+  function placeChartTip(x,y){
+    const box=chartTip.getBoundingClientRect();
+    const left=Math.max(8,Math.min(x+14,innerWidth-box.width-8));
+    const top=y+14+box.height>innerHeight-8?Math.max(8,y-box.height-14):y+14;
+    chartTip.style.left=left+'px';chartTip.style.top=top+'px';
+  }
+  function chartTooltip(target,lines){
+    const show=event=>{
+      if(event?.pointerType==='touch')return;
+      hideChartTip();tipOwner=target;
+      chartTip.replaceChildren(...lines.map((line,i)=>e(i?'span':'strong','',line)));
+      chartTip.hidden=false;target.setAttribute('aria-describedby',chartTip.id);
+      const box=target.getBoundingClientRect();placeChartTip(event?.clientX??box.x+box.width/2,event?.clientY??box.y);
+    };
+    target.addEventListener('pointerenter',show);
+    target.addEventListener('pointermove',event=>{if(tipOwner===target)placeChartTip(event.clientX,event.clientY);});
+    target.addEventListener('pointerleave',()=>{if(tipOwner===target)hideChartTip();});
+    target.addEventListener('focus',()=>show());
+    target.addEventListener('blur',()=>{if(tipOwner===target)hideChartTip();});
+  }
+  document.addEventListener('keydown',event=>{if(event.key==='Escape')hideChartTip();});
+  document.addEventListener('scroll',hideChartTip,true);window.addEventListener('resize',hideChartTip);
   function bucket(rows,field,measure,colorMap={}){
     const map=new Map();for(const r of rows){const key=typeof field==='function'?field(r):r[field]||t('uncategorized');if(!map.has(key))map.set(key,[]);map.get(key).push(r);}
     return [...map].map(([key,items],i)=>({key,label:categoryName(key),rows:items,value:sum(items,measure),color:colorMap[key]||colors[i%colors.length]})).filter(x=>x.value!==0).sort((a,b)=>b.value-a.value);
@@ -45,6 +71,7 @@
     table.append(body);area.append(table);if(!rows.length)area.append(e('p','empty',t('empty')));return area;
   }
   function openRows(title,rows,mode=view,average=false){
+    hideChartTip();
     document.getElementById('dialog-title').textContent=title;
     const measure=mode==='expenses'?'personalCents':mode==='income'?'amountCents':mode==='transfers'?'transferCents':'cashCents';
     const total=sum(rows,measure);
@@ -52,6 +79,11 @@
     const content=document.getElementById('dialog-content');const search=e('input','search');search.type='search';search.placeholder=t('search');search.setAttribute('aria-label',t('search'));const results=e('div');results.append(transactionTable(rows,mode));search.addEventListener('input',()=>{const q=search.value.toLocaleLowerCase();results.replaceChildren(transactionTable(rows.filter(r=>[r.date,r.description,r.merchant,r.category,r.account].join(' ').toLocaleLowerCase().includes(q)),mode));});content.replaceChildren(search,results);document.getElementById('dialog-close').setAttribute('aria-label',t('close'));dialog.showModal();
   }
   function chartHeader(title,tip,rows,mode=view){const header=e('div','card-heading');const heading=e('div','card-title');heading.append(e('h2','',title),hint(tip));const menu=e('details','chart-menu');const trigger=e('summary','','···');trigger.setAttribute('aria-label',t('chartMenu')+' '+title);const action=btn(t('viewAll'),'menu-action',()=>{menu.open=false;openRows(title,rows,mode);});menu.append(trigger,action);header.append(heading,menu);return header;}
+  function updateLegendFade(legend){
+    const remaining=legend.scrollHeight-legend.clientHeight-legend.scrollTop;
+    legend.style.setProperty('--fade-top',Math.min(24,Math.max(0,legend.scrollTop))+'px');
+    legend.style.setProperty('--fade-bottom',remaining>1?Math.min(24,remaining)+'px':'0px');
+  }
   function ring(title,items,opts={}){
     const rows=items.flatMap(x=>x.rows);const divisor=opts.average?currentSummary.days:1;
     const list=items.map(x=>({...x,value:x.value/divisor}));const total=sum(list,'value');const card=e('section','ring-card '+(opts.size||'secondary'));
@@ -59,24 +91,50 @@
     const plot=e('div','ring-plot');const center=e('div','ring-center');center.append(e('strong','',money(total)),e('span','',opts.average?t('average'):opts.label||t('netSpending')));
     const positive=list.filter(x=>x.value>0),positiveTotal=sum(positive,'value');
     if(positiveTotal){const drawing=svg('svg',{viewBox:'0 0 300 300','aria-label':title,role:'img'});let angle=0;
-      for(const item of positive){const sweep=item.value/positiveTotal*Math.PI*2;const start=angle,end=angle+sweep;const segment=svg('circle',{cx:150,cy:150,r:100,fill:'none',stroke:item.color,'stroke-width':40,'stroke-dasharray':`${Math.max(0,sweep*100-(positive.length>1?Math.min(2.6,sweep*25):0))} ${Math.PI*200}`,'stroke-dashoffset':-start*100,transform:'translate(0 300) scale(1 -1)',tabindex:0,role:'button','aria-label':item.label+' '+money(item.value)});const hover=svg('title');hover.textContent=item.label+': '+money(item.value);segment.append(hover);const open=()=>openRows(item.label,item.rows,opts.mode||view,opts.average);segment.addEventListener('click',open);segment.addEventListener('keydown',ev=>{if(ev.key==='Enter'||ev.key===' '){ev.preventDefault();open();}});drawing.append(segment);angle=end;}
+      for(const item of positive){const sweep=item.value/positiveTotal*Math.PI*2;const start=angle,end=angle+sweep;const segment=svg('circle',{cx:150,cy:150,r:100,fill:'none',stroke:item.color,'stroke-width':40,'stroke-dasharray':`${Math.max(0,sweep*100-(positive.length>1?Math.min(2.6,sweep*25):0))} ${Math.PI*200}`,'stroke-dashoffset':-start*100,transform:'translate(0 300) scale(1 -1)',tabindex:0,role:'button','aria-label':item.label+' '+money(item.value)});const percentage=new Intl.NumberFormat(locale(),{style:'percent',maximumFractionDigits:2}).format(item.value/positiveTotal);const shareText=(language==='zh'?'占本圆环 ':'Share of this ring: ')+percentage;segment.setAttribute('aria-label',item.label+' '+money(item.value)+' · '+shareText);chartTooltip(segment,[item.label,money(item.value)+(opts.average?' / '+t('dayLabel'):''),shareText,item.rows.length+' '+t('count')]);const open=()=>openRows(item.label,item.rows,opts.mode||view,opts.average);segment.addEventListener('click',open);segment.addEventListener('keydown',ev=>{if(ev.key==='Enter'||ev.key===' '){ev.preventDefault();open();}});drawing.append(segment);angle=end;}
       plot.append(drawing,center);
     }else {plot.classList.add('empty-ring');plot.append(center,e('span','empty-caption',t(opts.mode==='income'?'zeroIncome':opts.mode==='transfers'?'zeroTransfers':'zeroSpending')));}
-    card.append(plot);const legend=e('div','ring-legend');for(const item of list){const row=btn('','legend-row',()=>openRows(item.label,item.rows,opts.mode||view,opts.average));const label=e('span','legend-label');const dot=e('i');dot.style.background=item.color;label.append(dot,e('span','',item.label));row.append(label,e('strong','',money(item.value)));legend.append(row);}card.append(legend);return card;
+    card.append(plot);const legend=e('div','ring-legend');for(const item of list){const row=btn('','legend-row',()=>openRows(item.label,item.rows,opts.mode||view,opts.average));row.title=item.label;const label=e('span','legend-label');const dot=e('i');dot.style.background=item.color;label.append(dot,e('span','',item.label));row.append(label,e('strong','',money(item.value)));legend.append(row);}legend.addEventListener('scroll',()=>updateLegendFade(legend),{passive:true});card.append(legend);requestAnimationFrame(()=>{if(legend.isConnected)updateLegendFade(legend);});return card;
   }
   function metric(title,value,rows,tip,mode=view){const box=e('section','metric-card');const head=e('div','card-title');head.append(e('h2','',title),hint(tip));box.append(head,btn(money(value),'metric-number',()=>openRows(title,rows,mode)));return box;}
   function fold(title,content){const box=e('details','fold');box.append(e('summary','',title));const body=e('div','fold-body');body.append(content);box.append(body);return box;}
   function timeline(rows,mode){
-    const title=mode==='expenses'?t(grain==='year'?'monthlyTrend':'dailyTrend'):t(mode==='income'?'incomeTrend':'transfersTrend');const card=e('section','timeline-card');card.append(chartHeader(title,t(mode==='expenses'?'dailyTip':mode==='income'?'incomeTip':'transferTip'),rows,mode));const map=new Map();const cursor=new Date(currentPeriod.start+'T00:00:00Z'),end=new Date(currentPeriod.end+'T00:00:00Z');while(cursor<=end){const day=cursor.toISOString().slice(0,10);map.set(grain==='year'?day.slice(0,7):day,[]);cursor.setUTCDate(cursor.getUTCDate()+1);}for(const row of rows){const key=grain==='year'?row.date.slice(0,7):row.date;map.get(key)?.push(row);}const points=[...map].map(([key,rs])=>({key,rows:rs,a:sum(rs,r=>mode==='expenses'?r.personalCents:mode==='income'?r.amountCents:Math.max(0,-r.transferCents)),b:mode==='transfers'?sum(rs,r=>Math.max(0,r.transferCents)):0}));const max=Math.max(1,...points.flatMap(p=>[p.a,p.b]));const chart=e('div','bar-chart');const axis=e('div','y-axis');[1,.75,.5,.25,0].forEach(v=>axis.append(e('span','',money(max*v))));const plot=e('div','bar-plot');const lines=e('div','grid-lines');for(let i=0;i<5;i++)lines.append(e('i'));plot.append(lines);const bars=e('div','bars');points.forEach((point,i)=>{const group=e('div','bar-group');for(const [key,color]of [['a',mode==='income'?colors[2]:mode==='transfers'?colors[4]:colors[0]],...(mode==='transfers'?[['b',colors[0]]]:[])]){const bar=btn('','bar',()=>openRows(point.key,point.rows,mode));bar.style.height=(point[key]/max*100)+'%';bar.style.background=color;bar.title=point.key+': '+money(point[key]);bar.setAttribute('aria-label',bar.title);bar.disabled=!point[key];group.append(bar);}const label=e('span','bar-date',i%Math.max(1,Math.ceil(points.length/9))===0?point.key.slice(5):'');group.append(label);bars.append(group);});plot.append(bars);chart.append(axis,plot);card.append(chart);return card;
+    const title=mode==='expenses'?t(grain==='year'?'monthlyTrend':'dailyTrend'):t(mode==='income'?'incomeTrend':'transfersTrend');
+    const card=e('section','timeline-card');card.append(chartHeader(title,t(mode==='expenses'?'dailyTip':mode==='income'?'incomeTip':'transferTip'),rows,mode));
+    const map=new Map(),cursor=new Date(currentPeriod.start+'T00:00:00Z'),end=new Date(currentPeriod.end+'T00:00:00Z');
+    while(cursor<=end){const day=cursor.toISOString().slice(0,10);map.set(grain==='year'?day.slice(0,7):day,[]);cursor.setUTCDate(cursor.getUTCDate()+1);}
+    for(const row of rows){const key=grain==='year'?row.date.slice(0,7):row.date;map.get(key)?.push(row);}
+    const points=[...map].map(([key,rs])=>({key,rows:rs,a:sum(rs,r=>mode==='expenses'?r.personalCents:mode==='income'?r.amountCents:Math.max(0,-r.transferCents)),b:mode==='transfers'?sum(rs,r=>Math.max(0,r.transferCents)):0}));
+    const max=Math.max(1,...points.flatMap(p=>[p.a,p.b]));
+    const number=value=>new Intl.NumberFormat(locale(),{minimumFractionDigits:2,maximumFractionDigits:2}).format(value/100);
+    const labelWidth=Math.max(52,...points.flatMap(p=>[p.a,p.b]).map(value=>number(value).length*7+12));
+    const chart=e('div','bar-chart'),axis=e('div','y-axis');[1,.75,.5,.25,0].forEach(v=>axis.append(e('span','',money(max*v))));
+    const scroll=e('div','bar-scroll');scroll.tabIndex=0;scroll.setAttribute('role','region');scroll.setAttribute('aria-label',title);
+    const plot=e('div','bar-plot');plot.style.minWidth=points.length*(labelWidth*(mode==='transfers'?2:1)+6)+'px';
+    const lines=e('div','grid-lines');for(let i=0;i<5;i++)lines.append(e('i'));plot.append(lines);
+    const bars=e('div','bars');points.forEach(point=>{
+      const group=e('div','bar-group');
+      for(const [key,color]of [['a',mode==='income'?colors[2]:mode==='transfers'?colors[4]:colors[0]],...(mode==='transfers'?[['b',colors[0]]]:[])]){
+        const selected=mode==='transfers'?point.rows.filter(r=>key==='a'?r.transferCents<0:r.transferCents>0):point.rows;
+        const series=t(mode==='expenses'?'daily':mode==='income'?'income':key==='a'?'transferOut':'transferIn');
+        const bar=btn('','bar',()=>openRows(point.key+' · '+series,selected,mode));bar.style.height=(point[key]/max*100)+'%';bar.style.background=color;
+        bar.setAttribute('aria-label',point.key+' · '+series+' · '+money(point[key]));bar.disabled=!point[key];
+        if(point[key]){const label=e('span','bar-value',number(point[key]));label.setAttribute('aria-hidden','true');bar.append(label);chartTooltip(bar,[point.key,series+' · '+money(point[key]),selected.length+' '+t('count')]);}
+        group.append(bar);
+      }
+      group.append(e('span','bar-date',point.key.slice(5)));bars.append(group);
+    });
+    plot.append(bars);scroll.append(plot);chart.append(axis,scroll);card.append(chart);return card;
   }
   function amountSummary(summary){const wrap=e('div','table-area'),table=e('table','data-table'),head=e('tr');[t('group'),t('netSpending')].forEach(x=>head.append(e('th','',x)));table.append(head);Object.entries(summary.groups).forEach(([g,v])=>{const row=e('tr');row.append(e('td','',t(g)),e('td','amount',money(v)));table.append(row);});wrap.append(table);return wrap;}
   function monthSummary(){const wrap=e('div','table-area'),table=e('table','data-table'),head=e('tr');[t('month'),t('daily'),t('fixed'),t('ai'),t('housing'),t('total')].forEach(x=>head.append(e('th','',x)));table.append(head);for(const p of Finance.periods(data,'month')){const s=Finance.summarize(data,p),row=e('tr'),cell=e('td');cell.append(btn(p.key.slice(0,7),'text-button',()=>{grain='month';periodKey=p.key;render();}));row.append(cell);[s.daily,s.groups.fixed,s.groups.ai,s.groups.housing,s.spending].forEach(x=>row.append(e('td','amount',money(x))));table.append(row);}wrap.append(table);return wrap;}
   function notes(){const content=e('div','notes');for(const [heading,body]of [[t('dailyAverage'),t('averageTip')+' '+currentSummary.days+' '+t('days')],[t('netSpending'),t('explanation')],[t('refunds'),t('refundNote')],[t('transfers'),t('transferTip')]]){const section=e('section');section.append(e('h3','',heading),e('p','',body));content.append(section);}for(const note of data.notes)content.append(e('p','',note));return fold(t('explanations'),content);}
   function render(){
+    hideChartTip();
     const focused=document.activeElement?.getAttribute('aria-label');const periods=Finance.periods(data,grain);let index=periods.findIndex(p=>p.key===periodKey);if(index<0)index=periods.length-1;currentPeriod=periods[index];periodKey=currentPeriod.key;currentSummary=Finance.summarize(data,currentPeriod);const s=currentSummary,rows=s.rows,spending=rows.filter(r=>r.kind==='expense'&&!r.matchedRefund),daily=spending.filter(r=>r.group==='daily');
     document.documentElement.lang=locale();document.title=t('title');root.replaceChildren();
     const top=e('header','topbar');const left=e('div','topbar-title');left.append(e('span','',t('title')),e('span','as-of',t('asOf')+' '+data.coverage.end));const right=e('div','topbar-actions');if(data.demo)right.append(e('span','demo-badge',t('demo')));right.append(btn('◐','theme-toggle',()=>{document.documentElement.classList.toggle('light');}),select(t('language'),[['en','English'],['zh','简体中文']],language,v=>{language=v;render();},'language'));right.querySelector('button').setAttribute('aria-label',t('theme'));top.append(left,right);root.append(top);
-    const page=e('article','finance-page');const heading=e('header','finance-heading');heading.append(e('h1','',t('title')),select(t('view'),['overview','expenses','income','transfers'].map(k=>[k,t(k)]),view,v=>{view=v;render();},'view-select'));page.append(heading);
+    const page=e('article','finance-page');const heading=e('header','finance-heading');heading.append(e('h1','',t('title')));const views=e('div','segments view-segments');views.setAttribute('role','group');views.setAttribute('aria-label',t('view'));for(const key of ['overview','expenses','income','transfers']){const b=btn(t(key),'',()=>{view=key;render();});b.setAttribute('aria-pressed',String(view===key));b.setAttribute('aria-label',t(key));views.append(b);}heading.append(views);page.append(heading);
     const controls=e('div','period-header');controls.append(e('h2','period-title',periodLabel(currentPeriod)));const tools=e('div','period-tools');const grains=e('div','segments');for(const g of ['day','week','month','year']){const b=btn(t(g),'',()=>{const date=currentPeriod.end;grain=g;periodKey=Finance.periods(data,g).find(p=>p.start<=date&&p.end>=date)?.key;render();});b.setAttribute('aria-pressed',String(g===grain));grains.append(b);}tools.append(grains);const previous=btn(t('previous'),'period-button',()=>{periodKey=periods[index-1].key;render();});previous.disabled=index===0;const next=btn(t('next'),'period-button',()=>{periodKey=periods[index+1].key;render();});next.disabled=index===periods.length-1;tools.append(previous,select(t('period'),periods.map(p=>[p.key,periodLabel(p)]),periodKey,v=>{periodKey=v;render();},'period-select'),next);controls.append(tools);page.append(controls);
     if(view==='expenses'){
       const total=bucket(spending,r=>r.group,'personalCents',groupColors).map(x=>({...x,label:t(x.key)}));const daySlices=bucket(daily,'category','personalCents',categoryColors);const primary=e('div','ring-grid three');primary.append(ring(t('total'),total,{size:'primary'}),ring(t('daily'),daySlices,{size:'primary',tip:t('dailyTip')}),ring(t('dailyAverage'),daySlices,{size:'primary',average:true,tip:t('averageTip')}));page.append(primary);

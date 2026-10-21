@@ -3,7 +3,7 @@ name: personal-finance-visualizer
 description: Turn user-provided personal finance records into a local interactive report with spending, income, transfers and cash movement in English or Chinese. Use for statement-based finance charts and period comparisons, not bank-account actions or investment advice.
 license: MIT-0
 metadata:
-  version: "1.1.0"
+  version: "1.2.0"
   repository: "https://github.com/JasonHMY/personal-finance-visualizer"
 ---
 
@@ -13,7 +13,7 @@ Prepare a reconciled dataset and show it in a local report. Use the user's langu
 
 ## Preserve the report interface
 
-Render the bundled `assets/report.html`, `report.css`, `app.js` and `engine.js` through `scripts/report.py`. These files are the maintained interface, not suggestions for generating a new dashboard. Do not substitute a different design, metric cards, tabs or chart library. The default is the dark circular report: title-adjacent view dropdown; period controls; three primary spending rings, three secondary rings, merchant breakdown rings, timeline and collapsed details. Income uses two primary and three secondary rings, transfers use two rings and three metrics, and overview uses three metrics. Keep the notes collapsed and show card explanations on the information control. Change the design only if the user requests it.
+Render the bundled `assets/report.html`, `report.css`, `app.js` and `engine.js` through `scripts/report.py`. These files are the maintained interface, not suggestions for generating a new dashboard. Do not substitute a different design, metric cards, tabs or chart library. The default is the dark circular report: four view buttons aligned to the heading’s right; period controls; three primary spending rings, three secondary rings, merchant breakdown rings, timeline and collapsed details. Income uses two primary and three secondary rings, transfers use two rings and three metrics, and overview uses three metrics. Show at most six legend rows with internal scrolling and edge fades. Preserve rounded row feedback, pointer/keyboard chart tooltips and labeled bars with horizontal scrolling for dense periods. Keep the notes collapsed and show card explanations on the information control. Change the design only if the user requests it.
 
 ## Data boundary
 
