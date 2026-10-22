@@ -5,7 +5,7 @@ license: MIT
 compatibility: "OpenAI Codex CLI and Claude Code. Requires Bash, Python 3, git, and agy with provider network access."
 metadata:
   author: cagdasyurekli
-  version: "0.24.9"
+  version: "0.25.0"
 ---
 
 # Delegate repository work and verify the result
@@ -36,7 +36,7 @@ hand-authored JSON are not ordinary-use prerequisites.
 
 Prefer `--provider-scope FILE --approve-transmission-sha SHA256` for bounded jobs. It binds reviewed read entries, their content digest, and a write subset in a fresh owner-private mode-`0700` Gitless stage.
 Whole-worktree dispatch requires `--approve-whole-worktree LAUNCH_APPROVAL_SHA256`. Every disposable-worktree entry is provider-readable and may reach Google/Gemini; `--add-dir`, prompt denylists and gate path policies do not narrow that read boundary.
-Neither `workflow.sh run` nor the advanced `agy-worker.sh` initial dispatch has an implicit transmission mode.
+Neither `workflow.sh run` nor the advanced `agy-worker.sh` initial dispatch has an implicit transmission mode or an implicit `--provider-isolation`.
 The whole-worktree digest binds content, kinds, full file mode bits, symlink target hashes, the
 readable manifest, provider isolation and native grant profile. The scoped digest
 binds canonical read/write policy, readable path/kind manifest, selected bytes and
@@ -54,7 +54,7 @@ approval payload. Use the private prelaunch review checklist
 in [Project lifecycle and verification](references/PROJECT_LIFECYCLE_AND_VERIFICATION.md#approval-bindings-and-launch-notices), including any optional self-verification
 commands, IDs and limits; keep that manifest out of the provider preview and prompt.
 Retired dispatch and workflow job formats are rejected; finish or discard them with their creating release, without migration.
-Default `--provider-isolation session` uses the existing AGY session. AGY has normal user filesystem/network authority; staging and reconciliation are not host isolation.
+`--provider-isolation session|native` is caller-owned with no implicit value: the driver names the mode and its consequence in the approval request and never selects `session` on its own. `session` uses the existing AGY session with normal user filesystem/network authority plus ambient HOME, enabled user plugins, hooks and MCP servers; staging and reconciliation are not host isolation.
 The controller compares a bounded observation of the verified main source checkout
 against one immutable job baseline before later launches and before candidate
 admission or retention. No-candidate failures and cancellations without a report
@@ -108,7 +108,7 @@ TARGET=/absolute/path/to/approved-repository
 JOB_ID=job-12345
 SCOPE=/absolute/private/provider-scope.json
 TASK='the exact approved bounded task'
-"$PIPELINE/workflow.sh" run --preview --repo "$TARGET" --job-id "$JOB_ID" --provider-scope "$SCOPE" --task "$TASK"
+"$PIPELINE/workflow.sh" run --preview --repo "$TARGET" --job-id "$JOB_ID" --provider-scope "$SCOPE" --provider-isolation session --task "$TASK"
 ```
 
 This creates the disposable worktree and private state. Review `launch_approval_sha256`,

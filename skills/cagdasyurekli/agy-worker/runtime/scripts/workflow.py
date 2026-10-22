@@ -286,7 +286,7 @@ def validate_workflow_state(state: dict[str, Any]) -> dict[str, Any]:
 
 
 def bind_provider_isolation(args: argparse.Namespace, state: dict[str, Any] | None) -> None:
-    """Default new workflows to session while preserving a queued state choice."""
+    """Require an explicit isolation for new workflows; reuse the stored mode otherwise."""
 
     stored = (
         None
@@ -294,7 +294,9 @@ def bind_provider_isolation(args: argparse.Namespace, state: dict[str, Any] | No
         else state.get("provider_isolation")
     )
     if args.provider_isolation is None:
-        args.provider_isolation = stored or "session"
+        if stored is None:
+            raise WorkflowError("--provider-isolation session|native is required for a new workflow")
+        args.provider_isolation = stored
     elif stored is not None and args.provider_isolation != stored:
         raise WorkflowError("workflow provider isolation changed")
 
@@ -547,7 +549,7 @@ def validate_base_commit(repo: Path, base: str) -> None:
 
 def canonical_transmission_preview(
     worktree: Path, *, provider_scope: str | None = None,
-    provider_isolation: str = "session",
+    provider_isolation: str,
     launch_args: argparse.Namespace, task: bytes,
 ) -> tuple[bytes, dict[str, Any]]:
     """Delegate preview generation to the canonical public runtime command."""
@@ -1368,8 +1370,8 @@ def _ordinary_run(args: argparse.Namespace, repo: Path) -> int:
     state_sha: str | None = None
     state_identity: dict[str, int] | None = None
     try:
-        bind_provider_isolation(args, store.value)
         try:
+            bind_provider_isolation(args, store.value)
             preview_raw, preview_data = canonical_transmission_preview(
                 worktree, provider_scope=args.provider_scope,
                 provider_isolation=args.provider_isolation,

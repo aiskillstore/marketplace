@@ -341,7 +341,7 @@ def preview_parser() -> argparse.ArgumentParser:
     parser = PreviewParser(prog="agy-worker.sh transmission-preview")
     parser.add_argument("--workdir", "--worktree", required=True)
     parser.add_argument("--provider-scope")
-    parser.add_argument("--provider-isolation", choices=("session", "native"), default="session")
+    parser.add_argument("--provider-isolation", choices=("session", "native"), required=True)
     parser.add_argument("--format", choices=("json",), default="json")
     parser.add_argument("--task")
     parser.add_argument("--workflow", choices=("legacy", "explore", "task", "project"), default="legacy")

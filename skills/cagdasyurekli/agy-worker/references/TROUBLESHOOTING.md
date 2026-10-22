@@ -127,7 +127,7 @@ No candidate or repair reuse is available; inspect the source checkout and start
 ## Scoped native launch is unavailable
 
 Explicit `--provider-isolation native` requires supported macOS scoped containment.
-New jobs use the existing AGY session by default. A general
+`session` isolation (never defaulted; the caller must name it) uses the existing AGY session. A general
 `doctor` readiness result does not qualify that native launch or authentication.
 An outer host sandbox can prohibit nested Seatbelt: Codex `workspace-write` produced
 `sandbox_apply: Operation not permitted` in a live native attempt. Treat that as a
