@@ -1097,7 +1097,7 @@ def _preview_main(argv: list[str]) -> int:
         result["provider_isolation"] = provider_isolation
         result["native_grant_profile"] = native_grant_profile
         result["provider_authority"] = (
-            "normal same-user filesystem and network authority; selected scope is staging and reconciliation, not host confinement"
+            "normal same-user filesystem and network authority; selected scope is staging and reconciliation, not host confinement; ambient HOME, enabled user plugins, global and plugin hooks, and MCP servers stay active and can observe or rewrite tool calls"
             if provider_isolation == "session" else
             "native scoped provider containment with private HOME, Seatbelt, and AGY sandbox"
         )

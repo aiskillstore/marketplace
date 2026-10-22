@@ -121,7 +121,7 @@ usage: agy-worker.sh [--workdir DIR] [--mode plan|accept-edits]
                      [--model MODEL [--effort EFFORT]]
                      [--idle-timeout 10m] [--hard-timeout 2h]
                      [--max-runtime 12h] [--notice-interval 30m]
-                     [--provider-isolation session|native]
+                     --provider-isolation session|native
                      [--base-commit IMMUTABLE_GIT_HEAD]
                      [--provider-env NAME]...
                      [--provider-scope FILE --approve-transmission-sha SHA256]
@@ -133,7 +133,7 @@ usage: agy-worker.sh [--workdir DIR] [--mode plan|accept-edits]
        ... task prompt on stdin ...
 
        agy-worker.sh start [run options] ... task prompt on stdin ...
-       agy-worker.sh transmission-preview --workdir ABSOLUTE_DISPOSABLE_WORKTREE
+       agy-worker.sh transmission-preview --workdir ABSOLUTE_DISPOSABLE_WORKTREE --provider-isolation session|native
        agy-worker.sh status|result --job-id JOB [--state WORKFLOW_STATE] [--format json|text]
        agy-worker.sh verification-copy --job-id JOB --destination NEW_DIRECTORY_IN_0700_PARENT [--format json|text]
        agy-worker.sh self-verify --job-id JOB --approve-state-sha SHA [--format json|text]
@@ -304,7 +304,7 @@ approve_transmission_sha_seen=0; approve_transmission_sha=""
 approve_whole_worktree_seen=0; approve_whole_worktree=""
 allow_scoped_repair_seen=0
 self_verification_manifest_seen=0; self_verification_manifest=""
-provider_isolation_seen=0; provider_isolation="session"
+provider_isolation_seen=0; provider_isolation=""
 base_commit_seen=0; base_commit=""
 provider_env=()
 approval_record=""
@@ -403,6 +403,10 @@ done
 
 if (( provider_scope_seen && ${#extra_dirs[@]} > 0 )); then
     echo "agy-worker.sh: --provider-scope conflicts with --add-dir" >&2
+    exit 64
+fi
+if (( provider_isolation_seen == 0 )); then
+    echo "agy-worker.sh: --provider-isolation session|native is required; session keeps ambient HOME, enabled user plugins, hooks and MCP servers active" >&2
     exit 64
 fi
 case "$provider_isolation" in

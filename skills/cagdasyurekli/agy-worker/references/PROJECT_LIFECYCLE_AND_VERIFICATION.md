@@ -113,7 +113,7 @@ JOB_ID=job-12345
 SCOPE=/absolute/private/provider-scope.json
 TASK='the exact approved bounded task'
 "$PIPELINE/workflow.sh" run --preview --repo "$TARGET" --job-id "$JOB_ID" \
-  --provider-scope "$SCOPE" --task "$TASK"
+  --provider-scope "$SCOPE" --provider-isolation session --task "$TASK"
 ```
 
 The preview gives `launch_approval_sha256`; the facade derives its state path under
@@ -132,7 +132,7 @@ ENVELOPE="$(dirname "$STATE")/envelope.json"
 test ! -e "$ENVELOPE" || { echo "envelope path already exists" >&2; exit 64; }
 ( umask 077
   "$PIPELINE/workflow.sh" run --repo "$TARGET" --job-id "$JOB_ID" \
-    --provider-scope "$SCOPE" --approve-transmission-sha "$TRANSMISSION_SHA" \
+    --provider-scope "$SCOPE" --provider-isolation session --approve-transmission-sha "$TRANSMISSION_SHA" \
     --workflow task --task "$TASK" > "$ENVELOPE"
 ) || exit $?
 test -s "$ENVELOPE" || { echo "approved run produced no envelope" >&2; exit 1; }
@@ -157,7 +157,7 @@ git -C "$TARGET" worktree add -b "$JOB_BRANCH" "$WT" "$BASE"
 "$PIPELINE/workflow.sh" run --preview \
   --state "$STATE_DIR/workflow.json" --repo "$TARGET" --worktree "$WT" \
   --branch "$JOB_BRANCH" --base "$BASE" --job-id "$JOB_ID" \
-  --workflow task --task "$TASK" \
+  --provider-isolation session --workflow task --task "$TASK" \
   > "$STATE_DIR/preview.json"
 ```
 
@@ -172,7 +172,7 @@ test ! -e "$ENVELOPE" || { echo "envelope path already exists" >&2; exit 64; }
   "$PIPELINE/workflow.sh" run \
     --state "$STATE_DIR/workflow.json" --repo "$TARGET" --worktree "$WT" \
     --branch "$JOB_BRANCH" --base "$BASE" --job-id "$JOB_ID" \
-    --approve-whole-worktree "$PREVIEW_SHA" --workflow task --task "$TASK" \
+    --provider-isolation session --approve-whole-worktree "$PREVIEW_SHA" --workflow task --task "$TASK" \
     > "$ENVELOPE"
 ) || exit $?
 test -s "$ENVELOPE" || { echo "approved run produced no envelope" >&2; exit 1; }

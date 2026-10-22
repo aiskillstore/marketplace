@@ -83,8 +83,8 @@ jobs with their creating release; see
 
 ### Session and native modes
 
-Default `--provider-isolation session` retains the caller's existing HOME/session
-and normal filesystem/network authority. Environment filtering and selected staging
+`--provider-isolation` has no implicit value: the driver names the mode and its consequence in the approval request and never selects `session` on its own. `session` retains the caller's existing HOME/session
+and normal filesystem/network authority, plus ambient enabled user plugins, hooks and MCP servers. Environment filtering and selected staging
 cannot prevent or exhaustively observe host access.
 AGY 1.3.5 was observed starting workspace `.agents/mcp_config.json` commands
 before worker activity, including a whole-worktree session explore/plan run. It also
