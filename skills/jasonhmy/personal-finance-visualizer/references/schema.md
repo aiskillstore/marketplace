@@ -33,6 +33,8 @@ The example is invented. Never put real inputs in the installed skill or its Git
 
 ## Fields and accounting
 
+These fields encode the prepared report; they do not prove that a transaction is understood. Follow the [confirmation step](workflow.md#confirm-uncertain-transactions) before final charts. Conservative `transfer_in` / `transfer_out` defaults, `other`, or missing categories do not remove the obligation to ask about unresolved records.
+
 - `coverage` describes confirmed source coverage, not the earliest/latest transaction. Gaps must be described in `notes`; do not label a period complete without evidence.
 - Dates are ISO calendar dates, not timestamps. Currency is a single three-letter code. Version 1 accepts currencies with two decimal places only; separate different currencies and do not invent exchange rates.
 - Amount is a decimal string with at most two fractional digits. Positive is money received, negative is money paid. Zero records are allowed only as `internal` informational records.

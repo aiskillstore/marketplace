@@ -22,6 +22,23 @@ Keep original statements intact. Use aliases for accounts and short source refer
 - Add a full refund mapping only when a confirmed purchase and refund exactly offset in the report currency. Partial and unmatched refunds stay separate. Do not force an exchange-rate difference into a full match.
 - Add settlements only for confirmed external transfers. A repayment can be partial; allocations cannot exceed either endpoint. Similar names and nearby dates alone are insufficient.
 
+## Confirm uncertain transactions
+
+Before rendering final charts for any user:
+
+1. Review the available records and existing user confirmations. Identify unresolved facts that affect the requested report: unclear merchant purpose/category, missing account ownership or personal share, income versus transfer, a proposed refund/repayment match, or uncertain duplicate identity. A generic software merchant name does not establish an AI subscription, and matching names or amounts do not establish repayment or duplication.
+2. Put the unresolved transactions in one confirmation table in the conversation. Use the user's language, account aliases, the original signed amounts and currency, and just enough description to identify each record. Keep a stable mapping from each row to its transaction ID in task context. Do not expose account numbers, private links or unrelated transactions. A suggested category is explicitly tentative.
+
+   | Item | Bank date | Account alias | Transaction / merchant | Bank amount (currency) | Uncertain point | Please confirm |
+   | --- | --- | --- | --- | --- | --- | --- |
+
+   Populate the table only with the user's actual unresolved records. Ask specific questions such as what was purchased, whether a transfer was between their own accounts, or which purchase a refund concerns. Related rows may be grouped only if their individual dates and amounts and the scope of the answer remain clear.
+3. Ask for the missing facts and wait. Reconcile unaffected data in parallel, but do not deliver the affected charts as final before a response. Do not invent uncertainty when evidence and existing confirmations are sufficient. A reply covering only some rows resolves only those rows.
+4. Apply each answer only to its confirmed transaction(s) or explicitly stated broader rule. Preserve original bank facts, update the derived classification/allocation/match, and verify the changed totals and drill-down. Use existing authorized local ledgers when supplied; otherwise retain the clarification in task context without creating an unsolicited financial memory, cache or file.
+5. If the user cannot identify an item, explicitly chooses to leave it pending, or asks to see a provisional result first, keep the unresolved status visible and explain its effect. Unknown income remains outside confirmed income; unconfirmed shares, internal transfers, refund matches and settlements must not be applied. Merely mentioning uncertainty in a footer is not a substitute for first showing the confirmation table and asking.
+
+Do not ask again about the same transaction after a usable answer or an explicit decision to leave it pending, unless new evidence creates a specific conflict. Bank pending/posted status is separate from uncertainty about purpose; user confirmation of a purpose does not make a pending bank transaction posted.
+
 ## Understand the views
 
 The report offers overview, spending, income and transfers, with day, week, month and year periods. Weeks run Monday–Sunday; all periods are clipped to confirmed coverage.

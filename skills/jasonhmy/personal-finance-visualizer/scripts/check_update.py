@@ -7,7 +7,7 @@ import urllib.request
 from pathlib import Path
 
 REPOSITORY = "JasonHMY/personal-finance-visualizer"
-VERSION = "1.2.1"
+VERSION = "1.3.0"
 URL = f"https://api.github.com/repos/{REPOSITORY}/releases/latest"
 
 
