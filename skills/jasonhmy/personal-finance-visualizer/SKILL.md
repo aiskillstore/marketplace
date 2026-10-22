@@ -3,7 +3,7 @@ name: personal-finance-visualizer
 description: Turn user-provided personal finance records into a local interactive report with spending, income, transfers and cash movement in English or Chinese. Use for statement-based finance charts and period comparisons, not bank-account actions or investment advice.
 license: MIT-0
 metadata:
-  version: "1.2.0"
+  version: "1.2.1"
   repository: "https://github.com/JasonHMY/personal-finance-visualizer"
 ---
 
