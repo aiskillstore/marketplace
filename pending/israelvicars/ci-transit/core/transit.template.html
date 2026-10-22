@@ -1,0 +1,1137 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Transit</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 100 100%27%3E%3Ctext y=%27.9em%27 font-size=%2790%27%3E%F0%9F%9A%87%3C/text%3E%3C/svg%3E">
+<!-- Transit: self-contained subway-map view of one trace. No network. Every frame is a pure
+     function of t via window.renderAt(t): no Date.now, no timers, no randomness. -->
+<style>
+  /*__FONTS__*/
+  html, body { margin: 0; background: #FFFFFF; }
+  html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+  body { font-family: "Transit Sans", Arial, sans-serif; color: #111; }
+  #stage { display: block; width: 1200px; height: 900px; }
+  #controls { width: 1200px; box-sizing: border-box; padding: 10px 24px 8px; display: flex; gap: 14px; align-items: center; font-size: 13px; }
+  #controls button { font: inherit; padding: 6px 14px; border: 2px solid #111; background: #fff; border-radius: 18px; cursor: pointer; min-width: 76px; font-weight: 700; }
+  #controls input[type=range] { flex: 1; accent-color: #111; }
+  #controls .t { font-variant-numeric: tabular-nums; min-width: 190px; text-align: right; color: #555; }
+  #hops { width: 1200px; box-sizing: border-box; padding: 4px 24px 24px; font-size: 13px; }
+  #hops table { border-collapse: collapse; width: 100%; }
+  #hops td, #hops th { text-align: left; padding: 3px 8px; border-bottom: 1px solid #eee; }
+  #hops td:first-child { white-space: nowrap; }   /* start times like "1.5 ms" never wrap (narrow windows, long service names) */
+  #wrap { display: flex; align-items: flex-start; }
+  #main { width: 1200px; flex: none; }
+  #panel { width: 400px; flex: none; box-sizing: border-box; border-left: 2px solid #111; font-size: 13px; }
+  /* interactive layout: page never scrolls; map scales to fit above a reserved 180px list area; hop table and panel body scroll on their own. #main needs an explicit height because #wrap uses align-items: flex-start (render mode), otherwise the list grows instead of scrolling. */
+  html:not(.render), html:not(.render) body { height: 100%; overflow: hidden; }
+  html:not(.render) #wrap { display: flex; height: 100vh; }
+  /* the map keeps its 4:3 aspect inside the height left above the list, so #main takes exactly the map's width and the panel takes the rest: header, map, controls and hop list share one right edge and there is no blank strip before the panel */
+  html:not(.render) #main { flex: none; width: min(calc(100vw - 400px), calc((100vh - 56px - 180px) * 4 / 3)); min-width: 0; height: 100vh; min-height: 0; align-self: stretch; display: flex; flex-direction: column; overflow: hidden; }
+  html:not(.render) #stage { flex: none; width: 100%; height: auto; aspect-ratio: 1200 / 900; }
+  html:not(.render) #panel { flex: 1; width: auto; min-width: 400px; }
+  #panel .pbody { container-type: inline-size; }
+  html:not(.render) #controls { width: 100%; flex: none; }
+  html:not(.render) #hops { width: 100%; flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+  #panel { display: flex; flex-direction: column; overflow: hidden; height: 100vh; }
+  #panel .pbody { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 0 18px 24px; scrollbar-width: thin; scrollbar-color: #9A9A9A transparent; outline: none; }
+  #panel .pbody::-webkit-scrollbar { width: 8px; } #panel .pbody::-webkit-scrollbar-thumb { background: #C4C4C4; border-radius: 4px; } #panel .pbody::-webkit-scrollbar-track { background: transparent; }
+  #panel .sign { flex: none; position: sticky; top: 0; z-index: 1; }
+  #panel .sign .sub .bul { vertical-align: -2px; margin: 0 2px; }
+  #panel .trow { margin: 8px 0 0; } #panel .trow .tl { font-size: 10px; letter-spacing: .06em; text-transform: uppercase; color: #4A4A4A; } #panel .trow .stats { margin: 3px 0 0; }
+  #panel .crumbs .sd.sq { border-radius: 3px; }
+  #panel details.client-attrs > summary { font-size: 11px; font-weight: 700; color: #4A4A4A; margin: 4px 0; }
+
+  #panel .sign { background: #111; color: #fff; margin: 0 0 12px; padding: 12px 18px 10px; }
+  #panel .sign .st { display: flex; align-items: center; gap: 10px; }
+  #panel .sign .sn { font-weight: 700; font-size: 22px; flex: 1; word-break: break-word; }
+  #panel .sign::after { content: ""; display: block; width: 40px; height: 4px; background: #fff; margin-top: 8px; }
+  #panel .sign .sub { font-size: 11px; letter-spacing: .06em; color: #CFCFCF; margin-top: 6px; text-transform: uppercase; }
+  #panel .sign button { background: none; border: 0; color: #fff; font-size: 22px; cursor: pointer; }
+  #panel .bul { display: inline-flex; align-items: center; justify-content: center; border-radius: 50%; color: #fff; font-weight: 700; flex: none; }
+  #panel .bul.sq { border-radius: 4px; }
+  #panel h2 { font-size: 16px; margin: 4px 0 10px; word-break: break-word; }
+  #panel h3 { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: #4A4A4A; margin: 18px 0 6px; }
+  #panel ul { margin: 0; padding: 0; list-style: none; }
+  #panel a { color: #111; text-decoration: none; display: block; padding: 3px 0; }
+  #panel a:hover { text-decoration: underline; }
+  #panel .dot { display: inline-block; width: 10px; height: 10px; border-radius: 5px; margin-right: 6px; }
+  #panel .muted { color: #9A9A9A; margin: 4px 0; }
+  #panel .mono, #panel code, #panel .src { font-family: ui-monospace, monospace; font-size: 11px; }
+  #panel .tag { font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 8px; background: #E7E7E7; }
+  #panel .tag.err { background: #D42A1E; color: #fff; } #panel .tag.slow { background: #E89A00; } #panel .tag.ok { background: #111; color: #fff; }
+  #panel .crumbs { display: flex; align-items: flex-start; margin: 6px 0 12px; overflow-x: auto; }
+  #panel .crumbs .stop { display: flex; flex-direction: column; align-items: center; padding: 0; min-width: 0; flex: none; max-width: 72px; }
+  #panel .crumbs .sd { width: 10px; height: 10px; border: 3px solid; border-radius: 50%; background: #fff; }
+  #panel .crumbs .sl { font-size: 10px; color: #4A4A4A; margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 72px; }
+  #panel .crumbs .here .sl { color: #111; font-weight: 700; }
+  #panel .crumbs .seg { flex: 1; min-width: 8px; height: 3px; background: #D0D0D0; margin-top: 7px; }
+  #panel .wf { position: relative; height: 16px; margin: 4px 0 2px; }
+  #panel .wf-parent { position: absolute; inset: 6px 0; background: #E7E7E7; border-radius: 2px; }
+  #panel .wf-span { position: absolute; top: 0; height: 16px; min-width: 2px; border-radius: 3px; overflow: hidden; }
+  #panel .wf-span i { position: absolute; top: 0; bottom: 0; background: rgba(255,255,255,.6); }
+  #panel .wf-cap { display: flex; flex-direction: column; gap: 1px; font-size: 11px; color: #4A4A4A; }
+  #panel .stats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; margin: 10px 0 6px; }
+  @container (min-width: 560px) { #panel .stats { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+  #panel .stat { background: #F4F4F4; padding: 5px 8px; border-radius: 4px; min-width: 0; }
+  #panel .stat b { display: block; overflow-wrap: anywhere; }
+  #panel .stat span { display: block; font-size: 10px; color: #4A4A4A; text-transform: uppercase; letter-spacing: .05em; }
+  #panel .stat b { font-size: 12px; }
+  #panel .status { margin: 4px 0; color: #4A4A4A; } #panel .status.err { color: #D42A1E; }
+  #panel .match { margin: 0 0 8px; }
+  #panel .card { border: 2px solid #111; border-radius: 6px; margin: 0 0 10px; overflow: hidden; }
+  #panel .card.gap { border-style: dashed; border-color: #9A9A9A; color: #4A4A4A; }
+  #panel .card.infra { border-style: dotted; border-color: #8C8C8C; }
+  #panel .card .ch { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-bottom: 1px solid #E7E7E7; }
+  #panel .card .ch b { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; }
+  #panel .card .cn { font-family: ui-monospace, monospace; font-size: 12px; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #panel .card .conf { font-size: 11px; color: #4A4A4A; display: flex; align-items: center; gap: 4px; }
+  #panel .card .conf i { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
+  #panel .card .badges { padding: 6px 10px 0; display: flex; gap: 6px; flex-wrap: wrap; }
+  #panel .badge { font-size: 10px; padding: 1px 6px; border-radius: 8px; border: 1px solid #111; }
+  #panel .badge.v { background: #111; color: #fff; } #panel .badge.t { background: #fff; } #panel .badge.o { border-color: #CFCFCF; color: #4A4A4A; }
+  #panel .card .cb { padding: 6px 10px 8px; }
+  #panel .card .f { display: flex; gap: 6px; align-items: baseline; padding: 1px 0; font-size: 12px; }
+  #panel .card .req { width: 10px; font-size: 9px; color: #111; flex: none; }
+  #panel .card .fn { font-family: ui-monospace, monospace; }
+  #panel .card .ft { color: #2A62C9; font-family: ui-monospace, monospace; font-size: 11px; }
+  #panel .card .fc { color: #9A9A9A; font-size: 10px; }
+  #panel .card .src, #panel .match .src { padding: 0 10px 6px; color: #4A4A4A; }
+  #panel .match .src { padding: 2px 0 0; }
+  #panel .note { font-size: 11px; color: #9A5B26; padding: 0 10px 6px; }
+  #panel .match .note { padding: 2px 0 0; }
+  #panel .ag { margin: 0 0 8px; }
+  #panel .agh { font-size: 10px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; border-bottom: 1px solid #E7E7E7; padding: 2px 0; display: flex; justify-content: space-between; }
+  #panel .agh span { color: #9A9A9A; font-weight: 400; }
+  #panel .kv { display: flex; gap: 8px; padding: 2px 0; font-size: 12px; }
+  #panel .kv .k { font-family: ui-monospace, monospace; font-size: 11px; color: #4A4A4A; width: 46%; word-break: break-all; flex: none; }
+  #panel .kv .v { word-break: break-word; }
+  #panel details summary { font-size: 11px; color: #4A4A4A; cursor: pointer; padding: 2px 0; }
+  #panel .empty { padding-top: 10px; color: #4A4A4A; }
+  kbd { font: 700 11px ui-monospace, monospace; border: 1px solid #111; border-radius: 4px; padding: 1px 5px; background: #fff; }
+  #speed { display: flex; gap: 0; } #speed button { min-width: 0; border-radius: 0; padding: 6px 10px; margin-left: -2px; }
+  #speed button:first-child { border-radius: 18px 0 0 18px; } #speed button:last-child { border-radius: 0 18px 18px 0; }
+  #speed button.on { background: #111; color: #fff; }
+  #help { position: fixed; inset: 0; background: rgba(0,0,0,.55); display: flex; align-items: center; justify-content: center; z-index: 10; }
+  #help[hidden] { display: none; }
+  #help div { background: #fff; padding: 22px 30px; border-radius: 8px; min-width: 380px; }
+  #help td { padding: 4px 14px 4px 0; }
+  .render #controls, .render #hops, .render #panel, .render #help, .render #verdict { display: none !important; }
+  /* --share pages: one verdict line above the map (data-derived, see core/verdict.mjs); the map gives up its height */
+  #verdict { flex: none; box-sizing: border-box; height: 34px; line-height: 34px; padding: 0 24px 0 18px; border-left: 6px solid #D42A1E; background: #F4F4F4; font-size: 14px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #verdict[hidden] { display: none; }
+  html.share:not(.render) #main { width: min(calc(100vw - 400px), calc((100vh - 56px - 180px - 34px) * 4 / 3)); }
+  /* phones (interactive only; render mode and desktop are untouched): the page scrolls, the map takes the full
+     width, the controls get 44px targets, and the side panel is a bottom sheet that only shows with a hop selected */
+  @media (max-width: 700px) {
+    html:not(.render), html:not(.render) body { height: auto; overflow: visible; }
+    html:not(.render) #wrap { display: block; height: auto; }
+    html:not(.render) #main, html.share:not(.render) #main { width: 100%; height: auto; overflow: visible; }
+    html:not(.render) #verdict { height: auto; line-height: 1.3; padding: 8px 14px 8px 12px; white-space: normal; font-size: 15px; }
+    html:not(.render) #controls { flex-wrap: wrap; gap: 8px 10px; padding: 10px 12px; font-size: 14px; }
+    html:not(.render) #controls button { min-height: 44px; min-width: 64px; }
+    html:not(.render) #speed button { min-width: 48px; }
+    html:not(.render) #controls input[type=range] { order: 3; flex: 1 0 100%; height: 44px; margin: 0; }
+    html:not(.render) #controls .t { order: 4; flex: 1 0 100%; min-width: 0; text-align: left; font-size: 12px; }
+    html:not(.render) #hops { flex: none; overflow: visible; overflow-x: auto; padding: 4px 12px 24px; }
+    html:not(.render) #panel { display: none; }
+    html.sel:not(.render) #panel { display: flex; position: fixed; left: 0; right: 0; bottom: 0; width: auto; min-width: 0; height: var(--sheet); z-index: 5; border-left: 0; border-top: 2px solid #111; background: #fff; box-shadow: 0 -6px 18px rgba(0,0,0,.18); }
+    html.sel:not(.render) body { padding-bottom: var(--sheet); }
+    /* the sheet starts just under the map (4:3 of the width plus the verdict line), never less than 42% of the screen */
+    html:not(.render) { --sheet: max(42vh, calc(100vh - 75vw - 70px)); }
+    @supports (height: 1dvh) { html:not(.render) { --sheet: max(42dvh, calc(100dvh - 75vw - 70px)); } }
+    #panel .sign { padding: 10px 12px 8px 16px; }
+    #panel .sign button { min-width: 44px; min-height: 44px; font-size: 28px; }
+    #panel .pbody { padding: 0 16px 24px; }
+    #panel a { padding: 12px 0; }
+    #panel .crumbs .stop { padding: 6px 0; min-height: 40px; min-width: 44px; }
+    #panel details summary { padding: 12px 0; }
+    #help div { min-width: 0; max-width: calc(100vw - 40px); padding: 16px; }
+  }
+  /* phones in landscape: the map fits the height, the panel slides over from the right */
+  @media (min-width: 701px) and (max-height: 500px) and (pointer: coarse) {
+    html:not(.render), html:not(.render) body { height: auto; overflow: visible; }
+    html:not(.render) #wrap { display: block; height: auto; }
+    html:not(.render) #main, html.share:not(.render) #main { width: min(100vw, calc((100vh - var(--vh, 0px)) * 4 / 3)); height: auto; overflow: visible; }
+    html.share:not(.render) { --vh: 34px; }
+    html:not(.render) #verdict { height: auto; line-height: 1.3; padding: 6px 14px 6px 12px; white-space: normal; }
+    html:not(.render) #controls button { min-height: 44px; }
+    html:not(.render) #controls input[type=range] { height: 44px; }
+    html:not(.render) #hops { flex: none; overflow: visible; }
+    html:not(.render) #panel { display: none; }
+    html.sel:not(.render) #panel { display: flex; position: fixed; top: 0; right: 0; bottom: 0; width: min(420px, 50vw); min-width: 0; height: auto; z-index: 5; background: #fff; box-shadow: -6px 0 18px rgba(0,0,0,.18); }
+    #panel .sign button { min-width: 44px; min-height: 44px; font-size: 28px; }
+    #panel a { padding: 12px 0; }
+    #panel .crumbs .stop { padding: 6px 0; min-height: 40px; min-width: 44px; }
+    #panel details summary { padding: 12px 0; }
+  }
+</style>
+</head>
+<body>
+<div id="wrap"><div id="main">
+<div id="verdict" hidden></div>
+<canvas id="stage" width="1200" height="900"></canvas>
+<div id="controls">
+  <button id="play"></button>
+  <input id="scrub" type="range" min="0" max="1" step="0.0001" value="0">
+  <span id="speed"><button data-s="0.5">0.5x</button><button data-s="1" class="on">1x</button><button data-s="2">2x</button></span>
+  <span class="t" id="tlabel"></span>
+</div>
+<div id="hops"></div>
+</div><aside id="panel"></aside></div>
+<div id="help" hidden><div><h3></h3><table>
+<tr><td><kbd>Space</kbd></td><td data-vocab="space"></td></tr>
+<tr><td><kbd>N</kbd> <kbd>↓</kbd> <kbd>Shift</kbd>+<kbd>→</kbd></td><td data-vocab="nextHop"></td></tr>
+<tr><td><kbd>P</kbd> <kbd>↑</kbd> <kbd>Shift</kbd>+<kbd>←</kbd></td><td data-vocab="previousHop"></td></tr>
+<tr><td><kbd>←</kbd> <kbd>→</kbd></td><td data-vocab="seek"></td></tr>
+<tr><td><kbd>,</kbd> <kbd>.</kbd></td><td data-vocab="frame"></td></tr>
+<tr><td><kbd>Home</kbd> <kbd>End</kbd></td><td data-vocab="startEnd"></td></tr>
+<tr><td><kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd></td><td data-vocab="speed"></td></tr>
+<tr><td data-vocab="click"></td><td data-vocab="clickHelp"></td></tr>
+<tr><td data-vocab="pause"></td><td data-vocab="pauseHelp"></td></tr>
+<tr><td><kbd>Esc</kbd></td><td data-vocab="escape"></td></tr>
+<tr><td><kbd>?</kbd></td><td data-vocab="help"></td></tr></table></div></div>
+<script>
+/*__TRACE_DATA__*/
+</script>
+<script>
+(function () {
+'use strict';
+const STAGE = window.STAGE = { width: 1200, height: 900 };
+const FPS = 24;
+// Design tokens. NYC-subway-style palette; colours are original.
+const C = {
+  paper: '#FFFFFF', ink: '#111111', ink2: '#4A4A4A', ink3: '#9A9A9A', faint: '#E7E7E7',
+  band: '#111111', bandInk: '#FFFFFF',
+  slow: '#E89A00', slowInk: '#111111', err: '#D42A1E', infra: '#8C8C8C',
+};
+const LINE_COLORS = ['#2A62C9', '#1C8F5A', '#8B46C1', '#0B8A99', '#C23A7C', '#6F8A17', '#2C3F7E', '#9A5B26', '#4D7FA6', '#6A3B78', '#2F7A4C', '#B4572F'];
+const F = { ui: '"Transit Sans", Arial, sans-serif' };
+const font = (w, px) => `${w} ${px}px ${F.ui}`;
+const INTRO = 0.75, OUTRO = 1.75;
+const MIN_TRAVEL = 0.3;
+const easeInOut = (p) => p < 0.5 ? 4 * p * p * p : 1 - Math.pow(-2 * p + 2, 3) / 2;
+const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
+if (document.fonts && document.fonts.load) { document.fonts.load(font(400, 14)); document.fonts.load(font(700, 14)); }
+
+// ------------------------------------------------------------------ model
+const D = window.TRACE, OPT = window.VIZ_OPTS || {};
+const REQUEST_VOCAB = { lineNoun: 'service', stationNoun: 'hop', hopNoun: 'hop', hopNounPlural: 'hops', play: 'Play', pause: 'Pause', helpTitle: 'Keyboard shortcuts', space: 'play / pause', nextHop: 'next hop', previousHop: 'previous hop', seek: 'seek 0.5 s', frame: 'step one frame', startEnd: 'start / end', speed: 'speed 0.5x / 1x / 2x', click: 'click', clickHelp: 'station, train or line: select that hop', inspectClick: 'click a station, train or line', pauseHelp: 'selects the hop in progress', escape: 'deselect / close', help: 'this help', of: 'of', video: '1 s of video', trace: 'trace', infrastructure: 'infrastructure', delay: 'DELAY', serviceAlert: 'SERVICE ALERT', request: 'request', response: 'response', legendDelay: 'delay: self time ≥', legendAlert: 'service alert: error starts here', legendInfra: 'dotted: infrastructure (no spans of its own)', synthetic: 'SYNTHETIC sample data', renderedLocally: 'rendered locally by Transit', unmatched: 'unmatched', matched: 'matched', contracts: 'contracts', noContractIndex: 'no contract index', error: 'error', slow: 'slow', ok: 'ok', tableTitle: 'Hops', tableStart: 'start', tableFrom: 'from', tableTo: 'to', tableSpan: 'span', tableStatus: 'status', tableContract: 'contract', infrastructureHop: 'infrastructure hop', infrastructureHopTitle: 'Infrastructure hop', unmatchedContracts: 'unmatched (contracts not indexed)', unmatchedShort: 'unmatched', noHopSelected: 'no hop selected', inspectHop: 'Pause, press', or: 'or', inspectTail: 'to inspect a hop.', shortcuts: 'Shortcuts', transit: 'Transit', hop: 'HOP', span: 'SPAN', from: 'from', client: 'client', server: 'server', noServerSpan: 'no server span', notInstrumented: 'is not instrumented', status: 'status', unset: 'unset', resource: 'resource', attributes: 'Attributes', serverSpan: 'server span', children: 'Children', none: 'none', sensitiveRedacted: 'Sensitive-looking keys are redacted at build time.', redactedAcross: 'attribute(s) redacted across this trace before rendering.', expectedRequestResponse: 'Expected request / response', contractsNotIndexed: 'Contracts not indexed. The contract layer is optional: build an index with', thenBuildWith: 'then build the page with', noHopContract: 'No hop contract for this span', internalWorkInside: 'internal work inside', noContractExpected: 'No contract expected', fallback: 'FALLBACK', matchedTag: 'MATCHED', message: 'Message', noRequestSchema: 'No request schema found', noResponseType: 'No response type found', responseBody: 'no body (void)', unknown: 'unknown', unresolved: 'unresolved', deeperFields: '… deeper fields not shown', optional: 'optional', required: 'required', sharedPackage: 'shared package', declared: 'declared', clientCallFrom: 'client call from', in: 'in', wholeTrace: 'of the whole trace', spanInsideClient: 'server span inside the client call', spanInsideParent: 'span inside its parent', deselect: 'Deselect (Esc)', more: 'more', confidenceHigh: 'high confidence', confidenceMedium: 'medium confidence', confidenceLow: 'low confidence', validator: 'validator', type: 'type', spec: 'spec', schema: 'schema', kind: 'kind', start: 'start', duration: 'duration', self: 'self', groups: { http: 'HTTP', db: 'DB', messaging: 'Messaging', rpc: 'RPC', other: 'Other' } };
+const V = Object.assign({}, REQUEST_VOCAB, OPT.vocab || {});
+if (V.skipped == null) V.skipped = 'skipped';
+const CI_STEPS = OPT.ciStepsAsStations === true;
+document.querySelectorAll('[data-vocab]').forEach((el) => { el.textContent = V[el.dataset.vocab] ?? el.dataset.vocab; });
+document.querySelector('#help h3').textContent = V.helpTitle;
+const playButton = document.getElementById('play');
+playButton.textContent = V.play;
+const spans = D.spans.map((s) => Object.assign({}, s, { end: s.start + s.duration }));
+const byId = new Map(spans.map((s) => [s.spanId, s]));
+const kids = new Map(spans.map((s) => [s.spanId, []]));
+for (const s of spans) if (s.parentId && byId.has(s.parentId)) kids.get(s.parentId).push(s);
+const TOTAL = Math.max(...spans.map((s) => s.end));
+const root = spans.find((s) => !s.parentId) || spans[0];
+
+// self time = duration minus the union of child intervals
+for (const s of spans) {
+  const iv = kids.get(s.spanId).map((c) => [Math.max(c.start, s.start), Math.min(c.end, s.end)]).filter((x) => x[1] > x[0]).sort((a, b) => a[0] - b[0]);
+  let cov = 0, cs = -Infinity, ce = -Infinity;
+  for (const [a, b] of iv) { if (a > ce) { if (ce > cs) cov += ce - cs; cs = a; ce = b; } else ce = Math.max(ce, b); }
+  if (ce > cs) cov += ce - cs;
+  s.self = s.duration - cov;
+  if (CI_STEPS && s.attrs && s.attrs['ci.step.number'] != null) s.self = s.duration;
+}
+const SLOW_MS = OPT.slowMs != null ? OPT.slowMs : Math.max(100, Math.round(0.25 * TOTAL / 10) * 10);
+for (const s of spans) { s.slow = s.self >= SLOW_MS; s.slowAt = s.start + SLOW_MS; }
+// error origin: an error span with no error spans below it
+const hasErrBelow = (s) => kids.get(s.spanId).some((c) => c.status === 'error' || hasErrBelow(c));
+for (const s of spans) s.errOrigin = s.status === 'error' && !hasErrBelow(s);
+
+// time scale: a round number of trace ms per second of video
+// toPrecision strips float noise for sub-ms traces (3 * 0.1 = 0.30000000000000004)
+function niceCeil(x) { const p = Math.pow(10, Math.floor(Math.log10(x))); for (const m of [1, 1.5, 2, 2.5, 3, 4, 5, 6, 8, 10]) if (m * p >= x - 1e-9) return Number((m * p).toPrecision(12)); return Number((10 * p).toPrecision(12)); }
+const MS_PER_SEC = OPT.msPerSec || niceCeil(TOTAL / (OPT.targetSeconds || 9));
+const SECONDS = Math.ceil((INTRO + TOTAL / MS_PER_SEC + OUTRO) * FPS) / FPS;
+// rounded to 1 ns so frame boundaries do not depend on float noise (100 / 60 * 60 != 100)
+const traceMsAt = (t) => Math.round((t - INTRO) * MS_PER_SEC * 1e6) / 1e6;
+const MIN_LEG = MIN_TRAVEL * MS_PER_SEC;
+
+// nodes and calls
+const nodes = new Map();
+function addNode(id, inferred, t, span) {
+  if (!nodes.has(id)) nodes.set(id, { id, inferred, first: t, lineId: CI_STEPS && span && span.attrs && span.attrs['ci.job'] || id, label: CI_STEPS && span && span.attrs && span.attrs['ci.step.name'] || id, ciStep: CI_STEPS && !!(span && span.attrs && span.attrs['ci.step.number'] != null), skipped: CI_STEPS && !!(span && span.attrs && span.attrs['ci.conclusion'] === 'skipped') });
+  else nodes.get(id).first = Math.min(nodes.get(id).first, t);
+  if (CI_STEPS && span && span.attrs && span.attrs['ci.conclusion'] === 'skipped') nodes.get(id).skipped = true;
+  return nodes.get(id);
+}
+for (const s of spans) addNode(s.service, false, s.start, s);
+const crossKids = (s) => kids.get(s.spanId).filter((c) => c.service !== s.service);
+const calls = [];
+let skewFixes = 0;
+// pass 1: client/producer spans that talk to something uninstrumented (db, broker) -> inferred node
+for (const s of spans) {
+  if ((s.kind === 'client' || s.kind === 'producer') && s.peer && (s.kind === 'producer' || crossKids(s).length === 0) && s.peer !== s.service) {
+    const dest = s.attrs && (s.attrs['messaging.destination.name'] || s.attrs['kafka.topic']);
+    const n = addNode(s.peer, !nodes.has(s.peer) || nodes.get(s.peer).inferred, s.start);
+    if (dest) n.sub = dest;
+    s.via = s.peer;
+    calls.push({ from: s.service, to: s.peer, start: s.start, end: s.end, arrive: s.start, leave: s.end, span: s, callee: s, oneWay: false });
+  }
+}
+// pass 2: parent -> child across services
+for (const s of spans) {
+  const p = s.parentId && byId.get(s.parentId);
+  if (!p || p.service === s.service) continue;
+  const from = p.kind === 'producer' && p.via ? p.via : p.service;
+  if (from === s.service) continue;
+  let c;
+  if (p.kind === 'client' && crossKids(p).length === 1) {
+    c = { from, to: s.service, start: p.start, end: p.end, arrive: s.start, leave: s.end, span: p, callee: s, oneWay: false };
+    if (s.start < p.start || s.end > p.end) { skewFixes++; c.arrive = clamp(c.arrive, c.start, c.end); c.leave = clamp(c.leave, c.arrive, c.end); }
+  } else {
+    c = { from, to: s.service, start: s.start, end: s.end, arrive: s.start, leave: s.end, span: s, callee: s, oneWay: s.kind === 'consumer' || p.kind === 'producer' };
+  }
+  calls.push(c);
+}
+// GitHub Actions needs are a fan-in even though the normalized trace keeps one
+// parent for layout. Add the remaining transfers only in the CI view, from the
+// recorded terminal stations to the dependent job's first station.
+if (CI_STEPS) {
+  for (const job of spans) {
+    const fromIds = job.attrs && job.attrs['ci.needs.from'];
+    if (!Array.isArray(fromIds) || !fromIds.length) continue;
+    const target = job;
+    for (const fromId of fromIds) {
+      const source = byId.get(fromId);
+      if (!source || source.service === target.service) continue;
+      calls.push({ from: source.service, to: target.service, start: Math.max(source.end, target.start), end: Math.max(source.end, target.end), arrive: target.start, leave: target.end, span: job, callee: target, oneWay: false, ciExtra: true });
+    }
+  }
+}
+// slow / error flags per call: look through the callee's same-service subtree
+function subtree(s, svc, out) { out.push(s); for (const k of kids.get(s.spanId)) if (k.service === svc) subtree(k, svc, out); return out; }
+for (const c of calls) {
+  const sub = c.callee === c.span ? [c.span] : subtree(c.callee, c.callee.service, []);
+  const slowS = sub.filter((x) => x.slow && (!CI_STEPS || x.attrs && x.attrs['ci.step.number'] != null)).sort((a, b) => a.slowAt - b.slowAt)[0];
+  c.slow = !!slowS; c.slowAt = slowS ? slowS.slowAt : Infinity;
+  const errS = [c.span, c.callee].filter((x) => x.status === 'error' && (!CI_STEPS || x.attrs && x.attrs['ci.step.number'] != null));   // this call failed (not just something below it)
+  c.error = errS.length > 0; c.errorAt = c.error ? Math.min(...errS.map((x) => x.end)) : Infinity;
+  const dur = c.end - c.start;
+  c.outT = c.oneWay ? Math.min(MIN_LEG, Math.max(dur * 0.4, 0)) : Math.max(c.arrive - c.start, Math.min(MIN_LEG, dur * 0.4));
+  c.retT = c.oneWay ? 0 : Math.max(c.end - c.leave, Math.min(MIN_LEG, dur * 0.4));
+  c.ghost = CI_STEPS && !!(c.span.attrs && c.span.attrs['ci.conclusion'] === 'skipped');
+}
+// node owner of each span (inferred peer spans belong to the peer node)
+const nodeOf = (s) => s.via || s.service;
+const showInStrip = (s) => !((s.kind === 'client' || s.kind === 'producer') && !s.via && crossKids(s).length > 0);
+
+// ------------------------------------------------------------------ layout: layered left to right by longest call path
+const out = new Map([...nodes.keys()].map((k) => [k, new Set()]));
+const indeg = new Map([...nodes.keys()].map((k) => [k, 0]));
+for (const c of calls) if (!c.ciExtra && !out.get(c.from).has(c.to)) { out.get(c.from).add(c.to); indeg.set(c.to, indeg.get(c.to) + 1); }
+const layer = new Map();
+const onStack = new Set();
+function dfs(n, d) {
+  if ((layer.get(n) ?? -1) >= d || onStack.has(n)) return;   // skip back edges (cycles)
+  layer.set(n, d); onStack.add(n);
+  for (const m of out.get(n)) dfs(m, d + 1);
+  onStack.delete(n);
+}
+const roots = [...nodes.keys()].filter((k) => indeg.get(k) === 0);
+if (!roots.includes(root.service)) roots.unshift(root.service);
+for (const r of roots) dfs(r, 0);
+for (const k of nodes.keys()) if (!layer.has(k)) layer.set(k, 0);
+const L = Math.max(...layer.values()) + 1;
+const NODE_W = 40, NODE_H = 24;
+const G = { top: 156, bottom: 556, left: 70, right: 1090 };
+const colX = (i) => L === 1 ? (G.left + G.right) / 2 : G.left + NODE_W / 2 + i * (G.right - G.left - NODE_W) / (L - 1);
+const parentsOf = (k) => calls.filter((c) => !c.ciExtra && c.to === k).map((c) => c.from);
+const MAX_GAP = 80;
+for (let i = 0; i < L; i++) {
+  const col = [...nodes.values()].filter((n) => layer.get(n.id) === i);
+  const mid = (G.top + G.bottom) / 2;
+  for (const n of col) {
+    const ps = parentsOf(n.id).map((p) => nodes.get(p)).filter((p) => p.y != null);
+    n.want = ps.length ? ps.reduce((a, p) => a + p.y, 0) / ps.length : mid;
+  }
+  col.sort((a, b) => a.want - b.want || a.first - b.first);
+  const gap = Math.min(MAX_GAP, (G.bottom - G.top) / Math.max(1, col.length - 1));
+  // nodes go where their callers are (barycenter); then sweep down and up to keep a minimum gap
+  // inside the band. A column whose nodes all want the same spot is centred on that spot.
+  const meanWant = col.reduce((a, n) => a + n.want, 0) / col.length;
+  const spread = col.every((n) => Math.abs(n.want - col[0].want) < 1);
+  col.forEach((n, j) => { n.y = spread ? meanWant + (j - (col.length - 1) / 2) * gap : n.want; });
+  for (let j = 0; j < col.length; j++) col[j].y = Math.max(col[j].y, G.top, j ? col[j - 1].y + gap : -Infinity);
+  for (let j = col.length - 1; j >= 0; j--) col[j].y = Math.min(col[j].y, G.bottom, j < col.length - 1 ? col[j + 1].y - gap : Infinity);
+  for (let j = 0; j < col.length; j++) col[j].y = Math.max(col[j].y, G.top, j ? col[j - 1].y + gap : -Infinity);
+  col.forEach((n) => { n.x = colX(i); n.layer = i; });
+}
+for (const n of nodes.values()) n.y = Math.round(n.y / 4) * 4;   // snap: keeps diagonals exactly 45 deg on whole pixels
+const order = [...nodes.values()].sort((a, b) => a.layer - b.layer || a.y - b.y);
+
+// edges
+const edges = new Map();
+for (const c of calls) {
+  const k = c.from + '>' + c.to;
+  if (!edges.has(k)) edges.set(k, { from: nodes.get(c.from), to: nodes.get(c.to), calls: [] });
+  edges.get(k).calls.push(c);
+}
+// lanes: overlapping calls on the same edge get side-by-side tracks so fan-out reads as dots splitting
+for (const e of edges.values()) {
+  const lanesEnd = [];
+  for (const c of e.calls.slice().sort((a, b) => a.start - b.start)) {
+    let l = lanesEnd.findIndex((end) => end <= c.start);
+    if (l < 0) { l = lanesEnd.length; lanesEnd.push(0); }
+    lanesEnd[l] = c.end; c.lane = l;
+  }
+}
+
+// ------------------------------------------------------------------ lines, bullets, geometry
+const svcOrder = order.filter((n) => !n.inferred);
+const lineKeys = [];
+for (const n of svcOrder) if (!lineKeys.includes(n.lineId)) lineKeys.push(n.lineId);
+svcOrder.forEach((n) => { const i = lineKeys.indexOf(n.lineId); n.color = LINE_COLORS[i % LINE_COLORS.length]; n.bullet = i < 26 ? String.fromCharCode(65 + i) : String(i - 25); });
+order.filter((n) => n.inferred).forEach((n) => { n.color = C.infra; n.bullet = null; });
+const SP = 10, LW = 7, H = 26, RAD = 14;
+const laneOffset = (l) => (l === 0 ? 0 : (l % 2 ? 1 : -1) * Math.ceil(l / 2) * 13);
+const outE = new Map(order.map((n) => [n.id, []])), inE = new Map(order.map((n) => [n.id, []]));
+for (const e of edges.values()) { outE.get(e.from.id).push(e); inE.get(e.to.id).push(e); }
+const offs = (list, key) => { list.sort((p, q) => p[key].y - q[key].y || p[key].x - q[key].x); list.forEach((e, i) => { e[key === 'to' ? 'o1' : 'o2'] = (i - (list.length - 1) / 2) * SP; }); };
+for (const n of order) { offs(outE.get(n.id), 'to'); offs(inE.get(n.id), 'from'); }
+for (const n of order) {
+  const o = [0, ...outE.get(n.id).map((e) => e.o1), ...inE.get(n.id).map((e) => e.o2)];
+  n.top = Math.min(...o); n.bot = Math.max(...o);
+  n.transfer = outE.get(n.id).length + inE.get(n.id).length > 2 || n.bot - n.top > 0;
+}
+const MAXY = Math.max(...order.map((n) => n.y + n.bot));
+function corners(e) {
+  const a = e.from, b = e.to, x1 = a.x, y1 = a.y + e.o1, x2 = b.x, y2 = b.y + e.o2;
+  const dx = x2 - x1, dy = y2 - y1, s = Math.sign(dy), ady = Math.abs(dy);
+  if (dx <= 2 * H) { const yb = MAXY + 46 + e.o1; return [[x1, y1], [x1 + H, y1], [x1 + H, yb], [x2 - H, yb], [x2 - H, y2], [x2, y2]]; }
+  if (ady === 0) return [[x1, y1], [x2, y2]];
+  if (ady <= dx - 2 * H) return [[x1, y1], [x1 + H, y1], [x1 + H + ady, y2], [x2, y2]];
+  const d = dx - 2 * H;
+  return [[x1, y1], [x1 + H, y1], [x1 + H, y2 - s * d], [x1 + H + d, y2], [x2, y2]];
+}
+// rounded octilinear polyline, sampled so drawing and train motion use the same curve
+function sample(P) {
+  const pts = [P[0]];
+  const seg = (A, B) => { const L = Math.hypot(B[0] - A[0], B[1] - A[1]), k = Math.max(1, Math.ceil(L / 4)); for (let i = 1; i <= k; i++) pts.push([A[0] + (B[0] - A[0]) * i / k, A[1] + (B[1] - A[1]) * i / k]); };
+  let cur = P[0];
+  for (let i = 1; i < P.length - 1; i++) {
+    const A = P[i - 1], B = P[i], N = P[i + 1];
+    const la = Math.hypot(B[0] - A[0], B[1] - A[1]), lb = Math.hypot(N[0] - B[0], N[1] - B[1]);
+    const r = Math.min(RAD, la / 2, lb / 2);
+    const t1 = [B[0] - (B[0] - A[0]) / la * r, B[1] - (B[1] - A[1]) / la * r], t2 = [B[0] + (N[0] - B[0]) / lb * r, B[1] + (N[1] - B[1]) / lb * r];
+    seg(cur, t1);
+    for (let k = 1; k <= 8; k++) { const u = k / 8; pts.push([(1 - u) * (1 - u) * t1[0] + 2 * u * (1 - u) * B[0] + u * u * t2[0], (1 - u) * (1 - u) * t1[1] + 2 * u * (1 - u) * B[1] + u * u * t2[1]]); }
+    cur = t2;
+  }
+  seg(cur, P[P.length - 1]);
+  const cum = [0]; for (let i = 1; i < pts.length; i++) cum.push(cum[i - 1] + Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]));
+  return { pts, cum, len: cum[cum.length - 1] };
+}
+for (const e of edges.values()) { e.path = sample(corners(e)); e.color = e.to.color; e.infra = e.to.inferred; e.first = Math.min(...e.calls.map((c) => c.start)); }
+function at(path, d) {
+  d = clamp(d, 0, path.len); let lo = 0, hi = path.cum.length - 1;
+  while (hi - lo > 1) { const m = (lo + hi) >> 1; if (path.cum[m] <= d) lo = m; else hi = m; }
+  const A = path.pts[lo], B = path.pts[hi], u = (d - path.cum[lo]) / ((path.cum[hi] - path.cum[lo]) || 1);
+  return { x: A[0] + (B[0] - A[0]) * u, y: A[1] + (B[1] - A[1]) * u, ang: Math.atan2(B[1] - A[1], B[0] - A[0]) };
+}
+function strokePath(path, upto) {
+  ctx.beginPath(); ctx.moveTo(path.pts[0][0], path.pts[0][1]);
+  for (let i = 1; i < path.pts.length; i++) {
+    if (path.cum[i] > upto) { const p = at(path, upto); ctx.lineTo(p.x, p.y); break; }
+    ctx.lineTo(path.pts[i][0], path.pts[i][1]);
+  }
+  ctx.stroke();
+}
+const edgeOf = (c) => edges.get(c.from + '>' + c.to);
+// train state of one call at trace time tm
+function trainFor(c, tm) {
+  if (c.ghost || c.ciExtra) return null;
+  const e = edgeOf(c);
+  if (tm >= c.start && tm < c.start + c.outT) return { c, e, p: easeInOut((tm - c.start) / c.outT), back: false };
+  if (!c.oneWay && c.retT > 0 && tm >= c.end - c.retT && tm < c.end) return { c, e, p: 1 - easeInOut((tm - (c.end - c.retT)) / c.retT), back: true };
+  return null;
+}
+function reached(e, tm) {
+  let r = 0;
+  for (const c of e.calls) { if (tm >= c.start + c.outT) return 1; if (tm >= c.start) r = Math.max(r, easeInOut((tm - c.start) / c.outT)); }
+  return r;
+}
+
+// ------------------------------------------------------------------ drawing
+const cv = document.getElementById('stage');
+const DPR = window.devicePixelRatio || 1;
+cv.width = STAGE.width * DPR; cv.height = STAGE.height * DPR;
+const ctx = cv.getContext('2d');
+const fmtMs = (ms) => ms >= 1000 ? (ms / 1000).toFixed(2) + ' s' : (ms >= 100 ? Math.round(ms) : ms.toFixed(1).replace(/\.0$/, '')) + ' ms';
+function rr(x, y, w, h, r) { ctx.beginPath(); ctx.roundRect(x, y, w, h, r); }
+function fitText(s, w) { if (ctx.measureText(s).width <= w) return s; while (s.length > 1 && ctx.measureText(s + '…').width > w) s = s.slice(0, -1); return s + '…'; }
+function bullet(x, y, r, n) {
+  ctx.fillStyle = n.color; ctx.beginPath();
+  if (n.inferred) ctx.roundRect(x - r, y - r, 2 * r, 2 * r, 3); else ctx.arc(x, y, r, 0, 2 * Math.PI);
+  ctx.fill();
+  ctx.fillStyle = '#fff'; ctx.font = font(700, Math.round(r * 1.25)); ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  if (!n.inferred) ctx.fillText(n.bullet, x, y + 1);
+}
+function drawHeader(tm) {
+  ctx.fillStyle = C.band; ctx.fillRect(0, 0, STAGE.width, 76);
+  ctx.fillStyle = C.bandInk; ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
+  ctx.font = font(700, 27); ctx.fillText(fitText(OPT.title || D.spans[0].name || 'Request', 820), 40, 46);
+  ctx.fillStyle = '#fff'; ctx.fillRect(40, 58, 40, 4);
+  ctx.textAlign = 'right'; ctx.font = font(700, 22);
+  ctx.fillText(fmtMs(clamp(tm, 0, TOTAL)), 1160, 40);
+  ctx.font = font(400, 13); ctx.fillStyle = '#CFCFCF';
+  ctx.fillText(`${V.of} ${fmtMs(TOTAL)}  ·  ${V.video} = ${MS_PER_SEC} ms of ${V.trace}${OPT.gapNote ? `  ·  ${OPT.gapNote}` : ''}`, 1160, 62);
+  ctx.textAlign = 'left'; ctx.fillStyle = C.ink2; ctx.font = font(400, 14);
+  ctx.fillText(fitText(OPT.subtitle || `trace ${D.traceId}`, 1120), 40, 104);
+}
+function drawLines(tm) {
+  ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  const es = [...edges.values()];
+  for (const e of es) { ctx.lineWidth = LW; ctx.strokeStyle = C.faint; ctx.setLineDash(e.infra ? [2, 9] : []); strokePath(e.path, e.path.len); }
+  ctx.setLineDash([]);
+  for (const e of es) {
+    const r = e.to.skipped ? 0 : reached(e, tm); if (r <= 0) continue;
+    ctx.lineWidth = LW; ctx.strokeStyle = e.color;
+    if (e.infra) { ctx.setLineDash([2, 9]); ctx.lineWidth = LW - 1; }
+    strokePath(e.path, r * e.path.len); ctx.setLineDash([]);
+    const err = e.calls.find((c) => c.error && tm >= c.errorAt);
+    if (err) { ctx.strokeStyle = C.err; ctx.lineWidth = 3; ctx.setLineDash([10, 7]); strokePath(e.path, e.path.len); ctx.setLineDash([]); }
+  }
+  // entry stub into the first station: where the request boards
+  const r0 = nodes.get(root.service);
+  ctx.strokeStyle = r0.color; ctx.lineWidth = LW; ctx.beginPath(); ctx.moveTo(r0.x - 46, r0.y); ctx.lineTo(r0.x, r0.y); ctx.stroke();
+  ctx.lineCap = 'butt'; ctx.lineWidth = 4; ctx.strokeStyle = C.ink; ctx.beginPath(); ctx.moveTo(r0.x - 46, r0.y - 11); ctx.lineTo(r0.x - 46, r0.y + 11); ctx.stroke();
+  ctx.lineCap = 'round';
+}
+const spansAt = (n) => spans.filter((s) => nodeOf(s) === n.id);
+// station labels, laid out once. Request and agent maps label every station as before. CI maps with wide
+// matrices stack dozens of stations per column, so labels there are narrowed to the column spacing and placed
+// greedily (failed stations first, then map order, skipped last); a label that would overlap one already placed
+// is dropped. The station stays on the map and stays named in the side list and the panel.
+// A single-job CI run puts every step on one row ~20 px apart: horizontal labels there were cut to "Set ..."
+// and every other one dropped. Such a row gets labels rotated up-right (60 deg), one per station, each cut only
+// to the room above and to the right edge; the full name stays in the side list and the panel.
+const ROT = -Math.PI / 3;
+function oneRowCi() {
+  if (!CI_STEPS) return false;
+  const steps = order.filter((n) => n.ciStep);
+  if (steps.length < 6 || steps.some((n) => Math.abs(n.y - steps[0].y) > 2)) return false;
+  const xs = steps.map((n) => n.x).sort((a, b) => a - b);
+  return xs.slice(1).some((x, i) => x - xs[i] < 130);   // crowded: a horizontal label would be cut or dropped
+}
+let LABELS = null;
+function labelPlan() {
+  if (LABELS) return LABELS;
+  LABELS = new Map();
+  if (oneRowCi()) {
+    ctx.font = font(700, 13); ctx.textBaseline = 'alphabetic'; ctx.textAlign = 'left';
+    const sin = -Math.sin(ROT), cos = Math.cos(ROT);
+    let stack = 0;
+    for (const n of order) {
+      if (!n.ciStep) {   // run and job stations: horizontal, ending at the station, stacked upward left of the rotated labels
+        ctx.font = font(700, 15); const name = fitText(n.label || n.id, 150), w = ctx.measureText(name).width;
+        LABELS.set(n, { name, bx: n.x - w - 22 + 6, ly: n.y + n.top - 9 - 10 - 20 * stack++ }); ctx.font = font(700, 13); continue;
+      }
+      const ax = n.x + 4, ay = n.y + n.top - 9 - 8;
+      const room = Math.min(260, (ay - 24) / sin, (STAGE.width - 8 - ax) / cos);
+      const name = fitText((n.label || n.id) + (n.skipped ? ` · ${V.skipped}` : ''), Math.max(24, room));
+      LABELS.set(n, { name, ax, ay, rot: true });
+    }
+    return LABELS;
+  }
+  const r = 9, colGap = L > 1 ? (G.right - G.left - NODE_W) / (L - 1) : Infinity;
+  const maxW = CI_STEPS ? Math.max(48, Math.min(150, colGap - 34)) : 150;
+  const tier = (n) => spansAt(n).some((s) => s.status === 'error') ? 0 : n.skipped ? 2 : 1;
+  const list = CI_STEPS ? order.slice().sort((a, b) => tier(a) - tier(b)) : order;
+  const boxes = CI_STEPS ? order.map((n) => [n.x - r - 2, n.y + n.top - r - 2, n.x + r + 2, n.y + n.bot + r + 2]) : [];
+  for (const n of list) {
+    const ly = n.y + n.top - r - 10;
+    ctx.font = font(700, 15); ctx.textBaseline = 'alphabetic'; ctx.textAlign = 'left';
+    const name = fitText(n.label || n.id, maxW), w = ctx.measureText(name).width;
+    const bx = n.x - (w + 22) / 2;
+    const box = [bx - 3, ly - 16, bx + w + 25, ly + 5];
+    if (CI_STEPS && boxes.some((q) => box[0] < q[2] && q[0] < box[2] && box[1] < q[3] && q[1] < box[3])) continue;
+    boxes.push(box);
+    LABELS.set(n, { name, bx, ly });
+  }
+  return LABELS;
+}
+function drawStations(tm) {
+  for (const n of order) {
+    const active = spansAt(n).some((s) => tm >= s.start && tm < s.end && showInStrip(s));
+    const visited = n.first <= tm;
+    const r = 9;
+    ctx.globalAlpha = n.skipped ? 0.28 : visited ? 1 : 0.45;
+    ctx.lineWidth = 3.5; ctx.strokeStyle = C.ink; ctx.fillStyle = '#fff';
+    if (n.transfer) rr(n.x - r, n.y + n.top - r, 2 * r, n.bot - n.top + 2 * r, r);
+    else { ctx.beginPath(); ctx.arc(n.x, n.y, r, 0, 2 * Math.PI); }
+    if (n.inferred) ctx.setLineDash([3, 3]);
+    ctx.fill(); ctx.stroke(); ctx.setLineDash([]); ctx.globalAlpha = 1;
+    if (active) { ctx.fillStyle = n.color; ctx.beginPath(); ctx.arc(n.x, n.y, 4.5, 0, 2 * Math.PI); ctx.fill(); }
+    // label: bullet + name above the station
+    const lab = labelPlan().get(n);
+    ctx.globalAlpha = n.skipped ? 0.28 : visited ? 1 : 0.35;
+    if (lab && lab.rot) {
+      ctx.save(); ctx.translate(lab.ax, lab.ay); ctx.rotate(ROT);
+      ctx.fillStyle = C.ink; ctx.font = font(700, 13); ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+      ctx.fillText(lab.name, 0, 0); ctx.restore();
+    } else if (lab) {
+      bullet(lab.bx + 8, lab.ly - 5, 8, n);
+      ctx.fillStyle = C.ink; ctx.font = font(700, 15); ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
+      ctx.fillText(lab.name, lab.bx + 21, lab.ly);
+    }
+    if (n.skipped && CI_STEPS && !(lab && lab.rot)) { ctx.font = font(400, 10); ctx.fillStyle = C.ink2; ctx.textAlign = 'center'; ctx.fillText(V.skipped, n.x, n.y + n.bot + r + 13); }
+    if (n.inferred) { ctx.font = font(400, 11); ctx.fillStyle = C.ink2; ctx.textAlign = 'center'; ctx.fillText(n.sub ? `${V.infrastructure} · ${n.sub}` : V.infrastructure, n.x, n.y + n.bot + r + 14); }
+    ctx.globalAlpha = 1;
+  }
+}
+// delay and service-alert markers, attached below their station
+// "Internal Server Error: failed to send order confirmation (SMTP timeout)" -> "SMTP timeout"
+function shortReason(m) {
+  if (!m) return '';
+  const par = m.match(/\(([^()]{2,40})\)\s*$/); if (par) return par[1];
+  const parts = m.split(/:\s+/); return parts[parts.length - 1];
+}
+// a leaf station's markers go to its right only if the widest of them (final value) stays on the stage;
+// otherwise they go to its left on the same row (seen on Jaeger HotROD and agent maps: leaves in the last column).
+const whyOf = (s) => fitText([s.attrs && (s.attrs['http.response.status_code'] || s.attrs['http.status_code']) ? 'HTTP ' + (s.attrs['http.response.status_code'] || s.attrs['http.status_code']) : '', shortReason(s.statusMessage) || s.name].filter(Boolean).join(' · '), 170);
+const FITS_RIGHT = new Map();
+function alertsFitRight(n) {
+  if (FITS_RIGHT.has(n)) return FITS_RIGHT.get(n);
+  const ciStep = (s) => !CI_STEPS || s.attrs && s.attrs['ci.step.number'] != null;
+  const f0 = ctx.font;   // measuring must not change the font state drawAlerts inherits
+  let w = 0;
+  for (const s of spansAt(n)) {
+    if (!ciStep(s)) continue;
+    if (s.slow) { ctx.font = font(700, 12); w = Math.max(w, ctx.measureText(`${V.delay}  ${fmtMs(s.duration)}`).width + 30); }
+    if (s.errOrigin) { ctx.font = font(700, 12); const a = ctx.measureText(V.serviceAlert).width + 34; ctx.font = font(400, 12); w = Math.max(w, a, ctx.measureText(whyOf(s)).width + 3); }
+  }
+  ctx.font = f0;
+  const fits = n.x + 18 + w <= STAGE.width - 8;
+  FITS_RIGHT.set(n, fits);
+  return fits;
+}
+const MAX_MARKERS = 3;
+// vertical room below a leaf station before the next station on that side (its markers start 10 px above it)
+function roomBelow(n, right) {
+  let room = Infinity;
+  for (const m of order) if (m !== n && m.y > n.y && (right ? m.x > n.x - 40 && m.x < n.x + 260 : m.x < n.x + 40 && m.x > n.x - 260)) room = Math.min(room, m.y - n.y);
+  return room;
+}
+function drawAlerts(tm) {
+  for (const n of order) {
+    // leaf stations: markers sit to the right, on the station's own row; otherwise below the station
+    const leaf = outE.get(n.id).length === 0 && !(CI_STEPS && n.x > 820);
+    const right = leaf && alertsFitRight(n), left = leaf && !right;   // left: mirror image, for leaves near the right edge
+    const bot = CI_STEPS && oneRowCi() ? Math.max(...order.filter((m) => Math.abs(m.y - n.y) < 3 && Math.abs(m.x - n.x) < 120).map((m) => m.bot)) : n.bot;
+    let y = right || left ? n.y - 10 : n.y + bot + 9 + (n.inferred ? 20 : 8);
+    const ax = (w) => right ? n.x + 18 + w / 2 : left ? n.x - 18 - w / 2 : n.x;
+    const ciStep = (s) => !CI_STEPS || s.attrs && s.attrs['ci.step.number'] != null;
+    let slow = spansAt(n).filter((s) => ciStep(s) && s.slow && tm >= s.slowAt);
+    let errs = spansAt(n).filter((s) => ciStep(s) && s.errOrigin && tm >= s.end);
+    // at most MAX_MARKERS per station (alerts first), then one "+N more" line; the side list has the rest
+    // a leaf's markers stack down its own row toward the next station row: keep only what fits above it
+    const cap = right || left ? Math.max(1, Math.min(MAX_MARKERS, Math.floor((roomBelow(n, right) + 6) / 44))) : MAX_MARKERS;
+    const extra = slow.length + errs.length - cap;
+    if (extra > 0) { errs = errs.slice(0, cap); slow = slow.slice(0, cap - errs.length); }
+    let lastBox = null;
+    for (const s of slow) {
+      const ms = Math.min(tm, s.end) - s.start;
+      const txt = `${V.delay}  ${fmtMs(ms)}`;
+      ctx.font = font(700, 12); const w = ctx.measureText(txt).width + 30;
+      const cx = ax(w); rr(cx - w / 2, y, w, 20, 10); ctx.fillStyle = C.slow; ctx.fill();
+      ctx.fillStyle = C.slowInk; ctx.beginPath(); ctx.arc(cx - w / 2 + 11, y + 10, 4, 0, 2 * Math.PI); ctx.fill();
+      ctx.textAlign = 'left'; ctx.textBaseline = 'middle'; ctx.fillText(txt, cx - w / 2 + 20, y + 10.5);
+      lastBox = { l: cx - w / 2, r: cx + w / 2, y };
+      y += 25;
+    }
+    for (const s of errs) {
+      const txt = V.serviceAlert;
+      const why = whyOf(s);
+      ctx.font = font(700, 12); const w = Math.max(ctx.measureText(txt).width + 34, 0);
+      const cx = ax(w); rr(cx - w / 2, y, w, 20, 3); ctx.fillStyle = C.err; ctx.fill();
+      ctx.fillStyle = '#fff'; ctx.beginPath(); const tx = cx - w / 2 + 12, ty = y + 10; ctx.moveTo(tx, ty - 6); ctx.lineTo(tx + 6, ty + 5); ctx.lineTo(tx - 6, ty + 5); ctx.closePath(); ctx.fill();
+      ctx.fillStyle = C.err; ctx.font = font(700, 9); ctx.textAlign = 'center'; ctx.fillText('!', tx, ty + 2);
+      ctx.fillStyle = '#fff'; ctx.font = font(700, 12); ctx.textAlign = 'left'; ctx.fillText(txt, cx - w / 2 + 24, y + 10.5);
+      ctx.font = font(400, 12); const ww = ctx.measureText(why).width, wx = right ? cx - w / 2 : left ? cx + w / 2 - ww : cx - ww / 2;
+      ctx.fillStyle = 'rgba(255,255,255,0.92)'; ctx.fillRect(wx - 3, y + 23, ww + 6, 15);
+      ctx.fillStyle = C.err; ctx.textAlign = 'left'; ctx.fillText(why, wx, y + 34);
+      lastBox = { l: cx - w / 2, r: cx + w / 2, y };
+      y += 44;
+    }
+    if (extra > 0) {
+      ctx.font = font(700, 11); ctx.fillStyle = C.ink2; ctx.textBaseline = 'middle';
+      const more = `+${extra} ${V.more}`;
+      // capped leaf: beside the last box, on its line (below would run into the next row)
+      if (cap < MAX_MARKERS && lastBox) {
+        const mw = ctx.measureText(more).width, mx = right ? lastBox.r + 6 : lastBox.l - 6 - mw - 4;
+        ctx.fillStyle = 'rgba(255,255,255,0.95)'; ctx.fillRect(mx, lastBox.y + 3, mw + 4, 15);
+        ctx.fillStyle = C.ink2; ctx.textAlign = 'left'; ctx.fillText(more, mx + 2, lastBox.y + 10.5);
+      }
+      else { ctx.textAlign = right ? 'left' : left ? 'right' : 'center'; ctx.fillText(more, right ? n.x + 18 : left ? n.x - 18 : n.x, y + 6); }
+    }
+  }
+}
+function drawTrains(tm) {
+  const list = calls.map((c) => trainFor(c, tm)).filter(Boolean);
+  for (const t of list) {
+    const p = at(t.e.path, t.p * t.e.path.len);
+    const off = laneOffset(t.c.lane) * 0.45;
+    ctx.save(); ctx.translate(p.x - Math.sin(p.ang) * off, p.y + Math.cos(p.ang) * off); ctx.rotate(p.ang);
+    rr(-13, -6.5, 26, 13, 6.5);
+    ctx.fillStyle = t.back ? '#fff' : C.ink; ctx.fill();
+    ctx.lineWidth = 2.5; ctx.strokeStyle = t.back ? C.ink : '#fff'; ctx.stroke();
+    if (!t.back) { ctx.fillStyle = t.e.color; ctx.fillRect(4, -2.5, 5, 5); }
+    ctx.restore();
+  }
+}
+function drawLegend() {
+  let x = 40, y = 616;
+  ctx.font = font(700, 11); ctx.fillStyle = C.ink2; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+  ctx.fillText('LINES', x, y); x += 50;
+  const legendNodes = CI_STEPS ? lineKeys.map((key) => order.find((n) => n.lineId === key)).filter(Boolean) : order;
+  // two rows fit above KEY. If 13 px labels need more (CI runs with 20+ jobs), switch to compact 11 px labels
+  // and end the second row with "+N more"; the side list still names every line.
+  const rowsAt = (fs, pad) => { let xx = 90, rows = 1; for (const n of legendNodes) { ctx.font = font(400, fs); const w = ctx.measureText(n.label || n.id).width + pad; if (xx + w > 1170) { xx = 90; rows++; } xx += w + 8; } return rows; };
+  if (rowsAt(13, 34) <= 2) {
+    for (const n of legendNodes) {
+      const legendLabel = n.label || n.id;
+      ctx.font = font(400, 13); const w = ctx.measureText(legendLabel).width + 34;
+      if (x + w > 1170) { x = 90; y += 26; }
+      bullet(x + 9, y, 9, n);
+      ctx.fillStyle = C.ink; ctx.font = font(400, 13); ctx.textAlign = 'left'; ctx.textBaseline = 'middle'; ctx.fillText(legendLabel, x + 23, y + 1);
+      x += w + 8;
+    }
+  } else {
+    const moreTxt = (k) => `+${k} ${V.more}`;
+    const moreW = (k) => { ctx.font = font(700, 11); return ctx.measureText(moreTxt(k)).width + 8; };
+    let row = 0, i = 0;
+    for (; i < legendNodes.length; i++) {
+      const n = legendNodes[i];
+      ctx.font = font(400, 11); const lab = fitText(n.label || n.id, 240), w = ctx.measureText(lab).width + 26;
+      const left = legendNodes.length - i - 1, limit = () => row === 1 && left > 0 ? 1170 - moreW(left) : 1170;
+      if (x + w > limit()) { if (row === 1) break; x = 90; y += 26; row = 1; if (x + w > limit()) break; }
+      bullet(x + 7, y, 7, n);
+      ctx.fillStyle = C.ink; ctx.font = font(400, 11); ctx.textAlign = 'left'; ctx.textBaseline = 'middle'; ctx.fillText(lab, x + 18, y + 1);
+      x += w + 6;
+    }
+    if (i < legendNodes.length) { ctx.font = font(700, 11); ctx.fillStyle = C.ink2; ctx.textAlign = 'left'; ctx.textBaseline = 'middle'; ctx.fillText(moreTxt(legendNodes.length - i), x, y + 1); }
+  }
+  x = 40; y += 28;
+  ctx.font = font(400, 12); ctx.fillStyle = C.ink2;
+  const key = [['train', V.request], ['ret', V.response], ['delay', `${V.legendDelay} ${fmtMs(SLOW_MS)}`], ['alert', V.legendAlert], ['infra', V.legendInfra]];
+  ctx.font = font(700, 11); ctx.fillText('KEY', x, y); x += 50;
+  for (const [k, label] of key) {
+    if (k === 'train' || k === 'ret') { rr(x, y - 6, 22, 12, 6); ctx.fillStyle = k === 'train' ? C.ink : '#fff'; ctx.fill(); ctx.lineWidth = 2; ctx.strokeStyle = C.ink; if (k === 'ret') ctx.stroke(); }
+    if (k === 'delay') { rr(x, y - 7, 22, 14, 7); ctx.fillStyle = C.slow; ctx.fill(); }
+    if (k === 'alert') { rr(x, y - 7, 22, 14, 3); ctx.fillStyle = C.err; ctx.fill(); }
+    if (k === 'infra') { ctx.strokeStyle = C.infra; ctx.lineWidth = 5; ctx.lineCap = 'round'; ctx.setLineDash([1, 7]); ctx.beginPath(); ctx.moveTo(x + 2, y); ctx.lineTo(x + 22, y); ctx.stroke(); ctx.setLineDash([]); }
+    ctx.fillStyle = C.ink2; ctx.font = font(400, 12); ctx.textAlign = 'left'; ctx.fillText(label, x + 30, y + 1);
+    x += 30 + ctx.measureText(label).width + 22;
+  }
+}
+// route strip map: the trip as one line in time order, like the strip above a subway car door
+const hops = calls.filter((c) => !c.ciExtra).sort((a, b) => a.start - b.start || (a.to < b.to ? -1 : 1));
+const SX0 = 70, SX1 = 1130, SY = 772;
+const sx = (ms) => SX0 + (SX1 - SX0) * clamp(ms, 0, TOTAL) / TOTAL;
+function drawStrip(tm) {
+  ctx.fillStyle = '#F4F4F4'; ctx.fillRect(0, 690, STAGE.width, 150);
+  ctx.fillStyle = C.ink; ctx.font = font(700, 12); ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
+  ctx.fillText('THIS TRIP  ·  stops in time order', 40, 714);
+  ctx.lineCap = 'round';
+  ctx.lineWidth = 10; ctx.strokeStyle = '#D0D0D0'; ctx.beginPath(); ctx.moveTo(SX0, SY); ctx.lineTo(SX1, SY); ctx.stroke();
+  const px = sx(tm);
+  if (tm > 0) { ctx.strokeStyle = C.ink; ctx.beginPath(); ctx.moveTo(SX0, SY); ctx.lineTo(px, SY); ctx.stroke(); }
+  // slow and error spans as segments under the line
+  for (const s of spans) {
+    if (s.slow && (!CI_STEPS || s.attrs && s.attrs['ci.step.number'] != null)) { const a = sx(s.start), b = sx(Math.min(s.end, Math.max(s.start, tm))); ctx.fillStyle = C.slow; ctx.fillRect(a, SY + 9, Math.max(2, b - a), 5); }
+  }
+  const seen = new Set(); let lastLab = -1e9;
+  ctx.textAlign = 'center';
+  for (const c of hops) {
+    const n = nodes.get(c.to), x = sx(c.start), done = tm >= c.start;
+    ctx.lineCap = 'butt'; ctx.lineWidth = 3; ctx.strokeStyle = n.color; ctx.globalAlpha = done ? 1 : 0.4;
+    ctx.beginPath(); ctx.moveTo(x, SY - 16); ctx.lineTo(x, SY - 6); ctx.stroke();
+    if (!seen.has(n.id) && x - lastLab > 19) { seen.add(n.id); bullet(x, SY - 28, 8, n); lastLab = x; }
+    ctx.globalAlpha = 1;
+    if (c.error && tm >= c.errorAt) { ctx.fillStyle = C.err; ctx.beginPath(); ctx.moveTo(x, SY + 16); ctx.lineTo(x + 7, SY + 28); ctx.lineTo(x - 7, SY + 28); ctx.closePath(); ctx.fill(); }
+    if (CI_STEPS && c.span.attrs && c.span.attrs['ci.step.number'] != null) { ctx.fillStyle = nodes.get(c.to).skipped ? C.faint : nodes.get(c.to).color; ctx.fillRect(x - 1, SY + 18, 2, 7); }
+  }
+  // the train on the strip
+  rr(px - 13, SY - 7, 26, 14, 7); ctx.fillStyle = C.ink; ctx.fill(); ctx.lineWidth = 2.5; ctx.strokeStyle = '#fff'; ctx.stroke();
+  ctx.font = font(400, 11); ctx.fillStyle = C.ink2; ctx.textBaseline = 'alphabetic';
+  for (let i = 0; i <= 4; i++) { const ms = TOTAL * i / 4; ctx.textAlign = i === 0 ? 'left' : i === 4 ? 'right' : 'center'; ctx.fillText(fmtMs(ms), sx(ms), SY + 46); }
+}
+const SHOW_CONTRACTS = V.contractFooter !== false || !!window.CONTRACTS;   // contracts exist only for request traces
+const footCalls = calls.filter((c) => !c.ciExtra);   // CI needs connectors are not dependencies of their own
+const infraHops = footCalls.filter((c) => nodes.get(c.to).inferred).length;
+function drawFooter() {
+  ctx.font = font(400, 12); ctx.fillStyle = C.ink2; ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
+  const syn = D.meta && D.meta.synthetic ? `${V.synthetic}  ·  ` : '';
+  const CTX = window.CONTRACTS;
+  let tail = V.contractFooter ? `, ${footCalls.length - infraHops} ${V.unmatched}: ${V.noContractIndex}` : '';
+  if (CTX) {
+    const st = footCalls.filter((c) => !nodes.get(c.to).inferred).map((c) => (CTX.bySpan[c.callee.spanId] || CTX.bySpan[c.span.spanId] || {}).state);
+    tail = `, ${st.filter((x) => x === 'matched' || x === 'fallback').length} ${V.matched} to ${V.contracts}, ${st.filter((x) => x !== 'matched' && x !== 'fallback').length} ${V.unmatched}`;
+  }
+  ctx.fillText(`${syn}${spans.length} spans  ·  ${footCalls.length} ${V.hopNounPlural} (${infraHops} ${V.infrastructure}${tail})  ·  ${V.renderedLocally}`, 40, 872);
+}
+function renderAt(t) {
+  const tm = traceMsAt(t);
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  ctx.fillStyle = C.paper; ctx.fillRect(0, 0, STAGE.width, STAGE.height);
+  drawHeader(tm); drawLines(tm); drawStations(tm); drawTrains(tm); drawAlerts(tm); drawLegend(); drawStrip(tm); drawFooter();
+  window.__t = t;
+}
+window.renderAt = renderAt;
+window.VIZ = {
+  seconds: SECONDS, fps: FPS, intro: INTRO, msPerSec: MS_PER_SEC, total: TOTAL, slowMs: SLOW_MS,
+  frameOfTraceMs: (ms) => Math.ceil((INTRO + ms / MS_PER_SEC) * FPS - 1e-6),
+  calls: calls.filter((c) => !c.ciExtra).map((c) => ({ from: c.from, to: c.to, start: c.start, end: c.end, slow: c.slow, error: c.error, spanId: c.span.spanId, name: c.span.name, infra: nodes.get(c.to).inferred })),
+  nodes: order.map((n) => ({ id: n.id, label: n.label, lineId: n.lineId, ciStep: !!n.ciStep, x: n.x, y: n.y, color: n.color, bullet: n.bullet, inferred: !!n.inferred, transfer: n.transfer })),
+  trainsAt: (t) => calls.filter((c) => !c.ciExtra).map((c) => trainFor(c, traceMsAt(t))).filter(Boolean).map((r) => ({ from: r.c.from, to: r.c.to, spanId: r.c.span.spanId, back: r.back })),
+  skewFixes,
+  ...(CI_STEPS ? { ciExtraTransfers: calls.filter((c) => c.ciExtra).map((c) => ({ from: c.from, to: c.to, start: c.start })) } : {}),
+};
+// hop table for the interactive page (story 1/2a: unmatched and infrastructure hops listed, never hidden)
+const hopsEl = document.getElementById('hops');
+if (hopsEl) {
+  const esc = (s) => String(s).replace(/[&<>"]/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[ch]));
+  hopsEl.innerHTML = (CI_STEPS
+    ? (() => {
+      const allSteps = spans.filter((s) => s.attrs && s.attrs['ci.step.number'] != null);
+      const jobFirst = new Map();
+      for (const s of allSteps) jobFirst.set(s.attrs['ci.job'], Math.min(jobFirst.get(s.attrs['ci.job']) ?? Infinity, s.start));
+      const stepSpans = allSteps.sort((a, b) => jobFirst.get(a.attrs['ci.job']) - jobFirst.get(b.attrs['ci.job']) || String(a.attrs['ci.job']).localeCompare(String(b.attrs['ci.job'])) || a.attrs['ci.step.number'] - b.attrs['ci.step.number']);
+      return `<h3>${V.tableTitle}</h3><table><tr><th>${V.tableStart}</th><th>${V.lineNoun}</th><th>${V.tableSpan}</th><th>${V.tableStatus}</th></tr>` + stepSpans.map((s) => `<tr data-ci-step="${esc(s.spanId)}"><td>${fmtMs(s.start)}</td><td>${esc(s.attrs['ci.job'])}</td><td>${esc(s.name)}</td><td>${s.status === 'unset' ? V.skipped : s.status === 'error' ? V.error : s.slow ? V.slow : V.ok}</td></tr>`).join('') + '</table>';
+    })()
+    : `<h3>${V.tableTitle}</h3><table><tr><th>${V.tableStart}</th><th>${V.tableFrom}</th><th>${V.tableTo}</th><th>${V.tableSpan}</th><th>${V.tableStatus}</th>${SHOW_CONTRACTS ? `<th>${V.tableContract}</th>` : ''}</tr>` +
+      hops.map((c) => `<tr><td>${fmtMs(c.start)}</td><td>${esc(c.from)}</td><td>${esc(c.to)}</td><td>${esc(c.span.name)}</td><td>${c.error ? V.error : c.slow ? V.slow : V.ok}</td>${!SHOW_CONTRACTS ? '' : `<td>${(() => { const m = window.CONTRACTS && (window.CONTRACTS.bySpan[c.callee.spanId] || window.CONTRACTS.bySpan[c.span.spanId]); if (!window.CONTRACTS) return nodes.get(c.to).inferred ? V.infrastructureHop : V.unmatchedContracts; if (!m) return nodes.get(c.to).inferred ? V.infrastructureHop : V.unmatchedShort; return m.state === 'unmatched' ? V.unmatchedShort + ': ' + esc(m.reason) : m.state === 'infra' ? V.infrastructureHop : esc(m.state + ' ' + m.key); })()}</td>`}</tr>`).join('') + '</table>');
+}
+// ------------------------------------------------------------------ interactive layer (never runs in render mode)
+// renderAt(t) above stays a pure function of t. Selection, speed and the panel live here and only draw an
+// overlay after renderAt, so the video frames (render mode) are byte-identical with or without this code.
+const q = new URLSearchParams(location.search);
+const RENDER = !!window.__RENDER_MODE;
+if (RENDER) document.documentElement.classList.add('render');
+const $ = (id) => document.getElementById(id);
+// touch-first devices (phones, tablets): tap hints instead of keyboard hints, roomier hit testing
+const TOUCH = !RENDER && !!(window.matchMedia && matchMedia('(hover: none) and (pointer: coarse)').matches);
+const scrub = $('scrub'), btn = $('play'), lab = $('tlabel');
+const esc = (s) => String(s).replace(/[&<>"]/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[ch]));
+scrub.max = SECONDS;
+let T = q.has('t') ? parseFloat(q.get('t')) || 0 : 0, playing = false, last = null, SPEED = 1;
+let sel = null;   // selected span (object from spans)
+const hopOfSpan = (s) => s && (hops.find((c) => c.span === s) || hops.find((c) => c.callee === s));
+const tOfMs = (ms) => clamp(VIZ.frameOfTraceMs(ms) / FPS, 0, SECONDS);
+function drawSelection(tm) {
+  if (!sel) return;
+  const c = hopOfSpan(sel);
+  ctx.save(); ctx.setTransform(DPR, 0, 0, DPR, 0, 0); ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  if (c) {
+    const e = edgeOf(c);
+    ctx.globalAlpha = 0.22; ctx.strokeStyle = C.ink; ctx.lineWidth = LW + 12; strokePath(e.path, e.path.len);
+    ctx.globalAlpha = 1; ctx.strokeStyle = e.color; ctx.lineWidth = LW + 2; strokePath(e.path, e.path.len);
+  }
+  const n = nodes.get(c ? c.to : nodeOf(sel));
+  ctx.strokeStyle = C.ink; ctx.lineWidth = 3; ctx.setLineDash([4, 4]);
+  ctx.beginPath(); ctx.roundRect(n.x - 17, n.y + n.top - 17, 34, n.bot - n.top + 34, 17); ctx.stroke(); ctx.setLineDash([]);
+  // strip: the selected span's extent
+  const a = sx(sel.start), b = sx(sel.end);
+  ctx.fillStyle = C.ink; ctx.globalAlpha = 0.85; ctx.fillRect(a, SY - 20, Math.max(3, b - a), 4); ctx.globalAlpha = 1;
+  ctx.beginPath(); ctx.moveTo(a, SY - 22); ctx.lineTo(a, SY + 10); ctx.lineWidth = 2; ctx.stroke();
+  ctx.restore();
+}
+function show(t) {
+  T = clamp(t, 0, SECONDS); renderAt(T); drawSelection(traceMsAt(T));
+  scrub.value = T; lab.textContent = `${T.toFixed(2)} s / ${SECONDS.toFixed(2)} s  (frame ${Math.round(T * FPS)})  ·  ${SPEED}x`;
+}
+function tick(ts) {
+  if (!playing || RENDER) return;
+  if (last != null) { let nt = T + SPEED * (ts - last) / 1000; if (nt >= SECONDS) nt = 0; show(nt); }
+  last = ts; requestAnimationFrame(tick);
+}
+// Playing keeps the map clean; pausing with nothing chosen picks the hop in progress (or the last one to start).
+function setPlaying(p, auto = false) {
+  playing = p && !RENDER; last = null; btn.textContent = playing ? 'Pause' : 'Play';
+  if (playing) { if (sel) select(null, false); requestAnimationFrame(tick); }
+  else if (auto && !sel) { const tm = traceMsAt(T); const c = hops.filter((h) => h.start <= tm).pop(); if (c) select(c.span, false); }
+}
+function setSpeed(s) {
+  SPEED = s;
+  document.querySelectorAll('#speed button').forEach((b) => b.classList.toggle('on', Number(b.dataset.s) === s));
+  show(T);
+}
+// ---- panel (interactive page only; hidden in renders)
+const panel = $('panel');
+const KIND = (k) => k || 'internal';
+const CT = window.CONTRACTS || null;
+const ENTRY = CT ? new Map(CT.entries.map((e) => [e.id, e])) : new Map();
+const nodeFor = (s) => nodes.get(nodeOf(s)) || nodes.get(s.service);
+// the contract that describes a hop: the callee's (server/consumer) span, or the client span for infra hops
+function contractOf(s) {
+  if (!CT) return null;
+  const c = hopOfSpan(s);
+  const span = c ? c.callee : s;
+  return CT.bySpan[span.spanId] || (c && CT.bySpan[c.span.spanId]) || null;
+}
+const bulletHtml = (n, size = 22) => n
+  ? `<span class="bul${n.inferred ? ' sq' : ''}" style="background:${n.color};width:${size}px;height:${size}px;font-size:${Math.round(size * 0.6)}px">${n.inferred ? '' : esc(n.bullet)}</span>` : '';
+function spanLink(s) {
+  return `<a href="#span=${encodeURIComponent(s.spanId)}" data-span="${esc(s.spanId)}"><span class="dot" style="background:${(nodeFor(s) || {}).color || C.infra}"></span>${esc(s.service)} · ${esc(s.name)}</a>`;
+}
+// request / response cards
+const CONF = { high: ['#1C8F5A', V.confidenceHigh], medium: ['#E89A00', V.confidenceMedium], low: ['#D42A1E', V.confidenceLow] };
+const SRC = { zod: `${V.validator} · zod`, joi: `${V.validator} · joi`, 'class-validator': `${V.validator} · class-validator`, 'ts-types': `${V.type} · TypeScript`, openapi: `${V.spec} · OpenAPI`, protobuf: `${V.schema} · protobuf`, none: V.declared, unresolved: V.unresolved };
+function typeLabel(n) {
+  if (!n) return V.unknown;
+  if (n.unresolved) return `${n.ref || V.unknown} (${V.unresolved})`;
+  switch (n.t) {
+    case 'array': return `${n.items && n.items.t === 'object' ? (n.items.ref || 'object') : typeLabel(n.items)}[]`;
+    case 'enum': return n.values.map((v) => JSON.stringify(v)).join(' | ');
+    case 'union': return n.of.map(typeLabel).join(' | ');
+    case 'object': return n.ref || 'object';
+    default: return n.t;
+  }
+}
+function fieldRows(n, depth = 0) {
+  const obj = n && (n.t === 'object' ? n : n.t === 'array' && n.items && n.items.t === 'object' ? n.items : null);
+  if (!obj) return '';
+  if (depth > 3) return `<div class="f" style="padding-left:${depth * 14}px"><span class="muted">${V.deeperFields}</span></div>`;
+  return obj.props.map((p) => `<div class="f" style="padding-left:${depth * 14}px"><span class="req" title="${p.optional ? V.optional : V.required}">${p.optional ? '○' : '●'}</span><span class="fn">${esc(p.name)}</span><span class="ft">${esc(typeLabel(p.node))}</span>${p.node && p.node.c ? `<span class="fc">${esc(p.node.c.join(', '))}</span>` : ''}</div>` + fieldRows(p.node, depth + 1)).join('');
+}
+function card(title, side, gap) {
+  if (!side) return `<div class="card gap"><div class="ch"><b>${title}</b></div><div class="cb">${esc(gap)}. Not guessed.</div></div>`;
+  const [cc, cl] = CONF[side.confidence] || CONF.low;
+  const body = side.schema.t === 'void' ? `<div class="muted">${V.responseBody}</div>`
+    : side.schema.t === 'object' || (side.schema.t === 'array' && side.schema.items && side.schema.items.t === 'object') ? fieldRows(side.schema)
+    : `<div class="f"><span class="ft">${esc(typeLabel(side.schema))}</span></div>`;
+  return `<div class="card"><div class="ch"><b>${title}</b>${side.name ? `<span class="cn">${esc(side.name)}${side.schema.t === 'array' ? '[]' : ''}</span>` : ''}<span class="conf" title="${cl}"><i style="background:${cc}"></i>${side.confidence}</span></div>` +
+    `<div class="badges"><span class="badge ${/^validator|^spec|^schema/.test(SRC[side.kind] || '') ? 'v' : 't'}">${esc(SRC[side.kind] || side.kind)}</span>${side.via ? `<span class="badge o">${esc(side.via)}</span>` : ''}${side.crossPackage ? `<span class="badge o">${V.sharedPackage}</span>` : ''}</div>` +
+    `<div class="cb">${body}</div>` +
+    (side.notes && side.notes.length ? `<div class="note">${side.notes.map(esc).join('<br>')}</div>` : '') +
+    (side.source ? `<div class="src">${esc(side.source)}</div>` : '') + `</div>`;
+}
+function contractSection(s) {
+  const head = `<h3>${V.expectedRequestResponse}</h3>`;
+  if (!CT) return head + `<div class="card gap"><div class="cb">${V.contractsNotIndexed} <code>transit index</code>, ${V.thenBuildWith} <code>--contracts</code>.</div></div>`;
+  const m = contractOf(s);
+  if (!m) return head + `<div class="card gap"><div class="cb">${V.noHopContract} (${V.internalWorkInside} ${esc(s.service)}).</div></div>`;
+  if (m.state === 'infra') return head + `<div class="card infra"><div class="ch"><b>${V.infrastructureHopTitle}</b><span class="cn">${esc(m.key)}</span></div><div class="cb">${esc(m.reason)}. ${V.noContractExpected}.</div></div>`;
+  if (m.state === 'unmatched') return head + `<div class="card gap"><div class="ch"><b>${V.unmatchedShort}</b><span class="cn">${esc(m.key)}</span></div><div class="cb">${esc(m.reason)}.</div></div>`;
+  const e = ENTRY.get(m.entryId);
+  return head + `<div class="match"><span class="tag ${m.state === 'fallback' ? 'slow' : 'ok'}">${m.state === 'fallback' ? V.fallback : V.matchedTag}</span> ${esc(m.key)} <span class="muted">→ ${esc(e.service)} · ${esc(e.extractor)}</span><div class="src">${esc(e.source)}</div>${m.reason ? `<div class="note">${esc(m.reason)}</div>` : ''}</div>` +
+    card(e.kind === 'topic' ? V.message : V.request, e.request, V.noRequestSchema) +
+    (e.kind === 'topic' ? '' : card(V.response, e.response, V.noResponseType));
+}
+// attributes, grouped; the long tail of each group folds away
+const GROUPS = [[V.groups.http, /^(http|url)\./], [V.groups.db, /^db\./], [V.groups.messaging, /^(messaging|kafka)\./], [V.groups.rpc, /^rpc\./], [V.groups.other, /./]];
+function attrGroups(s) {
+  const all = Object.entries(s.attrs || {}).sort(([a], [b]) => (a < b ? -1 : 1));
+  if (!all.length) return `<p class="muted">${V.none}</p>`;
+  const used = new Set();
+  return GROUPS.map(([g, re]) => {
+    const rows = all.filter(([k]) => !used.has(k) && re.test(k)); rows.forEach(([k]) => used.add(k));
+    if (!rows.length) return '';
+    const r = ([k, v]) => `<div class="kv"><span class="k">${esc(k)}</span><span class="v">${esc(typeof v === 'object' ? JSON.stringify(v) : v)}</span></div>`;
+    const head = rows.slice(0, 3), tail = rows.slice(3);
+    return `<div class="ag"><div class="agh">${g}<span>${rows.length}</span></div>${head.map(r).join('')}${tail.length ? `<details><summary>${tail.length} more</summary>${tail.map(r).join('')}</details>` : ''}</div>`;
+  }).join('');
+}
+// One model for the whole panel. A hop is a call from a caller to a callee station:
+//   station  = the callee (header, title, breadcrumb end, server timings, attributes, contract)
+//   from     = the caller service; its client span is shown as the "client" timing and the waterfall window
+// Infrastructure hops have no server span: the client span is the hop and the station is the dependency.
+// A span that is not part of any hop (internal work) is shown on its own as "SPAN (no hop)".
+function hopModel(s) {
+  const c = hopOfSpan(s);
+  if (!c) return { c: null, main: s, client: null, server: s, node: nodeFor(s), infra: false, index: -1 };
+  const infra = !!nodes.get(c.to).inferred;
+  const client = c.span !== c.callee || infra ? c.span : null;        // the caller's client/producer span, if any
+  const server = infra ? null : c.callee;                              // the callee's server/consumer span
+  return { c, main: server || c.span, client, server, node: nodes.get(c.to), infra, index: hops.indexOf(c) };
+}
+// mini waterfall: the server span inside the caller's client span (or a span inside its parent);
+// time spent in children is light, self time solid
+function waterfall(m) {
+  const s = m.main, win = m.client && m.server ? m.client : (s.parentId && byId.get(s.parentId));
+  const a = win ? Math.min(win.start, s.start) : 0, b = win ? Math.max(win.end, s.end) : TOTAL, w = Math.max(1e-9, b - a);
+  const pct = (x) => (100 * (clamp(x, a, b) - a) / w).toFixed(3) + '%';
+  const col = (m.node || {}).color || C.ink;
+  const kidsIv = kids.get(s.spanId).map((k) => [Math.max(k.start, s.start), Math.min(k.end, s.end)]).filter((x) => x[1] > x[0]);
+  const winLabel = m.client && m.server ? `${V.clientCallFrom} ${esc(m.client.service)} · ${fmtMs(m.client.duration)}` : win ? `${V.in} ${esc(win.service)} · ${fmtMs(win.duration)}` : `${V.wholeTrace} · ${fmtMs(TOTAL)}`;
+  return `<div class="wf" title="${m.server && m.client ? V.spanInsideClient : V.spanInsideParent}">` +
+    `<div class="wf-parent"></div>` +
+    `<div class="wf-span" style="left:${pct(s.start)};width:calc(${pct(s.end)} - ${pct(s.start)});background:${col}">` +
+    kidsIv.map(([x, y]) => `<i style="left:${(100 * (x - s.start) / (s.duration || 1)).toFixed(3)}%;width:${(100 * (y - x) / (s.duration || 1)).toFixed(3)}%"></i>`).join('') + `</div></div>` +
+    `<div class="wf-cap"><span>${winLabel}</span><span>${m.server && m.client ? V.server + ' ' : ''}<b>${fmtMs(s.duration)}</b> · ${V.self} <b>${fmtMs(s.self)}</b></span></div>`;
+}
+// breadcrumb: root to the station, one stop per service change; an infrastructure station is the last stop
+function breadcrumb(m) {
+  const chain = []; for (let x = m.main; x; x = x.parentId && byId.get(x.parentId)) chain.unshift(x);
+  const stops = chain.filter((x, i) => i === chain.length - 1 || i === 0 || x.service !== chain[i - 1].service);
+  const html = stops.map((x, i) => {
+    const n = nodeFor(x) && !(m.infra && x === m.main) ? nodeFor(x) : nodes.get(x.service), last = !m.infra && i === stops.length - 1;
+    return `<a class="stop${last ? ' here' : ''}" href="#span=${encodeURIComponent(x.spanId)}" data-span="${esc(x.spanId)}" title="${esc(x.service + ' · ' + x.name)}"><span class="sd" style="border-color:${n ? n.color : C.infra}${last ? `;background:${n ? n.color : C.infra}` : ''}"></span><span class="sl">${esc(x.service)}</span></a>`;
+  });
+  if (m.infra) html.push(`<span class="stop here infra" title="${esc(m.node.id)} (infrastructure)"><span class="sd sq" style="border-color:${C.infra};background:${C.infra}"></span><span class="sl">${esc(m.node.id)}</span></span>`);
+  return `<div class="crumbs">${html.join('<span class="seg"></span>')}</div>`;
+}
+function renderPanel() {
+  if (!RENDER) document.documentElement.classList.toggle('sel', !!sel);
+  if (!sel && TOUCH) { panel.innerHTML = `<div class="sign"><div class="st"><span class="sn">${V.transit}</span></div><div class="sub">${V.noHopSelected}</div></div><div class="pbody" tabindex="0"><div class="empty"><p>${V.inspectClick.replace(/^click/i, 'Tap')} ${V.inspectTail}</p></div></div>`; return; }
+  if (!sel) { panel.innerHTML = `<div class="sign"><div class="st"><span class="sn">${V.transit}</span></div><div class="sub">${V.noHopSelected}</div></div><div class="pbody" tabindex="0"><div class="empty"><p>${V.inspectHop} <kbd>N</kbd>, ${V.or} ${V.inspectClick} ${V.inspectTail}</p></div><h3>${V.shortcuts}</h3>` + document.querySelector('#help table').outerHTML + '</div>'; return; }
+  const m = hopModel(sel), s = m.main, n = m.node;
+  const ch = kids.get(s.spanId).slice().sort((a, b) => a.start - b.start);
+  const stat = (k, v) => `<div class="stat"><span>${k}</span><b>${v}</b></div>`;
+  const timing = (label, x, self) => `<div class="trow"><div class="tl">${label}</div><div class="stats">${stat(V.kind, esc(KIND(x.kind)))}${stat(V.start, '+' + fmtMs(x.start))}${stat(V.duration, fmtMs(x.duration))}${self ? stat(V.self, fmtMs(x.self) + (x.slow ? ` <span class="tag slow">${V.delay}</span>` : '')) : stat(V.span, `<span class="mono">${esc(x.spanId.slice(0, 8))}</span>`)}</div></div>`;
+  const errSpan = [m.server, m.client].filter(Boolean).find((x) => x.status === 'error');
+  const fromNode = m.c && nodes.get(m.c.from);
+  panel.innerHTML =
+    `<div class="sign"><div class="st">${bulletHtml(n, 26)}<span class="sn">${esc(n ? n.id : s.service)}</span><button id="pclose" title="${V.deselect}">×</button></div>` +
+    `<div class="sub">${m.c ? `${V.hop.toUpperCase()} ${m.index + 1} / ${hops.length} · ${V.from} ${bulletHtml(fromNode, 14)} ${esc(m.c.from)}` : `${V.span} (no ${V.hopNoun})`}${m.infra ? ` · ${V.infrastructure}` : ''}</div></div>` +
+    `<div class="pbody" tabindex="0">` +
+    `<h2>${esc(s.name)}</h2>` +
+    breadcrumb(m) +
+    waterfall(m) +
+    (m.client && m.server ? timing(`${V.client} · ${esc(m.client.service)}`, m.client, false) + timing(`${V.server} · ${esc(m.server.service)}`, m.server, true)
+      : m.infra ? timing(`${V.client} · ${esc(m.client.service)} (${V.noServerSpan}: ${esc(n.id)} ${V.notInstrumented})`, m.client, true)
+      : timing(m.c ? `${esc(KIND(s.kind))} · ${esc(s.service)}` : esc(s.service), s, true)) +
+    `<div class="status ${errSpan ? 'err' : ''}">${errSpan ? `<span class="tag err">${V.serviceAlert}</span> ${esc(errSpan.statusMessage || V.error)} <span class="muted">(${errSpan === m.server ? V.server : V.client} ${V.span})</span>` : `${V.status} <b>${esc(s.status || V.unset)}</b>`}${s.resource && s.resource !== s.name ? ` · ${V.resource} <b>${esc(s.resource)}</b>` : ''}</div>` +
+    contractSection(s) +
+    `<h3>${V.attributes}${m.client && m.server ? ` · ${V.serverSpan}` : ''}</h3>` + attrGroups(s) +
+    (m.client && m.server && m.client.attrs ? `<details class="client-attrs"><summary>${V.client} ${V.span} ${V.attributes.toLowerCase()} (${esc(m.client.service)})</summary>${attrGroups(m.client)}</details>` : '') +
+    `<p class="muted">${D.meta && D.meta.redacted ? `${D.meta.redacted} ${V.redactedAcross}` : V.sensitiveRedacted}${D.meta && D.meta.scrub ? (D.meta.scrub.level === 'off' ? ` <b>${V.scrubOff}</b>` : D.meta.scrub.values ? ` ${D.meta.scrub.values} ${V.scrubbedValues} (${esc(D.meta.scrub.level)}).` : '') : ''}</p>` +
+    `<h3>${V.children} (${ch.length})</h3>${ch.length ? '<ul>' + ch.map((k) => `<li>${spanLink(k)}</li>`).join('') + '</ul>' : `<p class="muted">${V.none}</p>`}` +
+    `<p class="muted mono">${m.client ? `client span ${esc(m.client.spanId)}<br>` : ''}${m.server ? `server span ${esc(m.server.spanId)}` : m.client ? '' : `span ${esc(s.spanId)}`}</p>` +
+    `</div>`;
+}
+function select(s, jump = true) {
+  sel = s || null;
+  if (sel && jump) { setPlaying(false); show(tOfMs(sel.start)); } else show(T);
+  renderPanel();
+  const h = sel ? `#span=${encodeURIComponent(sel.spanId)}` : ' ';
+  // absolute URL: a relative one resolves against <base href> when a previewer injects one (htmlpreview.github.io), crossing origins
+  try { history.replaceState(null, '', location.href.split('#')[0] + h); } catch (e) { /* file:// in some browsers */ }
+}
+const selectHop = (c) => c && select(c.span);
+function stepHop(dir) {
+  const tm = traceMsAt(T), cur = sel ? hopOfSpan(sel) : null;
+  let i;
+  if (cur) i = hops.indexOf(cur) + dir;
+  else i = dir > 0 ? hops.findIndex((c) => c.start > tm - 1e-9) : hops.map((c) => c.start < tm).lastIndexOf(true);
+  if (i < 0) i = dir > 0 ? 0 : hops.length - 1;
+  selectHop(hops[clamp(i, 0, hops.length - 1)]);
+}
+panel.addEventListener('click', (ev) => {
+  const a = ev.target.closest('[data-span]');
+  if (a) { ev.preventDefault(); select(byId.get(a.dataset.span)); return; }
+  if (ev.target.id === 'pclose') select(null, false);
+});
+// ---- canvas hit testing (in CSS px of the 1200x900 stage)
+function hitTest(x, y, tol = 16) {
+  const tm = traceMsAt(T);
+  // touch: a finger is ~44 CSS px wide, so take the nearest station within reach before anything else
+  if (tol > 16) {
+    let near = null, nd = tol;
+    for (const n of order) { const d = Math.hypot(n.x - x, clamp(y, n.y + n.top, n.y + n.bot) - y); if (d < nd) { nd = d; near = n; } }
+    if (near) return { type: 'station', node: near };
+  }
+  // trains first: they sit on top
+  for (const tr of calls.map((c) => trainFor(c, tm)).filter(Boolean)) {
+    const p = at(tr.e.path, tr.p * tr.e.path.len);
+    if (Math.hypot(p.x - x, p.y - y) < tol) return { type: 'train', call: tr.c };
+  }
+  for (const n of order) {
+    if (x > n.x - 16 && x < n.x + 16 && y > n.y + n.top - 16 && y < n.y + n.bot + 16) return { type: 'station', node: n };
+    const ly = n.y + n.top - 19;
+    if (Math.abs(x - n.x) < 80 && y > ly - 16 && y < ly + 4) return { type: 'station', node: n };
+  }
+  // strip hop ticks
+  if (y > SY - 40 && y < SY + 30) {
+    let best = null, bd = 8;
+    for (const c of hops) { const d = Math.abs(sx(c.start) - x); if (d < bd) { bd = d; best = c; } }
+    if (best) return { type: 'strip', call: best };
+  }
+  // line segments
+  let best = null, bd = 9;
+  for (const e of edges.values()) for (const pt of e.path.pts) { const d = Math.hypot(pt[0] - x, pt[1] - y); if (d < bd) { bd = d; best = e; } }
+  if (best) {
+    const cs = best.calls.slice().sort((a, b) => a.start - b.start);
+    const c = cs.find((k) => tm >= k.start && tm < k.end) || cs.find((k) => k.start >= tm) || cs[0];
+    return { type: 'segment', call: c };
+  }
+  return null;
+}
+function onCanvasClick(ev) {
+  const r = cv.getBoundingClientRect();
+  const touch = TOUCH || ev.pointerType === 'touch';
+  const h = hitTest((ev.clientX - r.left) * STAGE.width / r.width, (ev.clientY - r.top) * STAGE.height / r.height, touch ? Math.max(16, 22 * STAGE.width / r.width) : 16);
+  if (!h) { setPlaying(!playing, true); return; }
+  if (h.call) return selectHop(h.call);
+  const n = h.node, tm = traceMsAt(T);
+  if (n.id === root.service && !hops.some((c) => c.to === n.id)) return select(root);
+  const arr = hops.filter((c) => c.to === n.id);
+  if (!arr.length) return select(spans.find((s) => nodeOf(s) === n.id) || root);
+  selectHop(arr.find((c) => c.start >= tm - 1e-9 && hopOfSpan(sel) !== c) || arr[0]);
+}
+cv.addEventListener('click', onCanvasClick);
+cv.addEventListener('mousemove', (ev) => {
+  const r = cv.getBoundingClientRect();
+  cv.style.cursor = hitTest((ev.clientX - r.left) * STAGE.width / r.width, (ev.clientY - r.top) * STAGE.height / r.height) ? 'pointer' : 'default';
+});
+btn.onclick = () => setPlaying(!playing, true);
+scrub.oninput = () => { setPlaying(false); show(parseFloat(scrub.value)); };
+document.querySelectorAll('#speed button').forEach((b) => { b.onclick = () => setSpeed(Number(b.dataset.s)); });
+const help = $('help');
+const toggleHelp = (v) => { help.hidden = v === undefined ? !help.hidden : !v; };
+help.addEventListener('click', () => toggleHelp(false));
+addEventListener('keydown', (ev) => {
+  if (RENDER || ev.metaKey || ev.ctrlKey || ev.altKey) return;
+  if (ev.target && /INPUT|TEXTAREA|SELECT/.test(ev.target.tagName) && ev.target.type !== 'range') return;
+  const k = ev.key;
+  let handled = true;
+  if (k === '?' || (k === '/' && ev.shiftKey)) toggleHelp();
+  else if (k === 'Escape') { if (!help.hidden) toggleHelp(false); else select(null, false); }
+  else if (ev.code === 'Space') setPlaying(!playing, true);
+  else if (k === 'n' || k === 'N' || k === 'ArrowDown' || (ev.shiftKey && k === 'ArrowRight')) stepHop(1);
+  else if (k === 'p' || k === 'P' || k === 'ArrowUp' || (ev.shiftKey && k === 'ArrowLeft')) stepHop(-1);
+  else if (k === 'ArrowRight') { setPlaying(false); show(T + 0.5); }
+  else if (k === 'ArrowLeft') { setPlaying(false); show(T - 0.5); }
+  else if (k === '.') { setPlaying(false); show(Math.round(T * FPS + 1) / FPS); }
+  else if (k === ',') { setPlaying(false); show(Math.round(T * FPS - 1) / FPS); }
+  else if (k === 'Home') { setPlaying(false); show(0); }
+  else if (k === 'End') { setPlaying(false); show(SECONDS - 1 / FPS); }
+  else if (k === '1') setSpeed(0.5);
+  else if (k === '2') setSpeed(1);
+  else if (k === '3') setSpeed(2);
+  else handled = false;
+  if (handled) ev.preventDefault();
+});
+// test hook for the Playwright interaction tests
+window.TRANSIT_UI = {
+  state: () => ({ t: T, playing, speed: SPEED, selected: sel && sel.spanId, hop: sel && hopOfSpan(sel) ? hops.indexOf(hopOfSpan(sel)) : -1, help: !help.hidden }),
+  hops: hops.map((c) => ({ spanId: c.span.spanId, from: c.from, to: c.to, start: c.start, t: tOfMs(c.start) })),
+  stations: order.map((n) => ({ id: n.id, x: n.x, y: n.y })),
+  trainPoints: () => calls.map((c) => trainFor(c, traceMsAt(T))).filter(Boolean).map((r) => { const p = at(r.e.path, r.p * r.e.path.len); return { x: p.x, y: p.y, spanId: r.c.span.spanId }; }),
+  edgePoint: (i) => { const c = hops[i], e = edgeOf(c), p = e.path.pts[Math.floor(e.path.pts.length / 2)]; return { x: p[0], y: p[1] }; },
+};
+const want = !RENDER && (q.get('span') || q.get('pin') || (location.hash.match(/span=([^&]+)/) || [])[1]);
+renderPanel();
+// --share: open paused on the first SERVICE ALERT with its hop in the panel, under a one-line verdict
+const SHARE = !RENDER && OPT.share ? OPT.share : null;
+if (SHARE) { document.documentElement.classList.add('share'); const vb = document.getElementById('verdict'); vb.textContent = SHARE.verdict; vb.title = SHARE.message ? `${SHARE.verdict}\n${SHARE.message}` : SHARE.verdict; vb.hidden = false; }
+const shareOrigin = SHARE && !want && !q.has('t') && SHARE.origin && byId.get(SHARE.origin);
+if (want && byId.has(decodeURIComponent(want))) select(byId.get(decodeURIComponent(want)), !q.has('t'));
+else if (shareOrigin) { const h = hops.find((c) => c.callee === shareOrigin || c.span === shareOrigin); setPlaying(false); select(h ? h.span : shareOrigin, false); show(tOfMs(shareOrigin.end)); }
+else show(T);
+if (document.fonts) document.fonts.ready.then(() => show(T));
+if (!RENDER && !q.has('t') && !q.has('paused') && !want && !shareOrigin) setPlaying(true);
+})();
+</script>
+</body>
+</html>
