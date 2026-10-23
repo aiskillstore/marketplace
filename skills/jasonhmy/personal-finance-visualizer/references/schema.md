@@ -94,3 +94,10 @@ Supply `--currency`, `--start`, `--end` and optionally `--language`. CSV has no 
 - `days`: inclusive covered calendar days.
 
 The same pure module runs in the browser and Node tests. All rendering must insert untrusted text with DOM text nodes, never HTML interpolation.
+
+
+## Optional merchant display names
+
+JSON input may include `merchantDisplayNames`, an object mapping an exact original merchant string to a concise display label of 1–80 characters. This is optional presentation metadata; it does not alter transaction identities, merchant grouping, category, amounts, dates, shares or matches. Different original strings remain separate even when their display labels are identical. Search supports both labels and originals; full merchant and bank descriptions remain in transaction details and full labels are available on legend hover.
+
+Use concise labels only where the provided merchant name or existing user evidence makes the identity clear. Remove redundant location/payment formatting from a known name, but do not infer an unknown legal entity's business or assign a category. Keep an ambiguous name unchanged. Do not automatically add real merchant mappings to the public Skill or its examples. Omitted, empty, overlong or non-string mapping values fall back to the original display text.
