@@ -51,6 +51,48 @@ test('SKILL.md validation accepts the exact checked-in repository identities', (
   assert.equal(result.status, 0, result.stderr);
 });
 
+test('validation treats nested SKILL.md templates as package bytes, not independent entries', () => {
+  const root = mkdtempSync(join(tmpdir(), 'validate-package-boundary-'));
+  const valid = '---\nname: fixture\ndescription: fixture\n---\n';
+  const template = '---\nname: {{project}}\ndescription: {{description}}\n---\n';
+  try {
+    mkdirSync(join(root, 'scripts'), { recursive: true });
+    for (const file of ['validate-marketplace-skill-name.cjs', 'find-marketplace-skill-files.cjs']) {
+      writeFileSync(join(root, 'scripts', file), readFileSync(join('scripts', file)));
+    }
+    const packages = ['skills/owner/package', 'pending/owner/package', 'skills/legacy'];
+    for (const directory of packages) {
+      mkdirSync(join(root, directory, 'templates/example'), { recursive: true });
+      writeFileSync(join(root, directory, 'SKILL.md'), valid);
+      writeFileSync(join(root, directory, 'skill-report.json'), '{}');
+      writeFileSync(join(root, directory, 'templates/example/SKILL.md'), template);
+    }
+    function run(block) {
+      return spawnSync('bash', ['-c', block], {
+        cwd: root, encoding: 'utf8',
+        env: { ...process.env, CI: 'true', NODE_PATH: join(process.cwd(), 'node_modules') },
+      });
+    }
+    for (const block of [validateSkill, revalidateSkill]) {
+      const result = run(block);
+      assert.equal(result.status, 0, result.stderr);
+      for (const directory of packages) {
+        assert.equal(readFileSync(join(root, directory, 'templates/example/SKILL.md'), 'utf8'), template);
+      }
+      // A real root must still fail; a sibling without a report must not escape validation either.
+      writeFileSync(join(root, packages[0], 'SKILL.md'), template);
+      assert.equal(run(block).status, 1);
+      writeFileSync(join(root, packages[0], 'SKILL.md'), valid);
+      mkdirSync(join(root, 'skills/other/broken'), { recursive: true });
+      writeFileSync(join(root, 'skills/other/broken/SKILL.md'), template);
+      assert.equal(run(block).status, 1);
+      rmSync(join(root, 'skills/other'), { recursive: true });
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('SKILL.md validation accepts only an exact source-bound non-ASCII alias', () => {
   const root = mkdtempSync(join(tmpdir(), 'validate-skill-alias-'));
   const skillDirectory = join(root, 'pending', 'zx029w', 'zhuangxiu-shuidian-bikeng');
