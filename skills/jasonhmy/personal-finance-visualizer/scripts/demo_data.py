@@ -44,7 +44,7 @@ def make_demo(language="en"):
                 coverage=dict(start="2024-01-01", end="2024-03-31"), transactions=rows,
                 refunds=[dict(purchaseId=purchase, refundIds=[refund])],
                 settlements=[dict(outId=loan, inId=paid, amount="50.00")],
-                notes=["Every name, date, amount and record in this demo is invented." if language == "en" else "演示中的姓名、日期、金额和记录均为虚构。"], demo=True)
+                notes=["Every name, date, amount and record in this demo is invented." if language == "en" else "演示中的姓名、日期、金额和记录均为虚构。"], demo=True, merchantDisplayNames={"Example village grocer": "Village grocer"})
 
 if __name__ == "__main__":
     import json
