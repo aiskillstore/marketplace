@@ -7,36 +7,36 @@ In modern software development driven by autonomous multi-agent teams (e.g. **1 
 - **Human's Role**: Sole Judge and Strategic Founder (sets high-level intent, evaluates trade-offs, grants external permissions).
 - **Integrator / Admin**: Deconstructs work packages, enforces path locks, and dispatches tasks bounded by the Harness contract.
 - **Workers (Autonomous Coding Agents)**: Execute with maximum speed *strictly within* the `may_do` scope in isolated worktrees; zero scope expansion.
-- **QC Auditor (Independent Review Agent)**: Read-only auditor validating code diffs against the Harness `must_not_do` boundaries; 1-second rejection on scope violation.
+- **QC Auditor (Independent Review Agent)**: Read-only auditor validating code diffs against the Harness `must_not_do` boundaries and reporting scope violations.
 
 ---
 
-## 2. Zero-Stall Guarantee (Non-Blocking Architecture)
+## 2. Advisory Routing and Validated Execution Boundaries
 
-To prevent the harness from freezing developer flow or multi-agent pipelines after installation:
+Use the smallest responsible review mode without turning a heuristic into permission to execute.
 
-1. **Bypass by Default (90% Fast Path)**:
-   - Routine maintenance (styling, text, isolated bug fixes, internal refactors preserving public contracts) completely bypasses review gates.
-   - Zero latency, zero review JSON generation, zero blocking.
-2. **Sub-Second System One Classification via Decision Gating**:
-   - When intent classification or boundary checking is required, it is handled via lightweight decision models or deterministic rules in `scripts/jev_gate.py`.
-   - Evaluates risk, evidence tier, and 3-lane verdict in **under 300ms**, returning strongly-typed answers without generative prose.
-3. **Worst-Verdict Hard Brakes**:
-   - The harness only interrupts execution when one of four critical tripwires is triggered:
-     - **t0 Evidence Violation**: Large feature proposed with zero traceable evidence (forced `stop_reframe`).
-     - **Destructive State Mutation**: Unplanned database schema migrations, drops, or table corruption.
-     - **Irreversible Boundary Breach**: Modifying security rules, auth protocols, or external network access without authorization.
-     - **Inter-Flow Contradiction**: Conflict between user value and business viability.
+1. **Routing is advisory**:
+   - `scripts/jev_gate.py route` labels a task as routine, discovery, or commitment. It always returns `bypass: false` and `review_required: true`.
+   - Routine words cannot establish actual scope or risk. A scope above five changed files takes priority over routine keywords when context is supplied to the Python classifier.
+   - Reversibility lowers review mode, not the requirement for review. Reuse a still-valid context pack for an unchanged approved task instead of re-reviewing it.
+2. **Baseline evaluation is advisory**:
+   - `evaluate --task` accepts task metadata and produces a local heuristic assessment with `advisory: true`. It does not validate evidence truth or authorize implementation.
+   - Missing evidence defaults to `t0`; unsupported tiers are rejected. Supported tiers are `t0`, `t1`, `t2`, `t3`, and `t4`. A `t0` assessment stops and reframes; `t1` supports at most verification.
+   - The helper is offline. The unused live API client and ignored `--live` options have been removed. No model call or latency guarantee is part of this helper.
+3. **Boundary extraction requires canonical inputs**:
+   - `boundary --task` requires a JSON object with `review` containing a complete canonical review result. Raw prompts, evidence tiers, filenames, and proposed proof steps cannot create an execution boundary.
+   - For `continue`, the same JSON object must also contain `context_pack`. The canonical handoff validator checks the review, context pack, identity, evidence references, scope, and controls together.
+   - For `verify`, only the reviewed proof boundary and `proof_step` are returned. For `stop_reframe`, the reviewed boundary and `reframed_question` are returned. Neither branch gains implementation permissions from task filenames.
+   - Output preserves `may_do`, `must_not_do`, `must_ask`, `stop_conditions`, `human_approval_gates`, and `high_risk_actions`. A valid handoff does not mean a listed human approval has been granted.
+   - Invalid JSON, missing reviews, invalid evidence tiers, and mismatched handoffs fail with a nonzero exit status and no execution-boundary output. The helper uses `check_review.py`; it does not establish a second review contract.
 
 ---
 
-## 3. Lossless Context Preservation
+## 3. Preserve Boundaries Across Handoffs
 
 In long-running autonomous sessions (30~100+ turns), generative chat summaries often dilute or erase negative constraints (e.g. generalizing negative database constraints into broad feature summaries).
 
-This harness integrates with lossless context compaction:
-- All Harness Context Packs and boundary files carry the `boundary-lock` invariant.
-- When context compaction runs, expired tool execution logs and test outputs are pruned, while the **exact verbatim text** of `may_do`, `must_not_do`, and `stop_conditions` is retained at 100% fidelity at the top of the context window.
+The runtime must preserve the original review and context pack while executing a task. The boundary helper copies their controls without rewriting or broadening them. The harness does not control a host agent's context compaction and cannot guarantee lossless retention across arbitrary runtimes. After compaction, restore and validate the original handoff before resuming work.
 
 ---
 
@@ -47,23 +47,13 @@ This harness integrates with lossless context compaction:
 | **Integrator / Admin** | Package slicing & lock enforcement | Product intent | Task Context Pack with digest locks |
 | **Worker (Builder)** | Atomic implementation & local tests | `may_do` & `must_not_do` | Clean patch + unit test evidence |
 | **QC Auditor** | Defect-first boundary audit | Git diff + Context Pack | PASS or Scope Drift Rejection |
-| **System One Gate** | Millisecond triage & gating | State + Typed Questions | `choice` / `noul` / `score` typed decision |
+| **Advisory Router** | Review-mode triage | Task prompt and optional scope | Routine, discovery, or commitment; no review bypass |
+| **Boundary Helper** | Validate and preserve execution scope | Canonical review and matching context pack for continue | Reviewed boundary and unchanged human controls |
 
 ---
 
-## 5. Pilot Validations
+## 5. Verification Scope
 
-This protocol has been pilot-tested against three production codebases:
+The telemetry, authentication, and media-sync cases in `tests/test_multi_agent_alignment.py` are illustrative local fixtures. They do not establish production deployments, privacy outcomes, collision rates, or latency measurements.
 
-1. **Twin3 SDK**:
-   - *Challenge*: Worker attempting unauthorized external telemetry webhook.
-   - *Harness Action*: Gate tripped on Evidence Flow (t0 unconsented telemetry); locked negative constraints on external HTTP requests and Secret Manager mutation.
-   - *Result*: Zero-stall on standard tools, immediate halt on external network breach.
-2. **xAgent Identity**:
-   - *Challenge*: Worker extending authentication routes inside a 732KB monolithic server file and risking enterprise store schema corruption.
-   - *Harness Action*: Locked `may_do` to specific route handlers, strictly forbidden from modifying the enterprise store or core contract schemas.
-   - *Result*: Zero collision, protected monolithic state.
-3. **xHuman Identity**:
-   - *Challenge*: Worker attempting cloud sync for user media in violation of local-preview-only contract.
-   - *Harness Action*: Irreversible privacy boundary tripped; forced `stop_reframe` back to frontend blob URL preview.
-   - *Result*: Zero cloud leakage, customer privacy preserved.
+`tests/test_gate_boundaries.py` exercises the actual repository and installable helper: routine classification cannot bypass review, unsupported evidence tiers fail closed, raw task metadata cannot grant execution permissions, invalid or expanded context packs are rejected, and valid canonical boundaries retain their exact scope and controls. Bundle tests also require every distributed runtime script to match its canonical source.
