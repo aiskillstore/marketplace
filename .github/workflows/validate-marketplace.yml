@@ -16,6 +16,7 @@ on:
       - ".github/dependabot.yml"
       - "package.json"
       - "package-lock.json"
+      - "scripts/find-marketplace-skill-files.cjs"
       - "scripts/check-workflow-action-pins.mjs"
       - "scripts/check-workflow-runner-safety.mjs"
       # Keep this retired path as a trigger so any attempted reintroduction runs the guard test.
@@ -46,6 +47,7 @@ on:
       - ".github/dependabot.yml"
       - "package.json"
       - "package-lock.json"
+      - "scripts/find-marketplace-skill-files.cjs"
       - "scripts/check-workflow-action-pins.mjs"
       - "scripts/check-workflow-runner-safety.mjs"
       # Keep this retired path as a trigger so any attempted reintroduction runs the guard test.
@@ -306,20 +308,7 @@ jobs:
               return errors;
             }
 
-            const findSkillMdFiles = (dir) => {
-              const files = [];
-              if (!fs.existsSync(dir)) return files;
-              const entries = fs.readdirSync(dir, { withFileTypes: true });
-              for (const entry of entries) {
-                const fullPath = path.join(dir, entry.name);
-                if (entry.isDirectory()) {
-                  files.push(...findSkillMdFiles(fullPath));
-                } else if (entry.name === 'SKILL.md') {
-                  files.push(fullPath);
-                }
-              }
-              return files;
-            };
+            const { findSkillMdFiles } = require('./scripts/find-marketplace-skill-files.cjs');
 
             const skillMdFiles = [...findSkillMdFiles('skills'), ...findSkillMdFiles('pending')];
             let hasInvalidFiles = false;
@@ -459,17 +448,7 @@ jobs:
               return errors;
             }
 
-            const findSkillMdFiles = (dir) => {
-              const files = [];
-              if (!fs.existsSync(dir)) return files;
-              const entries = fs.readdirSync(dir, { withFileTypes: true });
-              for (const entry of entries) {
-                const fullPath = path.join(dir, entry.name);
-                if (entry.isDirectory()) files.push(...findSkillMdFiles(fullPath));
-                else if (entry.name === 'SKILL.md') files.push(fullPath);
-              }
-              return files;
-            };
+            const { findSkillMdFiles } = require('./scripts/find-marketplace-skill-files.cjs');
 
             const skillMdFiles = [...findSkillMdFiles('skills'), ...findSkillMdFiles('pending')];
             let hasInvalidFiles = false;
@@ -636,8 +615,10 @@ jobs:
           import { dirname } from 'node:path';
           import { calculateCanonicalTreeHash } from './scripts/resolve-approved-submission.mjs';
 
+          import { resolveSkillReportPaths } from './scripts/find-marketplace-skill-files.cjs';
+
           const changedPaths = readFileSync(process.argv[2], 'utf8').split('\0').filter(Boolean);
-          const reportPaths = [...new Set(changedPaths.map((path) => `${dirname(path)}/skill-report.json`))].sort();
+          const reportPaths = resolveSkillReportPaths(changedPaths);
           for (const reportPath of reportPaths) {
             const skillDirectory = dirname(reportPath);
             const skillPath = `${skillDirectory}/SKILL.md`;
