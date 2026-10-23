@@ -21,4 +21,15 @@ function findSkillMdFiles(dir) {
   });
 }
 
-module.exports = { findSkillMdFiles };
+function resolveSkillReportPaths(changedPaths) {
+  const roots = [...findSkillMdFiles('skills'), ...findSkillMdFiles('pending')]
+    .map((file) => path.dirname(file))
+    .sort((a, b) => b.length - a.length);
+  return [...new Set(changedPaths.map((changedPath) => {
+    const root = roots.find((directory) => changedPath.startsWith(`${directory}/`));
+    if (!root) throw new Error(`No owning skill root for changed artifact: ${changedPath}`);
+    return path.join(root, 'skill-report.json');
+  }))].sort();
+}
+
+module.exports = { findSkillMdFiles, resolveSkillReportPaths };
