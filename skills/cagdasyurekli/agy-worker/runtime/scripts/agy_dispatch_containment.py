@@ -31,7 +31,6 @@ import plistlib
 import posixpath
 import pwd
 import signal
-import select
 import stat
 import subprocess
 import sys
@@ -41,12 +40,12 @@ import uuid
 
 
 SANDBOX_EXEC = Path("/usr/bin/sandbox-exec")
-SECURITY_HELPER = Path("/usr/bin/security")
 MAX_EXECUTABLE_BYTES = 512 * 1024 * 1024
 MAX_PROFILE_BYTES = 64 * 1024
-MAX_KEYCHAIN_LOCATOR_BYTES = 4096
-KEYCHAIN_LOCATOR_DEADLINE_SECONDS = 5
-KEYCHAIN_LOCATOR_TERM_GRACE_SECONDS = 1
+DEDICATED_KEYCHAIN_NAME = "agy-worker-provider.keychain-db"
+KEYCHAIN_SETUP_DOC = "references/TROUBLESHOOTING.md (Dedicated agy keychain for native isolation)"
+KEYCHAIN_STATUS_DEADLINE_SECONDS = 5
+EXIT_NATIVE_HOST_UNAVAILABLE = 27
 MAX_GROUP_MEMBERS = 4096
 PROCESS_GROUP_CLEANUP_SCOPE = "bound-process-group-only"
 ROLE_PROVIDER = "provider"
@@ -68,8 +67,35 @@ _PROC_PIDTBSDINFO = 3
 _MAXCOMLEN = 16
 
 
+# SecKeychainGetStatus reports kSecUnlockStateStatus (1) without ever prompting.
+_KEYCHAIN_STATUS_PROBE = """
+import ctypes, sys
+framework = "/System/Library/Frameworks/"
+sec = ctypes.CDLL(framework + "Security.framework/Security")
+cf = ctypes.CDLL(framework + "CoreFoundation.framework/CoreFoundation")
+sec.SecKeychainOpen.argtypes = [ctypes.c_char_p, ctypes.c_void_p]
+sec.SecKeychainOpen.restype = ctypes.c_int32
+sec.SecKeychainGetStatus.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+sec.SecKeychainGetStatus.restype = ctypes.c_int32
+cf.CFRelease.argtypes = [ctypes.c_void_p]
+ref, status = ctypes.c_void_p(), ctypes.c_uint32()
+if sec.SecKeychainOpen(sys.argv[1].encode(), ctypes.byref(ref)) != 0 or not ref.value:
+    raise SystemExit(1)
+try:
+    if sec.SecKeychainGetStatus(ref, ctypes.byref(status)) != 0:
+        raise SystemExit(1)
+finally:
+    cf.CFRelease(ref)
+print("unlocked" if status.value & 1 else "locked")
+"""
+
+
 class ContainmentError(RuntimeError):
     """The scoped native launch boundary could not be established exactly."""
+
+
+class KeychainUnavailableError(ContainmentError):
+    """The dedicated Keychain is missing or locked; the message is actionable."""
 
 
 @dataclasses.dataclass(frozen=True)
@@ -260,7 +286,7 @@ def _bind_file(
 
 
 def _bind_keychain(path: str | Path) -> KeychainBinding:
-    """Bind a default Keychain by metadata without opening its database."""
+    """Bind the dedicated Keychain by metadata without opening its database."""
     candidate = _canonical_existing(path)
     try:
         before = os.lstat(candidate)
@@ -285,112 +311,61 @@ def _bind_keychain(path: str | Path) -> KeychainBinding:
     )
 
 
-def _terminate_locator(
-    process: subprocess.Popen[bytes], root: ProcessIdentity,
-) -> None:
-    """Reap a bounded locator without leaving a child process group behind."""
-    try:
-        if not process_group_is_quiescent(root):
-            terminate_bound_process_group(root, signal.SIGTERM)
-            deadline = time.monotonic() + KEYCHAIN_LOCATOR_TERM_GRACE_SECONDS
-            while not process_group_is_quiescent(root) and time.monotonic() < deadline:
-                time.sleep(0.01)
-            if not process_group_is_quiescent(root):
-                terminate_bound_process_group(root, signal.SIGKILL)
-                deadline = time.monotonic() + KEYCHAIN_LOCATOR_TERM_GRACE_SECONDS
-                while not process_group_is_quiescent(root) and time.monotonic() < deadline:
-                    time.sleep(0.01)
-        if process.poll() is None:
-            process.wait(timeout=KEYCHAIN_LOCATOR_TERM_GRACE_SECONDS)
-        if not process_group_is_quiescent(root):
-            raise ContainmentError("native provider authentication is unavailable")
-    except (ContainmentError, OSError, subprocess.TimeoutExpired) as exc:
-        raise ContainmentError("native provider authentication is unavailable") from exc
-
-
-def _discover_default_keychain() -> KeychainBinding:
-    """Discover exactly one default database under the passwd-resolved owner HOME."""
+def dedicated_keychain_path() -> Path:
+    """Return the only Keychain native isolation may use, under the passwd-resolved HOME."""
     try:
         owner_home = _canonical_existing(pwd.getpwuid(os.getuid()).pw_dir)
         owner = os.lstat(owner_home)
-        if not stat.S_ISDIR(owner.st_mode) or owner.st_uid != os.getuid():
-            raise ContainmentError("native provider authentication is unavailable")
-        helper = _bind_file(SECURITY_HELPER, modes={0o755}, executable=True)
-        process = subprocess.Popen(
-            [helper.path, "default-keychain", "-d", "user"],
-            cwd=str(owner_home),
-            env={
-                "HOME": str(owner_home), "PATH": "/usr/bin:/bin",
-                "LANG": "C", "LC_ALL": "C",
-            },
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL,
-            start_new_session=True,
-            close_fds=True,
-        )
-        try:
-            locator_root = bind_new_process_group(process.pid)
-        except ContainmentError:
-            # The direct child is still ours, but without a bound session
-            # identity we deliberately do not signal a process group.
-            if process.poll() is None:
-                process.kill()
-                process.wait(timeout=KEYCHAIN_LOCATOR_TERM_GRACE_SECONDS)
-            raise
     except (ContainmentError, OSError, KeyError) as exc:
         raise ContainmentError("native provider authentication is unavailable") from exc
-    assert process.stdout is not None
-    descriptor = process.stdout.fileno()
-    os.set_blocking(descriptor, False)
-    output = bytearray()
-    deadline = time.monotonic() + KEYCHAIN_LOCATOR_DEADLINE_SECONDS
+    if not stat.S_ISDIR(owner.st_mode) or owner.st_uid != os.getuid():
+        raise ContainmentError("native provider authentication is unavailable")
+    return owner_home / "Library" / "Keychains" / DEDICATED_KEYCHAIN_NAME
+
+
+def _keychain_is_unlocked(path: str) -> bool:
+    """Read the lock state without UI: a locked lookup would otherwise hang on a dialog."""
     try:
-        while True:
-            remaining = deadline - time.monotonic()
-            if remaining <= 0:
-                raise ContainmentError("native provider authentication is unavailable")
-            readable, _, _ = select.select([descriptor], [], [], remaining)
-            if readable:
-                chunk = os.read(descriptor, 4096)
-                if not chunk:
-                    break
-                output.extend(chunk)
-                if len(output) > MAX_KEYCHAIN_LOCATOR_BYTES:
-                    raise ContainmentError("native provider authentication is unavailable")
-            elif process.poll() is not None:
-                # Polling alone cannot prove stdout is drained, so let select
-                # observe EOF within the remaining fixed deadline.
-                continue
-        if process.wait(timeout=max(0.01, deadline - time.monotonic())) != 0:
-            raise ContainmentError("native provider authentication is unavailable")
-        if not process_group_is_quiescent(locator_root):
-            _terminate_locator(process, locator_root)
-            raise ContainmentError("native provider authentication is unavailable")
-    except (ContainmentError, OSError, subprocess.TimeoutExpired) as exc:
-        if "locator_root" in locals():
-            _terminate_locator(process, locator_root)
-        raise ContainmentError("native provider authentication is unavailable") from exc
-    finally:
-        process.stdout.close()
+        completed = subprocess.run(
+            [sys.executable, "-I", "-S", "-B", "-c", _KEYCHAIN_STATUS_PROBE, path],
+            stdin=subprocess.DEVNULL, capture_output=True, check=False,
+            timeout=KEYCHAIN_STATUS_DEADLINE_SECONDS,
+            env={"PATH": "/usr/bin:/bin", "LANG": "C", "LC_ALL": "C"},
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise KeychainUnavailableError(
+            f"cannot read the lock state of {path} within {KEYCHAIN_STATUS_DEADLINE_SECONDS}s"
+        ) from exc
+    if completed.returncode == 0 and completed.stdout in {b"locked\n", b"unlocked\n"}:
+        return completed.stdout == b"unlocked\n"
+    raise KeychainUnavailableError(f"cannot read the lock state of {path}")
+
+
+def _require_unlocked(path: str) -> None:
+    if not _keychain_is_unlocked(path):
+        raise KeychainUnavailableError(
+            f"the dedicated agy keychain {path} is locked; unlock it with: "
+            f"security unlock-keychain ~/Library/Keychains/{DEDICATED_KEYCHAIN_NAME}"
+        )
+
+
+def _dedicated_keychain() -> KeychainBinding:
+    """Bind the dedicated Keychain, failing closed when it is missing, unsafe or locked."""
+    path = dedicated_keychain_path()
+    if not os.path.lexists(path):
+        raise KeychainUnavailableError(
+            f"native isolation needs the dedicated agy keychain {path}, which does not "
+            f"exist; create it once as described in {KEYCHAIN_SETUP_DOC}"
+        )
     try:
-        text = bytes(output).decode("utf-8", "strict")
-        line = text[:-1] if text.endswith("\n") else ""
-        quoted = line.lstrip(" \t")
-        if (
-            text.count("\n") != 1
-            or not text.endswith("\n")
-            or len(quoted) < 3
-            or not quoted.startswith('"')
-            or not quoted.endswith('"')
-        ):
-            raise ValueError("invalid locator output")
-        path = quoted[1:-1]
-        if '"' in path:
-            raise ValueError("invalid locator output")
-        return _bind_keychain(path)
-    except (ContainmentError, UnicodeError, ValueError) as exc:
-        raise ContainmentError("native provider authentication is unavailable") from exc
+        binding = _bind_keychain(path)
+    except ContainmentError as exc:
+        raise KeychainUnavailableError(
+            f"the dedicated agy keychain {path} must be a regular file you own "
+            "without group or other write access"
+        ) from exc
+    _require_unlocked(binding.path)
+    return binding
 
 
 def _bind_directory(path: str | Path) -> DirectoryBinding:
@@ -950,7 +925,6 @@ def prepare_contained_launch(
     if len({item.path for item in bound_inputs}) != len(bound_inputs):
         raise ContainmentError("containment read-only inputs are repeated")
     stem = "provider" if role == ROLE_PROVIDER else "self-verify"
-    home = _ensure_private_directory(job / f"{stem}-home", existing_ok=True)
     keychain: KeychainBinding | None = None
     keychain_preferences: FileBinding | None = None
     provider_settings: FileBinding | None = None
@@ -963,9 +937,18 @@ def prepare_contained_launch(
         except ContainmentError as exc:
             raise ContainmentError("native provider permission settings are unavailable") from exc
         try:
-            keychain = _discover_default_keychain()
+            # Before any provider HOME exists: a missing or locked keychain leaves the job untouched.
+            keychain = _dedicated_keychain()
+        except KeychainUnavailableError:
+            raise
+        except ContainmentError as exc:
+            raise ContainmentError("native provider authentication is unavailable") from exc
+    home = _ensure_private_directory(job / f"{stem}-home", existing_ok=True)
+    if allow_keychain:
+        assert provider_max_cycles is not None
+        try:
             keychain_preferences = _prepare_keychain_preferences(
-                job, Path(home.path), keychain,
+                job, Path(home.path), cast(KeychainBinding, keychain),
             )
         except ContainmentError as exc:
             raise ContainmentError("native provider authentication is unavailable") from exc
@@ -1069,6 +1052,7 @@ def confirm_contained_launch(
             raise ContainmentError("native provider authentication is unavailable")
         if _bind_keychain(prepared.keychain.path) != prepared.keychain:
             raise ContainmentError("native provider authentication is unavailable")
+        _require_unlocked(prepared.keychain.path)
         if _bind_file(
             prepared.keychain_preferences.path, modes={0o600}, limit=MAX_PROFILE_BYTES,
         ) != prepared.keychain_preferences:
@@ -1242,3 +1226,36 @@ def terminate_bound_process_group(
     except OSError as exc:
         raise ContainmentError("provider process-group cleanup failed") from exc
     return members
+
+
+def write_login_preferences(home: Path) -> None:
+    """Point an empty private HOME at the dedicated Keychain for the one-time sign-in."""
+    keychain = _dedicated_keychain()
+    preferences = home / "Library" / "Preferences"
+    _ensure_private_directory(home / "Library", existing_ok=True)
+    _ensure_private_directory(preferences, existing_ok=True)
+    _publish_private_file(
+        preferences / "com.apple.security.plist",
+        _default_keychain_preferences_payload(keychain),
+    )
+
+
+def main(argv: Sequence[str]) -> int:
+    """Shell entry: ``keychain-preflight`` or ``keychain-login-home PRIVATE_HOME``."""
+    try:
+        require_supported_host()
+        if list(argv) == ["keychain-preflight"]:
+            _dedicated_keychain()
+        elif len(argv) == 2 and argv[0] == "keychain-login-home":
+            write_login_preferences(Path(argv[1]))
+        else:
+            print("usage: keychain-preflight | keychain-login-home PRIVATE_HOME", file=sys.stderr)
+            return 64
+    except ContainmentError as exc:
+        print(f"agy-worker: {exc}", file=sys.stderr)
+        return EXIT_NATIVE_HOST_UNAVAILABLE
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main(sys.argv[1:]))

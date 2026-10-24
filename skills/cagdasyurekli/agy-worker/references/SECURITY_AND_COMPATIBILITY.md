@@ -190,17 +190,32 @@ wildcard binds, not just loopback; outbound local TCP remains denied. This is no
 Google recipient allowlist or TLS enforcement. Fork without exec retains image
 privileges; exec to another program removes its network authority.
 
-Exact `/usr/bin/security` receives the five reviewed Keychain/trust services and
-read-only access to the bound default Keychain file. A bounded read-only lookup checks
-its owner/identity without reading or hashing contents, then creates a minimal private
-`DefaultKeychain` preference. No owner preferences or credentials are copied.
+Native binds only the dedicated Keychain
+`<owner HOME from passwd>/Library/Keychains/agy-worker-provider.keychain-db`, never the
+login or default Keychain. Exact `/usr/bin/security` receives the five reviewed
+Keychain/trust services and read-only access to that one file. Binding checks its
+owner/identity without reading or hashing contents, then creates a minimal private
+`DefaultKeychain` preference naming it. No owner preferences or credentials are copied.
 Prelaunch rechecks bind that preference and Keychain identity; repairs preserve them
-and reject drift. Discovery does not prove a usable token or silent-login permission.
+and reject drift. Binding does not prove a usable token or silent-login permission.
+A missing or locked dedicated Keychain fails closed before launch (exit 27, before the
+task is read for a new job); the lock state is read without UI because a locked lookup
+inside the sandbox hangs behind an unlock dialog. Setup and unlock:
+[Dedicated agy keychain](TROUBLESHOOTING.md#dedicated-agy-keychain-for-native-isolation).
 
 The file grant applies only to that helper: no provider/other-image access, parent
 access, file write or extra network permission. Seatbelt cannot restrict helper
 arguments, operations or items; broader same-user Keychain reads, additions, changes
-and deletions may be allowed by the OS. Authorize both provider and helper exposure.
+and deletions may be allowed by the OS. The Mach services are unchanged, so the
+sandbox still reaches the system's Keychain services, not only the one file. Authorize
+both provider and helper exposure. Observed on macOS with the live test shape (a
+sandboxed `show-keychain-info` on `login.keychain-db` failed with `Operation not
+permitted`, and `list-keychains` showed only the dedicated Keychain and System), the
+login Keychain was unreadable inside the sandbox; that is an observation, not a
+guarantee for other macOS versions or profiles. When agy refreshes an expired access
+token inside native mode it may be unable to write back to the Keychain and fall back
+to writing a token file inside the private provider HOME (agy logs "falling back to
+file"); that file stays under the job's private provider HOME.
 Local self-verification has no network or Keychain access.
 
 Children inherit restrictions. Cleanup owns the original process group; detached

@@ -134,6 +134,7 @@ usage: agy-worker.sh [--workdir DIR] [--mode plan|accept-edits]
 
        agy-worker.sh start [run options] ... task prompt on stdin ...
        agy-worker.sh transmission-preview --workdir ABSOLUTE_DISPOSABLE_WORKTREE --provider-isolation session|native
+       agy-worker.sh native-keychain-login   (one-time agy sign-in into the dedicated native keychain)
        agy-worker.sh status|result --job-id JOB [--state WORKFLOW_STATE] [--format json|text]
        agy-worker.sh verification-copy --job-id JOB --destination NEW_DIRECTORY_IN_0700_PARENT [--format json|text]
        agy-worker.sh self-verify --job-id JOB --approve-state-sha SHA [--format json|text]
@@ -160,7 +161,7 @@ Exit codes: 0 ok · 2 no prompt · 3 empty output · 4 schema invalid · 5 uncla
             6 permission gate · 8 capability evidence unavailable
             9 idle timeout · 16 hard deadline · 17 provider timeout · 20 status, binding, or verification-copy runtime unavailable · 21 resume failed
             22 cancelled · 23 output oversized · 25 provider terminal error
-            26 model selection failed · 27 native host sandbox unavailable
+            26 model selection failed · 27 native host sandbox or dedicated keychain unavailable
             28 source checkout changed · 29 source checkout guard unavailable
             64 invalid usage
 
@@ -172,6 +173,26 @@ Resume and restart use the current state approval before any provider call:
 EOF
     exit "$usage_exit"
 }
+
+login_tmp=""
+native_keychain_login() {
+    # Fresh private HOME whose only content is a DefaultKeychain preference naming the
+    # dedicated keychain, so agy's browser sign-in stores its credential there.
+    local py="$SCRIPT_DIR/scripts/agy_dispatch_containment.py" rc=0
+    command -v agy >/dev/null 2>&1 || { echo "agy-worker.sh: agy is not on PATH" >&2; exit 127; }
+    login_tmp="$(mktemp -d "${TMPDIR:-/tmp}/agy-worker-keychain-login.XXXXXX")" || exit 1
+    trap 'rm -rf -- "$login_tmp"' EXIT
+    trap 'exit 130' HUP INT TERM
+    mkdir "$login_tmp/home" "$login_tmp/cwd"
+    python3 -I -S -B "$py" keychain-login-home "$login_tmp/home" || exit $?
+    (cd "$login_tmp/cwd" && exec env HOME="$login_tmp/home" agy -p "Reply with OK") || rc=$?
+    exit "$rc"
+}
+if [[ "${1:-}" == native-keychain-login ]]; then
+    shift
+    [[ $# -eq 0 ]] || usage
+    native_keychain_login
+fi
 
 if [[ "$dispatch_action" != "run" && "$dispatch_action" != "start" ]]; then
     control_job="$job_id"
@@ -829,6 +850,14 @@ PY
         echo "agy-worker.sh: project workflow requires a local Git marker and bounded contained paths" >&2
         exit 64
     fi
+fi
+
+# Native isolation uses only the dedicated agy keychain; fail closed before any job
+# artifact exists when it is missing or locked (a locked lookup would pop a GUI dialog).
+if [[ "$provider_isolation" == "native" ]]; then
+    keychain_rc=0
+    python3 -I -S -B "$SCRIPT_DIR/scripts/agy_dispatch_containment.py" keychain-preflight || keychain_rc=$?
+    (( keychain_rc == 0 )) || exit "$keychain_rc"
 fi
 
 job_dir="$LOG_DIR/$job_id"

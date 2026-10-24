@@ -2861,7 +2861,7 @@ def print_text_status(value: Mapping[str, Any], sha: str, *, job: Path | None = 
     lines = (
         f"Provider attempt: {value['status']}; reason: {reason}; failure stage: {failure_stage}; bound result available: {'yes' if public['result_available'] else 'no'}; driver disposition: {value['driver_disposition']}."
         + (f" {public['reason_message']}" if public["reason_message"] else "")
-        + (" macOS denied native sandbox_apply; this can occur when the driver host is already sandboxed. Use a compatible driver host with the same approved native mode." if reason == "native_host_sandbox_unavailable" else ""),
+        + (" Native host prerequisite unavailable: macOS denied sandbox_apply (this can occur when the driver host is already sandboxed; use a compatible driver host with the same approved native mode) or the dedicated agy keychain is missing or locked (see the job stderr and the native setup section of references/TROUBLESHOOTING.md)." if reason == "native_host_sandbox_unavailable" else ""),
         f"Driver evidence: {counts['passed']} passed, {counts['failed']} failed, {counts['advisory']} advisory, {counts['missing']} missing; cycle: {public['cycle']}/{public['max_cycles']}."
         + (f" {public['cycle_budget_explanation']}" if public['cycle_budget_explanation'] else ""),
         (
@@ -5441,6 +5441,11 @@ def _launch_controller_provider(
             os.write(streams.stderr_fd, (str(exc) + "\n").encode("ascii"))
         outcome.reason = "status_unavailable"
         execution.returncode = EXIT_BY_REASON["status_unavailable"]
+    except CONTAINMENT.KeychainUnavailableError as exc:
+        with contextlib.suppress(OSError):
+            os.write(streams.stderr_fd, (f"agy-worker: {exc}\n").encode("ascii", "backslashreplace"))
+        outcome.reason = "native_host_sandbox_unavailable"
+        execution.returncode = EXIT_BY_REASON[outcome.reason]
     except (DispatchError, CONTAINMENT.ContainmentError) as exc:
         message = str(exc)
         if re.fullmatch(r"launch authority changed: [a-z0-9_]+(?:\.[a-z0-9_]+)?", message):

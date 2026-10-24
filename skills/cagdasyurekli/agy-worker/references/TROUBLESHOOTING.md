@@ -135,7 +135,39 @@ host containment prerequisite failure, not as an unclassified provider failure.
 If launch reports `status_unavailable`, inspect the host and bound executable/profile
 before changing the task. Do not retry a provider call or silently switch execution
 or transmission modes: that changes the exposure approved by the user. Keep the
-candidate and identify the failed prerequisite in the handoff.
+candidate and identify the failed prerequisite in the handoff. Exit 27 (native host
+prerequisite) also covers a missing or locked dedicated keychain; see
+[Dedicated agy keychain](#dedicated-agy-keychain-for-native-isolation).
+
+## Dedicated agy keychain for native isolation
+
+Native isolation uses only `~/Library/Keychains/agy-worker-provider.keychain-db`
+(under the home directory from the password database), never your login keychain.
+Set it up once, in your own terminal:
+
+```bash
+security create-keychain ~/Library/Keychains/agy-worker-provider.keychain-db
+security set-keychain-settings ~/Library/Keychains/agy-worker-provider.keychain-db
+"$PIPELINE/agy-worker.sh" native-keychain-login
+```
+
+`create-keychain` prompts for a keychain password and may also add the file to your
+keychain search list; native runs ignore that list. `set-keychain-settings` with no
+options turns off auto-lock. `native-keychain-login` runs `agy -p "Reply with OK"` in a
+temporary HOME holding only a preference that names the dedicated keychain, so agy's
+browser sign-in stores its credential there; it then deletes the temporary tree. It
+never creates the keychain or handles its password.
+
+After a reboot, unlock it before native launches:
+
+```bash
+security unlock-keychain ~/Library/Keychains/agy-worker-provider.keychain-db
+```
+
+A missing or locked keychain stops a new native launch with exit 27 before the task is
+read and before any job exists; a repair or resume that finds it locked ends that
+job with `native_host_sandbox_unavailable` (27). Unlock or create it and start the
+documented recovery; do not switch isolation mode.
 
 ## State approval is stale
 
