@@ -62,3 +62,10 @@ Inspect the actual result for the chosen period and language. Check displayed to
 ## Updates are separate
 
 Only run `scripts/check_update.py` when the user asks to check the public version. It requests the latest release for `JasonHMY/personal-finance-visualizer` and does not need report input. Do not attach records, filenames, prompts or account details to this request. A version check does not install an update; installation is a separate explicit action. Neither the report renderer nor a financial-processing run should initiate an update request.
+
+
+## Budget delivery
+
+Confirm the daily limit, reset period, included expense groups and category allocation method. Reuse confirmed transaction classifications and personal shares. Use the existing budget calculation instead of subtracting both spending and its daily equivalent. Show source freshness, monthly balance and the daily cap; do not present an incomplete month as a reliable current allowance.
+
+Standalone changes remain in page memory. If the user explicitly requests cross-device saving, use an authenticated private settings integration at the fixed same-origin budget endpoint, with conflict protection and no credentials in client code. Test initial save, reload, independent-page readback, stale-write rejection and anonymous/cross-origin rejection using fictional data first. An existing private deployment's authorization does not allow public file uploads or bypass links.

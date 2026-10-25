@@ -1,9 +1,9 @@
 ---
 name: personal-finance-visualizer
-description: Turn user-provided personal finance records into a local interactive report with spending, income, transfers and cash movement in English or Chinese. Use for statement-based finance charts and period comparisons, not bank-account actions or investment advice.
+description: Turn user-provided personal finance records into a local interactive report with spending, income, transfers, cash movement and optional daily budgets in English or Chinese. Use for statement-based finance charts and period comparisons, not bank-account actions or investment advice.
 license: MIT-0
 metadata:
-  version: "1.4.1"
+  version: "1.5.0"
   repository: "https://github.com/JasonHMY/personal-finance-visualizer"
 ---
 
@@ -21,7 +21,7 @@ Render the bundled `assets/report.html`, `report.css`, `app.js` and `engine.js` 
 - Keep data in process memory by default. Do not create normalized-input files, logs, screenshots, memory entries or cached financial summaries as an incidental part of the task. Never place real records in this skill, its Git repository, examples or public issues.
 - Use the loopback memory server for delivery. Export a local HTML file only when the user requests saving/exporting, using their chosen local destination. An export contains transaction details. Do not publish or upload personal reports.
 - After a user rearranges cards, save only opaque card identifiers and their order in local browser storage, separately for each view. Never store transaction data, amounts, merchant text or account identifiers there. Layouts persist on refresh at the same browser origin; if storage is unavailable, retain the in-page order and show that limitation.
-- The renderer has no telemetry, remote assets or external requests. The agent host may retain prompts, tool calls or supplied files under its own settings. Explain this briefly when relevant; a cloud agent reading data is not fully offline processing. Browser history/cache and explicit exports are also outside a promise of complete erasure.
+- The renderer has no telemetry or remote assets. Standalone reports make no requests. An explicitly configured budget integration may read and save settings only through the same-origin `/api/budget` endpoint; never configure an external destination. The agent host may retain prompts, tool calls or supplied files under its own settings. Explain this briefly when relevant; a cloud agent reading data is not fully offline processing. Browser history/cache and explicit exports are also outside a promise of complete erasure.
 - Never automatically check for updates while processing financial records. `scripts/check_update.py` is an explicit, separate public-version lookup; it does not receive financial input.
 
 ## Prepare and verify
@@ -62,3 +62,12 @@ python3 "<skill-dir>/scripts/report.py" --input /local/normalized.json --languag
 ```
 
 Check the requested period, language, main totals and transaction drill-down. Use fictional data for saved screenshots and tests. Report the actual coverage, relevant unresolved items and how to open the result; do not claim a complete financial picture from a subset of accounts.
+
+
+## Optional daily allowance
+
+When requested, provide the `budget` input described in `references/schema.md`. The additional Daily allowance view uses a calendar-month budget, a daily upper limit and confirmed personal spending. It redistributes the remaining monthly allowance over the remaining days, resets in the next month and does not treat income or internal transfers as extra budget. Historical category shares use up to three complete earlier months of everyday spending; users can adjust these reference shares. Fixed-cost daily equivalents explain spending and are not deducted twice.
+
+Clearly distinguish the budget date from the source cutoff. Missing month coverage or records older than yesterday makes today's allowance unavailable. Do not infer future bills or pending charges. Retain the existing confirmation requirements before using uncertain classifications.
+
+A standalone report applies budget edits only in memory for the current page; it must not store budget values in localStorage. Persistent cross-device editing requires an explicitly authorized, authenticated same-origin budget endpoint backed by private storage. Only settings are sent, not transaction records. Show loading, failed-save and concurrent-edit states accurately; never treat an unconfirmed save as successful. Hosting authorization and the skill's default no-publication rule remain unchanged.

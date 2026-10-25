@@ -50,7 +50,11 @@ def render(data):
     scripts = re.findall(r"<script(?:\s[^>]*)?>(.*?)</script>", html, flags=re.S)
     import base64
     hashes = " ".join("'sha256-"+base64.b64encode(hashlib.sha256(s.encode()).digest()).decode()+"'" for s in scripts)
-    policy = "default-src 'none'; script-src " + hashes + "; style-src 'unsafe-inline'; img-src data:; connect-src 'none'; base-uri 'none'; form-action 'none'"
+    endpoint = data.get("budget", {}).get("endpoint") if isinstance(data.get("budget"), dict) else None
+    if endpoint not in (None, "/api/budget"):
+        raise ValueError("Budget settings require the same-origin budget endpoint.")
+    connect = "'self'" if endpoint else "'none'"
+    policy = "default-src 'none'; script-src " + hashes + "; style-src 'unsafe-inline'; img-src data:; connect-src " + connect + "; base-uri 'none'; form-action 'none'"
     html = html.replace("<head>", '<head><meta http-equiv="Content-Security-Policy" content="'+policy+'"><meta name="referrer" content="no-referrer">',1)
     return html.encode("utf-8")
 

@@ -101,3 +101,33 @@ The same pure module runs in the browser and Node tests. All rendering must inse
 JSON input may include `merchantDisplayNames`, an object mapping an exact original merchant string to a concise display label of 1–80 characters. This is optional presentation metadata; it does not alter transaction identities, merchant grouping, category, amounts, dates, shares or matches. Different original strings remain separate even when their display labels are identical. Search supports both labels and originals; full merchant and bank descriptions remain in transaction details and full labels are available on legend hover.
 
 Use concise labels only where the provided merchant name or existing user evidence makes the identity clear. Remove redundant location/payment formatting from a known name, but do not infer an unknown legal entity's business or assign a category. Keep an ambiguous name unchanged. Do not automatically add real merchant mappings to the public Skill or its examples. Omitted, empty, overlong or non-string mapping values fall back to the original display text.
+
+
+## Optional daily allowance settings
+
+The following configuration is fictional. Add `budget` only when the user requests budgeting:
+
+```json
+{
+  "budget": {
+    "endpoint": null,
+    "defaults": {
+      "schemaVersion": 1,
+      "dailyLimit": "40.00",
+      "currency": "USD",
+      "timezone": "UTC",
+      "groups": ["daily", "fixed", "ai"],
+      "allocationMode": "history",
+      "shares": []
+    }
+  }
+}
+```
+
+`dailyLimit` is a nonnegative decimal string with at most two decimal places. Currency must match the report and the timezone must be a valid IANA timezone. Groups are unique supported expense groups and must include `daily`. The budget is dailyLimit × calendar days in the current month, and resets each month. Today's opening allowance is the remaining budget before today's recorded spending divided by remaining days including today, bounded between zero and dailyLimit. Today's recorded spending is deducted once. Categories divide the nonnegative remaining allowance; cent remainders are assigned deterministically.
+
+`allocationMode` is `history` or `manual`. Historical mode requires an empty shares array. Manual shares are unique `{ "category": "Groceries", "basisPoints": 4000 }` entries, with integer basis points totalling 10000. Category names use the original category identifiers, before display translations. Shares are advisory, not independent hard envelopes. Historical weights use only everyday spending from up to three complete previous calendar months covered by the source; missing or partial months are not silently filled. With no usable historical categories, ask for or allow a manual split rather than inventing one.
+
+The optional `endpoint` must be exactly `/api/budget`; no external URL is accepted. Without it, edits are page-memory-only. With it, the renderer permits same-origin connections and the interface loads settings using GET. An empty configuration is `{ "settings": null, "revision": null }`. Saved responses contain validated `settings` and an opaque quoted `revision`. POST sends only the settings as JSON and uses `X-Budget-Revision` (`absent` for an initial save, otherwise the last loaded revision). The server must authenticate the user, require same-origin JSON writes, validate settings, conditionally store them privately and return 409 for conflicts. Never include credentials in the report. `preview: true` labels an explicitly isolated preview settings store.
+
+`Finance.validateBudgetSettings(input)`, `Finance.budgetDate(settings, now)` and `Finance.dailyBudget(data, settings, asOf)` implement validation, timezone date selection and budget calculations. The report's existing refund, settlement and personal-share accounting remains authoritative. The source must cover the month start through yesterday for a usable current allowance; the UI distinguishes data cutoff and budget date.
