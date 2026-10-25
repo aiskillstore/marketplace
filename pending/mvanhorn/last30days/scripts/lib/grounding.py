@@ -1,0 +1,450 @@
+"""Web search retrieval via Brave Search, Exa, Serper, Parallel, or a keyless floor."""
+
+from __future__ import annotations
+
+import re
+import sys
+import urllib.parse
+from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
+from urllib.parse import urlparse
+
+from . import dates, env, http, parallel_mcp, schema, web_search_keyless
+
+
+@dataclass(frozen=True)
+class GroundedClaimText:
+    """Candidate text with its exact primary evidence item."""
+
+    candidate_id: str
+    title: str
+    summary: str
+    item: schema.SourceItem
+
+
+def claim_source_map(report: schema.Report) -> dict[str, GroundedClaimText]:
+    """Expose only candidate claims that have a clean primary-item trace.
+
+    Freshness verification deliberately starts here instead of scanning all
+    report prose. A candidate without a primary ``SourceItem`` cannot produce
+    an auditable per-claim verdict.
+    """
+    grounded: dict[str, GroundedClaimText] = {}
+    for candidate in report.ranked_candidates:
+        item = schema.candidate_primary_item(candidate)
+        if item is None:
+            continue
+        grounded[candidate.candidate_id] = GroundedClaimText(
+            candidate_id=candidate.candidate_id,
+            title=candidate.title,
+            summary=candidate.snippet or item.snippet or item.body,
+            item=item,
+        )
+    return grounded
+
+
+# ---------------------------------------------------------------------------
+# Brave Search API
+# ---------------------------------------------------------------------------
+
+def brave_search(
+    query: str, date_range: tuple[str, str], api_key: str, count: int = 5,
+) -> tuple[list[dict], dict]:
+    url = (
+        "https://api.search.brave.com/res/v1/web/search?"
+        + urllib.parse.urlencode(
+            {
+                "q": query,
+                "count": count,
+                "freshness": f"{date_range[0]}to{date_range[1]}",
+            }
+        )
+    )
+    data = http.request("GET", url, headers={"X-Subscription-Token": api_key}, timeout=15)
+    items = []
+    for i, r in enumerate((data.get("web", {}).get("results", []))[:count]):
+        raw_date = r.get("page_age") or ""
+        pub_date = _normalize_date(raw_date[:10]) if raw_date else None
+        if _known_date_out_of_range(pub_date, date_range):
+            continue
+        items.append({
+            "id": f"WB{i + 1}",
+            "title": r.get("title", ""),
+            "url": r.get("url", ""),
+            "source_domain": _domain(r.get("url", "")),
+            "snippet": r.get("description", ""),
+            "date": pub_date,
+            "relevance": 0.8,
+            "why_relevant": "Brave web search",
+            "metadata": {"date_window_basis": "server_bounds"},
+        })
+    artifact = {"label": "brave", "webSearchQueries": [query], "resultCount": len(items)}
+    return items, artifact
+
+
+# ---------------------------------------------------------------------------
+# Exa AI Search
+# ---------------------------------------------------------------------------
+
+def exa_search(
+    query: str, date_range: tuple[str, str], api_key: str, count: int = 5,
+) -> tuple[list[dict], dict]:
+    data = http.request(
+        "POST", "https://api.exa.ai/search",
+        headers={"x-api-key": api_key},
+        json_data={
+            "query": query,
+            "type": "auto",
+            "numResults": count,
+            "startPublishedDate": f"{date_range[0]}T00:00:00.000Z",
+            "endPublishedDate": f"{date_range[1]}T23:59:59.999Z",
+            "contents": {"text": {"maxCharacters": 2000}},
+        },
+        timeout=15,
+    )
+    items = []
+    for i, r in enumerate((data.get("results", []))[:count]):
+        if not isinstance(r, dict):
+            continue
+        url = r.get("url", "")
+        if not url:
+            continue
+        raw_date = r.get("publishedDate") or ""
+        pub_date = _normalize_date(raw_date.split("T")[0] if "T" in raw_date else raw_date[:10]) if raw_date else None
+        if _known_date_out_of_range(pub_date, date_range):
+            continue
+        items.append({
+            "id": f"WE{i + 1}",
+            "title": r.get("title", ""),
+            "url": url,
+            "source_domain": _domain(url),
+            "snippet": (r.get("text") or "")[:500],
+            "date": pub_date,
+            "relevance": 0.8,
+            "why_relevant": "Exa web search",
+            "metadata": {"date_window_basis": "server_bounds"},
+        })
+    artifact = {"label": "exa", "webSearchQueries": [query], "resultCount": len(items)}
+    return items, artifact
+
+
+# ---------------------------------------------------------------------------
+# Serper (Google Search wrapper)
+# ---------------------------------------------------------------------------
+
+def serper_search(
+    query: str, date_range: tuple[str, str], api_key: str, count: int = 5,
+) -> tuple[list[dict], dict]:
+    data = http.request(
+        "POST", "https://google.serper.dev/search",
+        headers={"X-API-KEY": api_key},
+        json_data={
+            "q": query,
+            "num": count,
+            "tbs": f"cdr:1,cd_min:{_serper_date_param(date_range[0])},cd_max:{_serper_date_param(date_range[1])}",
+        },
+        timeout=15,
+    )
+    items = []
+    for i, r in enumerate((data.get("organic", []))[:count]):
+        raw_date = r.get("date") or ""
+        pub_date = _parse_serper_date(raw_date)
+        if pub_date is None and _SERPER_RELATIVE_RE.match(raw_date.strip()):
+            continue
+        if _known_date_out_of_range(pub_date, date_range):
+            continue
+        items.append({
+            "id": f"WS{i + 1}",
+            "title": r.get("title", ""),
+            "url": r.get("link", ""),
+            "source_domain": _domain(r.get("link", "")),
+            "snippet": r.get("snippet", ""),
+            "date": pub_date,
+            "relevance": 0.8,
+            "why_relevant": "Serper web search",
+            "metadata": {"date_window_basis": "server_bounds"},
+        })
+    artifact = {"label": "serper", "webSearchQueries": [query], "resultCount": len(items)}
+    return items, artifact
+
+
+# ---------------------------------------------------------------------------
+# Parallel AI Search
+# ---------------------------------------------------------------------------
+
+def parallel_search(
+    query: str, date_range: tuple[str, str], api_key: str, count: int = 5,
+) -> tuple[list[dict], dict]:
+    current_window = date_range[1] >= datetime.now(timezone.utc).date().isoformat()
+    data = http.request(
+        "POST", "https://api.parallel.ai/v1/search",
+        headers={"x-api-key": api_key, "Content-Type": "application/json"},
+        json_data={
+            "search_queries": [query],
+            "advanced_settings": {
+                "max_results": count,
+                "source_policy": {"after_date": date_range[0]},
+            },
+        },
+        timeout=15,
+    )
+    items = []
+    for i, r in enumerate((data.get("results", []))[:count]):
+        if not isinstance(r, dict):
+            continue
+        url = r.get("url", "")
+        if not url:
+            continue
+        raw_date = r.get("publish_date") or ""
+        pub_date = _normalize_date(raw_date[:10]) if raw_date else None
+        if _known_date_out_of_range(pub_date, date_range):
+            continue
+        if pub_date is None and not current_window:
+            continue
+        items.append({
+            "id": f"WP{i + 1}",
+            "title": r.get("title", ""),
+            "url": url,
+            "source_domain": _domain(url),
+            "snippet": ((r.get("excerpts") or [""])[0] or "")[:500],
+            "date": pub_date,
+            "relevance": 0.8,
+            "why_relevant": "Parallel AI web search",
+            "metadata": {
+                "date_window_basis": "server_start_current" if current_window else "server_start"
+            },
+        })
+    artifact = {"label": "parallel", "webSearchQueries": [query], "resultCount": len(items)}
+    return items, artifact
+
+
+_SERPER_RELATIVE_RE = re.compile(
+    r"^(?:about\s+)?(\d+)\s+(minute|min|hour|hr|day|week|month|year)s?\s+ago$", re.I
+)
+_SERPER_RELATIVE_DAYS = {"day": 1, "week": 7, "month": 30, "year": 365}
+_SERPER_RELATIVE_WORDS = {"just now": 0, "today": 0, "yesterday": 1}
+
+
+def _now() -> datetime:
+    """Query-time clock. Isolated so tests can pin it."""
+    return datetime.now()
+
+
+def _parse_serper_relative(raw: str, now: datetime | None = None) -> str | None:
+    """Resolve Serper's relative dates ("2 hours ago") to an ISO date.
+
+    Google renders a relative date for recent results, so the fresher a result
+    is the more likely it arrives in this form. Left unparsed it becomes None
+    and `_in_date_range` drops the item, which silently empties the web lane on
+    short research windows.
+
+    The label states the result's age **at query time**, so it resolves against
+    the clock rather than against the end of the research window. The two differ
+    whenever `--as-of` names a past window: a result inside a window ending two
+    weeks ago is still labelled with its age as of today, and anchoring to the
+    window end would place it a further two weeks back and discard it.
+
+    Sub-day units ("N minutes/hours ago") are subtracted from the clock rather
+    than rounded up to the current date, which would name the wrong day across
+    midnight: at 00:30 "23 hours ago" is yesterday. Residual slack comes only
+    from the timezone `_now()` reads against Google's.
+
+    An age large enough to overflow `timedelta` or run past the end of `date`
+    reads as unparseable, like any other junk label, so one malformed value
+    cannot abort the whole result loop in `serper_search`.
+    """
+    anchor = now or _now()
+    text = raw.strip().lower()
+    if text in _SERPER_RELATIVE_WORDS:
+        return (anchor.date() - timedelta(days=_SERPER_RELATIVE_WORDS[text])).isoformat()
+    m = _SERPER_RELATIVE_RE.match(text)
+    if not m:
+        return None
+    unit = {"min": "minute", "hr": "hour"}.get(m.group(2), m.group(2))
+    try:
+        amount = int(m.group(1).lstrip("0") or "0")
+        if unit == "minute":
+            return (anchor - timedelta(minutes=amount)).date().isoformat()
+        if unit == "hour":
+            return (anchor - timedelta(hours=amount)).date().isoformat()
+        return (
+            anchor.date() - timedelta(days=amount * _SERPER_RELATIVE_DAYS[unit])
+        ).isoformat()
+    except (OverflowError, ValueError):
+        return None
+
+
+def _parse_serper_date(raw: str, now: datetime | None = None) -> str | None:
+    if not raw:
+        return None
+    normalized = _normalize_date(raw)
+    if normalized:
+        return normalized
+    for fmt in ("%b %d, %Y", "%B %d, %Y", "%Y-%m-%d"):
+        try:
+            return datetime.strptime(raw.strip(), fmt).date().isoformat()
+        except ValueError:
+            continue
+    return _parse_serper_relative(raw, now)
+
+
+
+
+# ---------------------------------------------------------------------------
+# Dispatcher
+# ---------------------------------------------------------------------------
+
+def configured_backend(config: dict) -> str | None:
+    """Return the first configured search API backend, excluding keyless search."""
+    for backend, key in (
+        ("brave", "BRAVE_API_KEY"),
+        ("exa", "EXA_API_KEY"),
+        ("serper", "SERPER_API_KEY"),
+        ("parallel", "PARALLEL_API_KEY"),
+    ):
+        if config.get(key):
+            return backend
+    return None
+
+
+def web_search(
+    query: str,
+    date_range: tuple[str, str],
+    config: dict,
+    backend: str = "auto",
+) -> tuple[list[dict], dict]:
+    """Run web search with the specified or auto-detected backend."""
+    if backend == "auto":
+        backend = configured_backend(config) or (
+            "keyless" if env.keyless_web_allowed(config) else "none"
+        )
+    items: list[dict] = []
+    artifact: dict = {}
+    if backend == "brave":
+        key = config.get("BRAVE_API_KEY")
+        if not key:
+            raise RuntimeError("BRAVE_API_KEY is required when web_backend='brave'")
+        items, artifact = brave_search(query, date_range, key)
+    elif backend == "exa":
+        key = config.get("EXA_API_KEY")
+        if not key:
+            raise RuntimeError("EXA_API_KEY is required when web_backend='exa'")
+        items, artifact = exa_search(query, date_range, key)
+    elif backend == "serper":
+        key = config.get("SERPER_API_KEY")
+        if not key:
+            raise RuntimeError("SERPER_API_KEY is required when web_backend='serper'")
+        items, artifact = serper_search(query, date_range, key)
+    elif backend == "parallel":
+        key = config.get("PARALLEL_API_KEY")
+        if not key:
+            raise RuntimeError("PARALLEL_API_KEY is required when web_backend='parallel'")
+        items, artifact = parallel_search(query, date_range, key)
+    elif backend == "parallel-mcp":
+        items, artifact = parallel_mcp.search(
+            query, date_range, config.get("PARALLEL_API_KEY")
+        )
+    elif backend == "keyless":
+        items, artifact = web_search_keyless.keyless_search(query, date_range, config)
+    elif backend != "none":
+        raise ValueError(f"Unsupported web backend: {backend!r}")
+    else:
+        return [], {}
+    if items and not _reddit_excluded(config):
+        # Reddit enrichment is a best-effort secondary fetch on already-retrieved
+        # web results. Isolate its HTTP failures in a throwaway capture sink so a
+        # reddit.com fetch failure (e.g. a 403 on a datacenter IP) is not
+        # attributed to the web/grounding source itself — which would otherwise
+        # discard the successfully retrieved results and report the source failed.
+        with http.capture_failures():
+            items = _enrich_reddit_items(items)
+    return items, artifact
+
+
+def _reddit_excluded(config: dict) -> bool:
+    """Return True when EXCLUDE_SOURCES contains 'reddit'.
+
+    Respects the same suppression knob the pipeline uses for source gating,
+    so a user who set EXCLUDE_SOURCES=reddit doesn't get Reddit content
+    smuggled back in via web-search URLs.
+    """
+    raw = (config.get("EXCLUDE_SOURCES") or "").split(",")
+    return any(s.strip().lower() == "reddit" for s in raw)
+
+
+def _enrich_reddit_items(items: list[dict]) -> list[dict]:
+    """Enrich web search results that are Reddit URLs with thread body and comments.
+
+    Claude Code's WebFetch blocks reddit.com, so the model can't retrieve
+    Reddit content from web search results. This fetches it via the public
+    JSON API (reddit.com/.../.json) which bypasses that restriction.
+
+    Callers should gate this with EXCLUDE_SOURCES=reddit handling (see
+    `_reddit_excluded`) so a user who explicitly excluded Reddit doesn't
+    get Reddit content via web-search URLs.
+    """
+    from . import reddit_enrich
+    from .reddit_enrich import RedditRateLimitError
+
+    for item in items:
+        url = item.get("url", "")
+        if "reddit.com" not in url or "/comments/" not in url:
+            continue
+        try:
+            thread_data = reddit_enrich.fetch_thread_data(url, timeout=8)
+            if not thread_data:
+                continue
+            parsed = reddit_enrich.parse_thread_data(thread_data)
+            # selftext lives under parsed["submission"], not at the top level
+            selftext = (parsed.get("submission") or {}).get("selftext", "")
+            if selftext:
+                item["snippet"] = selftext[:2000]
+            comments = parsed.get("comments", [])
+            top = reddit_enrich.get_top_comments(comments)
+            if top:
+                item["top_comments"] = [
+                    {"score": c.get("score", 0), "excerpt": (c.get("body") or "")[:200]}
+                    for c in top[:5]
+                ]
+            item["enriched_via"] = "reddit_json_api"
+        except RedditRateLimitError as exc:
+            # Stop iterating to avoid flooding more 429s
+            sys.stderr.write(f"[Web] Reddit rate-limited, halting enrichment: {exc}\n")
+            break
+        except Exception as exc:
+            sys.stderr.write(f"[Web] Reddit enrichment failed for {url}: {exc}\n")
+    return items
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def _normalize_date(value: object) -> str | None:
+    if value is None:
+        return None
+    parsed = dates.parse_date(str(value).strip())
+    if not parsed:
+        return None
+    return parsed.date().isoformat()
+
+
+def _serper_date_param(iso_date: str) -> str:
+    """Convert YYYY-MM-DD to MM/DD/YYYY for Serper tbs parameter."""
+    parts = iso_date.split("-")
+    return f"{parts[1]}/{parts[2]}/{parts[0]}"
+
+
+def _in_date_range(pub_date: str | None, date_range: tuple[str, str]) -> bool:
+    if not pub_date:
+        return False
+    return date_range[0] <= pub_date <= date_range[1]
+
+
+def _known_date_out_of_range(pub_date: str | None, date_range: tuple[str, str]) -> bool:
+    """True when a parseable date falls outside the window. Unknown dates stay."""
+    return pub_date is not None and not _in_date_range(pub_date, date_range)
+
+
+def _domain(url: str) -> str:
+    return urlparse(url).netloc.strip().lower()

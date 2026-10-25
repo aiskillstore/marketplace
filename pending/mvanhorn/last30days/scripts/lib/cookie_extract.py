@@ -1,0 +1,681 @@
+"""Browser cookie extraction for last30days.
+
+Extracts cookies from local browser databases (Firefox, Chrome, Brave, Safari)
+to enable zero-config authentication for services like X/Twitter.
+Note: Chrome/Brave extraction is macOS-only; Windows Chrome/Edge use
+DPAPI-encrypted stores that are not yet supported.
+
+Only uses Python stdlib — no external dependencies.
+"""
+
+import configparser
+import functools
+import logging
+import os
+import platform
+import sqlite3
+import tempfile
+from pathlib import Path
+from typing import Dict, List, Optional
+
+from .cookie_paths import path_is_dir, path_is_file
+from .sqlite_snapshot import copy_snapshot
+
+logger = logging.getLogger(__name__)
+
+
+def has_complete_pair(result: Optional[Dict[str, str]], cookie_names) -> bool:
+    """Return True when ``result`` holds every requested cookie with a value.
+
+    Shared by the Firefox profile scan, ``env.extract_browser_credentials``,
+    and the setup wizard so a partial pair (e.g. a lone ``ct0`` from a
+    logged-out session) never shadows a complete one. Empty values do not
+    count: ``{"auth_token": "", "ct0": ""}`` is incomplete. ``cookie_names``
+    is the spec's cookie list (a spec dict with a ``"cookies"`` key also
+    works).
+    """
+    if not result:
+        return False
+    if isinstance(cookie_names, dict):
+        cookie_names = cookie_names.get("cookies", [])
+    return all(result.get(name) for name in cookie_names)
+
+
+def _lock_temp_cookie_copy(path: str) -> None:
+    """Restrict copied cookie DB temp files to the current user on POSIX."""
+    if os.name == "nt":
+        return
+    Path(path).chmod(0o600)
+
+
+@functools.lru_cache(maxsize=1)
+def _is_wsl() -> bool:
+    """Detect if running under Windows Subsystem for Linux.
+
+    Cached after the first call since /proc/version doesn't change at runtime.
+    """
+    try:
+        return "microsoft" in Path("/proc/version").read_text().lower()
+    except OSError:
+        return False
+
+
+def _get_wsl_firefox_profiles_dir() -> Optional[Path]:
+    """Find Firefox profiles directory on the Windows host from WSL.
+
+    Scans /mnt/c/Users/*/AppData/Roaming/Mozilla/Firefox for real user
+    directories (skips Public, Default, etc.).
+    """
+    mnt_users = Path("/mnt/c/Users")
+    if not path_is_dir(mnt_users):
+        return None
+    skip = {"Public", "Default", "Default User", "All Users"}
+    denied = None
+    try:
+        for user_dir in sorted(mnt_users.iterdir()):
+            if user_dir.name in skip:
+                continue
+            try:
+                if not path_is_dir(user_dir):
+                    continue
+                ff_dir = user_dir / "AppData" / "Roaming" / "Mozilla" / "Firefox"
+                if path_is_dir(ff_dir):
+                    return ff_dir
+            except PermissionError as exc:
+                if denied is None:
+                    denied = exc
+    except PermissionError as exc:
+        if denied is None:
+            denied = exc
+    except OSError:
+        pass
+    if denied is not None:
+        raise denied
+    return None
+
+
+def _get_firefox_profiles_dir() -> Optional[Path]:
+    """Return the Firefox profiles directory for the current platform, or None."""
+    system = platform.system()
+    if system == "Darwin":
+        path = Path.home() / "Library" / "Application Support" / "Firefox"
+    elif system == "Linux":
+        # Default location for most distros
+        path = Path.home() / ".mozilla" / "firefox"
+        denied = None
+        try:
+            if path_is_dir(path):
+                return path
+        except PermissionError as exc:
+            denied = exc
+        # Some distros (e.g. Fedora) honour $XDG_CONFIG_HOME
+        xdg_config = os.environ.get("XDG_CONFIG_HOME")
+        if xdg_config and os.path.isabs(xdg_config):
+            path = Path(xdg_config) / "mozilla" / "firefox"
+        else:
+            path = Path.home() / ".config" / "mozilla" / "firefox"
+    else:
+        # Windows: %APPDATA%\Mozilla\Firefox — best-effort
+        appdata = Path.home() / "AppData" / "Roaming" / "Mozilla" / "Firefox"
+        path = appdata
+    if path_is_dir(path):
+        return path
+    if system == "Linux" and denied is not None:
+        raise denied
+    return None
+
+
+def _load_profiles_ini(ini_path: Path) -> configparser.ConfigParser:
+    """Parse Firefox profiles.ini, retrying UTF-16 LE used on Windows (#1067)."""
+    config = configparser.ConfigParser()
+    try:
+        config.read(str(ini_path), encoding="utf-8")
+    except UnicodeDecodeError:
+        config.read(str(ini_path), encoding="utf-16")
+    return config
+
+
+def _find_default_profile(
+    profiles_dir: Path, denials: Optional[list[PermissionError]] = None
+) -> Optional[Path]:
+    """Parse profiles.ini to find the default profile directory.
+
+    Looks for a section with Default=1. Falls back to the first profile
+    directory found on disk if profiles.ini is missing or malformed.
+    """
+    ini_path = profiles_dir / "profiles.ini"
+    denied: list[PermissionError] = []
+
+    try:
+        has_ini = path_is_file(ini_path)
+    except PermissionError as exc:
+        denied.append(exc)
+        has_ini = False
+    if has_ini:
+        try:
+            config = _load_profiles_ini(ini_path)
+
+            # First pass: Install* section (Firefox >= 67 format, takes priority)
+            for section in config.sections():
+                if section.startswith("Install") and config.has_option(section, "Default"):
+                    raw = config.get(section, "Default")
+                    candidate = profiles_dir / raw
+                    try:
+                        found = path_is_dir(candidate)
+                    except PermissionError as exc:
+                        denied.append(exc)
+                        continue
+                    if found:
+                        if denials is not None:
+                            denials.extend(denied)
+                        return candidate
+
+            # Second pass: Profile section with Default=1
+            for section in config.sections():
+                if section.startswith("Profile") and config.has_option(section, "Default") and config.get(section, "Default") == "1":
+                    try:
+                        resolved = _resolve_profile_path(profiles_dir, config, section)
+                    except PermissionError as exc:
+                        denied.append(exc)
+                        continue
+                    if resolved is not None:
+                        if denials is not None:
+                            denials.extend(denied)
+                        return resolved
+
+            # Third pass: first Profile section that exists on disk
+            for section in config.sections():
+                if section.startswith("Profile"):
+                    try:
+                        resolved = _resolve_profile_path(profiles_dir, config, section)
+                    except PermissionError as exc:
+                        denied.append(exc)
+                        continue
+                    if resolved:
+                        if denials is not None:
+                            denials.extend(denied)
+                        return resolved
+        except PermissionError as exc:
+            denied.append(exc)
+        except (configparser.Error, OSError, UnicodeDecodeError) as exc:
+            logger.debug("Failed to parse profiles.ini: %s", exc)
+
+    # Fallback: scan directory for anything that looks like a profile
+    profile = _fallback_find_profile(profiles_dir, denied)
+    if denials is not None:
+        denials.extend(denied)
+    elif denied and profile is None:
+        raise denied[0]
+    return profile
+
+
+def _resolve_profile_path(
+    profiles_dir: Path, config: configparser.ConfigParser, section: str
+) -> Optional[Path]:
+    """Resolve a profile path from a ConfigParser section."""
+    if not config.has_option(section, "Path"):
+        return None
+    raw_path = config.get(section, "Path")
+    is_relative = config.has_option(section, "IsRelative") and config.get(section, "IsRelative") == "1"
+    if is_relative:
+        candidate = profiles_dir / raw_path
+    else:
+        candidate = Path(raw_path)
+    return candidate if path_is_dir(candidate) else None
+
+
+def _fallback_find_profile(
+    profiles_dir: Path, denials: Optional[list[PermissionError]] = None
+) -> Optional[Path]:
+    """Find the first directory that contains cookies.sqlite."""
+    denied: list[PermissionError] = []
+    try:
+        for child in sorted(profiles_dir.iterdir()):
+            try:
+                if path_is_dir(child) and path_is_file(child / "cookies.sqlite"):
+                    if denials is not None:
+                        denials.extend(denied)
+                    return child
+            except PermissionError as exc:
+                denied.append(exc)
+    except PermissionError as exc:
+        denied.append(exc)
+    except OSError:
+        pass
+    if denials is not None:
+        denials.extend(denied)
+    elif denied:
+        raise denied[0]
+    return None
+
+
+def _query_cookies_db(
+    db_path: Path, domain: str, cookie_names: List[str]
+) -> Optional[Dict[str, str]]:
+    """Snapshot the cookies database to a temp file and query it.
+
+    The snapshot includes committed WAL updates while Firefox is running.
+    Returns {name: value} dict or None if no matching cookies found.
+    """
+    if not path_is_file(db_path):
+        return None
+
+    tmp_fd = None
+    tmp_path = None
+    try:
+        tmp_fd, tmp_path = tempfile.mkstemp(suffix=".sqlite")
+        # Snapshot content only; preserve mkstemp's 0600 permissions.
+        copy_snapshot(db_path, tmp_path)
+        _lock_temp_cookie_copy(tmp_path)
+
+        conn = sqlite3.connect(tmp_path)
+        try:
+            # Build parameterized query — SQLite doesn't support array params,
+            # so we build the IN clause with individual placeholders.
+            placeholders = ",".join("?" for _ in cookie_names)
+            query = (
+                f"SELECT name, value FROM moz_cookies "
+                f"WHERE host LIKE ? AND name IN ({placeholders})"
+            )
+            # domain pattern: match .x.com, x.com, etc.
+            domain_pattern = f"%{domain}"
+            params = [domain_pattern] + list(cookie_names)
+
+            cursor = conn.execute(query, params)
+            rows = cursor.fetchall()
+        finally:
+            conn.close()
+
+        if not rows:
+            return None
+        return {name: value for name, value in rows}
+
+    except PermissionError as exc:
+        if exc.filename == str(db_path):
+            raise
+        logger.debug("Failed to query cookies database %s: %s", db_path, exc)
+        return None
+    except (sqlite3.Error, OSError) as exc:
+        logger.debug("Failed to query cookies database %s: %s", db_path, exc)
+        return None
+    finally:
+        if tmp_path:
+            try:
+                Path(tmp_path).unlink(missing_ok=True)
+            except OSError:
+                pass
+        if tmp_fd is not None:
+            try:
+                import os
+                os.close(tmp_fd)
+            except OSError:
+                pass
+
+
+def _try_firefox_dir(profiles_dir: Path, domain: str, cookie_names: List[str]) -> Optional[Dict[str, str]]:
+    """Try to extract cookies from a Firefox profiles directory.
+
+    Tries the default profile first, then falls back to scanning all
+    profiles for matching cookies.  This handles multi-profile setups
+    where the user is logged into x.com on a non-default profile.
+    A complete match (all ``cookie_names``) always wins: a partial
+    default-profile result is kept only as a fallback.
+    """
+    denials: list[PermissionError] = []
+    default_profile = _find_default_profile(profiles_dir, denials)
+    profiles_tried = 0
+    fallback: Optional[Dict[str, str]] = None
+    if default_profile is not None:
+        try:
+            result = _query_cookies_db(default_profile / "cookies.sqlite", domain, cookie_names)
+        except PermissionError as exc:
+            denials.append(exc)
+            result = None
+        if result is not None:
+            if has_complete_pair(result, cookie_names):
+                return result
+            fallback = result
+        profiles_tried = 1
+    # Fallback: scan every profile directory for matching cookies
+    try:
+        for child in sorted(profiles_dir.iterdir()):
+            try:
+                if not path_is_dir(child):
+                    continue
+                if default_profile is not None and child == default_profile:
+                    continue
+                db = child / "cookies.sqlite"
+                if path_is_file(db):
+                    result = _query_cookies_db(db, domain, cookie_names)
+                    if result is not None:
+                        if has_complete_pair(result, cookie_names):
+                            return result
+                        if fallback is None:
+                            fallback = result
+                    profiles_tried += 1
+            except PermissionError as exc:
+                denials.append(exc)
+    except PermissionError as exc:
+        denials.append(exc)
+    except OSError:
+        pass
+    if denials:
+        raise denials[0]
+    if fallback is not None:
+        return fallback
+    logger.debug("No matching cookies found in %d Firefox profile(s)", profiles_tried)
+    return None
+
+
+def extract_firefox_cookies(
+    domain: str, cookie_names: List[str]
+) -> Optional[Dict[str, str]]:
+    """Extract cookies from Firefox for the given domain and cookie names.
+
+    Finds the default Firefox profile, copies cookies.sqlite to a temp file
+    (to avoid lock conflicts), and queries for the requested cookies.
+
+    On WSL2, falls back to Windows Firefox if native Linux Firefox has no
+    matching cookies. Windows Firefox cookies are unencrypted, so this works
+    without DPAPI or any Windows-side helpers.
+
+    Args:
+        domain: The cookie domain to match (e.g. ".x.com"). Matched with LIKE %domain.
+        cookie_names: List of cookie names to extract (e.g. ["auth_token", "ct0"]).
+
+    Returns:
+        Dict of {cookie_name: cookie_value} or None if extraction fails.
+    """
+    denied = None
+    try:
+        profiles_dir = _get_firefox_profiles_dir()
+    except PermissionError as exc:
+        denied = exc
+        profiles_dir = None
+    if profiles_dir is not None:
+        try:
+            result = _try_firefox_dir(profiles_dir, domain, cookie_names)
+        except PermissionError as exc:
+            denied = exc
+            result = None
+        if result is not None:
+            return result
+
+    if platform.system() == "Linux" and _is_wsl():
+        try:
+            wsl_dir = _get_wsl_firefox_profiles_dir()
+        except PermissionError as exc:
+            if denied is None:
+                denied = exc
+            wsl_dir = None
+        if wsl_dir is not None:
+            logger.debug("Trying Windows Firefox via WSL: %s", wsl_dir)
+            try:
+                result = _try_firefox_dir(wsl_dir, domain, cookie_names)
+            except PermissionError as exc:
+                if denied is None:
+                    denied = exc
+                result = None
+            if result is not None:
+                return result
+
+    if denied is not None:
+        raise denied
+    if profiles_dir is None:
+        logger.debug("Firefox profiles directory not found")
+    return None
+
+
+def extract_chrome_cookies(
+    domain: str, cookie_names: List[str]
+) -> Optional[Dict[str, str]]:
+    """Extract cookies from Chrome for the given domain and cookie names.
+
+    macOS only — uses Keychain + system openssl for AES-128-CBC decryption.
+    Linux/Windows not supported (Chrome uses platform-specific encryption).
+
+    Returns:
+        Dict of {cookie_name: cookie_value} or None if extraction fails.
+    """
+    if platform.system() != "Darwin":
+        logger.debug("Chrome cookie extraction only supported on macOS")
+        return None
+    try:
+        from .chrome_cookies import extract_chrome_cookies_macos
+        return extract_chrome_cookies_macos(domain, cookie_names)
+    except PermissionError:
+        raise
+    except Exception as exc:
+        logger.debug("Chrome cookie extraction failed: %s", exc)
+        return None
+
+
+def extract_brave_cookies(
+    domain: str, cookie_names: List[str]
+) -> Optional[Dict[str, str]]:
+    """Extract cookies from Brave for the given domain and cookie names.
+
+    macOS only — Brave uses the same v10 AES-128-CBC encryption as Chrome,
+    with a different DB path and Keychain service name ("Brave Safe Storage").
+    Tries the Default profile first, then scans numbered Profile directories.
+
+    Returns:
+        Dict of {cookie_name: cookie_value} or None if extraction fails.
+    """
+    if platform.system() != "Darwin":
+        logger.debug("Brave cookie extraction only supported on macOS")
+        return None
+    try:
+        from .chrome_cookies import extract_brave_cookies_macos
+        return extract_brave_cookies_macos(domain, cookie_names)
+    except PermissionError:
+        raise
+    except Exception as exc:
+        logger.debug("Brave cookie extraction failed: %s", exc)
+        return None
+
+
+def _extract_chromium_family_cookies(
+    browser: str, domain: str, cookie_names: List[str]
+) -> Optional[Dict[str, str]]:
+    """Extract cookies from a non-Chrome/Brave Chromium browser on macOS.
+
+    macOS only — Edge, Vivaldi, Opera, Arc, and Chromium all reuse Chrome's
+    v10 AES-128-CBC encryption, with their own profile path and Keychain
+    service name (see chrome_cookies.CHROMIUM_BROWSER_PROFILES).
+    """
+    if platform.system() != "Darwin":
+        logger.debug("%s cookie extraction only supported on macOS", browser)
+        return None
+    try:
+        from .chrome_cookies import extract_chromium_browser_cookies_macos
+        return extract_chromium_browser_cookies_macos(browser, domain, cookie_names)
+    except PermissionError:
+        raise
+    except Exception as exc:
+        logger.debug("%s cookie extraction failed: %s", browser, exc)
+        return None
+
+
+def extract_edge_cookies(domain: str, cookie_names: List[str]) -> Optional[Dict[str, str]]:
+    """Extract cookies from Microsoft Edge for the given domain (macOS only)."""
+    return _extract_chromium_family_cookies("edge", domain, cookie_names)
+
+
+def extract_vivaldi_cookies(domain: str, cookie_names: List[str]) -> Optional[Dict[str, str]]:
+    """Extract cookies from Vivaldi for the given domain (macOS only)."""
+    return _extract_chromium_family_cookies("vivaldi", domain, cookie_names)
+
+
+def extract_opera_cookies(domain: str, cookie_names: List[str]) -> Optional[Dict[str, str]]:
+    """Extract cookies from Opera for the given domain (macOS only)."""
+    return _extract_chromium_family_cookies("opera", domain, cookie_names)
+
+
+def extract_arc_cookies(domain: str, cookie_names: List[str]) -> Optional[Dict[str, str]]:
+    """Extract cookies from Arc for the given domain (macOS only)."""
+    return _extract_chromium_family_cookies("arc", domain, cookie_names)
+
+
+def extract_chromium_cookies(domain: str, cookie_names: List[str]) -> Optional[Dict[str, str]]:
+    """Extract cookies from open-source Chromium for the given domain (macOS only)."""
+    return _extract_chromium_family_cookies("chromium", domain, cookie_names)
+
+
+def extract_safari_cookies(
+    domain: str, cookie_names: List[str]
+) -> Optional[Dict[str, str]]:
+    """Extract cookies from Safari for the given domain and cookie names.
+
+    macOS only — parses the unencrypted binary cookie file.
+
+    Returns:
+        Dict of {cookie_name: cookie_value} or None if extraction fails.
+    """
+    if platform.system() != "Darwin":
+        logger.debug("Safari cookie extraction only supported on macOS")
+        return None
+    try:
+        from .safari_cookies import extract_safari_cookies_macos
+        return extract_safari_cookies_macos(domain, cookie_names)
+    except PermissionError:
+        raise
+    except Exception as exc:
+        logger.debug("Safari cookie extraction failed: %s", exc)
+        return None
+
+
+def extract_cookies(
+    browser: str, domain: str, cookie_names: list[str]
+) -> Optional[dict[str, str]]:
+    """Extract cookies from the specified browser.
+
+    Args:
+        browser: One of 'firefox', 'chrome', 'brave', 'edge', 'vivaldi',
+            'opera', 'arc', 'chromium', 'safari', or 'auto'.
+            'auto' tries browsers in platform-appropriate order:
+            - macOS: Chrome -> Brave -> Edge -> Vivaldi -> Opera -> Arc -> Chromium -> Firefox -> Safari
+            - Linux: Firefox only
+        domain: The cookie domain to match (e.g. ".x.com").
+        cookie_names: List of cookie names to extract.
+
+    Returns:
+        Dict of {cookie_name: cookie_value} or None if extraction fails.
+    """
+    result = extract_cookies_with_source(browser, domain, cookie_names)
+    if result is None:
+        return None
+    cookies, _browser_name = result
+    return cookies
+
+
+def _extract_firefox_with_source(
+    domain: str, cookie_names: List[str]
+) -> Optional[tuple[Dict[str, str], str]]:
+    """Extract Firefox cookies and report whether they came from native or WSL.
+
+    Returns (cookies, "firefox") for native Linux/macOS Firefox, or
+    (cookies, "firefox-wsl") for Windows Firefox accessed via WSL2.
+    """
+    denied = None
+    try:
+        profiles_dir = _get_firefox_profiles_dir()
+    except PermissionError as exc:
+        denied = exc
+        profiles_dir = None
+    if profiles_dir is not None:
+        try:
+            result = _try_firefox_dir(profiles_dir, domain, cookie_names)
+        except PermissionError as exc:
+            denied = exc
+            result = None
+        if result is not None:
+            return (result, "firefox")
+
+    if platform.system() == "Linux" and _is_wsl():
+        try:
+            wsl_dir = _get_wsl_firefox_profiles_dir()
+        except PermissionError as exc:
+            if denied is None:
+                denied = exc
+            wsl_dir = None
+        if wsl_dir is not None:
+            logger.debug("Trying Windows Firefox via WSL: %s", wsl_dir)
+            try:
+                result = _try_firefox_dir(wsl_dir, domain, cookie_names)
+            except PermissionError as exc:
+                if denied is None:
+                    denied = exc
+                result = None
+            if result is not None:
+                return (result, "firefox-wsl")
+
+    if denied is not None:
+        raise denied
+    return None
+
+
+def extract_cookies_with_source(
+    browser: str, domain: str, cookie_names: list[str]
+) -> Optional[tuple[dict[str, str], str]]:
+    """Extract cookies and report which browser they came from.
+
+    Same as extract_cookies() but returns a (cookies, browser_name) tuple
+    so callers can track the source.
+
+    Args:
+        browser: One of 'firefox', 'chrome', 'brave', 'edge', 'vivaldi',
+            'opera', 'arc', 'chromium', 'safari', or 'auto'.
+        domain: The cookie domain to match (e.g. ".x.com").
+        cookie_names: List of cookie names to extract.
+
+    Returns:
+        Tuple of ({cookie_name: cookie_value}, browser_name) or None.
+        browser_name is "firefox-wsl" when cookies came from Windows Firefox via WSL2.
+    """
+    extractors = {
+        "firefox": extract_firefox_cookies,
+        "chrome": extract_chrome_cookies,
+        "brave": extract_brave_cookies,
+        "edge": extract_edge_cookies,
+        "vivaldi": extract_vivaldi_cookies,
+        "opera": extract_opera_cookies,
+        "arc": extract_arc_cookies,
+        "chromium": extract_chromium_cookies,
+        "safari": extract_safari_cookies,
+    }
+
+    if browser != "auto":
+        if browser == "firefox":
+            return _extract_firefox_with_source(domain, cookie_names)
+        extractor = extractors.get(browser)
+        if extractor is None:
+            logger.warning("Unknown browser: %s", browser)
+            return None
+        result = extractor(domain, cookie_names)
+        return (result, browser) if result is not None else None
+
+    # Auto mode: try browsers in platform-appropriate order.
+    # Note: the skill's own entry point (env.extract_browser_credentials) builds
+    # its own list that tries the SILENT browsers (Firefox, Safari) first to
+    # avoid macOS Keychain prompts. This standalone "auto" is Chromium-first; the
+    # two orderings are intentional for their respective callers.
+    system = platform.system()
+    if system == "Darwin":
+        order = ["chrome", "brave", "edge", "vivaldi", "opera", "arc", "chromium", "firefox", "safari"]
+    elif system == "Linux":
+        order = ["firefox"]
+    else:
+        order = ["firefox"]
+
+    for name in order:
+        if name == "firefox":
+            result = _extract_firefox_with_source(domain, cookie_names)
+            if result is not None:
+                return result
+        else:
+            result = extractors[name](domain, cookie_names)
+            if result is not None:
+                return (result, name)
+
+    return None
