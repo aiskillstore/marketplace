@@ -1,0 +1,220 @@
+#!/usr/bin/env node
+/** Offline SITE bundle build/verify: `pack --dir <abs-dir> --out <abs.zip> [--entry <name>]` | `inspect --zip <abs.zip> [--entry <name>]`; caller curls only on exit 0.
+ * Exit 0 verified, manifest printed -> upload | 2 verified, flagged entries -> ask user | 1 failure, partial archive removed -> never upload. */
+import { spawnSync } from 'node:child_process';
+import { readdirSync, statSync, lstatSync, existsSync, rmSync, accessSync, constants } from 'node:fs';
+import { join, relative, extname, basename, delimiter } from 'node:path';
+
+/** Publishable web assets. Allowlist by design: an unknown extension is dropped, never shipped. */
+const ALLOWED_EXT = new Set([
+  '.html', '.htm', '.css', '.js', '.mjs', '.cjs', '.json', '.xml', '.webmanifest',
+  '.svg', '.png', '.jpg', '.jpeg', '.gif', '.webp', '.avif', '.ico', '.bmp',
+  '.woff', '.woff2', '.ttf', '.otf',
+  '.txt', '.md', '.pdf',
+  '.mp4', '.webm', '.mp3', '.wav',
+]);
+
+/** Names that stay out even when the extension is allowed. */
+const EXCLUDED_DIRS = new Set(['node_modules', 'vendor', '__pycache__', 'dist-cache', '__MACOSX']);
+
+/** The one dot-folder a site keeps, at the root only (brewpage.app publishes it, drops other hidden entries). */
+const TRUSTED_DOT_DIR = '.well-known';
+
+/** System entries brewpage.app drops on its own: never counted, never flagged. */
+const SYSTEM_RE = /^(__MACOSX|\.Spotlight-V100|\.Trashes|\.fseventsd)\/|(^|\/)(\.DS_Store|Thumbs\.db|desktop\.ini)$/i;
+
+/** True when a dot-named segment, outside the root `.well-known/`, keeps the path out of a site. */
+const isHidden = (rel) => rel.split('/').some((s, i) => s.startsWith('.') && !(i === 0 && s === TRUSTED_DOT_DIR));
+
+/** Extension-less files ship only inside the root `.well-known/` (e.g. `apple-app-site-association`). */
+const isWellKnownBare = (rel) => rel.startsWith(`${TRUSTED_DOT_DIR}/`) && extname(rel) === '';
+
+/** Entries that still need a human OK if they survive the allowlist. */
+const SENSITIVE_RE = /(^|\/)(\.env|id_rsa|id_ed25519)|secret|credential|password|token|\.(pem|key|p12|pfx|crt|map)$/i;
+
+const ENTRY_RE = /^[A-Za-z0-9._-]+(\/[A-Za-z0-9._-]+)*$/;
+
+/** `unzip` stdout cap: Node's 1 MB default kills `-Z1` on a valid site with >1 MB of names (ENOBUFS). */
+const LIST_MAX_BUFFER = 64 * 1024 * 1024;
+
+function die(msg) {
+  console.log(`FAILED: ${msg}`);
+  console.log('RESULT: fail');
+  process.exit(1);
+}
+
+function parseArgs(argv) {
+  const out = { mode: argv[0] };
+  for (let i = 1; i < argv.length; i += 2) {
+    const k = argv[i];
+    const v = argv[i + 1];
+    if (!k.startsWith('--') || v === undefined) die(`bad argument near "${k}"`);
+    out[k.slice(2)] = v;
+  }
+  return out;
+}
+
+function validateEntry(entry) {
+  if (entry === undefined) return undefined;
+  if (!ENTRY_RE.test(entry) || entry.split('/').includes('..')) {
+    die(`entry "${entry}" is not a plain relative file name`);
+  }
+  return entry;
+}
+
+/** Recursively collect allowlisted regular files, relative to root, sorted. */
+function collect(root) {
+  const kept = [];
+  const skipped = [];
+  const walk = (dir) => {
+    for (const name of readdirSync(dir).sort()) {
+      const abs = join(dir, name);
+      const rel = relative(root, abs);
+      const st = lstatSync(abs);
+      const trusted = dir === root && name === TRUSTED_DOT_DIR && st.isDirectory();
+      if ((name.startsWith('.') && !trusted) || EXCLUDED_DIRS.has(name)) { skipped.push(rel); continue; }
+      if (st.isSymbolicLink()) { skipped.push(rel); continue; }
+      if (st.isDirectory()) { walk(abs); continue; }
+      if (!st.isFile()) { skipped.push(rel); continue; }
+      if (!ALLOWED_EXT.has(extname(name).toLowerCase()) && !isWellKnownBare(rel)) { skipped.push(rel); continue; }
+      if (/[\r\n]/.test(rel)) { skipped.push(rel); continue; }
+      kept.push(rel);
+    }
+  };
+  walk(root);
+  return { kept: kept.sort(), skipped: skipped.sort() };
+}
+
+function resolveEntry(names, requested) {
+  if (requested !== undefined) {
+    if (!names.includes(requested)) die(`entry "${requested}" is not in the archive`);
+    return requested;
+  }
+  // Server rule: root index.html, else the shallowest HTML file (ties: name order).
+  const html = names.filter((n) => !SYSTEM_RE.test(n) && !isHidden(n) && /\.html?$/i.test(n));
+  const index = html.find((n) => n.toLowerCase() === 'index.html');
+  if (index !== undefined) return index;
+  if (html.length === 0) die('no .html file in the bundle — refusing to guess an entry file');
+  const depth = (n) => n.split('/').length;
+  return [...html].sort((a, b) => depth(a) - depth(b) || (a < b ? -1 : a > b ? 1 : 0))[0];
+}
+
+/** True when `p` is an executable regular file. */
+function isExecutable(p) {
+  try { accessSync(p, constants.X_OK); return statSync(p).isFile(); } catch { return false; }
+}
+
+/** PATH lookup only, nothing is run: an exec probe reads as shell execution to skill scanners. */
+function requireTool(bin) {
+  const exts = process.platform === 'win32' ? ['', ...(process.env.PATHEXT || '.EXE;.CMD;.BAT').split(';')] : [''];
+  const dirs = (process.env.PATH || '').split(delimiter).filter(Boolean);
+  if (!dirs.some((dir) => exts.some((ext) => isExecutable(join(dir, bin + ext))))) die(`${bin} required`);
+}
+
+/** Why a spawnSync child failed, '' on success; its own non-zero exit wins over the EPIPE it causes. */
+function failure(bin, r) {
+  if (r.status !== 0 && r.status !== null) return `${bin} exited ${r.status}`;
+  if (r.error) return `${bin} failed (${r.error.code || r.error.message})`;
+  return r.signal ? `${bin} killed by ${r.signal}` : '';
+}
+
+/** One `unzip` run: { out }, or { why } telling a bad archive (non-zero exit) from a check that never finished. */
+function unzip(flag, zipPath) {
+  const r = spawnSync('unzip', [flag, zipPath], { encoding: 'utf8', maxBuffer: LIST_MAX_BUFFER });
+  if (r.status !== 0 && r.status !== null) return { why: 'archive failed its integrity check' };
+  const why = failure('unzip', r);
+  return why ? { why: `archive could not be checked: ${why}` } : { out: r.stdout || '' };
+}
+
+/** `unzip -tq` then `unzip -Z1`: { names } sorted, directory entries dropped, or { why }. */
+function listArchive(zipPath) {
+  const t = unzip('-tq', zipPath);
+  if (t.why) return t;
+  const z = unzip('-Z1', zipPath);
+  if (z.why) return z;
+  return { names: z.out.split('\n').map((s) => s.trim()).filter((s) => s !== '' && !s.endsWith('/')).sort() };
+}
+
+/** The one manifest format, and the only place the exit code is decided; always the caller's last call.
+ * exitCode, never process.exit(): exit drops stdout still queued for a slow pipe reader (manifest > 64 KB). */
+function report(names, bytes, entry, skipped, zipPath, unexpected = []) {
+  console.log(`ARCHIVE MANIFEST — ${basename(zipPath)}`);
+  for (const n of names) console.log(`  ${n}`);
+  console.log(`FILES: ${names.length}`);
+  console.log(`BYTES: ${bytes}`);
+  console.log(`ENTRY: ${entry}`);
+  console.log(`SKIPPED: ${skipped.length}${skipped.length ? ` (${skipped.join(', ')})` : ''}`);
+  if (unexpected.length) console.log(`UNEXPECTED: ${unexpected.join(', ')}`);
+  const flagged = names.filter((n) => SENSITIVE_RE.test(n));
+  if (flagged.length) console.log(`SENSITIVE: ${flagged.join(', ')}`);
+  const confirm = unexpected.length > 0 || flagged.length > 0;
+  console.log(`RESULT: ${confirm ? 'confirm' : 'ok'}`);
+  process.exitCode = confirm ? 2 : 0;
+}
+
+function pack(args) {
+  const dir = args.dir;
+  const out = args.out;
+  if (!dir || !out) die('pack needs --dir and --out');
+  if (!out.endsWith('.zip')) die('--out must end with .zip');
+  if (!existsSync(dir) || !statSync(dir).isDirectory()) die(`not a directory: ${dir}`);
+  const entryArg = validateEntry(args.entry);
+  requireTool('zip');
+  requireTool('unzip');
+
+  const { kept, skipped } = collect(dir);
+  if (kept.length === 0) die(`no publishable files under ${dir} after the allowlist filter`);
+  const entry = resolveEntry(kept, entryArg);
+
+  // BD-N03: `mktemp` leaves a 0-byte file that Info-ZIP reads as a corrupt
+  // archive and exits 3. Start from no file at all, every time.
+  rmSync(out, { force: true });
+
+  const z = spawnSync('zip', ['-q', '-X', '-@', out], {
+    cwd: dir, input: `${kept.join('\n')}\n`, encoding: 'utf8',
+  });
+  // zip exiting 0 without reading the list still fails: EPIPE (z.error) with status 0.
+  const zipWhy = failure('zip', z);
+  if (zipWhy) {
+    rmSync(out, { force: true });
+    die(`${zipWhy} — no archive produced`);
+  }
+
+  if (!existsSync(out) || statSync(out).size === 0) {
+    rmSync(out, { force: true });
+    die('zip produced no usable archive');
+  }
+  const bytes = statSync(out).size;
+  const { names: listed, why } = listArchive(out);
+  if (why) { rmSync(out, { force: true }); die(why); }
+  if (listed.join('\n') !== kept.join('\n')) {
+    rmSync(out, { force: true });
+    die(`archive contents differ from the selected file set (in archive: ${listed.length}, selected: ${kept.length})`);
+  }
+  report(listed, bytes, entry, skipped, out);
+}
+
+function inspect(args) {
+  const zipPath = args.zip;
+  if (!zipPath) die('inspect needs --zip');
+  if (!existsSync(zipPath) || !statSync(zipPath).isFile()) die(`not a file: ${zipPath}`);
+  const entryArg = validateEntry(args.entry);
+  requireTool('unzip');
+
+  const bytes = statSync(zipPath).size;
+  if (bytes === 0) die('archive is 0 bytes');
+  const { names: listed, why } = listArchive(zipPath);
+  if (why) die(why);
+  if (listed.length === 0) die('archive contains no files');
+  const entry = resolveEntry(listed, entryArg);
+
+  // A supplied ZIP is not rewritten: entries outside the allowlist or hidden go to a human decision;
+  // system entries the server drops itself are left alone.
+  const unexpected = listed.filter((n) => !SYSTEM_RE.test(n) && ((!ALLOWED_EXT.has(extname(n).toLowerCase()) && !isWellKnownBare(n)) || isHidden(n)));
+  report(listed, bytes, entry, [], zipPath, unexpected);
+}
+
+const args = parseArgs(process.argv.slice(2));
+if (args.mode === 'pack') pack(args);
+else if (args.mode === 'inspect') inspect(args);
+else die('usage: publish.mjs pack --dir <dir> --out <zip> [--entry <name>] | inspect --zip <zip> [--entry <name>]');
