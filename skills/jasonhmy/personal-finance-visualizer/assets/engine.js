@@ -54,7 +54,10 @@
       const share = t.share == null || t.share === '' ? 1 : Number(t.share);
       if (!Number.isFinite(share) || share < 0 || share > 1 || Math.abs(share * 10000 - Math.round(share * 10000)) > 1e-8) fail('Share must be between zero and one with at most four decimal places.');
       if (t.kind !== 'expense' && share !== 1) fail('Personal shares apply only to expenses.');
-      return {id, date: t.date, description: text(t.description), amount: t.amount, amountCents, kind: t.kind, group, share, category: text(t.category, 'Uncategorized'), merchant: text(t.merchant), incomeType, purpose, account: text(t.account), source: text(t.source)};
+      const bankStatus=t.bankStatus==null||t.bankStatus===''?'posted':t.bankStatus;
+      if(!['posted','pending'].includes(bankStatus))fail('Bank status must be posted or pending.');
+      if(bankStatus==='pending'&&t.kind!=='expense')fail('Pending records must be confirmed expenses.');
+      return {id, bankStatus, date: t.date, description: text(t.description), amount: t.amount, amountCents, kind: t.kind, group, share, category: text(t.category, 'Uncategorized'), merchant: text(t.merchant), incomeType, purpose, account: text(t.account), source: text(t.source)};
     });
     const byId = new Map(transactions.map(t => [t.id, t]));
     if (!Array.isArray(input.refunds || []) || !Array.isArray(input.settlements || []) || !Array.isArray(input.notes || [])) fail('Refunds, settlements and notes must be arrays.');
@@ -122,7 +125,7 @@
     for (const t of data.transactions) {
       if (t.date < period.start || t.date > period.end) continue;
       const settledCents = settled.get(t.id)||0;
-      const cashCents = t.kind === 'internal' ? 0 : Math.sign(t.amountCents) * (Math.abs(t.amountCents)-settledCents);
+      const cashCents = t.kind === 'internal' || t.bankStatus === 'pending' ? 0 : Math.sign(t.amountCents) * (Math.abs(t.amountCents)-settledCents);
       const personalUnits = t.kind === 'expense' && !matched.has(t.id) ? -t.amountCents * Math.round(t.share * 10000) : 0;
       const transferCents = t.kind.startsWith('transfer_') ? cashCents : 0;
       result.rows.push({...t, personalCents:personalUnits/10000,cashCents,transferCents,matchedRefund:matched.has(t.id),settledCents});
@@ -198,6 +201,7 @@
     const signedRemainingCents=(openingCents*10000-todayUnits)/10000;
     const usable=data.coverage.start<=start&&data.coverage.end>=yesterday;
     const availableCents=usable?Math.max(0,Math.floor(signedRemainingCents)):null;
+    const allocatable=category=>!['Uncategorized','未分类','待分类','商户待分类'].includes(category.trim());
     const historicalMonths=[],history=new Map();
     for(let offset=1;offset<=600&&historicalMonths.length<3;offset++){
       const a=iso(new Date(Date.UTC(year,month-offset,1))),b=iso(new Date(Date.UTC(year,month-offset+1,0)));
@@ -205,12 +209,13 @@
       if(a<data.coverage.start||b>data.coverage.end)continue;
       historicalMonths.push(a.slice(0,7));
       for(const row of summarize(data,{start:a,end:b}).rows){
-        if(row.kind==='expense'&&!row.matchedRefund&&row.group==='daily')history.set(row.category,(history.get(row.category)||0)+Math.round(row.personalCents*10000));
+        if(row.kind==='expense'&&!row.matchedRefund&&row.group==='daily'&&allocatable(row.category))history.set(row.category,(history.get(row.category)||0)+Math.round(row.personalCents*10000));
       }
     }
     const automatic=splitBudgetAmount(10000,[...history].sort((a,b)=>b[1]-a[1]||stableText(a[0],b[0])).map(([category,weight])=>({category,weight}))).map(e=>({category:e.category,basisPoints:e.allocated}));
-    const shares=settings.allocationMode==='manual'?settings.shares:automatic;
-    const categories=[...new Set([...shares.map(s=>s.category),...history.keys(),...rows.filter(r=>r.group==='daily').map(r=>r.category)])];
+    const references=(settings.allocationMode==='manual'?settings.shares:automatic).filter(s=>allocatable(s.category));
+    const shares=splitBudgetAmount(10000,references.map(s=>({category:s.category,weight:s.basisPoints}))).map(s=>({category:s.category,basisPoints:s.allocated}));
+    const categories=[...new Set([...shares.map(s=>s.category),...history.keys(),...rows.filter(r=>r.group==='daily'&&allocatable(r.category)).map(r=>r.category)])];
     const allocated=splitBudgetAmount(availableCents??0,categories.map(category=>({category,weight:shares.find(s=>s.category===category)?.basisPoints||0})));
     const categoryRows=allocated.map(item=>{
       const items=rows.filter(r=>r.group==='daily'&&r.category===item.category),spent=personalSum(items);
@@ -222,7 +227,7 @@
       missingMonthStart:data.coverage.start>start,stale:data.coverage.end<yesterday,dailyLimitCents,monthlyBudgetCents,
       spentBeforeCents,spentTodayCents,spentMonthCents,remainingMonthCents,openingCents:usable?openingCents:null,
       availableCents,overspentTodayCents:usable?Math.max(0,-signedRemainingCents):null,monthDeficitCents:Math.max(0,-remainingMonthCents),
-      monthlyDailyCostCents:spentMonthCents/daysInMonth,historicalMonths,automaticShares:automatic,categoryRows,costGroups,
+      monthlyDailyCostCents:spentMonthCents/daysInMonth,historicalMonths,automaticShares:automatic,allocationShares:shares,categoryRows,costGroups,
       excludedCents:personalSum(excludedRows),rows,hasAllocation:shares.some(s=>s.basisPoints>0)};
   }
   const api = {validate, periods, summarize, cents, validateBudgetSettings, budgetDate, dailyBudget};

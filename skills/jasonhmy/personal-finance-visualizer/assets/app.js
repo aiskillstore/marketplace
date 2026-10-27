@@ -103,7 +103,7 @@
       const detail=t('matching')+' '+selected.length+' / '+rows.length+' '+t('count')+' · '+t('filteredTotal')+'（'+t(valueLabel)+'） '+money(sum(selected,valueKey));
       status.replaceChildren(e('span','',selected.length+' / '+rows.length),e('span','detail-total',' · '+money(sum(selected,valueKey))));status.title=detail;status.setAttribute('aria-label',detail);
       empty.hidden=selected.length>0;body.replaceChildren();
-      for(const row of selected){const tr=e('tr');tr.append(e('td','nowrap',row.date));const raw=row.merchant||row.description,display=merchantName(raw),description=e('td','description',display);if(display!==raw)description.append(e('small','',raw));if(row.merchant&&row.description!==row.merchant)description.append(e('small','',row.description));if(row.source)description.append(e('small','',t('source')+': '+row.source));if(row.matchedRefund)description.append(e('small','',t('matched')));if(row.settledCents)description.append(e('small','',t('settled')+': '+money(row.settledCents)));tr.append(description,e('td','',categoryName(row.category)),e('td','',row.account),e('td','amount',money(row.amountCents)));if(mode==='expenses')tr.append(e('td','amount',String(row.share*100)+'%'),e('td','amount',money(row.personalCents)));else tr.append(e('td','amount',money(mode==='transfers'?row.transferCents:row.cashCents)));body.append(tr);}
+      for(const row of selected){const tr=e('tr');tr.append(e('td','nowrap',row.date));const raw=row.merchant||row.description,display=merchantName(raw),description=e('td','description',display);if(display!==raw)description.append(e('small','',raw));if(row.merchant&&row.description!==row.merchant)description.append(e('small','',row.description));if(row.source)description.append(e('small','',t('source')+': '+row.source));if(row.bankStatus==='pending')description.append(e('small','',bt('待入账 · 已计入个人支出','Pending · included in personal spending')));if(row.matchedRefund)description.append(e('small','',t('matched')));if(row.settledCents)description.append(e('small','',t('settled')+': '+money(row.settledCents)));tr.append(description,e('td','',categoryName(row.category)),e('td','',row.account),e('td','amount',money(row.amountCents)));if(mode==='expenses')tr.append(e('td','amount',String(row.share*100)+'%'),e('td','amount',money(row.personalCents)));else tr.append(e('td','amount',money(mode==='transfers'?row.transferCents:row.cashCents)));body.append(tr);}
     }
     draw();return wrap;
   }
@@ -432,7 +432,7 @@
     if(budgetState.phase!=='ready')return;
     if(!budgetDialog){budgetDialog=e('dialog','budget-settings');budgetDialog.setAttribute('aria-labelledby','budget-settings-title');document.body.append(budgetDialog);budgetDialog.addEventListener('cancel',event=>{if(budgetSaving)event.preventDefault();});}
     budgetDialog.replaceChildren();
-    const current=budgetState.settings,revisionAtOpen=budgetState.revision,result=Finance.dailyBudget(data,current),draftShares=current.allocationMode==='manual'?current.shares:result.automaticShares;
+    const current=budgetState.settings,revisionAtOpen=budgetState.revision,result=Finance.dailyBudget(data,current),draftShares=result.allocationShares;
     const title=e('h2','',bt('预算设置','Budget settings'));title.id='budget-settings-title';const heading=e('div','budget-dialog-heading');heading.append(title);
     const close=btn('×','icon-button',()=>budgetDialog.close());close.setAttribute('aria-label',t('close'));heading.append(close);budgetDialog.append(heading);
     const form=e('form','budget-form');form.noValidate=true;
@@ -449,6 +449,7 @@
       const input=e('input');input.type='number';input.min='0';input.max='100';input.step='0.01';input.inputMode='decimal';input.value=((draftShares.find(x=>x.category===row.category)?.basisPoints||0)/100).toFixed(2);input.disabled=mode==='history';input.setAttribute('aria-label',categoryName(row.category)+bt('分配百分比',' allocation percent'));
       field.append(input,e('span','muted','%'));shares.append(field);inputs.push({category:row.category,input});input.addEventListener('input',()=>updateTotal());
     }
+    const initialShares=inputs.map(x=>x.input.value);
     form.append(shares);const total=e('p','budget-form-status');total.setAttribute('aria-live','polite');form.append(total);
     function updateTotal(){
       if(mode==='history'){total.textContent=result.historicalMonths.length?bt('会按最新完整月份自动更新比例；额度可在类别间挪用。','Shares update from complete months. You can move the allowance between categories.'):bt('暂无完整历史月份，可改用自定义比例。','No complete historical months yet; choose custom shares.');total.classList.remove('is-error');return;}
@@ -464,7 +465,7 @@
     form.addEventListener('submit',async event=>{
       event.preventDefault();if(budgetSaving)return;error.textContent='';reload.hidden=true;
       let settings;
-      try{settings=Finance.validateBudgetSettings({...current,dailyLimit:amount.value,allocationMode:mode,shares:mode==='manual'?inputs.map(x=>({category:x.category,basisPoints:Finance.cents(x.input.value)})):[]});}
+      try{settings=Finance.validateBudgetSettings({...current,dailyLimit:amount.value,allocationMode:mode,shares:mode==='manual'?(mode===current.allocationMode&&inputs.every((x,i)=>x.input.value===initialShares[i])?current.shares:inputs.map(x=>({category:x.category,basisPoints:Finance.cents(x.input.value)}))):[]});}
       catch{error.textContent=bt('请检查日预算和类别比例；自定义比例合计须为100%。','Check the daily limit and shares. Custom shares must total 100%.');return;}
       budgetSaving=true;for(const b of [save,cancel,close])b.disabled=true;save.textContent=bt('正在保存…','Saving…');
       try{
@@ -475,6 +476,26 @@
     });
     budgetDialog.append(form);budgetDialog.showModal();amount.focus();
   }
+  function budgetPie(result){
+    const figure=e('figure','budget-pie'),drawing=svg('svg',{viewBox:'0 0 520 520',role:'group','aria-label':bt('日常可花参考比例','Everyday allowance shares')}),legend=e('figcaption','budget-pie-legend');
+    const items=result.categoryRows.filter(row=>row.basisPoints>0);let angle=-Math.PI/2;
+    for(const [index,row] of items.entries()){
+      const color=(Object.hasOwn(categoryColors,row.category)?categoryColors[row.category]:null)||colors[index%colors.length],sweep=row.basisPoints/10000*Math.PI*2,end=angle+sweep;
+      const point=a=>[260+244*Math.cos(a),260+244*Math.sin(a)];
+      const segment=items.length===1?svg('circle',{cx:260,cy:260,r:244,fill:color}):svg('path',{d:'M260 260 L'+point(angle).join(' ')+' A244 244 0 '+(sweep>Math.PI?1:0)+' 1 '+point(end).join(' ')+' Z',fill:color});
+      const name=categoryName(row.category),percent=(row.basisPoints/100).toLocaleString(locale(),{maximumFractionDigits:2})+'%',amount=row.availableCents===null?'—':money(row.availableCents);
+      const open=()=>budgetDetail(name,row.rows,result);segment.classList.add('budget-pie-slice');segment.setAttribute('role','button');segment.setAttribute('tabindex','0');segment.setAttribute('aria-label',name+' · '+percent+' · '+amount);
+      chartTooltip(segment,[name,percent,bt('今天参考可花：','Available today: ')+amount]);segment.addEventListener('click',open);segment.addEventListener('keydown',event=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();open();}});drawing.append(segment);
+      if(row.basisPoints>=1000){
+        const middle=angle+sweep/2,radius=items.length===1?0:151,x=260+radius*Math.cos(middle),y=260+radius*Math.sin(middle);
+        const rgb=color.slice(1).match(/../g).map(value=>{const c=parseInt(value,16)/255;return c<=.04045?c/12.92:((c+.055)/1.055)**2.4;});
+        const ink=rgb[0]*.2126+rgb[1]*.7152+rgb[2]*.0722>.179?'#111111':'#ffffff';
+        const label=svg('text',{x,y:y-7,'text-anchor':'middle',fill:ink,'class':'budget-pie-label','aria-hidden':'true'}),value=svg('tspan',{x,dy:27});label.textContent=name;value.textContent=percent;label.append(value);drawing.append(label);
+      }
+      const key=btn('','budget-pie-key',open),dot=e('i','budget-pie-dot'),label=e('span','budget-pie-name',name),value=e('span','budget-pie-value');dot.style.background=color;value.append(e('strong','',percent),e('small','muted',amount));key.append(dot,label,value);legend.append(key);angle=end;
+    }
+    figure.append(drawing,legend);return figure;
+  }
   function budgetPage(page){
     const header=e('div','budget-heading');header.append(e('h2','',bt('每日可花','Daily allowance')));const edit=btn(bt('预算设置','Budget settings'),'period-button',editBudget);edit.disabled=budgetState.phase!=='ready';header.append(edit);page.append(header);
     if(budgetState.phase==='idle'){loadBudget();}
@@ -484,19 +505,28 @@
     page.append(e('p','budget-date',b.asOf+' · '+bt('数据截至 ','Data through ')+data.coverage.end));
     if(!budgetState.saved&&data.budget.endpoint)page.append(e('p','budget-status',bt('当前使用预设预算。打开预算设置并保存后，所有设备将共用。','Using the proposed budget. Save it in Budget settings to share it across devices.')));
     if(!b.usable){const warning=e('p','budget-status is-warning',b.missingMonthStart?bt('缺少本月前段资料，暂不能可靠计算今天可花多少。','Earlier records for this month are missing, so today’s allowance is not available.'):bt('资料尚未更新到昨天，暂不显示今天的可花额度。','Records are not current through yesterday, so today’s allowance is not shown.'));warning.setAttribute('role','status');warning.append(e('br'),btn(bt('刷新报告','Refresh report'),'period-button',()=>location.reload()));page.append(warning);}
-    const summary=e('section','budget-summary');const main=e('div','budget-today');main.append(e('span','budget-kicker',bt('今天还能花','Available today')),e('strong','budget-available',b.availableCents===null?'—':money(b.availableCents)));
-    main.append(e('p','muted',b.overspentTodayCents>0?bt('今天已超出 ','Over today’s allowance by ')+money(b.overspentTodayCents):data.coverage.end<b.asOf?bt('今日新消费尚未导入','Today’s new spending has not been imported yet'):bt('今天已入账支出 ','Recorded spending today: ')+money(b.spentTodayCents)));
+    const summary=e('section','budget-summary'),main=e('div','budget-today'),amount=e('div','budget-amount');
+    amount.append(e('strong','budget-available',b.availableCents===null?'—':money(b.availableCents)));
+    const previous=Finance.dailyBudget(data,budgetState.settings,b.expectedCoverageThrough);
+    const change=b.availableCents===null||previous.openingCents===null?null:b.availableCents-previous.openingCents;
+    const signed=(value,digits)=>(value>0?'+':value<0?'−':'')+Math.abs(value).toLocaleString(data.language==='zh-CN'?'zh-CN':'en-US',{maximumFractionDigits:digits});
+    const percent=change===null||previous.openingCents===0?null:change/previous.openingCents*100;
+    const delta=e('span','budget-change'+(change>0?' is-up':change<0?' is-down':''));
+    const deltaAmount=change===null?'—':signed(change/100,2),deltaPercent=percent===null?'—':signed(percent,2)+'%';
+    delta.title=bt('相比昨天一开始的可花额度（按当前预算设置）','Compared with yesterday’s opening allowance (using current budget settings)');
+    delta.setAttribute('aria-label',delta.title+': '+deltaAmount+', '+deltaPercent);
+    delta.append(e('span','',deltaAmount),e('span','',deltaPercent));amount.append(delta);
+    main.append(e('span','budget-kicker',bt('今天还能花','Available today')),amount);
+    if(b.overspentTodayCents>0)main.append(e('p','muted',bt('今天已超出 ','Over today’s allowance by ')+money(b.overspentTodayCents)));
+    else if(data.coverage.end>=b.asOf)main.append(e('p','muted',bt('今天已确认支出 ','Confirmed spending today: ')+money(b.spentTodayCents)));
     const stats=e('dl','budget-stats');for(const [label,value] of [[bt('每日上限','Daily limit'),money(b.dailyLimitCents)],[bt('本月总预算','Monthly budget'),money(b.monthlyBudgetCents)],[bt('本月剩余','Left this month'),b.usable?money(b.remainingMonthCents):'—'],[bt('含今天还剩','Days including today'),b.remainingDays+bt('天',' days')]]){const item=e('div');item.append(e('dt','',label),e('dd','',value));stats.append(item);}summary.append(main,stats);page.append(summary);
     if(b.monthDeficitCents>0)page.append(e('p','budget-status is-warning',bt('本月预算已超出 ','This month is over budget by ')+money(b.monthDeficitCents)+bt('。今日可花按0显示，下月重新开始。','. Today’s available amount is zero. Next month starts fresh.')));
     const section=e('section','budget-section');const sectionHead=e('div','budget-section-heading');sectionHead.append(e('h2','',bt('日常可花参考','Everyday category allowances')));section.append(sectionHead);
     section.append(e('p','muted',b.settings.allocationMode==='manual'?bt('按你保存的比例分配，可以在类别间挪用。','Using your saved shares. You can move amounts between categories.'):bt('参考完整月份：','Complete months used: ')+(b.historicalMonths.length?b.historicalMonths.slice().reverse().join(' · '):bt('暂无','none'))));
     if(!b.hasAllocation)section.append(e('p','budget-status',b.categoryRows.length?bt('暂无可用的历史比例。可以在预算设置中手动分配。','No historical allocation is available. Set custom shares in Budget settings.'):bt('暂无日常类别记录，获得数据后显示参考分配。','Category references will appear when everyday records are available.')));
-    const area=e('div','table-area budget-table-area'),table=e('table','data-table budget-table'),head=e('thead'),tr=e('tr'),body=e('tbody');
-    for(const label of [bt('类别','Category'),bt('参考比例','Share'),bt('今天参考可花','Available today'),bt('本月已花','Spent this month'),bt('折合全月每天','Cost per calendar day')]){const th=e('th','',label);th.scope='col';tr.append(th);}head.append(tr);table.append(head,body);
-    for(const row of b.categoryRows){const tr=e('tr'),label=e('td');label.append(btn(categoryName(row.category),'budget-row-link',()=>budgetDetail(categoryName(row.category),row.rows,b)));tr.append(label,e('td','amount',(row.basisPoints/100).toFixed(2)+'%'),e('td','amount budget-reference',!b.hasAllocation||row.availableCents===null?'—':money(row.availableCents)),e('td','amount',money(row.spentMonthCents)),e('td','amount',money(row.monthlyDailyCostCents)));body.append(tr);}
-    if(!b.categoryRows.length){const tr=e('tr'),cell=e('td','muted',bt('暂无日常类别记录。','No everyday categories yet.'));cell.colSpan=5;tr.append(cell);body.append(tr);}area.append(table);section.append(e('p','budget-table-hint',bt('左右滑动查看本月支出和日均摊销','Swipe to see monthly spending and daily cost')),area);page.append(section);
+    if(b.hasAllocation)section.append(budgetPie(b));page.append(section);
     if(b.costGroups.length){const costs=e('section','budget-section budget-costs');costs.append(e('h2','',bt('固定费用已经占用多少','Recorded fixed costs')));const list=e('div','budget-cost-list');for(const group of b.costGroups){const row=btn('','budget-cost-row',()=>budgetDetail(t(group.group),group.rows,b));row.append(e('span','',t(group.group)),e('strong','',money(group.spentMonthCents)),e('small','muted',bt('折合每天 ','Per calendar day: ')+money(group.monthlyDailyCostCents)));list.append(row);}costs.append(list);page.append(costs);}
-    const details=e('div','notes');details.append(e('p','',bt('今日起始额度＝（本月预算－今天之前已花）÷剩余天数（含今天），最多不超过每日上限；再扣今天已入账支出。','Opening allowance = (monthly budget − spending before today) ÷ remaining days including today, capped at your daily limit. Recorded spending today is then deducted.')),e('p','',bt('计入：','Included: ')+scope+'。'),e('p','',bt('“折合全月每天”只解释费用，不会再扣一次。类别额度是参考分配，不是互相独立的硬限制。','Cost per calendar day explains spending; it is not deducted again. Category amounts are reference allocations, not separate hard limits.')),e('p','',bt('未入账和今天尚未导入的消费未计入；未来固定扣款不预估。每日更新后重新计算。','Pending and not-yet-imported spending are excluded. Future fixed charges are not forecast. Allowances recalculate after each update.')));details.append(e('p','',bt('这是预算额度，账户余额未用于这项计算。','This is a budget allowance; account balances are not used in this calculation.')));for(const note of data.notes)details.append(e('p','',note));page.append(fold(bt('预算怎么算','How the budget works'),details));
+    const details=e('div','notes');details.append(e('p','',bt('今日起始额度＝（本月预算－今天之前已花）÷剩余天数（含今天），最多不超过每日上限；再扣今天已确认支出。','Opening allowance = (monthly budget − spending before today) ÷ remaining days including today, capped at your daily limit. Confirmed spending today, including pending purchases, is then deducted.')),e('p','',bt('计入：','Included: ')+scope+'。'),e('p','',bt('“折合全月每天”只解释费用，不会再扣一次。类别额度是参考分配，不是互相独立的硬限制。','Cost per calendar day explains spending; it is not deducted again. Category amounts are reference allocations, not separate hard limits.')),e('p','',bt('已确认的待入账消费计入花费与预算；尚未导入或未确认的记录不计入，未来固定扣款不预估。','Confirmed pending purchases count toward spending and budget. Unimported or unconfirmed records are excluded; future fixed charges are not forecast.')));details.append(e('p','',bt('这是预算额度，账户余额未用于这项计算。','This is a budget allowance; account balances are not used in this calculation.')));for(const note of data.notes)details.append(e('p','',note));page.append(fold(bt('预算怎么算','How the budget works'),details));
   }
   document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&view==='budget'&&!budgetDialog?.open&&!budgetSaving){loadBudget();}});
 
@@ -516,7 +546,7 @@
       const merchants=e('div','ring-grid three merchant-grid');const categories=bucket(spending.filter(r=>r.group==='daily'),'category','personalCents',categoryColors);for(const category of categories){if(['Transport','Other','Uncategorized','Needs review','交通出行','其他日常','商户待分类'].includes(category.key))continue;merchants.append(ring(category.label,bucket(category.rows,r=>r.merchant||r.description,'personalCents'),{size:'merchant',layoutId:'merchant:daily:'+cardKey(category.key)}));}if(!merchants.children.length)merchants.append(e('p','empty',t('zeroSpending')));page.append(merchants);
       if(grain!=='day')page.append(timeline(daily,'expenses'));page.append(fold(t('periodSummary'),()=>amountSummary(s)),fold(t('allTransactions'),()=>transactionTable(spending)),fold(t('allMonths'),()=>monthSummary()));const refundRows=rows.filter(r=>r.kind==='refund'||r.matchedRefund);page.append(fold(t('refunds'),()=>transactionTable(refundRows,'overview')));
     }else if(view==='overview'){
-      const grid=e('div','metric-grid');grid.append(metric(t('inflow'),s.inflow,rows.filter(r=>r.cashCents>0),t('cashTip')),metric(t('outflow'),s.outflow,rows.filter(r=>r.cashCents<0),t('cashTip')),metric(t('net'),s.net,rows.filter(r=>r.kind!=='internal'),t('cashTip')));page.append(grid);
+      const grid=e('div','metric-grid');grid.append(metric(t('inflow'),s.inflow,rows.filter(r=>r.cashCents>0),t('cashTip')),metric(t('outflow'),s.outflow,rows.filter(r=>r.cashCents<0),t('cashTip')),metric(t('net'),s.net,rows.filter(r=>r.kind!=='internal'&&r.bankStatus!=='pending'),t('cashTip')));page.append(grid);
     }else if(view==='income'){
       const income=rows.filter(r=>r.kind==='income');const slices=bucket(income,'category','amountCents',categoryColors);const primary=e('div','ring-grid two');primary.append(ring(t('incomeTotal'),slices,{size:'primary',mode:'income',label:t('income'),tip:t('incomeTip')}),ring(t('incomeAverage'),slices,{size:'primary',mode:'income',average:true,tip:t('incomeTip')}));page.append(primary);const secondary=e('div','ring-grid three');for(const type of ['salary','support','other'])secondary.append(ring(t(type==='other'?'otherIncome':type),bucket(income.filter(r=>r.incomeType===type),r=>r.merchant||r.description,'amountCents'),{mode:'income',label:t('income'),tip:t('incomeTip')}));page.append(secondary);if(grain!=='day')page.append(timeline(income,'income'));page.append(fold(t('transactions'),()=>transactionTable(income,'income')));
     }else{
