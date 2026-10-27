@@ -217,7 +217,10 @@ For a private (non-`public`) namespace, append one short line after the link (sk
 
 **Needs confirmation** (the script printed `CONFIRM: ...`, exit 2; nothing uploaded): show the manifest
 lines, name the flagged entries, ask ONE `AskUserQuestion` (publish anyway / cancel). Publish anyway ->
-re-run the identical command with ` --confirmed` appended. Cancel or no answer -> stop: the script already
+re-run the identical command with ` --confirmed --review-sha256 '{review_sha256}'` appended, using the exact
+`REVIEW_SHA256` printed beside the approved manifest. Changed archive bytes produce a fresh manifest and
+digest: ask again; never silently approve the replacement. No payload is retained between calls.
+Cancel or no answer -> stop: the script already
 removed its own run directory and never touches other runs, user source files or the shared tmp directory.
 
 **Error** (the script printed `FAILED: ...`):

@@ -212,19 +212,55 @@ bp_finish() {
   printf '%s' "$response" | jq -r '.notices[]?.message // empty | "NOTICE: " + (tostring | explode | map(if . < 32 then 32 else . end) | implode)' 2>/dev/null || true
 }
 
-# publish.mjs verdict for both site blocks: success -> ENTRY from manifest; else rc 2 (needs human OK)
-# or 1 (nothing verified), archive removed either way so curl never runs.
+# Snapshot before inspection: source replacement cannot change the eventual upload.
+bp_archive_snapshot() {
+  python3 - "$1" "$2" <<'PY'
+import os, stat, sys
+source = os.open(os.path.realpath(sys.argv[1]), os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+try:
+    info = os.fstat(source)
+    if not stat.S_ISREG(info.st_mode) or info.st_size > 25 * 1024 * 1024:
+        raise ValueError('archive must be a regular file within the inspection limit')
+    with os.fdopen(source, 'rb', closefd=False) as incoming:
+        fd = os.open(sys.argv[2], os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+        with os.fdopen(fd, 'wb') as outgoing:
+            data = incoming.read(25 * 1024 * 1024 + 1)
+            if len(data) > 25 * 1024 * 1024:
+                raise ValueError('archive grew beyond the inspection limit')
+            outgoing.write(data)
+finally:
+    os.close(source)
+PY
+}
+
+# Confirmation approves one archive digest; every run still discards its temporary payload.
 bp_archive_gate() {
   local rc="$1" manifest="$2" zip="$3"
-  if [ "$rc" -eq 2 ] && [ "${BREWPAGE_CONFIRMED:-0}" != "1" ]; then
-    [ -n "$zip" ] && rm -f "$zip"
-    echo "CONFIRM: flagged entries listed above — ask the user, then re-run with --confirmed"
-    return 2
-  fi
   if [ "$rc" -ne 0 ] && [ "$rc" -ne 2 ]; then
     [ -n "$zip" ] && rm -f "$zip"
     echo "FAILED: archive not verified (publish.mjs exit $rc) — nothing was uploaded"
     return 1
+  fi
+  if [ "$rc" -eq 2 ] || [ "${BREWPAGE_CONFIRMED:-0}" = 1 ] || [ -n "${BREWPAGE_REVIEW_SHA256:-}" ]; then
+    local digest
+    digest=$(python3 - "$zip" <<'PY'
+import hashlib, os, stat, sys
+fd = os.open(sys.argv[1], os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+with os.fdopen(fd, 'rb') as archive:
+    info = os.fstat(archive.fileno())
+    if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid() or info.st_nlink != 1:
+        raise ValueError('unsafe archive snapshot')
+    digest = hashlib.sha256()
+    for block in iter(lambda: archive.read(65536), b''):
+        digest.update(block)
+    print(digest.hexdigest())
+PY
+    ) || { echo 'FAILED: cannot hash reviewed archive'; return 1; }
+    if [ "${BREWPAGE_CONFIRMED:-0}" != 1 ] || [ "${BREWPAGE_REVIEW_SHA256:-}" != "$digest" ]; then
+      echo "REVIEW_SHA256: $digest"
+      echo "CONFIRM: review this manifest, then re-run with --confirmed --review-sha256 $digest"
+      return 2
+    fi
   fi
   ENTRY=$(printf '%s\n' "$manifest" | sed -n 's/^ENTRY: //p')
 }

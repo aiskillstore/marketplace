@@ -32,7 +32,7 @@ brewpage-run.sh probe <path>
 brewpage-run.sh limits
 brewpage-run.sh stage --run <run_id|''> --text <chunk>
 brewpage-run.sh publish <html|json|file|site-dir|site-zip> --ns <ns> [--ttl N] [--entry F]
-  [--delivery-mode path|subdomain] --password-file <ABS|''> [--confirmed] (--text T | --run ID | --path P)
+  [--delivery-mode path|subdomain] --password-file <ABS|''> [--confirmed --review-sha256 SHA256] (--text T | --run ID | --path P)
 brewpage-run.sh cleanup --run <run_id>
 --ns and --password-file are required; --password-file '' explicitly selects no password.
 Empty --ttl uses 15; empty --entry/--delivery-mode are omitted. Prints OK/CONFIRM:/FAILED:; CONFIRM exits 2.
@@ -116,6 +116,7 @@ cmd_publish() {
   local type="${1:-}" ns="" days=15 entry="" mode="" pwfile="" text="" run="" path="" have_text=0 sources=0 have_password=0
   if [ "$#" -gt 0 ]; then shift; fi
   BREWPAGE_CONFIRMED=0
+  BREWPAGE_REVIEW_SHA256=""
   while [ "$#" -gt 0 ]; do
     case "$1" in
       --ns) need "$#" "$1"; ns="$2"; shift 2 ;;
@@ -127,12 +128,18 @@ cmd_publish() {
       --run) need "$#" "$1"; run="$2"; sources=$((sources + 1)); shift 2 ;;
       --path) need "$#" "$1"; path="$2"; sources=$((sources + 1)); shift 2 ;;
       --confirmed) BREWPAGE_CONFIRMED=1; shift ;;
+      --review-sha256) need "$#" "$1"; BREWPAGE_REVIEW_SHA256="$2"; shift 2 ;;
       *) die "unknown publish argument: $1" ;;
     esac
   done
   [ "$have_password" -eq 1 ] || die "explicit --password-file choice required (empty means no password)"
   command -v python3 >/dev/null || die "python3 required for secure history"
   [ "$sources" -eq 1 ] || die "publish needs exactly one of --text, --run, --path"
+  if [ -n "$BREWPAGE_REVIEW_SHA256" ]; then
+    [ "${#BREWPAGE_REVIEW_SHA256}" -eq 64 ] || die "review SHA256 must be 64 lowercase hex characters"
+    case "$BREWPAGE_REVIEW_SHA256" in *[!0123456789abcdef]*) die "review SHA256 must be 64 lowercase hex characters" ;; esac
+    [ "$BREWPAGE_CONFIRMED" = 1 ] || die "review SHA256 requires --confirmed"
+  fi
   case "$type" in
     html) : ;;
     json) [ -z "$path" ] || die "json takes --text or --run" ;;
@@ -140,6 +147,7 @@ cmd_publish() {
     *) die "unknown publish type: ${type:-<none>}" ;;
   esac
   case "$type" in site-dir | site-zip) : ;; *) [ -z "$entry" ] || die "--entry applies to sites only" ;; esac
+  case "$type" in site-dir | site-zip) : ;; *) [ -z "$BREWPAGE_REVIEW_SHA256" ] || die "review SHA256 applies to sites only" ;; esac
   if [ -n "$path" ]; then
     case "$type" in site-dir) [ -d "$path" ] || die "not a directory: $path" ;; *) [ -f "$path" ] || die "not a file: $path" ;; esac
   fi
@@ -194,14 +202,16 @@ cmd_publish() {
     site-dir | site-zip)
       if [ "$type" = site-dir ]; then
         archive="$BP_RUN_DIR/site.zip"
-        manifest=$(node "$HERE/publish.mjs" pack --dir "$path" --out "$archive" ${ENTRY:+--entry "$ENTRY"}) || rc=$?
+        manifest=$(umask 077; node "$HERE/publish.mjs" pack --dir "$path" --out "$archive" ${ENTRY:+--entry "$ENTRY"}) || rc=$?
         printf '%s\n' "$manifest"
         bp_archive_gate "$rc" "$manifest" "$archive" || exit $?
       else
-        archive="$path"
-        manifest=$(node "$HERE/publish.mjs" inspect --zip "$path" ${ENTRY:+--entry "$ENTRY"}) || rc=$?
+        (umask 077; mkdir "$BP_RUN_DIR/archive")
+        archive="$BP_RUN_DIR/archive/${path##*/}"
+        bp_archive_snapshot "$path" "$archive" || die "cannot snapshot supplied archive safely"
+        manifest=$(node "$HERE/publish.mjs" inspect --zip "$archive" ${ENTRY:+--entry "$ENTRY"}) || rc=$?
         printf '%s\n' "$manifest"
-        bp_archive_gate "$rc" "$manifest" "" || exit $?
+        bp_archive_gate "$rc" "$manifest" "$archive" || exit $?
       fi
       response=$(bp_post "https://brewpage.app/api/sites?ns=$NS&ttl=$DAYS&entry=$(jq -nr --arg e "$ENTRY" '$e | @uri')" \
         -H "User-Agent: ClaudeCode/1.0" -F "$(form_file archive "$archive")") || die "upload request failed"
