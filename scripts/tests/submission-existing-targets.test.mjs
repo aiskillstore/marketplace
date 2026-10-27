@@ -475,6 +475,62 @@ test('coexisting pending at the requested revision remains an idempotent no-op',
   assert.equal(result.pendingUpdateSnapshots, undefined);
 }));
 
+for (const staleField of ['previous_tree_hash', 'previous_source_ref']) {
+  test(`same-source pending update with stale ${staleField} requires a fresh audit`, () => withMarketplace(root => {
+    const published = writeTarget(root, 'alpha', {sourceRef: '2'.repeat(40)});
+    const pending = writeTarget(root, 'alpha', {rootDirectory: 'pending', sourceRef: SOURCE_COMMIT});
+    const reportPath = join(pending, 'skill-report.json');
+    const report = JSON.parse(readFileSync(reportPath, 'utf8'));
+    report.meta.previous_tree_hash = calculateCanonicalTreeHash(root, 'skills/example/alpha');
+    report.meta.previous_source_ref = '2'.repeat(40);
+    report.meta[staleField] = staleField === 'previous_tree_hash' ? 'f'.repeat(64) : '3'.repeat(40);
+    writeFileSync(reportPath, JSON.stringify(report));
+    commitMarketplace(root);
+    const before = [reportPath, join(published, 'skill-report.json')].map(path => readFileSync(path));
+    const result = classify(root, selectionPlan([{slug: 'alpha', path: 'skills/alpha'}]));
+    assert.equal(result.disposition, 'processable');
+    assert.deepEqual(result.processingPlan.skills, [{slug: 'alpha', path: 'skills/alpha'}]);
+    assert.deepEqual(result.updateTargets, ['skills/example/alpha']);
+    assert.deepEqual(result.pendingUpdateTargets, ['pending/example/alpha']);
+    assert.equal(result.updateSnapshots[0].sourceRef, '2'.repeat(40));
+    assert.equal(result.updateSnapshots[0].treeHash, calculateCanonicalTreeHash(root, 'skills/example/alpha'));
+    assert.equal(result.pendingUpdateSnapshots[0].sourceRef, SOURCE_COMMIT);
+    assert.equal(result.pendingUpdateSnapshots[0].reportHash, createHash('sha256').update(before[0]).digest('hex'));
+    assert.equal(result.pendingUpdateSnapshots[0].gitTreeOid, calculatePendingGitTreeOidAtCommit(root, 'HEAD', 'pending/example/alpha'));
+    assert.deepEqual([reportPath, join(published, 'skill-report.json')].map(path => readFileSync(path)), before);
+  }));
+}
+
+for (const invalidField of ['previous_tree_hash', 'previous_source_ref']) {
+  test(`non-string ${invalidField} cannot enable a same-source re-audit`, () => withMarketplace(root => {
+    writeTarget(root, 'alpha', {sourceRef: '2'.repeat(40)});
+    const pending = writeTarget(root, 'alpha', {rootDirectory: 'pending', sourceRef: SOURCE_COMMIT});
+    const path = join(pending, 'skill-report.json');
+    const report = JSON.parse(readFileSync(path, 'utf8'));
+    report.meta.previous_tree_hash = calculateCanonicalTreeHash(root, 'skills/example/alpha');
+    report.meta.previous_source_ref = '2'.repeat(40);
+    report.meta[invalidField] = [report.meta[invalidField]];
+    writeFileSync(path, JSON.stringify(report));
+    commitMarketplace(root);
+    const result = classify(root, selectionPlan([{slug: 'alpha', path: 'skills/alpha'}]));
+    assert.equal(result.disposition, 'all_existing');
+    assert.deepEqual(result.processingPlan.skills, []);
+  }));
+}
+
+test('same-source pending with a current reviewed snapshot remains a no-op', () => withMarketplace(root => {
+  writeTarget(root, 'alpha', {sourceRef: '2'.repeat(40)});
+  const pending = writeTarget(root, 'alpha', {rootDirectory: 'pending', sourceRef: SOURCE_COMMIT});
+  const path = join(pending, 'skill-report.json');
+  const report = JSON.parse(readFileSync(path, 'utf8'));
+  report.meta.previous_tree_hash = calculateCanonicalTreeHash(root, 'skills/example/alpha');
+  report.meta.previous_source_ref = '2'.repeat(40);
+  writeFileSync(path, JSON.stringify(report));
+  const result = classify(root, selectionPlan([{slug: 'alpha', path: 'skills/alpha'}]));
+  assert.equal(result.disposition, 'all_existing');
+  assert.deepEqual(result.processingPlan.skills, []);
+}));
+
 test('coexisting targets reject ambiguous paths, mutable refs and replay of the published revision', () => {
   for (const override of [
     {published: {skillPath: 'other/alpha'}},
