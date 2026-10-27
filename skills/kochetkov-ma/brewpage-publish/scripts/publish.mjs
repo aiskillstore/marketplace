@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 /** Offline SITE bundle build/verify: `pack --dir <abs-dir> --out <abs.zip> [--entry <name>]` | `inspect --zip <abs.zip> [--entry <name>]`; caller curls only on exit 0.
  * Exit 0 verified, manifest printed -> upload | 2 verified, flagged entries -> ask user | 1 failure, partial archive removed -> never upload. */
-import { spawnSync } from 'node:child_process';
-import { readdirSync, statSync, lstatSync, existsSync, rmSync, accessSync, constants, readFileSync } from 'node:fs';
+import { spawn, spawnSync } from 'node:child_process';
+import { readdirSync, statSync, lstatSync, existsSync, rmSync, accessSync, constants, readFileSync, realpathSync, mkdtempSync, chmodSync } from 'node:fs';
 import { join, relative, extname, basename, delimiter } from 'node:path';
+import { tmpdir } from 'node:os';
 
 /** Publishable web assets. Allowlist by design: an unknown extension is dropped, never shipped. */
 const ALLOWED_EXT = new Set([
@@ -37,6 +38,66 @@ const ENTRY_RE = /^[A-Za-z0-9._-]+(\/[A-Za-z0-9._-]+)*$/;
 /** `unzip` stdout cap: Node's 1 MB default kills `-Z1` on a valid site with >1 MB of names (ENOBUFS). */
 const LIST_MAX_BUFFER = 1024 * 1024;
 const CHECK_TIMEOUT_MS = 10000;
+
+// Bind reads to directory descriptors: a source rename must never redirect ZIP reads outside the selected tree.
+const SNAPSHOT = String.raw`
+import json, os, stat, sys
+try:
+    os.umask(0o077)
+    data = json.load(sys.stdin)
+    flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+    root = os.open('/', flags)
+    try:
+        for part in data['root'].split('/'):
+            if not part:
+                continue
+            next_fd = os.open(part, flags, dir_fd=root)
+            os.close(root)
+            root = next_fd
+        info = os.fstat(root)
+        if [str(info.st_dev), str(info.st_ino)] != [data['dev'], data['ino']]:
+            raise ValueError('source root changed')
+        total = 0
+        if len(data['kept']) > 200:
+            raise ValueError('file limit')
+        for name in data['kept']:
+            parts = name.split('/')
+            if any(part in ('', '.', '..') for part in parts) or len(name.encode('utf-8')) > 900:
+                raise ValueError('invalid member')
+            parent = os.dup(root)
+            try:
+                for part in parts[:-1]:
+                    next_fd = os.open(part, flags, dir_fd=parent)
+                    os.close(parent)
+                    parent = next_fd
+                fd = os.open(parts[-1], os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=parent)
+                with os.fdopen(fd, 'rb') as source:
+                    info = os.fstat(source.fileno())
+                    if not stat.S_ISREG(info.st_mode) or info.st_size > 5 * 1024 * 1024:
+                        raise ValueError('invalid source file')
+                    target = os.path.join(sys.argv[1], *parts)
+                    os.makedirs(os.path.dirname(target), mode=0o700, exist_ok=True)
+                    output = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+                    with os.fdopen(output, 'wb') as dest:
+                        size = 0
+                        while True:
+                            chunk = source.read(65536)
+                            if not chunk:
+                                break
+                            size += len(chunk)
+                            total += len(chunk)
+                            if size > 5 * 1024 * 1024 or total > 40 * 1024 * 1024:
+                                raise ValueError('byte limit')
+                            dest.write(chunk)
+                        dest.flush()
+                        os.utime(dest.fileno(), ns=(info.st_atime_ns, info.st_mtime_ns))
+            finally:
+                os.close(parent)
+    finally:
+        os.close(root)
+except (OSError, ValueError, KeyError, AttributeError):
+    sys.exit(1)
+`;
 
 // Central-directory budgets run before any decompression; ZIP64 and split archives fail closed.
 function archiveBudget(zipPath) {
@@ -184,8 +245,8 @@ function report(names, bytes, entry, skipped, zipPath, unexpected = []) {
   process.exitCode = confirm ? 2 : 0;
 }
 
-function pack(args) {
-  const dir = args.dir;
+async function pack(args) {
+  let dir = args.dir;
   const out = args.out;
   if (!dir || !out) die('pack needs --dir and --out');
   if (!out.endsWith('.zip')) die('--out must end with .zip');
@@ -193,6 +254,10 @@ function pack(args) {
   const entryArg = validateEntry(args.entry);
   requireTool('zip');
   requireTool('unzip');
+  requireTool('python3');
+
+  dir = realpathSync(dir);
+  const rootInfo = statSync(dir, { bigint: true });
 
   const { kept, skipped } = collect(dir);
   if (kept.length === 0) die(`no publishable files under ${dir} after the allowlist filter`);
@@ -202,9 +267,61 @@ function pack(args) {
   // archive and exits 3. Start from no file at all, every time.
   rmSync(out, { force: true });
 
-  const z = spawnSync('zip', ['-q', '-X', '-@', out], {
-    cwd: dir, input: `${kept.join('\n')}\n`, encoding: 'utf8',
+  let snapshot;
+  let active;
+  let interrupted;
+  const cancel = (signal) => { interrupted ||= signal; active?.stop(signal); };
+  const onInt = () => cancel('SIGINT');
+  const onTerm = () => cancel('SIGTERM');
+  const onHup = () => cancel('SIGHUP');
+  process.on('SIGINT', onInt);
+  process.on('SIGTERM', onTerm);
+  process.on('SIGHUP', onHup);
+  // Keep the event loop available for ordinary cancellation; child output is discarded, never retained or printed.
+  const run = (bin, argv, options) => new Promise((resolve) => {
+    if (interrupted) { resolve({ status: null, signal: interrupted }); return; }
+    const child = spawn(bin, argv, { cwd: options.cwd, stdio: ['pipe', 'ignore', 'ignore'] });
+    const result = { status: null, signal: null };
+    let escalation;
+    const stop = (signal) => {
+      child.kill(signal);
+      escalation ||= setTimeout(() => child.kill('SIGKILL'), 1000);
+    };
+    active = { stop };
+    const timeout = setTimeout(() => { result.error = { code: 'ETIMEDOUT' }; stop('SIGTERM'); }, CHECK_TIMEOUT_MS);
+    child.on('error', (error) => { result.error = error; });
+    child.stdin.on('error', (error) => { result.error ||= error; });
+    child.on('close', (status, signal) => {
+      clearTimeout(timeout);
+      clearTimeout(escalation);
+      active = undefined;
+      result.status = status < 0 ? null : status;
+      result.signal = signal;
+      resolve(result);
+    });
+    child.stdin.end(options.input);
   });
+  let z;
+  let snapshotWhy;
+  try {
+    snapshot = mkdtempSync(join(tmpdir(), 'brewpage-pack-'));
+    chmodSync(snapshot, 0o700);
+    const copied = await run('python3', ['-I', '-S', '-c', SNAPSHOT, snapshot], {
+      input: JSON.stringify({ root: dir, dev: String(rootInfo.dev), ino: String(rootInfo.ino), kept }), encoding: 'utf8',
+    });
+    snapshotWhy = failure('python3', copied);
+    if (!snapshotWhy) z = await run('zip', ['-q', '-X', '-@', out], {
+      cwd: snapshot, input: `${kept.join('\n')}\n`, encoding: 'utf8',
+    });
+  } finally {
+    if (snapshot) rmSync(snapshot, { recursive: true, force: true });
+    if (interrupted) rmSync(out, { force: true });
+    process.removeListener('SIGINT', onInt);
+    process.removeListener('SIGTERM', onTerm);
+    process.removeListener('SIGHUP', onHup);
+  }
+  if (interrupted) die(`pack interrupted (${interrupted})`);
+  if (snapshotWhy) { rmSync(out, { force: true }); die('source could not be snapshotted safely'); }
   // zip exiting 0 without reading the list still fails: EPIPE (z.error) with status 0.
   const zipWhy = failure('zip', z);
   if (zipWhy) {
@@ -247,6 +364,6 @@ function inspect(args) {
 }
 
 const args = parseArgs(process.argv.slice(2));
-if (args.mode === 'pack') pack(args);
+if (args.mode === 'pack') await pack(args);
 else if (args.mode === 'inspect') inspect(args);
 else die('usage: publish.mjs pack --dir <dir> --out <zip> [--entry <name>] | inspect --zip <zip> [--entry <name>]');

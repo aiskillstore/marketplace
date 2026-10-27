@@ -253,6 +253,8 @@ function validateCandidate(candidate, identity, targetLabel = 'published target'
   return {
     directory: candidate.directory,
     relativePath: candidate.relativePath,
+    previousTreeHash: report.meta.previous_tree_hash,
+    previousSourceRef: report.meta.previous_source_ref,
     ...sourceIdentity,
   };
 }
@@ -387,7 +389,17 @@ export function classifySubmissionTargets({
         || (sourceRef === expectedTarget.sourceRef && sourceRef !== pendingTarget.sourceRef)) {
         fail(`pending target collision with published target for ${skill.slug}: ${pendingTarget.relativePath}`);
       }
-      if (pendingTarget.sourceRef === sourceRef) {
+      // Same source is only a no-op while its reviewed update baseline is current.
+      // A proven stale baseline must go through a fresh audit; never rewrite the
+      // old report or relax publication admission. Freeze both targets below.
+      const staleReviewedUpdate = pendingTarget.sourceRef !== expectedTarget.sourceRef
+        && typeof pendingTarget.previousTreeHash === 'string'
+        && typeof pendingTarget.previousSourceRef === 'string'
+        && /^[a-f0-9]{64}$/.test(pendingTarget.previousTreeHash)
+        && immutableRef.test(pendingTarget.previousSourceRef ?? '')
+        && (pendingTarget.previousSourceRef !== expectedTarget.sourceRef
+          || pendingTarget.previousTreeHash !== calculateCanonicalTreeHash(root, expectedTarget.relativePath));
+      if (pendingTarget.sourceRef === sourceRef && !staleReviewedUpdate) {
         existingTargets.push(pendingTarget.relativePath);
         sameRevisionTargets.push(pendingTarget.relativePath);
         pendingSameRevisionTargets.push(pendingTarget.relativePath);
