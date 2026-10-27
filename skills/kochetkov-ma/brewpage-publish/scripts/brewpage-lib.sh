@@ -43,42 +43,27 @@ BP_TMPDIR="${BP_TMPDIR%/}"
 # Creates the history file if absent, keeps it mode 600, and makes sure git
 # never picks it up — the skill used to only *ask* the user to keep it private.
 bp_history_init() {
-  mkdir -p "$(dirname "$HISTORY_FILE")" || return 1
-  if [ ! -f "$HISTORY_FILE" ]; then
-    cat > "$HISTORY_FILE" <<'HEADER'
+  command -v python3 >/dev/null || { echo 'FAILED: python3 required for secure history'; return 1; }
+  python3 "$(dirname "${BASH_SOURCE[0]}")/history.py" init "$BP_ROOT" "${HISTORY_FILE#"$BP_ROOT/"}" <<'HEADER'
 # brewpage.app — Published Pages
 
-> Owner tokens allow delete and in-place PUT (html/json/kv/files/sites). Old publications (made before 5 October 2026) are read-only: 409 OLD_PUBLICATION_READ_ONLY; publish anew; report the new URL and owner token. Keep this file private.
+> Owner tokens allow delete and in-place PUT (html/json/kv/files/sites). Old publications are read-only: 409 OLD_PUBLICATION_READ_ONLY; publish anew and report only the new URL. Keep tokens in this private file; never display them in chat.
 > Delete: `curl -s -X DELETE "<Owner API>" -H "X-Owner-Token: TOKEN"`; rows without one: `https://brewpage.app/api/<type>/<ns>/<id>`, type = html|json|files|kv|sites.
 > Update a site (same URL; old publications answer 409, see above): `PUT /api/sites/<ns>/<id>` with `X-Owner-Token: TOKEN` + the new bundle.
 
 | Date | URL | Owner Token | TTL | Type | Owner API | Identity |
 |------|-----|-------------|-----|------|-----------|----------|
 HEADER
-  fi
-  chmod 600 "$HISTORY_FILE" 2>/dev/null || true
-  bp_gitignore_entry '.claude/brewpage-history.md'
-}
-
-bp_gitignore_entry() {
-  local line="$1" gi="$BP_ROOT/.gitignore"
-  # `.git` is a FILE in a worktree and in a submodule, so `-d` misses both and the owner tokens
-  # end up committable. `rev-parse --git-dir` is correct for plain, worktree and nested checkouts.
-  git -C "$BP_ROOT" rev-parse --git-dir >/dev/null 2>&1 || [ -f "$gi" ] || return 0
-  if [ -f "$gi" ] && grep -qxF "$line" "$gi"; then
-    return 0
-  fi
-  printf '%s\n' "$line" >> "$gi"
 }
 
 # shellcheck disable=SC2016 # backticks = literal markdown code spans
 bp_history_append() {
   if [ "$#" -ge 5 ]; then
     printf '| %s | [%s](%s) | `%s` | %sd | %s | %s | `%s` |\n' \
-      "$(date '+%Y-%m-%d %H:%M')" "$1" "$1" "$2" "$3" "$4" "$5" "${6:-}" >> "$HISTORY_FILE"
+      "$(date '+%Y-%m-%d %H:%M')" "$1" "$1" "$2" "$3" "$4" "$5" "${6:-}" | python3 "$(dirname "${BASH_SOURCE[0]}")/history.py" append "$BP_ROOT" "${HISTORY_FILE#"$BP_ROOT/"}"
   else
     printf '| %s | [%s](%s) | `%s` | %sd | %s |\n' \
-      "$(date '+%Y-%m-%d %H:%M')" "$1" "$1" "$2" "$3" "$4" >> "$HISTORY_FILE"
+      "$(date '+%Y-%m-%d %H:%M')" "$1" "$1" "$2" "$3" "$4" | python3 "$(dirname "${BASH_SOURCE[0]}")/history.py" append "$BP_ROOT" "${HISTORY_FILE#"$BP_ROOT/"}"
   fi
 }
 
@@ -201,24 +186,29 @@ bp_error_reason() {
 # The tail every block shares: URL out, owner token to history, one OK/FAILED line, then any server NOTICE lines.
 # `site` is the only type whose response carries .fileCount.
 bp_finish() {
-  local response="$1" days="$2" type="$3" url token fcount owner_api identity reason
+  local response="$1" days="$2" type="$3" url token fcount owner_api identity reason nonowned_merge=0
   url=$(printf '%s' "$response" | jq -r '.link // empty')
   if [ -z "$url" ]; then
     reason=$(bp_error_reason "$response")
     echo "FAILED: publish rejected (${reason:-no .link in response})"
     return 1
   fi
-  token=$(printf '%s' "$response" | jq -r '.ownerToken // empty')
+  if printf '%s' "$response" | jq -e '.result.action == "merged" and .result.extras.isOwner == false' >/dev/null 2>&1; then
+    token=""; nonowned_merge=1
+  else
+    token=$(printf '%s' "$response" | jq -r '.ownerToken // empty')
+  fi
   owner_api=$(printf '%s' "$response" | jq -r '.ownerLink // empty')
   identity=$(printf '%s' "$response" | jq -c '{id, namespace, type, routingCohort, deliveryMode, modeLocked, hostingVersion, managementLink, createdAt, expiresAt}')
   if [ "$type" = site ]; then
     fcount=$(printf '%s' "$response" | jq -r '.fileCount // "?"')
-    [ -n "$token" ] && bp_history_append "$url" "$token" "$days" "site ($fcount files)" "$owner_api" "$identity"
+    if [ -n "$token" ]; then bp_history_append "$url" "$token" "$days" "site ($fcount files)" "$owner_api" "$identity" || { echo 'FAILED: published but owner token could not be saved securely'; return 1; }; fi
     echo "OK $url | Files: $fcount"
   else
-    [ -n "$token" ] && bp_history_append "$url" "$token" "$days" "$type" "$owner_api" "$identity"
+    if [ -n "$token" ]; then bp_history_append "$url" "$token" "$days" "$type" "$owner_api" "$identity" || { echo 'FAILED: published but owner token could not be saved securely'; return 1; }; fi
     echo "OK $url"
   fi
+  if [ "$nonowned_merge" -eq 1 ]; then echo 'NOTICE: existing publication returned without ownership; no owner capability saved'; fi
   printf '%s' "$response" | jq -r '.notices[]?.message // empty | "NOTICE: " + (tostring | explode | map(if . < 32 then 32 else . end) | implode)' 2>/dev/null || true
 }
 
