@@ -3,7 +3,7 @@ name: personal-finance-visualizer
 description: Turn user-provided personal finance records into a local interactive report with spending, income, transfers, cash movement and optional daily budgets in English or Chinese. Use for statement-based finance charts and period comparisons, not bank-account actions or investment advice.
 license: MIT-0
 metadata:
-  version: "1.5.0"
+  version: "1.6.0"
   repository: "https://github.com/JasonHMY/personal-finance-visualizer"
 ---
 
@@ -32,7 +32,7 @@ Use normalized JSON or CSV. Raw bank CSV needs an explicit column, sign and date
 
 Preserve source dates and amounts. Confirm source coverage, duplicate evidence, currency and signs before rendering. Unknown incoming money is a transfer until its purpose is established. Apply personal shares, full-refund matches and transfer settlements only when confirmed; never match solely by name, amount or date. Resolve uncertain transactions through the confirmation step below; notes disclose remaining limitations after that step, not a substitute for asking. Keep coverage gaps visible.
 
-The report separates bank-date cash movement from personal spending. Internal account movements do not count as external cash movement. Shares affect spending only. Confirmed full refunds cancel spending in the purchase period; cash movement retains the actual bank dates. See the schema for partial and unmatched items.
+The report separates bank-date cash movement from personal spending. Internal account movements do not count as external cash movement. Shares affect spending only. Confirmed pending purchases count in spending and budgets, not in cash movement, until they post. Confirmed full refunds cancel spending in the purchase period; cash movement retains the actual bank dates. See the schema for partial and unmatched items.
 
 ## Ask before final charts
 
@@ -66,8 +66,8 @@ Check the requested period, language, main totals and transaction drill-down. Us
 
 ## Optional daily allowance
 
-When requested, provide the `budget` input described in `references/schema.md`. The additional Daily allowance view uses a calendar-month budget, a daily upper limit and confirmed personal spending. It redistributes the remaining monthly allowance over the remaining days, resets in the next month and does not treat income or internal transfers as extra budget. Historical category shares use up to three complete earlier months of everyday spending; users can adjust these reference shares. Fixed-cost daily equivalents explain spending and are not deducted twice.
+When requested, provide the `budget` input described in `references/schema.md`. The additional Daily allowance view uses a calendar-month budget, a daily upper limit and confirmed personal spending. It redistributes the remaining monthly allowance over the remaining days, resets in the next month and does not treat income or internal transfers as extra budget. Historical category shares use up to three complete earlier months of everyday spending; users can adjust these reference shares. The shares appear as one pie chart; unclassified categories are left out and the rest is rescaled to 100%, while their spending still counts. Next to today's allowance, the view shows the change from yesterday's opening allowance as an amount and a percentage, using the current settings. Fixed-cost daily equivalents explain spending and are not deducted twice.
 
-Clearly distinguish the budget date from the source cutoff. Missing month coverage or records older than yesterday makes today's allowance unavailable. Do not infer future bills or pending charges. Retain the existing confirmation requirements before using uncertain classifications.
+Clearly distinguish the budget date from the source cutoff. Missing month coverage or records older than yesterday makes today's allowance unavailable. Do not infer future bills. Include a pending charge only after the user confirms it as a real purchase, and keep its pending status visible. Retain the existing confirmation requirements before using uncertain classifications.
 
 A standalone report applies budget edits only in memory for the current page; it must not store budget values in localStorage. Persistent cross-device editing requires an explicitly authorized, authenticated same-origin budget endpoint backed by private storage. Only settings are sent, not transaction records. Show loading, failed-save and concurrent-edit states accurately; never treat an unconfirmed save as successful. Hosting authorization and the skill's default no-publication rule remain unchanged.
