@@ -2,7 +2,7 @@
 /** Offline SITE bundle build/verify: `pack --dir <abs-dir> --out <abs.zip> [--entry <name>]` | `inspect --zip <abs.zip> [--entry <name>]`; caller curls only on exit 0.
  * Exit 0 verified, manifest printed -> upload | 2 verified, flagged entries -> ask user | 1 failure, partial archive removed -> never upload. */
 import { spawnSync } from 'node:child_process';
-import { readdirSync, statSync, lstatSync, existsSync, rmSync, accessSync, constants } from 'node:fs';
+import { readdirSync, statSync, lstatSync, existsSync, rmSync, accessSync, constants, readFileSync } from 'node:fs';
 import { join, relative, extname, basename, delimiter } from 'node:path';
 
 /** Publishable web assets. Allowlist by design: an unknown extension is dropped, never shipped. */
@@ -35,7 +35,37 @@ const SENSITIVE_RE = /(^|\/)(\.env|id_rsa|id_ed25519)|secret|credential|password
 const ENTRY_RE = /^[A-Za-z0-9._-]+(\/[A-Za-z0-9._-]+)*$/;
 
 /** `unzip` stdout cap: Node's 1 MB default kills `-Z1` on a valid site with >1 MB of names (ENOBUFS). */
-const LIST_MAX_BUFFER = 64 * 1024 * 1024;
+const LIST_MAX_BUFFER = 1024 * 1024;
+const CHECK_TIMEOUT_MS = 10000;
+
+// Central-directory budgets run before any decompression; ZIP64 and split archives fail closed.
+function archiveBudget(zipPath) {
+  if (statSync(zipPath).size > 25 * 1024 * 1024) return 'archive exceeds local inspection limits';
+  const data = readFileSync(zipPath);
+  let end = data.length - 22;
+  const floor = Math.max(0, end - 65535);
+  while (end >= floor && !(data.readUInt32LE(end) === 0x06054b50 && end + 22 + data.readUInt16LE(end + 20) === data.length)) end--;
+  if (end < floor) return 'archive has no valid central directory';
+  const count = data.readUInt16LE(end + 10);
+  const size = data.readUInt32LE(end + 12);
+  let position = data.readUInt32LE(end + 16);
+  if (data.readUInt16LE(end + 4) || data.readUInt16LE(end + 6) || data.readUInt16LE(end + 8) !== count || count === 65535 || position + size !== end) return 'unsupported ZIP64 or split archive';
+  if (count > 400 || size > LIST_MAX_BUFFER) return 'archive exceeds local inspection limits';
+  let expanded = 0; let files = 0;
+  for (let i = 0; i < count; i++) {
+    if (position + 46 > end || data.readUInt32LE(position) !== 0x02014b50) return 'archive central directory is malformed';
+    const bytes = data.readUInt32LE(position + 24);
+    const length = data.readUInt16LE(position + 28);
+    const next = position + 46 + length + data.readUInt16LE(position + 30) + data.readUInt16LE(position + 32);
+    if (next > end || data.readUInt32LE(position + 20) === 0xffffffff || data.readUInt32LE(position + 42) >= end || data.readUInt16LE(position + 34)) return 'archive central directory is malformed';
+    const name = data.subarray(position + 46, position + 46 + length).toString('utf8');
+    expanded += bytes;
+    if (!name.endsWith('/')) files++;
+    if (bytes > 5 * 1024 * 1024 || expanded > 40 * 1024 * 1024 || files > 200 || length > 900) return 'archive exceeds local inspection limits';
+    position = next;
+  }
+  return position === end ? '' : 'archive central directory is malformed';
+}
 
 function die(msg) {
   console.log(`FAILED: ${msg}`);
@@ -120,7 +150,7 @@ function failure(bin, r) {
 
 /** One `unzip` run: { out }, or { why } telling a bad archive (non-zero exit) from a check that never finished. */
 function unzip(flag, zipPath) {
-  const r = spawnSync('unzip', [flag, zipPath], { encoding: 'utf8', maxBuffer: LIST_MAX_BUFFER });
+  const r = spawnSync('unzip', [flag, zipPath], { encoding: 'utf8', maxBuffer: LIST_MAX_BUFFER, timeout: CHECK_TIMEOUT_MS, killSignal: 'SIGKILL' });
   if (r.status !== 0 && r.status !== null) return { why: 'archive failed its integrity check' };
   const why = failure('unzip', r);
   return why ? { why: `archive could not be checked: ${why}` } : { out: r.stdout || '' };
@@ -128,6 +158,8 @@ function unzip(flag, zipPath) {
 
 /** `unzip -tq` then `unzip -Z1`: { names } sorted, directory entries dropped, or { why }. */
 function listArchive(zipPath) {
+  const budget = archiveBudget(zipPath);
+  if (budget) return { why: budget };
   const t = unzip('-tq', zipPath);
   if (t.why) return t;
   const z = unzip('-Z1', zipPath);
