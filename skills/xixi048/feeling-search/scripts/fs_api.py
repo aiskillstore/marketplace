@@ -92,6 +92,52 @@ def cache_path():
     return os.path.join(cache_dir(), CACHE_FILE)
 
 
+QUOTA_FILE = "quota.json"
+
+
+def quota_path():
+    return os.path.join(cache_dir(), QUOTA_FILE)
+
+
+def saved_quota():
+    """上次保存下来的额度 token（`quota --set/--claim` 写的）"""
+    try:
+        with open(quota_path(), "r", encoding="utf-8") as fh:
+            return (json.load(fh).get("token") or "").strip()
+    except Exception:
+        return ""
+
+
+def save_quota(token, meta=None):
+    os.makedirs(cache_dir(), exist_ok=True)
+    tmp = quota_path() + ".tmp"
+    payload = {"token": token, "saved_at": int(time.time())}
+    if meta:
+        payload.update(meta)
+    with open(tmp, "w", encoding="utf-8") as fh:
+        json.dump(payload, fh, ensure_ascii=False)
+    os.replace(tmp, quota_path())
+    return quota_path()
+
+
+def resolve_quota(args=None):
+    """token 优先级：--quota > FS_QUOTA 环境变量 > 本地缓存文件。
+
+    返回 (token, 来源)。来源只用于排查，不参与鉴权。
+    """
+    if args is not None:
+        v = (getattr(args, "quota", "") or "").strip()
+        if v:
+            return v, "flag"
+    v = env_quota()
+    if v:
+        return v, "env"
+    v = saved_quota()
+    if v:
+        return v, "file"
+    return "", ""
+
+
 def cache_ttl():
     try:
         return int(os.environ.get("FS_CACHE_TTL") or CACHE_TTL)
@@ -319,10 +365,61 @@ def local_analyze(text, dictionary, words_n=8, styles_n=12, fuzzy=False):
 
 # ---------------------------------------------------------------- 子命令
 
+def cmd_quota(args):
+    """额度：查余额 / 存 token / 用支付凭证领取。三个动作都落同一个 token。"""
+    if args.claim:
+        if not (args.proof and args.trade):
+            raise ApiError(
+                "领取额度需要支付宝回传的 --proof 与 --trade；"
+                "拿不到支付凭证说明该走 x402（USDC）", "missing_proof")
+        body = {"payment_proof": args.proof.strip(), "trade_no": args.trade.strip()}
+        if args.order:
+            body["out_trade_no"] = args.order.strip()
+        resp = http_post(env_base() + "/v2/quota/claim", body, offline=args.offline)
+        token = ((resp.get("quota") or {}).get("token") or "").strip()
+        if not token:
+            raise ApiError("服务端没有返回额度 token", "no_token_returned", 200, resp)
+        path = save_quota(token, {"order": (resp.get("order") or {}).get("out_trade_no")})
+        return {
+            "ok": True,
+            "action": "claim",
+            "quota": resp.get("quota"),
+            "order": resp.get("order"),
+            "already_fulfilled": bool((resp.get("order") or {}).get("already_fulfilled")),
+            "saved_to": path,
+        }
+
+    if args.set_token:
+        token = args.set_token.strip()
+        resp = http_get(env_base() + "/v2/quota?token=" + urllib.parse.quote(token),
+                        offline=args.offline)
+        path = save_quota(token)
+        return {"ok": True, "action": "set", "quota": resp.get("quota"), "saved_to": path}
+
+    token, src = resolve_quota(args)
+    if not token:
+        raise ApiError(
+            "还没有额度 token：用 `quota --set <token>` 存一个，"
+            "或 `quota --claim --proof <payment_proof> --trade <trade_no>` 领取；"
+            "领取页 " + env_base() + "/docs/quota.html", "no_token")
+    resp = http_get(env_base() + "/v2/quota?token=" + urllib.parse.quote(token),
+                    offline=args.offline)
+    return {
+        "ok": True,
+        "action": "balance",
+        "token_source": src,
+        "quota": resp.get("quota"),
+        "topup": resp.get("topup"),
+        "saved_to": quota_path(),
+    }
+
+
 def cmd_status(args):
     info = {
         "base": env_base(),
-        "quota_configured": bool(env_quota()),
+        "quota_configured": bool(resolve_quota(args)[0]),
+        "quota_source": resolve_quota(args)[1],
+        "quota_file": quota_path(),
         "cache_dir": cache_dir(),
         "cache_file": cache_path(),
         "cache_exists": os.path.isfile(cache_path()),
@@ -384,14 +481,21 @@ def cmd_analyze(args):
     if not args.allow_cloud:
         result["cloud_skipped"] = "未开启 --allow-cloud；本地零命中，未调用付费接口"
         return result
-    if not env_quota():
-        result["cloud_skipped"] = "未配置 FS_QUOTA 额度 token；付费接口会被 402 拦下"
+    token, token_src = resolve_quota(args)
+    if not token:
+        result["cloud_skipped"] = (
+            "还没有额度 token，云端兜底没有跑。三条获取方式："
+            "① 先确认这台机器上有支付宝付款回执，用 `quota --claim --proof <payment_proof> --trade <trade_no>` 领取；"
+            "② 已有 token 就 `quota --set <token>` 存下来；"
+            "③ 或者让调用方用 x402（USDC）直接付 POST %s/v2/analyze。"
+            "领取页：%s/docs/quota.html" % (env_base(), env_base())
+        )
         return result
 
     try:
         payload = {"text": text, "words": args.words, "styles": args.styles}
         cloud = http_post(env_base() + "/v2/analyze", payload,
-                          headers={"X-FS-Quota": env_quota()}, offline=args.offline)
+                          headers={"X-FS-Quota": token}, offline=args.offline)
     except ApiError as exc:
         result["cloud_error"] = {"code": exc.code, "http": exc.http, "message": str(exc)}
         return result
@@ -413,7 +517,8 @@ def cmd_style_words(args):
 
 def cmd_style(args):
     url = env_base() + "/v2/styles/" + urllib.parse.quote(args.style_id)
-    headers = {"X-FS-Quota": env_quota()} if env_quota() else {}
+    token, _ = resolve_quota(args)
+    headers = {"X-FS-Quota": token} if token else {}
     return http_get(url, headers=headers, offline=args.offline)
 
 
@@ -424,13 +529,52 @@ def cmd_images(args):
     if len(ids) > 5:
         raise ApiError("一次最多 5 个风格 id", "too_many_ids")
     url = env_base() + "/v2/images?" + urllib.parse.urlencode({"ids": ",".join(ids)})
-    headers = {"X-FS-Quota": env_quota()} if env_quota() else {}
+    token, _ = resolve_quota(args)
+    headers = {"X-FS-Quota": token} if token else {}
     return http_get(url, headers=headers, offline=args.offline)
 
 
 # ---------------------------------------------------------------- 渲染
 
+def _ts(v):
+    try:
+        return time.strftime("%Y-%m-%d %H:%M", time.localtime(int(v)))
+    except Exception:
+        return str(v)
+
+
+_QUOTA_SRC = {"flag": "--quota 参数", "env": "FS_QUOTA 环境变量", "file": "本地缓存文件"}
+
+
 def render(kind, data):
+    if kind == "quota":
+        q = data.get("quota") or {}
+        if data.get("action") == "claim":
+            head = "已领取额度"
+            if data.get("already_fulfilled"):
+                head += "（这张之前领过，返回的是同一个 token）"
+        elif data.get("action") == "set":
+            head = "token 已保存"
+        else:
+            head = "额度余额"
+        lines = [head]
+        if q:
+            lines.append("  剩余        : %s / %s 次%s" % (
+                q.get("left"), q.get("total"), "（已过期）" if q.get("expired") else ""))
+            if q.get("plan"):
+                lines.append("  档位        : %s" % q["plan"])
+            if q.get("order"):
+                lines.append("  订单        : %s" % q["order"])
+            if q.get("reset"):
+                lines.append("  到期        : %s" % _ts(q["reset"]))
+        if data.get("token_source"):
+            lines.append("  token 来源  : %s" % _QUOTA_SRC.get(data["token_source"], data["token_source"]))
+        if data.get("saved_to"):
+            lines.append("  已保存到    : %s" % data["saved_to"])
+        if q and not q.get("usable", True):
+            lines.append("  提示        : 这张已不可用，去 %s 续购" % env_base() + "/docs/quota.html")
+        return "\n".join(lines)
+
     if kind == "status":
         lines = ["感觉检索 · 状态"]
         lines.append("  服务端点     : %s" % data["base"])
@@ -489,6 +633,8 @@ def build_parser():
                         help="输出 JSON")
     common.add_argument("--offline", action="store_true", default=argparse.SUPPRESS,
                         help="完全不联网，只用本地缓存")
+    common.add_argument("--quota", default=argparse.SUPPRESS,
+                        help="额度 token（优先于 FS_QUOTA 与本地缓存）")
     common.add_argument("--refresh", action="store_true", default=argparse.SUPPRESS,
                         help="强制刷新词表缓存")
 
@@ -499,6 +645,14 @@ def build_parser():
     p.add_argument("--offline", action="store_true", default=False, help="完全不联网")
     p.add_argument("--refresh", action="store_true", default=False, help="强制刷新词表缓存")
     sub = p.add_subparsers(dest="cmd")
+
+    sp = sub.add_parser("quota", parents=[common],
+                        help="额度：查余额 / --set 存 token / --claim 用支付凭证领取")
+    sp.add_argument("--set", dest="set_token", metavar="TOKEN", help="保存一枚额度 token 并校验")
+    sp.add_argument("--claim", action="store_true", help="用支付宝回传的凭证领取额度")
+    sp.add_argument("--proof", help="支付宝回传的 payment_proof（配 --claim）")
+    sp.add_argument("--trade", help="支付宝交易号 trade_no（配 --claim）")
+    sp.add_argument("--order", help="订单号 out_trade_no（可选）")
 
     sub.add_parser("status", parents=[common], help="额度/缓存/连通性体检")
 
@@ -537,6 +691,7 @@ def main(argv=None):
         return 2
 
     handlers = {
+        "quota": cmd_quota,
         "status": cmd_status,
         "dict": cmd_dict,
         "analyze": cmd_analyze,

@@ -4,7 +4,7 @@ description: "商业级美术对照表 · 美术风格大全 · 美术风格 AI 
 license: MIT
 metadata:
   author: xixi048
-  version: "1.0.2"
+  version: "1.1.0"
   language: zh-CN
 ---
 
@@ -16,8 +16,8 @@ metadata:
 
 ```
 "下雨天一个人走在便利店门口，冷白灯光"
-   → 感受词：光 / 白 / 冷光 / 古寂 …
-   → 视觉风格：灰烬寒冬、哥特彩色玻璃、冰晶冷白、枯山水 …
+   → 感受词：光 / 白 …            ← 本地免费档的实跑结果
+   → 视觉风格：代尔夫特画派 0.25、灰烬寒冬 0.22、风格派 0.22 …
 ```
 
 每一条风格带中文名、英文名、一句话定义、父风格、命中了哪些词。用来做图像生成的风格词、
@@ -91,8 +91,25 @@ python scripts/fs_api.py analyze "<文本>" --fuzzy
 python scripts/fs_api.py analyze "<文本>" --allow-cloud
 ```
 
-没配 `FS_QUOTA` 时付费端点会被 402 拦下，脚本会明确报 `payment_required` 并提示改走免费端点，
-**不会静默失败、也不会把本地结果伪装成云端结果**（`source` 只有 `local` / `cloud` 两个值）。
+没有额度 token 时脚本**不会傻撞 402**：它会明确告诉你三条取得额度的路（领取 / 存 token / 让调用方走 x402），
+并提示改走免费端点。**不会静默失败、也不会把本地结果伪装成云端结果**（`source` 只有 `local` / `cloud` 两个值）。
+
+#### 额度怎么来（`quota` 子命令）
+
+额度是一枚 token，**API / MCP / 本 skill 三端通用**，换设备也不用重买。
+
+```bash
+python scripts/fs_api.py quota                                   # 查余额（不扣次）
+python scripts/fs_api.py quota --set <token>                     # 已有 token，存下来
+python scripts/fs_api.py quota --claim --proof <payment_proof> --trade <trade_no>   # 支付宝付完领取
+```
+
+`--claim` 需要支付宝回传的 `payment_proof` 与 `trade_no`；**拿不到支付凭证说明该走 x402（USDC）**，
+那种场景由调用方直接付 `POST /v2/analyze`，与本 skill 无关。
+
+token 解析优先级：`--quota <token>` > `FS_QUOTA` 环境变量 > 本地缓存 `~/.cache/feeling-search/quota.json`。
+领取或 `--set` 成功后会自动写进缓存，之后所有命令自动带上，**用户只需做一次**。
+领取页（人可点）：`https://xiximm.cloud/docs/quota.html`。
 
 ### Step 4 · 顺着结果深挖（全部免费）
 
@@ -120,7 +137,8 @@ python scripts/fs_api.py images cyberpunk,synthwave   # 批量取图，最多 5 
 
 | 命令 | 作用 | 计费 |
 |---|---|---|
-| `status` | 额度/缓存/连通性体检 | 免费 |
+| `quota [--set T] [--claim --proof P --trade T]` | 查余额 / 存 token / 用支付凭证领取 | 免费 |
+| `status` | 额度/缓存/连通性体检（含 token 来源） | 免费 |
 | `dict [--refresh] [--with-items]` | 拉取/刷新词表缓存 | 免费 |
 | `analyze <文本>` | 一句描述 → 感受词 + 风格 | 本地免费；`--allow-cloud` 时 1 次 |
 | `lookup <词>` | 词的落点风格、共现词、对立词 | 免费 |
@@ -129,13 +147,14 @@ python scripts/fs_api.py images cyberpunk,synthwave   # 批量取图，最多 5 
 | `images <id1,id2,…>` | 批量取图，最多 5 个 | 1 次 |
 
 通用参数：`--json` · `--offline`（只读缓存，绝不联网）· `--refresh`（强制刷新词表）·
+`--quota <token>`（本次调用用这枚 token，优先于环境变量与缓存）·
 `--words N`（1–12）· `--styles N`（1–30）。全局参数写在子命令前或后都行。
 
 ## 环境变量
 
 | 变量 | 必填 | 说明 |
 |---|---|---|
-| `FS_QUOTA` | 否 | 云端额度 token。**留空 = 永不调用任何付费端点** |
+| `FS_QUOTA` | 否 | 云端额度 token。留空时会读本地缓存 `quota.json`；两者都没有 = 永不调用付费端点 |
 | `FS_API_BASE` | 否 | 服务端点，默认 `https://xiximm.cloud` |
 | `FS_CACHE_DIR` | 否 | 词表缓存目录，默认 `~/.cache/feeling-search` |
 | `FS_CACHE_TTL` | 否 | 缓存有效期秒数，默认 604800（7 天） |
@@ -143,7 +162,8 @@ python scripts/fs_api.py images cyberpunk,synthwave   # 批量取图，最多 5 
 ## 常见故障
 
 - **`payment_required`** —— 付费端点需要额度。先确认用户是否同意付费；否则改走 `dict` /
-  `lookup` / `style-words` 这些免费端点。
+  `lookup` / `style-words` 这些免费端点。要买就用 `quota --claim`（支付宝）或让调用方走 x402。
+- **`no_token`** —— 本机没有额度 token：先 `quota --set <token>` 存一枚，或 `quota --claim` 领取。
 - **`word_not_found`** —— 词表里没这个词。先用 `dict --with-items` 看看词表实际有什么，
   或直接对整句用 `analyze`。
 - **`network_unreachable`** —— 连不上服务端。词表缓存还在的话用 `--offline` 继续跑本地档。
