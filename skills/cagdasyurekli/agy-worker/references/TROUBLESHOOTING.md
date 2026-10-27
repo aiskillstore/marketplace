@@ -147,13 +147,18 @@ Set it up once, in your own terminal:
 
 ```bash
 security create-keychain ~/Library/Keychains/agy-worker-provider.keychain-db
-security set-keychain-settings ~/Library/Keychains/agy-worker-provider.keychain-db
+security set-keychain-settings -l -u -t 28800 ~/Library/Keychains/agy-worker-provider.keychain-db
 "$PIPELINE/agy-worker.sh" native-keychain-login
 ```
 
 `create-keychain` prompts for a keychain password and may also add the file to your
-keychain search list; native runs ignore that list. `set-keychain-settings` with no
-options turns off auto-lock. `native-keychain-login` runs `agy -p "Reply with OK"` in a
+keychain search list; native runs ignore that list. `set-keychain-settings -l -u -t
+28800` locks the keychain on sleep and after 8 idle hours. Do not run it without
+options: that turns auto-lock off and leaves the credential readable after you walk
+away. A shorter timeout is safer but makes multi-cycle jobs stop for an unlock; each
+native launch and repair fails closed with exit 27 while it is locked. If it locks
+mid-run, agy cannot write a refreshed token back and falls back to a file in the job's
+private provider HOME. `native-keychain-login` runs `agy -p "Reply with OK"` in a
 temporary HOME holding only a preference that names the dedicated keychain, so agy's
 browser sign-in stores its credential there; it then deletes the temporary tree. It
 never creates the keychain or handles its password.
