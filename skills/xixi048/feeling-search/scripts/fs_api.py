@@ -184,15 +184,21 @@ def load_dictionary(refresh=False, offline=False):
 # ---------------------------------------------------------------- 本地命中
 
 def split_gloss(gloss):
-    """gloss 是顿号分隔的词袋（近义词 + 易混词），拆开参与匹配。"""
+    """拆 gloss 词袋，返回 (近义词, 反义/易混词)。
+
+    gloss 的构造是「本词 + 近义词 + 末尾两个反义/易混词」——
+    末尾两个是刻意放进去的对照项（例如「温暖」的串里带「冷寂」），
+    用来划边界而不是用来命中。把它们当近义用，检索会直接给出反义风格。
+    """
     if not gloss:
-        return []
-    out = []
-    for piece in str(gloss).replace(",", "、").split("、"):
-        piece = piece.strip()
-        if len(piece) >= 2:
-            out.append(piece)
-    return out
+        return [], []
+    parts = [p.strip() for p in str(gloss).replace(",", "、").split("、")]
+    parts = [p for p in parts if len(p) >= 2]
+    if not parts:
+        return [], []
+    anti = parts[-2:] if len(parts) >= 3 else []
+    near = parts[:-2] if anti else parts
+    return near, anti
 
 
 def score_words(text, dictionary, fuzzy=False):
@@ -213,8 +219,12 @@ def score_words(text, dictionary, fuzzy=False):
         if w.lower() in low:
             best = 1.0
         elif fuzzy:
-            for near in split_gloss(rec.get("gloss")):
-                if near.lower() in low:
+            near, anti = split_gloss(rec.get("gloss"))
+            # 文本里出现了这个词的反义/易混词 → 它不该被算成命中
+            if any(a.lower() in low for a in anti):
+                continue
+            for n in near:
+                if n.lower() in low:
                     best = max(best, 0.5)
         if best > 0:
             hits[w] = max(hits.get(w, 0.0), best)
