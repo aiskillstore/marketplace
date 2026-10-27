@@ -47,6 +47,7 @@ These fields encode the prepared report; they do not prove that a transaction is
 - Optional `merchant` groups descriptions from the same confirmed merchant; when absent, the report uses `description` for merchant rings.
 - `category`, `description`, `merchant`, `account` and `source` are plain text. Use account aliases, not account numbers. Source references should identify a private original without embedding its contents or absolute filesystem path.
 - `share` defaults to 1 and is between 0 and 1, with up to four decimal places. Apply only a user-confirmed personal share to expenses. Bank amounts remain unchanged. Calculation retains fractional cents; display rounds once.
+- Optional `bankStatus` is `posted` (default) or `pending`. Use `pending` only for an expense that the user has confirmed as a real purchase while the bank still shows it as pending. It counts toward personal spending and the daily allowance, but not toward bank-date cash movement until it posts. Keep one record per purchase: when the posted record arrives, replace the pending one only after matching them on clear evidence such as account, amount and description. Ask before applying a changed amount or treating the purchase as cancelled; a pending record that is missing from a later export is not cancelled by that alone. Leave out pending records the user has not confirmed.
 - `notes` is a list of plain-text limitations, definitions and source coverage notes.
 
 ## Refunds
@@ -82,7 +83,7 @@ Supply `--currency`, `--start`, `--end` and optionally `--language`. CSV has no 
 
 ## JavaScript API
 
-`Finance.validate(input)` returns normalized data (adding `amountCents` and default text fields) or throws a safe error without echoing financial values.
+`Finance.validate(input)` returns normalized data (adding `amountCents`, `bankStatus` and default text fields) or throws a safe error without echoing financial values.
 
 `Finance.periods(data, grain)` returns ascending `{key, label, start, end}` periods clipped to coverage; grain is `day`, `week`, `month`, or `year`. Weeks start on Monday.
 
@@ -90,7 +91,7 @@ Supply `--currency`, `--start`, `--end` and optionally `--language`. CSV has no 
 
 - `inflow`, `outflow`, `net`, `spending`, `daily`, `dailyAverage`, `income`, `transferIn`, `transferOut`, `unpairedRefunds`: amounts in cents (personal amounts can have fractional cents).
 - `groups`: group-to-personal-spending-cents map.
-- `rows`: all period rows with `personalCents`, `cashCents` (signed adjusted external amount; zero for internal), `transferCents` (signed adjusted transfer), `matchedRefund` and `settledCents`.
+- `rows`: all period rows with `bankStatus`, `personalCents`, `cashCents` (signed adjusted external amount; zero for internal and pending records), `transferCents` (signed adjusted transfer), `matchedRefund` and `settledCents`.
 - `days`: inclusive covered calendar days.
 
 The same pure module runs in the browser and Node tests. All rendering must insert untrusted text with DOM text nodes, never HTML interpolation.
@@ -124,10 +125,12 @@ The following configuration is fictional. Add `budget` only when the user reques
 }
 ```
 
-`dailyLimit` is a nonnegative decimal string with at most two decimal places. Currency must match the report and the timezone must be a valid IANA timezone. Groups are unique supported expense groups and must include `daily`. The budget is dailyLimit × calendar days in the current month, and resets each month. Today's opening allowance is the remaining budget before today's recorded spending divided by remaining days including today, bounded between zero and dailyLimit. Today's recorded spending is deducted once. Categories divide the nonnegative remaining allowance; cent remainders are assigned deterministically.
+`dailyLimit` is a nonnegative decimal string with at most two decimal places. Currency must match the report and the timezone must be a valid IANA timezone. Groups are unique supported expense groups and must include `daily`. The budget is dailyLimit × calendar days in the current month, and resets each month. Today's opening allowance is the remaining budget before today's confirmed spending divided by remaining days including today, bounded between zero and dailyLimit. Today's confirmed spending, including confirmed pending purchases, is deducted once. Categories divide the nonnegative remaining allowance; cent remainders are assigned deterministically.
 
 `allocationMode` is `history` or `manual`. Historical mode requires an empty shares array. Manual shares are unique `{ "category": "Groceries", "basisPoints": 4000 }` entries, with integer basis points totalling 10000. Category names use the original category identifiers, before display translations. Shares are advisory, not independent hard envelopes. Historical weights use only everyday spending from up to three complete previous calendar months covered by the source; missing or partial months are not silently filled. With no usable historical categories, ask for or allow a manual split rather than inventing one.
 
+Spending in `Uncategorized`, `未分类`, `待分类` or `商户待分类` still counts against the allowance, but these categories are left out of the reference shares. Historical and manual shares are rescaled over the remaining categories to total 10000 basis points. Changing other settings does not rewrite saved manual shares; edited shares are saved only for the categories shown. If only unclassified history exists, no split is invented.
+
 The optional `endpoint` must be exactly `/api/budget`; no external URL is accepted. Without it, edits are page-memory-only. With it, the renderer permits same-origin connections and the interface loads settings using GET. An empty configuration is `{ "settings": null, "revision": null }`. Saved responses contain validated `settings` and an opaque quoted `revision`. POST sends only the settings as JSON and uses `X-Budget-Revision` (`absent` for an initial save, otherwise the last loaded revision). The server must authenticate the user, require same-origin JSON writes, validate settings, conditionally store them privately and return 409 for conflicts. Never include credentials in the report. `preview: true` labels an explicitly isolated preview settings store.
 
-`Finance.validateBudgetSettings(input)`, `Finance.budgetDate(settings, now)` and `Finance.dailyBudget(data, settings, asOf)` implement validation, timezone date selection and budget calculations. The report's existing refund, settlement and personal-share accounting remains authoritative. The source must cover the month start through yesterday for a usable current allowance; the UI distinguishes data cutoff and budget date.
+`Finance.validateBudgetSettings(input)`, `Finance.budgetDate(settings, now)` and `Finance.dailyBudget(data, settings, asOf)` implement validation, timezone date selection and budget calculations. The report's existing refund, settlement and personal-share accounting remains authoritative. The source must cover the month start through yesterday for a usable current allowance; the UI distinguishes data cutoff and budget date. The result's `allocationShares` lists the reference shares actually used after that exclusion. Next to today's allowance, the report shows the change from yesterday's opening allowance, calculated with the current settings, as an amount and a percentage. It shows `—` when either value is unavailable, and `—` for the percentage when yesterday's opening allowance was zero.
