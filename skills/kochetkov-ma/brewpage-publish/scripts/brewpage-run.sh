@@ -11,6 +11,14 @@ die() { printf 'FAILED: %s\n' "$1"; exit 1; }
 # rc 0 when the flag at $2 has a value after it ($1 = remaining argc).
 need() { [ "$1" -ge 2 ] || die "$2 needs a value"; }
 
+# curl's form grammar parses commas/semicolons even inside shell-quoted argv.
+form_file() {
+  local path="$2"
+  path="${path//\\/\\\\}"
+  path="${path//\"/\\\"}"
+  printf '%s=@"%s"' "$1" "$path"
+}
+
 BP_FRESH=""
 # Allocates a run dir, EXIT discards it until re-armed: also when bp_run_dir rejects it.
 new_run() {
@@ -180,7 +188,7 @@ cmd_publish() {
       bp_finish "$response" "$DAYS" json
       ;;
     file)
-      response=$(bp_post "https://brewpage.app/api/files?ns=$NS&ttl=$DAYS" -F "file=@$path") || die "upload request failed"
+      response=$(bp_post "https://brewpage.app/api/files?ns=$NS&ttl=$DAYS" -F "$(form_file file "$path")") || die "upload request failed"
       bp_finish "$response" "$DAYS" file
       ;;
     site-dir | site-zip)
@@ -196,7 +204,7 @@ cmd_publish() {
         bp_archive_gate "$rc" "$manifest" "" || exit $?
       fi
       response=$(bp_post "https://brewpage.app/api/sites?ns=$NS&ttl=$DAYS&entry=$(jq -nr --arg e "$ENTRY" '$e | @uri')" \
-        -H "User-Agent: ClaudeCode/1.0" -F "archive=@$archive") || die "upload request failed"
+        -H "User-Agent: ClaudeCode/1.0" -F "$(form_file archive "$archive")") || die "upload request failed"
       bp_finish "$response" "$DAYS" site
       ;;
   esac
