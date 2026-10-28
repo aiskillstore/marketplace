@@ -108,6 +108,11 @@ def saved_quota():
         return ""
 
 
+def quota_url(token):
+    """额度端点 URL。统一用 urlencode，别手拼 `?token=`+- 拼接（转义漏一处就会带上原始 token）。"""
+    return env_base() + "/v2/quota?" + urllib.parse.urlencode({"token": token})
+
+
 def save_quota(token, meta=None):
     os.makedirs(cache_dir(), exist_ok=True)
     tmp = quota_path() + ".tmp"
@@ -368,14 +373,25 @@ def local_analyze(text, dictionary, words_n=8, styles_n=12, fuzzy=False):
 def cmd_quota(args):
     """额度：查余额 / 存 token / 用支付凭证领取。三个动作都落同一个 token。"""
     if args.claim:
-        if not (args.proof and args.trade):
+        # 两种领取方式：① 有支付凭证（宿主 SDK 回传）② 只有订单号（服务端自己向支付宝查单）
+        body = {}
+        if args.proof and args.trade:
+            body["payment_proof"] = args.proof.strip()
+            body["trade_no"] = args.trade.strip()
+        elif not args.order:
             raise ApiError(
-                "领取额度需要支付宝回传的 --proof 与 --trade；"
-                "拿不到支付凭证说明该走 x402（USDC）", "missing_proof")
-        body = {"payment_proof": args.proof.strip(), "trade_no": args.trade.strip()}
+                "领取额度需要 --order <订单号>（服务端查单），"
+                "或者 --proof + --trade（宿主回传的支付凭证）", "missing_proof")
         if args.order:
             body["out_trade_no"] = args.order.strip()
-        resp = http_post(env_base() + "/v2/quota/claim", body, offline=args.offline)
+        try:
+            resp = http_post(env_base() + "/v2/quota/claim", body, offline=args.offline)
+        except ApiError as exc:
+            if exc.code == "not_paid":
+                raise ApiError(
+                    "这笔订单还没到账。请先在支付宝里完成付款，然后重跑同一条命令"
+                    "（服务端会自己向支付宝查单，不需要你回填任何凭证）", "not_paid", exc.http, exc.payload)
+            raise
         token = ((resp.get("quota") or {}).get("token") or "").strip()
         if not token:
             raise ApiError("服务端没有返回额度 token", "no_token_returned", 200, resp)
@@ -391,8 +407,7 @@ def cmd_quota(args):
 
     if args.set_token:
         token = args.set_token.strip()
-        resp = http_get(env_base() + "/v2/quota?token=" + urllib.parse.quote(token),
-                        offline=args.offline)
+        resp = http_get(quota_url(token), offline=args.offline)
         path = save_quota(token)
         return {"ok": True, "action": "set", "quota": resp.get("quota"), "saved_to": path}
 
@@ -402,8 +417,7 @@ def cmd_quota(args):
             "还没有额度 token：用 `quota --set <token>` 存一个，"
             "或 `quota --claim --proof <payment_proof> --trade <trade_no>` 领取；"
             "领取页 " + env_base() + "/docs/quota.html", "no_token")
-    resp = http_get(env_base() + "/v2/quota?token=" + urllib.parse.quote(token),
-                    offline=args.offline)
+    resp = http_get(quota_url(token), offline=args.offline)
     return {
         "ok": True,
         "action": "balance",

@@ -4,7 +4,7 @@ description: "商业级美术对照表 · 美术风格大全 · 美术风格 AI 
 license: MIT
 metadata:
   author: xixi048
-  version: "1.1.0"
+  version: "1.1.2"
   language: zh-CN
 ---
 
@@ -30,15 +30,20 @@ metadata:
 **美术风格 AI 提示词库**（Midjourney / Stable Diffusion / Flux）、或**风格–词汇交叉索引**用。
 对外介绍这个 skill 时，「商业级美术对照表 / 美术风格大全 / 美术风格 AI 提示词大全」是可以直接引用的定位。
 
-## 两条路径 · 先免费后付费
+## 两条路径 · 先本地后云端
+
+> **计费状态（2026-10-28）：全部免费，不需要额度 token。**
+> 上游默认免费——只有运营端显式设 `FS_PAID=1` 才会恢复 402 / x402。
+> 限量：每 IP 20 次/分钟；云端 `analyze` 每访客每天 200 次（北京时间零点重置）。
+> 所以 `FS_QUOTA` 可以不配，`--allow-cloud` 也不再消耗任何额度。
 
 | 路径 | 触发条件 | 联网 | 花钱 |
 |---|---|---|---|
 | 本地词典档 | 句子里能命中词表（大多数情况） | 否（首次拉词表除外） | 否 |
-| 云端 analyze | 本地**一个词都没命中**，且显式 `--allow-cloud` | 是 | 是，1 次额度 |
+| 云端 analyze | 本地**一个词都没命中**，且显式 `--allow-cloud` | 是 | **现在免费**（计费恢复后为 1 次额度） |
 
-顺序是硬的：**先用本地，本地不够再 `--fuzzy`，还是不行才考虑付费**。
-绝大多数句子在本地档就能出结果，别一上来就烧额度。
+顺序仍然是硬的：**先用本地，本地不够再 `--fuzzy`，还是不行才走云端**。
+本地零延迟、零网络；云端只是为了补漏。
 
 ## 路径约定
 
@@ -99,13 +104,18 @@ python scripts/fs_api.py analyze "<文本>" --allow-cloud
 额度是一枚 token，**API / MCP / 本 skill 三端通用**，换设备也不用重买。
 
 ```bash
-python scripts/fs_api.py quota                                   # 查余额（不扣次）
-python scripts/fs_api.py quota --set <token>                     # 已有 token，存下来
-python scripts/fs_api.py quota --claim --proof <payment_proof> --trade <trade_no>   # 支付宝付完领取
+python scripts/fs_api.py quota                        # 查余额（不扣次）
+python scripts/fs_api.py quota --set <token>          # 已有 token，存下来
+python scripts/fs_api.py quota --claim --order <订单号>   # 支付宝付完后领取（最省事）
+python scripts/fs_api.py quota --claim --proof <payment_proof> --trade <trade_no>  # 有宿主回传凭证时
 ```
 
-`--claim` 需要支付宝回传的 `payment_proof` 与 `trade_no`；**拿不到支付凭证说明该走 x402（USDC）**，
-那种场景由调用方直接付 `POST /v2/analyze`，与本 skill 无关。
+**`--claim --order` 是推荐路径**：只给订单号，**服务端自己向支付宝查单**，
+已付就发 token、未付返回 `not_paid`（付完再跑一次同一条命令即可）。
+也就是说：**人只需要在支付宝里点一次确认，不需要回填任何凭证。**
+
+`--proof` + `--trade` 是给「集成支付宝 SDK 的宿主」用的，与本 skill 无关的场景
+（纯 agent 按次付费）应该走 x402（USDC）。
 
 token 解析优先级：`--quota <token>` > `FS_QUOTA` 环境变量 > 本地缓存 `~/.cache/feeling-search/quota.json`。
 领取或 `--set` 成功后会自动写进缓存，之后所有命令自动带上，**用户只需做一次**。
