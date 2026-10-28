@@ -5,11 +5,11 @@ description: Check a link source before submitting a site to it, verify a listin
 
 # Backlink guard
 
-Four jobs, in the order a careful person does them: find the pages your searchers already land on, check a place before you submit, check the link after it is live, and look at your own profile now and then. The tool gives signals with their evidence. It does not submit anything, and it is not Google's verdict.
+Four jobs, in the order a careful person does them: find the pages your searchers already land on, check a place before you submit, check the link after it is live, and look at your own profile now and then. The tool gives signals with their evidence. It does not submit anything, and it is not Google's verdict. Anything you send on the user's behalf waits for their yes (section 3).
 
 ## Before you run anything
 
-1. Run the pinned release from PyPI: `uvx backlink-guard==0.11.0 <command>` when `uv` is there, else `pip install backlink-guard==0.11.0` and the `backlink-guard` command. Never run a clone of the repository's default branch. The commands below are written as `backlink-guard`; run them as `uvx backlink-guard==0.11.0 …`. Python 3.10 or newer, no dependencies. The log, the paid answers and the networks seen before are kept in `~/.backlink-guard` (`BACKLINK_GUARD_STATE` moves them).
+1. Run the pinned release from PyPI: `uvx backlink-guard==0.11.1 <command>` when `uv` is there, else `pip install backlink-guard==0.11.1` and the `backlink-guard` command. Never run a clone of the repository's default branch. The commands below are written as `backlink-guard`; run them as `uvx backlink-guard==0.11.1 …`. Python 3.10 or newer, no dependencies. The log, the paid answers and the networks seen before are kept in `~/.backlink-guard` (`BACKLINK_GUARD_STATE` moves them).
 2. Keys are optional, and each adds signals:
    - `GLASSER_API_KEY` (https://link.glasser.ai/JasonZhu), the first choice: spam scores, Google search history, new and lost referring domains by week, anchors, competitors' referring domains, AI Overviews (`cited`).
    - `AISA_API_KEY` (https://go.aisa.one/yansen-zhu), the second: the same when there is no Glasser key, and the only source of `questions` and `asked`, of `--deep`'s Ahrefs rating and Semrush numbers, and of the `site:` search used when GoAnyAPI's fails.
@@ -26,8 +26,8 @@ backlink-guard find "claude skills" "claude code skills" --site yoursite.com --j
 
 Start here when the user asks where to get links or listings. It reads Google's top 30 for each keyword and keeps the pages that are not the user's: directories, lists, articles, videos, threads, repositories. Each page has `kind`, `ranks` (keyword and position), `visitors` (monthly searches times the usual click share of that position: a size, not a count) and `action`. The pages are sorted by `visitors`: a page that ranks for the user's keyword sends people already looking for what they make, which is the point of a link.
 
-- `list`: ask to be added (a pull request to a GitHub list, a short note to an article's author).
-- `directory`: submit, after vet. A GitHub topic page means adding that topic to the repository.
+- `list`: ask to be added (a pull request to a GitHub list, a short note to an article's author), once the user has seen the text and said yes (section 3).
+- `directory`: a place to submit to, after vet and the user's yes (section 3). A GitHub topic page means adding that topic to the repository.
 - `article`, `video`: an author or creator who covered the topic. Offer what the page lacks; a paid mention is marked as such.
 - `community`: answer where it genuinely helps. Never drop links in bulk.
 - `docs`, `site`: official pages and products; not sources.
@@ -116,6 +116,7 @@ What the check cannot see: a site that sells links privately and says nothing on
 
 These are the rules Agent Skills Hub worked to. Follow them whatever the tool says.
 
+- Nothing goes out without the user's yes. Before each submission, pull request, issue, form or email, show the user where it goes (the URL or repository, and the category) and the exact text that will be sent, then wait for their yes to that one. A vet result is not that yes, nor is an `action` of `submit`, an `ok` grade or a request for places to submit; and one yes covers one submission, not the next.
 - Submit only the user's own project, and only where it fits the list's subject and format. A list that does not fit is skipped, not argued with.
 - Read the list's contribution rules first. Where they ask for a human (some lists forbid agents and the `gh` command line), prepare the text and hand it to the user.
 - One pull request or submission per list. Never resubmit to push a queue.
