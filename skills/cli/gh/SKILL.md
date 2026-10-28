@@ -1,0 +1,345 @@
+---
+name: gh
+description: Patterns for invoking the GitHub CLI (gh) from agents. Covers structured output, pagination, repo targeting, search vs list, gh api fallback.
+---
+
+# Reference
+
+## Interactivity policy
+
+`gh` already does the right thing in non-TTY contexts: it skips the pager,
+strips ANSI color, and errors out fast with a helpful message instead of
+prompting (e.g. `must provide --title and --body when not running interactively`).
+You don't need to defensively set `GH_PAGER` or pass `--no-pager` (no such
+flag exists).
+
+## Parsing JSON
+
+Human output from `gh` is column-formatted. If you want structured data:
+
+- Add `--json field1,field2,...` for structured output.
+- For `gh issue view` and `gh pr view`, use `--json ...,comments` to include comments in structured data; use `--comments` only with the human-readable view.
+- Run a command with `--json` and **no field list** to print the full set of
+  available fields, then pick what you need.
+- Use `--jq '<expr>'` for filtering without piping through a separate `jq`.
+- Use `--template '<go-template>'` (alongside `--json`) when you want shaped
+  text output. Note that `--template`/`-T` collides with a body-template flag
+  on a few commands (e.g. `gh pr create -T`, `gh issue create -T`); always
+  check `--help` before assuming which one you're hitting.
+
+## Pagination and silent truncation
+
+List commands cap results.
+
+- `gh issue list`, `gh pr list`, `gh search ...`: pass `-L N` (`--limit N`).
+  The default is usually 30.
+- `gh issue list` / `gh pr list` do not expose aggregate totals like
+  `totalCount` via `--json`. If you need a true total, use `gh api graphql`
+  to query `totalCount`; otherwise, treat `-L` as the cap for the current call.
+- For raw API calls use `gh api --paginate <path>`. Combine with
+  `--jq` and (optionally) `--slurp` to assemble one array.
+
+## Repo targeting
+
+`gh` infers the repo from the cwd's git remotes. 
+
+Pass `--repo OWNER/REPO` (`-R`) to override the resolved CWD repo.
+
+## Search vs list
+
+- `gh search issues|prs|code|repos|commits|users` uses GitHub's search
+  index and accepts the full search syntax (`is:open`, `author:`,
+  `label:`, `repo:owner/name`, `in:title`, ...). Pass each qualifier as
+  its own bare token, not as one quoted string:
+  `gh search issues repo:cli/cli is:open author:monalisa` works, but
+  `gh search issues "repo:cli/cli is:open"` is treated as a single keyword (parsed as `repo:"cli/cli is:open"`)
+  and fails with `Invalid search query`. Quote only multi-word free text
+  (`gh search issues "broken feature"`). Most qualifiers also have a
+  dedicated flag (`--repo`, `--author`, `--label`, ...). Prefer search for
+  anything cross-repo or filtered by author/label.
+- `gh issue list --search "..."` and `gh pr list --search "..."` take the
+  query as one quoted string (it is a flag value) and are scoped to one repo.
+- Bots author as GitHub Apps, so `--author dependabot` matches nothing. Use
+  `--app dependabot` (on `pr`/`issue list` and `search prs|issues`; expands
+  to `author:app/<slug>`) or `--author "dependabot[bot]"`.
+- `gh search issues` also takes `--search-type <lexical|semantic|hybrid>`
+  (github.com/GHEC only, issues only): use `semantic` when the user describes a
+  problem in natural language rather than exact terms, and `hybrid` to blend
+  keyword and semantic ranking; `lexical` (default) is exact matching.
+
+## Issue types, sub-issues, and relationships
+
+Newer `gh issue` subcommands model issue types, sub-issue hierarchy, and
+blocked-by/blocking relationships.
+
+- `gh issue create`: `--type <name>`, `--parent <number|url>` (creates the
+  new issue as a sub-issue), `--blocked-by <number|url,...>`, `--blocking <number|url,...>`.
+- `gh issue edit` (edits one or more issues in the same repo, e.g.
+  `gh issue edit 23 34`): `--type <name>` / `--remove-type`,
+  `--parent <n|url>` / `--remove-parent`,
+  `--add-sub-issue <n,n>` / `--remove-sub-issue <n,n>`,
+  `--add-blocked-by <n,n>` / `--remove-blocked-by <n,n>`,
+  `--add-blocking <n,n>` / `--remove-blocking <n,n>`. Relationship and parent
+  refs are issue numbers or URLs; a URL may point to another repo on the same
+  host, but a different host is rejected. `--add-sub-issue` cannot be used
+  when editing more than one issue.
+- `gh issue list --type <name>` filters by issue type.
+- `gh issue view` and `gh issue list` accept these as `--json` fields (prefer
+  them over scraping the default text output): `issueType`, `parent`,
+  `subIssues`, `subIssuesSummary`, `blockedBy`, `blocking`. `subIssues`,
+  `blockedBy`, and `blocking` are objects shaped
+  `{"nodes": [...], "totalCount": N}` (not flat arrays), and `nodes` is capped
+  (`subIssues` at 100, `blockedBy`/`blocking` at 50), so compare the node count
+  against `totalCount` to detect truncation.
+- GHES: issue types and sub-issues need 3.17+; blocked-by/blocking
+  relationships need 3.19+.
+
+## Attaching images and videos
+
+`--attach <path>` is available on `gh issue create`, `gh issue edit`,
+`gh issue comment`, `gh pr create`, `gh pr edit`, `gh pr comment`,
+`gh issue artifact create`, and `gh issue artifact edit`.
+
+- Repeat `--attach` to upload multiple files:
+  `gh issue comment 12 --attach ./before.png --attach ./after.png`.
+- Each command invocation accepts at most 50 `--attach` values total across
+  images and videos.
+- Supported files are `png`, `jpg`, `jpeg`, `gif`, `webp`, `svg`, `mp4`,
+  `mov`, and `webm`.
+- For an image, append alt text to the path after `#`. Quote the value so the
+  shell does not treat `#` as a comment:
+  `gh pr create --attach './login.png#The login error state'`. Without alt
+  text, the filename is used.
+- `--attach` paths and local Markdown destinations may be absolute or relative
+  to the directory where `gh` runs. When the body comes from a file with
+  `--body-file`, or from a file argument to `gh issue artifact create`,
+  relative destinations resolve against that file's directory first, then the
+  directory where `gh` runs.
+- If the body references an attached path, `gh` rewrites that Markdown
+  reference to the uploaded URL. The reference keeps its existing alt text.
+  Otherwise, `gh` appends the attachment to the body. For example:
+  `gh pr edit 23 --body '![error](./login.png)' --attach ./login.png`.
+- Videos cannot take alt text. A standalone `![recording](./repro.mp4)` becomes
+  a bare player URL, while an inline video image becomes a link. A
+  reference-style video image such as `![recording][clip]` with
+  `[clip]: ./repro.mp4` is rejected; use a reference-style link instead.
+- `gh issue create` and `gh pr create`: `--attach` cannot be used with
+  `--web`. `gh pr create --attach` also cannot be used with `--dry-run`.
+- `gh issue edit`: `--attach` can edit only one issue at a time.
+- `gh issue comment` and `gh pr comment`: `--attach` cannot be used with
+  `--web` or `--delete-last`. It works alone, with `--edit-last`, or with one
+  of `--body`, `--body-file`, or `--editor`.
+- `gh issue artifact create` and `gh issue artifact edit`: `--attach` works
+  only on Markdown documents, not links or HTML documents. With several
+  Markdown documents, `create` uploads each file once and points every
+  document that references it at the upload, and a file that no document
+  references is an error before anything uploads. `edit` with only
+  `--attach` appends the files to the artifact's current content.
+- Uploads require GitHub.com or a GHE.com tenant and `WRITE`, `MAINTAIN`, or
+  `ADMIN` repository permission. GitHub Enterprise Server is unsupported. The
+  upload endpoint accepts tokens from only some GitHub Apps, and refuses the
+  rest with the same error as missing write access.
+- Uploads stop at the first failure. If earlier files uploaded, `gh` still
+  writes those attachments and exits non-zero. `gh issue create`,
+  `gh issue edit`, `gh pr create`, and `gh pr edit` also print the issue or
+  pull request URL. `gh issue artifact create` and `edit` still save an
+  artifact that is missing some of its files if any of them uploaded, with
+  the upload error as the reason on its `created` or `updated` line. If none
+  of them uploaded, the artifact isn't saved and gets a `failed` line.
+
+## Discussions (`gh discussion`)
+
+Preview command set, subject to change. Subcommands:
+
+- `gh discussion list [--state open|closed|all] [--category <name>] [--author <handle>] [--label <name>,...] [--answered] [--search <query>] [--sort created|updated] [--order asc|desc] [--limit N] [--after <cursor>] [--json <fields>] [--web]`
+  lists a repo's discussions. `--state` defaults to open, `--sort` to updated,
+  `--order` to desc. `--answered` is tri-state (`--answered=false` for
+  unanswered) for Q&A categories.
+- `gh discussion view {<number>|<url>|<comment-id>|<comment-url>} [--comments] [--order oldest|newest] [--limit N] [--after <cursor>] [--json <fields>] [--web]`
+  shows a discussion's body; add `--comments` for its comments, or pass a
+  comment ID/URL as the argument to list that comment's replies (no
+  `--replies` flag; `--comments` is rejected with a comment argument).
+  `--order` (default newest), `--limit`, and `--after` apply only to comment
+  and reply listings.
+- `gh discussion create [--title <t>] [--body <b> | --body-file <path>] [--category <name>] [--label <name>,...]`
+  creates a discussion. `--title`, a body (`--body` or `--body-file`), and
+  `--category` are required non-interactively; omitting any will prompt on a
+  terminal.
+- `gh discussion edit {<number>|<url>} [--title <t>] [--body <b>] [--body-file <path>] [--category <name>] [--add-label <name>,...] [--remove-label <name>,...]`
+  edits title, body, category, or labels.
+- `gh discussion comment {<number>|<discussion-url>|<comment-id>|<comment-url>} [--body <b>] [--body-file <path>] [--edit] [--delete] [--yes]`
+  adds a top-level comment (when given a discussion) or a reply (when given a
+  comment); `--edit` or `--delete` updates or removes a comment/reply and
+  needs a comment ID or URL. `--yes` skips the `--delete` confirmation.
+- `--json`/`--jq`/`--template` are available on `list` and `view` only;
+  `create` and `edit` print the discussion URL. `comment` prints the discussion comment (or reply) URL.
+
+## Issue artifacts (`gh issue artifact`)
+
+Preview command set, subject to change. Issue artifacts are Markdown documents
+(type `generic` or `plan`), HTML documents (type `embedded_html`), and links
+(type `link`) attached to an issue. Each has a number on its issue, and
+commands address artifacts by that number, since names aren't unique. They
+are not GitHub Actions artifacts, which `gh run download` handles.
+Subcommands:
+
+- `gh issue artifact list {<issue-number>|<issue-url>} [--type generic|plan|link|embedded_html] [--limit N] [--json <fields>]`
+  (alias `ls`) lists artifacts in number order. There is no default limit:
+  every artifact is listed unless `--limit` is set. `--type generic` and
+  `--type plan` both list every Markdown document, and each keeps its stored
+  type. Piped output is tab-separated number, name, type, and RFC 3339
+  update time. `--json` fields include `body`, so one call can return every
+  artifact's content.
+- `gh issue artifact view {<issue> <artifact-number> | <artifact-url>} [--version N] [--json <fields>] [--web]`
+  shows one artifact and its edit history. In a terminal, it ends with the
+  artifact's URL. Piped output is `name:`, `number:`, `version:`, `type:`,
+  `creator:`, `created:`, `updated-by:`, `updated:`, and `url:` lines, in
+  that order, then `--` and the raw body. `--version N` shows that version
+  from the edit history. `--version`, `--json`, and `--web` are mutually
+  exclusive. `--json versions` returns the edit history. `--web` opens a
+  document's page on GitHub, or a link's URL.
+- `gh issue artifact create {<issue-number>|<issue-url>} [<file>[#<name>] | <url>]... [--body <text> | --body-file <path>] [--name <name>] [--type generic|plan|embedded_html] [--attach <path>]...`
+  (alias `new`) creates one artifact per file or URL, in argument
+  order. A text file becomes a document named after the file, or after the
+  text following `#`:
+  `gh issue artifact create 142 'docs/signin-plan.md#Sign-in plan'`. A
+  `.html` or `.htm` file becomes an HTML document. An
+  `http(s)` URL becomes a link named after its host, and a `.url` Internet
+  Shortcut file becomes a link to its URL. Names can't contain some
+  characters, such as parentheses. `gh` drops them from names it takes from
+  file names (`plan (1).md` becomes `plan 1.md`), but sends a name given with
+  `#` or `--name` as typed. Instead of file or URL arguments, `--body <text>`
+  creates one document and `--body-file <path>` creates one artifact from a
+  file. Neither can be combined with file or URL arguments. `--name` names a
+  single artifact. It's required with `--body` or `--body-file -`, and can't
+  be combined with a `#<name>` suffix. Documents are `generic`, and HTML
+  documents `embedded_html`. `--type` sets the type of every document
+  instead, whatever the file extension, so `--type embedded_html` makes
+  `--body` or `--body-file -` an HTML document. A plan currently behaves the
+  same as a generic document. `--type` is refused if any artifact is a link.
+- `gh issue artifact edit {<issue> <artifact-number> | <artifact-url>} [--name <name>] [--body <text> | --body-file <path>] [--attach <path>]... [--restore-version N]`
+  renames an artifact or replaces its content, saving a new version. At least
+  one of `--name`, `--body`, `--body-file`, `--attach`, or `--restore-version`
+  is required, and a `--body-file` never renames the artifact. The type never
+  changes: a link's new content must be an `http(s)` URL or a `.url` file, and
+  a document can't take a `.url` file. `--restore-version N` saves the name
+  and content of version N from the edit history as a new version. It works
+  for any version `view` lists, and can't be combined with `--name`,
+  `--body`, `--body-file`, or `--attach`. If the artifact already matches
+  that version, nothing is saved and `gh` exits 0, with a `skipped` line when
+  piped.
+- `gh issue artifact delete {<issue> <artifact-number>... | <artifact-url>...} [--yes]`
+  deletes artifacts, which can't be restored. In a terminal, `gh` asks once
+  for all of them. `--yes` skips the prompt and is required when `gh` can't
+  prompt. Without `--yes`, a failed lookup stops the command before the
+  prompt, and nothing is deleted. With `--yes`, every number is attempted.
+- `gh issue artifact download {<issue> [<artifact-number>...] | <artifact-url>...} [--dir <dir> | --output <path>] [--clobber | --skip-existing] [--version N]`
+  writes the given artifacts, or every artifact on the issue, to files in
+  `--dir` (default `.`). Each file is named `<number>-<name>`, with path
+  separators, whitespace, control characters, and characters Windows forbids
+  replaced by `-`. Markdown documents end in `.md`, HTML documents in
+  `.html` or `.htm`, and links are saved as `.url` Internet Shortcut files,
+  which `create` and `edit` read back as links. An existing file fails that
+  artifact unless `--clobber` overwrites it or `--skip-existing` skips it.
+  `--output <path>` and `--version N` (an earlier version from the edit
+  history) need exactly one artifact number, and `--output -` prints its
+  stored body (a link's URL) with nothing else. Without numbers, an issue
+  with no artifacts is an error.
+- The issue argument is a number or an issue URL, and a URL selects its own
+  repository. An artifact URL,
+  `https://github.com/<owner>/<repo>/issues/<issue>/artifacts/<number>`, can
+  replace the issue and number, and selects its repository the same way.
+  Artifact URLs in one command must be on the same issue. Pull requests are
+  refused, and so is GitHub Enterprise Server.
+- `--json`/`--jq`/`--template` are available on `list` and `view` only. The
+  `id` field is a global ID that no command accepts; commands take `number`,
+  or `url`, the artifact's page on GitHub.
+- `create`, `edit`, and `download` (except with `--output -`) report each
+  artifact on its own line. When piped, every line goes to stdout with five
+  tab-separated columns, empty ones included: status (`created`, `updated`,
+  `restored`, `written`, `skipped`, or `failed`), artifact number, name (the
+  file path for `download`), source (the file, URL, or `-` given to
+  `create`, or the `--body-file` value given to `edit`), and the reason for a
+  skip, a failure, or `--attach` files that didn't upload. In a terminal,
+  failures go to stderr. A failed artifact doesn't stop the others, and the
+  command exits 1 after any failure or failed upload. After `create` exits 1,
+  retry only the `failed` lines, since the others were created.
+- `delete` reports on stderr. In a terminal, each deleted or failed artifact
+  gets a line. When piped, a deleted artifact prints nothing, and each
+  failure prints `<number>: <reason>`. Any failure exits 1.
+- `create` and `edit` read and check every file before any request, so a
+  missing, empty, or binary file fails the whole command, and nothing is
+  saved. Standard input is read only through `--body-file -`, and `create`
+  refuses a `-` argument.
+- `view`, `edit`, and `download` refuse an artifact whose type this version
+  of `gh` doesn't know, with a message to upgrade `gh`. `list` and `delete`
+  work with any type.
+
+## Reading files and directories (`gh repo read-file` / `read-dir`)
+
+Preview commands, subject to change. They read a repo's contents over the API
+without cloning, and honor `--repo OWNER/REPO` (`-R`) and `--ref <branch|tag|commit>`
+(default branch when omitted).
+
+- `gh repo read-file <path> [--ref <ref>] [--output <path> [--clobber]] [--allow-escape-sequences] [--json <fields>] [--jq <expr>]`
+  prints a file's contents. In non-TTY contexts the raw bytes go straight to
+  stdout (pipe-friendly); binary files are written as-is when piped but are
+  refused on a TTY. By default, a file containing terminal escape sequences is
+  refused; pass `--allow-escape-sequences` to read it anyway. `--output <path>` (`-o`) writes to
+  disk instead of stdout (a trailing slash writes under a directory using the
+  remote file name; `--clobber` allows overwrite); writing to disk always
+  includes the raw bytes regardless of escape sequences. `--output` and `--json` are
+  mutually exclusive. `--json` fields include `name`, `path`, `gitSHA`, `size`,
+  `type`, `encoding`, and `content` (base64 encoded).
+- `gh repo read-dir [<path>] [--ref <ref>] [--json <fields>] [--jq <expr>]`
+  lists a directory; with no path it lists the repo root. Non-TTY output is tab
+  separated as type, name, octal mode, and byte size. `--json` fields include
+  `name`, `path`, `type`, `gitType`, `mode`, `modeOctal`, `gitSHA`, `size`, and
+  `submodule`. A path pointing at a file errors and points you at `read-file`
+  (and vice versa).
+
+## Fall back to `gh api` for anything `--json` doesn't expose
+
+Sometimes useful data isn't on the typed commands. Examples:
+
+- Review-thread comments on a PR: `gh api repos/{owner}/{repo}/pulls/{n}/comments`
+  (the `--comments` flag on `gh pr view` shows issue-level comments only).
+- Arbitrary GraphQL: `gh api graphql -f query='...' -F var=value`.
+- REST shortcuts: `gh api repos/{owner}/{repo}/...` - note the
+  `{owner}/{repo}` placeholder is filled in for you when run from a repo
+  with detected remotes; pass them literally if you want determinism.
+
+## Authentication
+
+- `gh auth status` prints the active host(s), user, and which env var (if
+  any) is being honored.
+- `gh auth status --json` is supported.
+- Stored credentials may be expiring tokens that gh refreshes automatically.
+  `gh auth status --json hosts` reports these with `"refreshable": true` and a
+  `tokenExpiresAt` timestamp.
+- Expiring tokens are not available on every host. So far only github.com
+  and GHE.com (`*.ghe.com`) hosts support them; other hosts keep using
+  regular tokens.
+- Do not cache the output of `gh auth token`: an expiring token can stop
+  working at any time because gh rotates it on refresh. Run `gh auth token`
+  again each time you need one, or prefer `gh api` over raw HTTP calls so gh
+  handles the refresh for you.
+- A `refresh_expired` state in `gh auth status --json hosts` means the refresh
+  token was rejected. Recovery needs an interactive `gh auth login` or
+  `gh auth refresh`, so ask the user to run it instead of retrying.
+- Tokens from `GH_TOKEN` or `GITHUB_TOKEN` are used as is and never refreshed.
+
+## Other notes
+
+- `gh pr checkout <n>` switches branches. Use `gh pr diff <n>` or
+  `gh pr view <n>` if you only need to read.
+- `gh pr checkout <n> --worktree <path>` checks the PR out into a git worktree
+  at `<path>` instead of switching the current branch.
+- `gh issue develop <n> --checkout` creates a linked branch for the issue and
+  checks it out. Add `--worktree <path>` to check that branch out into a git
+  worktree at `<path>` instead of switching the current branch;
+  `--worktree` requires `--checkout`, cannot be blank, and cannot be combined
+  with `--list`.
+- `NO_COLOR`, `CLICOLOR_FORCE`, and `GH_FORCE_TTY` are honored. Set
+  `GH_FORCE_TTY=1` if you want TTY-style output (colors, tables, the
+  pager, interactivity) inside an agent harness; leave it unset unless needed.
