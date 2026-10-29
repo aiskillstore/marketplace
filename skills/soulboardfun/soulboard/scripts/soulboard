@@ -1,0 +1,280 @@
+#!/usr/bin/env python3
+"""soulboard — mint / launch / trade on the SoulBoard agentic launchpad with your Binance agentic wallet.
+
+Only needs: python3 (stdlib) + the `baw` CLI (Binance agentic wallet) signed in.
+SoulBoard is agent-gated: you must hold a soulbound Agent-ID on BNB Chain. The SoulBoard backend checks
+that and signs a one-time voucher; your agentic wallet signs the actual on-chain call via `baw`.
+Keys never leave your wallet — this tool only prepares and relays.
+
+Usage:
+  soulboard mint <token_address> [N]          # mint N times (default 1); first mint per wallet is free
+  soulboard "<token_address> mint 2x"         # natural form also works
+  soulboard launch <SYMBOL> --name "..." --supply 21000000 --per-mint 1000 --price 0.0002 \
+            [--tax 1] [--free 1] [--max-per-wallet 10] [--logo ./logo.png] [--desc "..."] \
+            [--web URL] [--x URL] [--metadata-uri ipfs://...]
+  soulboard --help
+
+Launch units (IMPORTANT): --supply and --per-mint are WHOLE TOKENS (e.g. 21000000, 1000) — never
+base units/wei. --price is in ETH (e.g. 0.0002). Launching burns 1,000 $BOARD (needs a prior approve,
+which this tool prepares as the first step).
+
+Env / flags:
+  --backend URL   SoulBoard backend (default https://soulboard.fun)
+  --chain  ID     Robinhood Chain binanceChainId (default 4663)
+  --wallet ADDR   override the agentic wallet address (default: from `baw wallet address`)
+  --value  WEI    native value to send on mint (default 0 = free first mint; set price for paid mints)
+  --yes           skip the confirm prompt before each signature
+"""
+import argparse
+import json
+import os
+import re
+import subprocess
+import sys
+import urllib.error
+import urllib.request
+import uuid
+
+DEFAULT_BACKEND = "https://soulboard.fun"
+DEFAULT_CHAIN = 4663
+UA = "SoulBoard-Skill/1.0"
+
+
+def _run(cmd):
+    """Run a baw command, return parsed JSON (expects --json in cmd)."""
+    p = subprocess.run(cmd, capture_output=True, text=True)
+    out = (p.stdout or "").strip()
+    try:
+        return json.loads(out)
+    except Exception:
+        return {"success": False, "error": {"message": (out or p.stderr or "no output")[:400]}}
+
+
+def baw_address():
+    d = _run(["baw", "wallet", "address", "--json"])
+    for a in (d.get("data", {}) or {}).get("addresses", []):
+        if str(a.get("binanceChainId")) in ("1", "56", "4663", "8453", "137", "42161"):
+            return a.get("address")
+    return None
+
+
+def dev_mode_on():
+    d = _run(["baw", "wallet", "settings", "--json"])
+    return bool((d.get("data", {}) or {}).get("devMode", {}).get("enabled"))
+
+
+def post(url, body):
+    req = urllib.request.Request(
+        url, data=json.dumps(body).encode(),
+        headers={"content-type": "application/json", "user-agent": UA})
+    try:
+        return json.loads(urllib.request.urlopen(req, timeout=30).read())
+    except urllib.error.HTTPError as e:
+        try:
+            return json.loads(e.read())  # backend returns {"error": "..."} even on 4xx
+        except Exception:
+            return {"error": f"HTTP {e.code}"}
+
+
+def _multipart(fields, file_path):
+    """Encode a multipart/form-data body (stdlib only) for the /pin endpoint."""
+    boundary = "----soulboard" + uuid.uuid4().hex
+    parts = []
+    for k, v in fields.items():
+        if not v:
+            continue
+        parts.append((f'--{boundary}\r\nContent-Disposition: form-data; name="{k}"\r\n\r\n'
+                      f'{v}\r\n').encode())
+    if file_path:
+        with open(file_path, "rb") as fh:
+            blob = fh.read()
+        fn = os.path.basename(file_path)
+        parts.append((f'--{boundary}\r\nContent-Disposition: form-data; name="file"; '
+                      f'filename="{fn}"\r\nContent-Type: application/octet-stream\r\n\r\n').encode()
+                     + blob + b"\r\n")
+    parts.append(f"--{boundary}--\r\n".encode())
+    return "multipart/form-data; boundary=" + boundary, b"".join(parts)
+
+
+def pin_metadata(backend, fields, logo_path):
+    ct, body = _multipart(fields, logo_path)
+    req = urllib.request.Request(backend + "/pin", data=body,
+                                 headers={"content-type": ct, "user-agent": UA})
+    try:
+        return json.loads(urllib.request.urlopen(req, timeout=120).read())
+    except urllib.error.HTTPError as e:
+        try:
+            return json.loads(e.read())
+        except Exception:
+            return {"error": f"HTTP {e.code}"}
+
+
+def _sign_step(chain, wallet, to, data, value, auto_yes, label):
+    """Preview + (confirm) + execute one contract call via baw. Returns True on success."""
+    pv = _run(["baw", "contract-call", "preview", "--binanceChainId", str(chain),
+               "--from", wallet, "--to", to, "--value", str(value), "--inputData", data, "--json"])
+    if not pv.get("success", True) or not (pv.get("data") or {}).get("requestId"):
+        print(f"  preview failed ({label}): {pv.get('error') or pv}")
+        return False
+    req = pv["data"]["requestId"]
+    risks = pv["data"].get("risks") or []
+    print(f"  preview ok · {label} · value={value} wei" + (f" · risks={risks}" if risks else ""))
+    if not auto_yes:
+        if input(f"  sign {label} with your agentic wallet? (y/n) ").strip().lower() not in ("y", "yes"):
+            print("  skipped.")
+            return False
+    ex = _run(["baw", "contract-call", "execute", "--requestId", req, "--json"])
+    if ex.get("success"):
+        txh = (ex.get("data") or {}).get("transactionHash") or (ex.get("data") or {})
+        print(f"  ✅ {label} sent. tx: {txh}")
+        return True
+    print(f"  execute failed ({label}): {ex.get('error') or ex}")
+    return False
+
+
+def do_one_mint(backend, chain, asset, wallet, value_wei, auto_yes, i, n):
+    tag = f"[{i}/{n}] " if n > 1 else ""
+    print(f"{tag}preparing mint for {asset} …")
+    try:
+        d = post(backend + "/prepare/mint", {"asset": asset, "wallet": wallet, "value_wei": str(value_wei)})
+    except Exception as e:
+        print(f"  backend error: {e}")
+        return False
+    if not d.get("ok") or d.get("error"):
+        print(f"  refused: {d.get('error') or d}")
+        if d.get("error") and "Agent-ID" in str(d.get("error")):
+            print("  → your wallet has no Agent-ID on BNB Chain. Claim the free Agent-ID in the Binance app first.")
+        return False
+    st = d["sign_this"]
+    return _sign_step(chain, wallet, st["to"], st["data"], st.get("value", "0"), auto_yes, f"{tag}mint")
+
+
+def do_launch(backend, chain, wallet, symbol, args):
+    # metadata (name / logo / socials) → pin to IPFS → metadataURI (unless one was passed directly)
+    meta_uri = (args.metadata_uri or "").strip()
+    if not meta_uri and (args.logo or args.name or args.desc or args.web or args.x):
+        print("  pinning metadata to IPFS …")
+        fields = {"name": args.name or symbol, "symbol": symbol, "description": args.desc or "",
+                  "website": args.web or "", "x": args.x or ""}
+        r = pin_metadata(backend, fields, args.logo)
+        if not r.get("ok"):
+            print(f"  metadata pin failed: {r.get('error') or r}")
+            return False
+        meta_uri = r.get("metadataUri") or ""
+        print(f"  metadata: {meta_uri}" + (f" · logo {r.get('imageUri')}" if r.get("imageUri") else ""))
+    if args.supply is None or args.per_mint is None:
+        print("  launch needs --supply and --per-mint (whole tokens, e.g. --supply 21000000 --per-mint 1000)")
+        return False
+    price_wei = int(round(float(args.price) * 10**18)) if args.price else 0
+    body = {"wallet": wallet, "creator": wallet, "name": args.name or symbol, "symbol": symbol,
+            "maxSupply": str(args.supply), "amountPerMint": str(args.per_mint),
+            "mintPriceWei": str(price_wei),
+            "creatorFeeBps": int(round(float(args.tax) * 100)) if args.tax else 0,
+            "freeMintsPerWallet": args.free, "maxMintsPerWallet": args.max_per_wallet,
+            "metadataURI": meta_uri}
+    d = post(backend + "/prepare/launch", body)
+    if not d.get("ok") or d.get("error"):
+        print(f"  refused: {d.get('error') or d}")
+        if d.get("error") and "Agent-ID" in str(d.get("error")):
+            print("  → your wallet has no Agent-ID on BNB Chain. Claim the free one in the Binance app first.")
+        return False
+    burn = int(d.get("launchBurnAmount", "0")) // 10**18
+    print(f"  launching ${symbol}: supply {args.supply} · {args.per_mint}/mint · "
+          f"price {args.price or 0} ETH · burns {burn} $BOARD")
+    for st in d.get("steps", []):
+        label = st.get("label") or st.get("step")
+        if not _sign_step(chain, wallet, st["to"], st["data"], st.get("value", "0"), args.yes, label):
+            print("  launch aborted (nothing after the failed step was sent).")
+            return False
+    print(f"  🎉 ${symbol} is live on SoulBoard.")
+    return True
+
+
+def parse_natural(tokens):
+    """Accept: mint <ca> [N]  OR  '<ca> mint Nx'."""
+    joined = " ".join(tokens)
+    m = re.search(r"(0x[0-9a-fA-F]{40}).*?mint\s+(\d+)\s*x?", joined) \
+        or re.search(r"mint\s+(0x[0-9a-fA-F]{40})\s*(\d+)?", joined)
+    if m:
+        groups = m.groups()
+        if groups[0].startswith("0x"):
+            return groups[0], int(groups[1] or 1)
+        return groups[0], int(groups[1] or 1) if len(groups) > 1 and groups[1] else 1
+    return None, None
+
+
+def main(argv):
+    p = argparse.ArgumentParser(prog="soulboard", add_help=True)
+    p.add_argument("--backend", default=DEFAULT_BACKEND)
+    p.add_argument("--chain", type=int, default=DEFAULT_CHAIN)
+    p.add_argument("--wallet", default=None)
+    p.add_argument("--value", default="0")
+    p.add_argument("--yes", action="store_true")
+    # launch flags
+    p.add_argument("--name", default=None)
+    p.add_argument("--supply", type=int, default=None, help="max supply in WHOLE tokens")
+    p.add_argument("--per-mint", dest="per_mint", type=int, default=None, help="tokens per mint (whole)")
+    p.add_argument("--price", default=None, help="mint price in ETH, e.g. 0.0002")
+    p.add_argument("--tax", default=None, help="creator fee percent per trade, e.g. 1")
+    p.add_argument("--free", type=int, default=1, help="free mints per wallet (default 1)")
+    p.add_argument("--max-per-wallet", dest="max_per_wallet", type=int, default=0, help="0 = unlimited")
+    p.add_argument("--logo", default=None, help="path to a logo image to pin")
+    p.add_argument("--desc", default=None)
+    p.add_argument("--web", default=None)
+    p.add_argument("--x", default=None)
+    p.add_argument("--metadata-uri", dest="metadata_uri", default=None, help="use a pre-pinned ipfs:// URI")
+    p.add_argument("rest", nargs="*")
+    args = p.parse_args(argv)
+
+    rest = args.rest
+    cmd = rest[0] if rest else None
+
+    # ---- launch ----
+    if cmd == "launch":
+        tail = rest[1:]
+        if tail and tail[0] == "token":  # tolerate "launch token SYM"
+            tail = tail[1:]
+        symbol = tail[0] if tail else None
+        if not symbol or symbol.startswith("-"):
+            print('usage: soulboard launch <SYMBOL> --name "..." --supply 21000000 --per-mint 1000 --price 0.0002')
+            return 1
+        wallet = args.wallet or baw_address()
+        if not wallet:
+            print("Could not read your agentic wallet. Run `baw auth signin` first (and `baw auth verify`).")
+            return 1
+        if not dev_mode_on():
+            print("⚠️  Developer Mode is off in your Binance app. Enable it (Settings → Developer Mode), then retry.")
+            return 1
+        print(f"SoulBoard · wallet {wallet} · chain {args.chain} · backend {args.backend}")
+        return 0 if do_launch(args.backend, args.chain, wallet, symbol, args) else 1
+
+    # ---- mint ----
+    if cmd == "mint":
+        asset = rest[1] if len(rest) > 1 else None
+        count = int(rest[2]) if len(rest) > 2 and rest[2].isdigit() else 1
+    else:
+        asset, count = parse_natural(rest)
+    if not asset or not re.match(r"^0x[0-9a-fA-F]{40}$", asset):
+        print("usage: soulboard mint <token_address> [N]   |   soulboard launch <SYMBOL> ...   (see --help)")
+        return 1
+
+    wallet = args.wallet or baw_address()
+    if not wallet:
+        print("Could not read your agentic wallet. Run `baw auth signin` first (and `baw auth verify`).")
+        return 1
+    if not dev_mode_on():
+        print("⚠️  Developer Mode is off in your Binance app. Enable it (Settings → Developer Mode) to sign contract calls, then retry.")
+        return 1
+
+    print(f"SoulBoard · wallet {wallet} · chain {args.chain} · backend {args.backend}")
+    ok = 0
+    for i in range(1, count + 1):
+        value_wei = "0" if i == 1 and args.value == "0" else args.value
+        if do_one_mint(args.backend, args.chain, asset, wallet, value_wei, args.yes, i, count):
+            ok += 1
+    print(f"\nDone. {ok}/{count} mint(s) succeeded.")
+    return 0 if ok > 0 else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
