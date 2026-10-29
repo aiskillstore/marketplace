@@ -120,13 +120,13 @@ npx -y socialdatax-skills@latest xhs pgy-creator-metrics-trend \
 
 - 如果出现 SDK/依赖缺失、npm 网络、Node.js/npm/npx 不可用或执行权限错误：这是本地运行环境、依赖安装、网络或 AI 平台授权问题，不是 SocialDataX API Key 或业务数据返回错误。仅在用户已授权的范围内安装或修复本任务所需依赖，优先使用项目目录或临时环境。环境执行权限不等于用户授权；超出授权范围时，先说明具体改动并征得同意，包括全局安装、运行时升级或系统配置变更。需要网络或执行授权时提醒用户同意或完成授权；处理后继续原命令；不要改用公开网页搜索替代 SocialDataX 数据。
 - 非余额不足的网络或 API 异常：保留错误信息，检查 `SOCIALDATAX_API_KEY`、参数和链接格式后原样重试一次。 `pgy_commercial_data_unavailable` / 公开错误码 `1009` 表示商业数据不可用，应停止；不适用本节的重试和更换输入建议。
-- 如果返回 `insufficient_balance` 或“积分不足”：不要重复重试；把错误里的充值链接原样展示给用户，并提醒用户充值后继续执行刚才同一条命令。
+- 如果返回 `insufficient_balance` 或“积分不足”：不要重复重试；展示错误中的官方充值链接（https://socialdatax.com/dashboard/billing，可带渠道参数）；若没有该链接，使用 https://socialdatax.com/dashboard/billing。充值后继续刚才失败的调用；已有任务或部分结果时，按对应任务查询、分页续查规则恢复。
 - 如果用户已经充值但仍提示余额不足：确认当前环境变量 `SOCIALDATAX_API_KEY` 是否来自刚充值的同一个账号；必要时重新复制官网后台的 API Key。
 - 重试仍失败：说明当前调用不可用，请用户补充或更换关键词、链接、ID 等输入后再重试。
 
 ## 常见问题
 
 - 没结果：确认账号主页、分享文本或平台账号 ID 完整。
-- 调用失败：先确认 `SOCIALDATAX_API_KEY` 已配置；如果是 `insufficient_balance` 或“积分不足”，按错误里的充值链接充值后继续原命令，不要反复重试。
+- 调用失败：先确认 `SOCIALDATAX_API_KEY` 已配置；如果是 `insufficient_balance` 或“积分不足”，按上述官方充值链接说明完成充值后，按上述恢复规则继续，不要反复重试。
 - 担心账号安全：这是只读能力，不登录、不发帖、不点赞、不评论。
 - 想继续分析：把最相关的 1-3 条结果发回来，继续缩小范围。
