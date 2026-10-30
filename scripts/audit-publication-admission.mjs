@@ -38,12 +38,17 @@ async function ancestor(api, root, from, to) {
   assert(['identical', 'ahead'].includes(comparison.status), 'Producer commit is not an ancestor');
 }
 
-export async function admitAuditPullRequest({ repository, number, expectedHead }, api) {
+export const admitAuditPullRequest = (input, api) => verifyAuditPullRequest(input, api, false);
+export const verifyMergedAuditPullRequest = (input, api) => verifyAuditPullRequest(input, api, true);
+
+async function verifyAuditPullRequest({ repository, number, expectedHead }, api, merged) {
   assert(/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repository), 'Invalid repository');
   assert(Number.isSafeInteger(Number(number)) && Number(number) > 0 && SHA.test(expectedHead), 'Invalid PR/head');
   const root = `repos/${repository}`;
   const pr = await api(`${root}/pulls/${number}`);
-  assert(pr.state === 'open' && !pr.draft && pr.number === Number(number), 'PR must be open and non-draft');
+  assert(!pr.draft && pr.number === Number(number), 'PR must be non-draft');
+  assert(merged ? pr.state === 'closed' && pr.merged === true && SHA.test(pr.merge_commit_sha)
+    : pr.state === 'open', 'Unexpected PR lifecycle for this verifier');
   assert(pr.user.id === 254047988 && pr.user.login === 'ai-skill-store[bot]', 'Untrusted author');
   assert(pr.head.repo.full_name === repository && pr.base.repo.full_name === repository && pr.base.ref === 'main', 'Untrusted repository/base');
   assert.equal(pr.head.sha, expectedHead, 'PR head changed');
