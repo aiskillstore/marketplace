@@ -7,6 +7,7 @@ on:
 permissions:
   contents: read
   pull-requests: read
+  actions: read # Read authenticated Audit Skills producer jobs and logs
 
 jobs:
   publication-admission:
@@ -62,10 +63,27 @@ jobs:
 
           while IFS= read -r -d '' path; do
             case "$publication_kind:$HEAD_REF:$path" in
-              pending:submission/*:pending/*|skills:skill-source-monitor/*:skills/*) ;;
+              pending:submission/*:pending/*|skills:skill-source-monitor/*:skills/*|skills:audit/*:skills/*/skill-report.json) ;;
               *)
                 echo "::error::Publication PR contains an unauthorized branch or path: $path"
                 exit 1
                 ;;
             esac
           done < "$FILES"
+
+      # Never execute the PR's own admission code. Use only the trusted base revision.
+      - name: Checkout trusted admission verifier
+        if: startsWith(github.event.pull_request.head.ref, 'audit/')
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          persist-credentials: false
+
+      - name: Bind audit reports to their real producer
+        if: startsWith(github.event.pull_request.head.ref, 'audit/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: node scripts/audit-publication-admission.mjs
