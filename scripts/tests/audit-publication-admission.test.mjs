@@ -87,6 +87,14 @@ test('normal validate CI runs the new admission regression suite', () => {
   assert.match(workflow, /node --test[\s\S]*scripts\/tests\/audit-publication-admission.test.mjs/);
   assert.equal(workflow.split('"scripts/audit-publication-admission.mjs"').length - 1, 2);
 });
+test('reads raw log responses that gh would otherwise refuse for terminal escapes', async () => {
+  const { execFile } = await import('node:child_process');
+  const { promisify } = await import('node:util');
+  const { fileURLToPath } = await import('node:url');
+  const cli = fileURLToPath(new URL('../audit-publication-admission.mjs', import.meta.url));
+  const { stdout } = await promisify(execFile)(process.execPath, [cli, '--print-raw-log-args'], { encoding: 'utf8' });
+  assert.deepEqual(JSON.parse(stdout), ['api', '--allow-escape-sequences', '--method', 'GET', 'repos/o/r/actions/jobs/1/logs']);
+});
 test('propagates GitHub failure, never treats it as absence or success', async () => {
   await assert.rejects(admitAuditPullRequest({ repository, number: 42, expectedHead: head }, async () => { throw new Error('HTTP 503'); }), /503/);
 });

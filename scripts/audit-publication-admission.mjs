@@ -94,13 +94,23 @@ export async function admitAuditPullRequest({ repository, number, expectedHead }
   throw new Error('No successful main Audit Skills producer bound to this PR and commit');
 }
 
+// Job logs contain ANSI color escapes, which gh refuses to print unless this flag is set.
+// It only permits the text; parsing and every admission decision below stay unchanged.
+export function rawLogArgs(endpoint) {
+  assert(/^repos\/[^/]+\/[^/]+\/actions\/jobs\/[1-9][0-9]*\/logs$/.test(endpoint), 'Unexpected raw log endpoint');
+  return ['api', '--allow-escape-sequences', '--method', 'GET', endpoint];
+}
 function github(endpoint, raw = false) {
-  const result = execFileSync('gh', ['api', '--method', 'GET', endpoint], {
+  const result = execFileSync('gh', raw ? rawLogArgs(endpoint) : ['api', '--method', 'GET', endpoint], {
     encoding: 'utf8', timeout: 30_000, maxBuffer: 16 * 1024 * 1024,
   });
   return raw ? result : JSON.parse(result);
 }
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  if (process.argv[2] === '--print-raw-log-args') {
+    console.log(JSON.stringify(rawLogArgs(process.argv[3] ?? 'repos/o/r/actions/jobs/1/logs')));
+    process.exit(0);
+  }
   const result = await admitAuditPullRequest({ repository: process.env.REPOSITORY,
     number: Number(process.env.PR_NUMBER), expectedHead: process.env.HEAD_SHA }, github);
   console.log(JSON.stringify(result));
