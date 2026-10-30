@@ -106,6 +106,22 @@ git -c credential.helper='' -c http.extraheader="Authorization: Basic $B64" \
 原因：目标仓库 `pull_request_creation_policy` 是 `collaborators_only`。
 做法：先查这条策略，别写完文件才发现开不了 PR。
 
+## 文案相关
+
+**简介里写了会变的固定数量，后来数据一扩就对不上了**
+典型：`762 feeling words / 598 styles`、`3000+ entries`、`supports 50 formats`。
+这些数字是**当前快照**，词库 / 数据集 / 规则一扩就失真，而文案已经散落在十几处
+（README、`package.json`、`server.json`、SKILL.md frontmatter、marketplace.json、各商店后台），
+改一次要全链路同步，而且必然漏。
+
+做法：对外只写**能力与作用**，不写数量。「Turn one sentence into the closest visual style
+(backed by an art-reference chart)」比「598 styles」信息量更大，也不会过期。
+确实需要精确数字时放进详情页的**数据说明**，并标注统计时间。
+
+已经写进多个渠道时：先改仓库（一处），再发新版本让元数据同步；没有自助编辑入口的商店
+（mcpservers.org 一类）只能等审核通过后改或重新提交。
+**这就是为什么这条必须在第一次提交前定死。**
+
 ## 流程相关
 
 - **先修仓库再提交**。布局/许可证错的时候提交，等于把一次审核机会烧掉。
