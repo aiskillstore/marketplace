@@ -82,6 +82,11 @@ test('workflow uses trusted base code with read-only producer permissions and ex
   assert.match(workflow, /run: node scripts\/audit-publication-admission.mjs/);
   assert.doesNotMatch(workflow, /pull_request_target|contents: write|pull-requests: write/);
 });
+test('normal validate CI runs the new admission regression suite', () => {
+  const workflow = readFileSync(new URL('../../.github/workflows/validate-marketplace.yml', import.meta.url), 'utf8');
+  assert.match(workflow, /node --test[\s\S]*scripts\/tests\/audit-publication-admission.test.mjs/);
+  assert.equal(workflow.split('"scripts/audit-publication-admission.mjs"').length - 1, 2);
+});
 test('propagates GitHub failure, never treats it as absence or success', async () => {
   await assert.rejects(admitAuditPullRequest({ repository, number: 42, expectedHead: head }, async () => { throw new Error('HTTP 503'); }), /503/);
 });
