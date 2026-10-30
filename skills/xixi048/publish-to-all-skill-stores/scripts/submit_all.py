@@ -135,6 +135,20 @@ REGISTRY = [
     ("gptstore",  "GPT Store",            "global", "port", "paid", "抽 15%；需 ChatGPT Plus + Builder Profile"),
     ("msagent",   "Windows Agent Store",  "global", "port", "paid", "开发者 85%"),
     ("dify",      "Dify 市场",            "global", "port", "paid", "自建市场，私有部署 0 抽成"),
+    # ---- 第二轮补遗（容易漏掉的一批）----
+    ("lobehub",  "LobeHub Skills",        "global", "auto", "none", "lobehub.com/skills，Agent Skills 市场，无 /submit 入口（自动索引/账号提交）"),
+    ("agentskills_cli", "agentskills.in",  "global", "cli",  "none", "「Universal Skill Manager」CLI 型，无网页提交页"),
+    ("cursordir","Cursor Directory",      "global", "form", "none", "cursor.directory（MCP 为主），有 Vercel 人机校验"),
+    ("xfyun",    "讯飞 Astron SkillHub",  "cn",     "form", "none", "skill.xfyun.cn/publish 有发布页，需讯飞账号"),
+    ("kimi",     "月之暗面 Kimi Claw",     "cn",     "port", "none", "△ 二手信源，需移植为平台形态"),
+    ("redbook",  "小红书 Red Skill",       "cn",     "form", "none", "△ 仅支持 Markdown 等有限格式"),
+    ("meituan",  "美团 虾345 (xia345)",    "cn",     "form", "none", "△ Skill Hunter 聚合 SkillHub/ClawHub，域名未核实"),
+    ("workbuddy","WorkBuddy 技能中心",     "cn",     "form", "none", "腾讯生态 agent，技能目录形态"),
+    ("anthropics_skills", "anthropics/skills", "global", "pr", "none", "官方示例仓库，PR 新增 skills/<name>/"),
+    ("claudeconn","Claude Connectors Directory","global","form","none","官方连接器目录，需审核"),
+    ("mcpdirs",  "MCP 目录群",            "global", "form", "none", "Official MCP Registry / Smithery / Glama / mcp.so / PulseMCP — 需交付可跑的 MCP 服务"),
+    ("awesomelists", "Awesome 列表群",     "global", "pr",   "none", "ComposioHQ/awesome-claude-skills、VoltAgent/awesome-agent-skills、hesreallyhim/awesome-claude-code、trailofbits/skills-curated"),
+    ("wellknown","自建发现端点",           "global", "auto", "none", "/.well-known/agent-skills/index.json — 让任何 agent 直接发现你的技能源"),
 ]
 
 

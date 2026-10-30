@@ -129,6 +129,22 @@ npm i -g @tankpkg/cli && tank login && tank init && tank scan && tank publish --
 直接进 `/dashboard/publish` 可以绕开那个引导页。
 实名认证与绑定 GitHub 必须用户本人做，不要代填身份信息。
 
+## 配方 6 · 讯飞 Astron SkillHub（skill.xfyun.cn）
+
+真注册中心，走「上传 ZIP → 建草稿 → 质量评测 → 发布」四步，产出正式版本号（形如 `v20261025.230752`）。
+
+1. 登录：`passport.xfyun.cn`（微信扫码 / 手机号 / 密码），未登录时 `/publish` 直接 404
+2. 正确入口是 **`/dashboard/publish`**（导航里的「发布」也是它）；`/publish` 是 404
+3. 上传 zip（`build_package.py` 打的 skillroot 包，≤5 MB 级别没问题），选 **命名空间**（个人号只有 `Global (@global)`）
+4. 「创建草稿并继续」→ 步骤 1 填 **简介（中文）** → 保存 → 「继续质量评测」
+5. 步骤 2 用默认 Auto 快速评测（发布后异步跑，不阻断）→ 「继续发布」
+6. 步骤 3 点「发布」→ 状态变 `ACTIVE · 审核中`，后台「我的技能」可见
+
+坑：
+- 命名空间下拉是异步渲染的，`click()` 之后要**另一次调用**再点 `[role=option]`，否则选不上、建草稿按钮无效
+- 「继续质量评测 / 继续发布」按钮点完页面不跳转时，先点一次「保存」再点
+- 简介字段是 `#candidate-summary`，是 React 受控组件，要用原生 value setter + `input` 事件写入
+
 ## 配方 5 · 把网页表单当 SPA 逆向（找不到接口时）
 
 1. `curl` 提交页，grep 静态 `<form>` → 拿到 multipart 字段名
