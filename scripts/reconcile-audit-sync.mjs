@@ -102,6 +102,10 @@ export async function collectAuditRecovery({failedRunId,recoveryRunId,auditPr}, 
   const pushes=inventory.filter(r=>r.event==='push' && r.created_at<=push.created_at).sort((a,b)=>b.created_at.localeCompare(a.created_at));
   const baseline=pushes.find(r=>r.created_at<push.created_at && r.status==='completed' && r.conclusion==='success');
   trustedRun(baseline,'push','success');
+  // GitHub timestamps have only second precision. Never guess ordering at the
+  // baseline boundary (or inside the range): a reverted root could be omitted.
+  const interval=pushes.filter(r=>r.created_at>=baseline.created_at);
+  assert.equal(new Set(interval.map(r=>r.created_at)).size,interval.length,'Ambiguous push creation time');
   const pending=pushes.filter(r=>r.created_at>baseline.created_at);
   assert(pending.length>0 && pending.length<=25 && pending.every(r=>r.status==='completed' && r.conclusion==='failure'), 'Unsettled push range');
   const pr=api(`${prefix}/pulls/${ids[2]}`);
