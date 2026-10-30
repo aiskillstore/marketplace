@@ -98,3 +98,12 @@ test('reads raw log responses that gh would otherwise refuse for terminal escape
 test('propagates GitHub failure, never treats it as absence or success', async () => {
   await assert.rejects(admitAuditPullRequest({ repository, number: 42, expectedHead: head }, async () => { throw new Error('HTTP 503'); }), /503/);
 });
+
+ test('merged recovery reuses producer proof without relaxing open PR admission', async () => {
+  const { verifyMergedAuditPullRequest } = await import('../audit-publication-admission.mjs');
+  const f = fixture(); f.data.pr.state='closed'; f.data.pr.merged=true; f.data.pr.merge_commit_sha=source;
+  await assert.rejects(admit(f));
+  assert.equal((await verifyMergedAuditPullRequest({repository,number:42,expectedHead:head},f.api)).head,head);
+  f.data.pr.merged=false;
+  await assert.rejects(verifyMergedAuditPullRequest({repository,number:42,expectedHead:head},f.api));
+ });

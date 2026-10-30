@@ -38,7 +38,7 @@ export function recoveredPushSync(push, runs, request) {
     || proof.head_branch !== 'main' || proof.head_repository?.full_name !== repo
     || !Number.isSafeInteger(proof.run_attempt) || proof.run_attempt < 1
     || !(Date.parse(proof.created_at) > Date.parse(push.created_at))
-    || !new RegExp(`^Reconcile submission push ${push.id} using recovery [1-9][0-9]*$`).test(proof.display_title ?? '')) return null;
+    || !new RegExp(`^Reconcile (submission push ${push.id} using recovery [1-9][0-9]*|audit push ${push.id} using recovery [1-9][0-9]* and PR [1-9][0-9]*)$`).test(proof.display_title ?? '')) return null;
   const jobs = jobsFor(proof, request);
   if (!['Verify exact recovery and provider state', 'Record separate reconciliation result']
     .every(name => successfulStep(jobs, name))) return null;

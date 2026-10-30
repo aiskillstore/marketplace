@@ -169,6 +169,10 @@ export async function providerRead(table, filter, select) {
   return JSON.parse(text);
 }
 export async function main() {
+  if (process.env.AUDIT_PR) {
+    const { mainAuditRecovery } = await import('./reconcile-audit-sync.mjs');
+    return mainAuditRecovery();
+  }
   assert.equal(process.env.GITHUB_EVENT_NAME,'workflow_dispatch');
   assert.equal(process.env.GITHUB_REF,'refs/heads/main');
   assert.equal(process.env.GITHUB_REPOSITORY,repo);
@@ -228,4 +232,4 @@ export async function main() {
   const {appendFileSync}=await import('node:fs');
   appendFileSync(process.env.GITHUB_OUTPUT,`publication_sha=${push.head_sha}\n`);
 }
-if(import.meta.url===pathToFileURL(process.argv[1]??'').href) main().catch(()=>{console.error('Exact submission reconciliation rejected; no provider writes or status closure performed.');process.exitCode=1;});
+if(import.meta.url===pathToFileURL(process.argv[1]??'').href) main().catch(()=>{console.error('Exact recovery reconciliation rejected; no provider writes or status closure performed.');process.exitCode=1;});
