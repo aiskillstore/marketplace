@@ -11,10 +11,10 @@ const AUDIT_WORKFLOW = join(REPO_ROOT, '.github', 'workflows', 'audit-skills.yml
 test('audit workflow requires the canonical-hash CLI release', () => {
 	const workflow = readFileSync(AUDIT_WORKFLOW, 'utf8');
 
-	assert.match(workflow, /cli_version:[\s\S]*default: '2\.18\.2'/);
-	assert.match(workflow, /CLI_VERSION: \$\{\{ inputs\.cli_version \|\| '2\.18\.2' \}\}/);
-	assert.match(workflow, /version: \$\{\{ inputs\.cli_version \|\| '2\.18\.2' \}\}/);
-	assert.match(workflow, /minimum-version: '2\.18\.2'/);
+	assert.match(workflow, /cli_version:[\s\S]*default: '2\.18\.3'/);
+	assert.match(workflow, /CLI_VERSION: \$\{\{ inputs\.cli_version \|\| '2\.18\.3' \}\}/);
+	assert.match(workflow, /version: \$\{\{ inputs\.cli_version \|\| '2\.18\.3' \}\}/);
+	assert.match(workflow, /minimum-version: '2\.18\.3'/);
 });
 
 test('audit workflow wires risk-level filtering from dispatch input to CLI shards', () => {
