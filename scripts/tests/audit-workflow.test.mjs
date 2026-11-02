@@ -11,10 +11,10 @@ const AUDIT_WORKFLOW = join(REPO_ROOT, '.github', 'workflows', 'audit-skills.yml
 test('audit workflow requires the canonical-hash CLI release', () => {
 	const workflow = readFileSync(AUDIT_WORKFLOW, 'utf8');
 
-	assert.match(workflow, /cli_version:[\s\S]*default: '2\.2\.1'/);
-	assert.match(workflow, /CLI_VERSION: \$\{\{ inputs\.cli_version \|\| '2\.2\.1' \}\}/);
-	assert.match(workflow, /version: \$\{\{ inputs\.cli_version \|\| '2\.2\.1' \}\}/);
-	assert.match(workflow, /minimum-version: '2\.2\.1'/);
+	assert.match(workflow, /cli_version:[\s\S]*default: '2\.18\.1'/);
+	assert.match(workflow, /CLI_VERSION: \$\{\{ inputs\.cli_version \|\| '2\.18\.1' \}\}/);
+	assert.match(workflow, /version: \$\{\{ inputs\.cli_version \|\| '2\.18\.1' \}\}/);
+	assert.match(workflow, /minimum-version: '2\.18\.1'/);
 });
 
 test('audit workflow wires risk-level filtering from dispatch input to CLI shards', () => {
@@ -42,4 +42,12 @@ test('audit workflow treats needs-review reports as successful writes', () => {
 
 	assert.match(workflow, /UPDATED=\$\(grep -Ec "✅ updated\|⚠️  needs-review" audit-output-\$\{\{ matrix\.shard \}\}\.log/);
 	assert.match(workflow, /COUNT=\$\(grep -Ec "✅ updated\|⚠️  needs-review" "\$log"/);
+});
+
+// All license-sensitive scoring must use the same corrected release.
+test('quality recalculation runs the corrected license scorer with immutable identity', () => {
+ const score = readFileSync('.github/workflows/recalculate-scores.yml', 'utf8');
+ assert.match(score, /SCORE_CLI_VERSION: '2\.18\.1'/);
+ assert.match(score, /SCORE_CLI_SHA256: '5f8f2d785aab6dca2da8e1c3467c0982035ddd5eb39fc0a67415447b0c73a1ee'/);
+ assert.doesNotMatch(score, /2\.8\.1/);
 });
