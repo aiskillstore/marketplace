@@ -70,11 +70,11 @@ test('the scheduled workflow cannot trigger sync, score, cache, or translation s
   );
 });
 
-test('normal syncs use 2.18.1 and keep reconciliation best-effort', () => {
+test('normal syncs use 2.18.2 and keep reconciliation best-effort', () => {
   const download = stepBlock(syncWorkflow, 'Download skillstore-cli');
   assert.match(download, /if: steps\.changes\.outputs\.skip_sync != 'true'/);
-  assert.match(download, /version: '2\.18\.1'/);
-  assert.match(download, /minimum-version: '2\.18\.1'/);
+  assert.match(download, /version: '2\.18\.2'/);
+  assert.match(download, /minimum-version: '2\.18\.2'/);
 
   const expectedFlag = /SECURITY_NOTIFICATIONS_ENABLED: \$\{\{ vars\.SECURITY_NOTIFICATIONS_ENABLED \|\| 'false' \}\}/;
   assert.match(stepBlock(syncWorkflow, 'Sync skills to Supabase'), expectedFlag);
