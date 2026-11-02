@@ -9,15 +9,40 @@ const sha40 = /^[a-f0-9]{40}$/;
 const sha64 = /^[a-f0-9]{64}$/;
 const syncPath = '.github/workflows/sync-to-supabase.yml';
 
-export function publicationRoots(files) {
+export function publicationRoots(files, maxRoots = 25) {
+  assert.ok(Number.isSafeInteger(maxRoots) && maxRoots >= 1 && maxRoots <= 1000);
   assert.ok(Array.isArray(files) && files.length > 0 && files.length <= 10000);
   const paths = files.map(f => f.filename ?? f.path);
   assert.equal(new Set(paths).size, paths.length, 'Duplicate publication files');
   for (const path of paths) assert.ok(typeof path === 'string' && !path.split('/').some(s => !s || s === '.' || s === '..') && !path.includes('\\\\'), 'Unsafe publication path');
   const roots = [...new Set(paths.map(path => path.match(/^(skills\/[a-z0-9][a-z0-9._-]*(?:\/[a-z0-9][a-z0-9._-]*)?)\/(?:SKILL\.md|skill-report\.json)$/)?.[1]).filter(Boolean))].sort();
-  assert.ok(roots.length > 0 && roots.length <= 25, 'Missing or oversized publication roots');
+  assert.ok(roots.length > 0 && roots.length <= maxRoots, 'Missing or oversized publication roots');
   for (const path of paths) assert.equal(roots.filter(root => path.startsWith(`${root}/`)).length, 1, 'Ambiguous or unfrozen publication file');
   return roots;
+}
+
+// This only proves set coverage. Callers must independently verify each run,
+// immutable source tree, provider projection and final callback before closing.
+// A larger publication does not increase the per-run production write limit.
+export function verifyBoundedRecoveryCoverage(expectedSlugs, batches) {
+  const validSlug = value => typeof value === 'string' && /^[a-z0-9][a-z0-9._-]*$/.test(value);
+  assert.ok(Array.isArray(expectedSlugs) && expectedSlugs.length > 0 && expectedSlugs.length <= 1000);
+  assert.ok(expectedSlugs.every(validSlug) && new Set(expectedSlugs).size === expectedSlugs.length, 'Invalid expected slug set');
+  assert.ok(Array.isArray(batches) && batches.length > 0 && batches.length <= 100, 'Invalid recovery run inventory');
+  const runIds = new Set();
+  const covered = new Set();
+  for (const { runId, slugs } of batches) {
+    assert.ok(Number.isSafeInteger(runId) && runId > 0 && !runIds.has(runId), 'Duplicate or invalid recovery run');
+    runIds.add(runId);
+    assert.ok(Array.isArray(slugs) && slugs.length > 0 && slugs.length <= 64, 'Recovery batch exceeds production limit');
+    for (const slug of slugs) {
+      assert.ok(validSlug(slug) && !covered.has(slug), 'Duplicate or invalid recovered slug');
+      covered.add(slug);
+    }
+  }
+  const actual = [...covered].sort();
+  assert.deepEqual(actual, [...expectedSlugs].sort(), 'Recovery coverage differs from exact publication');
+  return actual;
 }
 
 export function verifyRootIdentity(root, meta) {

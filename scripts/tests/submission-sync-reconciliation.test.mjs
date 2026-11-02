@@ -68,6 +68,8 @@ test('shared guard accepts only a separate successful attestation run, preservin
  };}
  assert.equal(recoveredPushSync(push,[push],api()).id,4);
  assert.equal(push.conclusion,'failure');
+ assert.equal(recoveredPushSync(push,[push],api({run:{display_title:'Reconcile bounded submission push 2 using recoveries 3,5'}})).id,4);
+ for (const title of ['Reconcile bounded submission push 9 using recoveries 3,5','Reconcile bounded submission push 2 using recoveries 3','Reconcile bounded submission push 2 using recoveries 3,zero']) assert.equal(recoveredPushSync(push,[push],api({run:{display_title:title}})),null);
  for(const state of ['failure','pending','error'])assert.equal(recoveredPushSync(push,[push],api({history:[{...status,state},status]})),null,'newest non-success cannot fall back to old success');
  assert.equal(recoveredPushSync(push,[push],api({history:[{...status,creator:{id:1}},status]})),null,'newest wrong creator cannot fall back');
  const monitorApi=endpoint=>endpoint==='git/trees/main'?{tree:[]}
