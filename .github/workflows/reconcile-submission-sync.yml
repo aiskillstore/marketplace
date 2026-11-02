@@ -1,5 +1,5 @@
 name: Reconcile submission provider sync
-run-name: ${{ inputs.audit_pr != '' && format('Reconcile audit push {0} using recovery {1} and PR {2}', inputs.failed_run_id, inputs.recovery_run_id, inputs.audit_pr) || format('Reconcile submission push {0} using recovery {1}', inputs.failed_run_id, inputs.recovery_run_id) }}
+run-name: ${{ inputs.recovery_run_ids != '' && format('Reconcile bounded submission push {0} using recoveries {1}', inputs.failed_run_id, inputs.recovery_run_ids) || inputs.audit_pr != '' && format('Reconcile audit push {0} using recovery {1} and PR {2}', inputs.failed_run_id, inputs.recovery_run_id, inputs.audit_pr) || format('Reconcile submission push {0} using recovery {1}', inputs.failed_run_id, inputs.recovery_run_id) }}
 on:
   workflow_dispatch:
     inputs:
@@ -11,10 +11,14 @@ on:
         description: Exact failed publication or blocked audit push sync run
         type: string
         required: true
+      recovery_run_ids:
+        description: 'Opt-in bounded recovery: exact comma-separated completed runs; verifies all providers then sends one full published callback'
+        type: string
+        default: ''
       recovery_run_id:
         description: Exact successful single-publication manual recovery run
         type: string
-        required: true
+        default: ''
 permissions:
   contents: read
   actions: read
@@ -27,13 +31,14 @@ jobs:
   reconcile:
     if: github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
           sparse-checkout: scripts
+          fetch-depth: 0
       - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           node-version: '24'
@@ -43,10 +48,19 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           FAILED_RUN_ID: ${{ inputs.failed_run_id }}
           RECOVERY_RUN_ID: ${{ inputs.recovery_run_id }}
+          RECOVERY_RUN_IDS: ${{ inputs.recovery_run_ids }}
+          SKILLSTORE_API_URL: ${{ secrets.SKILLSTORE_API_URL }}
+          SKILLSTORE_CALLBACK_TOKEN: ${{ secrets.SKILLSTORE_CALLBACK_TOKEN }}
           AUDIT_PR: ${{ inputs.audit_pr }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
-        run: node scripts/reconcile-submission-sync.mjs
+        run: |
+          set -euo pipefail
+          if [ -n "$RECOVERY_RUN_IDS" ]; then
+            node scripts/bounded-submission-recovery.mjs finalize
+          else
+            node scripts/reconcile-submission-sync.mjs
+          fi
       - name: Record separate reconciliation result
         env:
           GH_TOKEN: ${{ github.token }}

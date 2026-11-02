@@ -1,5 +1,5 @@
 name: Sync to Supabase (Incremental)
-run-name: ${{ inputs.resume_failed_run != '' && format('Recover provider sync {0}', inputs.resume_failed_run) || github.event_name == 'workflow_dispatch' && inputs.correlation_id != '' && format('Provider sync {0}', inputs.correlation_id) || 'Sync to Supabase (Incremental)' }}
+run-name: ${{ inputs.bounded_failed_run != '' && format('Bounded provider recovery {0}', inputs.bounded_failed_run) || inputs.resume_failed_run != '' && format('Recover provider sync {0}', inputs.resume_failed_run) || github.event_name == 'workflow_dispatch' && inputs.correlation_id != '' && format('Provider sync {0}', inputs.correlation_id) || 'Sync to Supabase (Incremental)' }}
 
 on:
   push:
@@ -8,6 +8,10 @@ on:
       - 'skills/**'
   workflow_dispatch:
     inputs:
+      bounded_failed_run:
+        description: 'Exact prewrite capacity-rejected push; explicit <=64 slugs, final callback deferred'
+        type: string
+        default: ''
       resume_failed_run:
         description: 'Resume ancillary stages for an inspected failed push; exact current artifact required'
         type: string
@@ -77,6 +81,7 @@ jobs:
           /scripts/guard-provider-rerun.mjs
           /scripts/recovered-push-sync.mjs
           /scripts/prepare-sync-recovery.mjs
+          /scripts/bounded-submission-recovery.mjs
           /scripts/reconcile-submission-sync.mjs
           /scripts/refresh-security-research-stats.sh
           /.github/actions/download-skillstore-cli/
@@ -133,6 +138,7 @@ jobs:
             scripts/guard-provider-rerun.mjs \
             scripts/recovered-push-sync.mjs \
             scripts/prepare-sync-recovery.mjs \
+            scripts/bounded-submission-recovery.mjs \
             scripts/reconcile-submission-sync.mjs \
             scripts/refresh-security-research-stats.sh \
             .github/actions/download-skillstore-cli/action.yml; do
@@ -158,6 +164,7 @@ jobs:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
           RESUME_FAILED_RUN: ${{ inputs.resume_failed_run }}
+          BOUNDED_FAILED_RUN: ${{ inputs.bounded_failed_run }}
           CORRELATION_ID: ${{ inputs.correlation_id }}
           INPUT_SLUGS: ${{ inputs.slugs }}
           MERGE_COMMIT_SHA: ${{ inputs.merge_commit_sha }}
@@ -168,6 +175,10 @@ jobs:
           REPOSITORY: ${{ github.repository }}
         run: |
           set -euo pipefail
+          if [ -n "$BOUNDED_FAILED_RUN" ]; then
+            node scripts/bounded-submission-recovery.mjs prepare
+            exit 0
+          fi
           if [ -n "$RESUME_FAILED_RUN" ]; then
             node scripts/prepare-sync-recovery.mjs
             exit 0
@@ -419,7 +430,7 @@ jobs:
           repositories: marketplace,skillstore
 
       - name: Find last successful sync commit
-        if: inputs.slugs == '' && inputs.resume_failed_run == ''
+        if: inputs.slugs == '' && inputs.resume_failed_run == '' && inputs.bounded_failed_run == ''
         id: last_sync
         env:
           GH_TOKEN: ${{ github.token }}
@@ -1044,7 +1055,7 @@ jobs:
 
       - name: Resolve published submissions
         id: published_submissions
-        if: steps.changes.outputs.skip_sync != 'true' && steps.sync.outputs.synced_count != '0' && !startsWith(inputs.correlation_id, 'source-monitor-pr-')
+        if: inputs.bounded_failed_run == '' && steps.changes.outputs.skip_sync != 'true' && steps.sync.outputs.synced_count != '0' && !startsWith(inputs.correlation_id, 'source-monitor-pr-')
         env:
           RECOVERY_COMMIT: ${{ inputs.resume_failed_run != '' && steps.trusted-correlation.outputs.sync_commit_sha || '' }}
           RECOVERY_SUBMISSION_ID: ${{ steps.trusted-correlation.outputs.recovery_submission_id }}
