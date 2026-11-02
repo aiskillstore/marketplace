@@ -20,7 +20,7 @@ const approvalCaller = readFileSync('.github/workflows/approve-submission.yml', 
 const validationWorkflow = readFileSync('.github/workflows/validate-marketplace.yml', 'utf8');
 const publicationProvenance = readFileSync('.github/workflows/publication-provenance.yml', 'utf8');
 const cliCompatibilityDescription =
-  'Reserved compatibility input; submission processing is pinned to CLI 2.16.5';
+  'Reserved compatibility input; submission processing is pinned to CLI 2.18.2';
 const runtimeFiles = [
   'package.json',
   'package-lock.json',
@@ -277,8 +277,8 @@ test('all submission entrypoints and the aggregation import closure are immutabl
   assert.match(reusable, /node "\$GITHUB_WORKSPACE\/scripts\/aggregate-submission-shards\.mjs"/);
   assert.match(reusable, /node "\$GITHUB_WORKSPACE\/scripts\/classify-submission-targets\.mjs"/);
   assert.match(reusable, /require-checksum: true/);
-  assert.match(reusable, /minimum-version: 2\.16\.5/);
-  assert.match(reusable, /Dependency gate: do not merge before cli-v2\.16\.5 is released/);
+  assert.match(reusable, /minimum-version: 2\.18\.2/);
+  assert.match(reusable, /Dependency gate: do not merge before cli-v2\.18\.2 is released/);
   assert.match(reusable, /trap cleanup_input_plan EXIT/);
   assert.match(reusable, /--slug-aliases-file "\$GITHUB_WORKSPACE\/governance\/submission-slug-aliases\.json"/);
   assert.match(reusable, /--selection-plan "\$INPUT_PLAN"/);
@@ -354,7 +354,7 @@ test('HELM credential is injected only into the Process shard step environment',
   );
 });
 
-test('submission processing compatibility inputs and CLI download are pinned to 2.16.5', () => {
+test('submission processing compatibility inputs and CLI download are pinned to 2.18.2', () => {
   for (const [name, workflow] of [
     ['repository dispatch', caller],
     ['manual approval', approvalCaller],
@@ -366,12 +366,12 @@ test('submission processing compatibility inputs and CLI download are pinned to 
       new RegExp(`description: '${cliCompatibilityDescription.replaceAll('.', '\\.')}'`),
       `${name} compatibility input must describe the fixed CLI dependency`,
     );
-    assert.match(cliInput, /default: '2\.16\.5'/);
+    assert.match(cliInput, /default: '2\.18\.2'/);
   }
 
   const download = extractNamedBlock(reusable, '- name: Download Skillstore CLI');
-  assert.match(download, /version: '2\.16\.5'/);
-  assert.match(download, /minimum-version: 2\.16\.5/);
+  assert.match(download, /version: '2\.18\.2'/);
+  assert.match(download, /minimum-version: 2\.18\.2/);
   assert.doesNotMatch(download, /inputs\.cli_version|version: ['"]?latest/);
 });
 
