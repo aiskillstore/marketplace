@@ -63,12 +63,14 @@ resolve_token() {
 }
 
 # Persist a token returned by rotate/recover and print a redacted response.
+# The parser uses `python3 -c` on purpose: a heredoc would replace stdin, so the
+# piped response would read as empty and the replacement token would be lost.
 store_token_response() {
   local file
   file="$(token_file)"
   mkdir -p "$(dirname "$file")"
   chmod 700 "$(dirname "$file")" 2>/dev/null || true
-  python3 - "$file" <<'PY'
+  python3 -c '
 import json, os, sys
 
 path = sys.argv[1]
@@ -93,7 +95,7 @@ os.chmod(path, 0o600)
 data["token"] = "<redacted: saved to %s (mode 600)>" % path
 json.dump(data, sys.stdout, indent=2)
 sys.stdout.write("\n")
-PY
+' "$file"
 }
 
 usage() {
@@ -109,7 +111,8 @@ x402socks helper
   status                        account status and usage
   validate                      cheap token check (exit 0 = valid)
   rotate                        rotate token; saves the new one, prints no secret
-  test [exit_id]                confirm egress IP through the proxy
+  test [--tls|--plaintext|--socks5] [exit_id]
+                                confirm egress IP; TLS CONNECT 3129 by default
   recover-message <tx_hash>     print the message to EIP-191 sign (no newline)
   recover <tx_hash> <sig> [issued_at]
                                 re-issue a lost token after a settled payment
@@ -122,6 +125,10 @@ Token source (never argv):
 Budget guard:
   X402SOCKS_MAX_USDC    approved maximum in USD; 'quote' fails above it
   X402SOCKS_TIMEOUT     per-request timeout in seconds (default 30)
+
+Plaintext transports (opt-in):
+  X402SOCKS_ALLOW_PLAINTEXT=1   required for SOCKS5 1080 and plaintext CONNECT 3128
+                                both send the reusable token unencrypted
 EOF
 }
 
@@ -177,8 +184,9 @@ else:
 
 # Print the live 402 amount and fail if it exceeds the approved cap. The
 # challenge, not the catalog, is what a payment would actually authorize.
+# Every accepts[] option is checked: a client may select any of them.
 cmd_quote() {
-  local pkg="${1:-}" cap="${X402SOCKS_MAX_USDC:-}" hdr decoded amount
+  local pkg="${1:-}" cap="${X402SOCKS_MAX_USDC:-}" hdr decoded
   [ -n "$pkg" ] || die "usage: quote <package_id>"
 
   hdr="$(req -D - -o /dev/null -X POST "$PAY/v1/access/$pkg" \
@@ -194,32 +202,45 @@ try:
     data = json.loads(base64.urlsafe_b64decode(raw))
 except Exception:
     data = json.loads(base64.b64decode(raw))
-a = data["accepts"][0]
-print(json.dumps({
-    "package": sys.argv[1],
-    "network": a["network"],
-    "amount_atomic": a["amount"],
+options = data.get("accepts") or []
+if not options:
+    sys.exit("402 has no accepts[] options")
+rows = [{
+    "scheme": a.get("scheme"),
+    "network": a.get("network"),
+    "amount_atomic": a.get("amount"),
     "amount_usd": int(a["amount"]) / 10**6,
-    "asset": a["asset"],
-    "pay_to": a["payTo"],
+    "asset": a.get("asset"),
+    "pay_to": a.get("payTo"),
+    "asset_name": (a.get("extra") or {}).get("name"),
+    "asset_version": (a.get("extra") or {}).get("version"),
     "max_timeout_seconds": a.get("maxTimeoutSeconds"),
-}, indent=2))
+} for a in options]
+out = {"package": sys.argv[1]}
+if len(rows) == 1:
+    out.update(rows[0])
+else:
+    out["options"] = rows
+print(json.dumps(out, indent=2))
 ' "$pkg")"
 
   printf '%s\n' "$decoded"
-  amount="$(printf '%s' "$decoded" | python3 -c 'import json, sys; print(json.load(sys.stdin)["amount_atomic"])')"
 
   if [ -n "$cap" ]; then
-    python3 -c '
-import sys
-amount = int(sys.argv[1]) / 10**6
-cap = float(sys.argv[2])
-if amount > cap:
-    sys.exit("approved cap is $%.2f but the live challenge is $%.2f" % (cap, amount))
-print("within approved cap ($%.2f)" % cap)
-' "$amount" "$cap"
+    printf '%s' "$decoded" | python3 -c '
+import json, sys
+cap = float(sys.argv[1])
+data = json.load(sys.stdin)
+rows = data.get("options") or [data]
+over = [r for r in rows if r["amount_usd"] > cap]
+if over:
+    sys.exit("approved cap is $%.2f but an option asks $%.2f"
+             % (cap, max(r["amount_usd"] for r in over)))
+print("within approved cap ($%.2f; %d option%s)"
+      % (cap, len(rows), "" if len(rows) == 1 else "s"))
+' "$cap"
   else
-    note "no X402SOCKS_MAX_USDC set; challenge is \$$(python3 -c 'import sys; print("%.2f" % (int(sys.argv[1]) / 10**6))' "$amount")"
+    note "no X402SOCKS_MAX_USDC set; re-check every amount above before approving"
   fi
 }
 
@@ -266,20 +287,83 @@ cmd_rotate() {
   printf '%s' "$cfg" | req_secret "$API/api/v1/token/rotate" -X POST | store_token_response
 }
 
+# Exit ids are lowercase DNS labels. Reject anything that could add a curl
+# config line, then confirm the id is present and usable in the live feed.
+valid_exit_id() {
+  case "$1" in
+    ""|*[!a-z0-9-]*|-*|*-) return 1 ;;
+  esac
+  [ "${#1}" -le 63 ]
+}
+
+check_exit_id() {
+  local want="$1"
+  valid_exit_id "$want" || die "invalid exit id '$want' (lowercase letters, digits, hyphen only)"
+  req "$WEB/nodes.json" | python3 -c '
+import json, sys
+
+want = sys.argv[1]
+for node in json.load(sys.stdin).get("nodes", []):
+    if node.get("id") == want:
+        if node.get("disabled") or node.get("health") != "healthy":
+            sys.exit("exit %s is not usable (health=%s disabled=%s)"
+                     % (want, node.get("health"), node.get("disabled")))
+        sys.exit(0)
+sys.exit("unknown exit id %s; re-read /nodes.json" % want)
+' "$want"
+}
+
+# TLS HTTP CONNECT is the default: curl verifies the exit certificate and the
+# token is not sent in cleartext. SOCKS5 (1080) and plaintext CONNECT (3128)
+# are opt-in because both expose the reusable token on the client-to-exit hop.
 cmd_test() {
-  local exit_id token body cfg code ip
-  exit_id="${1:-us-central1}"
+  local mode="tls" exit_id="eu-north1" have_exit=0 token body cfg code ip proxy
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --tls)       mode="tls" ;;
+      --plaintext) mode="plaintext" ;;
+      --socks5)    mode="socks5" ;;
+      --)          shift; break ;;
+      -*)          die "unknown option: $1" ;;
+      *)
+        [ "$have_exit" -eq 0 ] || die "only one exit id may be given"
+        exit_id="$1"
+        have_exit=1
+        ;;
+    esac
+    shift
+  done
+  [ $# -eq 0 ] || die "unexpected argument: $1"
+
+  check_exit_id "$exit_id"
+
+  case "$mode" in
+    tls)
+      proxy="https://$exit_id.x402socks.com:3129"
+      ;;
+    plaintext|socks5)
+      [ "${X402SOCKS_ALLOW_PLAINTEXT:-}" = "1" ] || \
+        die "$mode sends the reusable token unencrypted; set X402SOCKS_ALLOW_PLAINTEXT=1 to opt in"
+      if [ "$mode" = "plaintext" ]; then
+        proxy="http://$exit_id.x402socks.com:3128"
+      else
+        proxy="socks5h://$exit_id.x402socks.com:1080"
+      fi
+      note "WARNING: $mode authentication is plaintext on the client-to-exit hop"
+      ;;
+  esac
+
   token="$(resolve_token)"
   body="$(printf '%s' "$token" | json_token_body)"
   cfg="$(printf 'header = "content-type: application/json"\ndata = "%s"' "$(cfg_escape "$body")")"
   code="$(printf '%s' "$cfg" | req_secret "$WEB/api/token/validate" \
           -o /dev/null -w '%{http_code}')"
   [ "$code" = "204" ] || die "token invalid before test (HTTP $code)"
-  cfg="$(printf 'proxy = "socks5h://%s.x402socks.com:1080"\nproxy-user = "%s:%s"' \
-        "$exit_id" "$(cfg_escape "$token")" "$(cfg_escape "$token")")"
+  cfg="$(printf 'proxy = "%s"\nproxy-user = "%s:%s"' \
+        "$(cfg_escape "$proxy")" "$(cfg_escape "$token")" "$(cfg_escape "$token")")"
   ip="$(printf '%s' "$cfg" | req_secret https://api.ipify.org)" \
-       || die "egress failed via $exit_id"
-  printf 'exit: %s\negress IP: %s\n' "$exit_id" "$ip"
+       || die "egress failed via $exit_id ($mode)"
+  printf 'exit: %s\ntransport: %s\negress IP: %s\n' "$exit_id" "$mode" "$ip"
   note "compare with your direct IP: curl -s https://api.ipify.org"
 }
 
@@ -316,7 +400,7 @@ main() {
     status)          need python3; cmd_status ;;
     validate)        need python3; cmd_validate ;;
     rotate)          need python3; cmd_rotate ;;
-    test)            need python3; cmd_test "${1:-}" ;;
+    test)            need python3; cmd_test "$@" ;;
     recover-message) cmd_recover_message "$@" ;;
     recover)         need python3; cmd_recover "$@" ;;
     -h|--help|help)  usage ;;

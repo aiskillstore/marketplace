@@ -14,6 +14,26 @@ All shapes below were verified against the live service. Fields are additive-com
 
 `/.well-known/x402` is a static summary. The live `PAYMENT-REQUIRED` header on a 402 is authoritative whenever the two disagree.
 
+## Transport
+
+TLS HTTP CONNECT on **TCP 3129** is the preferred transport and is available on `eu-north1`, `asia-central2`, and `asia-west1`:
+
+```
+https://<exit>.x402socks.com:3129
+```
+
+The client verifies the exit certificate, then sends `Proxy-Authorization` inside the TLS tunnel to the exit. The reusable token is not readable on the client-to-exit hop.
+
+The other exits and the legacy transports are **opt-in**:
+
+| Transport              | Address                                   | Availability                          | Token on the wire        |
+| ---------------------- | ----------------------------------------- | ------------------------------------- | ------------------------ |
+| TLS HTTP CONNECT       | `https://<exit>.x402socks.com:3129`       | `eu-north1`, `asia-central2`, `asia-west1` | Encrypted (recommended)  |
+| HTTP CONNECT, plaintext| `http://<exit>.x402socks.com:3128`        | every exit                            | Cleartext                |
+| SOCKS5 (RFC 1929)      | `socks5h://<exit>.x402socks.com:1080`     | every exit                            | Cleartext                |
+
+Both legacy transports send the token unencrypted. A passive observer on the same network can capture it and spend the remaining balance. Use them only when a client cannot do TLS CONNECT and the network is trusted; `scripts/x402socks.sh` requires `X402SOCKS_ALLOW_PLAINTEXT=1` before it will use either.
+
 ## Service state
 
 ### `GET /api/health`
@@ -68,25 +88,20 @@ The response carries `catalog_digest` and `content_sha256`. Pin the digest if yo
 
 ### `POST /api/token/status`
 
-```bash
-# The token is in argv here, so other local processes can see it.
-# In real clients read it from a 0600 file and pass curl options via --config -
-curl -sS -X POST https://x402socks.com/api/token/status \
-  -H 'content-type: application/json' -d '{"token":"..."}'
-```
-
-Body field is `token`. An `Authorization: Bearer` header alone returns `400 invalid_request`, so send the JSON body.
-
-Safer form, with the token read from the file and the request body supplied on stdin:
+Send the token in a JSON body. Build the body from the `0600` file into a
+temporary payload file so the token never reaches argv and the JSON is not
+hand-quoted into a curl config line:
 
 ```bash
 umask 077
-cfg="$(mktemp)"; trap 'rm -f "$cfg"' EXIT
-printf 'header = "content-type: application/json"\ndata = "%s"\n' \
-  "$(python3 -c 'import json,sys; print(json.dumps({"token": sys.stdin.read()}))' \
-      < ~/.config/x402socks/token)" > "$cfg"
-curl --config "$cfg" -X POST https://x402socks.com/api/token/status
+payload="$(mktemp)"; trap 'rm -f "$payload"' EXIT
+python3 -c 'import json,sys; print(json.dumps({"token": open(sys.argv[1]).read().strip()}))' \
+  "$HOME/.config/x402socks/token" > "$payload"
+curl -sS -X POST https://x402socks.com/api/token/status \
+  -H 'content-type: application/json' --data-binary "@$payload"
 ```
+
+The body field is `token`. An `Authorization: Bearer` header alone returns `400 invalid_request`, so send the JSON body.
 
 Success returns the account and usage. Failure:
 
@@ -101,18 +116,15 @@ Same body. Returns **204 No Content** on success, `401` otherwise. Cheap livenes
 ### `POST https://api.x402socks.com/api/v1/token/rotate`
 
 ```bash
-# Token as an argument is visible in the process list. Use a 0600 config file:
-umask 077
-cfg="$(mktemp)"; trap 'rm -f "$cfg"' EXIT
-printf 'header = "Authorization: Bearer %s"\n' "$(cat ~/.config/x402socks/token)" > "$cfg"
-curl --config "$cfg" -X POST https://api.x402socks.com/api/v1/token/rotate
+# Token goes through stdin into curl's --config, never into argv.
+printf 'header = "Authorization: Bearer %s"\n' \
+  "$(cat ~/.config/x402socks/token)" | \
+curl -sS --config - -X POST https://api.x402socks.com/api/v1/token/rotate
 ```
 
 Success: `200 {"account":{...},"token":"NEW_TOKEN"}`. The old token stops working immediately, for the proxy and every other route. Unknown, inactive, or expired tokens get `401 "a valid token is required"` and nothing changes.
 
-The response contains the replacement token. Write it to a `0600` file rather
-than printing it; `scripts/x402socks.sh rotate` does that and emits a redacted
-copy of the response.
+The response contains the replacement token. Write it to a `0600` file rather than printing it; `scripts/x402socks.sh rotate` does that and emits a redacted copy of the response.
 
 ## Purchasing
 
@@ -129,66 +141,58 @@ Body: `{}` (empty JSON object, no other fields). Secrets go in headers, never th
 
 Note the two error envelopes: the web API returns a flat `{"error":"code","code":"...","request_id":"..."}`, while the payments API returns a nested `{"error":{"code","message"},"request_id":"..."}`. Handle both.
 
+Before signing, compare every `accepts[]` entry against the terms you got
+approved: `scheme`, `network`, `asset`, `payTo`, `extra.name`,
+`extra.version`, and `amount`. Reject the payment if any advertised option
+falls outside the approval or if the list is ambiguous. See `payments.md`.
+
 ### `POST https://payments.x402socks.com/v1/access/recover`
 
 See `payments.md`. Not listed in `openapi.json` because it is not payable.
 
 ## Client snippets
 
-### curl (SOCKS5)
+All snippets read the token from the `0600` file and use **TLS CONNECT**. None of
+them puts the token in a command argument.
 
-`curl --proxy-user "$TOKEN:$TOKEN"` puts the token in the process list. Keep it
-in a `0600` config file instead:
+### curl (TLS CONNECT, recommended)
 
 ```bash
 umask 077
 cfg="$(mktemp)"; trap 'rm -f "$cfg"' EXIT
 {
-  printf 'proxy = "socks5h://us-central1.x402socks.com:1080"\n'
+  printf 'proxy = "https://eu-north1.x402socks.com:3129"\n'
   printf 'proxy-user = "%s:%s"\n' \
     "$(cat ~/.config/x402socks/token)" "$(cat ~/.config/x402socks/token)"
 } > "$cfg"
 curl --config "$cfg" https://api.ipify.org
 ```
 
-SOCKS5 RFC 1929 authentication is not encrypted. Treat the client-to-exit hop as
-observable on a shared network and keep tokens short-lived.
+`curl` verifies the exit certificate by default. If that check fails, the exit
+is not usable — do not disable verification or fall back to plaintext.
 
-### curl (HTTP CONNECT)
-
-TLS listener, preferred where available (`eu-north1`, `asia-west1`, `asia-central2`):
-
-```bash
-# same 0600 config pattern as above, with:
-# proxy = "https://eu-north1.x402socks.com:3129"
-curl --config "$cfg" https://api.ipify.org
-```
-
-Plaintext listener on 3128 (`us-central1`, `eu-central1`, `asia-central2`). The
-token crosses the client-to-node hop unencrypted; use it only on a trusted
-network:
-
-```bash
-# proxy = "http://us-central1.x402socks.com:3128"
-```
-
-### Python requests
+### Python (requests, TLS CONNECT)
 
 ```python
-import os, requests
+import os
+import requests
 
-t = open(os.path.expanduser("~/.config/x402socks/token")).read().strip()
-proxies = {
-    "http":  f"socks5h://{t}:{t}@us-central1.x402socks.com:1080",
-    "https": f"socks5h://{t}:{t}@us-central1.x402socks.com:1080",
-}
-print(requests.get("https://api.ipify.org", proxies=proxies, timeout=30).text)
+token = open(os.path.expanduser("~/.config/x402socks/token")).read().strip()
+proxy = f"https://{token}:{token}@eu-north1.x402socks.com:3129"
+
+print(
+    requests.get(
+        "https://api.ipify.org",
+        proxies={"http": proxy, "https": proxy},
+        timeout=30,
+    ).text
+)
 ```
 
-Requires `pip install "requests[socks]"`. SOCKS5 credentials are sent in
-cleartext on the client-to-exit hop, so avoid untrusted networks.
+This needs `requests` 2.26+ and `urllib3` 2.0+, which support an HTTPS proxy.
+The token stays in process memory; it is not placed in argv.
 
-### Node (undici, HTTP CONNECT variant)
+### Node (undici, TLS CONNECT)
 
 ```js
 import { readFileSync } from "node:fs";
@@ -206,22 +210,29 @@ const { body } = await request("https://api.ipify.org", { dispatcher });
 console.log(await body.text());
 ```
 
-undici's `ProxyAgent` speaks HTTP CONNECT, not SOCKS5. For SOCKS5 in Node, use `socks-proxy-agent` with `http`/`https` (not undici), or stay on the CONNECT variant. On the plaintext 3128 listener the token is unencrypted.
+undici's `ProxyAgent` speaks HTTP CONNECT, not SOCKS5.
 
-### Playwright
+### Playwright (TLS CONNECT)
+
+Chromium cannot authenticate to a SOCKS5 proxy, and Playwright's
+`proxy.username` / `proxy.password` only apply to HTTP(S) proxies. A
+`socks5://` entry with credentials fails before it connects. Use the TLS HTTP
+CONNECT listener:
 
 ```js
+import { readFileSync } from "node:fs";
+import { homedir } from "node:os";
+
+const t = readFileSync(`${homedir()}/.config/x402socks/token`, "utf8").trim();
+
 const browser = await chromium.launch({
   proxy: {
-    server: "socks5://us-central1.x402socks.com:1080",
-    username: process.env.X402SOCKS_TOKEN,
-    password: process.env.X402SOCKS_TOKEN,
+    server: "https://eu-north1.x402socks.com:3129", // TLS CONNECT, not SOCKS5
+    username: t,
+    password: t,
   },
 });
 ```
-
-Playwright's SOCKS5 authentication is not encrypted either; the token still
-crosses the client-to-exit hop in the clear.
 
 ### Chrome
 
@@ -229,7 +240,25 @@ crosses the client-to-exit hop in the clear.
 --proxy-server=https://eu-north1.x402socks.com:3129
 ```
 
-Chrome shows its own credential dialog after the first `407`. Enter the token as **both** username and password. Use the `http://…:3128` form only on a trusted network.
+Chrome shows its own credential dialog after the first `407`. Enter the token as **both** username and password.
+
+### Legacy plaintext transports (opt-in)
+
+Only if the client cannot use TLS CONNECT, and only on a network you trust:
+
+```bash
+# HTTP CONNECT without TLS
+X402SOCKS_ALLOW_PLAINTEXT=1 scripts/x402socks.sh test --plaintext us-central1
+
+# SOCKS5 with RFC 1929 user/password
+X402SOCKS_ALLOW_PLAINTEXT=1 scripts/x402socks.sh test --socks5 us-central1
+```
+
+The helper prints a warning when either is selected. For hand-written clients,
+the equivalent URLs are `http://<exit>.x402socks.com:3128` and
+`socks5h://<exit>.x402socks.com:1080` with the token as both username and
+password. Both put the reusable token on the wire in cleartext; a successful
+TLS request does not protect that hop.
 
 ## Rate limits and secrecy
 

@@ -1,17 +1,18 @@
 ---
 name: x402socks
-description: Use this skill when an agent needs a different source IP, rotating or geo-specific egress, or an unblocked fetch - for example "get a proxy", "route this through a proxy", "rotate my IP", "scrape without getting blocked", "anonymous proxy for an agent", "pay for a proxy with USDC", "x402 proxy", or "x402socks". It buys pay-per-use anonymous SOCKS5 egress from x402socks.com, paid in USDC on Base with the x402 protocol.
+description: Use this skill when an agent needs a different source IP, rotating or geo-specific egress, or an unblocked fetch - for example "get a proxy", "route this through a proxy", "rotate my IP", "scrape without getting blocked", "anonymous proxy for an agent", "pay for a proxy with USDC", "x402 proxy", or "x402socks". It buys pay-per-use anonymous proxy egress from x402socks.com (TLS HTTP CONNECT by default, SOCKS5 opt-in), paid in USDC on Base with the x402 protocol.
 license: MIT
-version: 1.1.0
 metadata:
   author: x402socks
-  version: 1.1.0
+  version: 1.2.0
   homepage: https://x402socks.com
 ---
 
 # x402socks proxy access
 
-Buy anonymous SOCKS5 egress for an agent, paying in USDC on Base through **x402** (HTTP 402). No signup, no email, no card. You pay, receive a one-time proxy token, and use that token as **both** the SOCKS5 username and password.
+Buy anonymous proxy egress for an agent, paying in USDC on Base through **x402** (HTTP 402). No signup, no email, no card. You pay, receive a one-time proxy token, and use that token as **both** the proxy username and password.
+
+The default transport is **TLS HTTP CONNECT on port 3129**, available on `eu-north1`, `asia-central2`, and `asia-west1`: the exit presents a valid certificate, curl verifies it, and the token is not readable on the client-to-exit hop. The other exits currently offer only SOCKS5 (1080) and plaintext HTTP CONNECT (3128), which send the reusable token unencrypted and must be opted into explicitly.
 
 ## Fast path
 
@@ -27,8 +28,8 @@ X402SOCKS_MAX_USDC=1.00 scripts/x402socks.sh quote time_6h
 #    Credential comes back once: {"account":{...},"token":"..."}
 scripts/x402socks.sh save-token                   # paste token, Ctrl-D; stored mode 600
 
-# 4. Prove the exit works (token is read from the file, never argv)
-scripts/x402socks.sh test us-central1
+# 4. Prove the exit works (TLS CONNECT 3129; token read from the file, never argv)
+scripts/x402socks.sh test eu-north1
 ```
 
 ## Spending rule — read before paying
@@ -67,9 +68,9 @@ Always re-read `/catalog.json` at buy time — the table above is a snapshot, no
 1. **Verify the service.** `GET /api/health` must return `{"status":"ok"}`. If a chosen exit is down, pick another from `/nodes.json`.
 2. **Quote the price** from `/catalog.json` and get user approval (see spending rule). Then re-read the live 402 amount and compare it to that approval before signing.
 3. **Request access.** `POST https://payments.x402socks.com/v1/access/{package_id}` with `{}`. Expect HTTP 402 plus a base64 `PAYMENT-REQUIRED` header.
-4. **Pay and retry.** Select the requirement from `accepts[]`, sign an x402 v2 EIP-3009 authorization, retry the same URL with `PAYMENT-SIGNATURE`. Details and working code: `references/payments.md`.
+4. **Pay and retry.** Compare the live `accepts[]` against the exact terms the user approved — scheme, network, asset, recipient, asset domain, and amount. Reject any challenge that does not match. Sign an x402 v2 EIP-3009 authorization for the validated requirement, then retry the same URL with `PAYMENT-SIGNATURE`. Working code: `references/payments.md`.
 5. **Capture the token** from the 200 response. It is returned once, and only once.
-6. **Route traffic** through an exit on TCP 1080 using the token for both username and password.
+6. **Route traffic** through an exit. Default to TLS HTTP CONNECT on TCP 3129 using the token for both username and password. Use SOCKS5 on 1080 or plaintext CONNECT on 3128 only when the exit or client requires it, and only with the explicit opt-in described below.
 7. **Validate** with `POST /api/token/status` before debugging anything else. A dead token and a dead exit look identical from a failed fetch.
 
 A helper script ships with this skill:
@@ -77,53 +78,54 @@ A helper script ships with this skill:
 ```bash
 scripts/x402socks.sh health
 scripts/x402socks.sh nodes --available
-scripts/x402socks.sh quote time_6h     # exits non-zero above $X402SOCKS_MAX_USDC
-scripts/x402socks.sh save-token        # stdin -> ~/.config/x402socks/token (0600)
-scripts/x402socks.sh status            # reads the token file, never argv
-scripts/x402socks.sh test us-central1  # confirms egress IP actually changed
+scripts/x402socks.sh quote time_6h          # exits non-zero above $X402SOCKS_MAX_USDC
+scripts/x402socks.sh save-token             # stdin -> ~/.config/x402socks/token (0600)
+scripts/x402socks.sh status                 # reads the token file, never argv
+scripts/x402socks.sh test eu-north1         # TLS CONNECT 3129, confirms egress IP
+scripts/x402socks.sh test --socks5 eu-north1  # SOCKS5, requires X402SOCKS_ALLOW_PLAINTEXT=1
 ```
 
 ## Routing traffic
 
-SOCKS5 on TCP 1080, on every exit. The fleet is not fixed — nodes are added, retired, and toggled at any time, so read `/nodes.json` and filter on `disabled == false and health == "healthy"` instead of trusting a list. Snapshot at the time of writing:
+Every exit offers SOCKS5 on **TCP 1080**; `eu-north1`, `asia-central2`, and `asia-west1` also offer **TLS HTTP CONNECT on TCP 3129**, which is the recommended transport. The fleet is not fixed — nodes are added, retired, and toggled at any time, so read `/nodes.json` and filter on `disabled == false and health == "healthy"` instead of trusting a list. Snapshot at the time of writing:
 
-| Exit ID         | Region                |
-| --------------- | --------------------- |
-| `us-central1`   | US Texas              |
-| `us-east1`      | US New York           |
-| `us-west1`      | US California         |
-| `eu-central1`   | EU Paris              |
-| `eu-north1`     | EU Riga               |
-| `asia-central1` | APAC China (Hong Kong) |
-| `asia-central2` | APAC Singapore        |
-| `asia-west1`    | APAC India            |
+| Exit ID         | Region                | TLS 3129 | Plain 3128 | SOCKS5 1080 |
+| --------------- | --------------------- | -------- | ---------- | ----------- |
+| `us-central1`   | US Texas              | no       | yes        | yes         |
+| `us-east1`      | US New York           | no       | yes        | yes         |
+| `us-west1`      | US California         | no       | yes        | yes         |
+| `eu-central1`   | EU Paris              | no       | yes        | yes         |
+| `eu-north1`     | EU Riga               | **yes**  | yes        | yes         |
+| `asia-central1` | APAC China (Hong Kong) | no      | yes        | yes         |
+| `asia-central2` | APAC Singapore        | **yes**  | yes        | yes         |
+| `asia-west1`    | APAC India            | **yes**  | yes        | yes         |
 
-An HTTP CONNECT variant also runs on **port 3128** for `us-central1`, `eu-central1`, and `asia-central2`, and as a **TLS listener on port 3129** for `eu-north1`, `asia-west1`, and `asia-central2`. The 3128 hop is plaintext: the reusable token crosses the client-to-node path unencrypted. Use **3129** when the exit offers it, and use 3128 only on a network you already trust (or for a client that cannot do SOCKS5 credentials). SOCKS5 has the same limitation — RFC 1929 authentication is not encrypted.
+`https://<exit>.x402socks.com:3129` is the preferred form on the three TLS exits. `curl` verifies the exit's certificate, so a TLS failure means the exit is not usable — do not fall back to plaintext to work around it.
 
-```python
-# Python (requests)
-import os
-t = open(os.path.expanduser("~/.config/x402socks/token")).read().strip()
-proxies = {"http": f"socks5h://{t}:{t}@us-central1.x402socks.com:1080",
-           "https": f"socks5h://{t}:{t}@us-central1.x402socks.com:1080"}
-# requires: pip install "requests[socks]"
+The legacy transports are **opt-in only**:
 
-# Node (undici)
-// use a ProxyAgent; see references/endpoints.md for the exact snippet
+- `http://<exit>.x402socks.com:3128` — HTTP CONNECT without TLS, on every exit.
+- `socks5h://<exit>.x402socks.com:1080` — SOCKS5 with RFC 1929 user/password, on every exit.
 
-# Browser / HTTP client (TLS CONNECT preferred)
-# https://eu-north1.x402socks.com:3129  (token as username AND password)
-# http://us-central1.x402socks.com:3128 (plaintext, trusted networks only)
+Both send the reusable token in cleartext on the client-to-exit hop. A passive observer on the same network can capture it and use your paid access. The helper refuses them unless `X402SOCKS_ALLOW_PLAINTEXT=1` is set. On an exit without a TLS listener, this is unavoidable; keep the token short-lived and avoid untrusted networks.
+
+```bash
+# TLS CONNECT (default, recommended)
+# https://eu-north1.x402socks.com:3129   token as username AND password
+
+# Plaintext transports, only with X402SOCKS_ALLOW_PLAINTEXT=1
+# http://us-central1.x402socks.com:3128
+# socks5h://us-central1.x402socks.com:1080
 ```
 
-Prefer `socks5h://` over `socks5://` so DNS resolves at the exit rather than locally — otherwise the local resolver still leaks your target hostname.
+Client snippets for curl, Python, Node, Playwright, and Chrome are in `references/endpoints.md`. In SOCKS5 form prefer `socks5h://` over `socks5://` so DNS resolves at the exit rather than locally — otherwise the local resolver still leaks your target hostname.
 
 ## Credential rules (hard)
 
 - The token is a secret. Store it in a file with mode `0600` (`X402SOCKS_TOKEN_FILE`, default `~/.config/x402socks/token`) or an environment variable. Never put it in source control, logs, analytics, browser storage, shared URLs, or shell history.
 - Never pass the token as a command argument. `curl --proxy-user "$TOKEN:$TOKEN"` and `-H "Authorization: Bearer $TOKEN"` are visible in the process list and in command telemetry. Feed those options through stdin or a `0600` config file; `scripts/x402socks.sh` does this for curl, and `references/endpoints.md` has the pattern for other clients.
 - Never echo a token into a chat transcript or a commit. If a token appears in output, treat it as burned and rotate it.
-- SOCKS5 and plaintext HTTP CONNECT authenticate with the token in cleartext on the client-to-proxy hop. Prefer TLS CONNECT on port 3129 where available, and avoid both on a shared network.
+- Prefer TLS CONNECT on port 3129. SOCKS5 and plaintext HTTP CONNECT authenticate with the token in cleartext on the client-to-proxy hop; enable them only when a client cannot use TLS CONNECT and the network is trusted.
 - Rotate on any suspicion of exposure: `scripts/x402socks.sh rotate`. Rotation invalidates the old token immediately, everywhere; the helper saves the replacement to the `0600` file and prints only a redacted response.
 
 ## Rotation and recovery

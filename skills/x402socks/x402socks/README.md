@@ -1,7 +1,8 @@
 # x402socks skill
 
 An [Agent Skill](https://agentskills.io) for buying short-lived anonymous
-SOCKS5/HTTP egress with USDC on Base through [x402](https://x402.org).
+proxy egress with USDC on Base through [x402](https://x402.org). TLS HTTP CONNECT
+is the default transport; SOCKS5 and plaintext CONNECT are opt-in.
 
 The skill teaches an agent to quote a package, get approval for an exact amount,
 complete the x402 v2 payment, store the one-time token safely, route traffic
@@ -51,8 +52,10 @@ cp -r skills/x402socks ~/.agents/skills/       # OpenCode and other clients
   (`~/.config/x402socks/token`) and passes it to curl on stdin, so it never
   appears in the process list. Rotation and recovery save the replacement token
   instead of printing it.
-- **Transport:** SOCKS5 and plaintext HTTP CONNECT do not encrypt proxy
-  authentication. Prefer the TLS CONNECT listener on port 3129 where available.
+- **Transport:** TLS HTTP CONNECT on port 3129 is the default where the exit
+  offers it (`eu-north1`, `asia-central2`, `asia-west1`). SOCKS5 and plaintext
+  HTTP CONNECT do not encrypt proxy authentication and require
+  `X402SOCKS_ALLOW_PLAINTEXT=1`.
 
 ## Links
 

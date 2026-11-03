@@ -54,9 +54,15 @@ Treating `amount` as a decimal, or reusing an `asset`/`payTo` from an older quot
 ## 2. Pay with a library (recommended)
 
 An x402 payment wrapper will sign **whatever the next 402 asks for**. That is
-fine when a human clicks "pay", and unsafe when an agent buys unattended. The
-approved amount has to be enforced in code, against the exact challenge that is
-about to be signed — not just checked once before the purchase.
+fine when a human clicks "pay", and unsafe when an agent buys unattended. An
+approval is the whole authorization, not just the amount: scheme, network,
+asset, recipient, EIP-712 asset domain, and amount must all be pinned, and the
+signer must be bound to the one requirement that matched.
+
+Run `scripts/x402socks.sh quote <package_id>` first and record its `network`,
+`asset`, `pay_to`, and `amount_atomic` as the approved terms. Pass them to the
+purchase as values the user approved — never read them from the 402 you are
+about to sign.
 
 ### TypeScript
 
@@ -64,45 +70,89 @@ about to be signed — not just checked once before the purchase.
 npm i @x402/fetch @x402/evm viem
 ```
 
+`@x402/fetch` exposes the hooks needed to enforce this before signing:
+`spendControls` caps value, `policies` filter the advertised requirements, and
+`paymentRequirementsSelector` is the only thing the signer can choose from.
+
 ```ts
 import { wrapFetchWithPaymentFromConfig } from "@x402/fetch";
+import type {
+  PaymentPolicy,
+  SelectPaymentRequirements,
+} from "@x402/fetch";
 import { ExactEvmScheme } from "@x402/evm";
 import { privateKeyToAccount } from "viem/accounts";
 
-// The amount the user actually approved, in atomic USDC units.
-// $1.00 -> 1_000_000n. Never derive this from the server's current quote.
-const APPROVED_MAX_ATOMIC = 1_000_000n;
-const EXPECTED_NETWORK = "eip155:8453";
-
-const account = privateKeyToAccount(process.env.EVM_PRIVATE_KEY as `0x${string}`);
-
-// Guard the base fetch: inspect every 402 BEFORE the payment wrapper signs.
-const guardedFetch: typeof fetch = async (input, init) => {
-  const res = await fetch(input, init);
-  if (res.status !== 402) return res;
-
-  const header = res.headers.get("PAYMENT-REQUIRED");
-  if (!header) throw new Error("402 without PAYMENT-REQUIRED");
-
-  const challenge = JSON.parse(Buffer.from(header, "base64").toString("utf8"));
-  const req = challenge.accepts?.[0];
-  if (!req) throw new Error("402 without a payment requirement");
-
-  if (req.network !== EXPECTED_NETWORK) {
-    throw new Error(`refusing to pay on ${req.network}`);
-  }
-
-  const amount = BigInt(req.amount);
-  if (amount > APPROVED_MAX_ATOMIC) {
-    throw new Error(
-      `quote ${amount} exceeds approved ${APPROVED_MAX_ATOMIC} atomic units`,
-    );
-  }
-  return res;
+// Copy these from the quote the user approved. Never derive them from the 402
+// that is about to be signed.
+const APPROVED = {
+  scheme: "exact",
+  network: process.env.X402_APPROVED_NETWORK ?? "",
+  asset: process.env.X402_APPROVED_ASSET ?? "",
+  payTo: process.env.X402_APPROVED_PAY_TO ?? "",
+  assetName: process.env.X402_APPROVED_ASSET_NAME ?? "",
+  assetVersion: process.env.X402_APPROVED_ASSET_VERSION ?? "",
+  maxAmountAtomic: BigInt(process.env.X402_APPROVED_MAX_ATOMIC ?? "0"),
 };
 
-const fetchWithPayment = wrapFetchWithPaymentFromConfig(guardedFetch, {
-  schemes: [{ network: EXPECTED_NETWORK, client: new ExactEvmScheme(account) }],
+if (
+  !APPROVED.network ||
+  !APPROVED.asset ||
+  !APPROVED.payTo ||
+  !APPROVED.assetName ||
+  !APPROVED.assetVersion ||
+  APPROVED.maxAmountAtomic <= 0n
+) {
+  throw new Error("missing approved terms; run `quote` and record its output");
+}
+
+const same = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
+
+// Reject any advertised option that differs from the approval. The selector
+// only ever sees the filtered result, so it cannot pick an unapproved one.
+const pinApprovedTerms: PaymentPolicy = (_version, options) => {
+  const approved = options.filter((option) => {
+    const extra = (option.extra ?? {}) as { name?: string; version?: string };
+    return (
+      option.scheme === APPROVED.scheme &&
+      option.network === APPROVED.network &&
+      same(option.asset, APPROVED.asset) &&
+      same(option.payTo, APPROVED.payTo) &&
+      extra.name === APPROVED.assetName &&
+      extra.version === APPROVED.assetVersion &&
+      BigInt(option.amount) <= APPROVED.maxAmountAtomic
+    );
+  });
+  if (approved.length === 0) {
+    throw new Error(
+      "402 offers no option matching the approved scheme/network/asset/payTo/domain/amount",
+    );
+  }
+  return approved;
+};
+
+// Select only from the policy-filtered list, and prefer the cheapest.
+const selectApproved: SelectPaymentRequirements = (_version, options) => {
+  if (options.length === 0) {
+    throw new Error("no approved payment option survived the policy");
+  }
+  return options.reduce((best, option) =>
+    BigInt(option.amount) < BigInt(best.amount) ? option : best,
+  );
+};
+
+const account = privateKeyToAccount(
+  process.env.EVM_PRIVATE_KEY as `0x${string}`,
+);
+
+const fetchWithPayment = wrapFetchWithPaymentFromConfig(fetch, {
+  schemes: [{ network: APPROVED.network, client: new ExactEvmScheme(account) }],
+  // Second layer: the library enforces this cap before policies and signing.
+  spendControls: {
+    maxAmountPerPayment: Number(APPROVED.maxAmountAtomic) / 1_000_000,
+  },
+  policies: [pinApprovedTerms],
+  paymentRequirementsSelector: selectApproved,
 });
 
 const res = await fetchWithPayment(
@@ -117,9 +167,9 @@ console.log("settlement:", res.headers.get("PAYMENT-RESPONSE"));
 ```
 
 The wrapper handles the request loop: first request, 402 parse, authorization
-signing, retry with `PAYMENT-SIGNATURE`. The guard runs on the response that is
-actually about to be paid, so a price change between quote and purchase cannot
-slip through.
+signing, retry with `PAYMENT-SIGNATURE`. The policy runs on the challenge that
+is actually about to be paid, so a price, asset, or recipient change between
+quote and purchase aborts instead of signing.
 
 ### Python
 
@@ -127,23 +177,49 @@ slip through.
 uv add "x402[httpx,evm]"
 ```
 
-Do a preflight so the user sees the real amount before any signer exists:
+Check the live challenge before any signer exists, using the same approved
+terms:
 
 ```python
-import base64, json, os
+import base64, json
 import httpx
 
-APPROVED_MAX_ATOMIC = 1_000_000  # $1.00
+# Copy these from the approved quote. Do not take them from this 402.
+APPROVED = {
+    "scheme": "exact",
+    "network": "eip155:8453",
+    "asset": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+    "payTo": "0x73BAE3c48d34d71C4CEa76DFdaa3bE2cF4d335a1",
+    "assetName": "USD Coin",
+    "assetVersion": "2",
+    "max_amount_atomic": 1_000_000,
+}
+
+def approved(req):
+    return (
+        req.get("scheme") == APPROVED["scheme"]
+        and req.get("network") == APPROVED["network"]
+        and req.get("asset", "").lower() == APPROVED["asset"].lower()
+        and req.get("payTo", "").lower() == APPROVED["payTo"].lower()
+        and req.get("extra", {}).get("name") == APPROVED["assetName"]
+        and req.get("extra", {}).get("version") == APPROVED["assetVersion"]
+        and int(req.get("amount", "0")) <= APPROVED["max_amount_atomic"]
+    )
 
 r = httpx.post("https://payments.x402socks.com/v1/access/time_6h", json={})
 assert r.status_code == 402, r.status_code
 
-challenge = json.loads(base64.b64decode(r.headers["payment-required"]))
-req = challenge["accepts"][0]
-assert req["network"] == "eip155:8453"
-assert int(req["amount"]) <= APPROVED_MAX_ATOMIC, (
-    f"quote {req['amount']} exceeds approved {APPROVED_MAX_ATOMIC}"
-)
+raw = r.headers["payment-required"]
+raw += "=" * (-len(raw) % 4)          # base64url may omit padding
+challenge = json.loads(base64.urlsafe_b64decode(raw))
+options = challenge.get("accepts", [])
+approved_options = [option for option in options if approved(option)]
+
+# Refuse ambiguity: an extra option outside the approval must abort the
+# purchase, because a client could otherwise select it.
+if len(options) != 1 or len(approved_options) != 1:
+    raise SystemExit("refusing: the 402 contains options outside the approved terms")
+req = approved_options[0]
 ```
 
 ```python
@@ -155,9 +231,9 @@ client.register("eip155:8453", ExactEvmScheme(signer=my_signer))
 ```
 
 The preflight alone does not close the race: the retry can carry a different
-challenge. If the Python client exposes a pre-payment hook, apply the same
-check there. If it does not, do not let it auto-pay — read the 402 yourself and
-sign the amount you checked.
+challenge. If the Python client exposes a policy or selector hook, apply the
+same check there. If it does not, do not let it auto-pay — read the 402
+yourself and sign exactly the `req` you validated.
 
 Pin the network to `eip155:8453` rather than a wildcard like `eip155:*`. A wildcard lets the client auto-pay on whatever chain a server advertises, which is exactly the wrong behavior when an agent is spending unattended.
 
