@@ -69,11 +69,24 @@ The response carries `catalog_digest` and `content_sha256`. Pin the digest if yo
 ### `POST /api/token/status`
 
 ```bash
+# The token is in argv here, so other local processes can see it.
+# In real clients read it from a 0600 file and pass curl options via --config -
 curl -sS -X POST https://x402socks.com/api/token/status \
   -H 'content-type: application/json' -d '{"token":"..."}'
 ```
 
 Body field is `token`. An `Authorization: Bearer` header alone returns `400 invalid_request`, so send the JSON body.
+
+Safer form, with the token read from the file and the request body supplied on stdin:
+
+```bash
+umask 077
+cfg="$(mktemp)"; trap 'rm -f "$cfg"' EXIT
+printf 'header = "content-type: application/json"\ndata = "%s"\n' \
+  "$(python3 -c 'import json,sys; print(json.dumps({"token": sys.stdin.read()}))' \
+      < ~/.config/x402socks/token)" > "$cfg"
+curl --config "$cfg" -X POST https://x402socks.com/api/token/status
+```
 
 Success returns the account and usage. Failure:
 
@@ -88,11 +101,18 @@ Same body. Returns **204 No Content** on success, `401` otherwise. Cheap livenes
 ### `POST https://api.x402socks.com/api/v1/token/rotate`
 
 ```bash
-curl -sS -X POST https://api.x402socks.com/api/v1/token/rotate \
-  -H "Authorization: Bearer $X402SOCKS_TOKEN"
+# Token as an argument is visible in the process list. Use a 0600 config file:
+umask 077
+cfg="$(mktemp)"; trap 'rm -f "$cfg"' EXIT
+printf 'header = "Authorization: Bearer %s"\n' "$(cat ~/.config/x402socks/token)" > "$cfg"
+curl --config "$cfg" -X POST https://api.x402socks.com/api/v1/token/rotate
 ```
 
 Success: `200 {"account":{...},"token":"NEW_TOKEN"}`. The old token stops working immediately, for the proxy and every other route. Unknown, inactive, or expired tokens get `401 "a valid token is required"` and nothing changes.
+
+The response contains the replacement token. Write it to a `0600` file rather
+than printing it; `scripts/x402socks.sh rotate` does that and emits a redacted
+copy of the response.
 
 ## Purchasing
 
@@ -117,19 +137,39 @@ See `payments.md`. Not listed in `openapi.json` because it is not payable.
 
 ### curl (SOCKS5)
 
+`curl --proxy-user "$TOKEN:$TOKEN"` puts the token in the process list. Keep it
+in a `0600` config file instead:
+
 ```bash
-export X402SOCKS_TOKEN='...'
-curl --proxy socks5h://us-central1.x402socks.com:1080 \
-     --proxy-user "$X402SOCKS_TOKEN:$X402SOCKS_TOKEN" \
-     https://api.ipify.org
+umask 077
+cfg="$(mktemp)"; trap 'rm -f "$cfg"' EXIT
+{
+  printf 'proxy = "socks5h://us-central1.x402socks.com:1080"\n'
+  printf 'proxy-user = "%s:%s"\n' \
+    "$(cat ~/.config/x402socks/token)" "$(cat ~/.config/x402socks/token)"
+} > "$cfg"
+curl --config "$cfg" https://api.ipify.org
 ```
 
-### curl (HTTP CONNECT, port 3128)
+SOCKS5 RFC 1929 authentication is not encrypted. Treat the client-to-exit hop as
+observable on a shared network and keep tokens short-lived.
+
+### curl (HTTP CONNECT)
+
+TLS listener, preferred where available (`eu-north1`, `asia-west1`, `asia-central2`):
 
 ```bash
-curl --proxy http://us-central1.x402socks.com:3128 \
-     --proxy-user "$X402SOCKS_TOKEN:$X402SOCKS_TOKEN" \
-     https://api.ipify.org
+# same 0600 config pattern as above, with:
+# proxy = "https://eu-north1.x402socks.com:3129"
+curl --config "$cfg" https://api.ipify.org
+```
+
+Plaintext listener on 3128 (`us-central1`, `eu-central1`, `asia-central2`). The
+token crosses the client-to-node hop unencrypted; use it only on a trusted
+network:
+
+```bash
+# proxy = "http://us-central1.x402socks.com:3128"
 ```
 
 ### Python requests
@@ -137,7 +177,7 @@ curl --proxy http://us-central1.x402socks.com:3128 \
 ```python
 import os, requests
 
-t = os.environ["X402SOCKS_TOKEN"]
+t = open(os.path.expanduser("~/.config/x402socks/token")).read().strip()
 proxies = {
     "http":  f"socks5h://{t}:{t}@us-central1.x402socks.com:1080",
     "https": f"socks5h://{t}:{t}@us-central1.x402socks.com:1080",
@@ -145,16 +185,20 @@ proxies = {
 print(requests.get("https://api.ipify.org", proxies=proxies, timeout=30).text)
 ```
 
-Requires `pip install "requests[socks]"`.
+Requires `pip install "requests[socks]"`. SOCKS5 credentials are sent in
+cleartext on the client-to-exit hop, so avoid untrusted networks.
 
 ### Node (undici, HTTP CONNECT variant)
 
 ```js
+import { readFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { ProxyAgent, request } from "undici";
 
-const t = process.env.X402SOCKS_TOKEN;
+const t = readFileSync(`${homedir()}/.config/x402socks/token`, "utf8").trim();
 const dispatcher = new ProxyAgent({
-  uri: "http://us-central1.x402socks.com:3128",
+  // TLS listener: the token is not sent in cleartext on this hop.
+  uri: "https://eu-north1.x402socks.com:3129",
   token: `Basic ${Buffer.from(`${t}:${t}`).toString("base64")}`,
 });
 
@@ -162,7 +206,7 @@ const { body } = await request("https://api.ipify.org", { dispatcher });
 console.log(await body.text());
 ```
 
-undici's `ProxyAgent` speaks HTTP CONNECT, not SOCKS5. For SOCKS5 in Node, use `socks-proxy-agent` with `http`/`https` (not undici), or stay on the 3128 variant.
+undici's `ProxyAgent` speaks HTTP CONNECT, not SOCKS5. For SOCKS5 in Node, use `socks-proxy-agent` with `http`/`https` (not undici), or stay on the CONNECT variant. On the plaintext 3128 listener the token is unencrypted.
 
 ### Playwright
 
@@ -176,13 +220,16 @@ const browser = await chromium.launch({
 });
 ```
 
+Playwright's SOCKS5 authentication is not encrypted either; the token still
+crosses the client-to-exit hop in the clear.
+
 ### Chrome
 
 ```bash
---proxy-server=http://us-central1.x402socks.com:3128
+--proxy-server=https://eu-north1.x402socks.com:3129
 ```
 
-Chrome shows its own credential dialog after the first `407`. Enter the token as **both** username and password.
+Chrome shows its own credential dialog after the first `407`. Enter the token as **both** username and password. Use the `http://…:3128` form only on a trusted network.
 
 ## Rate limits and secrecy
 

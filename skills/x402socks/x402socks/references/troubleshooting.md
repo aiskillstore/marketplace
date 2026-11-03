@@ -15,7 +15,7 @@ Work down this list in order. It moves from cheapest check to most expensive, so
 | Symptom                                        | Likely cause                                                        | Fix                                                          |
 | ---------------------------------------------- | ------------------------------------------------------------------- | ------------------------------------------------------------ |
 | `Could not resolve proxy`                      | typo in hostname, or exit host does not exist                        | re-read `hostname` from `/nodes.json`                        |
-| `Connection refused` on 3128                   | that exit does not offer the HTTP variant                            | use 1080, or one of `us-central1`/`eu-central1`/`asia-central2` |
+| `Connection refused` on 3128 or 3129          | that exit does not offer the HTTP variant, or not the TLS one        | use 1080; TLS 3129 is on `eu-north1`/`asia-west1`/`asia-central2` |
 | `CONNECT tunnel failed, response 407`          | no credentials sent — expected on the 3128 variant                   | pass the token as both username and password                 |
 | `HTTP/1.1 407 Proxy Authentication Required`   | client reached the proxy but sent no/blank credentials               | check the token is not empty or truncated                    |
 | SOCKS5 auth rejected / connection closed early | token wrong, expired, or already rotated                             | `validate`, then `status`, then `recover`                    |
@@ -29,7 +29,7 @@ Work down this list in order. It moves from cheapest check to most expensive, so
 | `400 stale_recovery`                           | `issued_at` older than 10 minutes                                    | regenerate the message with a fresh timestamp                |
 | Target sees the wrong country                  | connected to the wrong exit                                          | pick the exit whose `label` matches the region you need      |
 | Target logs your local DNS resolver            | used `socks5://` instead of `socks5h://`                             | switch scheme so DNS resolves at the exit                    |
-| Works in curl, fails in browser                | browser cannot do SOCKS5 auth                                        | use the HTTP CONNECT variant on 3128                         |
+| Works in curl, fails in browser                | browser cannot do SOCKS5 auth                                        | use TLS CONNECT on 3129 where available; 3128 is plaintext     |
 | Throughput collapses mid-job                   | fair-use data cap reached                                            | check usage via `status`; buy a larger plan                  |
 | Second agent fails while first works           | single packages allow 1 active session                               | consolidate, or move to `multi_agent`                        |
 

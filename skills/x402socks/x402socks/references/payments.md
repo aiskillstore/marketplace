@@ -53,6 +53,11 @@ Treating `amount` as a decimal, or reusing an `asset`/`payTo` from an older quot
 
 ## 2. Pay with a library (recommended)
 
+An x402 payment wrapper will sign **whatever the next 402 asks for**. That is
+fine when a human clicks "pay", and unsafe when an agent buys unattended. The
+approved amount has to be enforced in code, against the exact challenge that is
+about to be signed — not just checked once before the purchase.
+
 ### TypeScript
 
 ```bash
@@ -64,10 +69,40 @@ import { wrapFetchWithPaymentFromConfig } from "@x402/fetch";
 import { ExactEvmScheme } from "@x402/evm";
 import { privateKeyToAccount } from "viem/accounts";
 
+// The amount the user actually approved, in atomic USDC units.
+// $1.00 -> 1_000_000n. Never derive this from the server's current quote.
+const APPROVED_MAX_ATOMIC = 1_000_000n;
+const EXPECTED_NETWORK = "eip155:8453";
+
 const account = privateKeyToAccount(process.env.EVM_PRIVATE_KEY as `0x${string}`);
 
-const fetchWithPayment = wrapFetchWithPaymentFromConfig(fetch, {
-  schemes: [{ network: "eip155:8453", client: new ExactEvmScheme(account) }],
+// Guard the base fetch: inspect every 402 BEFORE the payment wrapper signs.
+const guardedFetch: typeof fetch = async (input, init) => {
+  const res = await fetch(input, init);
+  if (res.status !== 402) return res;
+
+  const header = res.headers.get("PAYMENT-REQUIRED");
+  if (!header) throw new Error("402 without PAYMENT-REQUIRED");
+
+  const challenge = JSON.parse(Buffer.from(header, "base64").toString("utf8"));
+  const req = challenge.accepts?.[0];
+  if (!req) throw new Error("402 without a payment requirement");
+
+  if (req.network !== EXPECTED_NETWORK) {
+    throw new Error(`refusing to pay on ${req.network}`);
+  }
+
+  const amount = BigInt(req.amount);
+  if (amount > APPROVED_MAX_ATOMIC) {
+    throw new Error(
+      `quote ${amount} exceeds approved ${APPROVED_MAX_ATOMIC} atomic units`,
+    );
+  }
+  return res;
+};
+
+const fetchWithPayment = wrapFetchWithPaymentFromConfig(guardedFetch, {
+  schemes: [{ network: EXPECTED_NETWORK, client: new ExactEvmScheme(account) }],
 });
 
 const res = await fetchWithPayment(
@@ -81,12 +116,34 @@ const { account: acct, token } = await res.json();
 console.log("settlement:", res.headers.get("PAYMENT-RESPONSE"));
 ```
 
-The wrapper handles the whole loop: first request, 402 parse, authorization signing, retry with `PAYMENT-SIGNATURE`.
+The wrapper handles the request loop: first request, 402 parse, authorization
+signing, retry with `PAYMENT-SIGNATURE`. The guard runs on the response that is
+actually about to be paid, so a price change between quote and purchase cannot
+slip through.
 
 ### Python
 
 ```bash
 uv add "x402[httpx,evm]"
+```
+
+Do a preflight so the user sees the real amount before any signer exists:
+
+```python
+import base64, json, os
+import httpx
+
+APPROVED_MAX_ATOMIC = 1_000_000  # $1.00
+
+r = httpx.post("https://payments.x402socks.com/v1/access/time_6h", json={})
+assert r.status_code == 402, r.status_code
+
+challenge = json.loads(base64.b64decode(r.headers["payment-required"]))
+req = challenge["accepts"][0]
+assert req["network"] == "eip155:8453"
+assert int(req["amount"]) <= APPROVED_MAX_ATOMIC, (
+    f"quote {req['amount']} exceeds approved {APPROVED_MAX_ATOMIC}"
+)
 ```
 
 ```python
@@ -96,6 +153,11 @@ from x402.mechanisms.evm.exact import ExactEvmScheme
 client = x402Client()                      # wrap your httpx transport with this client
 client.register("eip155:8453", ExactEvmScheme(signer=my_signer))
 ```
+
+The preflight alone does not close the race: the retry can carry a different
+challenge. If the Python client exposes a pre-payment hook, apply the same
+check there. If it does not, do not let it auto-pay — read the 402 yourself and
+sign the amount you checked.
 
 Pin the network to `eip155:8453` rather than a wildcard like `eip155:*`. A wildcard lets the client auto-pay on whatever chain a server advertises, which is exactly the wrong behavior when an agent is spending unattended.
 
@@ -108,7 +170,7 @@ Only needed if you cannot use a library:
 3. Assemble the x402 v2 payment payload: `{ x402Version: 2, scheme: "exact", network, payload: { signature, authorization } }`.
 4. Base64-encode it and send it as `PAYMENT-SIGNATURE` on the same URL, same body.
 
-Success is `200` with `{"account": {...}, "token": "..."}` and a `PAYMENT-RESPONSE` header containing settlement metadata. Keep the `PAYMENT-RESPONSE` value or the settlement tx hash: it is the only proof of purchase and the input to recovery.
+Success is `200` with `{"account": {...}, "token": "..."}` and a `PAYMENT-RESPONSE` header containing settlement metadata. Keep the `PAYMENT-RESPONSE` value or the settlement tx hash: it is the only proof of purchase and the input to recovery. Write the token straight to a file with mode `0600`; do not echo the response into a transcript or log.
 
 ## 4. Never pay twice
 
@@ -135,6 +197,10 @@ curl -sS -X POST https://payments.x402socks.com/v1/access/recover \
 ```
 
 The signing wallet must be the wallet that paid. `issued_at` must be within ±10 minutes of now. The original `PAYMENT-SIGNATURE` is deliberately rejected: it is public settlement calldata that anyone could replay.
+
+Recovery returns a replacement token once. Save it to the `0600` token file and
+print only the non-secret fields; `scripts/x402socks.sh recover` does this for
+you.
 
 | Error                       | Meaning                                                    |
 | --------------------------- | ---------------------------------------------------------- |

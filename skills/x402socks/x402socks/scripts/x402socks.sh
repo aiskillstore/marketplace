@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
-# x402socks helper: health, catalog, nodes, token status/validation/rotation, recovery, egress test.
+# x402socks helper: health, catalog, nodes, quote, token status/validation/rotation,
+# recovery, and egress test.
 #
-# Tokens are read from $X402SOCKS_TOKEN by preference so they never appear in
-# process listings. Passing a token as an argument works but is less safe.
+# Secrets never appear in argv: the token is read from a 0600 file (or the
+# environment) and every token-bearing request passes curl options on stdin.
+# Rotation and recovery save the replacement token instead of printing it.
 set -euo pipefail
 
 WEB="${X402SOCKS_WEB:-https://x402socks.com}"
@@ -24,19 +26,74 @@ pretty() {
   fi
 }
 
+token_file() {
+  printf '%s' "${X402SOCKS_TOKEN_FILE:-${XDG_CONFIG_HOME:-$HOME/.config}/x402socks/token}"
+}
+
+# Escape a value for a double-quoted curl config entry.
+cfg_escape() { printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g'; }
+
+# Run one curl request whose options arrive on stdin. This keeps the token out
+# of the process list; only the URL is passed as an argument.
+req_secret() {
+  local url="$1"
+  shift
+  local cfg
+  cfg="$(cat)"
+  {
+    printf '%s\n' "$cfg"
+    printf 'url = "%s"\n' "$(cfg_escape "$url")"
+  } | curl -sS --max-time "${X402SOCKS_TIMEOUT:-30}" --config - "$@"
+}
+
 json_token_body() {
-  python3 -c 'import json,sys; print(json.dumps({"token": sys.argv[1]}))' "$1"
+  python3 -c 'import json, sys; print(json.dumps({"token": sys.stdin.read()}))'
 }
 
 resolve_token() {
-  if [ "${X402SOCKS_TOKEN:-}" != "" ]; then
+  local file
+  file="$(token_file)"
+  if [ -s "$file" ]; then
+    tr -d '\r\n' < "$file"
+  elif [ "${X402SOCKS_TOKEN:-}" != "" ]; then
     printf '%s' "$X402SOCKS_TOKEN"
-  elif [ "${1:-}" != "" ]; then
-    note "note: token passed as an argument is visible in process listings"
-    printf '%s' "$1"
   else
-    die "no token: export X402SOCKS_TOKEN, or pass it as the last argument"
+    die "no token: run 'save-token' after purchase, or export X402SOCKS_TOKEN"
   fi
+}
+
+# Persist a token returned by rotate/recover and print a redacted response.
+store_token_response() {
+  local file
+  file="$(token_file)"
+  mkdir -p "$(dirname "$file")"
+  chmod 700 "$(dirname "$file")" 2>/dev/null || true
+  python3 - "$file" <<'PY'
+import json, os, sys
+
+path = sys.argv[1]
+raw = sys.stdin.read()
+try:
+    data = json.loads(raw)
+except json.JSONDecodeError:
+    sys.stdout.write(raw)
+    sys.stderr.write("\nno token in response; nothing was saved\n")
+    sys.exit(1)
+token = data.get("token")
+if not token:
+    json.dump(data, sys.stdout, indent=2)
+    sys.stdout.write("\n")
+    sys.exit("response did not include a token; nothing was saved")
+
+fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+with os.fdopen(fd, "w") as fh:
+    fh.write(token)
+os.chmod(path, 0o600)
+
+data["token"] = "<redacted: saved to %s (mode 600)>" % path
+json.dump(data, sys.stdout, indent=2)
+sys.stdout.write("\n")
+PY
 }
 
 usage() {
@@ -47,17 +104,24 @@ x402socks helper
   nodes [--available]           exit points, optionally only usable ones
   catalog [--summary]           package catalog with prices
   price <package_id>            one package's price and entitlements
-  status [token]                account status and usage
-  validate [token]              cheap token check (exit 0 = valid)
-  rotate [token]                rotate token; old one dies immediately
+  quote <package_id>            live 402 amount; enforces X402SOCKS_MAX_USDC
+  save-token                    read a token from stdin and store it (mode 600)
+  status                        account status and usage
+  validate                      cheap token check (exit 0 = valid)
+  rotate                        rotate token; saves the new one, prints no secret
   test [exit_id]                confirm egress IP through the proxy
   recover-message <tx_hash>     print the message to EIP-191 sign (no newline)
   recover <tx_hash> <sig> [issued_at]
                                 re-issue a lost token after a settled payment
 
-Env:
-  X402SOCKS_TOKEN    proxy token (preferred over argv)
-  X402SOCKS_TIMEOUT  per-request timeout in seconds (default 30)
+Token source (never argv):
+  X402SOCKS_TOKEN_FILE  token file (default ~/.config/x402socks/token, mode 600)
+  X402SOCKS_TOKEN       environment variable fallback
+  Run 'save-token' once to create the file.
+
+Budget guard:
+  X402SOCKS_MAX_USDC    approved maximum in USD; 'quote' fails above it
+  X402SOCKS_TIMEOUT     per-request timeout in seconds (default 30)
 EOF
 }
 
@@ -111,20 +175,81 @@ else:
 ' "$1"
 }
 
+# Print the live 402 amount and fail if it exceeds the approved cap. The
+# challenge, not the catalog, is what a payment would actually authorize.
+cmd_quote() {
+  local pkg="${1:-}" cap="${X402SOCKS_MAX_USDC:-}" hdr decoded amount
+  [ -n "$pkg" ] || die "usage: quote <package_id>"
+
+  hdr="$(req -D - -o /dev/null -X POST "$PAY/v1/access/$pkg" \
+        -H 'content-type: application/json' -d '{}' \
+        | tr -d '\r' | awk 'tolower($1) == "payment-required:" { print $2; exit }')"
+  [ -n "$hdr" ] || die "no PAYMENT-REQUIRED header for '$pkg'"
+
+  decoded="$(printf '%s' "$hdr" | python3 -c '
+import base64, json, sys
+raw = sys.stdin.read().strip()
+raw += "=" * (-len(raw) % 4)
+try:
+    data = json.loads(base64.urlsafe_b64decode(raw))
+except Exception:
+    data = json.loads(base64.b64decode(raw))
+a = data["accepts"][0]
+print(json.dumps({
+    "package": sys.argv[1],
+    "network": a["network"],
+    "amount_atomic": a["amount"],
+    "amount_usd": int(a["amount"]) / 10**6,
+    "asset": a["asset"],
+    "pay_to": a["payTo"],
+    "max_timeout_seconds": a.get("maxTimeoutSeconds"),
+}, indent=2))
+' "$pkg")"
+
+  printf '%s\n' "$decoded"
+  amount="$(printf '%s' "$decoded" | python3 -c 'import json, sys; print(json.load(sys.stdin)["amount_atomic"])')"
+
+  if [ -n "$cap" ]; then
+    python3 -c '
+import sys
+amount = int(sys.argv[1]) / 10**6
+cap = float(sys.argv[2])
+if amount > cap:
+    sys.exit("approved cap is $%.2f but the live challenge is $%.2f" % (cap, amount))
+print("within approved cap ($%.2f)" % cap)
+' "$amount" "$cap"
+  else
+    note "no X402SOCKS_MAX_USDC set; challenge is \$$(python3 -c 'import sys; print("%.2f" % (int(sys.argv[1]) / 10**6))' "$amount")"
+  fi
+}
+
+cmd_save_token() {
+  local file token
+  file="$(token_file)"
+  mkdir -p "$(dirname "$file")"
+  chmod 700 "$(dirname "$file")" 2>/dev/null || true
+  token="$(tr -d '\r\n')"
+  [ -n "$token" ] || die "no token on stdin"
+  ( umask 077; printf '%s' "$token" > "$file" )
+  chmod 600 "$file"
+  printf 'saved token to %s (mode 600)\n' "$file"
+}
+
 cmd_status() {
-  local token body
-  token="$(resolve_token "${1:-}")"
-  body="$(json_token_body "$token")"
-  req -X POST "$WEB/api/token/status" \
-      -H 'content-type: application/json' --data "$body" | pretty
+  local token body cfg
+  token="$(resolve_token)"
+  body="$(printf '%s' "$token" | json_token_body)"
+  cfg="$(printf 'header = "content-type: application/json"\ndata = "%s"' "$(cfg_escape "$body")")"
+  printf '%s' "$cfg" | req_secret "$WEB/api/token/status" -X POST | pretty
 }
 
 cmd_validate() {
-  local token body code
-  token="$(resolve_token "${1:-}")"
-  body="$(json_token_body "$token")"
-  code="$(req -o /dev/null -w '%{http_code}' -X POST "$WEB/api/token/validate" \
-          -H 'content-type: application/json' --data "$body")"
+  local token body cfg code
+  token="$(resolve_token)"
+  body="$(printf '%s' "$token" | json_token_body)"
+  cfg="$(printf 'header = "content-type: application/json"\ndata = "%s"' "$(cfg_escape "$body")")"
+  code="$(printf '%s' "$cfg" | req_secret "$WEB/api/token/validate" \
+          -X POST -o /dev/null -w '%{http_code}')"
   if [ "$code" = "204" ]; then
     note "valid"
     return 0
@@ -134,22 +259,25 @@ cmd_validate() {
 }
 
 cmd_rotate() {
-  local token
-  token="$(resolve_token "${1:-}")"
+  local token cfg
+  token="$(resolve_token)"
   note "rotating: the old token stops working everywhere, immediately"
-  req -X POST "$API/api/v1/token/rotate" -H "Authorization: Bearer $token" | pretty
+  cfg="$(printf 'header = "Authorization: Bearer %s"' "$(cfg_escape "$token")")"
+  printf '%s' "$cfg" | req_secret "$API/api/v1/token/rotate" -X POST | store_token_response
 }
 
 cmd_test() {
-  local exit_id token body code ip
+  local exit_id token body cfg code ip
   exit_id="${1:-us-central1}"
-  token="$(resolve_token "${2:-}")"
-  body="$(json_token_body "$token")"
-  code="$(req -o /dev/null -w '%{http_code}' -X POST "$WEB/api/token/validate" \
-          -H 'content-type: application/json' --data "$body")"
+  token="$(resolve_token)"
+  body="$(printf '%s' "$token" | json_token_body)"
+  cfg="$(printf 'header = "content-type: application/json"\ndata = "%s"' "$(cfg_escape "$body")")"
+  code="$(printf '%s' "$cfg" | req_secret "$WEB/api/token/validate" \
+          -o /dev/null -w '%{http_code}')"
   [ "$code" = "204" ] || die "token invalid before test (HTTP $code)"
-  ip="$(req --proxy "socks5h://${exit_id}.x402socks.com:1080" \
-            --proxy-user "$token:$token" https://api.ipify.org)" \
+  cfg="$(printf 'proxy = "socks5h://%s.x402socks.com:1080"\nproxy-user = "%s:%s"' \
+        "$exit_id" "$(cfg_escape "$token")" "$(cfg_escape "$token")")"
+  ip="$(printf '%s' "$cfg" | req_secret https://api.ipify.org)" \
        || die "egress failed via $exit_id"
   printf 'exit: %s\negress IP: %s\n' "$exit_id" "$ip"
   note "compare with your direct IP: curl -s https://api.ipify.org"
@@ -167,11 +295,11 @@ cmd_recover_message() {
 
 cmd_recover() {
   [ $# -ge 2 ] || die "usage: recover <tx_hash> <signature> [issued_at]"
-  local tx sig issued_at body
+  local tx sig issued_at body cfg
   tx="$1"; sig="$2"; issued_at="${3:-$(date +%s)}"
-  body="$(python3 -c 'import json,sys; print(json.dumps({"transaction": sys.argv[1], "signature": sys.argv[2], "issued_at": int(sys.argv[3])}))' "$tx" "$sig" "$issued_at")"
-  req -X POST "$PAY/v1/access/recover" \
-      -H 'content-type: application/json' --data "$body" | pretty
+  body="$(python3 -c 'import json, sys; print(json.dumps({"transaction": sys.argv[1], "signature": sys.argv[2], "issued_at": int(sys.argv[3])}))' "$tx" "$sig" "$issued_at")"
+  cfg="$(printf 'header = "content-type: application/json"\ndata = "%s"' "$(cfg_escape "$body")")"
+  printf '%s' "$cfg" | req_secret "$PAY/v1/access/recover" -X POST | store_token_response
 }
 
 main() {
@@ -183,10 +311,12 @@ main() {
     nodes)           need python3; cmd_nodes "${1:-}" ;;
     catalog)         need python3; cmd_catalog "${1:-}" ;;
     price)           need python3; cmd_price "$@" ;;
-    status)          need python3; cmd_status "${1:-}" ;;
-    validate)        need python3; cmd_validate "${1:-}" ;;
-    rotate)          cmd_rotate "${1:-}" ;;
-    test)            need python3; cmd_test "${1:-}" "${2:-}" ;;
+    quote)           need python3; cmd_quote "${1:-}" ;;
+    save-token)      cmd_save_token ;;
+    status)          need python3; cmd_status ;;
+    validate)        need python3; cmd_validate ;;
+    rotate)          need python3; cmd_rotate ;;
+    test)            need python3; cmd_test "${1:-}" ;;
     recover-message) cmd_recover_message "$@" ;;
     recover)         need python3; cmd_recover "$@" ;;
     -h|--help|help)  usage ;;

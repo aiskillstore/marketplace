@@ -1,10 +1,11 @@
 ---
 name: x402socks
-description: Buy and use pay-per-use anonymous proxy egress for AI agents via x402socks.com, paid in USDC on Base with the x402 protocol. Use when a task needs a different source IP, rotating or geo-specific egress, or an unblocked fetch - triggers include "get a proxy", "route this through a proxy", "rotate my IP", "scrape without getting blocked", "anonymous proxy for an agent", "pay for a proxy with USDC", "x402 proxy", "x402socks", or any request for short-lived SOCKS5 egress on a per-job basis.
+description: Use this skill when an agent needs a different source IP, rotating or geo-specific egress, or an unblocked fetch - for example "get a proxy", "route this through a proxy", "rotate my IP", "scrape without getting blocked", "anonymous proxy for an agent", "pay for a proxy with USDC", "x402 proxy", or "x402socks". It buys pay-per-use anonymous SOCKS5 egress from x402socks.com, paid in USDC on Base with the x402 protocol.
 license: MIT
+version: 1.1.0
 metadata:
   author: x402socks
-  version: 1.0.0
+  version: 1.1.0
   homepage: https://x402socks.com
 ---
 
@@ -19,12 +20,15 @@ Buy anonymous SOCKS5 egress for an agent, paying in USDC on Base through **x402*
 curl -s https://x402socks.com/api/health          # {"status":"ok",...}
 curl -s https://x402socks.com/nodes.json          # keep nodes where disabled == false
 
-# 2. Buy a package (x402 library does the 402 handshake) -> see references/payments.md
-#    Credential comes back once: {"account":{...},"token":"..."}
+# 2. Check the live price against the approved cap (free, no wallet)
+X402SOCKS_MAX_USDC=1.00 scripts/x402socks.sh quote time_6h
 
-# 3. Use it
-curl --proxy socks5h://us-central1.x402socks.com:1080 \
-     --proxy-user "$X402SOCKS_TOKEN:$X402SOCKS_TOKEN" https://api.ipify.org
+# 3. Buy a package (x402 library does the 402 handshake) -> see references/payments.md
+#    Credential comes back once: {"account":{...},"token":"..."}
+scripts/x402socks.sh save-token                   # paste token, Ctrl-D; stored mode 600
+
+# 4. Prove the exit works (token is read from the file, never argv)
+scripts/x402socks.sh test us-central1
 ```
 
 ## Spending rule — read before paying
@@ -36,6 +40,12 @@ Buying spends real money from the user's wallet. **Do not pay without explicit a
 3. Wait for a clear yes.
 
 Prefer the cheapest package that covers the job. A $1 / 6-hour token is almost always the right first purchase; upgrading later is cheaper than overbuying now.
+
+An approval is an **amount**, not a package name. Enforce it in code against the
+402 challenge that is about to be signed; a full-price or swapped challenge must
+abort before signing. `scripts/x402socks.sh quote <package_id>` prints the live
+amount and exits non-zero when it exceeds `X402SOCKS_MAX_USDC`. Client-side
+guards for the TypeScript and Python libraries are in `references/payments.md`.
 
 ## Pricing (live catalog, USD)
 
@@ -55,7 +65,7 @@ Always re-read `/catalog.json` at buy time — the table above is a snapshot, no
 ## Steps
 
 1. **Verify the service.** `GET /api/health` must return `{"status":"ok"}`. If a chosen exit is down, pick another from `/nodes.json`.
-2. **Quote the price** from `/catalog.json` and get user approval (see spending rule).
+2. **Quote the price** from `/catalog.json` and get user approval (see spending rule). Then re-read the live 402 amount and compare it to that approval before signing.
 3. **Request access.** `POST https://payments.x402socks.com/v1/access/{package_id}` with `{}`. Expect HTTP 402 plus a base64 `PAYMENT-REQUIRED` header.
 4. **Pay and retry.** Select the requirement from `accepts[]`, sign an x402 v2 EIP-3009 authorization, retry the same URL with `PAYMENT-SIGNATURE`. Details and working code: `references/payments.md`.
 5. **Capture the token** from the 200 response. It is returned once, and only once.
@@ -67,9 +77,10 @@ A helper script ships with this skill:
 ```bash
 scripts/x402socks.sh health
 scripts/x402socks.sh nodes --available
-scripts/x402socks.sh catalog --summary
-scripts/x402socks.sh status            # reads $X402SOCKS_TOKEN
-scripts/x402socks.sh test              # confirms egress IP actually changed
+scripts/x402socks.sh quote time_6h     # exits non-zero above $X402SOCKS_MAX_USDC
+scripts/x402socks.sh save-token        # stdin -> ~/.config/x402socks/token (0600)
+scripts/x402socks.sh status            # reads the token file, never argv
+scripts/x402socks.sh test us-central1  # confirms egress IP actually changed
 ```
 
 ## Routing traffic
@@ -87,33 +98,37 @@ SOCKS5 on TCP 1080, on every exit. The fleet is not fixed — nodes are added, r
 | `asia-central2` | APAC Singapore        |
 | `asia-west1`    | APAC India            |
 
-An HTTP CONNECT variant also runs on **port 3128** for `us-central1`, `eu-central1`, and `asia-central2` only. It is plaintext on the client-to-node hop. Use it for browsers or HTTP clients that cannot send SOCKS5 credentials.
+An HTTP CONNECT variant also runs on **port 3128** for `us-central1`, `eu-central1`, and `asia-central2`, and as a **TLS listener on port 3129** for `eu-north1`, `asia-west1`, and `asia-central2`. The 3128 hop is plaintext: the reusable token crosses the client-to-node path unencrypted. Use **3129** when the exit offers it, and use 3128 only on a network you already trust (or for a client that cannot do SOCKS5 credentials). SOCKS5 has the same limitation — RFC 1929 authentication is not encrypted.
 
-```bash
+```python
 # Python (requests)
-proxies = {"http": "socks5h://TOKEN:TOKEN@us-central1.x402socks.com:1080",
-           "https": "socks5h://TOKEN:TOKEN@us-central1.x402socks.com:1080"}
+import os
+t = open(os.path.expanduser("~/.config/x402socks/token")).read().strip()
+proxies = {"http": f"socks5h://{t}:{t}@us-central1.x402socks.com:1080",
+           "https": f"socks5h://{t}:{t}@us-central1.x402socks.com:1080"}
 # requires: pip install "requests[socks]"
 
 # Node (undici)
 // use a ProxyAgent; see references/endpoints.md for the exact snippet
 
-# Browser / HTTP client
-# http://us-central1.x402socks.com:3128  (token as username AND password)
+# Browser / HTTP client (TLS CONNECT preferred)
+# https://eu-north1.x402socks.com:3129  (token as username AND password)
+# http://us-central1.x402socks.com:3128 (plaintext, trusted networks only)
 ```
 
 Prefer `socks5h://` over `socks5://` so DNS resolves at the exit rather than locally — otherwise the local resolver still leaks your target hostname.
 
 ## Credential rules (hard)
 
-- The token is a secret. Never put it in source control, logs, analytics, browser storage, shared URLs, or shell history. Export it as an environment variable and substitute locally.
+- The token is a secret. Store it in a file with mode `0600` (`X402SOCKS_TOKEN_FILE`, default `~/.config/x402socks/token`) or an environment variable. Never put it in source control, logs, analytics, browser storage, shared URLs, or shell history.
+- Never pass the token as a command argument. `curl --proxy-user "$TOKEN:$TOKEN"` and `-H "Authorization: Bearer $TOKEN"` are visible in the process list and in command telemetry. Feed those options through stdin or a `0600` config file; `scripts/x402socks.sh` does this for curl, and `references/endpoints.md` has the pattern for other clients.
 - Never echo a token into a chat transcript or a commit. If a token appears in output, treat it as burned and rotate it.
-- A token in a URL (`socks5h://TOKEN:TOKEN@...`) can leak via process listings. Prefer client-level credential config or `--proxy-user` with a variable.
-- Rotate on any suspicion of exposure: `scripts/x402socks.sh rotate`. Rotation invalidates the old token immediately, everywhere.
+- SOCKS5 and plaintext HTTP CONNECT authenticate with the token in cleartext on the client-to-proxy hop. Prefer TLS CONNECT on port 3129 where available, and avoid both on a shared network.
+- Rotate on any suspicion of exposure: `scripts/x402socks.sh rotate`. Rotation invalidates the old token immediately, everywhere; the helper saves the replacement to the `0600` file and prints only a redacted response.
 
 ## Rotation and recovery
 
-- **Rotate** (you still hold the token): `POST https://api.x402socks.com/api/v1/token/rotate` with `Authorization: Bearer $TOKEN`. The presented token is both the credential and the object being rotated. Update every client immediately.
+- **Rotate** (you still hold the token): `POST https://api.x402socks.com/api/v1/token/rotate` with the token in a bearer header supplied from the `0600` file, never on the command line. The presented token is both the credential and the object being rotated. Update every client immediately. The helper saves the replacement to the `0600` file and prints a redacted response — never paste the raw response into a transcript.
 - **Recover** (payment settled, token lost): `POST https://payments.x402socks.com/v1/access/recover` with the settlement tx hash and an EIP-191 signature from the paying wallet over a fixed message. Free, and safe to retry. Never pay twice for the same access — see `references/payments.md`.
 - Recovery signatures expire in ±10 minutes, so generate the message, sign it, and submit promptly.
 
@@ -124,7 +139,7 @@ Prefer `socks5h://` over `socks5://` so DNS resolves at the exit rather than loc
 - Data caps are **fair use**. Sustained bulk transfer may be throttled or cut off.
 - **Failed connections are non-refundable by default.** Validate the token and the exit before blaming the target site.
 - Amounts in the 402 challenge are atomic USDC units (6 decimals): `"1000000"` is $1.00. Do not confuse them with the decimal prices in the catalog.
-- The runtime challenge is authoritative for network, asset, recipient, and amount. Never hardcode them from documentation, including this file.
+- The runtime challenge is authoritative for network, asset, recipient, and amount. Never hardcode them from documentation, including this file. Compare the live amount to the user's approval in code before signing; a catalog quote is not a payment limit.
 - Support is a Telegram channel (`https://t.me/x402socks`), not a ticket queue.
 
 ## References
