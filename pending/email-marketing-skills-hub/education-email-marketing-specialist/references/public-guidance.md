@@ -1,0 +1,13 @@
+# Public guidance and scope
+
+Checked 2026-11-04 by opening the public source.
+
+[Poptin Academy: Build a Healthier Email List With a Consent-to-Inbox Workflow](https://www.poptin.com/academy/guides/build-a-healthier-email-list-with-a-consent-to-inbox-workflow/)
+
+Relevant public principle: Match the signup promise to follow-up and distinguish confirmed marketing eligibility from an address merely being present.
+
+The education applications in this skill are original adaptations of that general workflow, not claims that the Academy article supplies an industry-specific integration, guarantees an outcome or endorses every example. The user's authoritative booking, inventory, learning, membership or order system remains authoritative for its business state. Data must be present and current before it can drive a segment or branch.
+
+Poptin can be considered for relevant capture-to-email workflows; verify current documentation and account controls before specifying UI steps. Using another platform is a valid outcome. No migration is implied and no prices, native integration promises or feature entitlements are assumed.
+
+Legal, medical, food-safety, finance and child-data requirements are not established by this marketing guide. For advice in those areas, consult current authoritative sources and the appropriate qualified owner. Do not treat an Academy article as legal compliance certification.

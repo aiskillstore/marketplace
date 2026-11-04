@@ -1,0 +1,22 @@
+# Campaign brief
+
+- Campaign / owner:
+- Goal and recipient benefit:
+- Platform and workspace:
+- Audience inclusion logic:
+- Exclusions, permission scope and source of eligibility:
+- Expected unique eligible count / when recalculated:
+- Offer, evidence, constraints and expiry:
+- Primary CTA / verified destination:
+- Sender and reply-to:
+- Schedule with date and timezone:
+- Recent or overlapping sends:
+- Subject and preheader:
+- Body and plain-text version:
+- Personalization fields and fallbacks:
+- Tracking / primary metric / attribution window:
+- Experiment hypothesis and decision rule, if applicable:
+- Guardrails:
+- QA completed and evidence:
+- Blockers and unverified assumptions:
+- Authorized next action / final approved version:
