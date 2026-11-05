@@ -60,6 +60,17 @@ jobs:
             exit 1
           }
 
+          # Scope is pinned to this workflow revision, not supplied by the dispatch caller.
+          SCOPE=$(gh api "repos/$REPOSITORY/contents/scripts/publication-scope.json?ref=$GITHUB_SHA" --jq .content | base64 --decode)
+          jq -e --argjson scope "$SCOPE" '
+            (.created_at | test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$")) and
+            ($scope.createdAfter | test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\\.[0-9]{3}Z$")) and
+            ((.created_at | fromdateiso8601) > ($scope.createdAfter | sub("\\.[0-9]{3}Z$"; "Z") | fromdateiso8601))
+          ' <<< "$PR" >/dev/null || {
+            echo "::error::Publication is outside the approved creation-time scope"
+            exit 1
+          }
+
           MERGE_COMMIT_SHA=$(jq -er '.merge_commit_sha' <<< "$PR")
           BASE_COMMIT_SHA=$(jq -er '.base.sha' <<< "$PR")
           HEAD_SHA=$(jq -er '.head.sha' <<< "$PR")

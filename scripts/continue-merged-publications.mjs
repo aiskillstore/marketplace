@@ -4,6 +4,7 @@ import { appendFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { publicationValidatorRevision, assertPublicationReportNotHeld } from './resolve-approved-submission.mjs';
 import { recoveredPushSync } from './recovered-push-sync.mjs';
+import { publicationInScope } from './publication-scope.mjs';
 
 export const preflightContext = digest => `agentcrew/publication-preflight/${createHash('sha256')
   .update(`${digest}:${publicationValidatorRevision}`).digest('hex')}`;
@@ -158,7 +159,7 @@ export function main(request = api) {
   }
   const unmatched = [...reports.keys()].filter(p => !owners.has(p));
   if (unmatched.length) console.error(`::warning::Pending reports need provenance inspection: ${unmatched.join(', ')}`);
-  const candidates = [...new Set(owners.values())].sort((a, b) => a.merged_at.localeCompare(b.merged_at));
+  const candidates = [...new Set(owners.values())].filter(publicationInScope).sort((a, b) => a.merged_at.localeCompare(b.merged_at));
   console.log(JSON.stringify({ pending: reports.size, candidates: candidates.map(p => p.number), unmatched }));
   const selected = [];
   const rejected = [];
