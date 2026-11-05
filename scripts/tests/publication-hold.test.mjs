@@ -7,9 +7,9 @@ import { main } from '../continue-merged-publications.mjs';
 const path='pending/cagdasyurekli/agy-worker/skill-report.json';
 const oldBlob='9db4ee7c8a2fe82d3dd189dfb36198d10ffd583f';
 const newBlob='a'.repeat(40);
-function exercise(blob,apply=true){
+function exercise(blob,apply=true,createdAt='2026-11-05T00:00:00Z'){
  const calls=[],writes=[];
- const pr={number:3697,changed_files:1,merged_at:'2026-10-07T01:01:08Z',base:{ref:'main'},
+ const pr={number:3697,changed_files:1,created_at:createdAt,merged_at:'2026-11-05T01:01:08Z',base:{ref:'main'},
   user:{id:254047988,login:'ai-skill-store[bot]'},head:{repo:{full_name:'aiskillstore/marketplace'},ref:'submission/test',sha:'b3abb28a220e59e65bd5a5225d7f84a483cb12aa'},
   merge_commit_sha:'561c1742ac3fb557a3b96169586dad1dd14454c6'};
  const request=(endpoint,data)=>{
@@ -46,6 +46,10 @@ test('an unrelated blob is not automatically held and still follows ordinary gat
  const result=exercise(newBlob);
  assert.equal(result.error,undefined);assert.equal(result.writes.length,1);
  assert.match(result.writes[0].endpoint,/publish-approved-batch.yml\/dispatches$/);
+});
+test('an unrelated blob still cannot publish a cancelled-era owner',()=>{
+ const result=exercise(newBlob,true,'2026-10-07T00:00:00Z');
+ assert.equal(result.error,undefined);assert.deepEqual(result.writes,[]);
 });
 test('shared guard is pinned to exact report path and immutable blob, not all agy-worker versions',()=>{
  assert.equal(typeof resolver.assertPublicationReportNotHeld,'function');
