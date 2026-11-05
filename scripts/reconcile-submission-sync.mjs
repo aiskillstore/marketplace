@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
+import { verifyCacheOnlyStages, verifiedWarmArtifact } from './cache-only-reconciliation.mjs';
 
 const repo = 'aiskillstore/marketplace';
 const prefix = `repos/${repo}`;
@@ -79,18 +80,20 @@ function step(jobs, name, conclusion) {
   const matches = jobs.flatMap(j => j.steps ?? []).filter(s => s.name === name);
   assert.ok(matches.length === 1 && matches[0].conclusion === conclusion, `Missing closed step: ${name}`);
 }
-function trustedRun(run, event, conclusion) {
+function trustedRun(run, event, conclusion, path = syncPath) {
   assert.ok(Number.isSafeInteger(run.id) && run.id > 0 && Number.isSafeInteger(run.run_attempt) && run.run_attempt > 0);
   assert.ok(run.event === event && run.status === 'completed' && run.conclusion === conclusion
     && run.head_branch === 'main' && run.head_repository?.full_name === repo
-    && run.path === syncPath && sha40.test(run.head_sha), 'Untrusted run');
+    && run.path === path && sha40.test(run.head_sha), 'Untrusted run');
 }
 
 // Bounded intentionally: one linear submission publication, <=25 canonical roots.
 // Accumulated/multi-publication pushes need their own explicit inspected proof.
 export function verifySubmissionRecovery(e) {
   trustedRun(e.push, 'push', 'failure');
-  trustedRun(e.recovery, 'workflow_dispatch', 'success');
+  const cacheOnly = e.recovery.path === '.github/workflows/warm-cache.yml';
+  trustedRun(e.recovery, 'workflow_dispatch', 'success', cacheOnly ? '.github/workflows/warm-cache.yml' : syncPath);
+  if (cacheOnly) assert.equal(e.recovery.head_sha, e.push.head_sha, 'Cache recovery source tree mismatch');
   const resumed = e.recovery.display_title === `Recover provider sync ${e.push.id}`;
   assert.ok((e.recovery.head_sha === e.push.head_sha || resumed) && e.recovery.id !== e.push.id
     && Date.parse(e.recovery.created_at) > Date.parse(e.push.created_at), 'Recovery version mismatch');
@@ -114,20 +117,24 @@ export function verifySubmissionRecovery(e) {
         && matches[0].published === matches[0].recovered, 'Resumed source tree mismatch');
     }
   }
-  step(original, 'Wait for authoritative publication completion', 'success');
-  const originalProvider = original.flatMap(j => j.steps ?? []).filter(s => s.name === 'Sync skills to Supabase');
-  assert.equal(originalProvider.length, 1);
-  if (originalProvider[0].conclusion === 'success') {
-    assert.ok(resumed, 'Provider-complete recovery requires inspected resume mode');
-    step(original, 'Upload provider-complete synced slugs artifact', 'success');
-    step(original, 'Notify skillstore - Published submissions', 'failure');
-  } else step(original, 'Sync skills to Supabase', 'failure');
-  for (const name of ['Sync skills to Supabase', 'Upload provider-complete synced slugs artifact',
-    'Notify skillstore - Published submissions']) step(recovered, name, 'success');
-  step(recovered, 'Reconcile durable security change events', originalProvider[0].conclusion === 'success' ? 'skipped' : 'success');
-  for (const name of ['calculate-scores', 'cache-invalidate']) {
-    const matches = recovered.filter(j => j.name === name);
-    assert.ok(matches.length === 1 && matches[0].conclusion === 'success', `Incomplete ${name}`);
+  if (cacheOnly) {
+    verifyCacheOnlyStages(e, original, recovered);
+  } else {
+    step(original, 'Wait for authoritative publication completion', 'success');
+    const originalProvider = original.flatMap(j => j.steps ?? []).filter(s => s.name === 'Sync skills to Supabase');
+    assert.equal(originalProvider.length, 1);
+    if (originalProvider[0].conclusion === 'success') {
+      assert.ok(resumed, 'Provider-complete recovery requires inspected resume mode');
+      step(original, 'Upload provider-complete synced slugs artifact', 'success');
+      step(original, 'Notify skillstore - Published submissions', 'failure');
+    } else step(original, 'Sync skills to Supabase', 'failure');
+    for (const name of ['Sync skills to Supabase', 'Upload provider-complete synced slugs artifact',
+      'Notify skillstore - Published submissions']) step(recovered, name, 'success');
+    step(recovered, 'Reconcile durable security change events', originalProvider[0].conclusion === 'success' ? 'skipped' : 'success');
+    for (const name of ['calculate-scores', 'cache-invalidate']) {
+      const matches = recovered.filter(j => j.name === name);
+      assert.ok(matches.length === 1 && matches[0].conclusion === 'success', `Incomplete ${name}`);
+    }
   }
   assert.ok(e.files.length > 0 && e.files.length < 300, 'Incomplete changed files');
   const roots = new Set(publicationRoots(e.files));
@@ -160,19 +167,38 @@ export function verifyProviderProjection(expected, skills, artifacts) {
     assert.equal(a[field],expected[field],`Current artifact ${field}`);
   }
 }
-function rawApi(endpoint) {
-  return execFileSync('gh',['api',endpoint],{maxBuffer:2*1024*1024,timeout:30000});
+export function createGithubEvidenceReader(execute = execFileSync) {
+  let allowsEscapes;
+  const capture = { maxBuffer: 2 * 1024 * 1024, timeout: 30000, stdio: ['ignore', 'pipe', 'pipe'] };
+  return endpoint => {
+    const args = ['api', endpoint];
+    if (/\/actions\/(?:artifacts\/[1-9][0-9]*\/zip|jobs\/[1-9][0-9]*\/logs)$/.test(endpoint)) {
+      // New gh guards non-JSON output even when piped. These bytes go only to
+      // bounded process buffers and strict verifiers, never a terminal or shell.
+      // Probe local help once, so older supported gh versions remain usable.
+      if (allowsEscapes === undefined) {
+        const help = execute('gh', ['api', '--help'], capture).toString('utf8');
+        allowsEscapes = /(?:^|\s)--allow-escape-sequences(?:\s|$)/.test(help);
+      }
+      if (allowsEscapes) args.push('--allow-escape-sequences');
+    }
+    return execute('gh', args, capture);
+  };
 }
+const rawApi = createGithubEvidenceReader();
 const api = endpoint => JSON.parse(rawApi(endpoint));
-export function artifactSlugs(runId) {
+function sourceArtifact(runId) {
   const result=api(`${prefix}/actions/runs/${runId}/artifacts?per_page=100`);
   assert.ok(result.total_count === result.artifacts.length && result.total_count < 100);
   const matches=result.artifacts.filter(a=>a.name==='synced-slugs');
   assert.equal(matches.length,1,'One exact provider artifact required');
   const a=matches[0];
   assert.ok(!a.expired && a.size_in_bytes>0 && a.size_in_bytes<=65536 && /^sha256:[a-f0-9]{64}$/.test(a.digest), 'Invalid artifact metadata');
-  const zip=rawApi(`${prefix}/actions/artifacts/${a.id}/zip`);
-  return verifiedArtifactSlugs(zip,a);
+  return a;
+}
+export function artifactSlugs(runId) {
+  const a = sourceArtifact(runId);
+  return verifiedArtifactSlugs(rawApi(`${prefix}/actions/artifacts/${a.id}/zip`), a);
 }
 export function verifiedArtifactSlugs(zip,a) {
   assert.ok(!a.expired && a.size_in_bytes===zip.length && zip.length>0 && zip.length<=65536);
@@ -242,7 +268,26 @@ export async function main() {
     return {root,meta:{slug:meta.slug,source_type:meta.source_type,source_ref:meta.source_ref,source_url:meta.source_url,content_hash:meta.content_hash,tree_hash:meta.tree_hash}};
   });
   const jobs=run=>api(`${prefix}/actions/runs/${run.id}/attempts/${run.run_attempt}/jobs?per_page=100`);
-  const plan=verifySubmissionRecovery({push,recovery,baseline,commit,pr,files:comparison.files,reports,recoveryTrees,slugs:artifactSlugs(recovery.id),originalJobs:jobs(push),recoveryJobs:jobs(recovery)});
+  const originalJobs = jobs(push), recoveryJobs = jobs(recovery);
+  const cacheOnly = recovery.path === '.github/workflows/warm-cache.yml';
+  let cacheEvidence, slugs;
+  if (cacheOnly) {
+    const a = sourceArtifact(push.id);
+    slugs = verifiedArtifactSlugs(rawApi(`${prefix}/actions/artifacts/${a.id}/zip`), a);
+    const inventory = api(`${prefix}/actions/runs/${recovery.id}/artifacts?per_page=100`);
+    assert.equal(inventory.total_count, inventory.artifacts.length);
+    const artifacts = inventory.artifacts.filter(a => a.name === `warm-cache-verification-${recovery.id}`);
+    assert.equal(artifacts.length, 1, 'One exact warm artifact required');
+    const artifact = artifacts[0];
+    assert.ok(artifact.workflow_run?.id === recovery.id && artifact.workflow_run.head_sha === recovery.head_sha);
+    const warmJobs = closedJobs(recoveryJobs).filter(j => j.name === 'warm');
+    assert.equal(warmJobs.length, 1);
+    assert.ok(Number.isSafeInteger(warmJobs[0].id) && warmJobs[0].id > 0);
+    cacheEvidence = { sourceArtifact: a,
+      ...verifiedWarmArtifact(rawApi(`${prefix}/actions/artifacts/${artifact.id}/zip`), artifact),
+      log: rawApi(`${prefix}/actions/jobs/${warmJobs[0].id}/logs`).toString('utf8') };
+  } else slugs = artifactSlugs(recovery.id);
+  const plan=verifySubmissionRecovery({push,recovery,baseline,commit,pr,files:comparison.files,reports,recoveryTrees,slugs,originalJobs,recoveryJobs,cacheEvidence});
   for(const expected of plan) {
     const skills=await providerRead('skills',['slug',expected.slug],'id,slug,plugin_path,marketplace_commit_sha,content_hash,tree_hash,current_artifact_version_id,artifact_revision');
     assert.equal(skills.length,1);
