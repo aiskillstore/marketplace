@@ -5,6 +5,7 @@ import { pathToFileURL } from 'node:url';
 import { publicationIdentity, chooseAttempt, batchIdentity, preflightContext, maxBatchSkills, publicationFiles } from './continue-merged-publications.mjs';
 import { resolveApprovedSubmission, PublicationValidationError } from './resolve-approved-submission.mjs';
 import { recoveredPushSync } from './recovered-push-sync.mjs';
+import { assertPublicationInScope } from './publication-scope.mjs';
 
 export { batchIdentity } from './continue-merged-publications.mjs';
 
@@ -69,6 +70,7 @@ export async function main() {
   if (!process.env.SKILLSTORE_API_URL || !process.env.SKILLSTORE_CALLBACK_TOKEN) throw new Error('Missing callback configuration');
   const rows = numbers.map(number => {
     const pr = api(`pulls/${number}`);
+    assertPublicationInScope(pr);
     const identity = publicationIdentity(pr);
     const files = publicationFiles(pr, endpoint => api(endpoint.slice(`repos/${repository}/`.length))).map(f => f.filename);
     const roots = [...new Set(files.filter(f => /\/(SKILL\.md|skill-report\.json)$/.test(f)).map(f => f.slice(0, f.lastIndexOf('/'))))];
