@@ -167,9 +167,25 @@ export function verifyProviderProjection(expected, skills, artifacts) {
     assert.equal(a[field],expected[field],`Current artifact ${field}`);
   }
 }
-function rawApi(endpoint) {
-  return execFileSync('gh',['api',endpoint],{maxBuffer:2*1024*1024,timeout:30000});
+export function createGithubEvidenceReader(execute = execFileSync) {
+  let allowsEscapes;
+  const capture = { maxBuffer: 2 * 1024 * 1024, timeout: 30000, stdio: ['ignore', 'pipe', 'pipe'] };
+  return endpoint => {
+    const args = ['api', endpoint];
+    if (/\/actions\/(?:artifacts\/[1-9][0-9]*\/zip|jobs\/[1-9][0-9]*\/logs)$/.test(endpoint)) {
+      // New gh guards non-JSON output even when piped. These bytes go only to
+      // bounded process buffers and strict verifiers, never a terminal or shell.
+      // Probe local help once, so older supported gh versions remain usable.
+      if (allowsEscapes === undefined) {
+        const help = execute('gh', ['api', '--help'], capture).toString('utf8');
+        allowsEscapes = /(?:^|\s)--allow-escape-sequences(?:\s|$)/.test(help);
+      }
+      if (allowsEscapes) args.push('--allow-escape-sequences');
+    }
+    return execute('gh', args, capture);
+  };
 }
+const rawApi = createGithubEvidenceReader();
 const api = endpoint => JSON.parse(rawApi(endpoint));
 function sourceArtifact(runId) {
   const result=api(`${prefix}/actions/runs/${runId}/artifacts?per_page=100`);
