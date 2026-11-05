@@ -1,0 +1,565 @@
+#!/usr/bin/env node
+"use strict";
+
+const fs = require("fs");
+const http = require("http");
+const https = require("https");
+const os = require("os");
+const path = require("path");
+const { spawnSync } = require("child_process");
+const { URL } = require("url");
+
+const DEFAULT_MARKETPLACE_URL =
+  "https://raw.githubusercontent.com/screenrig/plugin/main/.claude-plugin/marketplace.json";
+const PRODUCT_VERSION = /^(\d{2})\.(0[1-9]|1[0-2])\.([1-9]\d*)$/;
+const FETCH_TIMEOUT_MS = 8000;
+const FETCH_MAX_BYTES = 256 * 1024;
+const VERSION_TIMEOUT_MS = 15000;
+
+function nonempty(value) {
+  return typeof value === "string" && value.trim() !== "" ? value.trim() : "";
+}
+
+// Each plugin-root variable is read by its literal name.
+function pluginRootFromEnv() {
+  return (
+    nonempty(process.env.SCREENRIG_PLUGIN_ROOT) ||
+    nonempty(process.env.GROK_PLUGIN_ROOT) ||
+    nonempty(process.env.CODEX_PLUGIN_ROOT) ||
+    nonempty(process.env.CLAUDE_PLUGIN_ROOT) ||
+    nonempty(process.env.PLUGIN_ROOT)
+  );
+}
+
+function readJsonFile(file) {
+  try {
+    const parsed = JSON.parse(fs.readFileSync(file, "utf8"));
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function versionField(value) {
+  return typeof value === "string" && value.trim() !== "" ? value.trim() : "";
+}
+
+// The release stamps the plugin's version into its bundled CLI package, so that
+// file names the installed plugin version on every host.
+function readPluginVersion(pluginRoot) {
+  const parsed = readJsonFile(path.join(pluginRoot, "cli", "package.json"));
+  return parsed ? versionField(parsed.version) : "";
+}
+
+function versionFromScreenrig(command) {
+  const result = spawnSync(command, ["--json", "version"], {
+    encoding: "utf8",
+    timeout: VERSION_TIMEOUT_MS,
+    windowsHide: true,
+  });
+  if (!result || result.error || result.status !== 0 || !result.stdout) {
+    return "";
+  }
+  try {
+    const envelope = JSON.parse(result.stdout);
+    if (!envelope || envelope.ok !== true || !envelope.data || typeof envelope.data !== "object") {
+      return "";
+    }
+    return versionField(envelope.data.version);
+  } catch {
+    return "";
+  }
+}
+
+function readCliVersion(pluginRoot) {
+  const sibling = path.join(__dirname, "screenrig");
+  const fromSibling = fs.existsSync(sibling) ? versionFromScreenrig(sibling) : "";
+  if (fromSibling) {
+    return fromSibling;
+  }
+  const parsed = readJsonFile(path.join(pluginRoot, "cli", "package.json"));
+  return parsed ? versionField(parsed.version) : "";
+}
+
+function publishedVersionFromBody(body) {
+  let parsed;
+  try {
+    parsed = JSON.parse(body);
+  } catch {
+    return "";
+  }
+  const plugins = parsed && parsed.plugins;
+  if (!Array.isArray(plugins) || plugins.length < 1 || !plugins[0] || typeof plugins[0] !== "object") {
+    return "";
+  }
+  return versionField(plugins[0].version);
+}
+
+// rankProductVersion parses YY.MM.N so versions order as CalVer rather than
+// compare as raw strings.
+function rankProductVersion(value) {
+  const match = PRODUCT_VERSION.exec(value);
+  if (!match) return null;
+  return [Number(match[1]), Number(match[2]), Number(match[3])];
+}
+
+// An installed version is stale only when it orders below the published
+// CalVer; an equal or newer install is current. An install string that is not
+// YY.MM.N (the 0.1.x era or an old `-dev` build) predates every release.
+function olderThanPublished(installed, published) {
+  const target = rankProductVersion(published);
+  if (!installed || !target) return false;
+  const current = rankProductVersion(installed);
+  if (!current) return true;
+  for (let index = 0; index < target.length; index += 1) {
+    if (current[index] !== target[index]) return current[index] < target[index];
+  }
+  return false;
+}
+
+function allowedMarketplaceUrl(url) {
+  if (url.protocol === "file:") {
+    return true;
+  }
+  if (url.protocol === "http:" && (url.hostname === "127.0.0.1" || url.hostname === "localhost")) {
+    return true;
+  }
+  return url.protocol === "https:" && url.hostname === "raw.githubusercontent.com";
+}
+
+function fetchUrl(urlString, redirects) {
+  return new Promise((resolve, reject) => {
+    let url;
+    try {
+      url = new URL(urlString);
+    } catch {
+      reject(new Error("invalid_url"));
+      return;
+    }
+    if (!allowedMarketplaceUrl(url)) {
+      reject(new Error("unavailable"));
+      return;
+    }
+    if (url.protocol === "file:") {
+      try {
+        resolve(fs.readFileSync(url, "utf8"));
+      } catch {
+        reject(new Error("unavailable"));
+      }
+      return;
+    }
+    const remaining = redirects === undefined ? 3 : redirects;
+    const transport = url.protocol === "https:" ? https : http;
+    const request = transport.get(
+      url,
+      {
+        headers: { Accept: "application/json", "User-Agent": "screenrig-plugin-freshness" },
+        timeout: FETCH_TIMEOUT_MS,
+      },
+      (response) => {
+        const status = response.statusCode || 0;
+        if (status >= 300 && status < 400 && response.headers.location && remaining > 0) {
+          response.resume();
+          fetchUrl(new URL(response.headers.location, url).href, remaining - 1).then(resolve, reject);
+          return;
+        }
+        if (status !== 200) {
+          response.resume();
+          reject(new Error("unavailable"));
+          return;
+        }
+        const chunks = [];
+        let size = 0;
+        response.on("data", (chunk) => {
+          size += chunk.length;
+          if (size > FETCH_MAX_BYTES) {
+            request.destroy();
+            reject(new Error("unavailable"));
+            return;
+          }
+          chunks.push(chunk);
+        });
+        response.on("end", () => {
+          resolve(Buffer.concat(chunks).toString("utf8"));
+        });
+        response.on("error", () => reject(new Error("unavailable")));
+      },
+    );
+    request.on("timeout", () => {
+      request.destroy();
+      reject(new Error("unavailable"));
+    });
+    request.on("error", () => reject(new Error("unavailable")));
+  });
+}
+
+function writeEnvelope(payload, code) {
+  process.stdout.write(`${JSON.stringify(payload)}\n`);
+  process.exitCode = code;
+}
+
+function usageError(detail) {
+  writeEnvelope(
+    {
+      ok: false,
+      error: {
+        type: "https://screenrig.ai/problems/usage-error",
+        title: "Usage error",
+        status: 400,
+        detail,
+        code: "usage_error",
+        errors: [],
+      },
+    },
+    2,
+  );
+}
+
+function success(data, warnings) {
+  writeEnvelope({ ok: true, data, warnings: warnings || [] }, 0);
+}
+
+function sameRoot(left, right) {
+  try { return fs.realpathSync(left) === fs.realpathSync(right); } catch { return false; }
+}
+
+function grokEnabled() {
+  const result = spawnSync("grok", ["inspect", "--json"], {
+    encoding: "utf8", timeout: 15000, maxBuffer: 2 * 1024 * 1024, windowsHide: true,
+  });
+  try {
+    const layers = JSON.parse(result.stdout).configSources.layers;
+    if (result.error || result.status !== 0 || !Array.isArray(layers)) return false;
+    for (const layer of layers) {
+      const text = fs.readFileSync(layer.path, "utf8");
+      if (layer.path.endsWith(".json")) {
+        if (JSON.parse(text).enabledPlugins?.["screenrig@screenrig"] === false) return false;
+        continue;
+      }
+      if (/"""|'''|^\s*(?:plugins|"plugins"|'plugins')\s*\./m.test(text)) return false;
+      const section = text.match(/^\s*\[\s*(?:plugins|"plugins"|'plugins')\s*\]\s*(?:#[^\n]*)?\n([\s\S]*?)(?=^\s*\[|$(?![\s\S]))/m)?.[1] || "";
+      const body = section.match(/^\s*(?:disabled|"disabled"|'disabled')\s*=\s*\[((?:[^\]#"']|"(?:\\.|[^"\\])*"|'[^']*'|#[^\n]*)*)\]/m)?.[1];
+      if (body === undefined) continue;
+      const tokens = body.match(/"(?:\\.|[^"\\])*"|'[^']*'|#[^\n]*|[,\s]+/g) || [];
+      if (tokens.join("") !== body) return false;
+      for (const token of tokens.filter((item) => /^["']/.test(item))) {
+        const name = token[0] === "'" ? token.slice(1, -1) : JSON.parse(token);
+        if (name === "screenrig" || name.endsWith("/screenrig")) return false;
+      }
+    }
+    return true;
+  } catch { return false; }
+}
+
+// The marketplace a plugin list entry came from: the part after "@" in its id,
+// or the host's own marketplace field. Our GitHub marketplace is "screenrig";
+// a host's plugin directory has its own name.
+function entryMarketplace(entry, id) {
+  const marker = id.indexOf("@");
+  const named = marker >= 0 ? id.slice(marker + 1) : entry.marketplace || entry.marketplaceName || "";
+  return typeof named === "string" ? named : "";
+}
+
+// Codex lists a git marketplace's snapshot as the plugin's path, but runs the
+// copy it caches per version under CODEX_HOME/plugins/cache/MARKETPLACE/NAME/VERSION.
+function codexCacheRoot(entry, id) {
+  const marketplace = entryMarketplace(entry, id);
+  if (!marketplace || typeof entry.version !== "string" || !entry.version) return "";
+  const home = process.env.CODEX_HOME || path.join(os.homedir(), ".codex");
+  return path.join(home, "plugins", "cache", marketplace, "screenrig", entry.version);
+}
+
+// A plugin list entry is this plugin when it is named screenrig, from any
+// marketplace, and installed at this root.
+function listedHere(entries, root, name) {
+  for (const entry of entries) {
+    if (!entry || entry.enabled === false || entry.installed === false) continue;
+    const id = entry.pluginId || entry.id || entry.name;
+    if (typeof id !== "string" || (id.split("@")[0] !== "screenrig" && entry.name !== "screenrig")) continue;
+    const location = entry.installPath || entry.path || (entry.source && entry.source.path);
+    const here = (typeof location === "string" && sameRoot(location, root)) ||
+      (name === "codex" && sameRoot(codexCacheRoot(entry, id), root));
+    if (here && (name !== "grok" || grokEnabled())) {
+      return { host: name, marketplace: entryMarketplace(entry, id), source: "plugin_list" };
+    }
+  }
+  return null;
+}
+
+function pluginList(name, args) {
+  const options = { encoding: "utf8", timeout: 15000, maxBuffer: 1024 * 1024, windowsHide: true };
+  const result = spawnSync(name, args, options);
+  if (result.error && result.error.code === "ENOENT") return { available: false, entries: [] };
+  if (result.error || result.status !== 0) return { available: true, entries: [] };
+  try {
+    const parsed = JSON.parse(result.stdout);
+    const entries = Array.isArray(parsed) ? parsed : parsed.installed;
+    return { available: true, entries: Array.isArray(entries) ? entries : [] };
+  } catch {
+    // Report an actionable registration failure without echoing host output.
+    return { available: true, entries: [] };
+  }
+}
+
+// The plugin root each host exports, read by literal variable name.
+function hostRoots() {
+  return [
+    { named: "grok", root: process.env.GROK_PLUGIN_ROOT },
+    { named: "codex", root: process.env.CODEX_PLUGIN_ROOT },
+    { named: "claude", root: process.env.CLAUDE_PLUGIN_ROOT },
+    { named: "", root: process.env.PLUGIN_ROOT },
+  ];
+}
+
+function registeredHost(root, host) {
+  if (!host && process.env.PLUGIN_ROOT && sameRoot(process.env.PLUGIN_ROOT, root)) return { source: "host_root" };
+  const hosts = host ? [host] : ["claude", "codex", "grok"];
+  let available = false;
+  for (const name of hosts) {
+    // Other Codex marketplaces can require unrelated network requests, so the
+    // screenrig marketplace is read first: a stalled remote catalog must not
+    // hide a plugin installed from it. A copy from another marketplace (a
+    // host's plugin directory) is looked for in the full list after that.
+    const filtered = name === "codex";
+    const listed = pluginList(name, filtered ? ["plugin", "list", "--json", "--marketplace", "screenrig"] : ["plugin", "list", "--json"]);
+    if (!listed.available) continue;
+    available = true;
+    const found = listedHere(listed.entries, root, name) ||
+      (filtered ? listedHere(pluginList(name, ["plugin", "list", "--json"]).entries, root, name) : null);
+    if (found) return found;
+  }
+  // Managed hosts can attach a package without exposing a plugin-management CLI.
+  if (!available && !host) {
+    for (const { named, root: hostRoot } of hostRoots()) {
+      if (hostRoot && sameRoot(hostRoot, root)) return { ...(named ? { host: named } : {}), source: "host_root" };
+    }
+  }
+  return null;
+}
+
+// Where this installation came from, sent with enrollment and sign-in so a
+// signup can be traced to the host and marketplace that installed the plugin:
+// "claude/screenrig", "codex/screenrig", or a host directory's marketplace name.
+function installSource(registration) {
+  if (!registration || !registration.host) return "";
+  const marketplace = String(registration.marketplace || "").toLowerCase()
+    .replace(/[^a-z0-9._-]+/g, "-").replace(/^[^a-z0-9]+/, "").slice(0, 64);
+  return marketplace ? `${registration.host}/${marketplace}` : registration.host;
+}
+
+function bundled(root, args, config) {
+  return spawnSync(process.execPath, [path.join(root, "cli", "dist", "bin.js"), ...args,
+    ...(config ? ["--config", config] : [])], {
+    encoding: "utf8", timeout: 60000, maxBuffer: 2 * 1024 * 1024, windowsHide: true,
+  });
+}
+
+function envelopeOf(result) {
+  if (result.error || !result.stdout) return null;
+  try { return JSON.parse(result.stdout); } catch { return null; }
+}
+
+function bootstrapFailure(result, envelope, data, step, fallback) {
+  const detail = result.error && result.error.code === "ETIMEDOUT"
+    ? `The bundled CLI ${step} timed out; retry bootstrap with the same configuration.`
+    : result.error ? `The bundled CLI ${step} could not start or return bounded output; check the plugin installation.`
+    : result.signal ? `The bundled CLI ${step} was interrupted; retry with the same configuration.`
+    : `The bundled CLI ${step} failed; inspect its structured diagnostics before continuing.`;
+  const error = envelope && envelope.error || { type: "https://screenrig.ai/problems/usage-error",
+    title: "Usage error", status: 400, code: "usage_error", detail, errors: [] };
+  writeEnvelope({ ok: false, error, data }, result.status || fallback);
+}
+
+async function bootstrap(argv, run) {
+  let host = "", config = "";
+  const command = [];
+  for (let index = 0; index < argv.length; index += 1) {
+    const arg = argv[index];
+    if (arg === "--run") { command.push(...argv.slice(index + 1)); break; }
+    if (arg === "--bootstrap" || arg === "--json") continue;
+    if (arg === "--host" || arg === "--config") {
+      const value = argv[++index];
+      if (!value || value.startsWith("--")) { usageError(`${arg} needs a value.`); return; }
+      if (arg === "--host") host = value; else config = value;
+    } else { usageError("Use --bootstrap --json [--host claude|codex|grok] [--config FILE], or --run COMMAND..."); return; }
+  }
+  if (host && !["claude", "codex", "grok"].includes(host)) { usageError("--host must be claude, codex or grok."); return; }
+  if ((run && !command.length) || (!run && !argv.includes("--json"))) { usageError("Bootstrap needs --json; --run needs a CLI command."); return; }
+  const root = path.resolve(__dirname, "..", "..", "..");
+  const registration = readPluginVersion(root) && registeredHost(root, host);
+  if (!registration) {
+    const data = { action: "install", registration: null,
+      next: "Check the current runtime's plugin list and install screenrig@screenrig from https://github.com/screenrig/plugin. Preserve the saved screenRIG configuration, then invoke the helper inside that registered package." };
+    writeEnvelope({ ok: !run, data, warnings: [{ code: "plugin_not_installed", message: data.next }] }, run ? 78 : 0);
+    return;
+  }
+  const [major, minor, patch] = process.versions.node.split(".").map(Number); const minimum = {22: [23, 4], 24: [22, 1], 26: [12, 1]}[major];
+  if (!/^\d+\.\d+\.\d+$/.test(process.versions.node) || !(major > 26 || !!minimum && (minor > minimum[0] || minor === minimum[0] && patch >= minimum[1]))) {
+    usageError("screenRIG requires Node.js 22.23.4+, 24.22.1+, or 26.12.1+ (excluding 23.x and 25.x); expose a compatible runtime before retrying."); process.exitCode = 69; return;
+  }
+  const launcher = path.join(root, "skills", "screenrig", "scripts", "screenrig");
+  if (run) {
+    // The child inherits this process's environment; the install source is
+    // added to it by name.
+    const source = installSource(registration);
+    if (source) process.env.SCREENRIG_INSTALL_SOURCE = source;
+    const result = spawnSync(process.execPath, [path.join(root, "cli", "dist", "bin.js"), ...command,
+      ...(config ? ["--config", config] : [])], {
+      stdio: "inherit", windowsHide: true,
+    });
+    if (result.error) { usageError("The registered plugin's bundled CLI could not start; reinstall the official plugin and retry."); return; }
+    if (result.signal) { process.kill(process.pid, result.signal); return; }
+    process.exitCode = result.status === null ? 1 : result.status;
+    return;
+  }
+  const versionResult = bundled(root, ["version"]), version = envelopeOf(versionResult);
+  if (versionResult.status !== 0 || !version || version.ok !== true ||
+      !version.data.distribution || version.data.distribution.kind !== "plugin_bundle") {
+    usageError("The registered plugin's bundled version check failed; reinstall the official plugin and retry."); return;
+  }
+  // A copy from a host's plugin directory updates there once that directory
+  // publishes a release, so it is never compared with GitHub's latest.
+  const managedBy = registration.marketplace && registration.marketplace !== "screenrig" ? registration.marketplace : "";
+  const freshness = managedBy
+    ? { ok: true, warnings: [], data: { action: "keep", stale: false, updates_from: managedBy,
+      installed_plugin_version: readPluginVersion(root) || null, installed_cli_version: version.data.version } }
+    : envelopeOf(spawnSync(process.execPath, [__filename, "--json"], {
+      encoding: "utf8", timeout: 30000, maxBuffer: 1024 * 1024, windowsHide: true,
+    }));
+  if (!freshness || freshness.ok !== true) { usageError("The registered plugin's freshness check failed; rerun it before continuing."); return; }
+  const common = { registration, launcher, version: version.data.version, freshness: freshness.data };
+  if (freshness.data.action === "refresh") {
+    success({ ...common, action: "refresh", next: "Update the official plugin, resolve its new registered path and rerun bootstrap. Saved screenRIG credentials stay in the same user configuration." }); return;
+  }
+  const doctorResult = bundled(root, ["doctor"], config), doctor = envelopeOf(doctorResult);
+  const failedChecks = doctor && doctor.data && Array.isArray(doctor.data.checks)
+    ? doctor.data.checks.filter((check) => check.status === "fail") : [];
+  const mediaCheck = (check) => /^(ffmpeg$|ffprobe$|cwebp$|encoder_|filter_)/.test(check.name);
+  const coreFailures = failedChecks.filter((check) => !mediaCheck(check));
+  if (!doctor || doctor.ok !== true || !doctor.data || !Array.isArray(doctor.data.checks) || coreFailures.length ||
+      (doctorResult.status !== 0 && !failedChecks.length)) {
+    bootstrapFailure(doctorResult, doctor, { ...common, action: "repair", doctor: doctor && doctor.data,
+      next: "Resolve the failing installation/config/service checks and rerun bootstrap with the same configuration." }, "doctor", 5); return;
+  }
+  const warnings = [...(freshness.warnings || [])];
+  if (failedChecks.length) warnings.push({ code: "media_tools_missing",
+    message: "Media-tool checks failed. Account setup and pairing can continue; repair these tools before local upload/transcoding when that content path requires them." });
+  const agentResult = bundled(root, ["agent", "status"], config), agent = envelopeOf(agentResult);
+  if (!agent || agent.ok !== true || agentResult.status !== 0) {
+    bootstrapFailure(agentResult, agent, { ...common, action: "reconnect", doctor: doctor.data,
+      next: "Follow the bundled CLI's documented reconnect flow for the selected project; preserve credentials while reconciling." }, "agent status", 3); return;
+  }
+  const tokenCheck = doctor.data.checks.find((check) => check.name === "token");
+  const state = agent.data;
+  const rejected = state.credential_accepted === false || state.local_cleanup_required === true;
+  const active = state.status === "active" && !rejected;
+  let capabilities;
+  if (active) {
+    const result = bundled(root, ["project", "capabilities"], config), envelope = envelopeOf(result);
+    if (!envelope || envelope.ok !== true || result.status !== 0) {
+      bootstrapFailure(result, envelope, { ...common, action: "reconnect", doctor: doctor.data, agent: state,
+        next: "Read the selected project's capabilities successfully before making changes." }, "project capabilities", 3); return;
+    }
+    capabilities = envelope.data;
+  }
+  const firstRun = state.path === "first_run_enroll" && tokenCheck && tokenCheck.path === "first_run_enroll" && !rejected;
+  const pending = firstRun && tokenCheck.next && tokenCheck.next.command === "screenrig agent enroll";
+  const action = active ? "ready" : rejected ? "reconnect" : pending || state.status === "connecting" ? "resume"
+    : firstRun ? "enroll" : "reconnect";
+  const next = active
+    ? "Reuse this selected project. Pair the intended Player using its supplied code, or ask only for that missing code. Then publish the requested content and inspect a Player screenshot."
+    : state.next || (pending ? tokenCheck.next : action === "enroll"
+      ? "Ask only for the missing contact email. Use the supplied organization or Screens, enroll once, then continue with pairing. If the user explicitly wants an existing account, use sign-in instead."
+      : action === "resume" ? { command: "screenrig agent status", reason: "Inspect the existing pending connection and continue its documented flow; do not enroll a new project." }
+      : tokenCheck && tokenCheck.next || "Follow the documented reconnect flow for this saved connection; preserve credentials while reconciling.");
+  success({ ...common, action, doctor: doctor.data,
+    agent: state, ...(capabilities ? { capabilities } : {}),
+    ...(agent.context ? { context: agent.context } : {}),
+    next }, warnings);
+}
+
+async function main() {
+  const argv = process.argv.slice(2);
+  if (argv.includes("--bootstrap") || argv.includes("--run")) {
+    await bootstrap(argv, argv.includes("--run")); return;
+  }
+  if (!argv.includes("--json") || argv.some((arg) => arg !== "--json")) {
+    usageError("screenrig-plugin-freshness requires --json and no other arguments.");
+    return;
+  }
+
+  // The helper ships at <plugin-root>/skills/screenrig/scripts, so its own path
+  // names the plugin it belongs to; an environment root is the fallback for a
+  // copy run from elsewhere. A root counts only when it carries the bundled CLI
+  // with its stamped version: a source checkout or a loose copy has none.
+  const scriptRoot = path.resolve(__dirname, "..", "..", "..");
+  const pluginRoot = [scriptRoot, pluginRootFromEnv()].find((root) => root && readPluginVersion(root));
+  if (!pluginRoot) {
+    const cliVersion = readCliVersion(pluginRootFromEnv() || scriptRoot);
+    success(
+      {
+        action: "not_installed",
+        stale: false,
+        published_unavailable: false,
+        published_version: null,
+        installed_plugin_version: null,
+        installed_cli_version: cliVersion || null,
+      },
+      [
+        {
+          code: "plugin_not_installed",
+          message:
+            "No installed screenRIG plugin was found beside this helper or at the plugin root in the environment, so there is nothing to compare. Use the canonical marketplace install to get tracked updates.",
+        },
+      ],
+    );
+    return;
+  }
+
+  const installedPluginVersion = readPluginVersion(pluginRoot);
+  const installedCliVersion = readCliVersion(pluginRoot);
+  const publishedUrl = nonempty(process.env.SCREENRIG_PUBLISHED_MARKETPLACE_URL) || DEFAULT_MARKETPLACE_URL;
+
+  let publishedVersion = "";
+  try {
+    publishedVersion = publishedVersionFromBody(await fetchUrl(publishedUrl));
+  } catch {
+    publishedVersion = "";
+  }
+
+  if (!publishedVersion) {
+    success(
+      {
+        action: "continue_installed",
+        stale: false,
+        published_unavailable: true,
+        published_version: null,
+        installed_plugin_version: installedPluginVersion || null,
+        installed_cli_version: installedCliVersion || null,
+      },
+      [
+        {
+          code: "published_version_unavailable",
+          message: "The published plugin version could not be read from GitHub. Continue with the installed copy.",
+        },
+      ],
+    );
+    return;
+  }
+
+  const stale =
+    olderThanPublished(installedPluginVersion, publishedVersion) ||
+    olderThanPublished(installedCliVersion, publishedVersion);
+  success({
+    action: stale ? "refresh" : "keep",
+    stale,
+    published_unavailable: false,
+    published_version: publishedVersion,
+    installed_plugin_version: installedPluginVersion || null,
+    installed_cli_version: installedCliVersion || null,
+  });
+}
+
+main().catch(() => {
+  usageError("screenrig-plugin-freshness failed unexpectedly.");
+});

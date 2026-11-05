@@ -121,3 +121,78 @@ test('provider-complete official callback recovery is separately reconciled with
   const changed=structuredClone(e);changed.recoveryTrees[0].recovered=before;
   assert.throws(()=>verifySubmissionRecovery(changed));
 });
+
+function cacheEvidence() {
+  const e = structuredClone(evidence());
+  e.recovery.path = '.github/workflows/warm-cache.yml';
+  e.recovery.display_title = 'Warm KV Cache';
+  e.originalJobs = { total_count: 4, jobs: [
+    { name: 'sync', conclusion: 'success', steps: ['Wait for authoritative publication completion', ...required,
+      'Record durable publication provider result'].map(name => ({ name, conclusion: 'success' })) },
+    { name: 'calculate-scores', conclusion: 'success', steps: [] },
+    { name: 'cache-invalidate-shard (0)', conclusion: 'failure', steps: [{ name: 'Invalidate cache for shard 0', conclusion: 'failure' }] },
+    { name: 'cache-invalidate', conclusion: 'failure', steps: [] },
+  ] };
+  e.recoveryJobs = { total_count: 1, jobs: [{ id: 11, name: 'warm', conclusion: 'success', steps: [
+    'Download changed slugs from source workflow', 'Resolve and validate warm scope', 'Invalidate selected skill caches',
+    'Warm and verify API, HTML, and optional ZIP caches', 'Upload warm verification evidence',
+  ].map(name => ({ name, conclusion: 'success' })) }] };
+  e.originalJobs.jobs[0].completed_at = '2026-10-01T00:30:00Z';
+  e.originalJobs.jobs[1].completed_at = '2026-10-01T00:40:00Z';
+  e.recoveryJobs.jobs[0].steps.find(s => s.name === 'Invalidate selected skill caches').started_at = '2026-10-01T01:01:00Z';
+  const sourceArtifact = { id: 10, name: 'synced-slugs', expired: false, digest: 'sha256:' + '1'.repeat(64), workflow_run: { id: push.id, head_sha: sha } };
+  const invalidation = { preflight: false, type: 'skills', slugs: e.slugs, locales: ['en', 'zh-hans', 'zh-hant', 'ja', 'ko', 'de', 'fr', 'es', 'pt', 'ru', 'ar'], planHash: '2'.repeat(64),
+    closure: { dependentPacks: { overflow: false, all: [] } },
+    plan: { totals: { page: 1, api: 1, artifacts: 0 } },
+    invalidated: { total: 2, page: 1, api: 1, artifacts: 0, listVersionBumped: true, listMaxStaleSeconds: 0 } };
+  e.cacheEvidence = { sourceArtifact,
+    log: `2026-10-01T01:01:00.000Z - synced-slugs (ID: 10, Size: 162, Expected Digest: ${sourceArtifact.digest})\n2026-10-01T01:01:01.000Z SHA256 digest of downloaded artifact is ${'1'.repeat(64)}\n2026-10-01T01:01:02.000Z ${JSON.stringify(invalidation)}    ✓\n`,
+    summary: { success: true, mode: 'force', scope: 'changed', targets: 1, slugs: 1, locales: 1,
+      failedEndpoints: 0, skippedEndpoints: 0, failureCount: 0, failures: [],
+      plannedEndpoints: { api: 1, page: 1, zip: 0 }, completedEndpoints: { api: 1, page: 1, zip: 0 } },
+    records: ['api', 'page'].map(kind => ({ phase: 'ordinary-verification', kind, resource: 'skills', slug: meta.slug,
+      locale: 'en', ok: true, status: 200, cache: 'HIT', truncated: false })),
+  };
+  return e;
+}
+test('cache-only recovery proves original provider completion without replaying provider or callback', () => {
+  assert.deepEqual(verifySubmissionRecovery(cacheEvidence()), [{ root, ...meta, marketplace_commit_sha: sha }]);
+});
+test('cache-only recovery rejects unrelated, partial, stale, forged and incomplete evidence', () => {
+  const mutations = [
+    e => e.recovery.head_sha = before,
+    e => e.originalJobs.jobs[1].completed_at = '2026-10-01T01:02:00Z',
+    e => e.originalJobs.jobs[0].completed_at = undefined,
+    e => e.originalJobs.jobs[1].completed_at = 'invalid',
+    e => e.recoveryJobs.jobs[0].steps.find(s => s.name === 'Invalidate selected skill caches').started_at = null,
+    e => e.originalJobs.jobs[0].conclusion = 'failure',
+    e => e.originalJobs.jobs[0].steps[1].conclusion = 'failure',
+    e => e.originalJobs.jobs[0].steps.find(s => s.name === 'Notify skillstore - Published submissions').conclusion = 'failure',
+    e => e.originalJobs.jobs[1].conclusion = 'failure',
+    e => { e.originalJobs.jobs.push({ name: 'other-write', conclusion: 'failure', steps: [] }); e.originalJobs.total_count++; },
+    e => e.recoveryJobs.jobs[0].steps[2].conclusion = 'skipped',
+    e => e.cacheEvidence.sourceArtifact.workflow_run.id = 999,
+    e => e.cacheEvidence.sourceArtifact.workflow_run.head_sha = before,
+    e => e.cacheEvidence.sourceArtifact.expired = true,
+    e => e.cacheEvidence.log = e.cacheEvidence.log.replace('ID: 10', 'ID: 999'),
+    e => e.cacheEvidence.log = e.cacheEvidence.log.replace('digest of downloaded artifact is ' + '1'.repeat(64), 'digest of downloaded artifact is ' + '9'.repeat(64)),
+    e => e.cacheEvidence.log = e.cacheEvidence.log.replace('"listVersionBumped":true', '"listVersionBumped":false'),
+    e => e.cacheEvidence.log = e.cacheEvidence.log.replace('"total":2', '"total":1'),
+    e => e.cacheEvidence.log = e.cacheEvidence.log.replace('"overflow":false', '"overflow":true'),
+    e => e.cacheEvidence.log = e.cacheEvidence.log.replace('"all":[]', '"all":["unverified-pack"]'),
+    e => e.cacheEvidence.log = e.cacheEvidence.log.replace('"en","zh-hans"', '"en"'),
+    e => e.cacheEvidence.summary.mode = 'warm',
+    e => e.cacheEvidence.summary.failedEndpoints = 1,
+    e => e.cacheEvidence.summary.completedEndpoints.page = 0,
+    e => e.cacheEvidence.records = e.cacheEvidence.records.slice(0, 1),
+    e => e.cacheEvidence.records[0].slug = 'another-skill',
+    e => e.cacheEvidence.records[0].ok = false,
+    e => e.cacheEvidence.records[0].cache = 'MISS',
+    e => e.cacheEvidence.records[0].locale = 'fr',
+    e => e.slugs.push('uncovered-skill'),
+  ];
+  for (const mutate of mutations) {
+    const e = cacheEvidence(); mutate(e);
+    assert.throws(() => verifySubmissionRecovery(e), mutate.toString());
+  }
+});
