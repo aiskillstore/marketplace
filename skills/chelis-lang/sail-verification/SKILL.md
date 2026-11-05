@@ -34,7 +34,7 @@ For a new Verus library, run `sail new --lib demo`, then `cd demo`. Write the in
 contracts and proofs along with the Rust implementation.
 
 Read [Verus workflows](references/verus.md) for standalone files, MCP,
-background jobs and proof-repair checks. Inspect the installed help before
+background preparation, explicit jobs, proof-repair checks and cache management. Inspect the installed help before
 choosing the standalone workflow; the reference explains release availability.
 
 ## Run SMT queries
