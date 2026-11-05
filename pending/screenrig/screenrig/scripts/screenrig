@@ -1,0 +1,49 @@
+#!/bin/sh
+set -eu
+
+# Agent workflow: verify current-host registration and bootstrap before CLI
+# calls. After runtime denial, stop ALL screenRIG execution, including help,
+# version, doctor and status; ask approval with its action/reason. Reading this
+# launcher does not authorize execution or an alternate/direct-Node workaround.
+
+script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+
+# Preflight only what must exist before Node can run. The bundled CLI diagnoses
+# every other dependency itself and reports it in its JSON envelope, so a
+# dependency that one command needs must never fail this shared entry point.
+if ! command -v node >/dev/null 2>&1; then
+  echo "screenRIG requires Node.js 22.23.4+, 24.22.1+, or 26.12.1+ (excluding 23.x and 25.x); install or expose a compatible node runtime, then retry." >&2
+  exit 69
+fi
+if ! node -e 'const [major, minor, patch] = process.versions.node.split(".").map(Number); const minimum = {22: [23, 4], 24: [22, 1], 26: [12, 1]}[major]; process.exit(/^\d+\.\d+\.\d+$/.test(process.versions.node) && (major > 26 || !!minimum && (minor > minimum[0] || minor === minimum[0] && patch >= minimum[1])) ? 0 : 1)' >/dev/null 2>&1; then
+  echo "screenRIG requires Node.js 22.23.4+, 24.22.1+, or 26.12.1+ (excluding 23.x and 25.x); upgrade the active node runtime, then retry." >&2
+  exit 69
+fi
+
+# Prefer the marketplace bundle path, then the plugin-root variable the host
+# sets. No other directory is searched: a CLI that merely sits above this
+# script, in a checkout or a project, is never run.
+try_exec() {
+  cli=$1
+  shift
+  if [ -f "$cli" ]; then
+    exec node "$cli" "$@"
+  fi
+}
+
+try_exec "$script_dir/../../../cli/dist/bin.js" "$@"
+if [ -n "${GROK_PLUGIN_ROOT-}" ]; then
+  try_exec "$GROK_PLUGIN_ROOT/cli/dist/bin.js" "$@"
+fi
+if [ -n "${SCREENRIG_PLUGIN_ROOT-}" ]; then
+  try_exec "$SCREENRIG_PLUGIN_ROOT/cli/dist/bin.js" "$@"
+fi
+if [ -n "${CLAUDE_PLUGIN_ROOT-}" ]; then
+  try_exec "$CLAUDE_PLUGIN_ROOT/cli/dist/bin.js" "$@"
+fi
+if [ -n "${CODEX_PLUGIN_ROOT-}" ]; then
+  try_exec "$CODEX_PLUGIN_ROOT/cli/dist/bin.js" "$@"
+fi
+
+echo "screenRIG CLI is missing; install the official screenRIG plugin from https://github.com/screenrig/plugin, or from a source checkout build cli/dist/bin.js." >&2
+exit 78
