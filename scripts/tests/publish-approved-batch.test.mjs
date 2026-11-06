@@ -94,8 +94,8 @@ for (const {duplicates, rejectFirst = false, callbackFailure = false, unsafeFirs
     if(prepushMode) {
       const oldBatch=batchIdentity(prs.map(p=>publicationIdentity(p).correlation));
       responses['actions/runs/12']={id:12,run_attempt:prepushMode==='proof-fail'?2:1,event:'workflow_dispatch',status:'completed',conclusion:'failure',path:'.github/workflows/publish-approved-batch.yml',head_branch:'main',head_repository:{full_name:'aiskillstore/marketplace'},head_sha:'70175e06306db8eab43d3f63538b9553d73b8caa',display_title:`Publication batch ${oldBatch}`};
-      const beforeSteps=['Set up job','Run actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510','Run actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09','Run actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444'];
-      const afterSteps=['Post Run actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444','Post Run actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09','Post Run actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510','Complete job'];
+      // This is frozen evidence for the audited old revision, not current Action pins.
+      const {before:beforeSteps,after:afterSteps}=JSON.parse(readFileSync(new URL('./fixtures/publication-prepush-job-steps.json',import.meta.url),'utf8'));
       responses['actions/runs/12/attempts/1/jobs?per_page=100']={total_count:1,jobs:[{id:34,name:'publish',conclusion:'failure',steps:[...beforeSteps.map(name=>({name,conclusion:'success'})),{name:'Verify every approval and publish one atomic batch',conclusion:'failure'},...afterSteps.map(name=>({name,conclusion:'success'}))]}]};
       responses['contents/scripts/publish-approved-batch.mjs?ref=70175e06306db8eab43d3f63538b9553d73b8caa']={sha:'409eab1ea2f03cc79bbc8a125a266a21055d6eb4'};
       responses['actions/jobs/34/logs']=[`2026-11-06T17:27:38.105Z   PR_NUMBERS: 1,2`,`2026-11-06T17:27:38.105Z   BATCH_ID: ${oldBatch}`,'2026-11-06T17:28:35.189Z Main advanced; re-preflight required','2026-11-06T17:28:35.199Z ##[error]Process completed with exit code 1.'].join('\n');

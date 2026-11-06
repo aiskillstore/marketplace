@@ -4,11 +4,8 @@ import { verifyPrepushFailure, reconcilePrepushReservations } from '../publicati
 import { chooseAttempt, main, publicationIdentity } from '../continue-merged-publications.mjs';
 import { readFileSync } from 'node:fs';
 
-const beforeSteps = ['Set up job', 'Run actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510',
-  'Run actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09', 'Run actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444'];
-const afterSteps = ['Post Run actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444',
-  'Post Run actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09',
-  'Post Run actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510', 'Complete job'];
+// Frozen historical run data, independent of the current workflow's Action pins.
+const { before: beforeSteps, after: afterSteps } = JSON.parse(readFileSync(new URL('./fixtures/publication-prepush-job-steps.json', import.meta.url), 'utf8'));
 const fixture = () => ({
   run: { id: 12, run_attempt: 1, event: 'workflow_dispatch', status: 'completed', conclusion: 'failure',
     path: '.github/workflows/publish-approved-batch.yml', head_branch: 'main', head_sha: '70175e06306db8eab43d3f63538b9553d73b8caa',
