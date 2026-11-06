@@ -24,7 +24,8 @@ test('batch identity and distinct Skill limits fail closed', () => {
   assert.throws(() => validateBatchPlans([{plan:{skills:Array.from({length:65},(_,i)=>({targetDir:`skills/s${i}`}))}}]), /1\.\.64/);
 });
 
-for (const {duplicates, rejectFirst = false, callbackFailure = false, unsafeFirst = false, recoveryState} of [{duplicates:[]}, {duplicates:[1]}, {duplicates:[1,2]}, {duplicates:[],rejectFirst:true}, {duplicates:[],callbackFailure:true}, {duplicates:[],rejectFirst:true,unsafeFirst:true}, {duplicates:[],recoveryState:'success'}, {duplicates:[],recoveryState:'failure'}]) test(`batch covers squash, duplicates ${duplicates}, preflight rejection ${rejectFirst}, callback failure ${callbackFailure}, unsafe path ${unsafeFirst}, recovery ${recoveryState}`, async () => {
+for (const {duplicates, rejectFirst = false, callbackFailure = false, unsafeFirst = false, recoveryState, prepushMode} of [{duplicates:[]}, {duplicates:[1]}, {duplicates:[1,2]}, {duplicates:[],rejectFirst:true}, {duplicates:[],callbackFailure:true}, {duplicates:[],rejectFirst:true,unsafeFirst:true}, {duplicates:[],recoveryState:'success'}, {duplicates:[],recoveryState:'failure'},
+  ...['prepush','race-pending','race-failure','race-success','proof-fail','main-advanced'].map(prepushMode => ({duplicates:[],prepushMode}))]) test(`batch covers squash, duplicates ${duplicates}, preflight rejection ${rejectFirst}, callback failure ${callbackFailure}, unsafe path ${unsafeFirst}, recovery ${recoveryState}, prepush ${prepushMode}`, async () => {
   const temp = mkdtempSync(join(tmpdir(), 'publish-batch-'));
   const root = join(temp, 'work'), remote = join(temp, 'remote.git'), bin = join(temp, 'bin');
   mkdirSync(root); mkdirSync(bin);
@@ -89,12 +90,38 @@ for (const {duplicates, rejectFirst = false, callbackFailure = false, unsafeFirs
         state: 'success', target_url: 'https://github.com/aiskillstore/marketplace/actions/runs/10',
       }] };
     }
-    const state=join(temp,'state.json');writeFileSync(state,JSON.stringify({prs,files,responses,refs:{},statuses:{},writes:[]}));
+    const refs={}, statuses={};
+    if(prepushMode) {
+      const oldBatch=batchIdentity(prs.map(p=>publicationIdentity(p).correlation));
+      responses['actions/runs/12']={id:12,run_attempt:prepushMode==='proof-fail'?2:1,event:'workflow_dispatch',status:'completed',conclusion:'failure',path:'.github/workflows/publish-approved-batch.yml',head_branch:'main',head_repository:{full_name:'aiskillstore/marketplace'},head_sha:'70175e06306db8eab43d3f63538b9553d73b8caa',display_title:`Publication batch ${oldBatch}`};
+      // This is frozen evidence for the audited old revision, not current Action pins.
+      const {before:beforeSteps,after:afterSteps}=JSON.parse(readFileSync(new URL('./fixtures/publication-prepush-job-steps.json',import.meta.url),'utf8'));
+      responses['actions/runs/12/attempts/1/jobs?per_page=100']={total_count:1,jobs:[{id:34,name:'publish',conclusion:'failure',steps:[...beforeSteps.map(name=>({name,conclusion:'success'})),{name:'Verify every approval and publish one atomic batch',conclusion:'failure'},...afterSteps.map(name=>({name,conclusion:'success'}))]}]};
+      responses['contents/scripts/publish-approved-batch.mjs?ref=70175e06306db8eab43d3f63538b9553d73b8caa']={sha:'409eab1ea2f03cc79bbc8a125a266a21055d6eb4'};
+      responses['actions/jobs/34/logs']=[`2026-11-06T17:27:38.105Z   PR_NUMBERS: 1,2`,`2026-11-06T17:27:38.105Z   BATCH_ID: ${oldBatch}`,'2026-11-06T17:28:35.189Z Main advanced; re-preflight required','2026-11-06T17:28:35.199Z ##[error]Process completed with exit code 1.'].join('\n');
+      for(const pr of prs) {
+        const {digest}=publicationIdentity(pr), attempt='1793986072706-1';
+        const ref=`refs/tags/agentcrew-dispatch-outbox/publication/${digest}/${attempt}`;
+        refs[ref]={ref,object:{type:'commit',sha:pr.merge_commit_sha}};
+        statuses[pr.merge_commit_sha]=[`agentcrew/publication/${digest}`,`agentcrew/publication-attempt/${digest}/${attempt}`].flatMap(context=>['failure','pending'].map(state=>({context,state,target_url:'https://github.com/aiskillstore/marketplace/actions/runs/12',creator:{id:254047988,login:'ai-skill-store[bot]'}})));
+      }
+    }
+    const state=join(temp,'state.json');writeFileSync(state,JSON.stringify({prs,files,responses,refs,statuses,writes:[],prepushMode,pushes:0}));
+    const realGit=execFileSync('which',['git'],{encoding:'utf8'}).trim();
+    writeFileSync(join(bin,'git'),`#!${process.execPath}\n`+`
+const fs=require('node:fs'),cp=require('node:child_process'),args=process.argv.slice(2);
+const state=JSON.parse(fs.readFileSync(process.env.TEST_STATE));
+if(args[0]==='push'){state.pushes++;fs.writeFileSync(process.env.TEST_STATE,JSON.stringify(state));}
+if(args[0]==='ls-remote'&&state.prepushMode==='main-advanced')process.stdout.write('f'.repeat(40)+'\\trefs/heads/main\\n');
+else {const r=cp.spawnSync(${JSON.stringify(realGit)},args,{stdio:'inherit'});process.exit(r.status??1);}
+`,{mode:0o755});
     writeFileSync(join(bin,'gh'),`#!${process.execPath}\n`+`
 const fs=require('node:fs');const args=process.argv.slice(2);const endpoint=args.find(a=>a.startsWith('repos/')).replace('repos/aiskillstore/marketplace/','');
 const state=JSON.parse(fs.readFileSync(process.env.TEST_STATE));const post=args.includes('--method');let out;
 if(post){const body=JSON.parse(fs.readFileSync(0,'utf8'));state.writes.push({endpoint,body});
- if(endpoint==='git/refs'){state.refs[body.ref]={ref:body.ref,object:{type:'commit',sha:body.sha}};out=state.refs[body.ref];}
+ if(endpoint==='git/refs'){state.refs[body.ref]={ref:body.ref,object:{type:'commit',sha:body.sha}};out=state.refs[body.ref];
+  if(state.prepushMode?.startsWith('race-')) { const digest=body.ref.split('/')[4];(state.statuses[body.sha]??=[]).unshift({context:'agentcrew/publication/'+digest,state:state.prepushMode.slice(5),target_url:'https://github.com/aiskillstore/marketplace/actions/runs/99',creator:{id:254047988,login:'ai-skill-store[bot]'}}); }
+ }
  else if(endpoint.startsWith('statuses/')){(state.statuses[endpoint.slice(9)]??=[]).unshift(body);out=body;}else throw new Error(endpoint);
 }else if(state.responses[endpoint])out=state.responses[endpoint];
 else if(endpoint.startsWith('pulls/')){const n=Number(endpoint.split('/')[1]);out=endpoint.includes('/files')?state.files[n]:state.prs.find(p=>p.number===n);}
@@ -103,7 +130,7 @@ else if(endpoint.startsWith('git/matching-refs/'))out=Object.values(state.refs).
 else if(endpoint.startsWith('git/ref/'))out=state.refs['refs/'+endpoint.slice(8)];
 else if(endpoint.startsWith('commits/'))out=state.statuses[endpoint.split('/')[1]]??[];
 else throw new Error(endpoint);
-fs.writeFileSync(process.env.TEST_STATE,JSON.stringify(state));process.stdout.write(JSON.stringify(args.includes('--slurp')?[out]:out));
+fs.writeFileSync(process.env.TEST_STATE,JSON.stringify(state));process.stdout.write(endpoint.endsWith('/logs')?out:JSON.stringify(args.includes('--slurp')?[out]:out));
 `,{mode:0o755});
     writeFileSync(join(bin,'curl'),`#!${process.execPath}\nprocess.stdin.resume();process.stdin.on('end',()=>process.stdout.write(JSON.stringify({allowed:true,repositoryId:7})+'\\n200'));`,{mode:0o755});
     const run = (selected=prs) => new Promise(resolveRun => {
@@ -111,6 +138,15 @@ fs.writeFileSync(process.env.TEST_STATE,JSON.stringify(state));process.stdout.wr
       let output='';child.stdout.on('data',s=>output+=s);child.stderr.on('data',s=>output+=s);child.on('close',code=>resolveRun({code,output}));
     });
     const result=await run();
+    if(prepushMode && prepushMode!=='prepush') {
+      assert.notEqual(result.code,0,result.output);
+      const failed=JSON.parse(readFileSync(state));
+      assert.equal(failed.pushes,0,'no publication push after an unproved or concurrent reservation/main drift');
+      assert.equal(callbacks.length,0,'no callback before a proved push');
+      assert.equal(git(['ls-remote','origin','refs/heads/main']).split(/\s/)[0],before);
+      for(const pr of prs) assert.ok(failed.statuses[pr.merge_commit_sha].some(s=>s.target_url==='https://github.com/aiskillstore/marketplace/actions/runs/12'&&s.state==='failure'),'old failure remains unchanged');
+      return;
+    }
     if(recoveryState === 'failure') {
       assert.notEqual(result.code, 0); assert.match(result.output, /Previous push sync is not fully successful/);
       assert.equal(git(['ls-remote','origin','refs/heads/main']).split(/\s/)[0], before);
@@ -149,7 +185,9 @@ fs.writeFileSync(process.env.TEST_STATE,JSON.stringify(state));process.stdout.wr
     for (const c of callbacks.filter(c=>c.body.event==='rejected')) assert.match(c.body.reason,/same immutable source/);
     assert.deepEqual(callbacks.map(c=>c.body.pr_number),[1,2]);
     const evidence=JSON.parse(readFileSync(state));
-    assert.equal(Object.keys(evidence.refs).length,2);
+    assert.equal(Object.keys(evidence.refs).length,prepushMode?4:2);
+    assert.equal(evidence.pushes,1,'one atomic publication push');
+    if(prepushMode) for(const pr of prs) assert.ok(evidence.statuses[pr.merge_commit_sha].some(s=>s.target_url==='https://github.com/aiskillstore/marketplace/actions/runs/12'&&s.state==='failure'),'old failed attempt is not rewritten');
     assert.equal(evidence.writes.filter(w=>w.body.context?.startsWith('agentcrew/publication-attempt/')&&w.body.state==='success').length,2);
     assert.equal(evidence.writes.filter(w=>w.body.context?.startsWith('agentcrew/publication/')&&w.body.state==='success').length,duplicates.length===2?2:0,'only pending-only batches may close without provider sync');
     const prior=git(['rev-parse','HEAD']);const replay=await run();assert.notEqual(replay.code,0);assert.equal(git(['ls-remote','origin','refs/heads/main']).split(/\s/)[0],prior,'replay cannot change main');
