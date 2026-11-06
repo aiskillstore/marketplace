@@ -264,19 +264,20 @@ tx_hash: 0xSETTLEMENT_TX_HASH
 issued_at: 1792000000
 ```
 
-Then:
+Then, with the signature written to a private file (never placed in argv):
 
 ```bash
-curl -sS -X POST https://payments.x402socks.com/v1/access/recover \
-  -H 'content-type: application/json' \
-  -d '{"transaction":"0x...","signature":"0x...","issued_at":1792000000}'
+read -r SIGNATURE < ~/.config/x402socks/recovery.sig
+printf '%s\n' "$SIGNATURE" | scripts/x402socks.sh recover 0xSETTLEMENT_TX_HASH
 ```
 
 The signing wallet must be the wallet that paid. `issued_at` must be within ±10 minutes of now. The original `PAYMENT-SIGNATURE` is deliberately rejected: it is public settlement calldata that anyone could replay.
 
-Recovery returns a replacement token once. Save it to the `0600` token file and
-print only the non-secret fields; `scripts/x402socks.sh recover` does this for
-you.
+Recovery returns a replacement token once. The helper saves it atomically to the
+`0600` token file and prints only non-secret fields. If you call the endpoint
+directly, build the JSON in a private `0600` file, send it with
+`--data-binary @file`, and do not print the raw response — it is the only copy
+of the replacement token.
 
 | Error                       | Meaning                                                    |
 | --------------------------- | ---------------------------------------------------------- |
