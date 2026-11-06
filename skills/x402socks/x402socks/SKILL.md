@@ -4,7 +4,7 @@ description: Use this skill when an agent needs a different source IP, rotating 
 license: MIT
 metadata:
   author: x402socks
-  version: 1.2.0
+  version: 1.2.2
   homepage: https://x402socks.com
 ---
 
@@ -82,43 +82,35 @@ scripts/x402socks.sh quote time_6h          # exits non-zero above $X402SOCKS_MA
 scripts/x402socks.sh save-token             # stdin -> ~/.config/x402socks/token (0600)
 scripts/x402socks.sh status                 # reads the token file, never argv
 scripts/x402socks.sh test eu-north1         # TLS CONNECT 3129, confirms egress IP
-scripts/x402socks.sh test --socks5 eu-north1  # SOCKS5, requires X402SOCKS_ALLOW_PLAINTEXT=1
 ```
 
 ## Routing traffic
 
-Every exit offers SOCKS5 on **TCP 1080**; `eu-north1`, `asia-central2`, and `asia-west1` also offer **TLS HTTP CONNECT on TCP 3129**, which is the recommended transport. The fleet is not fixed — nodes are added, retired, and toggled at any time, so read `/nodes.json` and filter on `disabled == false and health == "healthy"` instead of trusting a list. Snapshot at the time of writing:
+Every exit offers **SOCKS5 on TCP 1080** as the primary protocol. `eu-north1`, `asia-central2`, and `asia-west1` also offer **TLS HTTP CONNECT on TCP 3129**, which is preferred for TLS verification. The fleet is not fixed — nodes are added, retired, and toggled at any time, so read `/nodes.json` and filter on `disabled == false and health == "healthy"` instead of trusting a list. Snapshot at the time of writing:
 
-| Exit ID         | Region                | TLS 3129 | Plain 3128 | SOCKS5 1080 |
-| --------------- | --------------------- | -------- | ---------- | ----------- |
-| `us-central1`   | US Texas              | no       | yes        | yes         |
-| `us-east1`      | US New York           | no       | yes        | yes         |
-| `us-west1`      | US California         | no       | yes        | yes         |
-| `eu-central1`   | EU Paris              | no       | yes        | yes         |
-| `eu-north1`     | EU Riga               | **yes**  | yes        | yes         |
-| `asia-central1` | APAC China (Hong Kong) | no      | yes        | yes         |
-| `asia-central2` | APAC Singapore        | **yes**  | yes        | yes         |
-| `asia-west1`    | APAC India            | **yes**  | yes        | yes         |
+| Exit ID         | Region                | SOCKS5 1080 | TLS 3129 |
+| --------------- | --------------------- | ----------- | -------- |
+| `us-central1`   | US Texas              | yes         | no       |
+| `us-east1`      | US New York           | yes         | no       |
+| `us-west1`      | US California         | yes         | no       |
+| `eu-central1`   | EU Paris              | yes         | no       |
+| `eu-north1`     | EU Riga               | yes         | **yes**  |
+| `asia-central1` | APAC China (Hong Kong) | yes         | no       |
+| `asia-central2` | APAC Singapore        | yes         | **yes**  |
+| `asia-west1`    | APAC India            | yes         | **yes**  |
 
-`https://<exit>.x402socks.com:3129` is the preferred form on the three TLS exits. `curl` verifies the exit's certificate, so a TLS failure means the exit is not usable — do not fall back to plaintext to work around it.
-
-The legacy transports are **opt-in only**:
-
-- `http://<exit>.x402socks.com:3128` — HTTP CONNECT without TLS, on every exit.
-- `socks5h://<exit>.x402socks.com:1080` — SOCKS5 with RFC 1929 user/password, on every exit.
+Plaintext HTTP CONNECT on **3128** is supported only for browser compatibility (Chrome/iium) and will be **discontinued shortly**. Both legacy transports send the reusable token unencrypted on the client-to-exit hop; use them only when a client cannot do TLS CONNECT and the network is trusted. The helper requires `X402SOCKS_ALLOW_PLAINTEXT=1` before it will use either.
 
 Both send the reusable token in cleartext on the client-to-exit hop. A passive observer on the same network can capture it and use your paid access. The helper refuses them unless `X402SOCKS_ALLOW_PLAINTEXT=1` is set. On an exit without a TLS listener, this is unavoidable; keep the token short-lived and avoid untrusted networks.
 
 ```bash
 # TLS CONNECT (default, recommended)
 # https://eu-north1.x402socks.com:3129   token as username AND password
-
-# Plaintext transports, only with X402SOCKS_ALLOW_PLAINTEXT=1
-# http://us-central1.x402socks.com:3128
-# socks5h://us-central1.x402socks.com:1080
+#
+# Legacy plaintext and SOCKS5 forms are opt-in only; see references/endpoints.md.
 ```
 
-Client snippets for curl, Python, Node, Playwright, and Chrome are in `references/endpoints.md`. In SOCKS5 form prefer `socks5h://` over `socks5://` so DNS resolves at the exit rather than locally — otherwise the local resolver still leaks your target hostname.
+Client snippets for curl, Python, Node, Playwright, and Chrome are in `references/endpoints.md`. If a legacy client requires SOCKS5, use the remote-DNS (`h`) scheme variant so the exit resolves the name; the plain variant leaks the target hostname to the local resolver.
 
 ## Credential rules (hard)
 

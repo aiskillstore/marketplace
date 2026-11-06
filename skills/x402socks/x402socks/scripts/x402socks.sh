@@ -69,11 +69,10 @@ store_token_response() {
   local file
   file="$(token_file)"
   mkdir -p "$(dirname "$file")"
-  chmod 700 "$(dirname "$file")" 2>/dev/null || true
   python3 -c '
-import json, os, sys
+import json, os, sys, tempfile
 
-path = sys.argv[1]
+path = os.path.abspath(sys.argv[1])
 raw = sys.stdin.read()
 try:
     data = json.loads(raw)
@@ -81,16 +80,44 @@ except json.JSONDecodeError:
     sys.stdout.write(raw)
     sys.stderr.write("\nno token in response; nothing was saved\n")
     sys.exit(1)
+if not isinstance(data, dict):
+    sys.stdout.write(raw)
+    sys.stderr.write("\nunexpected response shape; nothing was saved\n")
+    sys.exit(1)
 token = data.get("token")
 if not token:
     json.dump(data, sys.stdout, indent=2)
     sys.stdout.write("\n")
     sys.exit("response did not include a token; nothing was saved")
 
-fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-with os.fdopen(fd, "w") as fh:
-    fh.write(token)
-os.chmod(path, 0o600)
+directory = os.path.dirname(path) or "."
+if os.path.islink(directory) or not os.path.isdir(directory):
+    sys.exit("token directory is not a real directory: %s" % directory)
+st = os.stat(directory)
+if st.st_uid != os.getuid() or (st.st_mode & 0o022):
+    sys.exit("token directory is not private to the current user: %s" % directory)
+if (st.st_mode & 0o777) != 0o700:
+    os.chmod(directory, 0o700)
+if os.path.islink(path):
+    sys.exit("refusing to replace a symlink token file: %s" % path)
+
+# mkstemp creates the file 0600. Write and fsync it, then atomically replace
+# the destination, so a symlink or a concurrent reader cannot see a partial
+# token or redirect the write.
+fd, tmp = tempfile.mkstemp(prefix=".token.", dir=directory)
+try:
+    with os.fdopen(fd, "w") as fh:
+        fh.write(token)
+        fh.flush()
+        os.fsync(fh.fileno())
+    os.replace(tmp, path)
+    tmp = None
+finally:
+    if tmp is not None:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
 
 data["token"] = "<redacted: saved to %s (mode 600)>" % path
 json.dump(data, sys.stdout, indent=2)
@@ -114,8 +141,8 @@ x402socks helper
   test [--tls|--plaintext|--socks5] [exit_id]
                                 confirm egress IP; TLS CONNECT 3129 by default
   recover-message <tx_hash>     print the message to EIP-191 sign (no newline)
-  recover <tx_hash> <sig> [issued_at]
-                                re-issue a lost token after a settled payment
+  recover <tx_hash> [issued_at]  re-issue a lost token; signature on stdin
+                                (keeps the ownership proof out of argv)
 
 Token source (never argv):
   X402SOCKS_TOKEN_FILE  token file (default ~/.config/x402socks/token, mode 600)
@@ -126,10 +153,14 @@ Budget guard:
   X402SOCKS_MAX_USDC    approved maximum in USD; 'quote' fails above it
   X402SOCKS_TIMEOUT     per-request timeout in seconds (default 30)
 
-Plaintext transports (opt-in):
+EOF
+  if [ "${X402SOCKS_ALLOW_PLAINTEXT:-}" = "1" ]; then
+    cat <<'EOF2'
+Plaintext transports (enabled, opt-in):
   X402SOCKS_ALLOW_PLAINTEXT=1   required for SOCKS5 1080 and plaintext CONNECT 3128
                                 both send the reusable token unencrypted
-EOF
+EOF2
+  fi
 }
 
 cmd_health() {
@@ -245,15 +276,14 @@ print("within approved cap ($%.2f; %d option%s)"
 }
 
 cmd_save_token() {
-  local file token
-  file="$(token_file)"
-  mkdir -p "$(dirname "$file")"
-  chmod 700 "$(dirname "$file")" 2>/dev/null || true
+  local token body
   token="$(tr -d '\r\n')"
   [ -n "$token" ] || die "no token on stdin"
-  ( umask 077; printf '%s' "$token" > "$file" )
-  chmod 600 "$file"
-  printf 'saved token to %s (mode 600)\n' "$file"
+  # Reuse the hardened writer used by rotate/recover: owner + permission
+  # checks, symlink rejection, mkstemp(0600) + fsync + atomic os.replace.
+  # The token travels on stdin only; it is never an argument.
+  body="$(printf '%s' "$token" | json_token_body)"
+  printf '%s' "$body" | store_token_response
 }
 
 cmd_status() {
@@ -378,10 +408,21 @@ cmd_recover_message() {
 }
 
 cmd_recover() {
-  [ $# -ge 2 ] || die "usage: recover <tx_hash> <signature> [issued_at]"
+  [ $# -ge 1 ] || die "usage: recover <tx_hash> [issued_at] (signature on stdin)"
   local tx sig issued_at body cfg
-  tx="$1"; sig="$2"; issued_at="${3:-$(date +%s)}"
-  body="$(python3 -c 'import json, sys; print(json.dumps({"transaction": sys.argv[1], "signature": sys.argv[2], "issued_at": int(sys.argv[3])}))' "$tx" "$sig" "$issued_at")"
+  tx="$1"; issued_at="${2:-$(date +%s)}"
+  IFS= read -r sig || die "no signature on stdin"
+  [ -n "$sig" ] || die "empty signature on stdin"
+  # The signature is an ownership proof and must not reach a process list.
+  # Pass it to the JSON builder on stdin; only the public tx hash and timestamp
+  # are argv.
+  body="$(
+    printf '%s\n%s\n%s\n' "$tx" "$sig" "$issued_at" |
+      python3 -c 'import json, sys
+lines = sys.stdin.read().splitlines()
+tx, sig, issued_at = lines[0], lines[1], int(lines[2])
+print(json.dumps({"transaction": tx, "signature": sig, "issued_at": issued_at}))'
+  )"
   cfg="$(printf 'header = "content-type: application/json"\ndata = "%s"' "$(cfg_escape "$body")")"
   printf '%s' "$cfg" | req_secret "$PAY/v1/access/recover" -X POST | store_token_response
 }
