@@ -22,12 +22,15 @@ jobs:
           AUTHOR_LOGIN: ${{ github.event.pull_request.user.login }}
           HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
           HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           set -euo pipefail
           FILES="${RUNNER_TEMP:?}/publication-files-${GITHUB_RUN_ID:?}.bin"
-          trap 'rm -f "$FILES"' EXIT
+          CHANGES="$FILES.json"
+          trap 'rm -f "$FILES" "$CHANGES"' EXIT
           gh api --paginate "repos/$REPOSITORY/pulls/$PR_NUMBER/files?per_page=100" --slurp \
-            | jq -j '.[][].filename, "\u0000"' > "$FILES"
+            | jq 'add' > "$CHANGES"
+          jq -j '.[].filename, "\u0000"' "$CHANGES" > "$FILES"
 
           publication_kind=''
           while IFS= read -r -d '' path; do
@@ -54,6 +57,31 @@ jobs:
           done < "$FILES"
 
           [ -n "$publication_kind" ] || exit 0
+
+          # Cleanup is not publication: only a complete, same-repository delete-only
+          # PR from a current write/maintain/admin collaborator may use this route.
+          # No source checkout, head code, token elevation or required-check bypass.
+          if [ "$publication_kind" = pending ] && [ "$HEAD_REPOSITORY" = "$REPOSITORY" ] \
+            && jq -e 'length > 0 and all(.[];
+              .status == "removed" and (.previous_filename? == null) and
+              (.filename | test("^pending/[a-z0-9][a-z0-9._-]*/[a-z0-9][a-z0-9._-]*/[^/]+(/[^/]+)*$")) and
+              (.filename | explode | all(. >= 32 and . != 127 and . != 92)) and
+              (.filename | split("/") | all(. != "." and . != "..")))' "$CHANGES" > /dev/null; then
+            PR=$(gh api "repos/$REPOSITORY/pulls/$PR_NUMBER")
+            [ "$(jq -r '.head.sha' <<< "$PR")" = "$HEAD_SHA" ] \
+              && [ "$(jq -r '.changed_files' <<< "$PR")" = "$(jq length "$CHANGES")" ] || {
+                echo "::error::Cleanup head changed or file listing incomplete"
+                exit 1
+              }
+            PERMISSION=$(gh api "repos/$REPOSITORY/collaborators/$AUTHOR_LOGIN/permission")
+            jq -e '.permission == "admin" or .permission == "maintain" or .permission == "write"' \
+              <<< "$PERMISSION" > /dev/null || {
+                echo "::error::Pending cleanup requires a trusted maintainer"
+                exit 1
+              }
+            exit 0
+          fi
+
           [ "$AUTHOR_ID" = 254047988 ] \
             && [ "$AUTHOR_LOGIN" = 'ai-skill-store[bot]' ] \
             && [ "$HEAD_REPOSITORY" = "$REPOSITORY" ] || {
