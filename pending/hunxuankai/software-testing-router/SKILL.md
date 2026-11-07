@@ -3,7 +3,7 @@ name: software-testing-router
 description: Use when choosing or implementing software automation tests across CLI/API, web, or Windows desktop apps, especially when Computer Use screenshot-and-click loops are slow, only an EXE is available, or the correct test interface is unclear. 适用于软件自动化测试选型、桌面回归、GUI 验收和测试入口探测。
 license: MIT
 metadata:
-  version: "1.0.1"
+  version: "1.0.2"
 ---
 
 # 软件自动化测试方法选择
