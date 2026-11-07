@@ -8,8 +8,8 @@
 
 同日优化版：**37 项通过，0 失败、0 错误、0 跳过，86.33 秒**。保留全部初版项目，增加 13 项桌面/探测检查及 5 项日志恢复与一致性检查：父区域消歧、独立/模态窗口、无关大子树、浅层检查、启动器与实际窗口拥有者、条件观测一致性、硬超时保留已完成步骤、阻塞动作结果未知、损坏或不一致日志拒绝成功。
 
-- 初版 [结构化结果](evidence/results.json)、[JUnit](evidence/junit.xml)、[执行日志](evidence/calibration.log)、[WinForms UIA](evidence/uia-winforms.json)、[Qt UIA](evidence/uia-qt.json)、[模型基线](evidence/agent-baseline.json)。
-- 优化版 [完整结果与环境](evidence/optimization-20261105/results.json)、[JUnit](evidence/optimization-20261105/junit.xml)、[执行日志](evidence/optimization-20261105/calibration.log)、[旧失败复现](evidence/optimization-20261105/before-regressions.json)。
+- 初版 [结构化结果](evidence/results.json)、[JUnit](evidence/junit.xml)、[执行日志](evidence/calibration.txt)、[WinForms UIA](evidence/uia-winforms.json)、[Qt UIA](evidence/uia-qt.json)、[模型基线](evidence/agent-baseline.json)。
+- 优化版 [完整结果与环境](evidence/optimization-20261105/results.json)、[JUnit](evidence/optimization-20261105/junit.xml)、[执行日志](evidence/optimization-20261105/calibration.txt)、[旧失败复现](evidence/optimization-20261105/before-regressions.json)。
 - [性能样本](evidence/optimization-20261105/benchmark.json)、[代理实际使用](evidence/optimization-20261105/agent-use.json)、[未采用实验](evidence/optimization-20261105/rejected-experiment.json)、[研究来源](evidence/sources.json)。
 
 600 个无关标签的同一 WinForms 样例，旧版/优化版各三个交替样本的中位耗时为 9796.88/8004.51ms，约减少 18.3%；均含新 worker 启动成本。provider 内部访问量没有测出，单一样例不能外推为通用速度比。代理样例也未证明模型调用数减少；候选版曾硬超时，再用新进程和新输出目录验证通过，原失败保留在证据中。
