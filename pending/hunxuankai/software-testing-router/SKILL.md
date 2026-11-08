@@ -3,10 +3,12 @@ name: software-testing-router
 description: Use when choosing or implementing software automation tests across CLI/API, web, or Windows/macOS desktop apps, especially when Computer Use screenshot-and-click loops are slow, only an EXE or .app is available, or the correct test interface is unclear. 适用于软件自动化测试选型、桌面回归、GUI 验收和测试入口探测。
 license: MIT
 metadata:
-  version: "1.1.0"
+  version: "1.1.1"
 ---
 
 # 软件自动化测试方法选择
+
+按验收目标选择软件已有的测试入口，系统能力与验证边界见[完整概述](references/overview.md)。Mac 原生实现尚未实机验证，Linux 无本包原生 GUI 驱动。
 
 选择**能证明当前验收要求、且总成本较低的稳定入口**。先探测接口和控件能力，再选择工具；开发语言不能单独决定可测性。Computer Use 是缺少合适结构化入口时的备选，不是软件测试的默认起点。
 
