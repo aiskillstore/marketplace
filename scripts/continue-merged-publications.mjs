@@ -5,6 +5,7 @@ import { pathToFileURL } from 'node:url';
 import { publicationValidatorRevision, assertPublicationReportNotHeld } from './resolve-approved-submission.mjs';
 import { recoveredPushSync } from './recovered-push-sync.mjs';
 import { publicationInScope } from './publication-scope.mjs';
+import { reconcilePrepushReservations, readPublicationJobLog } from './publication-prepush-recovery.mjs';
 
 export const preflightContext = digest => `agentcrew/publication-preflight/${createHash('sha256')
   .update(`${digest}:${publicationValidatorRevision}`).digest('hex')}`;
@@ -51,7 +52,7 @@ export function batchIdentity(correlations) {
 
 // This continuation never merges PRs or interprets advisory audit risk fields.
 // Existing receiver remains the authority for immutable source/tree validation.
-export function chooseAttempt({ refs, statuses, digest, merge, now }) {
+export function chooseAttempt({ refs, statuses, digest, merge, now, prepushSafeRefs = [] }) {
   const prefix = `refs/tags/agentcrew-dispatch-outbox/publication/${digest}/`;
   if (refs.length >= 8) return { wait: 'outbox attempt limit; inspection required', outcome: 'blocked' };
   for (const ref of refs) {
@@ -64,7 +65,7 @@ export function chooseAttempt({ refs, statuses, digest, merge, now }) {
   if (statuses.some(s => s.context === context || s.context.startsWith(`agentcrew/publication-attempt/${digest}/`))) {
     return { wait: 'receiver has durable evidence; reconcile before replay', outcome: 'blocked' };
   }
-  const newest = Math.max(0, ...refs.map(r => Number(r.ref.slice(prefix.length).split('-')[0])));
+  const newest = Math.max(0, ...refs.filter(r => !prepushSafeRefs.includes(r.ref)).map(r => Number(r.ref.slice(prefix.length).split('-')[0])));
   if (newest > now - 15 * 60_000) return { wait: 'fresh dispatch awaiting receiver', outcome: 'waiting' };
   return { attempt: `${now}-${refs.length + 1}` };
 }
@@ -106,7 +107,7 @@ export function publicationFiles(pr, request = api) {
   }
   return files;
 }
-export function main(request = api) {
+export function main(request = api, readJobLog = readPublicationJobLog) {
   const live = process.argv.includes('--apply');
   const tree = request(`repos/${repo}/git/trees/main`);
   const pending = tree.tree.find(t => t.path === 'pending');
@@ -172,7 +173,17 @@ export function main(request = api) {
     const { correlation, digest } = publicationIdentity(pr);
     const refs = request(`repos/${repo}/git/matching-refs/tags/agentcrew-dispatch-outbox/publication/${digest}/`);
     const statuses = pages(`repos/${repo}/commits/${pr.merge_commit_sha}/statuses`, request);
-    const choice = chooseAttempt({ refs, statuses, digest, merge: pr.merge_commit_sha, now: Date.now() });
+    let reconciled = { statuses, prepushSafeRefs: [], proofs: [] };
+    try {
+      reconciled = reconcilePrepushReservations({ refs, statuses, digest, merge: pr.merge_commit_sha, prNumber: pr.number },
+        { request: path => request(`repos/${repo}/${path}`), readJobLog });
+    } catch (error) {
+      // Preserve the old fail-closed disposition; failed evidence retrieval or
+      // any unproved reservation cannot authorize a dispatch.
+      return reportContinuation('blocked', `#${pr.number}: ${error.message}; reconcile before replay`, { prNumbers: [pr.number] });
+    }
+    for (const proof of reconciled.proofs) console.log(JSON.stringify({ prepushReconciliation: proof, prNumber: pr.number }));
+    const choice = chooseAttempt({ refs, ...reconciled, digest, merge: pr.merge_commit_sha, now: Date.now() });
     if (choice.wait) {
       // Oldest-first is a safety boundary: a missing or non-terminal effect
       // blocks later publications until its exact correlation is reconciled.
