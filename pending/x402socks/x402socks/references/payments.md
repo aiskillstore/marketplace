@@ -274,7 +274,8 @@ printf '%s\n' "$SIGNATURE" | scripts/x402socks.sh recover 0xSETTLEMENT_TX_HASH
 The signing wallet must be the wallet that paid. `issued_at` must be within ±10 minutes of now. The original `PAYMENT-SIGNATURE` is deliberately rejected: it is public settlement calldata that anyone could replay.
 
 Recovery returns a replacement token once. The helper saves it atomically to the
-`0600` token file and prints only non-secret fields. If you call the endpoint
+`0600` token file and prints only non-secret fields. It refuses a non-HTTPS
+`X402SOCKS_PAY` override before it reads the signature. If you call the endpoint
 directly, build the JSON in a private `0600` file, send it with
 `--data-binary @file`, and do not print the raw response — it is the only copy
 of the replacement token.

@@ -14,6 +14,24 @@ API="${X402SOCKS_API:-https://api.x402socks.com}"
 die() { printf 'error: %s\n' "$*" >&2; exit 1; }
 note() { printf '%s\n' "$*" >&2; }
 
+# Credential-bearing requests must target https://. A plaintext URL (for
+# example a local test harness) is refused before the token or signature is
+# read, unless the operator explicitly opts in for that trusted environment.
+require_https() {
+  local name="$1" url="$2"
+  case "$url" in
+    https://*) return 0 ;;
+    http://*)
+      if [ "${X402SOCKS_ALLOW_INSECURE_API:-}" = "1" ]; then
+        note "WARNING: $name is plaintext http ($url); credentials will be sent unencrypted"
+        return 0
+      fi
+      ;;
+    *) die "$name must be an https:// URL (got '$url')" ;;
+  esac
+  die "$name must be an https:// URL (got '$url'); set X402SOCKS_ALLOW_INSECURE_API=1 only for a trusted local test"
+}
+
 need() { command -v "$1" >/dev/null 2>&1 || die "$1 is required"; }
 
 req() { curl -sS --max-time "${X402SOCKS_TIMEOUT:-30}" "$@"; }
@@ -34,16 +52,23 @@ token_file() {
 cfg_escape() { printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g'; }
 
 # Run one curl request whose options arrive on stdin. This keeps the token out
-# of the process list; only the URL is passed as an argument.
+# of the process list; only the URL is passed as an argument. The transfer and
+# every redirect are restricted to the URL's own scheme, so a credential request
+# can never be silently downgraded to plaintext.
 req_secret() {
   local url="$1"
   shift
-  local cfg
+  local cfg proto
   cfg="$(cat)"
+  case "$url" in
+    https://*) proto=(--proto '=https' --proto-redir '=https') ;;
+    http://*)  proto=(--proto '=http,https' --proto-redir '=http,https') ;;
+    *)         die "unsupported credential URL scheme: $url" ;;
+  esac
   {
     printf '%s\n' "$cfg"
     printf 'url = "%s"\n' "$(cfg_escape "$url")"
-  } | curl -sS --max-time "${X402SOCKS_TIMEOUT:-30}" --config - "$@"
+  } | curl -sS --max-time "${X402SOCKS_TIMEOUT:-30}" "${proto[@]}" --config - "$@"
 }
 
 json_token_body() {
@@ -152,6 +177,13 @@ Token source (never argv):
 Budget guard:
   X402SOCKS_MAX_USDC    approved maximum in USD; 'quote' fails above it
   X402SOCKS_TIMEOUT     per-request timeout in seconds (default 30)
+
+Endpoint overrides (advanced):
+  X402SOCKS_WEB / X402SOCKS_API / X402SOCKS_PAY
+                        must be https:// URLs; credential-bearing commands
+                        refuse a plaintext override before reading the token
+  X402SOCKS_ALLOW_INSECURE_API=1
+                        override that refusal for a trusted local test only
 
 EOF
   if [ "${X402SOCKS_ALLOW_PLAINTEXT:-}" = "1" ]; then
@@ -288,6 +320,7 @@ cmd_save_token() {
 
 cmd_status() {
   local token body cfg
+  require_https "X402SOCKS_WEB" "$WEB"
   token="$(resolve_token)"
   body="$(printf '%s' "$token" | json_token_body)"
   cfg="$(printf 'header = "content-type: application/json"\ndata = "%s"' "$(cfg_escape "$body")")"
@@ -296,6 +329,7 @@ cmd_status() {
 
 cmd_validate() {
   local token body cfg code
+  require_https "X402SOCKS_WEB" "$WEB"
   token="$(resolve_token)"
   body="$(printf '%s' "$token" | json_token_body)"
   cfg="$(printf 'header = "content-type: application/json"\ndata = "%s"' "$(cfg_escape "$body")")"
@@ -311,6 +345,7 @@ cmd_validate() {
 
 cmd_rotate() {
   local token cfg
+  require_https "X402SOCKS_API" "$API"
   token="$(resolve_token)"
   note "rotating: the old token stops working everywhere, immediately"
   cfg="$(printf 'header = "Authorization: Bearer %s"' "$(cfg_escape "$token")")"
@@ -365,6 +400,7 @@ cmd_test() {
   done
   [ $# -eq 0 ] || die "unexpected argument: $1"
 
+  require_https "X402SOCKS_WEB" "$WEB"
   check_exit_id "$exit_id"
 
   case "$mode" in
@@ -410,6 +446,7 @@ cmd_recover_message() {
 cmd_recover() {
   [ $# -ge 1 ] || die "usage: recover <tx_hash> [issued_at] (signature on stdin)"
   local tx sig issued_at body cfg
+  require_https "X402SOCKS_PAY" "$PAY"
   tx="$1"; issued_at="${2:-$(date +%s)}"
   IFS= read -r sig || die "no signature on stdin"
   [ -n "$sig" ] || die "empty signature on stdin"

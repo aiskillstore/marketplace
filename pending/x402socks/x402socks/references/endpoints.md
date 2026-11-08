@@ -87,6 +87,14 @@ The response carries `catalog_digest` and `content_sha256`. Pin the digest if yo
 
 ## Credentials
 
+Credential-bearing requests (status, validate, rotate, recover, and the pre-test
+token check) must target `https://`. The helper refuses a plaintext
+`X402SOCKS_WEB`, `X402SOCKS_API`, or `X402SOCKS_PAY` override before it reads the
+token or signature, and its curl invocations restrict the transfer and redirects
+to HTTPS so a credential request cannot be silently downgraded. Do not move these
+routes to HTTP. `X402SOCKS_ALLOW_INSECURE_API=1` exists only for a trusted local
+test harness and is not a safe way to reach the public service.
+
 ### `POST /api/token/status`
 
 Send the token in a JSON body. Build the body from the `0600` file into a
