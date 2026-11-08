@@ -5,6 +5,7 @@ import { pathToFileURL } from 'node:url';
 import { publicationIdentity, chooseAttempt, batchIdentity, preflightContext, maxBatchSkills, publicationFiles } from './continue-merged-publications.mjs';
 import { resolveApprovedSubmission, PublicationValidationError } from './resolve-approved-submission.mjs';
 import { recoveredPushSync } from './recovered-push-sync.mjs';
+import { reconcilePrepushReservations, readPublicationJobLog } from './publication-prepush-recovery.mjs';
 import { assertPublicationInScope } from './publication-scope.mjs';
 
 export { batchIdentity } from './continue-merged-publications.mjs';
@@ -117,7 +118,10 @@ export async function main() {
     }
     const refs = api(`git/matching-refs/tags/agentcrew-dispatch-outbox/publication/${row.digest}/`);
     const statuses = all(`commits/${row.pr.merge_commit_sha}/statuses?per_page=100`);
-    const decision = chooseAttempt({ refs, statuses, digest: row.digest, merge: row.pr.merge_commit_sha, now: Date.now() });
+    const reconciled = reconcilePrepushReservations({ refs, statuses, digest: row.digest, merge: row.pr.merge_commit_sha, prNumber: row.pr.number },
+      { request: api, readJobLog: readPublicationJobLog });
+    for (const proof of reconciled.proofs) console.log(JSON.stringify({ prepushReconciliation: proof, prNumber: row.pr.number }));
+    const decision = chooseAttempt({ refs, ...reconciled, digest: row.digest, merge: row.pr.merge_commit_sha, now: Date.now() });
     if (!decision.attempt) throw new Error(`#${row.pr.number}: ${decision.wait}`);
     row.attempt = decision.attempt;
     row.context = `agentcrew/publication/${row.digest}`;
@@ -137,7 +141,10 @@ export async function main() {
       if (api(`git/ref/${ref.slice(5)}`).object.sha !== row.pr.merge_commit_sha) throw new Error('Outbox readback mismatch');
       // Recheck after the durable outbox write, before any business mutation.
       const statuses = all(`commits/${row.pr.merge_commit_sha}/statuses?per_page=100`);
-      if (statuses.some(s => s.context === row.context || s.context.startsWith(`agentcrew/publication-attempt/${row.digest}/`))) throw new Error('Concurrent receiver reservation');
+      const refs = api(`git/matching-refs/tags/agentcrew-dispatch-outbox/publication/${row.digest}/`);
+      const reconciled = reconcilePrepushReservations({ refs, statuses, digest: row.digest, merge: row.pr.merge_commit_sha, prNumber: row.pr.number },
+        { request: api, readJobLog: readPublicationJobLog });
+      if (reconciled.statuses.some(s => s.context === row.context || s.context.startsWith(`agentcrew/publication-attempt/${row.digest}/`))) throw new Error('Concurrent receiver reservation');
       claimed.push(row);
       setStatus(row, row.attemptContext, 'pending', 'Exact publication attempt is running');
       setStatus(row, row.context, 'pending', 'Correlated publication is running');
