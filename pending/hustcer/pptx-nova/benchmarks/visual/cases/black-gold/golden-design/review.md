@@ -1,0 +1,3 @@
+# Black Gold design-language migration
+
+Eight representative pages across six families. Reference prose and composite-image hierarchy inform the visual identity; readable contrast, dark judgment stages and single gold focus intentionally improve the sample. Bundled claims and values are illustrative. Require native chart numeric/series/category readback, native table cell/dimension readback, 10pt minimum, grayscale evidence, one gold focal group, direct labels, horizontal table rules and source/as-of/unit disclosure. Gold pixel area and aesthetic acceptance require actual PNG review. No raster backgrounds or PowerPoint parity claim.
