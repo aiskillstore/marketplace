@@ -1,0 +1,23 @@
+# Pink Script golden review
+
+2026-10-26: `pink-script@1.0.0` accepted as candidate for explicit creation.
+
+Promoted to production on 2026-10-26. The golden benchmark passed again with vision high/medium/low 0/0/0 and an empty accepted vision baseline. All nine canonical PNGs and the contact sheet are byte-identical to the previously reviewed benchmark. Current benchmark evidence: `.tmp/deckkit-production-20261026-fBFdCq/pink-script/golden-editorial/`.
+
+The nine-page DOM reference, its design document and all source screenshots were inspected before the visual baseline was accepted. The unused tenth CSS type is not a source page. The canvas remains 16:9. Warm black, a single hot pink, upright blush serif, large numerals, open evidence and alternating editorial density remain the visual identity. All outer frames were removed by user direction. The closing QR is transparent, authentic and caption-free. All sample evidence is explicitly synthetic or fictional.
+
+Final golden candidate SHA-256:
+`2ca83fa80efe79d0b85ad6842e334c04e19724d011696ebb3a8cfa4249d81e30`.
+All nine canonical PNGs from that exact candidate were inspected individually. Enlarged crops cover stats and units, colored table cells, the dense matrix, bottom notes and QR. Golden, alternate, mixed/other-domain and count-boundary candidates total 36 individually reviewed pages. The same-content alternate covers all second layouts with distinct geometry and complete information. Real maximum prose density is covered by golden/alternate; the short-string stress deck is only a maximum-count/minimum-string probe.
+
+Three-repeat benchmark passes: validation/fit errors 0, dry-run/apply high/medium 0, final vision high/medium/low 0, 9/9 PNGs and a nonempty contact sheet. Candidate readiness, slot consistency, targeted illegal/rule counterexamples, native object/data readback and an eight-term reference leakage check pass. Four accepted patches match current source. ZIP integrity, well-formed XML/relationships, internal relationship targets and final font/color/placeholder checks pass. Full repository tests: 727 pass, 39 conditional skips, no failures. core-primitives is unchanged.
+
+PowerPoint for Mac 16.114.1 opened, saved and reopened golden and mixed copies with nine slides and no Repair or removed content. Saved-object readback passes for 384/383 objects, one native chart and one native table each. Actual golden probe edits persisted: native text, a single table cell, chart first value 35→36 and QR x-position. Chart cache and embedded workbook B2 independently read back as 36. Select Data opens an Excel-owned modal; its presence temporarily blocked PowerPoint accessibility calls. After confirmation and revisiting the slide, the cache synchronized. Data entry alone was not counted as synchronization proof.
+
+Fonts are not embedded. Songti SC bold substitutes the reference's Chinese display face; Inter regular replaces Light. Native grain/glow approximate browser texture; the folio is horizontal. Native status cells replace detached pills. Independent chart callouts/legend require rebuilding after manual data edits. Other hosts, every alternate/stress sample in PowerPoint, full ECMA schema validation, complete workbook equivalence and pixel parity remain unverified. Reviewed Create metadata warnings do not establish real-world claim support.
+
+Current evidence is under repository-root `.tmp/deckkit-pink-script/`: `create/golden-02`, `coverage/{alternate,mixed,stress}-03`, `benchmark/01`, `coverage-review.json`, `native/host-review.json`, `audit/final-machine-audit.json`, and `acceptance-final.json`. These replace earlier golden/coverage candidates for acceptance; old runs remain retained. The current curated showcase was refreshed from final source.
+
+The source SVG contains 13 points for 12 category labels; the synthetic native replacement uses two complete 12-category series. This retains the evidence role without inventing a thirteenth category. Font-specific paragraph spacing preserves font size. Headline periods are intentional reference punctuation. Create's claimSupport/table-source metadata warnings were reviewed against visible synthetic/source disclosures; they do not certify commercial claims.
+
+Implemented deckkit-maker improvements: HTML capture now records actual DOM source order, ids, classes, labels and textContent, with regression coverage executing the injected script. Guidance distinguishes unused CSS types from real pages and requires real-font paragraph/rich-run checks. Example CLI directory tests now supply declared assets and compare serialized JSON consistently while missing-asset rejection remains enforced.
