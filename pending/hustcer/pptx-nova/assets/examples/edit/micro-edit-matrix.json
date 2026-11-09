@@ -1,0 +1,268 @@
+{
+  "schemaVersion": "pptx-nova-micro-edit-matrix/v1",
+  "description": "Minimal success and failure examples for the Micro Edit route. These are patterns, not a replacement for inspect and dry-run selector evidence.",
+  "successCases": [
+    {
+      "id": "replace-text",
+      "intent": "Replace one known text shape while preserving the deck structure.",
+      "minimumEvidence": [
+        "inspect or select resolves exactly one shape on the intended slide",
+        "dry-run confirms the same slide and shape id/name",
+        "replacement is similar length or changed-slide preview is generated"
+      ],
+      "patch": {
+        "schemaVersion": "pptx-patch/v1",
+        "ops": [
+          {
+            "op": "set-text-frame",
+            "slide": 0,
+            "shape": {
+              "id": 7
+            },
+            "text": "Updated title"
+          }
+        ]
+      },
+      "qa": [
+        "Keep inspect.json, patch.json, dry-run.json, and apply.json",
+        "Skip PNG only when text is same-length or shorter and dry-run reports no visual risk"
+      ],
+      "escalateWhen": [
+        "selector matches more than one shape",
+        "run-level formatting must be preserved but paragraph/run indexes are unknown"
+      ]
+    },
+    {
+      "id": "speaker-notes",
+      "intent": "Replace speaker notes on one slide.",
+      "minimumEvidence": [
+        "slide index is confirmed from inspect or user instruction",
+        "dry-run reports one notes change"
+      ],
+      "patch": {
+        "schemaVersion": "pptx-patch/v1",
+        "ops": [
+          {
+            "op": "set-slide-notes",
+            "slide": 2,
+            "text": "Emphasize the renewal risk and the mitigation owner."
+          }
+        ]
+      },
+      "qa": [
+        "Notes-only edits usually do not need PNG rendering",
+        "Verify apply.json records only the requested slide notes change"
+      ],
+      "escalateWhen": [
+        "speaker notes need rich text structure that is not visible in inspect",
+        "notes must be synchronized across many slides"
+      ]
+    },
+    {
+      "id": "footer-text",
+      "intent": "Update a single footer, date, or page-number placeholder.",
+      "minimumEvidence": [
+        "inspect exposes a footer/date/page-number placeholder or stable shape name",
+        "dry-run resolves exactly one footer-related target unless the user requested a batch edit"
+      ],
+      "patch": {
+        "schemaVersion": "pptx-patch/v1",
+        "ops": [
+          {
+            "op": "set-text-frame",
+            "slide": 4,
+            "shape": {
+              "placeholder": "ftr"
+            },
+            "text": "Confidential - June 2026"
+          }
+        ]
+      },
+      "qa": [
+        "Render a changed-slide PNG because footer/date/page-number edits sit in tight bboxes",
+        "Check dry-run for unexpected batch footer changes"
+      ],
+      "escalateWhen": [
+        "footer is inherited from layout/master and the target surface is unclear",
+        "user asks for a global footer policy change without a verified target set"
+      ]
+    },
+    {
+      "id": "metadata",
+      "intent": "Set one or more deck core properties without changing slides.",
+      "minimumEvidence": [
+        "core property names and values are explicit",
+        "dry-run reports only metadata changes"
+      ],
+      "patch": {
+        "schemaVersion": "pptx-patch/v1",
+        "ops": [
+          {
+            "op": "set-document-properties",
+            "properties": {
+              "title": "Q3 Operating Review",
+              "author": "Strategy Team"
+            }
+          }
+        ]
+      },
+      "qa": [
+        "PNG rendering is not needed when no slide content changes",
+        "Verify apply.json records only core property updates"
+      ],
+      "escalateWhen": [
+        "metadata source of truth conflicts with visible slide text",
+        "custom document properties or package-level XML changes are requested"
+      ]
+    },
+    {
+      "id": "replace-image",
+      "intent": "Replace one picture while preserving its inspected position and size.",
+      "minimumEvidence": [
+        "inspect identifies the intended picture by id/name and captures bbox",
+        "replacement asset provenance is known",
+        "dry-run removes exactly the old picture and adds one replacement at the same bbox"
+      ],
+      "patch": {
+        "schemaVersion": "pptx-patch/v1",
+        "ops": [
+          {
+            "op": "remove-shape",
+            "slide": 1,
+            "shape": {
+              "name": "Customer logo"
+            }
+          },
+          {
+            "op": "add-image",
+            "slide": 1,
+            "x": "8.25in",
+            "y": "0.35in",
+            "w": "1.1in",
+            "h": "0.45in",
+            "assetSource": {
+              "path": "assets/replacement-logo.png"
+            },
+            "name": "Customer logo"
+          }
+        ]
+      },
+      "qa": [
+        "Always render the changed slide PNG",
+        "Compare bbox, aspect ratio, crop, and visible identity against the old picture"
+      ],
+      "escalateWhen": [
+        "crop or mask must be preserved but inspect does not expose enough context",
+        "asset identity, licensing, or provenance is unclear",
+        "multiple visually similar pictures exist"
+      ]
+    },
+    {
+      "id": "single-object-color",
+      "intent": "Change the fill or line color of one named object.",
+      "minimumEvidence": [
+        "inspect resolves exactly one non-theme object",
+        "requested color is explicit as RGB or a known theme color",
+        "dry-run reports one object style change"
+      ],
+      "patch": {
+        "schemaVersion": "pptx-patch/v1",
+        "ops": [
+          {
+            "op": "set-shape",
+            "slide": 0,
+            "shape": {
+              "name": "Status pill"
+            },
+            "fill": {
+              "type": "solid",
+              "color": "1F77B4"
+            }
+          }
+        ]
+      },
+      "qa": [
+        "Render the changed slide PNG because visible style changed",
+        "Escalate if the request is really a theme or brand change"
+      ],
+      "escalateWhen": [
+        "same color must be applied across theme-driven objects",
+        "contrast, accessibility, or brand compliance must be revalidated deck-wide"
+      ]
+    },
+    {
+      "id": "delete-placeholder",
+      "intent": "Remove one empty or default placeholder from one slide.",
+      "minimumEvidence": [
+        "inspect confirms the placeholder type and slide",
+        "dry-run resolves exactly one placeholder",
+        "placeholder is empty/default and not the only visible content carrying user data"
+      ],
+      "patch": {
+        "schemaVersion": "pptx-patch/v1",
+        "ops": [
+          {
+            "op": "remove-shape",
+            "slide": 3,
+            "shape": {
+              "placeholder": "body"
+            }
+          }
+        ]
+      },
+      "qa": [
+        "Render the changed slide PNG when the placeholder is visible",
+        "Verify no layout/master placeholder was unintentionally edited"
+      ],
+      "escalateWhen": [
+        "placeholder contains non-default text or user content",
+        "removal should apply to a layout/master or multiple slides",
+        "template fidelity is part of the request"
+      ]
+    }
+  ],
+  "failureCases": [
+    {
+      "id": "ambiguous-selector",
+      "intent": "The user names text or an object that appears multiple times.",
+      "failureSignal": "select summary.matchCount is greater than 1 or dry-run resolves more than one target.",
+      "microEditAction": "Stop Micro Edit, gather stronger selector evidence, or route through edit-mode.md and inspect-and-edit.md."
+    },
+    {
+      "id": "batch-footer-without-target-set",
+      "intent": "The user asks to change all footers, dates, or page numbers without a verified slide/object set.",
+      "failureSignal": "dry-run cannot prove the expected batch count or includes inherited layout/master ambiguity.",
+      "microEditAction": "Use normal Edit and verify the target set before applying."
+    },
+    {
+      "id": "chart-or-table-edit",
+      "intent": "The change touches chart data, table structure, axes, labels, or embedded workbook semantics.",
+      "failureSignal": "requested change is semantic, not a localized text/style object patch.",
+      "microEditAction": "Escalate to edit-mode.md and the chart/table-specific workflow."
+    },
+    {
+      "id": "image-provenance-or-crop-unclear",
+      "intent": "A picture should be replaced but crop, mask, aspect ratio, identity, or asset source is unclear.",
+      "failureSignal": "inspect does not expose enough geometry/crop context or asset provenance is missing.",
+      "microEditAction": "Use normal Edit with asset handling and changed-slide visual review."
+    },
+    {
+      "id": "layout-brand-or-theme-redesign",
+      "intent": "The request implies layout, theme, brand, narrative, or visual system changes.",
+      "failureSignal": "the edit changes deck structure or design rules instead of one localized object.",
+      "microEditAction": "Route to Studio, DeckKit, template-following, or edit-mode as appropriate."
+    },
+    {
+      "id": "unknown-run-or-paragraph-indexing",
+      "intent": "The user asks for partial text styling but paragraph/run boundaries are unknown.",
+      "failureSignal": "whole-frame text replacement would destroy formatting and inspect has not proven indexes.",
+      "microEditAction": "Inspect more deeply or escalate; do not guess run indexes."
+    },
+    {
+      "id": "non-empty-placeholder-delete",
+      "intent": "A placeholder deletion might remove user content or affect inherited template behavior.",
+      "failureSignal": "placeholder contains non-default text/content or appears to be layout/master-owned.",
+      "microEditAction": "Use template-following or normal Edit and preview the changed slide before delivery."
+    }
+  ]
+}
