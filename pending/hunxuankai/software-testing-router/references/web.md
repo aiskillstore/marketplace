@@ -33,8 +33,10 @@ expect(dialog.get_by_role("status")).to_have_text("Exported")
 .venv/Scripts/python.exe -m pytest tests/test_web.py -q
 ```
 
+macOS/Linux 可在对应虚拟环境使用 `.venv/bin/python -m pytest tests/test_web.py -q`；每次给 pytest 设置新的外部 `--basetemp` 并使用 `PYTHONDONTWRITEBYTECODE=1` 保存证据。先确认该系统浏览器与依赖可用；本包 DOM 实测来自 Windows 10 的普通 Chromium 页面，不能据此宣称 Mac/Linux 或真实嵌入式宿主已验证。
+
 ## Electron、CEF 与 WebView
 
-只有确认存在可用调试端点/测试启动能力后，才选 DOM/CDP。可控 Electron 源码可评估它的专用测试入口；HTML 内容和原生文件对话框可能需要两种驱动。UIA 外壳节点少，不代表内部 DOM 已被测；普通 Chromium 测试也不能冒充 Electron、CEF 或 WebView2 兼容验证。
+只有确认存在可用调试端点/测试启动能力后，才选 DOM/CDP。可控 Electron 源码可评估它的专用测试入口；HTML 内容和原生文件对话框可能需要两种驱动。Windows 原生外壳探测 UIA，Mac 原生对话框按 [AX 路线](macos-accessibility.md) 探测，Linux 没有本包原生 GUI 驱动。外壳节点少不代表内部 DOM 已被测；普通 Chromium 测试也不能冒充 Electron、CEF 或 WebView2 兼容验证。
 
 参考：[Playwright 自动等待](https://playwright.dev/python/docs/actionability)、[定位器](https://playwright.dev/python/docs/locators)、[断言](https://playwright.dev/python/docs/test-assertions)。
