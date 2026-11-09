@@ -34,3 +34,19 @@ test('never treats a failed job-log fetch as empty successful evidence', () => {
       { stdio: 'pipe', env: { ...process.env, PATH: `${dir}:${process.env.PATH}` } }));
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
+
+test('keeps the installed older gh reader working when the new flag is unsupported', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'publication-log-old-gh-'));
+  try {
+    writeFileSync(join(dir, 'gh'), `#!${process.execPath}\n
+      if (process.argv.includes('--allow-escape-sequences')) {
+        process.stderr.write('unknown flag: --allow-escape-sequences\\n'); process.exit(1);
+      }
+      process.stdout.write('\\u001b[32mverified log\\u001b[0m\\n');
+    `, { mode: 0o700 });
+    const output = execFileSync(process.execPath, ['--input-type=module', '-e',
+      `import { readPublicationJobLog } from ${JSON.stringify(moduleUrl)}; process.stdout.write(readPublicationJobLog(128043381793));`],
+      { encoding: 'utf8', stdio: 'pipe', env: { ...process.env, PATH: `${dir}:${process.env.PATH}` } });
+    assert.equal(output, 'verified log\n');
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
