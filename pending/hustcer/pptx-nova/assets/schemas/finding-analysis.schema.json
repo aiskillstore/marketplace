@@ -1,0 +1,365 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "pptx-nova-finding-analysis/v1-draft",
+  "title": "pptx-nova Finding Analysis shadow report",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "evaluation",
+    "workflowProfile",
+    "bindings",
+    "policy",
+    "analysisIdentity",
+    "findings",
+    "resolvedFindings",
+    "summary",
+    "agentGate"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "pptx-nova-finding-analysis/v1-draft"
+    },
+    "evaluation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "errors", "diagnostics"],
+      "properties": {
+        "status": {
+          "enum": ["complete", "failed"]
+        },
+        "errors": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/issue"
+          }
+        },
+        "diagnostics": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/issue"
+          }
+        }
+      }
+    },
+    "workflowProfile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["profileId", "kind", "mode", "mutationIntent", "deliveryStage"],
+      "properties": {
+        "profileId": {
+          "type": "string"
+        },
+        "kind": {
+          "enum": ["refurbish", null]
+        },
+        "mode": {
+          "enum": ["standard", "studio", "reference", "structural", "micro", null]
+        },
+        "mutationIntent": {
+          "enum": ["style", null]
+        },
+        "deliveryStage": {
+          "enum": ["final", null]
+        }
+      }
+    },
+    "bindings": {
+      "type": "object"
+    },
+    "policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ruleSetVersion"],
+      "properties": {
+        "ruleSetVersion": {
+          "const": "pptx-nova-finding-rules/v1-shadow.1"
+        }
+      }
+    },
+    "analysisIdentity": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/hashIdentity"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "findings": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/finding"
+      }
+    },
+    "resolvedFindings": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/resolvedFinding"
+      }
+    },
+    "summary": {
+      "type": "object"
+    },
+    "agentGate": {
+      "$ref": "#/$defs/agentGate"
+    }
+  },
+  "oneOf": [
+    {
+      "properties": {
+        "evaluation": {
+          "properties": {
+            "status": {
+              "const": "complete"
+            },
+            "errors": {
+              "maxItems": 0
+            }
+          }
+        },
+        "analysisIdentity": {
+          "$ref": "#/$defs/hashIdentity"
+        },
+        "summary": {
+          "required": [
+            "countsComplete",
+            "findingCount",
+            "unresolvedFindingCount",
+            "resolvedFindingCount",
+            "byDisposition",
+            "byReviewStatus",
+            "byDeltaStatus",
+            "topFindings"
+          ],
+          "properties": {
+            "countsComplete": {
+              "const": true
+            }
+          }
+        }
+      }
+    },
+    {
+      "properties": {
+        "evaluation": {
+          "properties": {
+            "status": {
+              "const": "failed"
+            },
+            "errors": {
+              "minItems": 1
+            }
+          }
+        },
+        "analysisIdentity": {
+          "type": "null"
+        },
+        "findings": {
+          "maxItems": 0
+        },
+        "resolvedFindings": {
+          "maxItems": 0
+        },
+        "summary": {
+          "required": ["countsComplete", "errorCount"],
+          "properties": {
+            "countsComplete": {
+              "const": false
+            },
+            "errorCount": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "hashIdentity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaVersion", "algorithm", "sha256"],
+      "properties": {
+        "schemaVersion": {
+          "type": "string"
+        },
+        "algorithm": {
+          "const": "sha256"
+        },
+        "sha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "issue": {
+      "type": "object",
+      "required": ["code", "message"],
+      "properties": {
+        "code": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]*$"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    },
+    "review": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["eligibility", "status", "evaluationRef"],
+      "properties": {
+        "eligibility": {
+          "enum": ["not-required", "reviewable", "non-reviewable"]
+        },
+        "status": {
+          "enum": ["not-requested", "pending", "accepted", "invalid", "stale"]
+        },
+        "evaluationRef": {
+          "type": ["object", "null"]
+        }
+      }
+    },
+    "decision": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["disposition", "action", "autoExecutable", "requiredEvidence", "rationale"],
+      "properties": {
+        "disposition": {
+          "enum": ["informational", "review", "repair", "block"]
+        },
+        "action": {
+          "enum": [
+            "none",
+            "inspect-preview",
+            "use-id-selector",
+            "replace-name-selector",
+            "fill-placeholder",
+            "submit-hash-bound-review",
+            "manual-review"
+          ]
+        },
+        "autoExecutable": {
+          "const": false
+        },
+        "requiredEvidence": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "rationale": {
+          "type": "string"
+        }
+      }
+    },
+    "finding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "findingKey",
+        "evidenceDigest",
+        "detector",
+        "rawFinding",
+        "target",
+        "relatedObjects",
+        "delta",
+        "selectorUsage",
+        "impact",
+        "decision",
+        "review",
+        "inChangedScope"
+      ],
+      "properties": {
+        "findingKey": {
+          "$ref": "#/$defs/hashIdentity"
+        },
+        "evidenceDigest": {
+          "type": "object"
+        },
+        "detector": {
+          "type": "object"
+        },
+        "rawFinding": {
+          "type": "object"
+        },
+        "target": {
+          "type": "object"
+        },
+        "relatedObjects": {
+          "type": "array"
+        },
+        "delta": {
+          "type": "object"
+        },
+        "selectorUsage": {
+          "type": "object"
+        },
+        "impact": {
+          "type": "object"
+        },
+        "decision": {
+          "$ref": "#/$defs/decision"
+        },
+        "review": {
+          "$ref": "#/$defs/review"
+        },
+        "inChangedScope": {
+          "type": "boolean"
+        }
+      }
+    },
+    "resolvedFinding": {
+      "type": "object",
+      "required": [
+        "findingKey",
+        "evidenceDigest",
+        "detector",
+        "rawFinding",
+        "target",
+        "relatedObjects",
+        "delta"
+      ]
+    },
+    "agentGate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "enforcement",
+        "proposedStatus",
+        "effectiveStatus",
+        "governingFindingKeys",
+        "nextAction"
+      ],
+      "properties": {
+        "enforcement": {
+          "enum": ["shadow", "required", "optional"]
+        },
+        "proposedStatus": {
+          "enum": ["pass", "warn", "fail"]
+        },
+        "effectiveStatus": {
+          "enum": ["not-applied", "pass", "warn", "fail"]
+        },
+        "governingFindingKeys": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/sha256"
+          },
+          "uniqueItems": true
+        },
+        "nextAction": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]*$"
+        }
+      }
+    }
+  }
+}
