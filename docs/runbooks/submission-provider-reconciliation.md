@@ -31,6 +31,12 @@ Repeated checks of the same failed dependency do not throw another execution err
 
 API errors, invalid/truncated evidence, publication holds and provider runs stalled beyond the existing time limit still fail visibly. Do not use `continue-on-error`, rerun the failed provider blindly, or clear its history to release the queue.
 
+### Reading historical receiver logs
+
+GitHub job logs can contain terminal formatting. The shared log reader explicitly allows those bytes through `gh api`, then removes VT control sequences with Node's native utility before reconciliation. Logs are parsed as data and never executed or printed raw. The installed older gh 2.83.0 does not recognize this flag: only its exact unsupported-flag error permits retrying the same GET without the flag, still stripping VT sequences. Other fetch failures remain failures; missing or unverified evidence never releases a reservation.
+
+The audited receiver revision, exact workflow/job/step inventory, PR and batch correlation, terminal pre-push error, trusted status owner and outbox binding remain mandatory. Repairing transport does not prove publication or provider completion. After merging a reader repair, inspect the automatically triggered continuation first; do not blindly dispatch or rerun a receiver.
+
 ### Reconciliation procedure
 
 1. Get implementation independently reviewed; merge only the approved exact repair head through the normal repository/human gate. The workflow runs only from main and pins runtime checkout to `github.sha`.
