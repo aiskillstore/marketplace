@@ -1,0 +1,199 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "pptx-nova-edit-contract/v1",
+  "title": "pptx-nova edit contract",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "request",
+    "scope",
+    "operationKind",
+    "workspace",
+    "source",
+    "targets",
+    "coverage",
+    "allowedChanges",
+    "preserve",
+    "requiredEvidence"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "pptx-nova-edit-contract/v1" },
+    "request": { "type": "string", "minLength": 1 },
+    "scope": {
+      "type": "string",
+      "enum": ["single-object", "single-slide", "multi-slide", "all-slides-style", "structural"]
+    },
+    "operationKind": { "type": "string", "minLength": 1 },
+    "workspace": { "type": "string", "minLength": 1 },
+    "source": {
+      "type": "object",
+      "required": ["pptx", "sha256"],
+      "properties": {
+        "pptx": { "type": "string", "minLength": 1 },
+        "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "byteLength": { "type": "integer", "minimum": 1 },
+        "inspectPath": { "type": "string" },
+        "selectPaths": { "type": "array", "items": { "type": "string" } }
+      },
+      "additionalProperties": true
+    },
+    "targets": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["id", "kind", "slide", "opIndexes", "resolvedIdentity", "expected"],
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "kind": { "type": "string", "enum": ["object", "slide"] },
+          "slide": { "type": "integer", "minimum": 0 },
+          "opIndexes": {
+            "type": "array",
+            "minItems": 1,
+            "items": { "type": "integer", "minimum": 0 }
+          },
+          "selector": { "type": "object" },
+          "produced": { "type": "boolean" },
+          "sessionRuleIds": {
+            "type": "array",
+            "items": { "type": "string", "minLength": 1 },
+            "uniqueItems": true
+          },
+          "resolvedIdentity": {
+            "type": "object",
+            "required": ["slide"],
+            "properties": {
+              "slide": { "type": "integer", "minimum": 0 },
+              "id": { "type": ["integer", "string"] },
+              "name": { "type": "string", "minLength": 1 }
+            },
+            "additionalProperties": true
+          },
+          "expected": {
+            "type": "object",
+            "required": ["changeCategories"],
+            "properties": {
+              "beforeText": { "type": "string" },
+              "afterText": { "type": "string" },
+              "alreadyCompliant": { "type": "boolean" },
+              "changeCategories": {
+                "type": "array",
+                "minItems": 1,
+                "items": { "type": "string" }
+              },
+              "sessionRulePostconditions": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "object",
+                  "required": ["kind", "value"],
+                  "properties": {
+                    "kind": { "type": "string", "enum": ["font-color", "fill-color"] },
+                    "value": { "type": "string", "pattern": "^[0-9A-F]{6}$" }
+                  },
+                  "additionalProperties": false
+                }
+              }
+            },
+            "additionalProperties": true
+          }
+        },
+        "allOf": [
+          {
+            "if": { "properties": { "kind": { "const": "object" } } },
+            "then": {
+              "required": ["selector"],
+              "properties": {
+                "resolvedIdentity": {
+                  "anyOf": [{ "required": ["id"] }, { "required": ["name"] }]
+                }
+              }
+            }
+          }
+        ],
+        "additionalProperties": true
+      }
+    },
+    "coverage": {
+      "type": "object",
+      "required": ["required", "expectedTargetCount"],
+      "properties": {
+        "required": { "type": "boolean" },
+        "expectedTargetCount": { "type": "integer", "minimum": 1 }
+      },
+      "additionalProperties": true
+    },
+    "allowedChanges": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string" }
+    },
+    "preserve": { "type": "array", "items": { "type": "string" } },
+    "requiredEvidence": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string",
+        "enum": [
+          "dry-run",
+          "semantic-diff",
+          "style-diff",
+          "png-preview",
+          "vision-check",
+          "vision-diff",
+          "final-inspect",
+          "structure-check"
+        ]
+      }
+    },
+    "expectedStructure": {
+      "type": "object",
+      "required": ["slideCountDelta", "changedSlides", "objectTypes"],
+      "properties": {
+        "slideCountDelta": { "type": "integer" },
+        "changedSlides": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "integer", "minimum": 0 }
+        },
+        "objectTypes": { "type": "array", "items": { "type": "string", "minLength": 1 } }
+      },
+      "additionalProperties": true
+    },
+    "sessionRules": {
+      "type": "object",
+      "required": [
+        "rulesPath",
+        "rulesSha256",
+        "resolutionPath",
+        "resolutionSha256",
+        "operationPath",
+        "operationSha256",
+        "deckId",
+        "applicableRuleIds"
+      ],
+      "properties": {
+        "rulesPath": { "type": "string", "minLength": 1 },
+        "rulesSha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "resolutionPath": { "type": "string", "minLength": 1 },
+        "resolutionSha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "operationPath": { "type": "string", "minLength": 1 },
+        "operationSha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "deckId": { "type": "string", "minLength": 1 },
+        "applicableRuleIds": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "scope": { "const": "structural" } } },
+      "then": { "required": ["expectedStructure"] }
+    }
+  ],
+  "additionalProperties": true
+}
