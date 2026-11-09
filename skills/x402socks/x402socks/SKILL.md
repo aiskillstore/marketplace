@@ -4,7 +4,7 @@ description: Use this skill when an agent needs a different source IP, rotating 
 license: MIT
 metadata:
   author: x402socks
-  version: 1.2.2
+  version: 1.2.4
   homepage: https://x402socks.com
 ---
 
@@ -99,9 +99,7 @@ Every exit offers **SOCKS5 on TCP 1080** as the primary protocol. `eu-north1`, `
 | `asia-central2` | APAC Singapore        | yes         | **yes**  |
 | `asia-west1`    | APAC India            | yes         | **yes**  |
 
-Plaintext HTTP CONNECT on **3128** is supported only for browser compatibility (Chrome/iium) and will be **discontinued shortly**. Both legacy transports send the reusable token unencrypted on the client-to-exit hop; use them only when a client cannot do TLS CONNECT and the network is trusted. The helper requires `X402SOCKS_ALLOW_PLAINTEXT=1` before it will use either.
-
-Both send the reusable token in cleartext on the client-to-exit hop. A passive observer on the same network can capture it and use your paid access. The helper refuses them unless `X402SOCKS_ALLOW_PLAINTEXT=1` is set. On an exit without a TLS listener, this is unavoidable; keep the token short-lived and avoid untrusted networks.
+Plaintext HTTP CONNECT on **3128** is supported only for browser compatibility (Chrome and similar) and will be **discontinued shortly**. Both legacy transports send the reusable token unencrypted on the client-to-exit hop; a passive observer on the same network can capture it and use your paid access. The helper refuses them unless `X402SOCKS_ALLOW_PLAINTEXT=1` is set. On an exit without a TLS listener this is unavoidable; keep the token short-lived and avoid untrusted networks.
 
 ```bash
 # TLS CONNECT (default, recommended)
@@ -119,6 +117,7 @@ Client snippets for curl, Python, Node, Playwright, and Chrome are in `reference
 - Never echo a token into a chat transcript or a commit. If a token appears in output, treat it as burned and rotate it.
 - Prefer TLS CONNECT on port 3129. SOCKS5 and plaintext HTTP CONNECT authenticate with the token in cleartext on the client-to-proxy hop; enable them only when a client cannot use TLS CONNECT and the network is trusted.
 - Rotate on any suspicion of exposure: `scripts/x402socks.sh rotate`. Rotation invalidates the old token immediately, everywhere; the helper saves the replacement to the `0600` file and prints only a redacted response.
+- Credential-bearing requests only ever go to `https://` endpoints. The helper rejects a plaintext `X402SOCKS_WEB`, `X402SOCKS_API`, or `X402SOCKS_PAY` override before it reads the token, and restricts the transfer and all redirects to HTTPS. Only for a trusted local test, `X402SOCKS_ALLOW_INSECURE_API=1` overrides that refusal.
 
 ## Rotation and recovery
 
