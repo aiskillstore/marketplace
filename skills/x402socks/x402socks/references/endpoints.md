@@ -24,7 +24,7 @@ https://<exit>.x402socks.com:3129
 
 The client verifies the exit certificate, then sends `Proxy-Authorization` inside the TLS tunnel to the exit. The reusable token is not readable on the client-to-exit hop.
 
-**SOCKS5 on 1080** is the primary protocol. `eu-north1`, `asia-central2`, and `asia-west1` also offer **TLS HTTP CONNECT on 3129**, which is preferred for TLS verification. Plaintext HTTP CONNECT on **3128** is supported only for browser compatibility (Chrome/iium) and will be **discontinued shortly**. Both legacy transports send the reusable token unencrypted on the client-to-exit hop and are **opt-in only**: the helper requires `X402SOCKS_ALLOW_PLAINTEXT=1` before it will use either. Use them only when a client cannot do TLS CONNECT and the network is trusted.
+**SOCKS5 on 1080** is the primary protocol and is available on every exit. **TLS HTTP CONNECT on 3129** (above) is preferred where available. Plaintext HTTP CONNECT on **3128** is supported only for browser compatibility and will be **discontinued shortly**. Both legacy transports send the reusable token unencrypted on the client-to-exit hop and are **opt-in only**: the helper requires `X402SOCKS_ALLOW_PLAINTEXT=1` before it will use either. Use them only when a client cannot do TLS CONNECT and the network is trusted.
 
 ## Legacy transport addresses (for browser compatibility only)
 
@@ -86,6 +86,14 @@ Filter on `disabled == false` and `health == "healthy"`. The feed is dynamic: di
 The response carries `catalog_digest` and `content_sha256`. Pin the digest if you want to detect that prices changed between quote and purchase. Internal-visibility packages are excluded from this public feed.
 
 ## Credentials
+
+Credential-bearing requests (status, validate, rotate, recover, and the pre-test
+token check) must target `https://`. The helper refuses a plaintext
+`X402SOCKS_WEB`, `X402SOCKS_API`, or `X402SOCKS_PAY` override before it reads the
+token or signature, and its curl invocations restrict the transfer and redirects
+to HTTPS so a credential request cannot be silently downgraded. Do not move these
+routes to HTTP. `X402SOCKS_ALLOW_INSECURE_API=1` exists only for a trusted local
+test harness and is not a safe way to reach the public service.
 
 ### `POST /api/token/status`
 
