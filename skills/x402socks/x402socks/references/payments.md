@@ -1,6 +1,8 @@
 # x402 payment flow
 
-Reference for buying x402socks access. Prices are illustrative — read `/catalog.json` and the live 402 challenge.
+Reference for buying x402socks access. Prices are illustrative - read
+`/catalog.json` and the live 402 challenge. For the wallet and `cast` side, see
+`wallet.md`.
 
 ## 1. The challenge
 
@@ -43,28 +45,33 @@ Decoded `PAYMENT-REQUIRED` (real example, `time_6h`):
 
 Read every field from `accepts[]` at runtime:
 
-- `network` — CAIP-2 chain id. `eip155:8453` is Base mainnet.
-- `amount` — **atomic units**. USDC has 6 decimals, so `"1000000"` = $1.00.
-- `asset` — the token contract to authorize.
-- `payTo` — the recipient.
-- `extra.name` / `extra.version` — EIP-712 domain for the authorization signature.
+- `network` - CAIP-2 chain id. `eip155:8453` is Base mainnet.
+- `amount` - **atomic units**. USDC has 6 decimals, so `"1000000"` = $1.00.
+- `asset` - the token contract to authorize.
+- `payTo` - the recipient.
+- `extra.name` / `extra.version` - EIP-712 domain for the authorization.
 
-Treating `amount` as a decimal, or reusing an `asset`/`payTo` from an older quote, is the most common way to send a payment that the service rejects but the chain still settles.
+Treating `amount` as a decimal, or reusing an `asset`/`payTo` from an older quote,
+is the most common way to send a payment the service rejects but the chain still
+settles.
 
-## 2. Pay with a library (recommended)
+## 2. Approve the full terms before paying
 
-An x402 payment wrapper will sign **whatever the next 402 asks for**. That is
-fine when a human clicks "pay", and unsafe when an agent buys unattended. An
-approval is the whole authorization, not just the amount: scheme, network,
-asset, recipient, EIP-712 asset domain, and amount must all be pinned, and the
-signer must be bound to the one requirement that matched.
+An approval is the whole authorization, not just the amount or a package name:
+scheme, network, asset, recipient, EIP-712 asset domain, and maximum amount must
+all be pinned. The signer must be bound to the one requirement that matched.
 
-Run `scripts/x402socks.sh quote <package_id>` first and record its `network`,
-`asset`, `pay_to`, and `amount_atomic` as the approved terms. Pass them to the
-purchase as values the user approved — never read them from the 402 you are
-about to sign.
+Run `scripts/x402socks.sh quote <package_id>` first. Record its `network`,
+`asset`, `pay_to`, `asset_name`, `asset_version`, and `amount_atomic` as the
+approved terms (the template is `assets/purchase-approval.md`). Pass them to the
+purchase as values the user approved - never read them from the 402 you are about
+to sign.
 
-### TypeScript
+Before signing, compare **every** entry in the live 402 `accepts[]` against the
+approval. Abort if any entry differs, or if the list is ambiguous and a client
+could select an unapproved option.
+
+## 3. TypeScript
 
 ```bash
 npm i @x402/fetch @x402/evm viem
@@ -141,6 +148,7 @@ const selectApproved: SelectPaymentRequirements = (_version, options) => {
   );
 };
 
+// Prefer a keystore/hardware signer in production; never print this key.
 const account = privateKeyToAccount(
   process.env.EVM_PRIVATE_KEY as `0x${string}`,
 );
@@ -167,18 +175,17 @@ console.log("settlement:", res.headers.get("PAYMENT-RESPONSE"));
 ```
 
 The wrapper handles the request loop: first request, 402 parse, authorization
-signing, retry with `PAYMENT-SIGNATURE`. The policy runs on the challenge that
-is actually about to be paid, so a price, asset, or recipient change between
-quote and purchase aborts instead of signing.
+signing, retry with `PAYMENT-SIGNATURE`. The policy runs on the challenge that is
+actually about to be paid, so a price, asset, or recipient change between quote
+and purchase aborts instead of signing.
 
-### Python
+## 4. Python
 
 ```bash
 uv add "x402[httpx,evm]"
 ```
 
-Check the live challenge before any signer exists, using the same approved
-terms:
+Read the live challenge before any signer exists, using the same approved terms:
 
 ```python
 import base64, json
@@ -215,47 +222,51 @@ challenge = json.loads(base64.urlsafe_b64decode(raw))
 options = challenge.get("accepts", [])
 approved_options = [option for option in options if approved(option)]
 
-# Refuse ambiguity: an extra option outside the approval must abort the
-# purchase, because a client could otherwise select it.
+# Refuse ambiguity: an extra option outside the approval must abort.
 if len(options) != 1 or len(approved_options) != 1:
     raise SystemExit("refusing: the 402 contains options outside the approved terms")
 req = approved_options[0]
 ```
 
-```python
-from x402 import x402Client
-from x402.mechanisms.evm.exact import ExactEvmScheme
-
-client = x402Client()                      # wrap your httpx transport with this client
-client.register("eip155:8453", ExactEvmScheme(signer=my_signer))
-```
-
 The preflight alone does not close the race: the retry can carry a different
-challenge. If the Python client exposes a policy or selector hook, apply the
-same check there. If it does not, do not let it auto-pay — read the 402
-yourself and sign exactly the `req` you validated.
+challenge. Apply the same check in the client's policy/selector hook. If it has
+no hook, do not let it auto-pay - read the 402 yourself and sign exactly the
+requirement you validated.
 
-Pin the network to `eip155:8453` rather than a wildcard like `eip155:*`. A wildcard lets the client auto-pay on whatever chain a server advertises, which is exactly the wrong behavior when an agent is spending unattended.
+Pin the network to `eip155:8453` rather than a wildcard like `eip155:*`. A
+wildcard lets the client auto-pay on whatever chain a server advertises, which is
+exactly the wrong behavior when an agent is spending unattended.
 
-## 3. Manual signing sketch
+## 5. Manual signing sketch
 
-Only needed if you cannot use a library:
+Only needed if you cannot use a library. `wallet.md` has the `cast` version.
 
-1. Build an EIP-3009 `TransferWithAuthorization` for `asset`, `payTo`, and `amount`.
-2. Sign it with EIP-712 using domain `{ name: extra.name, version: extra.version, chainId: 8453, verifyingContract: asset }`.
-3. Assemble the x402 v2 payment payload: `{ x402Version: 2, scheme: "exact", network, payload: { signature, authorization } }`.
+1. Build an EIP-3009 `TransferWithAuthorization` for `asset`, `payTo`, and
+   `amount`.
+2. Sign it with EIP-712 using domain `{ name: extra.name, version: extra.version,
+   chainId: 8453, verifyingContract: asset }`.
+3. Assemble the x402 v2 payment payload:
+   `{ x402Version: 2, scheme: "exact", network, payload: { signature, authorization } }`.
 4. Base64-encode it and send it as `PAYMENT-SIGNATURE` on the same URL, same body.
 
-Success is `200` with `{"account": {...}, "token": "..."}` and a `PAYMENT-RESPONSE` header containing settlement metadata. Keep the `PAYMENT-RESPONSE` value or the settlement tx hash: it is the only proof of purchase and the input to recovery. Write the token straight to a file with mode `0600`; do not echo the response into a transcript or log.
+Success is `200` with `{"account": {...}, "token": "..."}` and a
+`PAYMENT-RESPONSE` header containing settlement metadata. Keep the
+`PAYMENT-RESPONSE` value or the settlement tx hash: it is the only proof of
+purchase and the input to recovery. Write the token straight to a file with mode
+`0600`; do not echo the response into a transcript or log.
 
-## 4. Never pay twice
+## 6. Never pay twice
 
-- A `502` means the payment settled but provisioning failed. **Do not resend.** The payment is already on-chain.
-- A broadcast transfer may wait for confirmations. Confirmation is retried server-side; polling continues on the buyer side.
-- If a token was lost after a settled payment, recover it (below) rather than purchasing again.
-- If a recovery attempt fails with `502 recovery_unavailable`, retry later — it is explicitly safe.
+- A `502` means the payment settled but provisioning failed. **Do not resend.**
+  The payment is already on-chain.
+- A broadcast transfer may wait for confirmations. Confirmation is retried
+  server-side; polling continues on the buyer side.
+- If a token was lost after a settled payment, recover it (below) rather than
+  purchasing again.
+- If a recovery attempt fails with `502 recovery_unavailable`, retry later - it
+  is explicitly safe.
 
-## 5. Credential recovery (token lost)
+## 7. Credential recovery (token lost)
 
 ```bash
 # message to sign (EIP-191 personal_sign), no trailing newline:
@@ -271,14 +282,16 @@ read -r SIGNATURE < ~/.config/x402socks/recovery.sig
 printf '%s\n' "$SIGNATURE" | scripts/x402socks.sh recover 0xSETTLEMENT_TX_HASH
 ```
 
-The signing wallet must be the wallet that paid. `issued_at` must be within ±10 minutes of now. The original `PAYMENT-SIGNATURE` is deliberately rejected: it is public settlement calldata that anyone could replay.
+The signing wallet must be the wallet that paid. `issued_at` must be within
++/-10 minutes of now. The original `PAYMENT-SIGNATURE` is deliberately rejected:
+it is public settlement calldata that anyone could replay.
 
 Recovery returns a replacement token once. The helper saves it atomically to the
 `0600` token file and prints only non-secret fields. It refuses a non-HTTPS
 `X402SOCKS_PAY` override before it reads the signature. If you call the endpoint
 directly, build the JSON in a private `0600` file, send it with
-`--data-binary @file`, and do not print the raw response — it is the only copy
-of the replacement token.
+`--data-binary @file`, and do not print the raw response - it is the only copy of
+the replacement token.
 
 | Error                       | Meaning                                                    |
 | --------------------------- | ---------------------------------------------------------- |
@@ -291,4 +304,11 @@ of the replacement token.
 | `410 plan_expired`          | paid plan expired; no automatic catch-up                   |
 | `502 recovery_unavailable`  | transient; safe to retry later                             |
 
-`scripts/x402socks.sh recover-message <tx_hash>` prints a correctly formatted message with a fresh timestamp.
+`scripts/x402socks.sh recover-message <tx_hash>` prints a correctly formatted
+message with a fresh timestamp.
+
+## 8. No wallet = no purchase
+
+The x402 flow needs a signer with USDC on Base. If the agent has no wallet access,
+it cannot buy a package; there is no free tier. See `wallet.md` for the `cast`
+recipes and key-handling rules.

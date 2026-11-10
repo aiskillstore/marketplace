@@ -29,6 +29,7 @@ wire; do not treat them as an equivalent fallback on an untrusted network.
 | `401 invalid_token` on status                  | token unknown or expired                                             | check plan expiry; recover if the payment settled            |
 | `400 invalid_request` on status                | sent `Authorization` instead of `{"token": ...}` body                | use the JSON body                                            |
 | `must be an https:// URL`                      | a `X402SOCKS_WEB` / `X402SOCKS_API` / `X402SOCKS_PAY` override is not HTTPS | use the default HTTPS endpoint, or (trusted local test only) set `X402SOCKS_ALLOW_INSECURE_API=1` |
+| Cannot sign, or USDC balance is 0              | the agent has no usable wallet, signer, or USDC on Base                     | stop and ask for a funded wallet plus a keystore/hardware signer; see `wallet.md` |
 | 402 again after `PAYMENT-SIGNATURE`            | amount, asset, `payTo`, or network changed since the quote           | re-read the fresh challenge; never reuse a cached one        |
 | 402 with `maxTimeoutSeconds` elapsed           | authorization signed too long ago (default 300s)                     | sign and submit immediately                                  |
 | `404 package_not_found`                        | package id not in the public catalog                                 | use an id from `/catalog.json`                               |
