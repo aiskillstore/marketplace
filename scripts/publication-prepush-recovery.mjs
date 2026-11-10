@@ -1,8 +1,17 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
+import { stripVTControlCharacters } from 'node:util';
 
-export const readPublicationJobLog = id => execFileSync('gh', ['api', `repos/aiskillstore/marketplace/actions/jobs/${id}/logs`],
-  { encoding: 'utf8', maxBuffer: 16 * 1024 * 1024, timeout: 60000 });
+export function readPublicationJobLog(id) {
+  const args = ['api', `repos/aiskillstore/marketplace/actions/jobs/${id}/logs`];
+  const options = { encoding: 'utf8', stdio: 'pipe', maxBuffer: 16 * 1024 * 1024, timeout: 60000 };
+  try {
+    return stripVTControlCharacters(execFileSync('gh', [...args, '--allow-escape-sequences'], options));
+  } catch (error) {
+    if (!String(error.stderr).split(/\r?\n/).includes('unknown flag: --allow-escape-sequences')) throw error;
+    return stripVTControlCharacters(execFileSync('gh', args, options));
+  }
+}
 
 // Pin the WHOLE audited execution revision (workflow, checkout, imports and
 // receiver), not just an error string or one script. At this revision the
