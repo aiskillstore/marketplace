@@ -23,7 +23,7 @@ Implement **all** applicable patterns from this list, in this order:
 | 2 | **Suspense reveal** | "Data loaded" |
 | 3 | **List identity** (per-item `key`) | "Same items, new arrangement" |
 | 4 | **State change** (`enter`/`exit`) | "Something appeared/disappeared" |
-| 5 | **Route change** (layout-level) | "Going to a new place" |
+| 5 | **Route change** (page-level) | "Going to a new place" |
 
 This is an implementation order, not a "pick one" list. Implement every pattern that fits the app. Only skip a pattern if the app has no use case for it.
 
@@ -43,14 +43,14 @@ Reserve directional slides for hierarchical navigation (list → detail) and ord
 ## Availability
 
 - **Next.js:** Do **not** install `react@canary` — the App Router already bundles React canary internally. `ViewTransition` works out of the box. `npm ls react` may show a stable-looking version; this is expected.
-- **Without Next.js:** Install `react@canary react-dom@canary` (`ViewTransition` is not in stable React).
-- Browser support: Chromium 111+, Firefox 144+, Safari 18.2+. Graceful degradation on unsupported browsers.
+- **Without Next.js:** Use stable `react` and `react-dom` 19.3 or newer (`ViewTransition` and `addTransitionType` became stable in React 19.3). Earlier stable React versions do not include these APIs.
+- Browser support: Chromium 125+ (React needs the v2 object form of `startViewTransition`), Firefox 144+, Safari 18.2+. Graceful degradation on unsupported browsers.
 
 ---
 
 ## Implementation Workflow
 
-When adding view transitions to an existing app, **follow `references/implementation.md` step by step.** Start with the audit — do not skip it. Copy the CSS recipes from `references/css-recipes.md` into the global stylesheet — do not write your own animation CSS.
+When adding view transitions to an existing app, **follow [references/implementation.md](references/implementation.md) step by step.** Start with the audit — do not skip it. Use [references/css-recipes.md](references/css-recipes.md) for the applicable CSS and adapt it to the app.
 
 ---
 
@@ -74,7 +74,7 @@ React auto-assigns a unique `view-transition-name` and calls `document.startView
 |---------|--------------|
 | **enter** | `<ViewTransition>` first inserted during a Transition |
 | **exit** | `<ViewTransition>` first removed during a Transition |
-| **update** | DOM mutations inside a `<ViewTransition>`. With nested VTs, mutation applies to the innermost one |
+| **update** | DOM mutations inside a `<ViewTransition>`, or the boundary itself changing size/position due to an immediate sibling. With nested VTs, mutation applies to the innermost one |
 | **share** | Named VT unmounts and another with same `name` mounts in the same Transition |
 
 Only `startTransition`, `useDeferredValue`, or `Suspense` activate VTs. Regular `setState` does not animate.
@@ -118,7 +118,7 @@ If `default` is `"none"`, all triggers are off unless explicitly listed.
 - `::view-transition-group(.class)` — container
 - `::view-transition-image-pair(.class)` — old + new pair
 
-See `references/css-recipes.md` for ready-to-use animation recipes.
+See [references/css-recipes.md](references/css-recipes.md) for ready-to-use animation recipes.
 
 ---
 
@@ -177,11 +177,15 @@ export function DirectionalTransition({ children }: { children: React.ReactNode 
 
 ### `router.back()` and Browser Back Button
 
-`router.back()` and the browser's back/forward buttons do **not** trigger view transitions (`popstate` is synchronous, incompatible with `startViewTransition`). Use `router.push()` with an explicit URL instead.
+`router.back()` and the browser's back/forward buttons carry **no transition types**, so type-keyed animations (directional slides) resolve to their `default` and don't play — untyped shared-element morphs still apply. For typed animations, use `router.push()` with an explicit URL.
 
 ### Types and Suspense
 
 Types are available during navigation but **not** during subsequent Suspense reveals (separate transitions, no type). Use type maps for page-level enter/exit; use simple string props for Suspense reveals.
+
+### Shared Element Readiness
+
+A shared element transition can pair elements only when both the old and new views are rendered in the same Transition. If incoming content suspends, only its fallback exists for that update; the resolved content appears in a later Suspense transition and can be animated separately.
 
 ---
 
@@ -202,6 +206,7 @@ Same `name` on two VTs — one unmounting, one mounting — creates a shared ele
 
 - Only one VT with a given `name` can be mounted at a time — use unique names (`photo-${id}`). Watch for reusable components: if a component with a named VT is rendered in both a modal/popover *and* a page, both mount simultaneously and break the morph. Either make the name conditional (via a prop) or move the named VT out of the shared component into the specific consumer.
 - `share` takes precedence over `enter`/`exit`. Think through each navigation path: when no matching pair forms (e.g., the target page doesn't have the same name), `enter`/`exit` fires instead. Consider whether the element needs a fallback animation for those paths.
+- Two ways a wired-up morph silently never fires: (1) `default="none"` with no explicit `share` prop — share resolves to none; (2) type-keyed `share` where the navigation never adds the type — a plain link click resolves the map's `default`. Every link that should morph must add the type (`transitionTypes` on `next/link`, or `addTransitionType`).
 - Never use a fade-out exit on pages with shared morphs — use a directional slide instead.
 
 ---
@@ -225,6 +230,10 @@ Same `name` on two VTs — one unmounting, one mounting — creates a shared ele
 ```
 
 Trigger inside `startTransition`. Avoid wrapper `<div>`s between list and VT.
+
+### Layout Displacement Morph
+
+Only content inside an activated boundary animates position — everything else teleports to its new layout spot. Wrap the sibling content below a growing/shrinking list in a bare `<ViewTransition>` so it glides instead of jumping. See [Layout Displacement Morph](references/patterns.md#layout-displacement-morph).
 
 ### Composing Shared Elements with List Identity
 
@@ -271,7 +280,7 @@ Directional reveal:
 </Suspense>
 ```
 
-For more patterns, see `references/patterns.md`.
+For more patterns, see [references/patterns.md](references/patterns.md).
 
 ---
 
@@ -279,9 +288,11 @@ For more patterns, see `references/patterns.md`.
 
 Every VT matching the trigger fires simultaneously in a single `document.startViewTransition`. VTs in **different** transitions (navigation vs later Suspense resolve) don't compete.
 
-### Use `default="none"` Liberally
+### Use `default="none"` Deliberately
 
-Without it, every VT fires the browser cross-fade on **every** transition — Suspense resolves, `useDeferredValue` updates, background revalidations. Always use `default="none"` and explicitly enable only desired triggers.
+Without it, every VT fires the browser cross-fade on **every** transition — Suspense resolves, `useDeferredValue` updates, background revalidations. Use `default="none"` on named/shared elements and type-keyed page VTs.
+
+But it also turns off `update` (layout/reflow morphs) and `share` (a named pair with no explicit `share` prop never morphs). Keyed list items and displaced siblings *want* update — leave them bare or set `update="auto"`.
 
 ### Two Patterns Coexist
 
@@ -292,28 +303,29 @@ They coexist because they fire at different moments. `default="none"` on both pr
 
 ### Nested VT Limitation
 
-When a parent VT exits, nested VTs inside it do **not** fire their own enter/exit — only the outermost VT animates. Per-item staggered animations during page navigation are not possible today. See [react#36135](https://github.com/facebook/react/pull/36135) for an experimental opt-in fix.
+When a parent VT mounts/unmounts **as one unit** with nested VTs inside it, the nested ones do not fire their own enter/exit — only the outermost VT animates. (A child VT mounted inside a *persistent* parent VT fires enter/exit normally.) Per-item staggered animations during page navigation are not currently available in Next.js; see [troubleshooting](references/troubleshooting.md) for the upstream experimental status.
 
 ---
 
 ## Next.js Integration
 
-For Next.js setup (`experimental.viewTransition` flag, `transitionTypes` prop on `next/link`, App Router patterns, Server Components), see `references/nextjs.md`.
+For Next.js integration (`transitionTypes` on `next/link` and `useRouter`, App Router patterns, Server Components), see [references/nextjs.md](references/nextjs.md).
 
 ---
 
 ## Accessibility
 
-Always add the reduced motion CSS from `references/css-recipes.md` to your global stylesheet.
+Always add the reduced motion CSS from [references/css-recipes.md](references/css-recipes.md#reduced-motion) to your global stylesheet.
 
 ---
 
 ## Reference Files
 
-- **`references/implementation.md`** — Step-by-step implementation workflow.
-- **`references/patterns.md`** — Patterns, animation timing, events API, troubleshooting.
-- **`references/css-recipes.md`** — Ready-to-use CSS animation recipes.
-- **`references/nextjs.md`** — Next.js App Router patterns and Server Component details.
+- **[references/implementation.md](references/implementation.md)** — Step-by-step implementation workflow.
+- **[references/patterns.md](references/patterns.md)** — Patterns, animation timing, and events API.
+- **[references/troubleshooting.md](references/troubleshooting.md)** — Symptom-driven debugging and runtime limitations.
+- **[references/css-recipes.md](references/css-recipes.md)** — Ready-to-use CSS animation recipes.
+- **[references/nextjs.md](references/nextjs.md)** — Next.js App Router patterns and Server Component details.
 
 ## Full Compiled Document
 
