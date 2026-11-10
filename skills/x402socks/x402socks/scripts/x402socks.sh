@@ -48,6 +48,40 @@ token_file() {
   printf '%s' "${X402SOCKS_TOKEN_FILE:-${XDG_CONFIG_HOME:-$HOME/.config}/x402socks/token}"
 }
 
+# Validate the replacement-token destination and reserve a private, writable
+# staging file BEFORE a request that invalidates the old token. Rotation cannot
+# be undone, so a bad token directory must abort before the API call.
+TOKEN_STAGING=""
+prepare_token_storage() {
+  local file
+  file="$(token_file)"
+  TOKEN_STAGING="$(python3 -c '
+import os, sys, tempfile
+path = os.path.abspath(sys.argv[1])
+directory = os.path.dirname(path) or "."
+try:
+    os.makedirs(directory, mode=0o700, exist_ok=True)
+except OSError as exc:
+    sys.exit("token directory is not usable: %s" % exc)
+if os.path.islink(directory) or not os.path.isdir(directory):
+    sys.exit("token directory is not a real directory: %s" % directory)
+st = os.stat(directory)
+if st.st_uid != os.getuid() or (st.st_mode & 0o022):
+    sys.exit("token directory is not private to the current user: %s" % directory)
+if (st.st_mode & 0o777) != 0o700:
+    os.chmod(directory, 0o700)
+if os.path.islink(path):
+    sys.exit("refusing to replace a symlink token file: %s" % path)
+try:
+    fd, staging = tempfile.mkstemp(prefix=".token.", dir=directory)
+except OSError as exc:
+    sys.exit("cannot reserve token storage in %s: %s" % (directory, exc))
+os.close(fd)
+os.chmod(staging, 0o600)
+print(staging)
+' "$file")"
+}
+
 # Escape a value for a double-quoted curl config entry.
 cfg_escape() { printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g'; }
 
@@ -98,18 +132,35 @@ store_token_response() {
 import json, os, sys, tempfile
 
 path = os.path.abspath(sys.argv[1])
+token_dir = os.path.dirname(path) or "."
+staging = os.environ.get("X402SOCKS_TOKEN_STAGING") or None
 raw = sys.stdin.read()
+
+def drop_staging():
+    if not staging:
+        return
+    try:
+        # Only remove the reservation this helper created in the token
+        # directory; never unlink an arbitrary path from the environment.
+        if os.path.dirname(os.path.abspath(staging)) == token_dir:
+            os.unlink(staging)
+    except OSError:
+        pass
+
 try:
     data = json.loads(raw)
 except json.JSONDecodeError:
     # Never echo the raw response: a truncated body can still contain the
     # replacement token. Print a fixed error instead.
+    drop_staging()
     sys.exit("response was not valid JSON; nothing was saved")
 if not isinstance(data, dict):
+    drop_staging()
     sys.exit("unexpected response shape; nothing was saved")
 token = data.get("token")
 if not token:
     # Print field names only, never their values.
+    drop_staging()
     sys.exit(
         "response did not include a token; nothing was saved (fields: %s)"
         % (", ".join(sorted(data.keys())) or "none")
@@ -117,32 +168,58 @@ if not token:
 
 directory = os.path.dirname(path) or "."
 if os.path.islink(directory) or not os.path.isdir(directory):
+    drop_staging()
     sys.exit("token directory is not a real directory: %s" % directory)
 st = os.stat(directory)
 if st.st_uid != os.getuid() or (st.st_mode & 0o022):
+    drop_staging()
     sys.exit("token directory is not private to the current user: %s" % directory)
 if (st.st_mode & 0o777) != 0o700:
     os.chmod(directory, 0o700)
 if os.path.islink(path):
+    drop_staging()
     sys.exit("refusing to replace a symlink token file: %s" % path)
 
-# mkstemp creates the file 0600. Write and fsync it, then atomically replace
-# the destination, so a symlink or a concurrent reader cannot see a partial
-# token or redirect the write.
-fd, tmp = tempfile.mkstemp(prefix=".token.", dir=directory)
-try:
-    with os.fdopen(fd, "w") as fh:
-        fh.write(token)
-        fh.flush()
-        os.fsync(fh.fileno())
-    os.replace(tmp, path)
-    tmp = None
-finally:
-    if tmp is not None:
-        try:
-            os.unlink(tmp)
-        except OSError:
-            pass
+if staging:
+    staging = os.path.abspath(staging)
+    if os.path.dirname(staging) != directory or os.path.islink(staging):
+        drop_staging()
+        sys.exit("invalid token staging path")
+    sst = os.stat(staging)
+    if sst.st_uid != os.getuid() or (sst.st_mode & 0o077):
+        drop_staging()
+        sys.exit("token staging file is not private: %s" % staging)
+    try:
+        with open(staging, "w") as fh:
+            fh.write(token)
+            fh.flush()
+            os.fsync(fh.fileno())
+        os.replace(staging, path)
+    except OSError as exc:
+        # The old token is already invalid. Keep the replacement in the
+        # private staging file instead of discarding the only copy.
+        sys.exit(
+            "replacement token saved to %s (mode 600); move it to %s (%s)"
+            % (staging, path, exc)
+        )
+else:
+    # mkstemp creates the file 0600. Write and fsync it, then atomically replace
+    # the destination, so a symlink or a concurrent reader cannot see a partial
+    # token or redirect the write.
+    fd, tmp = tempfile.mkstemp(prefix=".token.", dir=directory)
+    try:
+        with os.fdopen(fd, "w") as fh:
+            fh.write(token)
+            fh.flush()
+            os.fsync(fh.fileno())
+        os.replace(tmp, path)
+        tmp = None
+    finally:
+        if tmp is not None:
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
 
 data["token"] = "<redacted: saved to %s (mode 600)>" % path
 json.dump(data, sys.stdout, indent=2)
@@ -347,9 +424,14 @@ cmd_rotate() {
   local token cfg
   require_https "X402SOCKS_API" "$API"
   token="$(resolve_token)"
+  # Rotation invalidates the old token immediately. Reserve private, writable
+  # storage first so a bad token directory cannot cost the replacement token.
+  prepare_token_storage
+  export X402SOCKS_TOKEN_STAGING="$TOKEN_STAGING"
   note "rotating: the old token stops working everywhere, immediately"
   cfg="$(printf 'header = "Authorization: Bearer %s"' "$(cfg_escape "$token")")"
   printf '%s' "$cfg" | req_secret "$API/api/v1/token/rotate" -X POST | store_token_response
+  unset X402SOCKS_TOKEN_STAGING
 }
 
 # Exit ids are lowercase DNS labels. Reject anything that could add a curl
@@ -461,7 +543,12 @@ tx, sig, issued_at = lines[0], lines[1], int(lines[2])
 print(json.dumps({"transaction": tx, "signature": sig, "issued_at": issued_at}))'
   )"
   cfg="$(printf 'header = "content-type: application/json"\ndata = "%s"' "$(cfg_escape "$body")")"
+  # Recovery is safe to retry, but still reserve storage before the request so
+  # a bad directory does not discard the replacement token.
+  prepare_token_storage
+  export X402SOCKS_TOKEN_STAGING="$TOKEN_STAGING"
   printf '%s' "$cfg" | req_secret "$PAY/v1/access/recover" -X POST | store_token_response
+  unset X402SOCKS_TOKEN_STAGING
 }
 
 main() {
