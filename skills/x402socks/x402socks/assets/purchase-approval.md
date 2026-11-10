@@ -17,6 +17,7 @@ challenge differs from any field below, the agent must stop.
 | Approved recipient (`payTo`) | |
 | Approved asset domain (`extra.name`, `extra.version`) | |
 | Paying wallet (public address) | |
+| Signer (keystore / hardware wallet; never a pasted key) | |
 | Approved by | |
 | Approved at | |
 
@@ -38,7 +39,9 @@ must then prove the challenge it is about to sign still matches them.
    network such as `eip155:*`.
 6. `amount` is at most the approved maximum, in atomic USDC units (6 decimals).
 7. The token was written to a `0600` file; no token was printed or committed.
-8. The egress IP was checked through the chosen exit and differs from the
+8. The signer was a keystore or hardware wallet; no private key appeared in argv,
+   a log, or a transcript.
+9. The egress IP was checked through the chosen exit and differs from the
    baseline.
 
 If any check fails, do not pay. Report the difference to the user.

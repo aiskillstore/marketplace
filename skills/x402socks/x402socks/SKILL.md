@@ -4,139 +4,149 @@ description: Use this skill when an agent needs a different source IP, rotating 
 license: MIT
 metadata:
   author: x402socks
-  version: 1.2.4
+  version: 1.3.0
   homepage: https://x402socks.com
 ---
 
 # x402socks proxy access
 
-Buy anonymous proxy egress for an agent, paying in USDC on Base through **x402** (HTTP 402). No signup, no email, no card. You pay, receive a one-time proxy token, and use that token as **both** the proxy username and password.
+Buy anonymous proxy egress for an agent, paid per job in USDC on Base through
+**x402** (HTTP 402). No signup, no email, no card. The payment returns a one-time
+proxy token; use it as **both** the proxy username and password.
 
-The default transport is **TLS HTTP CONNECT on port 3129**, available on `eu-north1`, `asia-central2`, and `asia-west1`: the exit presents a valid certificate, curl verifies it, and the token is not readable on the client-to-exit hop. The other exits currently offer only SOCKS5 (1080) and plaintext HTTP CONNECT (3128), which send the reusable token unencrypted and must be opted into explicitly.
+TLS HTTP CONNECT on port **3129** is the default where available (`eu-north1`,
+`asia-central2`, `asia-west1`): the exit presents a valid certificate and curl
+verifies it. SOCKS5 (1080) and plaintext HTTP CONNECT (3128) are opt-in; both
+expose the reusable token on the client-to-exit hop.
+
+## Before you start: wallet access (required)
+
+The agent cannot buy anything without a wallet it can use.
+
+- **Wallet:** an EVM-compatible wallet funded with **USDC on Base**. The cheapest
+  package is **$1.00** (6 hours, 1 GB). No ETH is needed for an x402 purchase:
+  the facilitator submits the EIP-3009 transfer. A manual `cast send` does need
+  ETH for gas.
+- **Signing access:** the agent needs non-interactive access to that wallet. Use
+  a Foundry encrypted keystore
+  (`cast wallet import <name> --interactive`, then
+  `--keystore <path> --password-file <0600 file>`), a hardware wallet, or a
+  signer configured in the x402 client. Do not paste a raw private key into
+  chat.
+- **Tools:** `cast` plus a free Base RPC for low-volume balance checks and manual
+  sends, for example `https://mainnet.base.org`,
+  `https://base-rpc.publicnode.com`, `https://1rpc.io/base`, or
+  `https://base.drpc.org`. USDC on Base is
+  `0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913`.
+- **Never** print, echo, log, or pass the private key as a command argument. It
+  must not appear in a terminal transcript, process list, log, or commit. Keep
+  keystores and password files at mode `0600`.
+- **No wallet access = no purchase.** There is no free trial and no way to use
+  the wallet without a signer.
+
+`references/wallet.md` has the `cast` recipes for address, USDC balance, manual
+send, and EIP-712 signing.
 
 ## Fast path
 
 ```bash
-# 1. Confirm the service is up and pick a live exit
-curl -s https://x402socks.com/api/health          # {"status":"ok",...}
-curl -s https://x402socks.com/nodes.json          # keep nodes where disabled == false
-
-# 2. Check the live price against the approved cap (free, no wallet)
+scripts/x402socks.sh health                         # {"status":"ok",...}
+scripts/x402socks.sh nodes --available              # usable exits only
 X402SOCKS_MAX_USDC=1.00 scripts/x402socks.sh quote time_6h
-
-# 3. Buy a package (x402 library does the 402 handshake) -> see references/payments.md
-#    Credential comes back once: {"account":{...},"token":"..."}
-scripts/x402socks.sh save-token                   # paste token, Ctrl-D; stored mode 600
-
-# 4. Prove the exit works (TLS CONNECT 3129; token read from the file, never argv)
-scripts/x402socks.sh test eu-north1
+# pay with the x402 client (see references/payments.md), then:
+scripts/x402socks.sh save-token                     # paste token, Ctrl-D; mode 600
+scripts/x402socks.sh test eu-north1                 # TLS 3129, prints egress IP
 ```
 
-## Spending rule — read before paying
+## Spending rule
 
-Buying spends real money from the user's wallet. **Do not pay without explicit authorization for that specific amount.** If the user has not pre-approved a budget:
+Buying spends real money. **Do not pay without explicit authorization for that
+exact amount.**
 
-1. Look up the price in `/catalog.json`.
-2. State the package, price, and what it entitles them to.
+1. Read the live price from `/catalog.json` (or `quote <package_id>`).
+2. Tell the user the package, price, and entitlements.
 3. Wait for a clear yes.
+4. Before signing, compare the live 402 `accepts[]` to the approved terms:
+   `scheme`, `network`, `asset`, `payTo`, `extra.name`, `extra.version`, and
+   `amount`. Abort on any mismatch or ambiguity.
 
-Prefer the cheapest package that covers the job. A $1 / 6-hour token is almost always the right first purchase; upgrading later is cheaper than overbuying now.
-
-An approval is an **amount**, not a package name. Enforce it in code against the
-402 challenge that is about to be signed; a full-price or swapped challenge must
-abort before signing. `scripts/x402socks.sh quote <package_id>` prints the live
-amount and exits non-zero when it exceeds `X402SOCKS_MAX_USDC`. Client-side
-guards for the TypeScript and Python libraries are in `references/payments.md`.
-
-## Pricing (live catalog, USD)
-
-| Package ID    | Price  | Entitlements                                  |
-| ------------- | ------ | --------------------------------------------- |
-| `time_6h`     | $1.00  | 6 hours, 1 GB, all exits, 1 session           |
-| `time_1d`     | $3.59  | 1 day, 10 GB, all exits, 1 session            |
-| `time_7d`     | $9.99  | 7 days, 75 GB, all exits, 1 session           |
-| `usage_5gb`   | $6.99  | 5 GB, no time limit, all exits, 1 session     |
-| `usage_50gb`  | $34.99 | 50 GB, no time limit, all exits, 1 session    |
-| `multi_agent` | $29.99 | 30 days, 300 GB (fair use), all exits, 5 agents |
-
-Always re-read `/catalog.json` at buy time — the table above is a snapshot, not a contract.
-
-**Choosing:** time-boxed plans suit a single burst; the `usage_*` plans suit intermittent jobs that would otherwise expire mid-work; `multi_agent` is the only plan that explicitly allows more than one agent.
+An approval is an amount, not a package name. `scripts/x402socks.sh quote
+<package_id>` prints the live terms and exits non-zero above
+`X402SOCKS_MAX_USDC`. Start with `time_6h` ($1.00, 6 hours, 1 GB) unless the job
+clearly needs more; re-read `/catalog.json` for current packages.
 
 ## Steps
 
-1. **Verify the service.** `GET /api/health` must return `{"status":"ok"}`. If a chosen exit is down, pick another from `/nodes.json`.
-2. **Quote the price** from `/catalog.json` and get user approval (see spending rule). Then re-read the live 402 amount and compare it to that approval before signing.
-3. **Request access.** `POST https://payments.x402socks.com/v1/access/{package_id}` with `{}`. Expect HTTP 402 plus a base64 `PAYMENT-REQUIRED` header.
-4. **Pay and retry.** Compare the live `accepts[]` against the exact terms the user approved — scheme, network, asset, recipient, asset domain, and amount. Reject any challenge that does not match. Sign an x402 v2 EIP-3009 authorization for the validated requirement, then retry the same URL with `PAYMENT-SIGNATURE`. Working code: `references/payments.md`.
-5. **Capture the token** from the 200 response. It is returned once, and only once.
-6. **Route traffic** through an exit. Default to TLS HTTP CONNECT on TCP 3129 using the token for both username and password. Use SOCKS5 on 1080 or plaintext CONNECT on 3128 only when the exit or client requires it, and only with the explicit opt-in described below.
-7. **Validate** with `POST /api/token/status` before debugging anything else. A dead token and a dead exit look identical from a failed fetch.
+1. **Check the service.** `GET /api/health` returns `{"status":"ok"}`. Pick an
+   exit from `/nodes.json` with `disabled == false` and `health == "healthy"`.
+2. **Quote and approve.** Run `quote <package_id>`, show the user, wait.
+3. **Request access.** `POST https://payments.x402socks.com/v1/access/{package_id}`
+   with `{}`. Expect `402` and a base64 `PAYMENT-REQUIRED` header.
+4. **Pay.** Validate the live `accepts[]` against the approval, sign an x402 v2
+   EIP-3009 authorization, and retry the same URL with `PAYMENT-SIGNATURE`.
+5. **Save the token.** It is returned once as
+   `{"account":{...},"token":"..."}`. Write it to a `0600` file; never print it.
+6. **Route and prove.** Use TLS CONNECT on 3129 with the token as both username
+   and password. `scripts/x402socks.sh test <exit>` prints the egress IP; compare
+   it with your direct IP.
+7. **If it fails.** Run `status` (or `validate`) before debugging the target. A
+   dead token and a dead exit look identical.
 
-A helper script ships with this skill:
-
-```bash
-scripts/x402socks.sh health
-scripts/x402socks.sh nodes --available
-scripts/x402socks.sh quote time_6h          # exits non-zero above $X402SOCKS_MAX_USDC
-scripts/x402socks.sh save-token             # stdin -> ~/.config/x402socks/token (0600)
-scripts/x402socks.sh status                 # reads the token file, never argv
-scripts/x402socks.sh test eu-north1         # TLS CONNECT 3129, confirms egress IP
-```
-
-## Routing traffic
-
-Every exit offers **SOCKS5 on TCP 1080** as the primary protocol. `eu-north1`, `asia-central2`, and `asia-west1` also offer **TLS HTTP CONNECT on TCP 3129**, which is preferred for TLS verification. The fleet is not fixed — nodes are added, retired, and toggled at any time, so read `/nodes.json` and filter on `disabled == false and health == "healthy"` instead of trusting a list. Snapshot at the time of writing:
-
-| Exit ID         | Region                | SOCKS5 1080 | TLS 3129 |
-| --------------- | --------------------- | ----------- | -------- |
-| `us-central1`   | US Texas              | yes         | no       |
-| `us-east1`      | US New York           | yes         | no       |
-| `us-west1`      | US California         | yes         | no       |
-| `eu-central1`   | EU Paris              | yes         | no       |
-| `eu-north1`     | EU Riga               | yes         | **yes**  |
-| `asia-central1` | APAC China (Hong Kong) | yes         | no       |
-| `asia-central2` | APAC Singapore        | yes         | **yes**  |
-| `asia-west1`    | APAC India            | yes         | **yes**  |
-
-Plaintext HTTP CONNECT on **3128** is supported only for browser compatibility (Chrome and similar) and will be **discontinued shortly**. Both legacy transports send the reusable token unencrypted on the client-to-exit hop; a passive observer on the same network can capture it and use your paid access. The helper refuses them unless `X402SOCKS_ALLOW_PLAINTEXT=1` is set. On an exit without a TLS listener this is unavoidable; keep the token short-lived and avoid untrusted networks.
+## Using the token
 
 ```bash
-# TLS CONNECT (default, recommended)
-# https://eu-north1.x402socks.com:3129   token as username AND password
-#
-# Legacy plaintext and SOCKS5 forms are opt-in only; see references/endpoints.md.
+# Helper: TLS CONNECT by default, token read from the 0600 file, never argv
+scripts/x402socks.sh test eu-north1
+
+# curl: put the proxy credentials in a 0600 config file, not argv
+umask 077
+cfg="$(mktemp)"; trap 'rm -f "$cfg"' EXIT
+{
+  printf 'proxy = "https://eu-north1.x402socks.com:3129"\n'
+  printf 'proxy-user = "%s:%s"\n' \
+    "$(cat ~/.config/x402socks/token)" "$(cat ~/.config/x402socks/token)"
+} > "$cfg"
+curl --config "$cfg" https://api.ipify.org
 ```
 
-Client snippets for curl, Python, Node, Playwright, and Chrome are in `references/endpoints.md`. If a legacy client requires SOCKS5, use the remote-DNS (`h`) scheme variant so the exit resolves the name; the plain variant leaks the target hostname to the local resolver.
+For SOCKS5 use `socks5h://<exit>.x402socks.com:1080` so the exit resolves DNS.
+SOCKS5 and plaintext CONNECT (3128) require `X402SOCKS_ALLOW_PLAINTEXT=1` in the
+helper and send the token unencrypted; use them only when a client cannot do TLS
+CONNECT and the network is trusted. Python, Node, Playwright, and Chrome examples
+are in `references/endpoints.md`.
 
 ## Credential rules (hard)
 
-- The token is a secret. Store it in a file with mode `0600` (`X402SOCKS_TOKEN_FILE`, default `~/.config/x402socks/token`) or an environment variable. Never put it in source control, logs, analytics, browser storage, shared URLs, or shell history.
-- Never pass the token as a command argument. `curl --proxy-user "$TOKEN:$TOKEN"` and `-H "Authorization: Bearer $TOKEN"` are visible in the process list and in command telemetry. Feed those options through stdin or a `0600` config file; `scripts/x402socks.sh` does this for curl, and `references/endpoints.md` has the pattern for other clients.
-- Never echo a token into a chat transcript or a commit. If a token appears in output, treat it as burned and rotate it.
-- Prefer TLS CONNECT on port 3129. SOCKS5 and plaintext HTTP CONNECT authenticate with the token in cleartext on the client-to-proxy hop; enable them only when a client cannot use TLS CONNECT and the network is trusted.
-- Rotate on any suspicion of exposure: `scripts/x402socks.sh rotate`. Rotation invalidates the old token immediately, everywhere; the helper saves the replacement to the `0600` file and prints only a redacted response.
-- Credential-bearing requests only ever go to `https://` endpoints. The helper rejects a plaintext `X402SOCKS_WEB`, `X402SOCKS_API`, or `X402SOCKS_PAY` override before it reads the token, and restricts the transfer and all redirects to HTTPS. Only for a trusted local test, `X402SOCKS_ALLOW_INSECURE_API=1` overrides that refusal.
-
-## Rotation and recovery
-
-- **Rotate** (you still hold the token): `POST https://api.x402socks.com/api/v1/token/rotate` with the token in a bearer header supplied from the `0600` file, never on the command line. The presented token is both the credential and the object being rotated. Update every client immediately. The helper saves the replacement to the `0600` file and prints a redacted response — never paste the raw response into a transcript.
-- **Recover** (payment settled, token lost): `POST https://payments.x402socks.com/v1/access/recover` with the settlement tx hash and an EIP-191 signature from the paying wallet over a fixed message. Free, and safe to retry. Never pay twice for the same access — see `references/payments.md`.
-- Recovery signatures expire in ±10 minutes, so generate the message, sign it, and submit promptly.
+- Store the token in a `0600` file (`X402SOCKS_TOKEN_FILE`, default
+  `~/.config/x402socks/token`) or an environment variable. Never put it in source
+  control, logs, analytics, browser storage, shared URLs, or shell history.
+- Never pass the token as a command argument. Feed it through stdin or a `0600`
+  config file; the helper does this for curl.
+- Never echo a token into a chat, transcript, or commit. If one appears in
+  output, treat it as burned and rotate it.
+- Prefer TLS CONNECT on 3129. Rotate on suspicion:
+  `scripts/x402socks.sh rotate` invalidates the old token immediately and saves
+  the replacement without printing it.
+- Credential-bearing requests only go to `https://`. The helper refuses a
+  plaintext `X402SOCKS_WEB`, `X402SOCKS_API`, or `X402SOCKS_PAY` override before
+  reading the token, and pins curl to HTTPS. `X402SOCKS_ALLOW_INSECURE_API=1` is
+  for a trusted local test only.
 
 ## Gotchas
 
-- Node membership changes without notice. `/nodes.json` carries disabled and unhealthy entries alongside live ones (a node that is `disabled: true` or `health: "down"` will refuse connections). Never hardcode the exit list, its size, or which nodes are excluded — always re-read the feed.
-- Entitlements say "1 active session" on single packages. Do not assume unlimited parallelism; use `multi_agent` when several agents must egress at once.
-- Data caps are **fair use**. Sustained bulk transfer may be throttled or cut off.
-- **Failed connections are non-refundable by default.** Validate the token and the exit before blaming the target site.
-- Amounts in the 402 challenge are atomic USDC units (6 decimals): `"1000000"` is $1.00. Do not confuse them with the decimal prices in the catalog.
-- The runtime challenge is authoritative for network, asset, recipient, and amount. Never hardcode them from documentation, including this file. Compare the live amount to the user's approval in code before signing; a catalog quote is not a payment limit.
-- Support is a Telegram channel (`https://t.me/x402socks`), not a ticket queue.
+- `/nodes.json` is live; never hardcode the exit list or assume how many exist.
+- Single packages allow **one active session**. Use `multi_agent` for parallel
+  agents.
+- Data caps are fair use; sustained bulk transfer may be throttled.
+- Failed connections are non-refundable by default; validate first.
+- 402 amounts are atomic USDC (6 decimals): `"1000000"` = $1.00. The runtime
+  challenge is authoritative for network, asset, recipient, and amount - never
+  hardcode them.
+- Support: https://t.me/x402socks.
 
 ## References
 
-- `references/payments.md` — full x402 v2 purchase flow, TypeScript and Python code, credential recovery.
-- `references/endpoints.md` — every endpoint, request/response shapes, client snippets.
-- `references/troubleshooting.md` — symptom-to-cause table for 402/407/401/connection errors.
+- `references/wallet.md` - wallet access, `cast`, free Base RPCs, key handling.
+- `references/payments.md` - x402 v2 flow, approval pinning, recovery.
+- `references/endpoints.md` - endpoints, client snippets, credential handling.
+- `references/troubleshooting.md` - symptom-to-cause table.
