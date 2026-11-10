@@ -1,6 +1,8 @@
 # Endpoints and client snippets
 
-All shapes below were verified against the live service. Fields are additive-compatible; treat unknown fields as ignorable.
+All shapes below were verified against the live service. Fields are
+additive-compatible; treat unknown fields as ignorable. For wallet setup and
+`cast`, see `wallet.md`.
 
 ## Discovery
 
@@ -16,15 +18,14 @@ All shapes below were verified against the live service. Fields are additive-com
 
 ## Transport
 
-TLS HTTP CONNECT on **TCP 3129** is the preferred transport and is available on `eu-north1`, `asia-central2`, and `asia-west1`:
-
-```
-https://<exit>.x402socks.com:3129
-```
-
-The client verifies the exit certificate, then sends `Proxy-Authorization` inside the TLS tunnel to the exit. The reusable token is not readable on the client-to-exit hop.
-
-**SOCKS5 on 1080** is the primary protocol and is available on every exit. **TLS HTTP CONNECT on 3129** (above) is preferred where available. Plaintext HTTP CONNECT on **3128** is supported only for browser compatibility and will be **discontinued shortly**. Both legacy transports send the reusable token unencrypted on the client-to-exit hop and are **opt-in only**: the helper requires `X402SOCKS_ALLOW_PLAINTEXT=1` before it will use either. Use them only when a client cannot do TLS CONNECT and the network is trusted.
+**TLS HTTP CONNECT on 3129** (`https://<exit>.x402socks.com:3129`) is the
+preferred transport and is available on `eu-north1`, `asia-central2`, and
+`asia-west1`. **SOCKS5 on 1080** is the fallback available on every exit.
+Plaintext HTTP CONNECT on **3128** is supported only for browser compatibility
+and will be **discontinued shortly**. Both SOCKS5 and plaintext CONNECT send the
+reusable token unencrypted on the client-to-exit hop and are **opt-in only**: the
+helper requires `X402SOCKS_ALLOW_PLAINTEXT=1` before it will use either. Use them
+only when a client cannot do TLS CONNECT and the network is trusted.
 
 ## Legacy transport addresses (for browser compatibility only)
 
@@ -194,8 +195,11 @@ http = urllib3.ProxyManager(
 print(http.request("GET", "https://api.ipify.org").data.decode())
 ```
 
-This needs `urllib3` 2.0+, which supports an HTTPS proxy. The token is put in a `Proxy-Authorization` header, not embedded in a URL; if the request does not send it on your urllib3 version, fall back to the `requests` snippet above and add "do not log the proxy URL / token" beside it.
-The token stays in process memory; it is not placed in argv.
+This needs `urllib3` 2.0+, which supports an HTTPS proxy. The token is put in a
+`Proxy-Authorization` header, not embedded in a URL. If the request does not send
+it on your urllib3 version, use a client that sends `Proxy-Authorization`
+explicitly and keep the token out of the proxy URL. The token stays in process
+memory; it is not placed in argv.
 
 ### Node (undici, TLS CONNECT)
 
