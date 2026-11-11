@@ -1,0 +1,20 @@
+window.SCENE_LIBS=['lib/three.min.js'];window.PUNCH=0;window.ERAS=[
+{id:"38_giotto",dur:6,counter:{draw(c){c.save();c.font='25px sans-serif';c.textAlign='left';c.fillStyle='rgba(25,28,23,.75)';c.fillRect(34,1002,230,46);c.fillStyle='#fff9e9';c.fillText("乔托",50,1034);c.restore();}}},
+{id:"39_piero",dur:6,counter:{draw(c){c.save();c.font='25px sans-serif';c.textAlign='left';c.fillStyle='rgba(25,28,23,.75)';c.fillRect(34,1002,230,46);c.fillStyle='#fff9e9';c.fillText("皮耶罗",50,1034);c.restore();}}},
+{id:"40_raphael",dur:6,counter:{draw(c){c.save();c.font='25px sans-serif';c.textAlign='left';c.fillStyle='rgba(25,28,23,.75)';c.fillRect(34,1002,230,46);c.fillStyle='#fff9e9';c.fillText("拉斐尔",50,1034);c.restore();}}},
+{id:"41_michelangelo",dur:6,counter:{draw(c){c.save();c.font='25px sans-serif';c.textAlign='left';c.fillStyle='rgba(25,28,23,.75)';c.fillRect(34,1002,230,46);c.fillStyle='#fff9e9';c.fillText("米开朗基罗",50,1034);c.restore();}}},
+{id:"42_guardi",dur:6,counter:{draw(c){c.save();c.font='25px sans-serif';c.textAlign='left';c.fillStyle='rgba(25,28,23,.75)';c.fillRect(34,1002,230,46);c.fillStyle='#fff9e9';c.fillText("瓜尔迪",50,1034);c.restore();}}},
+{id:"43_lorenzetti",dur:6,counter:{draw(c){c.save();c.font='25px sans-serif';c.textAlign='left';c.fillStyle='rgba(25,28,23,.75)';c.fillRect(34,1002,230,46);c.fillStyle='#fff9e9';c.fillText("洛伦采蒂",50,1034);c.restore();}}},
+{id:"44_cortona",dur:6,counter:{draw(c){c.save();c.font='25px sans-serif';c.textAlign='left';c.fillStyle='rgba(25,28,23,.75)';c.fillRect(34,1002,230,46);c.fillStyle='#fff9e9';c.fillText("科尔托纳",50,1034);c.restore();}}},
+{id:"45_renoir",dur:6,counter:{draw(c){c.save();c.font='25px sans-serif';c.textAlign='left';c.fillStyle='rgba(25,28,23,.75)';c.fillRect(34,1002,230,46);c.fillStyle='#fff9e9';c.fillText("雷诺阿",50,1034);c.restore();}}},
+{id:"46_pissarro",dur:6,counter:{draw(c){c.save();c.font='25px sans-serif';c.textAlign='left';c.fillStyle='rgba(25,28,23,.75)';c.fillRect(34,1002,230,46);c.fillStyle='#fff9e9';c.fillText("毕沙罗",50,1034);c.restore();}}},
+{id:"47_sisley",dur:6,counter:{draw(c){c.save();c.font='25px sans-serif';c.textAlign='left';c.fillStyle='rgba(25,28,23,.75)';c.fillRect(34,1002,230,46);c.fillStyle='#fff9e9';c.fillText("西斯莱",50,1034);c.restore();}}},
+{id:"48_gauguin",dur:6,counter:{draw(c){c.save();c.font='25px sans-serif';c.textAlign='left';c.fillStyle='rgba(25,28,23,.75)';c.fillRect(34,1002,230,46);c.fillStyle='#fff9e9';c.fillText("高更",50,1034);c.restore();}}},
+{id:"49_chagall",dur:6,counter:{draw(c){c.save();c.font='25px sans-serif';c.textAlign='left';c.fillStyle='rgba(25,28,23,.75)';c.fillRect(34,1002,230,46);c.fillStyle='#fff9e9';c.fillText("夏加尔",50,1034);c.restore();}}},
+{id:"50_ma_yuan",dur:6,counter:{draw(c){c.save();c.font='25px sans-serif';c.textAlign='left';c.fillStyle='rgba(25,28,23,.75)';c.fillRect(34,1002,230,46);c.fillStyle='#fff9e9';c.fillText("马远",50,1034);c.restore();}}},
+{id:"51_persian_miniature",dur:6,counter:{draw(c){c.save();c.font='25px sans-serif';c.textAlign='left';c.fillStyle='rgba(25,28,23,.75)';c.fillRect(34,1002,230,46);c.fillStyle='#fff9e9';c.fillText("波斯细密画",50,1034);c.restore();}}},
+{id:"52_south_park",dur:6,counter:{draw(c){c.save();c.font='25px sans-serif';c.textAlign='left';c.fillStyle='rgba(25,28,23,.75)';c.fillRect(34,1002,230,46);c.fillStyle='#fff9e9';c.fillText("南方公园",50,1034);c.restore();}}},
+{id:"54_ghibli_lab",dur:6,counter:{draw(c){c.save();c.font='25px sans-serif';c.textAlign='left';c.fillStyle='rgba(25,28,23,.75)';c.fillRect(34,1002,230,46);c.fillStyle='#fff9e9';c.fillText("吉卜力方向",50,1034);c.restore();}}},
+{id:"53_pixar",dur:6,counter:{draw(c){c.save();c.font='25px sans-serif';c.textAlign='left';c.fillStyle='rgba(25,28,23,.75)';c.fillRect(34,1002,230,46);c.fillStyle='#fff9e9';c.fillText("皮克斯方向",50,1034);c.restore();}}},
+{id:"55_dunhuang",dur:6,counter:{draw(c){c.save();c.font='25px sans-serif';c.textAlign='left';c.fillStyle='rgba(25,28,23,.75)';c.fillRect(34,1002,230,46);c.fillStyle='#fff9e9';c.fillText("敦煌壁画",50,1034);c.restore();}}}
+];
