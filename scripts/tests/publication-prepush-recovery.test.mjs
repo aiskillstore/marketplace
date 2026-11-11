@@ -122,6 +122,35 @@ test('recognizes only the pinned receiver failure before its sole push/callback 
   assert.deepEqual(verifyPrepushFailure(fixture()), { runId: 12, jobId: 34, batchId: 'b'.repeat(64) });
 });
 
+test('recognizes the separately audited recovery-enabled execution revision without changing history', () => {
+  const value = fixture();
+  value.run.head_sha = '9898ee93fc8e1da796c7b3ea7e9c582bae316f25';
+  value.receiverBlob = '99e203b5bf8a47478db755e2845f2653bdbf6805';
+  assert.deepEqual(verifyPrepushFailure(value), { runId: 12, jobId: 34, batchId: 'b'.repeat(64) });
+  const input = reservation(), before = structuredClone(input);
+  const result = reconcilePrepushReservations(input, readers(value));
+  assert.deepEqual(input, before);
+  assert.deepEqual(result.statuses, []);
+  assert.deepEqual(result.prepushSafeRefs, input.refs.map(r => r.ref));
+});
+
+test('the newly audited receiver still rejects an unreviewed execution revision or invalid proof', () => {
+  const mutations = [
+    v => { v.run.head_sha = 'a'.repeat(40); },
+    v => { v.receiverBlob = 'c'.repeat(40); },
+    v => { v.run.run_attempt = 2; },
+    v => { v.jobs.jobs[0].steps.unshift({ name: 'Unreviewed write', conclusion: 'success' }); },
+    v => { v.log = v.log.replace('Main advanced; re-preflight required', 'Publication push outcome requires inspection'); },
+  ];
+  for (const mutate of mutations) {
+    const value = fixture();
+    value.run.head_sha = '9898ee93fc8e1da796c7b3ea7e9c582bae316f25';
+    value.receiverBlob = '99e203b5bf8a47478db755e2845f2653bdbf6805';
+    mutate(value);
+    assert.throws(() => verifyPrepushFailure(value));
+  }
+});
+
 test('rejects partial/unknown push outcomes and absent exact terminal failure', () => {
   for (const message of ['Publication push outcome requires inspection', 'socket closed', 'Main advanced; re-preflight required (untrusted)']) {
     const value = fixture(); value.log = value.log.replace('Main advanced; re-preflight required', message);
