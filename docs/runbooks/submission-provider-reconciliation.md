@@ -37,6 +37,16 @@ GitHub job logs can contain terminal formatting. The shared log reader explicitl
 
 The audited receiver revision, exact workflow/job/step inventory, PR and batch correlation, terminal pre-push error, trusted status owner and outbox binding remain mandatory. Repairing transport does not prove publication or provider completion. After merging a reader repair, inspect the automatically triggered continuation first; do not blindly dispatch or rerun a receiver.
 
+### Audited pre-push execution — 2026-11-11
+
+[Publication run 43064391205](https://github.com/aiskillstore/marketplace/actions/runs/43064391205), attempt 1, job `130675307647`, executed revision `9898ee93fc8e1da796c7b3ea7e9c582bae316f25` (receiver blob `99e203b5bf8a47478db755e2845f2653bdbf6805`). Its sole PR input is 4163, batch `9b5e4725314fb274ecd7771bf0c3e866d6a2b60347f9a87116a7dea7ece95ff6`. The unique terminal `Main advanced; re-preflight required` precedes the sole publication push and submission callback. The failed outbox remains bound to merge `5106f5815b7cd4467967858b3c4beba60cfbaa51`; both latest reservation contexts are failures owned by this exact run.
+
+Compared with the previously audited `70175e06306db8eab43d3f63538b9553d73b8caa`, the workflow and its Action pins, source validator, provider-recovery verifier and scope module are unchanged. The execution closure changes only add read-only pre-push reconciliation to planner/receiver and its shared log reader. Imports do not run their guarded CLI entrypoints. The scope JSON is data and keeps the November 4 cutoff. Real job steps/checkout/cleanup and exact terminal log were independently inspected; no publication push or submission callback occurred.
+
+This does **not** mean zero external writes: outbox/status reservations were written, and source admission calls an existing POST before the push. The [source route](https://github.com/aiskillstore/skillstore/blob/700900fd0061bf1c274b2064da466665ab4ddfa7/src/routes/api/automation/skill-distribution/source/%2Bserver.ts) resolves repository identity and invokes `check_distribution_source`. Its [SQL definition](https://github.com/aiskillstore/skillstore/blob/700900fd0061bf1c274b2064da466665ab4ddfa7/supabase/migrations/20261018_add_skill_distribution_lifecycle.sql) upserts the repository-ID lookup and refreshes `checked_at`, then checks suppression. Repeating admission can refresh this metadata; it does not publish/update skills or artifacts, alter suppression decisions, invoke the submission callback, or dispatch provider sync. This is source-contract evidence, not a claim of live database inspection.
+
+Only this separately inspected execution revision/blob pair is added. Unknown revisions, even with the same receiver blob, remain rejected. All existing creator, attempt, job inventory, PR/batch, terminal-log, outbox and concurrent-reservation checks remain mandatory. Keep original history and inspect the automatically resumed continuation before any further action; publication/provider completion still requires separate readback.
+
 ### Reconciliation procedure
 
 1. Get implementation independently reviewed; merge only the approved exact repair head through the normal repository/human gate. The workflow runs only from main and pins runtime checkout to `github.sha`.
