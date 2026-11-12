@@ -3,8 +3,8 @@ name: wxpusher-integration
 description: Use when（适用场景）：用户明确询问、指定或上下文已选定 WxPusher，需要了解、接入或排查通知（含微信 ClawBot/iLink、appToken、UID、Topic、SPT）；仅说“微信通知”、未选服务商，或只出现通用 UID/Topic 时不触发。
 license: MIT
 metadata:
-  version: "1.0.4"
-  docs-verified: "2026-10-08"
+  version: "1.0.5"
+  docs-verified: "2026-11-12"
 ---
 
 # WxPusher 集成（WxPusher Integration）
@@ -44,16 +44,24 @@ WxPusher 当前主推独立客户端，也支持微信 ClawBot（iLink）文本�
    密钥时读取 [references/configuration.md](references/configuration.md)，
    选择架构时读取 [references/integration-patterns.md](references/integration-patterns.md)，
    排查故障时读取 [references/troubleshooting.md](references/troubleshooting.md)。
-4. 项目集成优先使用标准 POST 接口。已知接收人使用 UID，订阅者广播使用
-   Topic；只有简单的自推送/已知令牌流程才使用 SPT。将 HTTP 调用封装在项目
-   已有通知接口或小型专用适配器中。
+4. 尚未选定推送模型的项目集成优先使用标准 POST 接口：已知接收人使用 UID，
+   订阅者广播使用 Topic。已选定 SPT 时沿用已有令牌，默认使用
+   `POST https://wxpusher.zjiecode.com/api/send/message/simple-push`，请求类型为
+   `application/json`；单人请求使用 `spt`、`content`、`contentType`，无需改用
+   appToken 或 UID。正文按原文进行 JSON 序列化并以 UTF-8 发送，不做 URL
+   百分号编码。SPT GET 仍是受限便捷接口；正文含 `/`、编码后出现 `%2F`
+   （如 `/context` 或 `https://...`）时，当前使用 POST，详见
+   [SPT 极简推送](references/api.md#3-spt-极简推送)。将调用封装在已有通知接口
+   或小型专用适配器中。
 5. 设置明确的超时。按照项目策略，仅对可能瞬时的网络错误、5xx 或
    429 做有限重试；认证、校验和权限失败不得无限重试。HTTP 成功不等于业务
    成功：必须解析 JSON，检查顶层及返回的逐目标业务 `code`；目标失败时
    报告失败或部分失败。接口接受任务不代表用户已收到或阅读。
 6. 将密钥放入项目批准的密钥存储或环境变量，不写入公开代码、日志、
-   测试数据、截图或示例。JSON POST 可避免密钥进入请求 URL；用户指定官方 GET，
-   或官方管理接口要求 query/path 鉴权时，按接口传递并对 URL 脱敏。SPT 的
+   测试数据、截图或示例。JSON POST 可避免密钥进入请求 URL；使用符合当前支持
+   范围的官方 GET，或管理接口要求 query/path 鉴权时，按接口传递并对 URL 脱敏。
+   正确 URL 编码不保证服务端接受编码斜杠；不通过双重编码、替换正文字符或反复
+   重试规避 SPT GET 的限制。SPT 的
    重置/撤销没有已核实的公开方法，不得套用 appToken 的重置流程，详见
    [references/configuration.md](references/configuration.md)。
 7. 使用模拟 HTTP 响应覆盖成功、业务失败、HTTP 失败、超时、配置缺失、429 和

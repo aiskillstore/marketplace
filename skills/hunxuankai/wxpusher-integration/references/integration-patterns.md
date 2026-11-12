@@ -44,7 +44,10 @@ POST 接口组合；标准 GET 只能选一个 UID 或一个 Topic。不要把 T
 ## 实现边界
 
 1. 在项目已有配置层读取 token 和目标列表，启动时校验必需值与数量。
-2. 通过项目已有 HTTP client 发起标准 POST；若确实是简单自推才选 SPT。
+2. 按已选推送模型通过已有 HTTP client 发起 JSON POST。SPT 使用
+   `/api/send/message/simple-push`，沿用已有令牌；单人 body 为 `spt`、`content`、
+   `contentType`，原文经 JSON 序列化后以 UTF-8 发送，不做 URL 编码。正文含
+   `/context` 或 `https://...` 时不使用受限的 SPT GET；无需切换到 appToken/UID。
 3. 将请求构造、响应解析和错误分类封装在一个小 adapter/service 中；业务层
    只调用稳定的项目接口，例如 `notify(event)`。
 4. 为每次调用设置明确 timeout。复用现有 retry/backoff；没有现成策略时，
@@ -52,7 +55,7 @@ POST 接口组合；标准 GET 只能选一个 UID 或一个 Topic。不要把 T
 5. 只有网络错误、429、5xx 等瞬时故障才重试；token/权限/参数/业务校验失败
    应立即报告，不应重试。
 6. 记录脱敏的事件、目标类型（不要全量 UID）、HTTP 状态、业务 code、
-   sendRecordId（若允许）和最终结果。不要记录 token、SPT 或完整正文。
+   messageContentId（若允许）和最终结果。不要记录 token、SPT 或完整正文。
 
 ## 主业务解耦
 
@@ -71,7 +74,8 @@ POST 接口组合；标准 GET 只能选一个 UID 或一个 Topic。不要把 T
 - 无害低频告警：可接受重复，但在正文中带事件时间/运行 ID；
 - 高影响业务：使用现有幂等键、去重缓存或事件状态，不要无条件新增数据库表；
 - Topic 群发：确认一次事件不会同时经多个 Topic 重复到达同一用户；
-- 发送接口成功是“任务创建”，不是用户阅读确认，状态查询不能替代业务幂等。
+- 发送接口成功是“任务创建”，不是用户阅读确认；旧状态查询已停用，不调用
+  或轮询，也不把停用提示当作失败而重发。业务幂等由项目机制处理。
 
 ## 内容设计
 
@@ -95,6 +99,8 @@ POST 接口组合；标准 GET 只能选一个 UID 或一个 Topic。不要把 T
 至少覆盖：
 
 - 构造正确的 UID/Topic/SPT 请求与 contentType；
+- SPT 正文含 `/context`、`https://...`、中文、换行或百分号时，默认选择 JSON
+  POST；解析 UTF-8 请求体后 `content` 与原文完全相同，不出现 URL 编码替换；
 - 顶层 `code=1000`、目标级失败和缺失目标；
 - HTTP 非 2xx、HTTP 200 但业务失败、非 JSON、连接异常和 timeout；
 - 429/5xx 的有限重试与退避，认证/参数错误不重试；

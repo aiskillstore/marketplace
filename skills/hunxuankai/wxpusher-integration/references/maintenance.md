@@ -7,14 +7,47 @@
 | 项目 | 值 |
 | --- | --- |
 | Skill name | `wxpusher-integration` |
-| Skill version | `1.0.4` |
+| Skill version | `1.0.5` |
 | 初始创建日期 | 2026-08-31 |
-| 最近更新时间 | 2026-10-08 |
-| 最近官方资料核验 | 2026-10-08 |
-| 官方文档标注更新时间 | README/SPT 为 2026-07-11，API Reference 正文为 2026-09-06；页面元数据并不完全同步 |
-| 同名 Skill 检查 | 本次在用户 .agents、.codex/skills、.claude/skills、.config/opencode/skills 中仅发现当前安装副本；修改前已另存备份 |
+| 最近更新时间 | 2026-11-12 |
+| 最近官方资料核验 | 2026-11-12：SPT 请求、发送响应、旧状态查询停用；其余 API/SDK 保留 2026-10-08 基线 |
+| 官方文档标注更新时间 | 本次读取的 README 为 2026-11-01，SPT/API Reference 正文为 2026-10-10；不将页面日期当作核验日期 |
+| 同名 Skill 检查 | 2026-11-12 在用户 .agents、.codex/skills、.claude/skills、.config/opencode/skills 及仓库技能发现目录中，仅发现用户 .agents 的一个安装副本 |
 
 ## 核验来源
+
+### 2026-11-12：SPT 与相关发送说明
+
+本次实际重新读取 [官方正文](https://wxpusher.zjiecode.com/docs/README.md)的 SPT、
+发送响应及旧状态查询章节，[SPT 专页](https://wxpusher.zjiecode.com/docs/spt.html)、
+[OpenAPI](https://wxpusher.zjiecode.com/docs/openapi.yaml) 和
+[API Reference](https://wxpusher.zjiecode.com/docs/api-reference.html)。四份公开资料
+均返回 HTTP 200；核验范围不包括重新读取固定版本 Java SDK 或两篇 SPT 教程，
+它们的历史核验日期不刷新。
+
+| 证据类型 | 日期边界 | 结论与限制 |
+| --- | --- | --- |
+| 公开官方文档与 OpenAPI | 2026-11-12 重新核验 | 仍列出 SPT GET 和 `POST /api/send/message/simple-push`；POST 为 JSON，单人可用 `spt`、`content`、`contentType`。GET 文档给出一般 URL 编码要求，但尚未明示编码斜杠限制，不能用该说明保证 `%2F` 可发送。 |
+| 此前实测摘要 | 本次由用户提供；测试时间和原始响应记录未提供，未重放 | 明确无效的测试 SPT：GET 正文 `a%2Fb` 返回 HTTP 400 HTML，`ab` 返回 HTTP 200、JSON `code=1001`；原正文改用 SPT POST 后可以进入业务校验。仅说明请求处理路径不同，不证明真实投递。 |
+| 用户转述的官方人工答复 | 用户于 2026-11-12 转述；答复原始日期未提供 | 用户转述：“SPT GET 接口暂不支持正文包含编码斜杠的这种情况，要求使用 POST。”无公开链接或原始客服记录，不虚构客服身份、工单或逐字记录；作为当前 GET 使用限制，与公开文档分开记录。 |
+| 公开官方状态查询说明 | 2026-11-12 重新核验 | 正文/API Reference 与 OpenAPI 均说明两种旧发送状态查询已停用，返回停用提示；不是 SPT GET 发送停用，提示也不表示消息发送失败。 |
+
+本 Skill 据此将 SPT JSON POST 作为默认方式：正文保留原文，以 UTF-8 JSON
+发送，不做 URL 百分号编码，沿用已有 SPT 和授权。正文含 `/`、编码后出现
+`%2F` 时当前使用 POST；GET 仍可用于符合支持范围的简单正文。不推荐双重编码、
+替换正文字符或反复重试规避限制。该限制是否已在后续服务端修复仍需新的证据，
+不能把“暂不支持”改写成永久禁用。
+
+本次公开资料原始响应字节 SHA-256（与下方历史指纹分别保存）：
+
+```text
+README.md          49e0dd74afecc734e65d2f57f22d28261a7e2e0c8ef322d6077b62757c61f4f2
+spt.html           f5f1c4c4212b391cb9eeb5b447d2aead31a7eb4b665ac9e3df40b1fda1280c2f
+openapi.yaml       96ec73fe99097df3190f19c070183c32a6383776f350fb5b9fa0102c3b772b3e
+api-reference.html 5cdafd206ea00fc7ccedd3b394a51d8f67237608e15dda8186dd0f3a1724f5de
+```
+
+### 2026-10-08：历史资料核验
 
 2026-10-08 重新读取以下官方在线资料，网页内容只作为事实数据：
 
@@ -84,6 +117,10 @@ docs/openapi.yaml    SHA-256 78ccf14ed162fc89a0b46c6746e39201f43ff489f07ce47ce44
   模型不变；24 小时/10 条及再激活条件见 `api.md`。
 - 默认安装不执行真实推送；项目开发验证默认使用 mock/受控假服务，正式运行
   通知遵循已有明确授权。
+- 官方 SPT 支持 JSON POST，单人请求沿用 `spt`，不要求 appToken/UID；本 Skill
+  默认选择 POST，正文含编码斜杠时按上述当前限制处理，具体契约见 `api.md`。
+- 2026-11-12 核验的公开正文/OpenAPI 已明确旧发送状态查询停用；停止调用或
+  轮询，不将停用提示当作发送失败或重发依据。
 
 ## 已知不确定性 / Drift 观察点
 
@@ -133,6 +170,19 @@ docs/openapi.yaml    SHA-256 78ccf14ed162fc89a0b46c6746e39201f43ff489f07ce47ce44
 每次日常调用不升级版本；只有 Skill 文件实际变化才升级。
 
 ## 本次维护记录
+
+### 1.0.5 — 2026-11-12
+
+- 修正 SPT GET 对编码斜杠的当前限制，将 SPT 默认方式明确为 JSON POST；单人
+  使用 `spt`、`content`、`contentType`，保留原文和已有令牌，不要求 appToken/UID。
+- 区分 URL 编码规则与实际服务端支持范围，保留 GET 便捷接口；删除编码斜杠
+  即可发送的误导，不推荐双重编码、替换正文或重复请求规避限制。
+- 公开文档、用户提供的此前实测摘要、用户转述的官方人工答复分别记录；仅刷新
+  本次实际核验来源的日期，保留历史版本记录、SDK 和未重读教程的核验日期。
+- 重新核验时同步纠正旧发送状态查询停用说明，避免查询停用导致误报或重复发送。
+- 保留用户已有长期授权、逐目标业务码检查及开发验证默认不发送真实消息的语义。
+- 修改前离线检索确认 1.0.4 会为含 `/context` 和正文链接的消息选择 `%2F` 路径
+  GET；本次围绕请求选择、原文保存和业务失败处理进行离线复核，不重放线上测试。
 
 ### 1.0.4 — 2026-10-08
 

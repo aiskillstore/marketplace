@@ -1,14 +1,16 @@
 # WxPusher API Reference
 
-本文件是项目集成所需的精简事实基线，不是官网镜像。内容于 2026-10-08
-核对 WxPusher 官方文档、SPT 专页、官方 OpenAPI 和下文所列固定版本的
-官方 SDK 源码；页面更新时间标注并不一致，核验详情见维护记录。线上策略可能变化，疑似漂移时按
-[maintenance.md](maintenance.md) 的维护流程复核。
+本文件是项目集成所需的精简事实基线，不是官网镜像。2026-11-12 重新核对官方
+正文、SPT 专页、API Reference 和 OpenAPI 中的 SPT 请求、发送响应及旧状态
+查询停用说明；其余内容和固定版本 SDK 仍以 2026-10-08 核验为基线。SPT GET
+斜杠限制另依据此前实测摘要及用户转述的官方人工答复，公开文档尚未明示该限制。
+核验范围和各类证据见 [maintenance.md](maintenance.md)。线上策略可能变化，疑似漂移
+时按其中的维护流程复核。
 
 ## 内容
 
 - 接收渠道与微信支持
-- 标准推送：请求、响应、UID/Topic、查询和删除
+- 标准推送：请求、响应、UID/Topic、旧查询停用和删除
 - SPT 极简推送
 - 用户、二维码和回调
 - 限制、错误和安全边界
@@ -105,7 +107,6 @@ HTML 正文应提供 body 内片段而不是 `body` 标签本身。官方正文�
       "uid": "UID_example",
       "topicId": null,
       "messageContentId": 123456789,
-      "sendRecordId": 987654321,
       "code": 1000,
       "status": "创建发送任务成功"
     }
@@ -114,24 +115,27 @@ HTML 正文应提供 body 内片段而不是 `body` 标签本身。官方正文�
 }
 ```
 
-- 顶层业务 `code == 1000` 是成功的必要条件；HTTP 200 本身不够。
+- HTTP 2xx、可解析的 JSON 和顶层业务 `code == 1000` 是成功的必要条件；
+  HTTP 200 本身不够，顶层失败时即使有 `success: true` 也不能报告成功。
 - `data` 通常按 UID/Topic 返回目标结果；目标结果也有自己的 `code` 和
   `status`；存在目标级失败时不能报告全部成功，应报告失败或部分失败。
-- `sendRecordId` 用于查询某个目标的发送状态。
 - `messageContentId` 是本次发送共享的落地页内容 ID，可用于删除落地页。
 - `messageId` 在官方正文中已标记废弃，不要依赖。
 - 接口是异步分发；成功只表示任务已创建，不保证用户已经看到通知。
 - 客户端应同时处理 HTTP 非成功状态、网络/超时、非 JSON 响应、顶层业务
   失败和目标级失败，并避免把完整响应中的敏感字段写入日志。
 
-### 查询发送状态
+### 旧发送状态查询已停用
 
 ```text
-GET https://wxpusher.zjiecode.com/api/send/query/status?sendRecordId=<id>
+GET /api/send/query/status
+GET /api/send/query/{messageId}
 ```
 
-状态缓存通常保留 7 天，超过后可能返回不存在。`sendRecordId` 来自发送
-响应；这是状态查询，不是实时送达确认。
+2026-11-12 核对的官方正文和 OpenAPI 明确：这两个旧地址仅保留停用响应，
+不再查询状态，应停止调用或轮询。`sendRecordId`、`messageId` 参数会被忽略，
+返回业务码 `1001` 及停用提示。该提示不表示消息发送失败，不能据此自动重发。
+发送是否被接受以发送接口的顶层和逐目标业务码判断；用户实际接收仍需另行确认。
 
 ### 删除消息落地页
 
@@ -171,14 +175,19 @@ SPT，但截至核验日未在公开文档中找到 SPT 重置、撤销或轮换
 appToken 的后台重置仅适用于标准推送，不适用于 SPT。泄漏处置见
 [configuration.md](configuration.md#轮换与撤销)。
 
-### POST
+### POST（SPT 默认方式）
 
 ```text
 POST https://wxpusher.zjiecode.com/api/send/message/simple-push
 Content-Type: application/json
 ```
 
-Body 复用 `content`、`summary`、`contentType`、`url`，并提供 `spt`（单个）
+单人请求使用已有的 `spt`、原始 `content` 和 `contentType`（纯文本为 `1`），
+无需 appToken 或 UID。`content` 保留中文、换行、`/context`、`https://...` 和
+百分号等原文，通过 JSON 序列化后以 UTF-8 发送；不做 URL 百分号编码，也不
+替换正文字符。JSON 对引号、反斜杠、换行的转义在解析后还原原文，不是 URL 编码。
+
+Body 还可复用 `summary`、`url`，并提供 `spt`（单个）
 或 `sptList`（数组，最多 10 个，唯一）。按场景选一个目标字段；官方未说明同时
 传入两者时的合并或优先级，不能把此建议称为服务端强制互斥。OpenAPI 因继承
 公共模型而包含 `verifyPayType`，但 SPT 正文未说明付费筛选能力，不据此实现或承诺。
@@ -186,22 +195,37 @@ Body 复用 `content`、`summary`、`contentType`、`url`，并提供 `spt`（�
 
 ```json
 {
-  "content": "个人脚本完成",
+  "content": "请执行 /context，查看 https://example.invalid/a/b?next=1#frag，百分号 100%。\n保留原文。",
   "contentType": 1,
   "spt": "SPT_example"
 }
 ```
 
-### GET
+### GET（受限便捷接口）
 
 ```text
 GET https://wxpusher.zjiecode.com/api/send/message/<spt>/<url-encoded-content>
 ```
 
-SPT 和正文分别作为完整路径段做一次 UTF-8 URL 百分号编码，包括正文里的
-`/`、`?`、`#`、`%`、空格和换行；不编码整条 URL，不重复编码已编码的内容。
-需要摘要、链接或多个接收者时使用 POST。不要把
-SPT 放进仓库、日志、截图、Issue 或可观测性标签。
+公开文档仍列出 SPT GET；整个 GET 发送接口没有被宣称停用。但正文含 `/`
+（例如 `/context` 或正文中的 `https://...`）、路径段编码后出现 `%2F` 时，
+当前应改用上述 SPT JSON POST，保留原始正文和已有 SPT。不要尝试双重编码
+（如 `%252F`）、替换斜杠或反复重试来规避限制，也不能据此要求更换 appToken/UID。
+
+**编码规则与服务端支持范围须分开判断：** 路径段的正确编码规则是将 SPT 和
+原始正文分别做一次 UTF-8 URL 百分号编码；`/` 的编码确实是 `%2F`，但当前
+SPT GET 不接受正文中的这种编码斜杠。编码正确并不保证请求能通过路由或网关。
+对不含斜杠、适合 GET 的正文（如 `任务完成 100%`），仍须编码中文、空格、
+`?`、`#`、`%`、换行等特殊字符，不编码整条 URL，不重复编码。
+需要摘要、独立的 `url` 字段或多个接收者时也使用 POST。凭据和正文均须脱敏。
+
+**限制依据：** 此前使用明确无效的测试 SPT，GET 正文 `a%2Fb` 返回 HTTP 400
+HTML，正文 `ab` 返回 HTTP 200、JSON 业务码 `1001`；原正文改用 SPT POST 后
+可以进入业务校验。这些结果证明请求处理路径不同，不能证明发送成功。
+2026-11-12 用户另转述官方人工答复：SPT GET 暂不支持正文包含编码斜杠的情况，
+要求使用 POST。该答复无公开链接或原始客服记录；公开文档仍给出一般 URL
+编码要求，尚未描述此限制。证据类型、时间边界见
+[核验来源](maintenance.md#核验来源)。本次维护未重放线上发送测试。
 
 ## 4. 用户、Topic 和二维码
 
@@ -296,7 +320,7 @@ GET https://wxpusher.zjiecode.com/api/fun/scan-qrcode-uid?code=<code>
 | 单次 `uids` | ≤ 2000 |
 | 单次 `topicIds` | ≤ 5 |
 | 发送频率 | 默认约每 10 秒 20 次（约 2 QPS），部分应用可申请更高配额 |
-| 数据/状态缓存 | 通常 7 天，过期后不保证可查 |
+| 消息数据保留 | 通常 7 天，过期后不保证可用；旧发送状态查询已经停用 |
 | 单 UID 客户端日用量 | 约 3000 条后可能不再弹通知栏，约 20000 条后可能停止展示；次日恢复，线上阈值以实际策略为准 |
 | 微信 ClawBot 渠道 | 用户激活后 24 小时内该渠道最多 10 条；用尽后向 ClawBot 回复任意内容可再次激活，与 API 级 QPS/批量限制独立 |
 
