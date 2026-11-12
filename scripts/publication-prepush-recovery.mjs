@@ -19,6 +19,9 @@ export function readPublicationJobLog(id) {
 // Other revisions/outcomes stay blocked, even with an unchanged receiver blob.
 const auditedReceiverRevisions = new Map([
   ['70175e06306db8eab43d3f63538b9553d73b8caa', '409eab1ea2f03cc79bbc8a125a266a21055d6eb4'],
+  // Same pinned workflow/validation dependencies; added read-only pre-push
+  // reconciliation preserves the sole push/callback boundary. See runbook audit.
+  ['9898ee93fc8e1da796c7b3ea7e9c582bae316f25', '99e203b5bf8a47478db755e2845f2653bdbf6805'],
 ]);
 const repo = 'aiskillstore/marketplace';
 export function verifyPrepushFailure({ run, jobs, receiverBlob, log, prNumber }) {
