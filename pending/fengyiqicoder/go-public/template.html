@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>__TITLE__</title>
+<style>
+  :root { --paper:#fff; --paper-2:#f5f7fb; --line:#d8dee9; --line-strong:#0b1020; --text:#0b1020; --muted:#5c667d; --faint:#99a2b5; --blue:#0b5fff; --blue-dark:#0747c2; --error:#c2261f; }
+  * { box-sizing: border-box; }
+  body { margin:0; font:16px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "PingFang SC", "Microsoft YaHei", sans-serif; color:var(--text);
+    background: var(--paper) linear-gradient(var(--paper-2) 1px, transparent 1px) 0 0/24px 24px, linear-gradient(90deg, var(--paper-2) 1px, transparent 1px) 0 0/24px 24px; }
+  main { max-width: 760px; margin: 0 auto; padding: 48px 20px 80px; }
+  h1 { font-size: 34px; line-height: 1.15; letter-spacing: -0.02em; margin: 0 0 8px; }
+  .lead { color: var(--muted); margin: 0 0 28px; }
+  .panel { background: var(--paper); border: 1px solid var(--line-strong); padding: 20px; }
+  label { display:block; font-weight:600; margin: 0 0 6px; }
+  .field { margin: 0 0 16px; }
+  textarea, input, select { width:100%; font:inherit; color:inherit; background:var(--paper); border:1px solid var(--line-strong); border-radius:0; padding:10px 12px; }
+  textarea { min-height: 140px; resize: vertical; }
+  .row { display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
+  button { font:inherit; font-weight:600; border:1px solid var(--line-strong); border-radius:0; padding:10px 18px; cursor:pointer; background:var(--paper); color:var(--text); }
+  button.primary { background:var(--blue); border-color:var(--blue); color:#fff; }
+  button.primary:hover { background:var(--blue-dark); }
+  button:disabled { opacity:.5; cursor:default; }
+  .examples { color: var(--muted); font-size: 14px; }
+  .examples button { padding: 4px 10px; font-size: 14px; font-weight: 500; }
+  .out { margin-top: 20px; }
+  .out h2 { font-size: 15px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 18px 0 6px; }
+  .answer { white-space: pre-wrap; border:1px solid var(--line-strong); background:var(--paper); padding:16px; min-height: 48px; }
+  .status { font-size: 14px; color: var(--muted); margin-top: 10px; min-height: 1.4em; }
+  .status.error { color: var(--error); }
+</style>
+</head>
+<body>
+<main>
+  <h1 id="title"></h1>
+  <p class="lead" id="lead"></p>
+  <div class="panel" id="form">
+    <div id="fields"></div>
+    <div class="row">
+      <button class="primary" type="button" id="run">Run</button>
+      <span class="examples" id="examples"></span>
+    </div>
+    <div class="status" id="status" role="status"></div>
+  </div>
+  <section class="out" id="out" aria-live="polite"></section>
+</main>
+<script src="https://onetagai.com/v1.js" data-key="ONETAG_PAGE_KEY" data-via="go-public"></script>
+<script>
+// The whole workflow lives in this object. Change it, not the code below.
+// inputs: what a visitor fills in. steps: run in order; {{name}} is replaced by an input or an earlier step's answer.
+// show: true prints that step's answer. The last shown step streams as it is written.
+const WORKFLOW = __WORKFLOW_JSON__;
+
+const $ = (id) => document.getElementById(id);
+const fill = (text, vars) => String(text || "").replace(/\{\{\s*([\w-]+)\s*\}\}/g, (_, k) => vars[k] == null ? "" : String(vars[k]));
+
+$("title").textContent = WORKFLOW.title;
+$("lead").textContent = WORKFLOW.description || "";
+document.title = WORKFLOW.title;
+
+for (const f of WORKFLOW.inputs) {
+  const box = document.createElement("div"); box.className = "field";
+  const label = document.createElement("label"); label.htmlFor = "in-" + f.id; label.textContent = f.label;
+  let el;
+  if (f.type === "select") {
+    el = document.createElement("select");
+    for (const o of f.options || []) { const opt = document.createElement("option"); opt.value = opt.textContent = o; el.append(opt); }
+  } else {
+    el = document.createElement(f.type === "text" ? "input" : "textarea");
+    if (f.type === "text") el.type = "text";
+    el.placeholder = f.placeholder || "";
+  }
+  el.id = "in-" + f.id; el.required = f.required !== false;
+  box.append(label, el); $("fields").append(box);
+}
+
+(WORKFLOW.examples || []).forEach((ex, i) => {
+  if (i === 0) $("examples").append("Try: ");
+  const b = document.createElement("button"); b.type = "button"; b.textContent = ex.label || "Example " + (i + 1);
+  b.onclick = () => { for (const f of WORKFLOW.inputs) if (ex.values[f.id] != null) $("in-" + f.id).value = ex.values[f.id]; };
+  $("examples").append(b, " ");
+});
+
+// A click handler, not a form submit: the page runs in a sandbox that blocks form submission.
+$("run").addEventListener("click", async () => {
+  const missing = WORKFLOW.inputs.find((f) => f.required !== false && !$("in-" + f.id).value.trim());
+  if (missing) { $("status").className = "status error"; $("status").textContent = "Please fill in: " + missing.label; $("in-" + missing.id).focus(); return; }
+  const vars = {};
+  for (const f of WORKFLOW.inputs) vars[f.id] = $("in-" + f.id).value.trim();
+  const shown = WORKFLOW.steps.filter((s) => s.show);
+  const last = shown[shown.length - 1];
+  $("out").textContent = ""; $("status").className = "status"; $("run").disabled = true;
+  try {
+    for (let i = 0; i < WORKFLOW.steps.length; i++) {
+      const s = WORKFLOW.steps[i];
+      $("status").textContent = WORKFLOW.steps.length > 1 ? "Step " + (i + 1) + " of " + WORKFLOW.steps.length + "…" : "Working…";
+      let box = null;
+      if (s.show) {
+        const h = document.createElement("h2"); h.textContent = s.label || "Result";
+        box = document.createElement("div"); box.className = "answer";
+        $("out").append(h, box);
+      }
+      const opts = { system: fill(s.system, vars), maxTokens: s.maxTokens || 800 };
+      if (s === last) opts.stream = (delta) => { box.textContent += delta; };
+      const text = await onetag.ask(fill(s.prompt, vars), s.input ? fill(s.input, vars) : undefined, opts);
+      vars[s.id] = text;
+      if (box) box.textContent = text;
+    }
+    $("status").textContent = "";
+  } catch (err) {
+    $("status").className = "status error";
+    $("status").textContent = err && err.code === "quota_exceeded"
+      ? "This page has used today's free AI allowance. Please come back tomorrow."
+      : (err && err.message) || "Something went wrong. Please try again.";
+  } finally {
+    $("run").disabled = false;
+  }
+});
+</script>
+</body>
+</html>
