@@ -22,6 +22,9 @@ const auditedReceiverRevisions = new Map([
   // Same pinned workflow/validation dependencies; added read-only pre-push
   // reconciliation preserves the sole push/callback boundary. See runbook audit.
   ['9898ee93fc8e1da796c7b3ea7e9c582bae316f25', '99e203b5bf8a47478db755e2845f2653bdbf6805'],
+  // Independently inspected 2026-11-12 execution: unchanged workflow/imports;
+  // only the preceding audited revision registration and tests differ.
+  ['51965b79d69e82e99d7adf2602fca28be16788d5', '99e203b5bf8a47478db755e2845f2653bdbf6805'],
 ]);
 const repo = 'aiskillstore/marketplace';
 export function verifyPrepushFailure({ run, jobs, receiverBlob, log, prNumber }) {

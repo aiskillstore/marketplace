@@ -134,6 +134,28 @@ test('recognizes the separately audited recovery-enabled execution revision with
   assert.deepEqual(result.prepushSafeRefs, input.refs.map(r => r.ref));
 });
 
+test('recognizes the separately audited 2026-11-12 pre-push execution without relaxing its proof', () => {
+  const value = fixture();
+  value.run.head_sha = '51965b79d69e82e99d7adf2602fca28be16788d5';
+  value.receiverBlob = '99e203b5bf8a47478db755e2845f2653bdbf6805';
+  assert.deepEqual(verifyPrepushFailure(value), { runId: 12, jobId: 34, batchId: 'b'.repeat(64) });
+  const input = reservation(), before = structuredClone(input);
+  const result = reconcilePrepushReservations(input, readers(value));
+  assert.deepEqual(input, before);
+  assert.deepEqual(result.statuses, []);
+  assert.deepEqual(result.prepushSafeRefs, input.refs.map(r => r.ref));
+  for (const mutate of [
+    v => { v.run.head_sha = 'a'.repeat(40); },
+    v => { v.receiverBlob = 'c'.repeat(40); },
+    v => { v.run.run_attempt = 2; },
+    v => { v.jobs.jobs[0].steps.unshift({ name: 'Unreviewed write', conclusion: 'success' }); },
+    v => { v.log = v.log.replace('Main advanced; re-preflight required', 'Publication push outcome requires inspection'); },
+  ]) {
+    const invalid = structuredClone(value); mutate(invalid);
+    assert.throws(() => verifyPrepushFailure(invalid));
+  }
+});
+
 test('the newly audited receiver still rejects an unreviewed execution revision or invalid proof', () => {
   const mutations = [
     v => { v.run.head_sha = 'a'.repeat(40); },
