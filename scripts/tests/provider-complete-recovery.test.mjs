@@ -17,7 +17,7 @@ function evidence() {
   };
 }
 test('provider-complete official publication resumes only ancillary stages with exact production projection',()=>{
-  assert.deepEqual(recoveryPlan(evidence()),{commit:'a'.repeat(40),roots:['skills/demo'],slugs:['demo'],providerComplete:true});
+  assert.deepEqual(recoveryPlan(evidence()),{commit:'a'.repeat(40),roots:['skills/demo'],slugs:['demo'],providerMode:'ancillary-only',providerComplete:true});
 });
 test('provider-complete recovery fails closed on incomplete or mismatched production evidence',()=>{
   for(const mutate of [e=>delete e.providerEvidence,e=>e.providerEvidence.callback.status='published',e=>e.providerEvidence.callback.published_at='2026-10-20',e=>delete e.providerEvidence.callback,e=>e.providerEvidence.slugs=[],e=>e.providerEvidence.slugs.push('extra'),e=>e.providerEvidence.projections=[],e=>e.providerEvidence.projections[0].skills[0].artifact_revision=4,e=>e.providerEvidence.projections[0].artifacts[0].marketplace_commit_sha='2'.repeat(40),e=>e.providerEvidence.projections[0].artifacts[0].snapshot_status='partial',e=>e.jobs.jobs[0].steps[2].conclusion='failure',e=>e.jobs.jobs[0].steps[3].conclusion='success',e=>e.trees[0].current='9'.repeat(40),e=>e.reports[0].meta.source_type='community',e=>e.reports[0].meta.source_url=e.reports[0].meta.source_url.replace('anthropics','impostor')]) {

@@ -46,6 +46,12 @@ export function recoveryPlan({ run, jobs, latestPush, files, reports, trees, app
     assert.ok(/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(meta.slug)
       && /^[a-f0-9]{64}$/.test(meta.content_hash) && /^[a-f0-9]{64}$/.test(meta.tree_hash), 'Incomplete report identity');
     slugs.push(meta.slug);
+    if (publicationRecovered) {
+      const matching = providerEvidence?.projections?.filter(p => p.root === root);
+      assert.ok(providerEvidence?.projections?.length === roots.length && matching?.length === 1, 'Missing initial-provider projections');
+      assert.deepEqual(matching[0].skills, [], 'Initial provider already exists; inspect prior effects before recovery');
+      assert.deepEqual(matching[0].artifacts, [], 'Initial artifact already exists; inspect prior effects before recovery');
+    }
     if (providerComplete) {
       assert.ok(providerEvidence?.projections?.length === roots.length, 'Missing provider-complete projections');
       const matching = providerEvidence.projections.filter(p => p.root === root);
@@ -54,13 +60,13 @@ export function recoveryPlan({ run, jobs, latestPush, files, reports, trees, app
     }
   }
   assert.equal(new Set(slugs).size, roots.length, 'Duplicate recovery slugs');
-  if (providerComplete) {
-    assert.deepEqual([...providerEvidence.slugs].sort(), [...slugs].sort(), 'Original synced artifact scope mismatch');
-    assert.equal(providerEvidence.callback?.status, 'approved', 'Callback already received or state unknown; do not replay');
+  if (providerComplete) assert.deepEqual([...providerEvidence.slugs].sort(), [...slugs].sort(), 'Original synced artifact scope mismatch');
+  if (providerComplete || publicationRecovered) {
+    assert.equal(providerEvidence?.callback?.status, 'approved', 'Callback already received or state unknown; do not replay');
     assert.equal(providerEvidence.callback.published_at, null);
     assert.ok(providerEvidence.callback.published_skill_slugs == null || (Array.isArray(providerEvidence.callback.published_skill_slugs) && providerEvidence.callback.published_skill_slugs.length === 0));
   }
-  return { commit: run.head_sha, roots, slugs, ...(providerComplete ? {providerComplete:true} : {}) };
+  return { commit: run.head_sha, roots, slugs, providerMode: providerComplete ? 'ancillary-only' : publicationRecovered ? 'initial-sync' : 'resume-current', ...(providerComplete ? {providerComplete:true} : {}) };
 }
 
 export async function main() {
@@ -117,9 +123,22 @@ export async function main() {
       providerEvidence.projections.push({root,skills,artifacts});
     }
   }
-  const publicationRecovered = Boolean(verifiedPublicationRecovery(run,path=>api(path.slice(`repos/${repo}/`.length))));
+  const publicationProof = verifiedPublicationRecovery(run,path=>api(path.slice(`repos/${repo}/`.length)));
+  const publicationRecovered = Boolean(publicationProof);
+  if (publicationRecovered) {
+    const callbacks = await providerRead('submissions',['id',submissionId],'status,pr_number,workflow_run_id,published_at,published_skill_slugs');
+    assert.equal(callbacks.length, 1, 'Missing initial-provider callback state');
+    assert.equal(callbacks[0].pr_number, approvals[0].number, 'Initial-provider callback PR mismatch');
+    assert.equal(String(callbacks[0].workflow_run_id), publicationProof.display_title.match(/ using publisher ([1-9][0-9]*)$/)[1], 'Initial-provider callback publisher mismatch');
+    providerEvidence = {callback:callbacks[0],projections:[]};
+    for (const {root,meta} of reports) {
+      const skills = await providerRead('skills',['slug',meta.slug],'id');
+      const artifacts = await providerRead('skill_artifact_versions',['source_path',root],'id');
+      providerEvidence.projections.push({root,skills,artifacts});
+    }
+  }
   const plan = recoveryPlan({run, latestPush:runs[0], jobs, files, reports, trees, approvals, providerEvidence, publicationRecovered});
-  appendFileSync(process.env.GITHUB_OUTPUT, `sync_commit_sha=${plan.commit}\nrecovery_slugs=${plan.slugs.join(',')}\nprovider_complete=${plan.providerComplete === true}\nrecovery_submission_id=${submissionId}\n`);
-  console.log(JSON.stringify({ failedRunId:run.id, publicationSha:plan.commit, slugs:plan.slugs, mode:plan.providerComplete ? 'ancillary-only' : 'resume-current' }));
+  appendFileSync(process.env.GITHUB_OUTPUT, `sync_commit_sha=${plan.commit}\nrecovery_slugs=${plan.slugs.join(',')}\nprovider_complete=${plan.providerComplete === true}\nprovider_mode=${plan.providerMode}\nrecovery_submission_id=${submissionId}\n`);
+  console.log(JSON.stringify({ failedRunId:run.id, publicationSha:plan.commit, slugs:plan.slugs, mode:plan.providerMode }));
 }
 if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) main().catch(error => { console.error(error.message); process.exitCode=1; });
