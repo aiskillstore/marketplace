@@ -173,10 +173,21 @@ runs:
       run: |
         CHECKSUM_DIR=$(mktemp -d)
         trap 'rm -rf "$CHECKSUM_DIR"' EXIT
-        gh release download "$RELEASE_TAG" \
-          --repo "$CLI_REPO" \
-          --pattern checksums.txt \
-          --dir "$CHECKSUM_DIR"
+        # Retry only the read-only asset transfer, never checksum validation or CLI execution.
+        for ATTEMPT in 1 2 3; do
+          rm -f "$CHECKSUM_DIR/checksums.txt"
+          if gh release download "$RELEASE_TAG" \
+            --repo "$CLI_REPO" \
+            --pattern checksums.txt \
+            --dir "$CHECKSUM_DIR"; then
+            break
+          fi
+          if [ "$ATTEMPT" -eq 3 ]; then
+            echo "::error::Release checksum download failed after 3 attempts"
+            exit 1
+          fi
+          sleep "$((ATTEMPT * 5))"
+        done
 
         EXPECTED=$(awk '$2 == "skillstore-cli-linux-x64" { print $1 }' "$CHECKSUM_DIR/checksums.txt")
         if ! [[ "$EXPECTED" =~ ^[0-9a-f]{64}$ ]]; then
