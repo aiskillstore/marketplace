@@ -16,12 +16,16 @@ function evidence() {
   };
 }
 test('recovery derives a bounded exact scope from a failed push and unchanged approved trees',()=>{
-  assert.deepEqual(recoveryPlan(evidence()),{commit:'a'.repeat(40),roots:['skills/owner/demo'],slugs:['owner-demo']});
+  assert.deepEqual(recoveryPlan(evidence()),{commit:'a'.repeat(40),roots:['skills/owner/demo'],slugs:['owner-demo'],providerMode:'resume-current'});
 });
 test('independent publication proof allows only originally skipped provider to start',()=>{
   const e=evidence(); e.publicationRecovered=true;
   e.jobs.jobs[0].steps[0].conclusion='failure';e.jobs.jobs[0].steps[1].conclusion='skipped';
-  assert.deepEqual(recoveryPlan(e),{commit:'a'.repeat(40),roots:['skills/owner/demo'],slugs:['owner-demo']});
+  e.providerEvidence={callback:{status:'approved',published_at:null,published_skill_slugs:null},projections:[{root:'skills/owner/demo',skills:[],artifacts:[]}]};
+  assert.deepEqual(recoveryPlan(e),{commit:'a'.repeat(40),roots:['skills/owner/demo'],slugs:['owner-demo'],providerMode:'initial-sync'});
+  for (const mutate of [x=>delete x.providerEvidence,x=>x.providerEvidence.callback.status='published',x=>x.providerEvidence.callback.published_at='2026-11-14T00:00:00Z',x=>x.providerEvidence.callback.published_skill_slugs=['owner-demo'],x=>x.providerEvidence.projections=[],x=>x.providerEvidence.projections[0].skills=[{id:'partial'}],x=>x.providerEvidence.projections[0].artifacts=[{id:'partial'}]]) {
+    const invalid=structuredClone(e);mutate(invalid);assert.throws(()=>recoveryPlan(invalid));
+  }
   e.jobs.jobs[0].steps[1].conclusion='failure';assert.throws(()=>recoveryPlan(e));
 });
 test('unknown execution, wrong owners, changed trees and incomplete evidence cannot authorize resume',()=>{

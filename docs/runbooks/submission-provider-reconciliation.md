@@ -141,6 +141,23 @@ provider, score, bounded or audit recovery inputs. This mode:
 This is not full provider completion and does not release the queue. Afterwards,
 use `sync-to-supabase.yml`'s existing `resume_failed_run` input for the same push.
 Its normal exact-root/tree admission now accepts the separate trusted publication
-proof only when the original provider was skipped. Verify the full recovery, then
-run normal provider reconciliation with its exact recovery run. The separate full
+proof only when the original provider was skipped. The verified plan emits an
+explicit provider mode: `initial-sync` runs the first provider sync **without**
+`--resume-current`; ordinary failed-provider recovery retains `resume-current`;
+`ancillary-only` never invokes provider sync. Missing or contradictory modes fail
+before CLI execution.
+
+Initial sync is deliberately limited to a new, never-installed package: fresh
+receiver GET must still be approved by the original publisher, with no published
+state; fresh provider GETs must show **no skill row and no artifact for the exact
+canonical path**. Existing/partial artifacts, even from an earlier dispatch, stop
+this mode for investigation rather than overwrite or repeat them. This is not an
+initial-sync route for an existing installed skill update.
+
+A failed recovery dispatch is not the original push and cannot replace its ID.
+Before a new dispatch, inspect all prior recovery steps and provider state; a
+sync error alone proves no such thing. In particular the security-event drain
+may run after sync failure. Preserve its effects and all failed run history;
+never rerun a run that may already have written the provider. Verify the full
+recovery, then run normal provider reconciliation with its exact recovery run. The separate full
 provider proof remains mandatory for continuation and future sync baselines.

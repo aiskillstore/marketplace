@@ -13,7 +13,7 @@ on:
         type: string
         default: ''
       resume_failed_run:
-        description: 'Resume ancillary stages for an inspected failed push; exact current artifact required'
+        description: 'Recover an inspected failed push; verified plan selects initial, current-artifact or ancillary-only mode'
         type: string
         default: ''
       slugs:
@@ -684,6 +684,7 @@ jobs:
           CHANGED_SKILLS: ${{ steps.changes.outputs.changed_skills }}
           RESUME_FAILED_RUN: ${{ inputs.resume_failed_run }}
           PROVIDER_COMPLETE: ${{ steps.trusted-correlation.outputs.provider_complete }}
+          PROVIDER_MODE: ${{ steps.trusted-correlation.outputs.provider_mode }}
           VERIFIED_RECOVERY_SLUGS: ${{ steps.trusted-correlation.outputs.recovery_slugs }}
           SYNC_MODE: ${{ steps.changes.outputs.mode }}
           SECURITY_PASSPORT_MODE: ${{ vars.SECURITY_PASSPORT_MODE || 'off' }}
@@ -692,6 +693,17 @@ jobs:
           AUTOMATION_API_KEY: ${{ secrets.SECURITY_ATTESTATION_AUTOMATION_KEY }}
           SYNC_COMMIT_SHA: ${{ steps.trusted-correlation.outputs.sync_commit_sha }}
         run: |
+          # A recovery input identifies history, not the provider execution mode.
+          # Only the verified plan may distinguish a first sync from resuming it.
+          if [ -n "$RESUME_FAILED_RUN" ]; then
+            case "$PROVIDER_MODE" in
+              ancillary-only) test "$PROVIDER_COMPLETE" = true || exit 1 ;;
+              initial-sync|resume-current) test "$PROVIDER_COMPLETE" != true || exit 1 ;;
+              *) echo '::error::Missing or invalid verified provider mode'; exit 1 ;;
+            esac
+          else
+            test -z "$PROVIDER_MODE" && test "$PROVIDER_COMPLETE" != true || exit 1
+          fi
           if [ "$PROVIDER_COMPLETE" = true ]; then
             # prepare-sync-recovery verified the original archive digest, current
             # provider artifact/revision and an unreceived callback under this mutex.
@@ -765,7 +777,7 @@ jobs:
             local output_file="$3"
 
             local resume_args=()
-            if [ -n "$RESUME_FAILED_RUN" ]; then resume_args+=(--resume-current); fi
+            if [ "$PROVIDER_MODE" = resume-current ]; then resume_args+=(--resume-current); fi
             set +e
             timeout --signal=TERM --kill-after=30s 60m \
               "$GITHUB_WORKSPACE/skillstore-cli" skill sync \
