@@ -20,6 +20,16 @@ export function verifyCacheOnlyStages(e, original, recovered) {
   assert.ok(failures.some(j => j.name === 'cache-invalidate' && j.conclusion === 'failure'));
   assert.ok(failures.length > 1 && failures.every(j => j.conclusion === 'failure'
     && /^(cache-invalidate|cache-invalidate-shard \([0-9]+\))$/.test(j.name)), 'Failure was not cache-only');
+  verifyWarmCacheProof(e, recovered, original.filter(j => ['sync', 'calculate-scores'].includes(j.name)).map(j => j.completed_at));
+}
+
+// Shared cache proof; the original cache-only path and the separate ancillary
+// recovery supply their own independently verified completion timestamps.
+export function verifyWarmCacheProof(e, recovered, completedTimes) {
+  const successfulStep = (jobs, name) => {
+    const steps = jobs.flatMap(j => j.steps ?? []).filter(s => s.name === name);
+    assert.ok(steps.length === 1 && steps[0].conclusion === 'success', `Missing completed cache recovery step: ${name}`);
+  };
   assert.ok(recovered.length === 1 && recovered[0].name === 'warm' && recovered[0].conclusion === 'success');
   for (const name of ['Download changed slugs from source workflow', 'Resolve and validate warm scope',
     'Invalidate selected skill caches', 'Warm and verify API, HTML, and optional ZIP caches',
@@ -27,8 +37,8 @@ export function verifyCacheOnlyStages(e, original, recovered) {
   // A green warm run is stale if provider/scoring writes finished afterwards.
   // Use exact job/step times, not run creation times (the jobs may overlap).
   const invalidatedAt = Date.parse(recovered[0].steps.find(s => s.name === 'Invalidate selected skill caches').started_at);
-  for (const name of ['sync', 'calculate-scores']) {
-    const completedAt = Date.parse(original.find(j => j.name === name).completed_at);
+  for (const completedTime of completedTimes) {
+    const completedAt = Date.parse(completedTime);
     assert.ok(Number.isFinite(invalidatedAt) && Number.isFinite(completedAt) && invalidatedAt > completedAt,
       'Cache invalidation must follow completed provider and scoring writes');
   }
