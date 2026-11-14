@@ -95,3 +95,21 @@ Only a GitHub status is written by this workflow. Provider requests are GET only
 - Red regression uses creator-free combined response; it fails with the original consumer. Green affected suite: 52 pass, 0 fail, 0 skipped, including a newer failure/pending/error or wrong creator ahead of old success, paging and bounds, and baseline shell integration.
 - Live read-only `node scripts/recovered-push-sync.mjs 36738667705` with the corrected consumer returns `Push sync 36738667705 reconciled by verified recovery 36810614321`. This reads existing GitHub proof only, no provider or GitHub writes.
 - After independent exact-head review and approved merge, resume **continuation only**. Main push itself may trigger continuation and publication. Read current runs before any dispatch to avoid duplicate effects. PR3620/3621 publication/provider acceptance remains pending until source-of-truth readback.
+
+## Provider and callback completed, separate ancillary recovery
+
+When the original sync job fails **after** provider upload and the published callback succeeded, do not replay either effect. If original scoring and all other downstream jobs were skipped, the reconciliation workflow accepts an optional `score_recovery_run_id` alongside `recovery_run_id` pointing to the later `warm-cache.yml` run.
+
+Both successful manual runs must belong to this repository's main branch at the exact original publication SHA. The score run must finish both `recalculate` and `score cache closure (hosted)`. Its digest-verified four-file `score-closure-<id>` artifact must bind the run/SHA, contain exactly the original changed slug set, zero failed slugs/errors and real, in-run score snapshots. The warm run must consume the original provider artifact and invalidate/verify the exact scope after both score jobs completed. Completion times come from jobs for the exact run attempt; workflow-run REST objects do not supply `completed_at`.
+
+All original trusted submission, immutable tree/blob, original provider/callback success, current provider projection/artifact and published receiver GET checks still apply. Missing evidence rejects closure. This option cannot be mixed with audit or bounded callback-finalization modes; neither scoring nor warming is dispatched by reconciliation.
+
+For the November 13 interruption, the evidence IDs are original sync `43448267048`, scoring `43543076341` and warm recovery `43543619658`. After independent review and normal merge of this repair, inspect current reconciliation state before dispatching once with those IDs:
+
+```sh
+gh workflow run reconcile-submission-sync.yml --repo aiskillstore/marketplace --ref main \
+  -f failed_run_id=43448267048 -f recovery_run_id=43543619658 \
+  -f score_recovery_run_id=43543076341
+```
+
+The historical failure remains failed. Only a successful new verifier followed by its separate reconciliation status releases continuation. Local tests and GitHub evidence verification do not claim the production provider GET or reconciliation has run.
