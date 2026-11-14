@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
 import { verifyCacheOnlyStages, verifiedWarmArtifact } from './cache-only-reconciliation.mjs';
+import { verifyAncillaryStages, verifiedScoreArtifact } from './ancillary-sync-reconciliation.mjs';
 
 const repo = 'aiskillstore/marketplace';
 const prefix = `repos/${repo}`;
@@ -117,7 +118,13 @@ export function verifySubmissionRecovery(e) {
         && matches[0].published === matches[0].recovered, 'Resumed source tree mismatch');
     }
   }
-  if (cacheOnly) {
+  if (e.scoreRecovery) {
+    assert.ok(cacheOnly, 'Separate scoring requires exact cache recovery');
+    trustedRun(e.scoreRecovery, 'workflow_dispatch', 'success', '.github/workflows/recalculate-scores.yml');
+    assert.ok(e.scoreRecovery.head_sha === e.push.head_sha && e.scoreRecovery.id !== e.push.id
+      && e.scoreRecovery.id !== e.recovery.id, 'Score recovery version mismatch');
+    verifyAncillaryStages(e, original, recovered);
+  } else if (cacheOnly) {
     verifyCacheOnlyStages(e, original, recovered);
   } else {
     step(original, 'Wait for authoritative publication completion', 'success');
@@ -221,6 +228,7 @@ export async function providerRead(table, filter, select) {
 }
 export async function main() {
   if (process.env.AUDIT_PR) {
+    assert.ok(!process.env.SCORE_RECOVERY_RUN_ID, 'Cannot mix score recovery and audit scope');
     const { mainAuditRecovery } = await import('./reconcile-audit-sync.mjs');
     return mainAuditRecovery();
   }
@@ -287,7 +295,20 @@ export async function main() {
       ...verifiedWarmArtifact(rawApi(`${prefix}/actions/artifacts/${artifact.id}/zip`), artifact),
       log: rawApi(`${prefix}/actions/jobs/${warmJobs[0].id}/logs`).toString('utf8') };
   } else slugs = artifactSlugs(recovery.id);
-  const plan=verifySubmissionRecovery({push,recovery,baseline,commit,pr,files:comparison.files,reports,recoveryTrees,slugs,originalJobs,recoveryJobs,cacheEvidence});
+  let scoreRecovery, scoreJobs, scoreEvidence;
+  if (process.env.SCORE_RECOVERY_RUN_ID) {
+    assert.ok(cacheOnly && /^[1-9][0-9]*$/.test(process.env.SCORE_RECOVERY_RUN_ID), 'Invalid score recovery input');
+    scoreRecovery = api(`${prefix}/actions/runs/${process.env.SCORE_RECOVERY_RUN_ID}`);
+    scoreJobs = jobs(scoreRecovery);
+    const inventory = api(`${prefix}/actions/runs/${scoreRecovery.id}/artifacts?per_page=100`);
+    assert.ok(inventory.total_count === inventory.artifacts.length && inventory.total_count < 100);
+    const matches = inventory.artifacts.filter(a => a.name === `score-closure-${scoreRecovery.id}`);
+    assert.equal(matches.length, 1, 'One exact score artifact required');
+    const a = matches[0];
+    assert.ok(a.workflow_run?.id === scoreRecovery.id && a.workflow_run.head_sha === scoreRecovery.head_sha);
+    scoreEvidence = verifiedScoreArtifact(rawApi(`${prefix}/actions/artifacts/${a.id}/zip`), a);
+  }
+  const plan=verifySubmissionRecovery({push,recovery,baseline,commit,pr,files:comparison.files,reports,recoveryTrees,slugs,originalJobs,recoveryJobs,cacheEvidence,scoreRecovery,scoreJobs,scoreEvidence});
   for(const expected of plan) {
     const skills=await providerRead('skills',['slug',expected.slug],'id,slug,plugin_path,marketplace_commit_sha,content_hash,tree_hash,current_artifact_version_id,artifact_revision');
     assert.equal(skills.length,1);

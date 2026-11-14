@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { verifySubmissionRecovery, verifyProviderProjection, verifiedArtifactSlugs } from '../reconcile-submission-sync.mjs';
+import { verifiedScoreArtifact } from '../ancillary-sync-reconciliation.mjs';
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
@@ -195,4 +196,79 @@ test('cache-only recovery rejects unrelated, partial, stale, forged and incomple
     const e = cacheEvidence(); mutate(e);
     assert.throws(() => verifySubmissionRecovery(e), mutate.toString());
   }
+});
+
+function ancillaryEvidence() {
+  const e = cacheEvidence();
+  e.originalJobs.jobs = e.originalJobs.jobs.slice(0, 2);
+  e.originalJobs.total_count = 2;
+  e.originalJobs.jobs[0].conclusion = 'failure';
+  e.originalJobs.jobs[0].steps.at(-1).conclusion = null;
+  e.originalJobs.jobs[1].conclusion = 'skipped';
+  e.scoreRecovery = {...e.recovery, id: 5, path: '.github/workflows/recalculate-scores.yml',
+    created_at: '2026-10-01T00:40:00Z'};
+  e.scoreJobs = {total_count: 2, jobs: [
+    {name:'recalculate',conclusion:'success',completed_at:'2026-10-01T00:49:00Z',steps:[{name:'Recalculate quality scores',conclusion:'success'},{name:'Upload exact score closure',conclusion:'success'}]},
+    {name:'score cache closure (hosted)',conclusion:'success',completed_at:'2026-10-01T00:50:00Z',steps:[{name:'Invalidate only successfully rescored API entries',conclusion:'success'},{name:'Verify every production API cache readback',conclusion:'success'}]},
+  ]};
+  e.scoreEvidence = {metadata:{sourceRunId:'5',workflowCommit:sha,processed:1,successfulCount:1,failedCount:0,errors:0,dryRun:false},
+    slugs:e.slugs,failedSlugs:[],scores:[{slug:meta.slug,snapshotId:'score-snapshot',qualityScore:50,calculatedAt:'2026-10-01T00:45:00Z'}]};
+  return e;
+}
+test('completed provider and callback can be reconciled after separate exact scoring and cache recovery', () => {
+  assert.deepEqual(verifySubmissionRecovery(ancillaryEvidence()), [{root,...meta,marketplace_commit_sha:sha}]);
+});
+test('separate ancillary recovery rejects replay, stale or widened score/cache evidence', () => {
+  const mutations = [
+    e=>e.originalJobs.jobs[0].steps.find(s=>s.name==='Sync skills to Supabase').conclusion='failure',
+    e=>e.originalJobs.jobs[0].steps.find(s=>s.name==='Notify skillstore - Published submissions').conclusion='failure',
+    e=>e.originalJobs.jobs[1].conclusion='success',
+    e=>e.scoreRecovery.head_sha=before,
+    e=>e.scoreRecovery.path='.github/workflows/sync-to-supabase.yml',
+    e=>e.scoreRecovery.head_repository.full_name='fork/repo',
+    e=>e.scoreRecovery.status='in_progress',
+    e=>e.scoreRecovery.created_at=e.push.created_at,
+    e=>e.scoreJobs.jobs[1].completed_at=e.recovery.created_at,
+    e=>delete e.scoreJobs.jobs[0].completed_at,
+    e=>delete e.originalJobs.jobs[0].completed_at,
+    e=>e.scoreJobs.jobs[1].conclusion='failure',
+    e=>e.scoreJobs.jobs[1].steps[1].conclusion='skipped',
+    e=>e.scoreEvidence.slugs=['other'],
+    e=>e.scoreEvidence.metadata.dryRun=true,
+    e=>e.scoreEvidence.metadata.sourceRunId='9',
+    e=>e.scoreEvidence.metadata.workflowCommit=before,
+    e=>e.scoreEvidence.metadata.successfulCount=2,
+    e=>e.scoreEvidence.scores[0].slug='other',
+    e=>e.scoreEvidence.scores[0].calculatedAt=e.push.created_at,
+    e=>e.scoreEvidence.failedSlugs=['other'],
+    e=>e.cacheEvidence.summary.failedEndpoints=1,
+  ];
+  for (const mutate of mutations) {const e=structuredClone(ancillaryEvidence());mutate(e);assert.throws(()=>verifySubmissionRecovery(e));}
+});
+test('score artifact is bounded, digest-bound and has only the exact regular closure files', () => {
+  const make=entries=>execFileSync('python3',['-c',`import io,sys,json,zipfile
+b=io.BytesIO()
+with zipfile.ZipFile(b,'w') as z:
+ for name,text in json.loads(sys.argv[1]):z.writestr(name,text)
+sys.stdout.buffer.write(b.getvalue())`,JSON.stringify(entries)]);
+  const e=ancillaryEvidence().scoreEvidence;
+  const entries=[['metadata.json',JSON.stringify(e.metadata)],['successful-slugs.txt',meta.slug+'\n'],['failed-slugs.txt',''],['expected-score-evidence.json',JSON.stringify({scores:e.scores})]];
+  const info=b=>({size_in_bytes:b.length,digest:`sha256:${createHash('sha256').update(b).digest('hex')}`,expired:false});
+  const zip=make(entries);
+  assert.deepEqual(verifiedScoreArtifact(zip,info(zip)),e);
+  assert.throws(()=>verifiedScoreArtifact(zip,{...info(zip),expired:true}));
+  assert.throws(()=>verifiedScoreArtifact(zip,{...info(zip),digest:'sha256:'+'0'.repeat(64)}));
+  for (const files of [entries.slice(1),[...entries,['other','x']],entries.map(([n,t])=>[n==='metadata.json'?'../metadata.json':n,t])]) {
+    const b=make(files);assert.throws(()=>verifiedScoreArtifact(b,info(b)));
+  }
+});
+test('separate scoring input is opt-in and cannot mix bounded write finalization', () => {
+  const workflow=readFileSync('.github/workflows/reconcile-submission-sync.yml','utf8');
+  assert.match(workflow,/score_recovery_run_id:/);
+  assert.match(workflow,/SCORE_RECOVERY_RUN_ID: \$\{\{ inputs.score_recovery_run_id \}\}/);
+  assert.match(workflow,/if \[ -n "\$RECOVERY_RUN_IDS" \]; then\s+test -z "\$SCORE_RECOVERY_RUN_ID"/);
+  const source=readFileSync('scripts/reconcile-submission-sync.mjs','utf8');
+  assert.match(source,/verifyPublishedSubmission\(plan.map/);
+  assert.match(source,/verifyProviderProjection\(expected,skills,artifacts\)/);
+  assert.doesNotMatch(readFileSync('scripts/ancillary-sync-reconciliation.mjs','utf8'),/fetch\(|gh api|method:/);
 });
