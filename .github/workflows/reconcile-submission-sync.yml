@@ -1,8 +1,12 @@
 name: Reconcile submission provider sync
-run-name: ${{ inputs.recovery_run_ids != '' && format('Reconcile bounded submission push {0} using recoveries {1}', inputs.failed_run_id, inputs.recovery_run_ids) || inputs.audit_pr != '' && format('Reconcile audit push {0} using recovery {1} and PR {2}', inputs.failed_run_id, inputs.recovery_run_id, inputs.audit_pr) || format('Reconcile submission push {0} using recovery {1}', inputs.failed_run_id, inputs.recovery_run_id) }}
+run-name: ${{ inputs.publication_run_id != '' && format('Reconcile publication push {0} using publisher {1}', inputs.failed_run_id, inputs.publication_run_id) || inputs.recovery_run_ids != '' && format('Reconcile bounded submission push {0} using recoveries {1}', inputs.failed_run_id, inputs.recovery_run_ids) || inputs.audit_pr != '' && format('Reconcile audit push {0} using recovery {1} and PR {2}', inputs.failed_run_id, inputs.recovery_run_id, inputs.audit_pr) || format('Reconcile submission push {0} using recovery {1}', inputs.failed_run_id, inputs.recovery_run_id) }}
 on:
   workflow_dispatch:
     inputs:
+      publication_run_id:
+        description: 'Opt-in post-push recovery: exact failed batch publisher; GET receiver then complete only missing merged callback (no provider writes)'
+        type: string
+        default: ''
       audit_pr:
         description: 'Optional merged report-only audit PR; verifies full repaired range without replay'
         type: string
@@ -51,6 +55,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           FAILED_RUN_ID: ${{ inputs.failed_run_id }}
+          PUBLICATION_RUN_ID: ${{ inputs.publication_run_id }}
           RECOVERY_RUN_ID: ${{ inputs.recovery_run_id }}
           RECOVERY_RUN_IDS: ${{ inputs.recovery_run_ids }}
           SCORE_RECOVERY_RUN_ID: ${{ inputs.score_recovery_run_id }}
@@ -61,7 +66,9 @@ jobs:
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
         run: |
           set -euo pipefail
-          if [ -n "$RECOVERY_RUN_IDS" ]; then
+          if [ -n "$PUBLICATION_RUN_ID" ]; then
+            node scripts/publication-postpush-recovery.mjs
+          elif [ -n "$RECOVERY_RUN_IDS" ]; then
             test -z "$SCORE_RECOVERY_RUN_ID"
             node scripts/bounded-submission-recovery.mjs finalize
           else
@@ -71,13 +78,18 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           FAILED_RUN_ID: ${{ inputs.failed_run_id }}
+          PUBLICATION_RUN_ID: ${{ inputs.publication_run_id }}
           PUBLICATION_SHA: ${{ steps.verify.outputs.publication_sha }}
         run: |
           set -euo pipefail
           [[ "$FAILED_RUN_ID" =~ ^[1-9][0-9]*$ ]]
           [[ "$PUBLICATION_SHA" =~ ^[a-f0-9]{40}$ ]]
+          CONTEXT="agentcrew/provider-reconciliation/$FAILED_RUN_ID"
+          if [ -n "$PUBLICATION_RUN_ID" ]; then
+            CONTEXT="agentcrew/publication-reconciliation/$FAILED_RUN_ID"
+          fi
           gh api --method POST "repos/$GITHUB_REPOSITORY/statuses/$PUBLICATION_SHA" \
             -f state=success \
-            -f context="agentcrew/provider-reconciliation/$FAILED_RUN_ID" \
-            -f description='Exact recovery verified without provider replay' \
+            -f context="$CONTEXT" \
+            -f description='Exact missing stage verified; original failure preserved' \
             -f target_url="https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"

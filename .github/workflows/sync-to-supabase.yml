@@ -84,6 +84,8 @@ jobs:
           /scripts/bounded-submission-recovery.mjs
           /scripts/reconcile-submission-sync.mjs
           /scripts/cache-only-reconciliation.mjs
+          /scripts/ancillary-sync-reconciliation.mjs
+          /scripts/publication-postpush-recovery.mjs
           /scripts/refresh-security-research-stats.sh
           /.github/actions/download-skillstore-cli/
           EOF
@@ -142,6 +144,8 @@ jobs:
             scripts/bounded-submission-recovery.mjs \
             scripts/reconcile-submission-sync.mjs \
             scripts/cache-only-reconciliation.mjs \
+            scripts/ancillary-sync-reconciliation.mjs \
+            scripts/publication-postpush-recovery.mjs \
             scripts/refresh-security-research-stats.sh \
             .github/actions/download-skillstore-cli/action.yml; do
             if git ls-files -v -- "$required_path" | awk '$1 ~ /^S/ { found=1 } END { exit !found }'; then
@@ -452,15 +456,17 @@ jobs:
             JOBS=$(gh api "repos/${{ github.repository }}/actions/runs/$run_id/jobs?per_page=100")
             PUBLICATION_CONCLUSION=$(jq -r '[.jobs[].steps[]? | select(.name == "Wait for authoritative publication completion")][0].conclusion // ""' <<< "$JOBS")
             SYNC_CONCLUSION=$(jq -r '[.jobs[].steps[]? | select(.name == "Sync skills to Supabase")][0].conclusion // ""' <<< "$JOBS")
-            if [ "$PUBLICATION_CONCLUSION" = failure ] || [ "$PUBLICATION_CONCLUSION" = cancelled ]; then
-              echo "::error::Previous publication push run $run_id did not establish authoritative publication success; inspection is required"
-              exit 1
-            fi
+            # A separate full provider reconciliation includes any required
+            # post-push publication proof. The old failed gate stays failed.
             if { [ "$run_conclusion" = failure ] || [ "$run_conclusion" = cancelled ]; } \
               && node ./scripts/recovered-push-sync.mjs "$run_id"; then
               LAST_SHA="$head_sha"
               LAST_CREATED_AT="$created_at"
               break
+            fi
+            if [ "$PUBLICATION_CONCLUSION" = failure ] || [ "$PUBLICATION_CONCLUSION" = cancelled ]; then
+              echo "::error::Previous publication push run $run_id did not establish authoritative publication success; inspection is required"
+              exit 1
             fi
             if [ "$SYNC_CONCLUSION" = success ] && [ "$run_conclusion" = success ]; then
               LAST_SHA="$head_sha"
