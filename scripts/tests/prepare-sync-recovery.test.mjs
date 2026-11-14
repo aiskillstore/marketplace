@@ -18,6 +18,12 @@ function evidence() {
 test('recovery derives a bounded exact scope from a failed push and unchanged approved trees',()=>{
   assert.deepEqual(recoveryPlan(evidence()),{commit:'a'.repeat(40),roots:['skills/owner/demo'],slugs:['owner-demo']});
 });
+test('independent publication proof allows only originally skipped provider to start',()=>{
+  const e=evidence(); e.publicationRecovered=true;
+  e.jobs.jobs[0].steps[0].conclusion='failure';e.jobs.jobs[0].steps[1].conclusion='skipped';
+  assert.deepEqual(recoveryPlan(e),{commit:'a'.repeat(40),roots:['skills/owner/demo'],slugs:['owner-demo']});
+  e.jobs.jobs[0].steps[1].conclusion='failure';assert.throws(()=>recoveryPlan(e));
+});
 test('unknown execution, wrong owners, changed trees and incomplete evidence cannot authorize resume',()=>{
   for(const mutate of [e=>e.latestPush.id=2,e=>e.run.event='workflow_dispatch',e=>e.run.conclusion='cancelled',e=>e.run.head_repository.full_name='fork/repo',e=>e.jobs.total_count=2,e=>e.jobs.jobs[0].steps[0].conclusion='failure',e=>e.jobs.jobs[0].steps[1].conclusion='success',e=>e.trees[0].current='9'.repeat(40),e=>e.trees[0].approved='9'.repeat(40),e=>e.reports=[],e=>e.approvals[0].user.id=1,e=>e.approvals[0].merged=false,e=>e.files[0].path='scripts/unsafe.mjs',e=>e.reports[0].meta.tree_hash=null]) {
     const e=evidence();mutate(e);assert.throws(()=>recoveryPlan(e));

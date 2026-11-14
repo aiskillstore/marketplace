@@ -4,6 +4,7 @@ import { execFileSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
 import { verifyCacheOnlyStages, verifiedWarmArtifact } from './cache-only-reconciliation.mjs';
 import { verifyAncillaryStages, verifiedScoreArtifact } from './ancillary-sync-reconciliation.mjs';
+import { verifiedPublicationRecovery } from './publication-postpush-recovery.mjs';
 
 const repo = 'aiskillstore/marketplace';
 const prefix = `repos/${repo}`;
@@ -102,7 +103,8 @@ export function verifySubmissionRecovery(e) {
   const trailers = [...e.commit.message.matchAll(/^AgentCrew-Publication: (submission-pr-([1-9][0-9]*)-([a-f0-9]{40})-([a-f0-9]{40}))$/gm)];
   assert.equal(trailers.length, 1, 'Requires one publication correlation');
   const [, , number, head, merge] = trailers[0];
-  assert.ok(e.commit.parents?.length === 1 && e.commit.parents[0].sha === merge, 'Not a linear submission publication');
+  assert.ok(e.commit.parents?.length === 1 && e.commit.parents[0].sha === (e.publicationRecovered ? e.baseline.head_sha : merge), 'Not a linear submission publication');
+  if (e.publicationRecovered) assert.ok(resumed && !cacheOnly && !e.scoreRecovery, 'Postpush recovery requires inspected provider resume');
   const p = e.pr;
   assert.ok(p.number === Number(number) && p.merged === true && p.merge_commit_sha === merge
     && p.user?.id === 254047988 && p.user.login === 'ai-skill-store[bot]'
@@ -127,14 +129,15 @@ export function verifySubmissionRecovery(e) {
   } else if (cacheOnly) {
     verifyCacheOnlyStages(e, original, recovered);
   } else {
-    step(original, 'Wait for authoritative publication completion', 'success');
+    step(original, 'Wait for authoritative publication completion', e.publicationRecovered ? 'failure' : 'success');
     const originalProvider = original.flatMap(j => j.steps ?? []).filter(s => s.name === 'Sync skills to Supabase');
     assert.equal(originalProvider.length, 1);
     if (originalProvider[0].conclusion === 'success') {
       assert.ok(resumed, 'Provider-complete recovery requires inspected resume mode');
       step(original, 'Upload provider-complete synced slugs artifact', 'success');
       step(original, 'Notify skillstore - Published submissions', 'failure');
-    } else step(original, 'Sync skills to Supabase', 'failure');
+    } else step(original, 'Sync skills to Supabase', e.publicationRecovered ? 'skipped' : 'failure');
+    if (e.publicationRecovered) step(original, 'Sync skills to Supabase', 'skipped');
     for (const name of ['Sync skills to Supabase', 'Upload provider-complete synced slugs artifact',
       'Notify skillstore - Published submissions']) step(recovered, name, 'success');
     step(recovered, 'Reconcile durable security change events', originalProvider[0].conclusion === 'success' ? 'skipped' : 'success');
@@ -250,6 +253,14 @@ export async function main() {
   const trailer=commit.message.match(/^AgentCrew-Publication: submission-pr-([1-9][0-9]*)-[a-f0-9]{40}-[a-f0-9]{40}$/m);
   assert.ok(trailer,'No exact submission publication');
   const pr=api(`${prefix}/pulls/${trailer[1]}`);
+  const publicationRecovered=Boolean(verifiedPublicationRecovery(push,api));
+  if (publicationRecovered) comparison.files=comparison.files.flatMap(f=> {
+    if (f.filename.startsWith('pending/') && f.status==='removed') return [];
+    if (f.filename.startsWith('skills/') && f.status==='renamed' && f.previous_filename===f.filename.replace(/^skills\//,'pending/')) {
+      const {previous_filename,...file}=f;return [{...file,status:'added'}];
+    }
+    return [f];
+  });
   const roots=publicationRoots(comparison.files);
   assert.ok(roots.length>0 && roots.length<=25);
   const recoveryTrees=[];
@@ -308,7 +319,7 @@ export async function main() {
     assert.ok(a.workflow_run?.id === scoreRecovery.id && a.workflow_run.head_sha === scoreRecovery.head_sha);
     scoreEvidence = verifiedScoreArtifact(rawApi(`${prefix}/actions/artifacts/${a.id}/zip`), a);
   }
-  const plan=verifySubmissionRecovery({push,recovery,baseline,commit,pr,files:comparison.files,reports,recoveryTrees,slugs,originalJobs,recoveryJobs,cacheEvidence,scoreRecovery,scoreJobs,scoreEvidence});
+  const plan=verifySubmissionRecovery({push,recovery,baseline,commit,pr,files:comparison.files,reports,recoveryTrees,slugs,originalJobs,recoveryJobs,cacheEvidence,scoreRecovery,scoreJobs,scoreEvidence,publicationRecovered});
   for(const expected of plan) {
     const skills=await providerRead('skills',['slug',expected.slug],'id,slug,plugin_path,marketplace_commit_sha,content_hash,tree_hash,current_artifact_version_id,artifact_revision');
     assert.equal(skills.length,1);

@@ -113,3 +113,34 @@ gh workflow run reconcile-submission-sync.yml --repo aiskillstore/marketplace --
 ```
 
 The historical failure remains failed. Only a successful new verifier followed by its separate reconciliation status releases continuation. Local tests and GitHub evidence verification do not claim the production provider GET or reconciliation has run.
+
+## Post-push merged-callback failure (provider never started)
+
+`publish-approved-batch.mjs` can push the canonical publication successfully and
+then lose the merged callback connection. Do not repeat the batch or overwrite
+its failed statuses. The push sync will correctly fail its publication gate.
+
+Use the existing reconciliation workflow's **opt-in** `publication_run_id`, with
+`failed_run_id` identifying that exact push sync. Do not combine this mode with
+provider, score, bounded or audit recovery inputs. This mode:
+
+1. Accepts only a first-attempt failed, latest main push and its exact failed
+   single-submission batch publisher/reservation. The original provider and
+   published callback must both be skipped.
+2. Verifies the exact trusted merged PR/trailer, complete pending-to-skills move,
+   unchanged approved/current full package trees and preceding successful push.
+3. GETs the exact receiver. Only `in_review` with no approval/publication may send
+   the **missing merged callback**. `approved` already owned by the original
+   publisher is verified without sending it again; ambiguous states fail closed.
+   A network failure stops: inspect receiver state before any further attempt.
+4. GETs the committed callback and records a **new**
+   `agentcrew/publication-reconciliation/<failed-push-id>` on the publication SHA.
+   No push, provider, scoring or cache operation runs in this mode. Original
+   publisher/push failures and publication/attempt statuses remain unchanged.
+
+This is not full provider completion and does not release the queue. Afterwards,
+use `sync-to-supabase.yml`'s existing `resume_failed_run` input for the same push.
+Its normal exact-root/tree admission now accepts the separate trusted publication
+proof only when the original provider was skipped. Verify the full recovery, then
+run normal provider reconciliation with its exact recovery run. The separate full
+provider proof remains mandatory for continuation and future sync baselines.

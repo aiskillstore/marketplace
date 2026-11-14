@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { appendFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
+import { verifiedPublicationRecovery } from './publication-postpush-recovery.mjs';
 import { publicationRoots, verifyRootIdentity, verifyProviderProjection, artifactSlugs, providerRead, submissionIdentity } from './reconcile-submission-sync.mjs';
 
 const repo = 'aiskillstore/marketplace';
@@ -9,7 +10,7 @@ const sha = /^[a-f0-9]{40}$/;
 const api = path => JSON.parse(execFileSync('gh', ['api', `repos/${repo}/${path}`], { encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 }));
 const git = args => execFileSync('git', args, { encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 }).trim();
 
-export function recoveryPlan({ run, jobs, latestPush, files, reports, trees, approvals, providerEvidence }) {
+export function recoveryPlan({ run, jobs, latestPush, files, reports, trees, approvals, providerEvidence, publicationRecovered = false }) {
   assert.ok(Number.isSafeInteger(run.id) && run.id > 0 && sha.test(run.head_sha));
   assert.ok(run.event === 'push' && run.status === 'completed' && run.conclusion === 'failure'
     && run.path === '.github/workflows/sync-to-supabase.yml' && run.head_branch === 'main'
@@ -19,7 +20,7 @@ export function recoveryPlan({ run, jobs, latestPush, files, reports, trees, app
   const providerSteps = steps.filter(s => s.name === 'Sync skills to Supabase');
   assert.equal(providerSteps.length, 1, 'Missing provider execution evidence');
   const providerComplete = providerSteps[0].conclusion === 'success';
-  const required = [['Wait for authoritative publication completion', 'success'], ['Sync skills to Supabase', providerComplete ? 'success' : 'failure']];
+  const required = [['Wait for authoritative publication completion', publicationRecovered ? 'failure' : 'success'], ['Sync skills to Supabase', publicationRecovered ? 'skipped' : providerComplete ? 'success' : 'failure']];
   if (providerComplete) required.push(['Upload provider-complete synced slugs artifact', 'success'], ['Notify skillstore - Published submissions', 'failure']);
   for (const [name, conclusion] of required) {
     const matches = steps.filter(s => s.name === name);
@@ -116,7 +117,8 @@ export async function main() {
       providerEvidence.projections.push({root,skills,artifacts});
     }
   }
-  const plan = recoveryPlan({run, latestPush:runs[0], jobs, files, reports, trees, approvals, providerEvidence});
+  const publicationRecovered = Boolean(verifiedPublicationRecovery(run,path=>api(path.slice(`repos/${repo}/`.length))));
+  const plan = recoveryPlan({run, latestPush:runs[0], jobs, files, reports, trees, approvals, providerEvidence, publicationRecovered});
   appendFileSync(process.env.GITHUB_OUTPUT, `sync_commit_sha=${plan.commit}\nrecovery_slugs=${plan.slugs.join(',')}\nprovider_complete=${plan.providerComplete === true}\nrecovery_submission_id=${submissionId}\n`);
   console.log(JSON.stringify({ failedRunId:run.id, publicationSha:plan.commit, slugs:plan.slugs, mode:plan.providerComplete ? 'ancillary-only' : 'resume-current' }));
 }
