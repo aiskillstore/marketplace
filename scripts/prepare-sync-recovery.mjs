@@ -3,6 +3,7 @@ import { execFileSync } from 'node:child_process';
 import { appendFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { verifiedPublicationRecovery } from './publication-postpush-recovery.mjs';
+import { loadUnstartedProviderRecovery, verifyUnstartedProviderRecovery, verifyNoOtherRecovery } from './unstarted-provider-recovery.mjs';
 import { publicationRoots, verifyRootIdentity, verifyProviderProjection, artifactSlugs, providerRead, submissionIdentity } from './reconcile-submission-sync.mjs';
 
 const repo = 'aiskillstore/marketplace';
@@ -10,7 +11,7 @@ const sha = /^[a-f0-9]{40}$/;
 const api = path => JSON.parse(execFileSync('gh', ['api', `repos/${repo}/${path}`], { encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 }));
 const git = args => execFileSync('git', args, { encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 }).trim();
 
-export function recoveryPlan({ run, jobs, latestPush, files, reports, trees, approvals, providerEvidence, publicationRecovered = false }) {
+export function recoveryPlan({ run, jobs, latestPush, files, reports, trees, approvals, providerEvidence, publicationRecovered = false, unstartedRecovery }) {
   assert.ok(Number.isSafeInteger(run.id) && run.id > 0 && sha.test(run.head_sha));
   assert.ok(run.event === 'push' && run.status === 'completed' && run.conclusion === 'failure'
     && run.path === '.github/workflows/sync-to-supabase.yml' && run.head_branch === 'main'
@@ -18,9 +19,15 @@ export function recoveryPlan({ run, jobs, latestPush, files, reports, trees, app
   assert.ok(jobs.jobs?.length && jobs.total_count === jobs.jobs.length, 'Incomplete original jobs');
   const steps = jobs.jobs.flatMap(j => j.steps ?? []);
   const providerSteps = steps.filter(s => s.name === 'Sync skills to Supabase');
-  assert.equal(providerSteps.length, 1, 'Missing provider execution evidence');
-  const providerComplete = providerSteps[0].conclusion === 'success';
-  const required = [['Wait for authoritative publication completion', publicationRecovered ? 'failure' : 'success'], ['Sync skills to Supabase', publicationRecovered ? 'skipped' : providerComplete ? 'success' : 'failure']];
+  if (unstartedRecovery) {
+    assert.ok(!publicationRecovered, 'Cannot mix recovery proofs');
+    assert.deepEqual(unstartedRecovery.run, run, 'Unstarted proof belongs to another run');
+    verifyUnstartedProviderRecovery(unstartedRecovery);
+    assert.deepEqual(unstartedRecovery.attempts.at(-1).jobs, jobs, 'Unstarted proof does not cover the current jobs');
+  } else assert.equal(providerSteps.length, 1, 'Missing provider execution evidence');
+  const initialSync = publicationRecovered || Boolean(unstartedRecovery);
+  const providerComplete = providerSteps[0]?.conclusion === 'success';
+  const required = unstartedRecovery ? [] : [['Wait for authoritative publication completion', publicationRecovered ? 'failure' : 'success'], ['Sync skills to Supabase', publicationRecovered ? 'skipped' : providerComplete ? 'success' : 'failure']];
   if (providerComplete) required.push(['Upload provider-complete synced slugs artifact', 'success'], ['Notify skillstore - Published submissions', 'failure']);
   for (const [name, conclusion] of required) {
     const matches = steps.filter(s => s.name === name);
@@ -35,6 +42,10 @@ export function recoveryPlan({ run, jobs, latestPush, files, reports, trees, app
     && pr.base.repo?.full_name === repo && pr.head?.repo?.full_name === repo
     && pr.head.ref?.startsWith('submission/') && pr.user?.id === 254047988
     && pr.user.login === 'ai-skill-store[bot]' && sha.test(pr.head.sha) && sha.test(pr.merge_commit_sha), 'Untrusted recovery approval');
+  if (unstartedRecovery) {
+    assert.equal(verifyUnstartedProviderRecovery(unstartedRecovery).correlation,
+      `submission-pr-${approvals[0].number}-${approvals[0].head.sha}-${approvals[0].merge_commit_sha}`, 'Unstarted proof approval mismatch');
+  }
   const slugs = [];
   for (const root of roots) {
     const report = reports.filter(r => r.root === root);
@@ -46,7 +57,7 @@ export function recoveryPlan({ run, jobs, latestPush, files, reports, trees, app
     assert.ok(/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(meta.slug)
       && /^[a-f0-9]{64}$/.test(meta.content_hash) && /^[a-f0-9]{64}$/.test(meta.tree_hash), 'Incomplete report identity');
     slugs.push(meta.slug);
-    if (publicationRecovered) {
+    if (initialSync) {
       const matching = providerEvidence?.projections?.filter(p => p.root === root);
       assert.ok(providerEvidence?.projections?.length === roots.length && matching?.length === 1, 'Missing initial-provider projections');
       assert.deepEqual(matching[0].skills, [], 'Initial provider already exists; inspect prior effects before recovery');
@@ -61,12 +72,12 @@ export function recoveryPlan({ run, jobs, latestPush, files, reports, trees, app
   }
   assert.equal(new Set(slugs).size, roots.length, 'Duplicate recovery slugs');
   if (providerComplete) assert.deepEqual([...providerEvidence.slugs].sort(), [...slugs].sort(), 'Original synced artifact scope mismatch');
-  if (providerComplete || publicationRecovered) {
+  if (providerComplete || initialSync) {
     assert.equal(providerEvidence?.callback?.status, 'approved', 'Callback already received or state unknown; do not replay');
     assert.equal(providerEvidence.callback.published_at, null);
     assert.ok(providerEvidence.callback.published_skill_slugs == null || (Array.isArray(providerEvidence.callback.published_skill_slugs) && providerEvidence.callback.published_skill_slugs.length === 0));
   }
-  return { commit: run.head_sha, roots, slugs, providerMode: providerComplete ? 'ancillary-only' : publicationRecovered ? 'initial-sync' : 'resume-current', ...(providerComplete ? {providerComplete:true} : {}) };
+  return { commit: run.head_sha, roots, slugs, providerMode: providerComplete ? 'ancillary-only' : initialSync ? 'initial-sync' : 'resume-current', ...(providerComplete ? {providerComplete:true} : {}) };
 }
 
 export async function main() {
@@ -125,11 +136,20 @@ export async function main() {
   }
   const publicationProof = verifiedPublicationRecovery(run,path=>api(path.slice(`repos/${repo}/`.length)));
   const publicationRecovered = Boolean(publicationProof);
-  if (publicationRecovered) {
+  let unstartedRecovery;
+  if (!publicationRecovered && !jobs.jobs?.flatMap(j => j.steps ?? []).some(s => s.name === 'Sync skills to Supabase' && ['success','failure'].includes(s.conclusion))) {
+    const read = path => api(path.slice(`repos/${repo}/`.length));
+    verifyNoOtherRecovery(run, Number(process.env.GITHUB_RUN_ID), read);
+    unstartedRecovery = loadUnstartedProviderRecovery(run, commit, read);
+    git(['merge-base', '--is-ancestor', approvals[0].merge_commit_sha, run.head_sha]);
+  }
+  if (publicationRecovered || unstartedRecovery) {
     const callbacks = await providerRead('submissions',['id',submissionId],'status,pr_number,workflow_run_id,published_at,published_skill_slugs');
     assert.equal(callbacks.length, 1, 'Missing initial-provider callback state');
     assert.equal(callbacks[0].pr_number, approvals[0].number, 'Initial-provider callback PR mismatch');
-    assert.equal(String(callbacks[0].workflow_run_id), publicationProof.display_title.match(/ using publisher ([1-9][0-9]*)$/)[1], 'Initial-provider callback publisher mismatch');
+    const publisherId = unstartedRecovery ? verifyUnstartedProviderRecovery(unstartedRecovery).publisherId
+      : publicationProof.display_title.match(/ using publisher ([1-9][0-9]*)$/)[1];
+    assert.equal(String(callbacks[0].workflow_run_id), String(publisherId), 'Initial-provider callback publisher mismatch');
     providerEvidence = {callback:callbacks[0],projections:[]};
     for (const {root,meta} of reports) {
       const skills = await providerRead('skills',['slug',meta.slug],'id');
@@ -137,7 +157,7 @@ export async function main() {
       providerEvidence.projections.push({root,skills,artifacts});
     }
   }
-  const plan = recoveryPlan({run, latestPush:runs[0], jobs, files, reports, trees, approvals, providerEvidence, publicationRecovered});
+  const plan = recoveryPlan({run, latestPush:runs[0], jobs, files, reports, trees, approvals, providerEvidence, publicationRecovered, unstartedRecovery});
   appendFileSync(process.env.GITHUB_OUTPUT, `sync_commit_sha=${plan.commit}\nrecovery_slugs=${plan.slugs.join(',')}\nprovider_complete=${plan.providerComplete === true}\nprovider_mode=${plan.providerMode}\nrecovery_submission_id=${submissionId}\n`);
   console.log(JSON.stringify({ failedRunId:run.id, publicationSha:plan.commit, slugs:plan.slugs, mode:plan.providerMode }));
 }
