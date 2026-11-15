@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { recoveryPlan } from '../prepare-sync-recovery.mjs';
+import { unstartedEvidence } from './fixtures/unstarted-provider-evidence.mjs';
 
 const repo='aiskillstore/marketplace';
 function evidence() {
@@ -31,5 +32,17 @@ test('independent publication proof allows only originally skipped provider to s
 test('unknown execution, wrong owners, changed trees and incomplete evidence cannot authorize resume',()=>{
   for(const mutate of [e=>e.latestPush.id=2,e=>e.run.event='workflow_dispatch',e=>e.run.conclusion='cancelled',e=>e.run.head_repository.full_name='fork/repo',e=>e.jobs.total_count=2,e=>e.jobs.jobs[0].steps[0].conclusion='failure',e=>e.jobs.jobs[0].steps[1].conclusion='success',e=>e.trees[0].current='9'.repeat(40),e=>e.trees[0].approved='9'.repeat(40),e=>e.reports=[],e=>e.approvals[0].user.id=1,e=>e.approvals[0].merged=false,e=>e.files[0].path='scripts/unsafe.mjs',e=>e.reports[0].meta.tree_hash=null]) {
     const e=evidence();mutate(e);assert.throws(()=>recoveryPlan(e));
+  }
+});
+
+test('inspected unacquired/guard-skipped attempts permit initial sync only with empty exact provider and callback evidence',()=>{
+  const e=evidence(); const proof=unstartedEvidence();
+  e.run=proof.run; e.latestPush={id:e.run.id}; e.jobs=proof.attempts[1].jobs;
+  e.unstartedRecovery=proof;
+  e.approvals[0].number=42;e.approvals[0].head.sha='b'.repeat(40);e.approvals[0].merge_commit_sha='c'.repeat(40);
+  e.providerEvidence={callback:{status:'approved',published_at:null,published_skill_slugs:null},projections:[{root:'skills/owner/demo',skills:[],artifacts:[]}]};
+  assert.deepEqual(recoveryPlan(e),{commit:e.run.head_sha,roots:['skills/owner/demo'],slugs:['owner-demo'],providerMode:'initial-sync'});
+  for (const mutate of [x=>x.approvals[0].number=99,x=>delete x.unstartedRecovery,x=>x.unstartedRecovery.attempts.pop(),x=>x.unstartedRecovery.run={...x.run,id:102},x=>delete x.providerEvidence,x=>x.providerEvidence.callback.status='published',x=>x.providerEvidence.projections[0].skills=[{id:'partial'}],x=>x.providerEvidence.projections[0].artifacts=[{id:'partial'}]]) {
+    const invalid=structuredClone(e);mutate(invalid);assert.throws(()=>recoveryPlan(invalid));
   }
 });
