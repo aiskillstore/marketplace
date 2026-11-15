@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 import type { CliArgs, OpenAIImageApiDialect } from "../types";
 
 export function getDefaultModel(): string {
-  return process.env.OPENAI_IMAGE_MODEL || "gpt-image-2.5-flare";
+  return process.env.OPENAI_IMAGE_MODEL || "gpt-image-2.6-sunburst";
 }
 
 type OpenAIImageResponse = { data: Array<{ url?: string; b64_json?: string }> };
