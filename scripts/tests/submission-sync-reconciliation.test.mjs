@@ -8,6 +8,8 @@ import { readFileSync } from 'node:fs';
 import { admitMonitor } from '../source-monitor-admission.mjs';
 import { recoveredPushSync, latestStatus } from '../recovered-push-sync.mjs';
 
+import { unstartedEvidence } from './fixtures/unstarted-provider-evidence.mjs';
+
 const repo = 'aiskillstore/marketplace';
 const sha = 'b'.repeat(40), head = 'c'.repeat(40), merge = 'd'.repeat(40), before = 'a'.repeat(40);
 const correlation = `submission-pr-3619-${head}-${merge}`;
@@ -280,4 +282,19 @@ test('separate scoring input is opt-in and cannot mix bounded write finalization
   assert.match(source,/verifyPublishedSubmission\(plan.map/);
   assert.match(source,/verifyProviderProjection\(expected,skills,artifacts\)/);
   assert.doesNotMatch(readFileSync('scripts/ancillary-sync-reconciliation.mjs','utf8'),/fetch\(|gh api|method:/);
+});
+
+test('unacquired provider recovery reconciles only its exact new validated run and original immutable publication',()=>{
+ const e=structuredClone(evidence());const proof=unstartedEvidence();
+ e.push={...proof.run,created_at:push.created_at};proof.run=e.push;
+ e.commit={...proof.commit,parents:[{sha:'7'.repeat(40)}]};proof.commit=e.commit;
+ e.unstartedRecovery=proof;e.originalJobs=proof.attempts.at(-1).jobs;e.parentContainsMerge=true;
+ e.pr={...e.pr,number:42,head:{...e.pr.head,sha:'b'.repeat(40)},merge_commit_sha:'c'.repeat(40)};
+ e.recovery={...e.recovery,id:102,head_sha:'9'.repeat(40),display_title:'Recover provider sync 101'};
+ e.recoveryTrees=[{root,published:head,recovered:head}];
+ e.recoveryJobs.jobs[0].steps.push({name:'Validate trusted sync correlation',conclusion:'success'});
+ assert.deepEqual(verifySubmissionRecovery(e),[{root,...meta,marketplace_commit_sha:e.push.head_sha}]);
+ for(const mutate of [x=>delete x.parentContainsMerge,x=>x.parentContainsMerge=false,x=>delete x.unstartedRecovery,x=>x.unstartedRecovery.attempts.pop(),x=>x.unstartedRecovery.run={...x.push,id:999},x=>x.recovery.display_title='Recover provider sync 999',x=>x.recoveryTrees[0].recovered='0'.repeat(40),x=>x.originalJobs.jobs[0].steps[2].conclusion='success',x=>x.recoveryJobs.jobs[0].steps[0].conclusion='skipped']) {
+  const invalid=structuredClone(e);mutate(invalid);assert.throws(()=>verifySubmissionRecovery(invalid));
+ }
 });
