@@ -5,6 +5,7 @@ import { pathToFileURL } from 'node:url';
 import { verifyCacheOnlyStages, verifiedWarmArtifact } from './cache-only-reconciliation.mjs';
 import { verifyAncillaryStages, verifiedScoreArtifact } from './ancillary-sync-reconciliation.mjs';
 import { verifiedPublicationRecovery } from './publication-postpush-recovery.mjs';
+import { loadUnstartedProviderRecovery, verifyUnstartedProviderRecovery, verifyNoOtherRecovery } from './unstarted-provider-recovery.mjs';
 
 const repo = 'aiskillstore/marketplace';
 const prefix = `repos/${repo}`;
@@ -103,7 +104,16 @@ export function verifySubmissionRecovery(e) {
   const trailers = [...e.commit.message.matchAll(/^AgentCrew-Publication: (submission-pr-([1-9][0-9]*)-([a-f0-9]{40})-([a-f0-9]{40}))$/gm)];
   assert.equal(trailers.length, 1, 'Requires one publication correlation');
   const [, , number, head, merge] = trailers[0];
-  assert.ok(e.commit.parents?.length === 1 && e.commit.parents[0].sha === (e.publicationRecovered ? e.baseline.head_sha : merge), 'Not a linear submission publication');
+  if (e.unstartedRecovery) {
+    assert.ok(resumed && !cacheOnly && !e.scoreRecovery && !e.publicationRecovered, 'Unstarted recovery requires inspected provider resume');
+    assert.equal(e.parentContainsMerge, true, 'Publication parent does not contain the approved merge');
+    assert.deepEqual(e.unstartedRecovery.run, e.push, 'Unstarted proof belongs to another push');
+    assert.deepEqual(e.unstartedRecovery.commit, e.commit, 'Unstarted proof belongs to another publication');
+    verifyUnstartedProviderRecovery(e.unstartedRecovery);
+    assert.deepEqual(e.unstartedRecovery.attempts.at(-1).jobs, e.originalJobs, 'Unstarted proof does not cover current original jobs');
+  }
+  assert.ok(e.commit.parents?.length === 1 && sha40.test(e.commit.parents[0].sha)
+    && (e.unstartedRecovery || e.commit.parents[0].sha === (e.publicationRecovered ? e.baseline.head_sha : merge)), 'Not a linear submission publication');
   if (e.publicationRecovered) assert.ok(resumed && !cacheOnly && !e.scoreRecovery, 'Postpush recovery requires inspected provider resume');
   const p = e.pr;
   assert.ok(p.number === Number(number) && p.merged === true && p.merge_commit_sha === merge
@@ -129,18 +139,19 @@ export function verifySubmissionRecovery(e) {
   } else if (cacheOnly) {
     verifyCacheOnlyStages(e, original, recovered);
   } else {
-    step(original, 'Wait for authoritative publication completion', e.publicationRecovered ? 'failure' : 'success');
     const originalProvider = original.flatMap(j => j.steps ?? []).filter(s => s.name === 'Sync skills to Supabase');
-    assert.equal(originalProvider.length, 1);
-    if (originalProvider[0].conclusion === 'success') {
-      assert.ok(resumed, 'Provider-complete recovery requires inspected resume mode');
-      step(original, 'Upload provider-complete synced slugs artifact', 'success');
-      step(original, 'Notify skillstore - Published submissions', 'failure');
-    } else step(original, 'Sync skills to Supabase', e.publicationRecovered ? 'skipped' : 'failure');
-    if (e.publicationRecovered) step(original, 'Sync skills to Supabase', 'skipped');
+    if (!e.unstartedRecovery) {
+      step(original, 'Wait for authoritative publication completion', e.publicationRecovered ? 'failure' : 'success');
+      assert.equal(originalProvider.length, 1);
+      if (originalProvider[0].conclusion === 'success') {
+        assert.ok(resumed, 'Provider-complete recovery requires inspected resume mode');
+        step(original, 'Upload provider-complete synced slugs artifact', 'success');
+        step(original, 'Notify skillstore - Published submissions', 'failure');
+      } else step(original, 'Sync skills to Supabase', e.publicationRecovered ? 'skipped' : 'failure');
+    }
     for (const name of ['Sync skills to Supabase', 'Upload provider-complete synced slugs artifact',
       'Notify skillstore - Published submissions']) step(recovered, name, 'success');
-    step(recovered, 'Reconcile durable security change events', originalProvider[0].conclusion === 'success' ? 'skipped' : 'success');
+    step(recovered, 'Reconcile durable security change events', originalProvider[0]?.conclusion === 'success' ? 'skipped' : 'success');
     for (const name of ['calculate-scores', 'cache-invalidate']) {
       const matches = recovered.filter(j => j.name === name);
       assert.ok(matches.length === 1 && matches[0].conclusion === 'success', `Incomplete ${name}`);
@@ -248,12 +259,29 @@ export async function main() {
     .sort((a,b)=>b.created_at.localeCompare(a.created_at))[0];
   trustedRun(baseline,'push','success');
   const commit=api(`${prefix}/git/commits/${push.head_sha}`);
-  const comparison=api(`${prefix}/compare/${baseline.head_sha}...${push.head_sha}`);
+  let comparison=api(`${prefix}/compare/${baseline.head_sha}...${push.head_sha}`);
   assert.equal(comparison.status,'ahead'); assert.ok(comparison.files.length<300,'Truncated comparison');
   const trailer=commit.message.match(/^AgentCrew-Publication: submission-pr-([1-9][0-9]*)-[a-f0-9]{40}-[a-f0-9]{40}$/m);
   assert.ok(trailer,'No exact submission publication');
   const pr=api(`${prefix}/pulls/${trailer[1]}`);
   const publicationRecovered=Boolean(verifiedPublicationRecovery(push,api));
+  const originalJobs=api(`${prefix}/actions/runs/${push.id}/attempts/${push.run_attempt}/jobs?per_page=100`);
+  let unstartedRecovery, parentContainsMerge;
+  if (!publicationRecovered && !originalJobs.jobs?.flatMap(j=>j.steps??[]).some(s=>s.name==='Sync skills to Supabase' && ['success','failure'].includes(s.conclusion))) {
+    verifyNoOtherRecovery(push, recovery.id, api);
+    unstartedRecovery=loadUnstartedProviderRecovery(push,commit,api);
+    assert.ok(commit.parents?.length===1 && sha40.test(commit.parents[0].sha));
+    const lineage=api(`${prefix}/compare/${pr.merge_commit_sha}...${commit.parents[0].sha}`);
+    assert.ok(['ahead','identical'].includes(lineage.status), 'Publication parent does not contain approved merge');
+    parentContainsMerge=true;
+    // A publisher may advance onto newer main while another submission is merged.
+    // Verify only this exact, already-owned publication, never discard unrelated files.
+    comparison=api(`${prefix}/compare/${commit.parents[0].sha}...${push.head_sha}`);
+    assert.ok(comparison.status==='ahead' && comparison.files?.length>0 && comparison.files.length<300);
+    assert.ok(comparison.files.every(f=>f.status==='renamed' && f.filename.startsWith('skills/')
+      && f.previous_filename===f.filename.replace(/^skills\//,'pending/')), 'Unstarted recovery is not an exact pending-to-published move');
+    comparison.files=comparison.files.map(({previous_filename,...f})=>({...f,status:'added'}));
+  }
   if (publicationRecovered) comparison.files=comparison.files.flatMap(f=> {
     if (f.filename.startsWith('pending/') && f.status==='removed') return [];
     if (f.filename.startsWith('skills/') && f.status==='renamed' && f.previous_filename===f.filename.replace(/^skills\//,'pending/')) {
@@ -287,7 +315,7 @@ export async function main() {
     return {root,meta:{slug:meta.slug,source_type:meta.source_type,source_ref:meta.source_ref,source_url:meta.source_url,content_hash:meta.content_hash,tree_hash:meta.tree_hash}};
   });
   const jobs=run=>api(`${prefix}/actions/runs/${run.id}/attempts/${run.run_attempt}/jobs?per_page=100`);
-  const originalJobs = jobs(push), recoveryJobs = jobs(recovery);
+  const recoveryJobs = jobs(recovery);
   const cacheOnly = recovery.path === '.github/workflows/warm-cache.yml';
   let cacheEvidence, slugs;
   if (cacheOnly) {
@@ -319,7 +347,7 @@ export async function main() {
     assert.ok(a.workflow_run?.id === scoreRecovery.id && a.workflow_run.head_sha === scoreRecovery.head_sha);
     scoreEvidence = verifiedScoreArtifact(rawApi(`${prefix}/actions/artifacts/${a.id}/zip`), a);
   }
-  const plan=verifySubmissionRecovery({push,recovery,baseline,commit,pr,files:comparison.files,reports,recoveryTrees,slugs,originalJobs,recoveryJobs,cacheEvidence,scoreRecovery,scoreJobs,scoreEvidence,publicationRecovered});
+  const plan=verifySubmissionRecovery({push,recovery,baseline,commit,pr,files:comparison.files,reports,recoveryTrees,slugs,originalJobs,recoveryJobs,cacheEvidence,scoreRecovery,scoreJobs,scoreEvidence,publicationRecovered,unstartedRecovery,parentContainsMerge});
   for(const expected of plan) {
     const skills=await providerRead('skills',['slug',expected.slug],'id,slug,plugin_path,marketplace_commit_sha,content_hash,tree_hash,current_artifact_version_id,artifact_revision');
     assert.equal(skills.length,1);
