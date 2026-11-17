@@ -1,0 +1,954 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>金融市场实时监控中心 | anyviz</title>
+  <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.1/dist/echarts.min.js"></script>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    :root {
+      --bg-dark: #03050C;
+      --panel-bg: #0b0f1a;
+      --panel-border: rgba(255, 255, 255, 0.06);
+      --text-primary: #F8FAFC;
+      --text-secondary: #9696a0;
+      --color-blue: #4269d0;
+      --color-green: #3ca951;
+      --color-red: #ff725c;
+      --color-purple: #a463f2;
+      --color-amber: #efb118;
+      --color-cyan: #6cc5b0;
+      --font-default: 'Helvetica Neue', Helvetica, Arial, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+      --font-mono: 'Menlo', 'Monaco', monospace;
+    }
+
+    html, body {
+      width: 100%;
+      height: 100%;
+      background: var(--bg-dark);
+      color: var(--text-primary);
+      font-family: var(--font-default);
+      overflow: hidden;
+    }
+
+    .container {
+      width: 100%;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* ========== 顶部标题栏 ========== */
+    .header {
+      padding: 16px 24px;
+      background: linear-gradient(180deg, rgba(66, 105, 208, 0.08) 0%, rgba(3, 5, 12, 0) 100%);
+      border-bottom: 1px solid var(--panel-border);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-shrink: 0;
+      height: 80px;
+    }
+
+    .header-left {
+      display: flex;
+      align-items: center;
+      gap: 20px;
+    }
+
+    .logo-text {
+      font-size: 14px;
+      font-weight: 600;
+      background: linear-gradient(90deg, var(--color-blue) 0%, var(--color-cyan) 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      letter-spacing: 1px;
+    }
+
+    .title {
+      font-size: 20px;
+      font-weight: 600;
+      color: var(--text-primary);
+    }
+
+    .header-right {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+
+    .clock {
+      font-size: 14px;
+      font-family: var(--font-mono);
+      color: var(--text-secondary);
+      padding: 6px 12px;
+      border: 1px solid var(--panel-border);
+      border-radius: 6px;
+      background: rgba(255, 255, 255, 0.02);
+    }
+
+    .live-indicator {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--color-red);
+    }
+
+    .live-dot {
+      width: 6px;
+      height: 6px;
+      background: var(--color-red);
+      border-radius: 50%;
+      animation: pulse 1.5s ease-in-out infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.3; }
+    }
+
+    /* ========== 主内容区 ========== */
+    .content {
+      flex: 1;
+      overflow: auto;
+      padding: 20px 24px;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 16px;
+      margin-bottom: 20px;
+    }
+
+    .kpi-card {
+      background: var(--panel-bg);
+      border: 1px solid var(--panel-border);
+      border-radius: 12px;
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      box-shadow: 0 0 20px rgba(66, 105, 208, 0.05);
+      transition: border-color 0.3s;
+    }
+
+    .kpi-card:hover {
+      border-color: rgba(255, 255, 255, 0.1);
+    }
+
+    .kpi-label {
+      font-size: 11px;
+      font-weight: 500;
+      color: var(--text-secondary);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .kpi-value {
+      font-size: 32px;
+      font-weight: 700;
+      font-family: var(--font-mono);
+      color: var(--text-primary);
+      letter-spacing: -1px;
+    }
+
+    .kpi-change {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      font-family: var(--font-mono);
+    }
+
+    .kpi-change.up {
+      color: var(--color-red);
+    }
+
+    .kpi-change.down {
+      color: var(--color-green);
+    }
+
+    .kpi-sparkline {
+      height: 24px;
+      margin-top: 4px;
+    }
+
+    /* ========== 图表区 ========== */
+    .chart-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 16px;
+      margin-bottom: 20px;
+    }
+
+    .chart-grid.full {
+      grid-template-columns: 1fr;
+    }
+
+    .chart-container {
+      background: var(--panel-bg);
+      border: 1px solid var(--panel-border);
+      border-radius: 12px;
+      padding: 16px;
+      box-shadow: 0 0 20px rgba(66, 105, 208, 0.05);
+      display: flex;
+      flex-direction: column;
+    }
+
+    .chart-title {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--text-primary);
+      margin-bottom: 12px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .chart-title::before {
+      content: '';
+      width: 3px;
+      height: 14px;
+      background: linear-gradient(180deg, var(--color-blue), var(--color-cyan));
+      border-radius: 2px;
+    }
+
+    .chart {
+      flex: 1;
+      min-height: 300px;
+    }
+
+    .chart-mini {
+      flex: 1;
+      min-height: 200px;
+    }
+
+    /* ========== 三列布局：K线 + 分时折线 + 资金流 ========== */
+    .row-main {
+      display: grid;
+      grid-template-columns: 1.2fr 1fr 0.8fr;
+      gap: 16px;
+      margin-bottom: 20px;
+    }
+
+    /* ========== 下方四宫格 ========== */
+    .row-bottom {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 16px;
+    }
+
+    /* ========== 响应式 ========== */
+    @media (max-width: 1600px) {
+      .row-main {
+        grid-template-columns: 1fr 1fr;
+      }
+
+      .chart-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .grid {
+        grid-template-columns: repeat(2, 1fr);
+      }
+    }
+
+    @media (max-width: 1200px) {
+      .content {
+        padding: 12px 16px;
+      }
+
+      .grid {
+        grid-template-columns: repeat(2, 1fr);
+        gap: 12px;
+        margin-bottom: 12px;
+      }
+
+      .row-main, .row-bottom, .chart-grid {
+        grid-template-columns: 1fr;
+        gap: 12px;
+      }
+
+      .chart {
+        min-height: 250px;
+      }
+    }
+
+    /* ========== 滚动条美化 ========== */
+    .content::-webkit-scrollbar {
+      width: 6px;
+    }
+
+    .content::-webkit-scrollbar-track {
+      background: rgba(255, 255, 255, 0.02);
+    }
+
+    .content::-webkit-scrollbar-thumb {
+      background: rgba(66, 105, 208, 0.3);
+      border-radius: 3px;
+    }
+
+    .content::-webkit-scrollbar-thumb:hover {
+      background: rgba(66, 105, 208, 0.5);
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <!-- 顶部标题栏 -->
+    <div class="header">
+      <div class="header-left">
+        <div class="logo-text">ANYVIZ</div>
+        <div class="title">金融市场实时监控中心</div>
+      </div>
+      <div class="header-right">
+        <div class="clock" id="clock">00:00:00</div>
+        <div class="live-indicator">
+          <div class="live-dot"></div>
+          LIVE
+        </div>
+      </div>
+    </div>
+
+    <!-- 主内容 -->
+    <div class="content">
+      <!-- KPI 卡片行 -->
+      <div class="grid">
+        <div class="kpi-card">
+          <div class="kpi-label">上证指数</div>
+          <div class="kpi-value">3245.67</div>
+          <div class="kpi-change up">
+            <span>↑</span>
+            <span>+45.32 (+1.42%)</span>
+          </div>
+          <div class="kpi-sparkline" id="sparkline-1"></div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-label">深证成指</div>
+          <div class="kpi-value">11523.48</div>
+          <div class="kpi-change up">
+            <span>↑</span>
+            <span>+156.72 (+1.38%)</span>
+          </div>
+          <div class="kpi-sparkline" id="sparkline-2"></div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-label">沪深300</div>
+          <div class="kpi-value">3872.35</div>
+          <div class="kpi-change down">
+            <span>↓</span>
+            <span>-12.45 (-0.32%)</span>
+          </div>
+          <div class="kpi-sparkline" id="sparkline-3"></div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-label">日成交额</div>
+          <div class="kpi-value">8,234.5 B</div>
+          <div class="kpi-change up">
+            <span>↑</span>
+            <span>+18.3% vs 昨日</span>
+          </div>
+          <div class="kpi-sparkline" id="sparkline-4"></div>
+        </div>
+      </div>
+
+      <!-- 主图表行：K线 + 分时 + 资金流 -->
+      <div class="row-main">
+        <!-- K线图 -->
+        <div class="chart-container">
+          <div class="chart-title">上证指数 K线图（日线）</div>
+          <div class="chart" id="candlestick-chart"></div>
+        </div>
+
+        <!-- 分时折线图 -->
+        <div class="chart-container">
+          <div class="chart-title">实时指数分时走势</div>
+          <div class="chart" id="timeline-chart"></div>
+        </div>
+
+        <!-- 资金流向 -->
+        <div class="chart-container">
+          <div class="chart-title">板块资金流向</div>
+          <div class="chart" id="capital-flow-chart"></div>
+        </div>
+      </div>
+
+      <!-- 行业热力图 -->
+      <div class="chart-container" style="margin-bottom: 20px;">
+        <div class="chart-title">行业板块热力图</div>
+        <div class="chart" id="heatmap-chart"></div>
+      </div>
+
+      <!-- 下方四宫格 -->
+      <div class="row-bottom">
+        <!-- 涨跌停统计 -->
+        <div class="chart-container">
+          <div class="chart-title">涨跌停家数</div>
+          <div class="chart" id="limit-chart"></div>
+        </div>
+
+        <!-- 北向资金 -->
+        <div class="chart-container">
+          <div class="chart-title">北向资金日内净流入</div>
+          <div class="chart" id="northbound-chart"></div>
+        </div>
+
+        <!-- 行业涨跌幅排名 -->
+        <div class="chart-container">
+          <div class="chart-title">行业涨幅 TOP 10</div>
+          <div class="chart" id="industry-rank-chart"></div>
+        </div>
+
+        <!-- 成交量对比 -->
+        <div class="chart-container">
+          <div class="chart-title">市场参与度指标</div>
+          <div class="chart" id="participation-chart"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // ========== 工具函数 ==========
+    const colors = {
+      blue: '#4269d0',
+      green: '#3ca951',
+      red: '#ff725c',
+      purple: '#a463f2',
+      amber: '#efb118',
+      cyan: '#6cc5b0',
+    };
+
+    const fontFamily = "'Helvetica Neue', Helvetica, Arial, 'PingFang SC', 'Microsoft YaHei', sans-serif";
+    const fontMono = "'Menlo', 'Monaco', monospace";
+
+    // 初始化 ECharts
+    const charts = {};
+    function initChart(id) {
+      const dom = document.getElementById(id);
+      if (!dom) return null;
+      const chart = echarts.init(dom, null, { renderer: 'canvas', useDirtyRect: true });
+      charts[id] = chart;
+      return chart;
+    }
+
+    // 时钟更新
+    function updateClock() {
+      const now = new Date();
+      const h = String(now.getHours()).padStart(2, '0');
+      const m = String(now.getMinutes()).padStart(2, '0');
+      const s = String(now.getSeconds()).padStart(2, '0');
+      document.getElementById('clock').textContent = `${h}:${m}:${s}`;
+    }
+
+    // 响应式调整
+    function resizeCharts() {
+      Object.values(charts).forEach(chart => {
+        if (chart) chart.resize();
+      });
+    }
+
+    // ========== Sparkline 迷你图 ==========
+    function createSparkline(containerId, data, upColor, downColor) {
+      const chart = echarts.init(document.getElementById(containerId), null, { renderer: 'canvas' });
+      const isUp = data[data.length - 1] > data[0];
+      const color = isUp ? upColor : downColor;
+
+      const option = {
+        grid: { left: 0, right: 0, top: 2, bottom: 0 },
+        xAxis: { type: 'category', boundaryGap: false, axisLine: { show: false }, axisTick: { show: false } },
+        yAxis: { type: 'value', min: Math.min(...data) * 0.98, max: Math.max(...data) * 1.02, axisLine: { show: false }, axisTick: { show: false }, splitLine: { show: false } },
+        series: [{
+          data,
+          type: 'line',
+          smooth: true,
+          symbol: 'none',
+          lineStyle: { color, width: 1.5 },
+          areaStyle: { color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [{ offset: 0, color: color + '30' }, { offset: 1, color: color + '00' }]) },
+        }],
+        textStyle: { fontFamily },
+      };
+      chart.setOption(option);
+      return chart;
+    }
+
+    // ========== 1. K线图（Candlestick） ==========
+    function createCandlestickChart() {
+      const chart = initChart('candlestick-chart');
+      if (!chart) return;
+
+      // 模拟 K线数据：[open, close, low, high]
+      const genCandleData = () => {
+        const data = [];
+        let basePrice = 3200;
+        for (let i = 0; i < 60; i++) {
+          const change = (Math.random() - 0.48) * 20;
+          const open = basePrice;
+          const close = basePrice + change;
+          const low = Math.min(open, close) - Math.random() * 15;
+          const high = Math.max(open, close) + Math.random() * 15;
+          data.push([open, close, low, high]);
+          basePrice = close;
+        }
+        return data;
+      };
+
+      const candleData = genCandleData();
+      const dates = Array.from({ length: 60 }, (_, i) => {
+        const d = new Date();
+        d.setDate(d.getDate() - (60 - i));
+        return d.toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit' });
+      });
+
+      // 计算均线
+      const calcMA = (data, days) => {
+        const result = [];
+        for (let i = 0; i < data.length; i++) {
+          if (i < days - 1) {
+            result.push(null);
+          } else {
+            let sum = 0;
+            for (let j = 0; j < days; j++) {
+              sum += data[i - j][1];
+            }
+            result.push(sum / days);
+          }
+        }
+        return result;
+      };
+
+      const ma5 = calcMA(candleData, 5);
+      const ma10 = calcMA(candleData, 10);
+      const ma20 = calcMA(candleData, 20);
+
+      // 成交量
+      const volume = Array.from({ length: 60 }, () => Math.random() * 5000 + 2000);
+
+      const option = {
+        color: [colors.red, colors.green],
+        textStyle: { fontFamily, fontSize: 11, color: '#9696a0' },
+        title: { show: false },
+        tooltip: {
+          trigger: 'axis',
+          backgroundColor: 'rgba(0, 0, 0, 0.7)',
+          borderColor: '#4269d0',
+          textStyle: { color: '#fff', fontFamily: fontMono },
+        },
+        legend: {
+          data: ['MA5', 'MA10', 'MA20'],
+          left: 'right',
+          textStyle: { color: '#9696a0', fontSize: 10 },
+        },
+        grid: [
+          { left: '10%', right: '10%', top: '15%', height: '60%' },
+          { left: '10%', right: '10%', top: '78%', height: '15%' },
+        ],
+        xAxis: [
+          {
+            type: 'category',
+            data: dates,
+            gridIndex: 0,
+            axisLine: { lineStyle: { color: 'rgba(255,255,255,0.1)' } },
+            axisTick: { show: false },
+            axisLabel: { interval: 4 },
+          },
+          { type: 'category', data: dates, gridIndex: 1, axisLine: { lineStyle: { color: 'rgba(255,255,255,0.1)' } }, axisTick: { show: false }, axisLabel: { show: false } },
+        ],
+        yAxis: [
+          {
+            type: 'value',
+            gridIndex: 0,
+            scale: true,
+            axisLine: { show: false },
+            axisTick: { show: false },
+            splitLine: { lineStyle: { color: 'rgba(255,255,255,0.05)' } },
+          },
+          { type: 'value', gridIndex: 1, scale: true, axisLine: { show: false }, axisTick: { show: false }, splitLine: { show: false } },
+        ],
+        series: [
+          {
+            name: 'K线',
+            type: 'candlestick',
+            xAxisIndex: 0,
+            yAxisIndex: 0,
+            data: candleData,
+            itemStyle: {
+              color: colors.red,
+              color0: colors.green,
+              borderColor: colors.red,
+              borderColor0: colors.green,
+            },
+          },
+          { name: 'MA5', type: 'line', xAxisIndex: 0, yAxisIndex: 0, data: ma5, lineStyle: { color: colors.blue, width: 1.5 }, symbol: 'none' },
+          { name: 'MA10', type: 'line', xAxisIndex: 0, yAxisIndex: 0, data: ma10, lineStyle: { color: colors.purple, width: 1.5 }, symbol: 'none' },
+          { name: 'MA20', type: 'line', xAxisIndex: 0, yAxisIndex: 0, data: ma20, lineStyle: { color: colors.cyan, width: 1.5 }, symbol: 'none' },
+          {
+            name: '成交量',
+            type: 'bar',
+            xAxisIndex: 1,
+            yAxisIndex: 1,
+            data: volume.map((v, i) => ({ value: v, itemStyle: { color: candleData[i][1] > candleData[i][0] ? colors.red : colors.green } })),
+          },
+        ],
+        dataZoom: [
+          { type: 'slider', show: true, xAxisIndex: [0, 1], start: 50, end: 100, textStyle: { color: '#9696a0' } },
+        ],
+      };
+      chart.setOption(option);
+    }
+
+    // ========== 2. 分时折线图（Timeline） ==========
+    function createTimelineChart() {
+      const chart = initChart('timeline-chart');
+      if (!chart) return;
+
+      // 生成分时数据
+      const genTimelineData = () => {
+        const indices = {
+          '上证': [3200, 3220],
+          '深证': [11400, 11500],
+          '沪深300': [3860, 3885],
+        };
+        const result = {};
+        for (const [name, [base, range]] of Object.entries(indices)) {
+          const data = [];
+          let price = base;
+          for (let i = 0; i < 240; i++) {
+            price += (Math.random() - 0.5) * (range / 50);
+            data.push(price + Math.random() * 2 - 1);
+          }
+          result[name] = data;
+        }
+        return result;
+      };
+
+      const timeData = genTimelineData();
+      const times = Array.from({ length: 240 }, (_, i) => {
+        const h = Math.floor(9 + i / 60);
+        const m = (i % 60).toString().padStart(2, '0');
+        return `${h}:${m}`;
+      });
+
+      const option = {
+        textStyle: { fontFamily, fontSize: 10, color: '#9696a0' },
+        tooltip: {
+          trigger: 'axis',
+          backgroundColor: 'rgba(0, 0, 0, 0.7)',
+          borderColor: '#4269d0',
+          textStyle: { color: '#fff', fontFamily: fontMono, fontSize: 10 },
+        },
+        legend: { data: ['上证', '深证', '沪深300'], left: 'right', textStyle: { color: '#9696a0', fontSize: 10 } },
+        grid: { left: '8%', right: '8%', top: '12%', bottom: '10%' },
+        xAxis: {
+          type: 'category',
+          data: times,
+          axisLine: { lineStyle: { color: 'rgba(255,255,255,0.1)' } },
+          axisTick: { show: false },
+          axisLabel: { interval: 15 },
+        },
+        yAxis: {
+          type: 'value',
+          scale: true,
+          axisLine: { show: false },
+          axisTick: { show: false },
+          splitLine: { lineStyle: { color: 'rgba(255,255,255,0.05)' } },
+        },
+        series: [
+          {
+            name: '上证',
+            type: 'line',
+            data: timeData['上证'],
+            lineStyle: { color: colors.blue, width: 2 },
+            areaStyle: { color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [{ offset: 0, color: colors.blue + '30' }, { offset: 1, color: colors.blue + '00' }]) },
+            symbol: 'none',
+          },
+          {
+            name: '深证',
+            type: 'line',
+            data: timeData['深证'],
+            lineStyle: { color: colors.green, width: 2 },
+            areaStyle: { color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [{ offset: 0, color: colors.green + '30' }, { offset: 1, color: colors.green + '00' }]) },
+            symbol: 'none',
+          },
+          {
+            name: '沪深300',
+            type: 'line',
+            data: timeData['沪深300'],
+            lineStyle: { color: colors.red, width: 2 },
+            areaStyle: { color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [{ offset: 0, color: colors.red + '30' }, { offset: 1, color: colors.red + '00' }]) },
+            symbol: 'none',
+          },
+        ],
+      };
+      chart.setOption(option);
+    }
+
+    // ========== 3. 板块资金流向（横向条形图） ==========
+    function createCapitalFlowChart() {
+      const chart = initChart('capital-flow-chart');
+      if (!chart) return;
+
+      const sectors = ['金融', '地产', '科技', '消费', '制造', '能源'];
+      const flows = [-450, -320, 280, 380, -120, 150]; // 负数为流出（绿），正数为流入（红）
+
+      const option = {
+        textStyle: { fontFamily, fontSize: 10, color: '#9696a0' },
+        tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' }, backgroundColor: 'rgba(0, 0, 0, 0.7)', borderColor: '#4269d0' },
+        grid: { left: '12%', right: '8%', top: '10%', bottom: '10%' },
+        xAxis: { type: 'value', axisLine: { show: false }, axisTick: { show: false }, splitLine: { lineStyle: { color: 'rgba(255,255,255,0.05)' } } },
+        yAxis: {
+          type: 'category',
+          data: sectors,
+          axisLine: { lineStyle: { color: 'rgba(255,255,255,0.1)' } },
+          axisTick: { show: false },
+        },
+        series: [
+          {
+            name: '资金流向',
+            type: 'bar',
+            data: flows.map(v => ({
+              value: Math.abs(v),
+              itemStyle: { color: v > 0 ? colors.red : colors.green },
+            })),
+            label: {
+              position: 'right',
+              formatter: (p) => {
+                const val = flows[p.dataIndex];
+                return (val > 0 ? '+' : '') + val + ' M';
+              },
+              color: '#F8FAFC',
+              fontSize: 9,
+            },
+          },
+        ],
+      };
+      chart.setOption(option);
+    }
+
+    // ========== 4. 行业热力图（Treemap） ==========
+    function createHeatmapChart() {
+      const chart = initChart('heatmap-chart');
+      if (!chart) return;
+
+      const industries = [
+        { name: '电子', value: 850, change: 3.5 },
+        { name: '计算机', value: 920, change: 2.8 },
+        { name: '电气设备', value: 780, change: 1.2 },
+        { name: '化工', value: 650, change: -0.8 },
+        { name: '机械', value: 720, change: 0.5 },
+        { name: '房地产', value: 580, change: -2.1 },
+        { name: '银行', value: 1050, change: 1.8 },
+        { name: '非银金融', value: 680, change: 2.3 },
+        { name: '食品饮料', value: 890, change: -1.5 },
+        { name: '汽车', value: 760, change: 0.2 },
+        { name: '纺织服装', value: 420, change: -3.2 },
+        { name: '医药生物', value: 940, change: 2.1 },
+      ];
+
+      const data = industries.map(ind => ({
+        name: ind.name,
+        value: ind.value,
+        itemStyle: { color: ind.change > 0 ? colors.red : colors.green },
+      }));
+
+      const option = {
+        textStyle: { fontFamily, fontSize: 10 },
+        tooltip: {
+          trigger: 'item',
+          backgroundColor: 'rgba(0, 0, 0, 0.7)',
+          borderColor: '#4269d0',
+          formatter: (p) => {
+            const ind = industries.find(i => i.name === p.name);
+            return `${p.name}<br/>涨跌幅: ${ind.change > 0 ? '+' : ''}${ind.change.toFixed(1)}%`;
+          },
+        },
+        series: [
+          {
+            type: 'treemap',
+            data,
+            roam: false,
+            label: { position: 'insideCenter', color: '#F8FAFC', fontWeight: 'bold', fontSize: 11 },
+            breadcrumb: { show: false },
+          },
+        ],
+      };
+      chart.setOption(option);
+    }
+
+    // ========== 5. 涨跌停统计（饼图/仪表盘） ==========
+    function createLimitChart() {
+      const chart = initChart('limit-chart');
+      if (!chart) return;
+
+      const option = {
+        textStyle: { fontFamily, fontSize: 10, color: '#9696a0' },
+        tooltip: { trigger: 'item', backgroundColor: 'rgba(0, 0, 0, 0.7)', borderColor: '#4269d0' },
+        series: [
+          {
+            type: 'gauge',
+            center: ['50%', '50%'],
+            radius: '90%',
+            min: 0,
+            max: 100,
+            splitNumber: 5,
+            axisLine: { lineStyle: { width: 8, color: [[0.5, colors.red], [1, colors.green]] } },
+            axisTick: { show: false },
+            splitLine: { show: false },
+            axisLabel: { show: false },
+            pointer: { itemStyle: { color: 'auto' } },
+            progress: { show: true, width: 6, itemStyle: { color: 'auto' } },
+            detail: {
+              valueAnimation: true,
+              formatter: '{value}%',
+              color: '#F8FAFC',
+              fontSize: 28,
+              fontWeight: 'bold',
+            },
+            data: [{ value: 42, name: '总市场上涨家数' }],
+          },
+        ],
+      };
+      chart.setOption(option);
+    }
+
+    // ========== 6. 北向资金（双向柱状图） ==========
+    function createNorthboundChart() {
+      const chart = initChart('northbound-chart');
+      if (!chart) return;
+
+      const times = Array.from({ length: 12 }, (_, i) => `${9 + Math.floor(i / 2)}:${(i % 2) * 30}`);
+      const inflow = Array.from({ length: 12 }, () => Math.random() * 800 + 200);
+      const outflow = Array.from({ length: 12 }, () => -(Math.random() * 600 + 100));
+
+      const option = {
+        textStyle: { fontFamily, fontSize: 10, color: '#9696a0' },
+        tooltip: { trigger: 'axis', backgroundColor: 'rgba(0, 0, 0, 0.7)', borderColor: '#4269d0' },
+        grid: { left: '10%', right: '8%', top: '12%', bottom: '12%' },
+        xAxis: {
+          type: 'category',
+          data: times,
+          axisLine: { lineStyle: { color: 'rgba(255,255,255,0.1)' } },
+          axisTick: { show: false },
+        },
+        yAxis: {
+          type: 'value',
+          axisLine: { show: false },
+          axisTick: { show: false },
+          splitLine: { lineStyle: { color: 'rgba(255,255,255,0.05)' } },
+        },
+        series: [
+          { name: '北向流入', type: 'bar', data: inflow, itemStyle: { color: colors.red } },
+          { name: '北向流出', type: 'bar', data: outflow, itemStyle: { color: colors.green } },
+        ],
+      };
+      chart.setOption(option);
+    }
+
+    // ========== 7. 行业涨幅 TOP 10（横向条形图） ==========
+    function createIndustryRankChart() {
+      const chart = initChart('industry-rank-chart');
+      if (!chart) return;
+
+      const industries = ['电子', '计算机', '医药生物', '电气设备', '食品饮料', '机械', '非银金融', '汽车', '银行', '化工'].reverse();
+      const changes = [3.5, 2.8, 2.1, 1.2, -1.5, 0.5, 2.3, 0.2, 1.8, -0.8].reverse();
+
+      const option = {
+        textStyle: { fontFamily, fontSize: 9, color: '#9696a0' },
+        tooltip: { trigger: 'axis', backgroundColor: 'rgba(0, 0, 0, 0.7)', borderColor: '#4269d0' },
+        grid: { left: '15%', right: '8%', top: '8%', bottom: '8%' },
+        xAxis: { type: 'value', axisLine: { show: false }, axisTick: { show: false }, splitLine: { lineStyle: { color: 'rgba(255,255,255,0.05)' } } },
+        yAxis: {
+          type: 'category',
+          data: industries,
+          axisLine: { lineStyle: { color: 'rgba(255,255,255,0.1)' } },
+          axisTick: { show: false },
+        },
+        series: [
+          {
+            name: '涨幅%',
+            type: 'bar',
+            data: changes.map(v => ({
+              value: v,
+              itemStyle: { color: v > 0 ? colors.red : colors.green },
+            })),
+            label: { position: 'right', formatter: '{c}%', color: '#F8FAFC', fontSize: 8 },
+          },
+        ],
+      };
+      chart.setOption(option);
+    }
+
+    // ========== 8. 市场参与度指标（混合图） ==========
+    function createParticipationChart() {
+      const chart = initChart('participation-chart');
+      if (!chart) return;
+
+      const dates = Array.from({ length: 20 }, (_, i) => {
+        const d = new Date();
+        d.setDate(d.getDate() - (20 - i));
+        return d.toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit' });
+      });
+      const volume = Array.from({ length: 20 }, () => Math.random() * 20000 + 5000);
+      const participation = Array.from({ length: 20 }, () => Math.random() * 30 + 50);
+
+      const option = {
+        textStyle: { fontFamily, fontSize: 9, color: '#9696a0' },
+        tooltip: { trigger: 'axis', backgroundColor: 'rgba(0, 0, 0, 0.7)', borderColor: '#4269d0' },
+        legend: { data: ['成交量（亿）', '参与度（%）'], left: 'right', textStyle: { color: '#9696a0', fontSize: 9 } },
+        grid: [
+          { left: '8%', right: '15%', top: '12%', bottom: '10%' },
+          { left: '8%', right: '15%', top: '12%', bottom: '10%' },
+        ],
+        xAxis: [
+          { type: 'category', data: dates, gridIndex: 0, axisLine: { lineStyle: { color: 'rgba(255,255,255,0.1)' } }, axisTick: { show: false }, axisLabel: { interval: 3 } },
+          { type: 'category', data: dates, gridIndex: 1, show: false },
+        ],
+        yAxis: [
+          { type: 'value', gridIndex: 0, axisLine: { show: false }, axisTick: { show: false }, splitLine: { lineStyle: { color: 'rgba(255,255,255,0.05)' } } },
+          { type: 'value', gridIndex: 1, axisLine: { show: false }, axisTick: { show: false }, splitLine: { show: false } },
+        ],
+        series: [
+          { name: '成交量（亿）', type: 'bar', xAxisIndex: 0, yAxisIndex: 0, data: volume, itemStyle: { color: colors.blue + '60' } },
+          { name: '参与度（%）', type: 'line', xAxisIndex: 1, yAxisIndex: 1, data: participation, lineStyle: { color: colors.amber, width: 2 }, symbol: 'circle', symbolSize: 4 },
+        ],
+      };
+      chart.setOption(option);
+    }
+
+    // ========== 初始化所有图表 ==========
+    function initAllCharts() {
+      createSparkline('sparkline-1', [3190, 3210, 3205, 3220, 3235, 3245], colors.red, colors.green);
+      createSparkline('sparkline-2', [11380, 11420, 11450, 11480, 11510, 11523], colors.red, colors.green);
+      createSparkline('sparkline-3', [3880, 3875, 3870, 3872, 3865, 3872], colors.green, colors.red);
+      createSparkline('sparkline-4', [8000, 8050, 8100, 8150, 8200, 8234], colors.red, colors.green);
+
+      createCandlestickChart();
+      createTimelineChart();
+      createCapitalFlowChart();
+      createHeatmapChart();
+      createLimitChart();
+      createNorthboundChart();
+      createIndustryRankChart();
+      createParticipationChart();
+    }
+
+    // ========== 事件监听 ==========
+    window.addEventListener('resize', resizeCharts);
+    setInterval(updateClock, 1000);
+
+    // 初始化
+    document.addEventListener('DOMContentLoaded', initAllCharts);
+    updateClock();
+  </script>
+</body>
+</html>
