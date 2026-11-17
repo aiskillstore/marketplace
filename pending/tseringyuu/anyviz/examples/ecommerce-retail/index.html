@@ -1,0 +1,1069 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>电商运营数据中心</title>
+  <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.1/dist/echarts.min.js"></script>
+  <script src="../common/china.js"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    :root {
+      --color-blue: #4269d0;
+      --color-green: #3ca951;
+      --color-coral: #ff725c;
+      --color-purple: #a463f2;
+      --color-amber: #efb118;
+      --color-teal: #6cc5b0;
+      --color-gray: #9696a0;
+
+      --bg-page: #03050C;
+      --bg-card: #0b0f1a;
+      --bg-card-alt: rgba(255, 255, 255, 0.02);
+      --border-card: 1px solid rgba(255, 255, 255, 0.06);
+      --radius: 12px;
+
+      --text-primary: #F8FAFC;
+      --text-secondary: #9696a0;
+      --font-family: 'Helvetica Neue', Helvetica, Arial, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+    }
+
+    html, body {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+      background: var(--bg-page);
+      color: var(--text-primary);
+      font-family: var(--font-family);
+      overflow: hidden;
+    }
+
+    body {
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* ===== 顶部标题栏 ===== */
+    .dashboard-header {
+      height: 64px;
+      background: rgba(11, 15, 26, 0.6);
+      border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 0 32px;
+      backdrop-filter: blur(8px);
+      z-index: 100;
+    }
+
+    .header-left {
+      display: flex;
+      align-items: center;
+      gap: 24px;
+    }
+
+    .header-branding {
+      font-size: 14px;
+      font-weight: 600;
+      background: linear-gradient(135deg, #4269d0, #a463f2);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      text-decoration: none;
+      letter-spacing: 1px;
+    }
+
+    .header-title {
+      font-size: 18px;
+      font-weight: 600;
+      color: var(--text-primary);
+    }
+
+    .header-right {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+
+    .live-indicator {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      color: #00d084;
+    }
+
+    .live-dot {
+      width: 8px;
+      height: 8px;
+      background: #00d084;
+      border-radius: 50%;
+      animation: pulse-glow 1.5s ease-in-out infinite;
+    }
+
+    @keyframes pulse-glow {
+      0%, 100% { opacity: 1; box-shadow: 0 0 4px rgba(0, 208, 132, 0.8); }
+      50% { opacity: 0.6; box-shadow: 0 0 8px rgba(0, 208, 132, 0.4); }
+    }
+
+    .clock {
+      font-size: 12px;
+      color: var(--text-secondary);
+      font-family: 'Courier New', monospace;
+      min-width: 140px;
+      text-align: right;
+    }
+
+    /* ===== 主容器 ===== */
+    .dashboard-container {
+      flex: 1;
+      overflow: auto;
+      padding: 24px 32px;
+    }
+
+    /* ===== 网格布局 ===== */
+    .dashboard-grid {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      grid-template-rows: auto auto auto auto;
+      gap: 16px;
+      height: 100%;
+    }
+
+    /* KPI 卡片行 */
+    .kpi-row {
+      grid-column: 1 / -1;
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 16px;
+    }
+
+    .kpi-card {
+      background: linear-gradient(135deg, var(--bg-card) 0%, rgba(255, 255, 255, 0.03) 100%);
+      border: var(--border-card);
+      border-radius: var(--radius);
+      padding: 20px;
+      min-height: 120px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+      transition: transform 0.2s, box-shadow 0.2s;
+    }
+
+    .kpi-card:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 16px rgba(66, 105, 208, 0.15);
+    }
+
+    .kpi-label {
+      font-size: 11px;
+      color: var(--text-secondary);
+      font-weight: 500;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .kpi-value {
+      font-size: 32px;
+      font-weight: 700;
+      color: var(--text-primary);
+      font-family: 'Courier New', monospace;
+      margin: 8px 0;
+      line-height: 1;
+    }
+
+    .kpi-detail {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 11px;
+      color: var(--text-secondary);
+    }
+
+    .kpi-trend {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      font-weight: 600;
+    }
+
+    .kpi-trend.up { color: #00d084; }
+    .kpi-trend.down { color: #ff725c; }
+
+    .kpi-sparkline {
+      width: 40px;
+      height: 20px;
+    }
+
+    /* 图表卡片 */
+    .chart-card {
+      background: linear-gradient(135deg, var(--bg-card) 0%, rgba(255, 255, 255, 0.03) 100%);
+      border: var(--border-card);
+      border-radius: var(--radius);
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+      min-height: 380px;
+      overflow: hidden;
+    }
+
+    .chart-title {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--text-primary);
+      margin-bottom: 16px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .chart-subtitle {
+      font-size: 11px;
+      color: var(--text-secondary);
+      font-weight: 400;
+    }
+
+    .chart-container {
+      flex: 1;
+      min-height: 280px;
+      width: 100%;
+      position: relative;
+    }
+
+    /* 网格单元定位 */
+    .sales-trend { grid-column: 1 / 4; grid-row: 2; }
+    .category-dist { grid-column: 4 / 6; grid-row: 2; }
+    .region-map { grid-column: 1 / 4; grid-row: 3; }
+    .conversion-funnel { grid-column: 4 / 6; grid-row: 3; }
+    .channel-source { grid-column: 1 / 3; grid-row: 4; }
+    .top-products { grid-column: 3 / 6; grid-row: 4; }
+
+    /* 响应式 - 大屏 1920×1080 优先，向下自适应 */
+    @media (max-width: 1600px) {
+      .dashboard-grid {
+        grid-template-columns: repeat(4, 1fr);
+      }
+      .sales-trend { grid-column: 1 / 3; }
+      .category-dist { grid-column: 3 / 5; }
+      .region-map { grid-column: 1 / 3; }
+      .conversion-funnel { grid-column: 3 / 5; }
+      .channel-source { grid-column: 1 / 3; }
+      .top-products { grid-column: 3 / 5; }
+      .kpi-row { grid-template-columns: repeat(4, 1fr); }
+    }
+
+    @media (max-width: 1024px) {
+      .dashboard-grid {
+        grid-template-columns: repeat(2, 1fr);
+      }
+      .sales-trend { grid-column: 1 / -1; }
+      .category-dist { grid-column: 1 / 2; }
+      .region-map { grid-column: 2 / 3; grid-row: 3; }
+      .conversion-funnel { grid-column: 1 / 2; grid-row: 4; }
+      .channel-source { grid-column: 2 / 3; grid-row: 4; }
+      .top-products { grid-column: 1 / -1; grid-row: 5; }
+      .kpi-row { grid-template-columns: repeat(2, 1fr); }
+
+      .dashboard-header {
+        padding: 0 16px;
+        height: 56px;
+      }
+      .dashboard-container {
+        padding: 16px;
+      }
+      .header-title {
+        font-size: 16px;
+      }
+    }
+
+    /* 滚动条美化 */
+    .dashboard-container::-webkit-scrollbar {
+      width: 8px;
+    }
+    .dashboard-container::-webkit-scrollbar-track {
+      background: rgba(255, 255, 255, 0.02);
+    }
+    .dashboard-container::-webkit-scrollbar-thumb {
+      background: rgba(255, 255, 255, 0.1);
+      border-radius: 4px;
+    }
+    .dashboard-container::-webkit-scrollbar-thumb:hover {
+      background: rgba(255, 255, 255, 0.15);
+    }
+  </style>
+</head>
+
+<body>
+  <!-- 顶部标题栏 -->
+  <div class="dashboard-header">
+    <div class="header-left">
+      <div class="header-branding">anyviz</div>
+      <div class="header-title">电商运营数据中心</div>
+    </div>
+    <div class="header-right">
+      <div class="live-indicator">
+        <div class="live-dot"></div>
+        <span>LIVE</span>
+      </div>
+      <div class="clock" id="clock">--:--:--</div>
+    </div>
+  </div>
+
+  <!-- 主容器 -->
+  <div class="dashboard-container">
+    <div class="dashboard-grid">
+
+      <!-- 第 1 行：5 个 KPI 卡片 -->
+      <div class="kpi-row">
+        <!-- KPI 1: GMV -->
+        <div class="kpi-card">
+          <div class="kpi-label">当日 GMV</div>
+          <div class="kpi-value">¥8,240</div>
+          <div class="kpi-detail">
+            <span class="kpi-trend up">↑ 12.5% (同比)</span>
+            <div class="kpi-sparkline" id="sparkline1"></div>
+          </div>
+        </div>
+
+        <!-- KPI 2: 订单数 -->
+        <div class="kpi-card">
+          <div class="kpi-label">订单数</div>
+          <div class="kpi-value">1,264</div>
+          <div class="kpi-detail">
+            <span class="kpi-trend up">↑ 8.3% (环比)</span>
+            <div class="kpi-sparkline" id="sparkline2"></div>
+          </div>
+        </div>
+
+        <!-- KPI 3: 客单价 -->
+        <div class="kpi-card">
+          <div class="kpi-label">客单价</div>
+          <div class="kpi-value">¥652</div>
+          <div class="kpi-detail">
+            <span class="kpi-trend up">↑ 3.8% (环比)</span>
+            <div class="kpi-sparkline" id="sparkline3"></div>
+          </div>
+        </div>
+
+        <!-- KPI 4: 转化率 -->
+        <div class="kpi-card">
+          <div class="kpi-label">转化率</div>
+          <div class="kpi-value">3.24%</div>
+          <div class="kpi-detail">
+            <span class="kpi-trend down">↓ 0.2% (环比)</span>
+            <div class="kpi-sparkline" id="sparkline4"></div>
+          </div>
+        </div>
+
+        <!-- KPI 5: 退款率 -->
+        <div class="kpi-card">
+          <div class="kpi-label">退款率</div>
+          <div class="kpi-value">1.8%</div>
+          <div class="kpi-detail">
+            <span class="kpi-trend down">↓ 0.1% (环比)</span>
+            <div class="kpi-sparkline" id="sparkline5"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 第 2 行：销售趋势 (左) + 品类分布 (右) -->
+      <div class="chart-card sales-trend">
+        <div class="chart-title">
+          <div>
+            <div>销售趋势</div>
+            <div class="chart-subtitle">近 7 天 GMV 与订单量对标</div>
+          </div>
+        </div>
+        <div class="chart-container" id="chart-sales-trend"></div>
+      </div>
+
+      <div class="chart-card category-dist">
+        <div class="chart-title">
+          <div>
+            <div>品类分布</div>
+            <div class="chart-subtitle">当月销售额占比</div>
+          </div>
+        </div>
+        <div class="chart-container" id="chart-category"></div>
+      </div>
+
+      <!-- 第 3 行：区域销售地图 (左) + 转化漏斗 (右) -->
+      <div class="chart-card region-map">
+        <div class="chart-title">
+          <div>
+            <div>区域销售热力</div>
+            <div class="chart-subtitle">各省销售额 Top 15</div>
+          </div>
+        </div>
+        <div class="chart-container" id="chart-map"></div>
+      </div>
+
+      <div class="chart-card conversion-funnel">
+        <div class="chart-title">
+          <div>
+            <div>转化漏斗</div>
+            <div class="chart-subtitle">用户路径转化分析</div>
+          </div>
+        </div>
+        <div class="chart-container" id="chart-funnel"></div>
+      </div>
+
+      <!-- 第 4 行：渠道分布 (左) + TOP 商品 (右) -->
+      <div class="chart-card channel-source">
+        <div class="chart-title">
+          <div>
+            <div>渠道来源</div>
+            <div class="chart-subtitle">订单分布</div>
+          </div>
+        </div>
+        <div class="chart-container" id="chart-channel"></div>
+      </div>
+
+      <div class="chart-card top-products">
+        <div class="chart-title">
+          <div>
+            <div>热销 TOP 商品</div>
+            <div class="chart-subtitle">近 24 小时销售额排行</div>
+          </div>
+        </div>
+        <div class="chart-container" id="chart-topproducts"></div>
+      </div>
+
+    </div>
+  </div>
+
+  <script>
+    // ===== 配置与数据 =====
+    const colors = {
+      blue: '#4269d0',
+      green: '#3ca951',
+      coral: '#ff725c',
+      purple: '#a463f2',
+      amber: '#efb118',
+      teal: '#6cc5b0',
+      gray: '#9696a0',
+      darkBg: '#0b0f1a',
+      darkBorder: 'rgba(255, 255, 255, 0.06)',
+      textPrimary: '#F8FAFC',
+      textSecondary: '#9696a0'
+    };
+
+    const charts = {};
+
+    // 初始化 ECharts 全局配置
+    echarts.registerTheme('dark-dashboard', {
+      color: [colors.blue, colors.green, colors.coral, colors.purple, colors.amber, colors.teal, colors.gray],
+      backgroundColor: 'transparent',
+      textStyle: {
+        color: colors.textPrimary,
+        fontFamily: "'Helvetica Neue', Helvetica, Arial, sans-serif"
+      },
+      title: {
+        textStyle: { color: colors.textPrimary }
+      },
+      line: {
+        itemStyle: { borderWidth: 1 },
+        lineStyle: { width: 2 },
+        symbolSize: 4,
+        smooth: true
+      },
+      radar: {
+        itemStyle: { borderWidth: 1 },
+        lineStyle: { width: 2 },
+        symbolSize: 4,
+        smooth: true
+      },
+      bar: { itemStyle: { barBorderRadius: 5 } },
+      pie: { itemStyle: { borderColor: colors.darkBg } },
+      scatter: { itemStyle: { opacity: 0.8 } },
+      boxplot: { itemStyle: { borderColor: colors.darkBorder } },
+      parallel: { itemStyle: { borderWidth: 0 } },
+      sankey: { itemStyle: { borderColor: colors.darkBorder } },
+      funnel: { itemStyle: { borderColor: colors.darkBorder } },
+      gauge: { itemStyle: { borderColor: colors.darkBorder } },
+      candlestick: {
+        itemStyle: {
+          color: colors.coral,
+          color0: colors.green,
+          borderColor: colors.coral,
+          borderColor0: colors.green
+        }
+      },
+      graph: { itemStyle: { borderColor: colors.darkBorder } },
+      map: { itemStyle: { areaColor: '#111827', borderColor: '#333' } },
+      geo: { itemStyle: { areaColor: '#111827', borderColor: '#333' } },
+      categoryAxis: {
+        axisLine: { show: true, lineStyle: { color: colors.darkBorder } },
+        axisTick: { show: false },
+        axisLabel: { color: colors.textSecondary },
+        splitLine: { show: false }
+      },
+      valueAxis: {
+        axisLine: { show: false },
+        axisTick: { show: false },
+        axisLabel: { color: colors.textSecondary },
+        splitLine: { lineStyle: { color: 'rgba(255, 255, 255, 0.04)' } }
+      },
+      logAxis: {
+        axisLine: { show: false },
+        axisTick: { show: false },
+        axisLabel: { color: colors.textSecondary },
+        splitLine: { lineStyle: { color: 'rgba(255, 255, 255, 0.04)' } }
+      },
+      timeAxis: {
+        axisLine: { show: true, lineStyle: { color: colors.darkBorder } },
+        axisTick: { show: false },
+        axisLabel: { color: colors.textSecondary },
+        splitLine: { show: false }
+      },
+      toolbox: {
+        iconStyle: { borderColor: colors.textSecondary }
+      },
+      legend: {
+        textStyle: { color: colors.textSecondary }
+      },
+      tooltip: {
+        backgroundColor: 'rgba(11, 15, 26, 0.95)',
+        borderColor: 'rgba(255, 255, 255, 0.2)',
+        textStyle: { color: colors.textPrimary }
+      },
+      timeline: {
+        lineStyle: { color: colors.darkBorder },
+        itemStyle: { color: colors.blue },
+        label: { color: colors.textSecondary }
+      },
+      visualMap: {
+        textStyle: { color: colors.textSecondary }
+      }
+    });
+
+    // ===== 1. 销售趋势折线 + 柱 =====
+    function initSalesTrend() {
+      const chartDom = document.getElementById('chart-sales-trend');
+      const myChart = echarts.init(chartDom, 'dark-dashboard');
+
+      const option = {
+        tooltip: {
+          trigger: 'axis',
+          axisPointer: { type: 'cross' }
+        },
+        grid: { left: 60, right: 20, top: 20, bottom: 50 },
+        xAxis: {
+          type: 'category',
+          data: ['6/8', '6/9', '6/10', '6/11', '6/12', '6/13', '6/14'],
+          axisLabel: { fontSize: 11, hideOverlap: true }
+        },
+        yAxis: [
+          {
+            type: 'value',
+            name: '订单数',
+            position: 'left',
+            axisLabel: { formatter: '{value}', fontSize: 11 },
+            splitLine: { lineStyle: { color: 'rgba(255, 255, 255, 0.04)' } }
+          },
+          {
+            type: 'value',
+            name: 'GMV (万元)',
+            position: 'right',
+            axisLabel: { formatter: '{value}', fontSize: 11 },
+            splitLine: { show: false }
+          }
+        ],
+        series: [
+          {
+            name: '订单数',
+            type: 'bar',
+            yAxisIndex: 0,
+            data: [1120, 1235, 1280, 1156, 1224, 1264, 1310],
+            itemStyle: { color: colors.blue, opacity: 0.7, borderRadius: [5, 5, 0, 0] },
+            barWidth: '60%'
+          },
+          {
+            name: 'GMV',
+            type: 'line',
+            yAxisIndex: 1,
+            data: [7200, 7860, 8125, 7950, 8080, 8240, 8350],
+            lineStyle: { width: 2.5, color: colors.coral },
+            itemStyle: { color: colors.coral, borderWidth: 0 },
+            areaStyle: {
+              color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+                { offset: 0, color: 'rgba(255, 114, 92, 0.3)' },
+                { offset: 1, color: 'rgba(255, 114, 92, 0)' }
+              ])
+            },
+            smooth: true,
+            symbol: 'none'
+          }
+        ],
+        legend: { top: 10, textStyle: { fontSize: 11 } }
+      };
+
+      myChart.setOption(option);
+      charts.salesTrend = myChart;
+    }
+
+    // ===== 2. 品类分布 - 环形图 =====
+    function initCategoryDist() {
+      const chartDom = document.getElementById('chart-category');
+      const myChart = echarts.init(chartDom, 'dark-dashboard');
+
+      const option = {
+        tooltip: { trigger: 'item', formatter: '{b}: {c} ({d}%)' },
+        series: [
+          {
+            name: '品类销售额',
+            type: 'pie',
+            radius: ['35%', '65%'],
+            center: ['50%', '50%'],
+            data: [
+              { value: 3850, name: '服装箱包', itemStyle: { color: colors.blue } },
+              { value: 2640, name: '美妆个护', itemStyle: { color: colors.green } },
+              { value: 2280, name: '食品酒水', itemStyle: { color: colors.coral } },
+              { value: 1620, name: '家居日用', itemStyle: { color: colors.purple } },
+              { value: 1520, name: '电子产品', itemStyle: { color: colors.amber } },
+              { value: 980, name: '其他', itemStyle: { color: colors.teal } }
+            ],
+            emphasis: {
+              itemStyle: {
+                shadowBlur: 10,
+                shadowOffsetX: 0,
+                shadowColor: 'rgba(0, 0, 0, 0.5)'
+              }
+            },
+            label: {
+              fontSize: 11,
+              color: colors.textPrimary,
+              position: 'inside'
+            },
+            labelLine: { show: false },
+            labelLayout: { hideOverlap: true }
+          }
+        ],
+        legend: {
+          orient: 'vertical',
+          right: 15,
+          top: 'center',
+          textStyle: { fontSize: 10, color: colors.textSecondary }
+        }
+      };
+
+      myChart.setOption(option);
+      charts.categoryDist = myChart;
+    }
+
+    // ===== 3. 区域销售热力 - 中国地图 (降级方案) =====
+    function initRegionMap() {
+      const chartDom = document.getElementById('chart-map');
+      const myChart = echarts.init(chartDom, 'dark-dashboard');
+
+      // 模拟数据：各省销售额
+      const provinceData = [
+        { name: '广东', value: 3240 },
+        { name: '浙江', value: 2860 },
+        { name: '上海', value: 2420 },
+        { name: '江苏', value: 2180 },
+        { name: '四川', value: 1950 },
+        { name: '湖北', value: 1680 },
+        { name: '山东', value: 1540 },
+        { name: '北京', value: 1420 },
+        { name: '福建', value: 1280 },
+        { name: '湖南', value: 1120 },
+        { name: '安徽', value: 980 },
+        { name: '河南', value: 890 },
+        { name: '陕西', value: 720 },
+        { name: '云南', value: 560 },
+        { name: '重庆', value: 480 }
+      ];
+
+      const maxValue = Math.max(...provinceData.map(d => d.value));
+      const minValue = Math.min(...provinceData.map(d => d.value));
+
+      const hasChinaMap = !!echarts.getMap('china');
+
+      if (hasChinaMap) {
+        const option = {
+          geo: {
+            map: 'china',
+            roam: false,
+            itemStyle: {
+              areaColor: '#111827',
+              borderColor: '#333'
+            },
+            emphasis: {
+              itemStyle: {
+                areaColor: 'rgba(66, 105, 208, 0.3)',
+                shadowBlur: 10,
+                shadowColor: 'rgba(66, 105, 208, 0.5)'
+              }
+            },
+            label: { show: false }
+          },
+          visualMap: {
+            min: minValue,
+            max: maxValue,
+            splitNumber: 5,
+            inRange: {
+              color: ['#05468a', '#0860d4', '#4269d0', '#7da6e5', '#c5dff8']
+            },
+            textStyle: { color: colors.textSecondary, fontSize: 10 },
+            right: 10,
+            bottom: 20
+          },
+          series: [
+            {
+              name: '销售额 (万元)',
+              type: 'map',
+              geoIndex: 0,
+              data: provinceData
+            }
+          ],
+          tooltip: {
+            trigger: 'item',
+            formatter: '{b}: ¥{c} 万'
+          }
+        };
+
+        myChart.setOption(option);
+      } else {
+        console.warn('地图加载失败，使用气泡散点图');
+        initRegionMapFallback(myChart, provinceData);
+      }
+
+      charts.regionMap = myChart;
+    }
+
+    // 区域销售地图 - 降级方案（气泡散点）
+    function initRegionMapFallback(myChart, data) {
+      const geoCoords = {
+        '广东': [113.3, 23.1],
+        '浙江': [120.2, 30.2],
+        '上海': [121.5, 31.2],
+        '江苏': [118.8, 32.0],
+        '四川': [104.1, 30.7],
+        '湖北': [114.3, 30.6],
+        '山东': [117.0, 36.7],
+        '北京': [116.5, 39.9],
+        '福建': [119.3, 26.1],
+        '湖南': [113.0, 28.2],
+        '安徽': [117.2, 31.9],
+        '河南': [113.6, 34.8],
+        '陕西': [108.9, 34.3],
+        '云南': [102.9, 25.0],
+        '重庆': [106.6, 29.6]
+      };
+
+      const scatterData = data.map(item => [
+        ...geoCoords[item.name],
+        item.value,
+        item.name
+      ]);
+
+      const maxValue = Math.max(...data.map(d => d.value));
+
+      const option = {
+        geo: {
+          map: 'china',
+          roam: false,
+          itemStyle: { areaColor: '#111827', borderColor: '#333' },
+          label: { show: false }
+        },
+        visualMap: {
+          min: 0,
+          max: maxValue,
+          splitNumber: 5,
+          inRange: { color: ['#05468a', '#0860d4', '#4269d0', '#7da6e5', '#c5dff8'] },
+          textStyle: { color: colors.textSecondary, fontSize: 10 },
+          right: 10,
+          bottom: 20
+        },
+        series: [
+          {
+            name: '销售额',
+            type: 'scatter',
+            coordinateSystem: 'geo',
+            data: scatterData,
+            symbolSize: function (val) {
+              return Math.sqrt(val[2]) / Math.sqrt(maxValue) * 30 + 8;
+            },
+            itemStyle: {
+              color: colors.blue,
+              opacity: 0.7,
+              borderColor: colors.textPrimary,
+              borderWidth: 1
+            },
+            emphasis: {
+              itemStyle: {
+                color: colors.coral,
+                opacity: 0.9,
+                borderWidth: 2
+              }
+            },
+            label: {
+              show: true,
+              formatter: '{c}',
+              color: colors.textPrimary,
+              fontSize: 10,
+              offset: [8, 0]
+            }
+          }
+        ],
+        tooltip: {
+          trigger: 'item',
+          formatter: function (params) {
+            if (params.componentSubType === 'scatter') {
+              return params.value[3] + ': ¥' + params.value[2] + ' 万';
+            }
+            return '';
+          }
+        }
+      };
+
+      myChart.setOption(option);
+    }
+
+    // ===== 4. 转化漏斗 =====
+    function initConversionFunnel() {
+      const chartDom = document.getElementById('chart-funnel');
+      const myChart = echarts.init(chartDom, 'dark-dashboard');
+
+      const option = {
+        tooltip: {
+          trigger: 'item',
+          formatter: '{b}: {c} ({d}%)'
+        },
+        series: [
+          {
+            name: '转化',
+            type: 'funnel',
+            left: '10%',
+            top: '15%',
+            right: '10%',
+            bottom: '15%',
+            width: '80%',
+            height: '70%',
+            min: 0,
+            max: 100,
+            minSize: '0%',
+            maxSize: '100%',
+            sort: 'descending',
+            gap: 2,
+            data: [
+              { value: 100, name: '曝光', itemStyle: { color: colors.blue } },
+              { value: 72, name: '点击', itemStyle: { color: colors.green } },
+              { value: 48, name: '加购', itemStyle: { color: colors.coral } },
+              { value: 32.4, name: '下单', itemStyle: { color: colors.purple } },
+              { value: 31.48, name: '支付', itemStyle: { color: colors.amber } }
+            ],
+            emphasis: {
+              label: { fontSize: 12 },
+              itemStyle: { shadowBlur: 10, shadowColor: 'rgba(0, 0, 0, 0.5)' }
+            },
+            label: {
+              fontSize: 11,
+              color: colors.textPrimary,
+              position: 'right'
+            }
+          }
+        ],
+        grid: { containLabel: true }
+      };
+
+      myChart.setOption(option);
+      charts.conversionFunnel = myChart;
+    }
+
+    // ===== 5. 渠道来源 - 横向堆叠条 =====
+    function initChannelSource() {
+      const chartDom = document.getElementById('chart-channel');
+      const myChart = echarts.init(chartDom, 'dark-dashboard');
+
+      const option = {
+        tooltip: { trigger: 'item' },
+        grid: { left: 80, right: 20, top: 20, bottom: 20 },
+        xAxis: {
+          type: 'value',
+          axisLabel: { formatter: '{value}%', fontSize: 11, hideOverlap: true },
+          splitLine: { lineStyle: { color: 'rgba(255, 255, 255, 0.04)' } }
+        },
+        yAxis: {
+          type: 'category',
+          data: ['渠道占比'],
+          axisLabel: { fontSize: 11 }
+        },
+        series: [
+          {
+            name: 'App',
+            type: 'bar',
+            stack: 'total',
+            data: [38],
+            itemStyle: { color: colors.blue },
+            label: { show: true, position: 'inside', fontSize: 10, color: colors.textPrimary, formatter: '{c}%' }
+          },
+          {
+            name: '小程序',
+            type: 'bar',
+            stack: 'total',
+            data: [28],
+            itemStyle: { color: colors.green },
+            label: { show: true, position: 'inside', fontSize: 10, color: colors.textPrimary, formatter: '{c}%' }
+          },
+          {
+            name: 'Web',
+            type: 'bar',
+            stack: 'total',
+            data: [22],
+            itemStyle: { color: colors.coral },
+            label: { show: true, position: 'inside', fontSize: 10, color: colors.textPrimary, formatter: '{c}%' }
+          },
+          {
+            name: 'H5',
+            type: 'bar',
+            stack: 'total',
+            data: [12],
+            itemStyle: { color: colors.purple },
+            label: { show: true, position: 'inside', fontSize: 10, color: colors.textPrimary, formatter: '{c}%' }
+          }
+        ],
+        legend: { top: -5, textStyle: { fontSize: 10 } }
+      };
+
+      myChart.setOption(option);
+      charts.channelSource = myChart;
+    }
+
+    // ===== 6. TOP 商品 - 横向条 =====
+    function initTopProducts() {
+      const chartDom = document.getElementById('chart-topproducts');
+      const myChart = echarts.init(chartDom, 'dark-dashboard');
+
+      const products = [
+        { name: '夏季新款T恤', value: 3420 },
+        { name: '防晒霜 SPF50', value: 2860 },
+        { name: '运动休闲鞋', value: 2540 },
+        { name: '无线蓝牙耳机', value: 2180 },
+        { name: '牛仔裤男款', value: 1950 },
+        { name: '护肤面膜套装', value: 1680 }
+      ];
+
+      const option = {
+        tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
+        grid: { left: 120, right: 20, top: 20, bottom: 20 },
+        xAxis: {
+          type: 'value',
+          axisLabel: { formatter: '¥{value}', fontSize: 10 },
+          splitLine: { lineStyle: { color: 'rgba(255, 255, 255, 0.04)' } }
+        },
+        yAxis: {
+          type: 'category',
+          data: products.map(p => p.name),
+          axisLabel: { fontSize: 10, width: 95, overflow: 'truncate' }
+        },
+        series: [
+          {
+            name: '销售额',
+            type: 'bar',
+            data: products.map(p => p.value),
+            itemStyle: {
+              color: new echarts.graphic.LinearGradient(0, 0, 1, 0, [
+                { offset: 0, color: colors.blue },
+                { offset: 1, color: colors.purple }
+              ]),
+              borderRadius: [0, 5, 5, 0]
+            },
+            label: {
+              show: true,
+              position: 'right',
+              formatter: '¥{c}',
+              fontSize: 10,
+              color: colors.textSecondary
+            }
+          }
+        ]
+      };
+
+      myChart.setOption(option);
+      charts.topProducts = myChart;
+    }
+
+    // ===== Sparkline 迷你图 =====
+    function initSparklines() {
+      const sparklineCharts = [
+        { el: 'sparkline1', data: [45, 52, 48, 55, 62, 68, 72] },
+        { el: 'sparkline2', data: [38, 42, 48, 55, 62, 68, 72] },
+        { el: 'sparkline3', data: [52, 55, 48, 50, 62, 68, 72] },
+        { el: 'sparkline4', data: [72, 68, 65, 62, 58, 55, 52] },
+        { el: 'sparkline5', data: [68, 62, 58, 55, 52, 48, 45] }
+      ];
+
+      sparklineCharts.forEach(item => {
+        const dom = document.getElementById(item.el);
+        const chart = echarts.init(dom, 'dark-dashboard');
+
+        const option = {
+          xAxis: { type: 'category', show: false },
+          yAxis: { show: false },
+          grid: { left: 0, right: 0, top: 0, bottom: 0 },
+          series: [
+            {
+              data: item.data,
+              type: 'line',
+              smooth: true,
+              itemStyle: { opacity: 0 },
+              lineStyle: { width: 1.5, color: colors.blue },
+              areaStyle: {
+                color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+                  { offset: 0, color: 'rgba(66, 105, 208, 0.3)' },
+                  { offset: 1, color: 'rgba(66, 105, 208, 0)' }
+                ])
+              }
+            }
+          ]
+        };
+
+        chart.setOption(option);
+      });
+    }
+
+    // ===== 实时时钟 =====
+    function updateClock() {
+      const now = new Date();
+      const hh = String(now.getHours()).padStart(2, '0');
+      const mm = String(now.getMinutes()).padStart(2, '0');
+      const ss = String(now.getSeconds()).padStart(2, '0');
+      document.getElementById('clock').textContent = `${hh}:${mm}:${ss}`;
+    }
+
+    // ===== 响应式处理 =====
+    function handleResize() {
+      Object.values(charts).forEach(chart => {
+        if (chart) chart.resize();
+      });
+    }
+
+    // ===== 初始化主流程 =====
+    function init() {
+      initSalesTrend();
+      initCategoryDist();
+      initRegionMap();
+      initConversionFunnel();
+      initChannelSource();
+      initTopProducts();
+      initSparklines();
+      updateClock();
+      setInterval(updateClock, 1000);
+      window.addEventListener('resize', handleResize);
+    }
+
+    // DOM 加载完成后初始化
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', init);
+    } else {
+      init();
+    }
+  </script>
+</body>
+</html>

@@ -1,0 +1,984 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>智慧能源物联监控中心</title>
+  <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.1/dist/echarts.min.js"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    :root {
+      --bg-page: #03050C;
+      --bg-card: #0b0f1a;
+      --border-card: rgba(255,255,255,0.06);
+      --text-primary: #F8FAFC;
+      --text-secondary: #9696a0;
+      --color-blue: #4269d0;
+      --color-green: #3ca951;
+      --color-coral: #ff725c;
+      --color-purple: #a463f2;
+      --color-amber: #efb118;
+      --color-teal: #6cc5b0;
+      --color-gray: #9696a0;
+    }
+
+    html { color-scheme: dark; }
+    body {
+      background: var(--bg-page);
+      font-family: 'Helvetica Neue', Helvetica, Arial, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+      color: var(--text-primary);
+      overflow-x: hidden;
+    }
+
+    .header {
+      background: linear-gradient(135deg, rgba(66,105,208,0.1) 0%, rgba(106,197,176,0.1) 100%);
+      border-bottom: 1px solid rgba(255,255,255,0.06);
+      padding: 20px 40px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }
+
+    .header-left {
+      display: flex;
+      align-items: center;
+      gap: 20px;
+    }
+
+    .logo {
+      background: linear-gradient(90deg, var(--color-blue), var(--color-teal));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      font-size: 18px;
+      font-weight: 700;
+      letter-spacing: 2px;
+    }
+
+    .title {
+      font-size: 18px;
+      font-weight: 600;
+      color: var(--text-primary);
+    }
+
+    .header-right {
+      display: flex;
+      align-items: center;
+      gap: 20px;
+    }
+
+    .live-badge {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 12px;
+      color: var(--color-green);
+    }
+
+    .live-dot {
+      width: 10px;
+      height: 10px;
+      background: var(--color-green);
+      border-radius: 50%;
+      animation: pulse 1.5s infinite;
+    }
+
+    @keyframes pulse {
+      0% { opacity: 1; }
+      50% { opacity: 0.5; }
+      100% { opacity: 1; }
+    }
+
+    .clock {
+      font-size: 14px;
+      color: var(--text-secondary);
+      font-family: 'Courier New', monospace;
+    }
+
+    .dashboard {
+      max-width: 1920px;
+      margin: 0 auto;
+      padding: 40px;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 20px;
+      margin-bottom: 40px;
+    }
+
+    .kpi-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border-card);
+      border-radius: 12px;
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+    }
+
+    .kpi-label {
+      font-size: 12px;
+      color: var(--text-secondary);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 12px;
+    }
+
+    .kpi-value {
+      font-size: 32px;
+      font-weight: 700;
+      color: var(--text-primary);
+      font-family: 'Courier New', monospace;
+      margin-bottom: 8px;
+    }
+
+    .kpi-unit {
+      font-size: 11px;
+      color: var(--text-secondary);
+      margin-bottom: 10px;
+    }
+
+    .kpi-spark {
+      height: 30px;
+      width: 100%;
+    }
+
+    .card {
+      background: var(--bg-card);
+      border: 1px solid var(--border-card);
+      border-radius: 12px;
+      overflow: hidden;
+    }
+
+    .card-full-width {
+      grid-column: 1 / -1;
+    }
+
+    .card-half {
+      grid-column: span 2;
+    }
+
+    .card-third {
+      grid-column: span 1;
+    }
+
+    .chart {
+      width: 100%;
+      height: 320px;
+    }
+
+    .chart-xl {
+      width: 100%;
+      height: 380px;
+    }
+
+    .chart-list {
+      width: 100%;
+      height: 320px;
+      overflow-y: auto;
+      padding: 20px;
+    }
+
+    .chart-list::-webkit-scrollbar {
+      width: 6px;
+    }
+
+    .chart-list::-webkit-scrollbar-track {
+      background: transparent;
+    }
+
+    .chart-list::-webkit-scrollbar-thumb {
+      background: rgba(255,255,255,0.1);
+      border-radius: 3px;
+    }
+
+    .alarm-item {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 12px 0;
+      border-bottom: 1px solid rgba(255,255,255,0.03);
+      font-size: 12px;
+    }
+
+    .alarm-item:last-child {
+      border-bottom: none;
+    }
+
+    .alarm-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+
+    .alarm-normal .alarm-dot { background: var(--color-green); }
+    .alarm-warning .alarm-dot { background: var(--color-amber); }
+    .alarm-critical .alarm-dot { background: var(--color-coral); }
+
+    .alarm-text {
+      color: var(--text-secondary);
+      flex: 1;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .alarm-time {
+      color: #666666;
+      font-size: 10px;
+    }
+
+    .grid-charts {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 20px;
+    }
+
+    .footer {
+      text-align: center;
+      font-size: 10px;
+      color: #444444;
+      margin-top: 40px;
+      padding-top: 20px;
+      border-top: 1px solid rgba(255,255,255,0.03);
+    }
+
+    /* Responsive */
+    @media (max-width: 1440px) {
+      .grid { grid-template-columns: repeat(4, 1fr); }
+      .card-half { grid-column: span 2; }
+      .grid-charts { grid-template-columns: repeat(2, 1fr); }
+      .dashboard { padding: 30px; }
+      .grid { gap: 16px; margin-bottom: 32px; }
+    }
+
+    @media (max-width: 1024px) {
+      .grid { grid-template-columns: repeat(2, 1fr); }
+      .card-half { grid-column: span 1; }
+      .grid-charts { grid-template-columns: 1fr; }
+      .chart { height: 280px; }
+      .chart-xl { height: 320px; }
+    }
+  </style>
+</head>
+<body>
+  <!-- Header -->
+  <div class="header">
+    <div class="header-left">
+      <div class="logo">anyviz</div>
+      <div class="title">智慧能源物联监控中心</div>
+    </div>
+    <div class="header-right">
+      <div class="live-badge">
+        <div class="live-dot"></div>
+        <span>LIVE</span>
+      </div>
+      <div class="clock" id="clock">00:00:00</div>
+    </div>
+  </div>
+
+  <!-- Dashboard -->
+  <div class="dashboard">
+    <!-- KPI Row -->
+    <div class="grid" id="kpiRow">
+      <div class="kpi-card">
+        <div class="kpi-label">总发电量</div>
+        <div class="kpi-value" id="kpi1Value">2,850</div>
+        <div class="kpi-unit">kWh</div>
+        <div id="chart-kpi1" class="kpi-spark"></div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">实时负荷</div>
+        <div class="kpi-value" id="kpi2Value">18.5</div>
+        <div class="kpi-unit">MW</div>
+        <div id="chart-kpi2" class="kpi-spark"></div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">设备在线率</div>
+        <div class="kpi-value" id="kpi3Value">98.2</div>
+        <div class="kpi-unit">%</div>
+        <div id="chart-kpi3" class="kpi-spark"></div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">碳减排</div>
+        <div class="kpi-value" id="kpi4Value">1,245</div>
+        <div class="kpi-unit">吨</div>
+        <div id="chart-kpi4" class="kpi-spark"></div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">告警数</div>
+        <div class="kpi-value" id="kpi5Value">3</div>
+        <div class="kpi-unit">起</div>
+        <div id="chart-kpi5" class="kpi-spark"></div>
+      </div>
+    </div>
+
+    <!-- Charts Grid -->
+    <div class="grid-charts">
+      <!-- Row 1: Real-time Power Curve (full width) -->
+      <div class="card card-full-width">
+        <div id="chart-power" class="chart-xl"></div>
+      </div>
+
+      <!-- Row 2: Energy Mix (Pie) & System Gauge (2 cols each) -->
+      <div class="card card-half">
+        <div id="chart-energy-mix" class="chart"></div>
+      </div>
+      <div class="card card-half">
+        <div id="chart-gauge" class="chart"></div>
+      </div>
+
+      <!-- Row 3: Regional Comparison (full width) -->
+      <div class="card card-full-width">
+        <div id="chart-regional" class="chart"></div>
+      </div>
+
+      <!-- Row 4: Energy Heatmap & Alert List (2.5 / 2.5) -->
+      <div class="card card-half">
+        <div id="chart-heatmap" class="chart"></div>
+      </div>
+      <div class="card card-half">
+        <div class="chart-list" id="alert-list"></div>
+      </div>
+
+      <!-- Row 5: Device Topology (full width) -->
+      <div class="card card-full-width">
+        <div id="chart-topology" class="chart-xl"></div>
+      </div>
+
+      <!-- Row 6: Alert Distribution & Efficiency Ranking (2.5 / 2.5) -->
+      <div class="card card-half">
+        <div id="chart-alarm-dist" class="chart"></div>
+      </div>
+      <div class="card card-half">
+        <div id="chart-efficiency" class="chart"></div>
+      </div>
+    </div>
+
+    <div class="footer">
+      数据来源：IoT 监控平台 | 更新频率：实时 | 最后更新：<span id="lastUpdate">2024-12-20 12:00:00</span>
+    </div>
+  </div>
+
+  <script>
+    // ===== anyviz 深色大屏美学参数 =====
+    const COLOR_PALETTE = [
+      '#4269d0',  // 蓝
+      '#3ca951',  // 绿
+      '#ff725c',  // 珊瑚红
+      '#a463f2',  // 紫
+      '#efb118',  // 琥珀
+      '#6cc5b0',  // 青
+      '#9696a0'   // 灰
+    ];
+
+    const SEMANTIC_COLOR = {
+      normal: '#3ca951',
+      warning: '#efb118',
+      critical: '#ff725c'
+    };
+
+    const FONT = "'Helvetica Neue', Helvetica, Arial, 'PingFang SC', 'Microsoft YaHei', sans-serif";
+    const TITLE_STYLE = { fontSize: 16, fontWeight: 600, color: '#F8FAFC', fontFamily: FONT };
+    const LABEL_STYLE = { fontSize: 11, color: '#9696a0', fontFamily: FONT };
+    const AXIS_LABEL_STYLE = { fontSize: 10, color: '#9696a0', fontFamily: FONT };
+    const TOOLTIP_STYLE = { fontSize: 11, color: '#F8FAFC' };
+
+    const baseOption = {
+      textStyle: { fontFamily: FONT, color: '#F8FAFC' },
+      backgroundColor: 'transparent',
+      animation: true,
+      animationDuration: 1000,
+      animationEasing: 'cubicOut'
+    };
+
+    // ===== 实时时钟 =====
+    function updateClock() {
+      const now = new Date();
+      const h = String(now.getHours()).padStart(2, '0');
+      const m = String(now.getMinutes()).padStart(2, '0');
+      const s = String(now.getSeconds()).padStart(2, '0');
+      document.getElementById('clock').textContent = `${h}:${m}:${s}`;
+      document.getElementById('lastUpdate').textContent = now.toLocaleString('zh-CN');
+    }
+    updateClock();
+    setInterval(updateClock, 1000);
+
+    // ===== KPI Sparkline 迷你图 =====
+    function initKpiSparkline(containerId, data, color) {
+      const chart = echarts.init(document.getElementById(containerId));
+      chart.setOption({
+        ...baseOption,
+        grid: { top: 0, right: 0, bottom: 0, left: 0 },
+        xAxis: { type: 'category', show: false },
+        yAxis: { show: false },
+        series: [{
+          data: data,
+          type: 'line',
+          smooth: true,
+          showSymbol: false,
+          lineStyle: { width: 2, color: color },
+          areaStyle: {
+            color: new echarts.graphic.LinearGradient(0,0,0,1,[
+              { offset: 0, color: color + '40' },
+              { offset: 1, color: color + '00' }
+            ])
+          }
+        }]
+      });
+    }
+
+    // KPI 闪烁数据（模拟实时更新）
+    function updateKpiValues() {
+      const kpis = [
+        { id: 'kpi1Value', base: 2850, variance: 50 },
+        { id: 'kpi2Value', base: 18.5, variance: 0.3 },
+        { id: 'kpi3Value', base: 98.2, variance: 0.5 },
+        { id: 'kpi4Value', base: 1245, variance: 20 },
+        { id: 'kpi5Value', base: 3, variance: 1 }
+      ];
+
+      kpis.forEach((kpi, idx) => {
+        const elem = document.getElementById(kpi.id);
+        const variation = (Math.random() - 0.5) * 2 * kpi.variance;
+        const newVal = kpi.base + variation;
+        const formatted = idx === 1 ? newVal.toFixed(1) : (idx === 2 ? newVal.toFixed(1) : Math.round(newVal).toLocaleString('zh-CN'));
+        elem.textContent = formatted;
+      });
+    }
+
+    // 初始化 KPI sparklines
+    initKpiSparkline('chart-kpi1', [120, 150, 140, 160, 180, 170, 190, 200, 210], COLOR_PALETTE[0]);
+    initKpiSparkline('chart-kpi2', [16, 17, 18, 18.5, 18.2, 18.8, 19, 18.7, 18.5], COLOR_PALETTE[1]);
+    initKpiSparkline('chart-kpi3', [97.5, 97.8, 98, 97.9, 98.1, 98.2, 98.1, 98.2], COLOR_PALETTE[1]);
+    initKpiSparkline('chart-kpi4', [800, 900, 1000, 1100, 1150, 1200, 1245], COLOR_PALETTE[5]);
+    initKpiSparkline('chart-kpi5', [5, 4, 5, 3, 4, 3, 3], COLOR_PALETTE[2]);
+
+    setInterval(updateKpiValues, 3000);
+
+    // ===== 图表 1: 实时功率曲线（多条折线 + 渐变面积） =====
+    (function() {
+      const chart = echarts.init(document.getElementById('chart-power'));
+      const times = Array.from({length: 24}, (_, i) => `${String(i).padStart(2, '0')}:00`);
+      const genData = [850, 920, 1050, 1200, 1350, 1480, 1620, 1750, 1850, 1920, 1980, 2050, 2100, 2080, 2050, 1980, 1850, 1720, 1550, 1380, 1200, 1050, 920, 850];
+      const loadData = [1200, 1250, 1350, 1480, 1620, 1780, 1950, 2100, 2200, 2250, 2280, 2300, 2280, 2250, 2200, 2150, 2050, 1900, 1750, 1600, 1450, 1300, 1200, 1100];
+      const storageData = [400, 380, 350, 320, 300, 280, 250, 200, 150, 100, 50, 20, 0, 50, 100, 200, 300, 400, 450, 480, 500, 520, 500, 450];
+
+      chart.setOption({
+        ...baseOption,
+        title: { text: '实时功率与负荷曲线', textStyle: TITLE_STYLE, left: 20, top: 10 },
+        tooltip: {
+          trigger: 'axis',
+          backgroundColor: 'rgba(11, 15, 26, 0.9)',
+          borderColor: 'rgba(255,255,255,0.1)',
+          textStyle: TOOLTIP_STYLE,
+          axisPointer: { type: 'cross' }
+        },
+        legend: {
+          data: ['光伏发电', '用电负荷', '储能'],
+          top: 10,
+          right: 20,
+          textStyle: { fontSize: 11, color: '#9696a0', fontFamily: FONT }
+        },
+        grid: { top: 80, right: 30, bottom: 50, left: 60 },
+        xAxis: {
+          type: 'category',
+          data: times,
+          axisLine: { lineStyle: { color: 'rgba(255,255,255,0.1)', width: 1 } },
+          axisTick: { show: false },
+          axisLabel: AXIS_LABEL_STYLE
+        },
+        yAxis: {
+          type: 'value',
+          name: '功率 (kW)',
+          nameTextStyle: LABEL_STYLE,
+          axisLabel: AXIS_LABEL_STYLE,
+          splitLine: { lineStyle: { color: 'rgba(255,255,255,0.05)', width: 0.5 } }
+        },
+        series: [
+          {
+            name: '光伏发电',
+            type: 'line',
+            data: genData,
+            color: COLOR_PALETTE[0],
+            lineStyle: { width: 2.5, cap: 'round' },
+            symbol: 'none',
+            areaStyle: {
+              color: new echarts.graphic.LinearGradient(0,0,0,1,[
+                { offset: 0, color: COLOR_PALETTE[0] + '30' },
+                { offset: 1, color: COLOR_PALETTE[0] + '00' }
+              ])
+            }
+          },
+          {
+            name: '用电负荷',
+            type: 'line',
+            data: loadData,
+            color: COLOR_PALETTE[2],
+            lineStyle: { width: 2.5, cap: 'round' },
+            symbol: 'none',
+            areaStyle: {
+              color: new echarts.graphic.LinearGradient(0,0,0,1,[
+                { offset: 0, color: COLOR_PALETTE[2] + '20' },
+                { offset: 1, color: COLOR_PALETTE[2] + '00' }
+              ])
+            }
+          },
+          {
+            name: '储能',
+            type: 'line',
+            data: storageData,
+            color: COLOR_PALETTE[5],
+            lineStyle: { width: 2, cap: 'round', type: 'dashed' },
+            symbol: 'none'
+          }
+        ]
+      });
+
+      window.addEventListener('resize', () => chart.resize());
+    })();
+
+    // ===== 图表 2: 能源结构占比（环形图）=====
+    (function() {
+      const chart = echarts.init(document.getElementById('chart-energy-mix'));
+      const data = [
+        { value: 42, name: '光伏' },
+        { value: 28, name: '风电' },
+        { value: 18, name: '储能' },
+        { value: 12, name: '市电' }
+      ];
+
+      const colors = [COLOR_PALETTE[0], COLOR_PALETTE[4], COLOR_PALETTE[5], COLOR_PALETTE[6]];
+
+      chart.setOption({
+        ...baseOption,
+        title: { text: '能源结构占比', textStyle: TITLE_STYLE, left: 20, top: 10 },
+        tooltip: {
+          trigger: 'item',
+          backgroundColor: 'rgba(11, 15, 26, 0.9)',
+          borderColor: 'rgba(255,255,255,0.1)',
+          textStyle: TOOLTIP_STYLE
+        },
+        legend: {
+          data: data.map(d => d.name),
+          orient: 'vertical',
+          right: 20,
+          top: 'middle',
+          textStyle: { fontSize: 10, color: '#9696a0', fontFamily: FONT }
+        },
+        series: [{
+          data: data,
+          type: 'pie',
+          radius: ['40%', '70%'],
+          center: ['40%', '50%'],
+          itemStyle: { borderColor: '#0b0f1a', borderWidth: 2 },
+          label: {
+            show: true,
+            formatter: '{b}\n{d}%',
+            fontSize: 11,
+            color: '#F8FAFC',
+            fontFamily: FONT
+          },
+          color: colors
+        }]
+      });
+
+      window.addEventListener('resize', () => chart.resize());
+    })();
+
+    // ===== 图表 3: 系统仪表盘（3 个 Gauge）=====
+    (function() {
+      const chart = echarts.init(document.getElementById('chart-gauge'));
+      chart.setOption({
+        ...baseOption,
+        title: { text: '系统关键指标', textStyle: TITLE_STYLE, left: 20, top: 10 },
+        grid: { top: 80, right: 0, bottom: 0, left: 0 },
+        series: [
+          {
+            name: '负载率',
+            type: 'gauge',
+            radius: '30%',
+            center: ['25%', '55%'],
+            min: 0, max: 100,
+            data: [{ value: 68, name: '负载率' }],
+            splitNumber: 10,
+            axisLine: {
+              lineStyle: {
+                color: [[0.7, COLOR_PALETTE[1]], [1, COLOR_PALETTE[2]]],
+                width: 8
+              }
+            },
+            pointer: { itemStyle: { color: '#F8FAFC' } },
+            axisTick: { show: false },
+            splitLine: { show: false },
+            axisLabel: { color: '#9696a0', fontSize: 9 },
+            detail: { valueAnimation: true, formatter: '{value}%', color: '#F8FAFC', fontSize: 16, fontWeight: 600 }
+          },
+          {
+            name: '电压',
+            type: 'gauge',
+            radius: '30%',
+            center: ['55%', '55%'],
+            min: 380, max: 420,
+            data: [{ value: 405, name: '电压(V)' }],
+            splitNumber: 8,
+            axisLine: {
+              lineStyle: {
+                color: [[0.8, COLOR_PALETTE[0]], [1, COLOR_PALETTE[2]]],
+                width: 8
+              }
+            },
+            pointer: { itemStyle: { color: '#F8FAFC' } },
+            axisTick: { show: false },
+            splitLine: { show: false },
+            axisLabel: { color: '#9696a0', fontSize: 9 },
+            detail: { valueAnimation: true, formatter: '{value}V', color: '#F8FAFC', fontSize: 16, fontWeight: 600 }
+          },
+          {
+            name: '温度',
+            type: 'gauge',
+            radius: '30%',
+            center: ['85%', '55%'],
+            min: 0, max: 50,
+            data: [{ value: 28, name: '温度(°C)' }],
+            splitNumber: 10,
+            axisLine: {
+              lineStyle: {
+                color: [[0.5, COLOR_PALETTE[1]], [0.9, COLOR_PALETTE[4]], [1, COLOR_PALETTE[2]]],
+                width: 8
+              }
+            },
+            pointer: { itemStyle: { color: '#F8FAFC' } },
+            axisTick: { show: false },
+            splitLine: { show: false },
+            axisLabel: { color: '#9696a0', fontSize: 9 },
+            detail: { valueAnimation: true, formatter: '{value}°C', color: '#F8FAFC', fontSize: 16, fontWeight: 600 }
+          }
+        ]
+      });
+
+      window.addEventListener('resize', () => chart.resize());
+    })();
+
+    // ===== 图表 4: 区域能耗对比（横向条形）=====
+    (function() {
+      const chart = echarts.init(document.getElementById('chart-regional'));
+      const regions = ['东北区域', '华北区域', '华东区域', '华南区域', '西南区域', '西北区域'];
+      const consumption = [450, 520, 680, 620, 380, 290];
+
+      chart.setOption({
+        ...baseOption,
+        title: { text: '各区域实时能耗对比', textStyle: TITLE_STYLE, left: 20, top: 10 },
+        tooltip: {
+          trigger: 'axis',
+          backgroundColor: 'rgba(11, 15, 26, 0.9)',
+          borderColor: 'rgba(255,255,255,0.1)',
+          textStyle: TOOLTIP_STYLE,
+          axisPointer: { type: 'shadow' }
+        },
+        grid: { top: 70, right: 30, bottom: 40, left: 120 },
+        xAxis: {
+          type: 'value',
+          axisLine: { lineStyle: { color: 'rgba(255,255,255,0.1)', width: 1 } },
+          axisTick: { show: false },
+          axisLabel: AXIS_LABEL_STYLE,
+          splitLine: { lineStyle: { color: 'rgba(255,255,255,0.05)', width: 0.5 } }
+        },
+        yAxis: {
+          type: 'category',
+          data: regions,
+          axisLine: { show: false },
+          axisTick: { show: false },
+          axisLabel: { ...AXIS_LABEL_STYLE, color: '#F8FAFC' }
+        },
+        series: [{
+          data: consumption,
+          type: 'bar',
+          itemStyle: {
+            color: new echarts.graphic.LinearGradient(0,0,1,0,[
+              { offset: 0, color: COLOR_PALETTE[0] },
+              { offset: 1, color: COLOR_PALETTE[5] }
+            ]),
+            borderRadius: [0, 6, 6, 0]
+          },
+          label: { show: true, position: 'right', color: '#F8FAFC', fontSize: 11, fontFamily: FONT }
+        }]
+      });
+
+      window.addEventListener('resize', () => chart.resize());
+    })();
+
+    // ===== 图表 5: 24小时能耗热力图 =====
+    (function() {
+      const chart = echarts.init(document.getElementById('chart-heatmap'));
+      const days = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'];
+      const hours = Array.from({length: 24}, (_, i) => `${String(i).padStart(2, '0')}h`);
+
+      const data = [];
+      for (let d = 0; d < 7; d++) {
+        for (let h = 0; h < 24; h++) {
+          const baseVal = 40 + Math.sin((d + h) / 12) * 30;
+          const val = Math.round(baseVal + Math.random() * 20);
+          data.push([h, d, val]);
+        }
+      }
+
+      chart.setOption({
+        ...baseOption,
+        title: { text: '24小时能耗热力图', textStyle: TITLE_STYLE, left: 20, top: 10 },
+        tooltip: {
+          trigger: 'item',
+          backgroundColor: 'rgba(11, 15, 26, 0.9)',
+          borderColor: 'rgba(255,255,255,0.1)',
+          textStyle: TOOLTIP_STYLE
+        },
+        grid: { top: 70, right: 20, bottom: 40, left: 60 },
+        xAxis: {
+          type: 'category',
+          data: hours,
+          axisLine: { lineStyle: { color: 'rgba(255,255,255,0.1)', width: 1 } },
+          axisTick: { show: false },
+          axisLabel: { ...AXIS_LABEL_STYLE, rotate: 0, fontSize: 9 }
+        },
+        yAxis: {
+          type: 'category',
+          data: days,
+          axisLine: { show: false },
+          axisTick: { show: false },
+          axisLabel: { ...AXIS_LABEL_STYLE, color: '#F8FAFC' }
+        },
+        visualMap: {
+          min: 20,
+          max: 100,
+          text: ['高', '低'],
+          realtime: true,
+          inRange: {
+            color: ['#0b0f1a', COLOR_PALETTE[0], COLOR_PALETTE[4], COLOR_PALETTE[2]]
+          },
+          textStyle: { color: '#9696a0', fontSize: 10 }
+        },
+        series: [{
+          data: data,
+          type: 'heatmap',
+          itemStyle: { borderRadius: 4 },
+          label: { show: false }
+        }]
+      });
+
+      window.addEventListener('resize', () => chart.resize());
+    })();
+
+    // ===== 告警列表 =====
+    (function() {
+      const alarms = [
+        { level: 'critical', text: '华东区域变压器温度过高', time: '2分钟前' },
+        { level: 'warning', text: '储能系统SOC不足', time: '5分钟前' },
+        { level: 'warning', text: '风电场通讯中断', time: '8分钟前' },
+        { level: 'normal', text: '东北区域设备维护完成', time: '12分钟前' },
+        { level: 'normal', text: '系统自检完成', time: '25分钟前' }
+      ];
+
+      const listHtml = alarms.map(a => `
+        <div class="alarm-item alarm-${a.level}">
+          <div class="alarm-dot"></div>
+          <div class="alarm-text">${a.text}</div>
+          <div class="alarm-time">${a.time}</div>
+        </div>
+      `).join('');
+
+      document.getElementById('alert-list').innerHTML = `
+        <div style="font-size: 14px; font-weight: 600; color: #F8FAFC; margin-bottom: 12px; padding-bottom: 8px; border-bottom: 1px solid rgba(255,255,255,0.06);">
+          告警滚动列表
+        </div>
+        ${listHtml}
+      `;
+    })();
+
+    // ===== 图表 6: 设备拓扑图（力导向）=====
+    (function() {
+      const chart = echarts.init(document.getElementById('chart-topology'));
+
+      const nodes = [
+        { name: '中央监控', x: 0, y: 0, symbolSize: 45, itemStyle: { color: COLOR_PALETTE[0] } },
+        { name: '光伏A', itemStyle: { color: COLOR_PALETTE[0] } },
+        { name: '光伏B', itemStyle: { color: COLOR_PALETTE[0] } },
+        { name: '光伏C', itemStyle: { color: COLOR_PALETTE[0] } },
+        { name: '风电1', itemStyle: { color: COLOR_PALETTE[4] } },
+        { name: '风电2', itemStyle: { color: COLOR_PALETTE[4] } },
+        { name: '储能系统', itemStyle: { color: COLOR_PALETTE[5] } },
+        { name: '变压器1', itemStyle: { color: COLOR_PALETTE[3] } },
+        { name: '变压器2', itemStyle: { color: COLOR_PALETTE[3] } },
+        { name: '用户A', itemStyle: { color: COLOR_PALETTE[1] } },
+        { name: '用户B', itemStyle: { color: COLOR_PALETTE[1] } },
+        { name: '用户C', itemStyle: { color: COLOR_PALETTE[1] } }
+      ];
+
+      const links = [
+        { source: '中央监控', target: '光伏A' },
+        { source: '中央监控', target: '光伏B' },
+        { source: '中央监控', target: '光伏C' },
+        { source: '中央监控', target: '风电1' },
+        { source: '中央监控', target: '风电2' },
+        { source: '中央监控', target: '储能系统' },
+        { source: '光伏A', target: '变压器1' },
+        { source: '光伏B', target: '变压器1' },
+        { source: '风电1', target: '变压器2' },
+        { source: '储能系统', target: '变压器1' },
+        { source: '变压器1', target: '用户A' },
+        { source: '变压器1', target: '用户B' },
+        { source: '变压器2', target: '用户C' }
+      ];
+
+      chart.setOption({
+        ...baseOption,
+        title: { text: '设备拓扑与连接', textStyle: TITLE_STYLE, left: 20, top: 10 },
+        tooltip: {
+          trigger: 'item',
+          backgroundColor: 'rgba(11, 15, 26, 0.9)',
+          borderColor: 'rgba(255,255,255,0.1)',
+          textStyle: TOOLTIP_STYLE
+        },
+        series: [{
+          type: 'graph',
+          layout: 'force',
+          force: {
+            repulsion: 150,
+            gravity: 0.1,
+            edgeLength: [80, 150]
+          },
+          nodes: nodes,
+          links: links,
+          roam: true,
+          label: {
+            show: true,
+            fontSize: 10,
+            color: '#F8FAFC',
+            fontFamily: FONT,
+            position: 'bottom',
+            distance: 5
+          },
+          lineStyle: {
+            color: 'rgba(255,255,255,0.2)',
+            width: 1.5
+          },
+          itemStyle: {
+            borderColor: 'rgba(255,255,255,0.3)',
+            borderWidth: 1
+          },
+          symbolSize: [30, 30],
+          smooth: true,
+          edgeSymbol: ['none', 'arrow'],
+          edgeSymbolSize: [0, 8]
+        }]
+      });
+
+      window.addEventListener('resize', () => chart.resize());
+    })();
+
+    // ===== 图表 7: 告警分布（环形）=====
+    (function() {
+      const chart = echarts.init(document.getElementById('chart-alarm-dist'));
+      const data = [
+        { value: 1245, name: '正常', itemStyle: { color: SEMANTIC_COLOR.normal } },
+        { value: 28, name: '告警', itemStyle: { color: SEMANTIC_COLOR.warning } },
+        { value: 7, name: '严重', itemStyle: { color: SEMANTIC_COLOR.critical } }
+      ];
+
+      chart.setOption({
+        ...baseOption,
+        title: { text: '设备状态分布', textStyle: TITLE_STYLE, left: 20, top: 10 },
+        tooltip: {
+          trigger: 'item',
+          backgroundColor: 'rgba(11, 15, 26, 0.9)',
+          borderColor: 'rgba(255,255,255,0.1)',
+          textStyle: TOOLTIP_STYLE
+        },
+        legend: {
+          data: data.map(d => d.name),
+          orient: 'vertical',
+          right: 20,
+          top: 'middle',
+          textStyle: { fontSize: 10, color: '#9696a0', fontFamily: FONT }
+        },
+        series: [{
+          data: data,
+          type: 'pie',
+          radius: ['35%', '65%'],
+          center: ['40%', '50%'],
+          itemStyle: { borderColor: '#0b0f1a', borderWidth: 2 },
+          label: {
+            show: true,
+            formatter: '{b}\n{d}%',
+            fontSize: 10,
+            color: '#F8FAFC',
+            fontFamily: FONT
+          }
+        }]
+      });
+
+      window.addEventListener('resize', () => chart.resize());
+    })();
+
+    // ===== 图表 8: 效率排名榜（条形）=====
+    (function() {
+      const chart = echarts.init(document.getElementById('chart-efficiency'));
+      const facilities = ['光伏园区A', '光伏园区B', '风电场1', '储能中心', '微网试点'];
+      const efficiency = [94.2, 91.5, 88.3, 85.6, 82.1];
+
+      const colors_ranking = efficiency.map(e =>
+        e >= 90 ? COLOR_PALETTE[1] : e >= 85 ? COLOR_PALETTE[0] : COLOR_PALETTE[4]
+      );
+
+      chart.setOption({
+        ...baseOption,
+        title: { text: '能效排名榜', textStyle: TITLE_STYLE, left: 20, top: 10 },
+        tooltip: {
+          trigger: 'axis',
+          backgroundColor: 'rgba(11, 15, 26, 0.9)',
+          borderColor: 'rgba(255,255,255,0.1)',
+          textStyle: TOOLTIP_STYLE,
+          axisPointer: { type: 'shadow' }
+        },
+        grid: { top: 70, right: 30, bottom: 40, left: 130 },
+        xAxis: {
+          type: 'value',
+          axisLine: { lineStyle: { color: 'rgba(255,255,255,0.1)', width: 1 } },
+          axisTick: { show: false },
+          axisLabel: AXIS_LABEL_STYLE,
+          splitLine: { lineStyle: { color: 'rgba(255,255,255,0.05)', width: 0.5 } }
+        },
+        yAxis: {
+          type: 'category',
+          data: facilities.map((f, i) => `${i+1}. ${f}`),
+          axisLine: { show: false },
+          axisTick: { show: false },
+          axisLabel: { ...AXIS_LABEL_STYLE, color: '#F8FAFC', fontSize: 10 }
+        },
+        series: [{
+          data: efficiency,
+          type: 'bar',
+          itemStyle: {
+            color: (params) => colors_ranking[params.dataIndex],
+            borderRadius: [0, 6, 6, 0]
+          },
+          label: { show: true, position: 'right', formatter: '{c}%', color: '#F8FAFC', fontSize: 11, fontFamily: FONT }
+        }]
+      });
+
+      window.addEventListener('resize', () => chart.resize());
+    })();
+
+    // 模拟实时数据更新
+    setInterval(() => {
+      updateKpiValues();
+    }, 3000);
+  </script>
+</body>
+</html>

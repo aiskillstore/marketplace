@@ -1,0 +1,69 @@
+name: validate
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Package validation — theme and exports
+        run: npm run validate
+
+      - name: Theme validator — invalid config should fail
+        run: |
+          if python3 scripts/theme_validator.py -c examples/test_config_invalid.json; then
+            echo "::error::theme_validator unexpectedly passed an invalid config"
+            exit 1
+          else
+            echo "invalid config correctly rejected"
+          fi
+
+      - name: Template structure check (five required sections)
+        run: |
+          required=("## 适用场景" "## 数据格式" "## 美学参数" "## 设计要点" "## 变体")
+          fail=0
+          while IFS= read -r f; do
+            case "$f" in */TEMPLATE-SPEC.md) continue ;; esac
+            for section in "${required[@]}"; do
+              if ! grep -qF "$section" "$f"; then
+                echo "::error file=$f::missing section '$section'"
+                fail=1
+              fi
+            done
+          done < <(find templates -name '*.md')
+          if [ "$fail" -ne 0 ]; then
+            echo "One or more templates are missing required sections."
+            exit 1
+          fi
+          echo "All templates contain the five required sections."
+
+      - name: JSON validity check
+        run: |
+          fail=0
+          while IFS= read -r f; do
+            if ! python3 -c "import json,sys; json.load(open(sys.argv[1], encoding='utf-8'))" "$f"; then
+              echo "::error file=$f::invalid JSON"
+              fail=1
+            fi
+          done < <(find aesthetics examples -name '*.json')
+          if [ "$fail" -ne 0 ]; then
+            echo "One or more JSON files are invalid."
+            exit 1
+          fi
+          echo "All aesthetics and example JSON files are valid."

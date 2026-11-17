@@ -1,0 +1,1167 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>城市大数据可视化中心 | anyviz</title>
+  <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.1/dist/echarts.min.js"></script>
+  <script src="../common/china.js"></script>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    :root {
+      --bg-dark: #03050C;
+      --panel-bg: #0b0f1a;
+      --panel-border: rgba(255, 255, 255, 0.06);
+      --text-primary: #F8FAFC;
+      --text-secondary: #9696a0;
+      --color-blue: #4269d0;
+      --color-green: #3ca951;
+      --color-red: #ff725c;
+      --color-purple: #a463f2;
+      --color-amber: #efb118;
+      --color-cyan: #6cc5b0;
+      --color-gray: #9696a0;
+      --font-default: 'Helvetica Neue', Helvetica, Arial, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+      --font-mono: 'Menlo', 'Monaco', monospace;
+    }
+
+    html, body {
+      width: 100%;
+      height: 100%;
+      background: var(--bg-dark);
+      color: var(--text-primary);
+      font-family: var(--font-default);
+      overflow: hidden;
+    }
+
+    .container {
+      width: 100%;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* ========== 顶部标题栏 ========== */
+    .header {
+      padding: 16px 24px;
+      background: linear-gradient(180deg, rgba(66, 105, 208, 0.08) 0%, rgba(3, 5, 12, 0) 100%);
+      border-bottom: 1px solid var(--panel-border);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-shrink: 0;
+      height: 80px;
+    }
+
+    .header-left {
+      display: flex;
+      align-items: center;
+      gap: 20px;
+    }
+
+    .logo-text {
+      font-size: 14px;
+      font-weight: 600;
+      background: linear-gradient(90deg, var(--color-blue) 0%, var(--color-cyan) 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      letter-spacing: 1px;
+    }
+
+    .title {
+      font-size: 20px;
+      font-weight: 600;
+      color: var(--text-primary);
+    }
+
+    .header-right {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+
+    .clock {
+      font-size: 14px;
+      font-family: var(--font-mono);
+      color: var(--text-secondary);
+      padding: 6px 12px;
+      border: 1px solid var(--panel-border);
+      border-radius: 6px;
+      background: rgba(255, 255, 255, 0.02);
+    }
+
+    .live-indicator {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      color: var(--color-green);
+      font-weight: 600;
+    }
+
+    .live-dot {
+      width: 8px;
+      height: 8px;
+      background: var(--color-green);
+      border-radius: 50%;
+      animation: pulse 1.5s infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.4; }
+    }
+
+    /* ========== 主内容区 ========== */
+    .content {
+      flex: 1;
+      overflow: auto;
+      padding: 16px 24px;
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr 1fr 1fr;
+      gap: 16px;
+      align-content: start;
+      grid-auto-rows: auto;
+    }
+
+    /* ========== KPI 卡片（顶部 5 列） ========== */
+    .kpi-row {
+      grid-column: 1 / -1;
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 16px;
+    }
+
+    .kpi-card {
+      background: var(--panel-bg);
+      border: 1px solid var(--panel-border);
+      border-radius: 12px;
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      min-height: 120px;
+    }
+
+    .kpi-label {
+      font-size: 12px;
+      color: var(--text-secondary);
+      font-weight: 500;
+      margin-bottom: 8px;
+    }
+
+    .kpi-value {
+      font-size: 32px;
+      font-weight: 700;
+      color: var(--text-primary);
+      font-family: var(--font-mono);
+      line-height: 1;
+    }
+
+    .kpi-unit {
+      font-size: 12px;
+      color: var(--text-secondary);
+      margin-top: 4px;
+    }
+
+    .kpi-sparkline {
+      height: 30px;
+      margin-top: 8px;
+    }
+
+    .kpi-trend {
+      font-size: 12px;
+      color: var(--color-green);
+      margin-top: 6px;
+    }
+
+    /* ========== 地图容器（中央大块） ========== */
+    .map-section {
+      grid-column: 1 / 4;
+      grid-row: 2;
+      background: var(--panel-bg);
+      border: 1px solid var(--panel-border);
+      border-radius: 12px;
+      min-height: 400px;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .map-title {
+      padding: 12px 16px;
+      font-size: 14px;
+      font-weight: 600;
+      border-bottom: 1px solid var(--panel-border);
+      color: var(--text-primary);
+    }
+
+    #mapChart {
+      width: 100%;
+      flex: 1;
+      min-height: 0;
+    }
+
+    /* ========== 右侧竖形栏 ========== */
+    .right-column {
+      grid-column: 4 / -1;
+      grid-row: 2;
+      display: grid;
+      grid-template-rows: repeat(2, 1fr);
+      gap: 16px;
+      min-height: 400px;
+    }
+
+    /* 城市排名卡 */
+    .ranking-card {
+      background: var(--panel-bg);
+      border: 1px solid var(--panel-border);
+      border-radius: 12px;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .card-header {
+      padding: 12px 16px;
+      font-size: 14px;
+      font-weight: 600;
+      border-bottom: 1px solid var(--panel-border);
+      color: var(--text-primary);
+    }
+
+    .ranking-list {
+      padding: 12px 16px;
+      flex: 1;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .ranking-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 12px;
+    }
+
+    .ranking-rank {
+      width: 24px;
+      height: 24px;
+      background: var(--color-blue);
+      border-radius: 4px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 700;
+      color: white;
+      flex-shrink: 0;
+    }
+
+    .ranking-name {
+      flex: 1;
+      color: var(--text-primary);
+      margin: 0 8px;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .ranking-value {
+      color: var(--color-green);
+      font-weight: 600;
+      font-family: var(--font-mono);
+    }
+
+    /* ========== 区域占比卡（环形图） ========== */
+    #pieChart {
+      width: 100%;
+      flex: 1;
+      min-height: 0;
+    }
+
+    /* ========== 下方三卡布局 ========== */
+    .bottom-row {
+      grid-column: 1 / -1;
+      grid-row: 3;
+      display: grid;
+      grid-template-columns: 2fr 1.5fr 1.5fr;
+      gap: 16px;
+    }
+
+    .chart-card {
+      background: var(--panel-bg);
+      border: 1px solid var(--panel-border);
+      border-radius: 12px;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+
+    #trendChart {
+      width: 100%;
+      height: 280px;
+    }
+
+    #ageChart {
+      width: 100%;
+      height: 280px;
+    }
+
+    #heatmapChart {
+      width: 100%;
+      height: 280px;
+    }
+
+    /* ========== 城市运行态势摘要 ========== */
+    .ops-summary {
+      grid-column: 1 / -1;
+      grid-row: 4;
+      background: var(--panel-bg);
+      border: 1px solid var(--panel-border);
+      border-radius: 12px;
+      padding: 16px;
+      overflow: hidden;
+    }
+
+    .summary-title {
+      font-size: 14px;
+      font-weight: 600;
+      margin-bottom: 14px;
+      color: var(--text-primary);
+    }
+
+    .summary-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .summary-card {
+      min-height: 96px;
+      padding: 14px;
+      border: 1px solid rgba(255, 255, 255, 0.05);
+      border-radius: 10px;
+      background:
+        linear-gradient(135deg, rgba(66, 105, 208, 0.12), rgba(108, 197, 176, 0.03)),
+        rgba(255, 255, 255, 0.015);
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+    }
+
+    .summary-label {
+      font-size: 12px;
+      color: var(--text-secondary);
+      line-height: 1.4;
+    }
+
+    .summary-value {
+      margin-top: 8px;
+      font-size: 24px;
+      line-height: 1;
+      font-family: var(--font-mono);
+      font-weight: 700;
+      color: var(--text-primary);
+    }
+
+    .summary-note {
+      margin-top: 8px;
+      font-size: 11px;
+      color: var(--color-cyan);
+      line-height: 1.4;
+    }
+
+    /* ========== 响应式 ========== */
+    @media (max-width: 1600px) {
+      .content {
+        grid-template-columns: 1fr 1fr 1fr;
+      }
+
+      .kpi-row {
+        grid-template-columns: repeat(3, 1fr);
+      }
+
+      .map-section {
+        grid-column: 1 / -1;
+        min-height: 300px;
+      }
+
+      .right-column {
+        grid-column: 1 / -1;
+        grid-template-rows: auto;
+      }
+
+      .bottom-row {
+        grid-template-columns: 1fr;
+      }
+
+      .summary-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+    }
+
+    @media (max-width: 900px) {
+      .summary-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    /* 滚动条样式 */
+    ::-webkit-scrollbar {
+      width: 6px;
+    }
+
+    ::-webkit-scrollbar-track {
+      background: transparent;
+    }
+
+    ::-webkit-scrollbar-thumb {
+      background: rgba(255, 255, 255, 0.1);
+      border-radius: 3px;
+    }
+
+    ::-webkit-scrollbar-thumb:hover {
+      background: rgba(255, 255, 255, 0.2);
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <!-- 顶部标题栏 -->
+    <div class="header">
+      <div class="header-left">
+        <div class="logo-text">anyviz</div>
+        <div class="title">城市大数据可视化中心</div>
+      </div>
+      <div class="header-right">
+        <div class="clock" id="clockDisplay">2026-06-13 14:30:45</div>
+        <div class="live-indicator">
+          <div class="live-dot"></div>
+          <span>LIVE</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- 主内容区 -->
+    <div class="content">
+      <!-- KPI 行 -->
+      <div class="kpi-row">
+        <div class="kpi-card">
+          <div class="kpi-label">常住人口</div>
+          <div class="kpi-value">8,524</div>
+          <div class="kpi-unit">万人</div>
+          <div class="kpi-trend">↑ 2.3% YoY</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-label">GDP(累计)</div>
+          <div class="kpi-value">12.8</div>
+          <div class="kpi-unit">万亿元</div>
+          <div class="kpi-trend">↑ 5.1% YoY</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-label">客流总量</div>
+          <div class="kpi-value">2,847</div>
+          <div class="kpi-unit">万人次</div>
+          <div class="kpi-trend">↑ 8.7% YoY</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-label">覆盖城市数</div>
+          <div class="kpi-value">284</div>
+          <div class="kpi-unit">个</div>
+          <div class="kpi-trend">↑ 12 new</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-label">实时活跃</div>
+          <div class="kpi-value">384</div>
+          <div class="kpi-unit">万人</div>
+          <div class="kpi-trend">↑ 3.2% now</div>
+        </div>
+      </div>
+
+      <!-- 中央地图 + 右侧栏 -->
+      <div class="map-section">
+        <div class="map-title">中国主要城市分布地图</div>
+        <div id="mapChart"></div>
+      </div>
+
+      <div class="right-column">
+        <!-- 城市排名 TOP 10 -->
+        <div class="ranking-card">
+          <div class="card-header">城市排名 TOP 10（客流量）</div>
+          <div class="ranking-list">
+            <div class="ranking-item">
+              <div class="ranking-rank">1</div>
+              <div class="ranking-name">上海</div>
+              <div class="ranking-value">584.2</div>
+            </div>
+            <div class="ranking-item">
+              <div class="ranking-rank">2</div>
+              <div class="ranking-name">北京</div>
+              <div class="ranking-value">542.8</div>
+            </div>
+            <div class="ranking-item">
+              <div class="ranking-rank">3</div>
+              <div class="ranking-name">广州</div>
+              <div class="ranking-value">438.1</div>
+            </div>
+            <div class="ranking-item">
+              <div class="ranking-rank">4</div>
+              <div class="ranking-name">深圳</div>
+              <div class="ranking-value">416.5</div>
+            </div>
+            <div class="ranking-item">
+              <div class="ranking-rank">5</div>
+              <div class="ranking-name">杭州</div>
+              <div class="ranking-value">328.7</div>
+            </div>
+            <div class="ranking-item">
+              <div class="ranking-rank">6</div>
+              <div class="ranking-name">成都</div>
+              <div class="ranking-value">298.3</div>
+            </div>
+            <div class="ranking-item">
+              <div class="ranking-rank">7</div>
+              <div class="ranking-name">西安</div>
+              <div class="ranking-value">256.9</div>
+            </div>
+            <div class="ranking-item">
+              <div class="ranking-rank">8</div>
+              <div class="ranking-name">南京</div>
+              <div class="ranking-value">218.4</div>
+            </div>
+            <div class="ranking-item">
+              <div class="ranking-rank">9</div>
+              <div class="ranking-name">武汉</div>
+              <div class="ranking-value">197.6</div>
+            </div>
+            <div class="ranking-item">
+              <div class="ranking-rank">10</div>
+              <div class="ranking-name">重庆</div>
+              <div class="ranking-value">184.2</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 区域占比（环形图） -->
+        <div class="ranking-card">
+          <div class="card-header">区域分布占比</div>
+          <div id="pieChart"></div>
+        </div>
+      </div>
+
+      <!-- 下方三卡布局 -->
+      <div class="bottom-row">
+        <!-- 客流趋势 -->
+        <div class="chart-card">
+          <div class="card-header">客流趋势（近 30 天）</div>
+          <div id="trendChart"></div>
+        </div>
+
+        <!-- 人口年龄结构 -->
+        <div class="chart-card">
+          <div class="card-header">人口年龄结构</div>
+          <div id="ageChart"></div>
+        </div>
+
+        <!-- 24小时热力 -->
+        <div class="chart-card">
+          <div class="card-header">24 小时客流热力</div>
+          <div id="heatmapChart"></div>
+        </div>
+      </div>
+
+      <!-- 城市运行态势摘要 -->
+      <div class="ops-summary">
+        <div class="summary-title">城市运行态势摘要</div>
+        <div class="summary-grid">
+          <div class="summary-card">
+            <div class="summary-label">通勤峰值窗口</div>
+            <div class="summary-value">18:00</div>
+            <div class="summary-note">晚高峰预计持续 92 分钟</div>
+          </div>
+          <div class="summary-card">
+            <div class="summary-label">跨城流动强度</div>
+            <div class="summary-value">78.4</div>
+            <div class="summary-note">长三角、珠三角走廊活跃</div>
+          </div>
+          <div class="summary-card">
+            <div class="summary-label">公共服务响应</div>
+            <div class="summary-value">96.2%</div>
+            <div class="summary-note">核心城区资源供给稳定</div>
+          </div>
+          <div class="summary-card">
+            <div class="summary-label">重点商圈热度</div>
+            <div class="summary-value">+12.7%</div>
+            <div class="summary-note">较昨日同期持续升温</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // ========== 实时时钟 ==========
+    function updateClock() {
+      const now = new Date();
+      const year = now.getFullYear();
+      const month = String(now.getMonth() + 1).padStart(2, '0');
+      const date = String(now.getDate()).padStart(2, '0');
+      const hours = String(now.getHours()).padStart(2, '0');
+      const minutes = String(now.getMinutes()).padStart(2, '0');
+      const seconds = String(now.getSeconds()).padStart(2, '0');
+      document.getElementById('clockDisplay').textContent = `${year}-${month}-${date} ${hours}:${minutes}:${seconds}`;
+    }
+    setInterval(updateClock, 1000);
+
+    // ========== 主要城市坐标 ==========
+    const cityCoordinates = {
+      '北京': [116.4074, 39.9042],
+      '上海': [121.4737, 31.2304],
+      '广州': [113.2644, 23.1291],
+      '深圳': [114.0579, 22.5431],
+      '成都': [104.0659, 30.5728],
+      '杭州': [120.1551, 30.2875],
+      '西安': [108.9398, 34.3416],
+      '武汉': [114.3055, 30.5928],
+      '南京': [118.7969, 32.0603],
+      '重庆': [106.5516, 29.5630],
+      '苏州': [120.5954, 31.2989],
+      '长沙': [112.9388, 28.2282],
+      '郑州': [113.6254, 34.7466],
+      '青岛': [120.3826, 36.0671],
+      '宁波': [121.5440, 29.8683],
+    };
+
+    // ========== 地图初始化 ==========
+    function initMap() {
+      const mapChart = echarts.init(document.getElementById('mapChart'));
+
+      const hasChinaMap = !!echarts.getMap('china');
+
+      if (hasChinaMap) {
+        // 生成省份数据（模拟）
+        const provinceData = [
+          {name: '广东', value: 1200},
+          {name: '浙江', value: 950},
+          {name: '上海', value: 850},
+          {name: '江苏', value: 800},
+          {name: '北京', value: 750},
+          {name: '四川', value: 620},
+          {name: '山东', value: 580},
+          {name: '福建', value: 520},
+          {name: '湖北', value: 450},
+          {name: '湖南', value: 380},
+          {name: '陕西', value: 320},
+          {name: '辽宁', value: 280},
+          {name: '江西', value: 240},
+          {name: '安徽', value: 220},
+          {name: '河南', value: 210}
+        ];
+
+        // 飞线数据（中心城市分发）
+        const flightLines = [
+          {coords: [[116.4074, 39.9042], [121.4737, 31.2304]]},
+          {coords: [[116.4074, 39.9042], [113.2644, 23.1291]]},
+          {coords: [[116.4074, 39.9042], [114.0579, 22.5431]]},
+          {coords: [[116.4074, 39.9042], [104.0659, 30.5728]]},
+          {coords: [[116.4074, 39.9042], [120.1551, 30.2875]]},
+          {coords: [[116.4074, 39.9042], [108.9398, 34.3416]]},
+          {coords: [[116.4074, 39.9042], [114.3055, 30.5928]]},
+          {coords: [[116.4074, 39.9042], [118.7969, 32.0603]]},
+          {coords: [[116.4074, 39.9042], [106.5516, 29.5630]]}
+        ];
+
+        // 涟漪散点
+        const effectScatter = Object.entries(cityCoordinates).map(([city, coord]) => ({
+          name: city,
+          value: [...coord, Math.random() * 500]
+        }));
+
+        const option = {
+          geo: {
+            map: 'china',
+            roam: false,
+            itemStyle: {
+              normal: {
+                areaColor: 'rgba(255,255,255,0.02)',
+                borderColor: 'rgba(66,105,208,0.2)'
+              },
+              emphasis: {
+                areaColor: 'rgba(66,105,208,0.1)'
+              }
+            },
+            textStyle: {
+              color: '#9696a0',
+              fontSize: 10
+            }
+          },
+          visualMap: {
+            min: 0,
+            max: 1200,
+            text: ['High', 'Low'],
+            realtime: true,
+            calculable: true,
+            inRange: {
+              color: [
+                'rgba(66,105,208,0.1)',
+                'rgba(66,105,208,0.3)',
+                'rgba(66,105,208,0.6)',
+                '#4269d0'
+              ]
+            },
+            textStyle: {
+              color: '#9696a0'
+            },
+            bottom: 20,
+            left: 20
+          },
+          series: [
+            // Choropleth（省份着色）
+            {
+              name: '客流量',
+              type: 'map',
+              geoIndex: 0,
+              data: provinceData,
+              itemStyle: {
+                borderWidth: 0.5
+              }
+            },
+            // 飞线
+            {
+              name: '飞线流',
+              type: 'lines',
+              coordinateSystem: 'geo',
+              data: flightLines,
+              lineStyle: {
+                color: 'rgba(66,105,208,0.4)',
+                width: 1.5,
+                opacity: 0.6
+              },
+              effect: {
+                enabled: true,
+                period: 5,
+                trailLength: 0.3,
+                symbol: 'arrow',
+                symbolSize: 3,
+                color: 'rgba(108,197,176,0.8)'
+              }
+            },
+            // 涟漪散点（重点城市）
+            {
+              name: '重点城市',
+              type: 'effectScatter',
+              coordinateSystem: 'geo',
+              data: effectScatter.sort((a, b) => b.value[2] - a.value[2]).slice(0, 10),
+              symbolSize: function(val) {
+                return val[2] / 50 + 4;
+              },
+              showEffectOn: 'render',
+              rippleEffect: {
+                brushType: 'stroke',
+                scale: 3,
+                period: 4
+              },
+              label: {
+                formatter: '{b}',
+                position: 'right',
+                show: false,
+                color: '#F8FAFC',
+                fontSize: 10
+              },
+              itemStyle: {
+                color: '#4269d0',
+                shadowBlur: 10,
+                shadowColor: 'rgba(66,105,208,0.5)'
+              }
+            }
+          ]
+        };
+
+        mapChart.setOption(option);
+
+        // 窗口 resize 时调整大小
+        window.addEventListener('resize', () => {
+          mapChart.resize();
+        });
+
+      } else {
+        console.warn('地图加载失败，降级为散点图');
+        // 降级：用散点图替代
+        initFallbackScatter(mapChart);
+      }
+    }
+
+    // ========== 地图降级方案（散点图） ==========
+    function initFallbackScatter(mapChart) {
+      const scatterData = Object.entries(cityCoordinates).map(([city, [lon, lat]]) => ({
+        name: city,
+        value: [lon, lat, Math.random() * 600]
+      }));
+
+      const option = {
+        xAxis: {
+          type: 'value',
+          min: 73,
+          max: 135,
+          gridIndex: 0,
+          axisLine: {lineStyle: {color: 'rgba(255,255,255,0.1)'}},
+          axisLabel: {color: '#9696a0', fontSize: 10},
+          splitLine: {lineStyle: {color: 'rgba(255,255,255,0.05)'}}
+        },
+        yAxis: {
+          type: 'value',
+          min: 18,
+          max: 54,
+          gridIndex: 0,
+          axisLine: {lineStyle: {color: 'rgba(255,255,255,0.1)'}},
+          axisLabel: {color: '#9696a0', fontSize: 10},
+          splitLine: {lineStyle: {color: 'rgba(255,255,255,0.05)'}}
+        },
+        grid: {
+          left: 60,
+          right: 40,
+          top: 40,
+          bottom: 40,
+          containLabel: false
+        },
+        series: [
+          {
+            name: '城市客流',
+            type: 'scatter',
+            data: scatterData,
+            symbolSize: function(val) {
+              return val[2] / 80 + 6;
+            },
+            itemStyle: {
+              color: '#4269d0',
+              opacity: 0.8,
+              borderColor: 'rgba(66,105,208,0.5)',
+              borderWidth: 1
+            },
+            label: {
+              formatter: '{b}',
+              position: 'right',
+              show: true,
+              color: '#F8FAFC',
+              fontSize: 11,
+              offset: [8, 0]
+            }
+          }
+        ]
+      };
+
+      mapChart.setOption(option);
+      window.addEventListener('resize', () => {
+        mapChart.resize();
+      });
+    }
+
+    // ========== 区域占比（环形图） ==========
+    function initPieChart() {
+      const pieChart = echarts.init(document.getElementById('pieChart'));
+
+      const data = [
+        {value: 2840, name: '华东'},
+        {value: 1920, name: '华南'},
+        {value: 1560, name: '华北'},
+        {value: 1240, name: '西部'},
+        {value: 840, name: '东北'}
+      ];
+
+      const colors = ['#4269d0', '#3ca951', '#ff725c', '#a463f2', '#efb118'];
+
+      const option = {
+        tooltip: {
+          trigger: 'item',
+          backgroundColor: 'rgba(3,5,12,0.8)',
+          borderColor: 'rgba(255,255,255,0.1)',
+          textStyle: {color: '#F8FAFC', fontSize: 12}
+        },
+        legend: {
+          orient: 'vertical',
+          right: 12,
+          top: 'center',
+          textStyle: {color: '#9696a0', fontSize: 11},
+          itemWidth: 8,
+          itemHeight: 8,
+          itemGap: 10
+        },
+        series: [
+          {
+            name: '区域分布',
+            type: 'pie',
+            radius: ['35%', '55%'],
+            center: ['35%', '50%'],
+            data: data,
+            itemStyle: {
+              borderColor: '#0b0f1a',
+              borderWidth: 2
+            },
+            emphasis: {
+              itemStyle: {
+                shadowBlur: 10,
+                shadowColor: 'rgba(255,255,255,0.1)'
+              }
+            },
+            label: {
+              color: '#F8FAFC',
+              fontSize: 11,
+              formatter: '{b}\n{d}%'
+            }
+          }
+        ],
+        color: colors
+      };
+
+      // 使用对应的色值
+      pieChart.setOption(option);
+      window.addEventListener('resize', () => {
+        pieChart.resize();
+      });
+    }
+
+    // ========== 客流趋势（折线 + 面积） ==========
+    function initTrendChart() {
+      const trendChart = echarts.init(document.getElementById('trendChart'));
+
+      const days = Array.from({length: 30}, (_, i) => `${i+1}日`);
+      const data1 = Array.from({length: 30}, () => Math.floor(Math.random() * 300 + 1500));
+
+      const option = {
+        tooltip: {
+          trigger: 'axis',
+          backgroundColor: 'rgba(3,5,12,0.8)',
+          borderColor: 'rgba(255,255,255,0.1)',
+          textStyle: {color: '#F8FAFC', fontSize: 11},
+          axisPointer: {lineStyle: {color: 'rgba(255,255,255,0.2)'}}
+        },
+        grid: {
+          left: 50,
+          right: 20,
+          top: 20,
+          bottom: 30,
+          containLabel: false
+        },
+        xAxis: {
+          type: 'category',
+          data: days,
+          axisLine: {lineStyle: {color: 'rgba(255,255,255,0.1)'}},
+          axisLabel: {color: '#9696a0', fontSize: 9, interval: 4},
+          splitLine: {show: false},
+          boundaryGap: false
+        },
+        yAxis: {
+          type: 'value',
+          axisLine: {lineStyle: {color: 'rgba(255,255,255,0.1)'}},
+          axisLabel: {color: '#9696a0', fontSize: 9},
+          splitLine: {lineStyle: {color: 'rgba(255,255,255,0.05)'}}
+        },
+        series: [
+          {
+            name: '客流量',
+            type: 'line',
+            data: data1,
+            smooth: true,
+            lineStyle: {color: '#4269d0', width: 2},
+            areaStyle: {
+              color: {
+                type: 'linear',
+                x: 0, y: 0, x2: 0, y2: 1,
+                colorStops: [
+                  {offset: 0, color: 'rgba(66,105,208,0.3)'},
+                  {offset: 1, color: 'rgba(66,105,208,0.05)'}
+              ]
+              }
+            },
+            itemStyle: {
+              color: '#4269d0',
+              borderWidth: 1,
+              borderColor: '#0b0f1a'
+            },
+            symbolSize: 4
+          }
+        ]
+      };
+
+      trendChart.setOption(option);
+      window.addEventListener('resize', () => {
+        trendChart.resize();
+      });
+    }
+
+    // ========== 人口年龄结构（对称条形） ==========
+    function initAgeChart() {
+      const ageChart = echarts.init(document.getElementById('ageChart'));
+
+      const ageGroups = ['0-14', '15-24', '25-34', '35-44', '45-54', '55-64', '65+'];
+      const male = [8, 12, 18, 16, 14, 10, 5];
+      const female = [7.5, 11.5, 17, 15.5, 13.5, 10.5, 6];
+
+      const option = {
+        tooltip: {
+          trigger: 'axis',
+          backgroundColor: 'rgba(3,5,12,0.8)',
+          borderColor: 'rgba(255,255,255,0.1)',
+          textStyle: {color: '#F8FAFC', fontSize: 11},
+          axisPointer: {type: 'none'}
+        },
+        grid: {
+          left: 50,
+          right: 20,
+          top: 20,
+          bottom: 30
+        },
+        xAxis: {
+          type: 'value',
+          axisLine: {lineStyle: {color: 'rgba(255,255,255,0.1)'}},
+          axisLabel: {color: '#9696a0', fontSize: 9},
+          splitLine: {lineStyle: {color: 'rgba(255,255,255,0.05)'}}
+        },
+        yAxis: {
+          type: 'category',
+          data: ageGroups,
+          axisLine: {lineStyle: {color: 'rgba(255,255,255,0.1)'}},
+          axisLabel: {color: '#9696a0', fontSize: 10},
+          splitLine: {show: false}
+        },
+        series: [
+          {
+            name: '男性',
+            type: 'bar',
+            data: male,
+            itemStyle: {color: '#4269d0'},
+            label: {show: false}
+          },
+          {
+            name: '女性',
+            type: 'bar',
+            data: female.map(v => -v),
+            itemStyle: {color: '#6cc5b0'},
+            label: {show: false}
+          }
+        ]
+      };
+
+      ageChart.setOption(option);
+      window.addEventListener('resize', () => {
+        ageChart.resize();
+      });
+    }
+
+    // ========== 24小时热力图 ==========
+    function initHeatmapChart() {
+      const heatmapChart = echarts.init(document.getElementById('heatmapChart'));
+
+      const hours = Array.from({length: 24}, (_, i) => i.toString().padStart(2, '0') + ':00');
+      const days = ['一', '二', '三', '四', '五', '六', '日'];
+
+      const heatData = [];
+      for (let i = 0; i < 7; i++) {
+        for (let j = 0; j < 24; j++) {
+          const value = Math.floor(Math.random() * 1000 + 200);
+          heatData.push([j, i, value]);
+        }
+      }
+
+      const option = {
+        tooltip: {
+          position: 'top',
+          backgroundColor: 'rgba(3,5,12,0.8)',
+          borderColor: 'rgba(255,255,255,0.1)',
+          textStyle: {color: '#F8FAFC', fontSize: 11},
+          formatter: (params) => {
+            if (params.componentSubType === 'heatmap') {
+              return `${params.value[0]}:00<br/>周${days[params.value[1]]}<br/>客流: ${params.value[2]}`;
+            }
+            return '';
+          }
+        },
+        grid: {
+          height: '80%',
+          top: 20,
+          left: 50,
+          right: 10,
+          bottom: 30,
+          containLabel: false
+        },
+        xAxis: {
+          type: 'category',
+          data: hours,
+          axisLabel: {color: '#9696a0', fontSize: 8, interval: 2},
+          axisLine: {lineStyle: {color: 'rgba(255,255,255,0.1)'}},
+          splitLine: {show: false}
+        },
+        yAxis: {
+          type: 'category',
+          data: days.map(d => '周' + d),
+          axisLabel: {color: '#9696a0', fontSize: 9},
+          axisLine: {lineStyle: {color: 'rgba(255,255,255,0.1)'}},
+          splitLine: {show: false}
+        },
+        visualMap: {
+          min: 0,
+          max: 1200,
+          text: ['High', 'Low'],
+          calculable: true,
+          inRange: {
+            color: [
+              'rgba(66,105,208,0.1)',
+              'rgba(66,105,208,0.3)',
+              'rgba(66,105,208,0.6)',
+              '#4269d0'
+            ]
+          },
+          textStyle: {color: '#9696a0', fontSize: 9},
+          right: 5,
+          bottom: 25,
+          dimension: null,
+          seriesIndex: 0
+        },
+        series: [
+          {
+            name: '客流热度',
+            type: 'heatmap',
+            data: heatData,
+            label: {show: false},
+            itemStyle: {
+              borderColor: '#0b0f1a',
+              borderWidth: 0.5
+            }
+          }
+        ]
+      };
+
+      heatmapChart.setOption(option);
+      window.addEventListener('resize', () => {
+        heatmapChart.resize();
+      });
+    }
+
+    // ========== 初始化所有图表 ==========
+    document.addEventListener('DOMContentLoaded', () => {
+      // 延迟初始化确保 DOM 已加载
+      setTimeout(() => {
+        initMap();
+        initPieChart();
+        initTrendChart();
+        initAgeChart();
+        initHeatmapChart();
+      }, 100);
+    });
+
+    // ========== 窗口 resize 处理 ==========
+    window.addEventListener('resize', () => {
+      // ECharts 实例会自动响应（见各初始化函数中的 resize() 调用）
+    });
+  </script>
+</body>
+</html>
