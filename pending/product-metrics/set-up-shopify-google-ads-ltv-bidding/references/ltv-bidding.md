@@ -1,0 +1,95 @@
+# Shopify lifetime value (LTV) bidding in Google Ads
+
+Source: https://www.productmetrics.io/docs/bidding/ltv/shopify-google-ads (the same page as Markdown: https://www.productmetrics.io/docs/bidding/ltv/shopify-google-ads.md)
+
+**For the agent:** all conversion actions by agents are secondary. Steps on this page that make an action primary, or select the conversion a campaign or ad set bids or optimises on, are the person's: give them the exact clicks, wait until they say it is done, then read the state back.
+
+Send each customer's lifetime revenue and profit from Shopify to Google Ads and bid on it with a target ROAS.
+
+Product Metrics adds up each customer's paid Shopify orders into a **lifetime value**: what they have actually spent with you, not a prediction. Google Ads receives it as **Product Metrics - Revenue LTV** and **Product Metrics - Profit LTV**, with **every paid order** of a recognised customer: each conversion carries **what this order adds** to their lifetime value, so a customer's conversions add up to their lifetime value ([Conversion values](https://www.productmetrics.io/docs/concepts/conversion-values)).
+
+## Prerequisites
+
+- **[Workspace admin](https://www.productmetrics.io/docs/using/team#1-choose-a-role)** in Product Metrics.
+- **Your Shopify store connected**: a Shopify login that can install apps and edit the theme, the Product Metrics app installed with its app embed on, the store linked to your property, and your subscription started in the app with **Create subscription** (billed through Shopify). See [Shopify](https://www.productmetrics.io/docs/platforms/shopify).
+- **Google Ads connected** to your property, with Data Manager access granted, and [Merchant Center](https://www.productmetrics.io/docs/using/merchant-center) connected. See [Google Ads](https://www.productmetrics.io/docs/channels/google-ads).
+
+## In the app
+
+### 1. Check your Shopify store recognises customers
+
+Ask your assistant: "Are my last five Shopify orders from new or returning customers?" A guest who later checks out with a customer account starts again under their customer ID.
+
+**You should see:** whether your test order's customer was recognised, as new or returning.
+
+### 2. Set consent
+
+In **Tracking → Configure consent**, choose **Shopify Customer Privacy**, unless your store shows OneTrust, Cookiebot, Usercentrics or Osano instead. Google Ads gets a customer's LTV conversion only when the visitor allowed both **analytics** and **ad user data**, and the order carries an email address, phone number or full address Google can match. See [Consent](https://www.productmetrics.io/docs/concepts/consent).
+
+**You should see:** **Configure consent** names the banner your Shopify store actually shows.
+
+### 3. Create the LTV conversion actions
+
+In Product Metrics, select **Tracking** → **Create Google Ads conversions** → **Create 8 conversion actions**. All eight are **secondary**, so nothing changes in your campaigns yet ([Conversion actions](https://www.productmetrics.io/docs/using/conversion-actions)).
+
+**You should see:** both LTV conversion actions are created and linked.
+
+### 4. Add your costs (for Profit LTV)
+
+Product costs come from each variant's **cost per item** in Shopify, and Shopify Payments fees are the actual fees Shopify reports. Other payment gateways, shipping, handling and returns come from your [additional costs](https://www.productmetrics.io/docs/using/costs): activate them under **Tracking → Add your additional costs**.
+
+> **Note:** Revenue LTV needs no costs. Profit LTV is only sent while the order's costs are known, and the running total only while every earlier order's costs are known too.
+
+**You should see:** the **Profit tracking** section says your additional costs are active.
+
+### 5. Bid on lifetime value
+
+1. In Google Ads, make **Product Metrics - Revenue LTV** or **Product Metrics - Profit LTV** primary and your old purchase action secondary ([how](https://www.productmetrics.io/docs/using/conversion-actions#3-make-an-action-primary)). Both need a recognised customer; Profit LTV also needs known costs.
+2. Set the campaign to **Maximise conversion value** with a **target ROAS**, written as a percentage.
+
+> **Warning:** An LTV conversion carries what each order adds to a customer's lifetime value, and only recognised customers' orders count. Don't copy the target ROAS of your purchase action without thinking: set it on what a customer is worth to you over time.
+
+**You should see:** in Google Ads, **Goals → Conversions** lists the LTV action you chose as primary.
+
+### 6. Check it works
+
+Open **Tracking → Conversion actions**. Then place a test order with consent accepted and ask your assistant: "I just placed a test order. Did Product Metrics get it?" See [Check tracking](https://www.productmetrics.io/docs/using/check-tracking).
+
+**You should see:** **Tracking ready**, and the test order with its revenue, profit and customer. In the conversion action report, the LTV action gets conversions from recognised customers.
+
+## How it works on Shopify
+
+| | On Shopify |
+| --- | --- |
+| **Customer** | The **Shopify customer ID** on the order, else its email address, else its phone number |
+| **History** | Each Shopify store is counted on its own. |
+| **Revenue LTV** | Products and shipping of every paid order Product Metrics has seen from the customer |
+| **Profit LTV** | The same orders' profit. Costs: variant cost per item in Shopify, plus your additional costs |
+| **Sent as** | **Product Metrics - Revenue LTV** and **Product Metrics - Profit LTV**: one conversion with every paid order, worth what that order adds (a loss-making order's Profit LTV is sent as 0) |
+| **Consent** | Shopify Customer Privacy, or OneTrust, Cookiebot, Usercentrics or Osano; needs analytics and ad user data |
+
+Orders from before you connected aren't imported, so lifetime value starts from the orders Product Metrics has seen.
+
+## Troubleshooting
+
+| Problem | Fix |
+| --- | --- |
+| **Orders arrive with revenue only** | A cost of the order is still unknown. Complete your costs under **Profit tracking → Edit costs**: an order is sent with profit only once every cost is known ([profit rules](https://www.productmetrics.io/docs/concepts/profit#rules)). |
+
+## FAQ
+
+### How does Product Metrics recognise a returning Shopify customer?
+
+By the Shopify customer ID on the order, else its email address, else its phone number. A guest who later checks out with a customer account starts again under their customer ID.
+
+### Does Google Ads get an LTV conversion for every repeat order?
+
+Yes. Google Ads gets one with every paid order of a recognised customer, worth what that order adds, so a customer's LTV conversions add up to their lifetime value.
+
+### What target ROAS should I set for LTV bidding?
+
+Set it on what a customer is worth to you over time, written as a percentage. Don't copy the target ROAS of your purchase action without thinking: each LTV conversion carries what an order adds to a recognised customer's lifetime value, and orders from customers Product Metrics can't recognise send none.
+
+### What does Google Ads need to match an LTV conversion?
+
+The visitor must allow both analytics and ad user data, and the order must carry an email address, phone number or full address Google can match through Enhanced Conversions. On Shopify, consent comes from Shopify Customer Privacy, or OneTrust, Cookiebot, Usercentrics or Osano.
