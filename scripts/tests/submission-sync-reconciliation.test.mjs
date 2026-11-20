@@ -24,14 +24,30 @@ function evidence() {
 test('exact submission publication and full recovered slug set produce a read-only reconciliation plan',()=>{
   assert.deepEqual(verifySubmissionRecovery(evidence()), [{root,...meta,marketplace_commit_sha:sha}]);
 });
-test('verified postpush callback recovery closes only originally skipped provider with exact baseline parent',()=>{
-  const e=structuredClone(evidence());e.publicationRecovered=true;
-  e.commit.parents=[{sha:before}];e.recovery={...e.recovery,display_title:'Recover provider sync 2'};
+function postpushEvidence() {
+  const e=evidence();e.publicationRecovered=true;
+  e.recovery={...e.recovery,display_title:'Recover provider sync 2'};
   e.recoveryTrees=[{root,published:head,recovered:head}];
   e.recoveryJobs.jobs[0].steps.push({name:'Validate trusted sync correlation',conclusion:'success'});
   e.originalJobs.jobs[0].steps[0].conclusion='failure';e.originalJobs.jobs[0].steps[1].conclusion='skipped';
+  return e;
+}
+test('verified postpush callback recovery closes only originally skipped provider with exact baseline parent',()=>{
+  const e=postpushEvidence(); e.commit.parents=[{sha:before}];
   assert.deepEqual(verifySubmissionRecovery(e),[{root,...meta,marketplace_commit_sha:sha}]);
   e.originalJobs.jobs[0].steps[1].conclusion='failure';assert.throws(()=>verifySubmissionRecovery(e));
+});
+test('postpush closure accepts the exact single approval merge immediately after the provider baseline',()=>{
+  const e=postpushEvidence();
+  const approval={sha:merge,parents:[{sha:before},{sha:head}]};
+  const readCommit=id=>{assert.equal(id,merge);return approval;};
+  assert.deepEqual(verifySubmissionRecovery(e,readCommit),[{root,...meta,marketplace_commit_sha:sha}]);
+  for (const parents of [[{sha:head},{sha:before}],[{sha:before},{sha}],[{sha:before}],[{sha:before},{sha:head},{sha}]]) {
+    assert.throws(()=>verifySubmissionRecovery(e,()=>({...approval,parents})),/approval merge lineage/);
+  }
+  assert.throws(()=>verifySubmissionRecovery(e,()=>({...approval,sha:head})),/approval merge lineage/);
+  e.commit.parents=[{sha:head}];
+  assert.throws(()=>verifySubmissionRecovery(e,readCommit),/approval merge lineage/);
 });
 test('unrelated, partial, duplicate, stale and nonterminal recovery never authorize reconciliation',()=>{
   const mutations=[e=>e.recovery.head_sha=before,e=>e.recovery.head_repository.full_name='fork/repo',e=>e.recovery.path='other.yml',e=>e.recovery.created_at=e.push.created_at,e=>e.push.conclusion='success',e=>e.recovery.status='in_progress',e=>e.baseline.conclusion='failure',e=>e.commit.parents.push({sha:head}),e=>e.commit.message='No publication trailer',e=>e.pr.head.sha=before,e=>e.pr.user.id=9,e=>e.files.push({filename:'scripts/other.mjs',status:'modified'}),e=>e.files[0].status='removed',e=>e.files.push({filename:`skills/other/root/SKILL.md`,status:'added'}),e=>e.slugs=[],e=>e.slugs.push(e.slugs[0]),e=>e.reports[0].meta.tree_hash='missing',e=>e.recoveryJobs.total_count=4,e=>e.recoveryJobs.jobs[0].steps[0].conclusion='skipped',e=>e.recoveryJobs.jobs[1].conclusion='failure',e=>e.originalJobs.jobs[0].steps[1].conclusion='success'];
