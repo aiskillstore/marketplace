@@ -4,7 +4,7 @@ import { execFileSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
 import { verifyCacheOnlyStages, verifiedWarmArtifact } from './cache-only-reconciliation.mjs';
 import { verifyAncillaryStages, verifiedScoreArtifact } from './ancillary-sync-reconciliation.mjs';
-import { verifiedPublicationRecovery } from './publication-postpush-recovery.mjs';
+import { verifiedPublicationRecovery, verifyPostpushLineage } from './publication-postpush-recovery.mjs';
 import { loadUnstartedProviderRecovery, verifyUnstartedProviderRecovery, verifyNoOtherRecovery } from './unstarted-provider-recovery.mjs';
 
 const repo = 'aiskillstore/marketplace';
@@ -92,7 +92,7 @@ function trustedRun(run, event, conclusion, path = syncPath) {
 
 // Bounded intentionally: one linear submission publication, <=25 canonical roots.
 // Accumulated/multi-publication pushes need their own explicit inspected proof.
-export function verifySubmissionRecovery(e) {
+export function verifySubmissionRecovery(e, readCommit) {
   trustedRun(e.push, 'push', 'failure');
   const cacheOnly = e.recovery.path === '.github/workflows/warm-cache.yml';
   trustedRun(e.recovery, 'workflow_dispatch', 'success', cacheOnly ? '.github/workflows/warm-cache.yml' : syncPath);
@@ -113,13 +113,14 @@ export function verifySubmissionRecovery(e) {
     assert.deepEqual(e.unstartedRecovery.attempts.at(-1).jobs, e.originalJobs, 'Unstarted proof does not cover current original jobs');
   }
   assert.ok(e.commit.parents?.length === 1 && sha40.test(e.commit.parents[0].sha)
-    && (e.unstartedRecovery || e.commit.parents[0].sha === (e.publicationRecovered ? e.baseline.head_sha : merge)), 'Not a linear submission publication');
+    && (e.unstartedRecovery || e.publicationRecovered || e.commit.parents[0].sha === merge), 'Not a linear submission publication');
   if (e.publicationRecovered) assert.ok(resumed && !cacheOnly && !e.scoreRecovery, 'Postpush recovery requires inspected provider resume');
   const p = e.pr;
   assert.ok(p.number === Number(number) && p.merged === true && p.merge_commit_sha === merge
     && p.user?.id === 254047988 && p.user.login === 'ai-skill-store[bot]'
     && p.head?.sha === head && p.head.ref?.startsWith('submission/')
     && p.head.repo?.full_name === repo && p.base?.ref === 'main' && p.base.repo?.full_name === repo, 'Untrusted publication owner');
+  if (e.publicationRecovered) verifyPostpushLineage(e.baseline.head_sha,e.commit,p,readCommit);
   const original = closedJobs(e.originalJobs), recovered = closedJobs(e.recoveryJobs);
   if (resumed) {
     step(recovered, 'Validate trusted sync correlation', 'success');
@@ -347,7 +348,7 @@ export async function main() {
     assert.ok(a.workflow_run?.id === scoreRecovery.id && a.workflow_run.head_sha === scoreRecovery.head_sha);
     scoreEvidence = verifiedScoreArtifact(rawApi(`${prefix}/actions/artifacts/${a.id}/zip`), a);
   }
-  const plan=verifySubmissionRecovery({push,recovery,baseline,commit,pr,files:comparison.files,reports,recoveryTrees,slugs,originalJobs,recoveryJobs,cacheEvidence,scoreRecovery,scoreJobs,scoreEvidence,publicationRecovered,unstartedRecovery,parentContainsMerge});
+  const plan=verifySubmissionRecovery({push,recovery,baseline,commit,pr,files:comparison.files,reports,recoveryTrees,slugs,originalJobs,recoveryJobs,cacheEvidence,scoreRecovery,scoreJobs,scoreEvidence,publicationRecovered,unstartedRecovery,parentContainsMerge}, sha=>api(`${prefix}/git/commits/${sha}`));
   for(const expected of plan) {
     const skills=await providerRead('skills',['slug',expected.slug],'id,slug,plugin_path,marketplace_commit_sha,content_hash,tree_hash,current_artifact_version_id,artifact_revision');
     assert.equal(skills.length,1);
