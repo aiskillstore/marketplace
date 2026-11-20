@@ -146,8 +146,10 @@ options:
 header: "OpenAI Model"
 question: "Default OpenAI image generation model?"
 options:
-  - label: "gpt-image-2.5-flare (Recommended)"
-    description: "Latest GPT Image model, fastest; flexible sizes up to 4K, high-fidelity image inputs"
+  - label: "gpt-image-2.6-sunburst (Recommended)"
+    description: "Built-in default for the OpenAI provider"
+  - label: "gpt-image-2.5-flare"
+    description: "GPT Image 2.5 Flare"
   - label: "gpt-image-2.5-sunburst"
     description: "Most capable GPT Image model for complex scenes and precise edits; slower"
   - label: "gpt-image-2"

@@ -41,7 +41,7 @@ function makeArgs(overrides: Partial<CliArgs> = {}): CliArgs {
 }
 
 test("OpenAI aspect-ratio parsing and size selection match model families", () => {
-  assert.equal(getDefaultModel(), "gpt-image-2.5-flare");
+  assert.equal(getDefaultModel(), "gpt-image-2.6-sunburst");
   assert.deepEqual(parseAspectRatio("16:9"), { width: 16, height: 9 });
   assert.equal(parseAspectRatio("wide"), null);
   assert.equal(parseAspectRatio("0:1"), null);
