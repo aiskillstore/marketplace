@@ -1,6 +1,5 @@
 #!/usr/bin/env node
-/** Offline SITE bundle build/verify: `pack --dir <abs-dir> --out <abs.zip> [--entry <name>]` | `inspect --zip <abs.zip> [--entry <name>]`; caller curls only on exit 0.
- * Exit 0 verified, manifest printed -> upload | 2 verified, flagged entries -> ask user | 1 failure, partial archive removed -> never upload. */
+/** Offline site archive build/verify. Exit 0: checked JSON; 2: checked JSON requiring approval; 1: failure. */
 import { spawn, spawnSync } from 'node:child_process';
 import { readdirSync, statSync, lstatSync, existsSync, rmSync, accessSync, constants, readFileSync, realpathSync, mkdtempSync, chmodSync, openSync, closeSync, readSync } from 'node:fs';
 import { join, relative, resolve, extname, basename, delimiter, isAbsolute } from 'node:path';
@@ -48,6 +47,7 @@ function reservedPaths(args) {
     const info = statSync(path, { bigint: true });
     return `${info.dev}/${info.ino}`;
   }));
+  if (args['password-identity']) identities.add(args['password-identity']);
   const names = new Set(paths.map(path => basename(path).toLowerCase()));
   return {
     member: (name) => name.split(/[/\\]/).some(part => RESERVED_RE.test(part.trim()) || names.has(part.trim().toLowerCase())),
@@ -241,7 +241,7 @@ function parseArgs(argv) {
   for (let i = 1; i < argv.length; i += 2) {
     const k = argv[i];
     const v = argv[i + 1];
-    if (!k.startsWith('--') || v === undefined) die(`bad argument near "${k}"`);
+    if (!k.startsWith('--') || v === undefined) die('invalid archive helper arguments');
     if (k === '--exclude-file') out.excluded.push(v);
     else out[k.slice(2)] = v;
   }
@@ -309,9 +309,8 @@ function requireTool(bin) {
   if (!dirs.some((dir) => exts.some((ext) => isExecutable(join(dir, bin + ext))))) die(`${bin} required`);
 }
 
-// Keep Info-ZIP option defaults out of the fixed archive arguments.
-const archiveEnv = { ...process.env };
-for (const key of ['ZIP', 'ZIPOPT', 'UNZIP', 'UNZIPOPT', 'ZIPINFO', 'ZIPINFOOPT']) delete archiveEnv[key];
+// Fixed archive arguments run without inherited loader hooks or Info-ZIP defaults.
+const archiveEnv = { PATH: process.env.PATH, LC_ALL: 'C', TZ: 'UTC' };
 
 /** Why a spawnSync child failed, '' on success; its own non-zero exit wins over the EPIPE it causes. */
 function failure(bin, r) {
@@ -336,19 +335,11 @@ function listArchive(zipPath, reserved) {
 
 /** The one manifest format, and the only place the exit code is decided; always the caller's last call.
  * exitCode, never process.exit(): exit drops stdout still queued for a slow pipe reader (manifest > 64 KB). */
-function report(names, bytes, entry, skipped, zipPath, unexpected = [], protectedSkipped = 0) {
-  console.log(`ARCHIVE MANIFEST — ${basename(zipPath)}`);
-  for (const n of names) console.log(`  ${n}`);
-  console.log(`FILES: ${names.length}`);
-  console.log(`BYTES: ${bytes}`);
-  console.log(`ENTRY: ${entry}`);
-  const skippedSummary = [...skipped, ...(protectedSkipped ? [`${protectedSkipped} protected credential inputs`] : [])];
-  console.log(`SKIPPED: ${skipped.length + protectedSkipped}${skippedSummary.length ? ` (${skippedSummary.join(', ')})` : ''}`);
-  if (unexpected.length) console.log(`UNEXPECTED: ${unexpected.join(', ')}`);
+function report(names, bytes, entry, skipped, unexpected = [], protectedSkipped = 0) {
   const flagged = names.filter((n) => SENSITIVE_RE.test(n));
-  if (flagged.length) console.log(`SENSITIVE: ${flagged.join(', ')}`);
   const confirm = unexpected.length > 0 || flagged.length > 0;
-  console.log(`RESULT: ${confirm ? 'confirm' : 'ok'}`);
+  console.log(JSON.stringify({ entries: names, bytes, entry, skipped: skipped.length + protectedSkipped, protectedSkipped,
+    unexpected, sensitive: flagged, result: confirm ? 'confirm' : 'ok' }));
   process.exitCode = confirm ? 2 : 0;
 }
 
@@ -416,6 +407,7 @@ async function pack(args) {
     snapshot = mkdtempSync(join(tmpdir(), 'brewpage-pack-'));
     chmodSync(snapshot, 0o700);
     const copied = await run('python3', ['-I', '-S', '-c', SNAPSHOT, snapshot], {
+      env: archiveEnv,
       input: JSON.stringify({ root: dir, dev: String(rootInfo.dev), ino: String(rootInfo.ino), kept: kept.map(name => identified.get(name)) }), encoding: 'utf8',
     });
     snapshotWhy = failure('python3', copied);
@@ -449,7 +441,7 @@ async function pack(args) {
     rmSync(out, { force: true });
     die(`archive contents differ from the selected file set (in archive: ${listed.length}, selected: ${kept.length})`);
   }
-  report(listed, bytes, entry, skipped, out, [], protectedSkipped);
+  report(listed, bytes, entry, skipped, [], protectedSkipped);
 }
 
 function inspect(args) {
@@ -469,7 +461,7 @@ function inspect(args) {
   // A supplied ZIP is not rewritten: entries outside the allowlist or hidden go to a human decision;
   // system entries the server drops itself are left alone.
   const unexpected = listed.filter((n) => !SYSTEM_RE.test(n) && ((!ALLOWED_EXT.has(extname(n).toLowerCase()) && !isWellKnownBare(n)) || isHidden(n)));
-  report(listed, bytes, entry, [], zipPath, unexpected);
+  report(listed, bytes, entry, [], unexpected);
 }
 
 function file(args) {
@@ -483,7 +475,7 @@ function file(args) {
   if (staged && (info.uid !== BigInt(process.getuid()) || (info.mode & 0o777n) !== 0o600n)) die('staged content must remain private');
   if (args['check-only'] === 'yes') return;
   if (args['zip-snapshot'] === 'yes' && info.size > 25n * 1024n * 1024n) die('archive exceeds local inspection limits');
-  const copied = spawnSync('python3', ['-I', '-S', '-c', FILE_SNAPSHOT, source, args.out, String(info.dev), String(info.ino), staged ? 'yes' : 'no'], { stdio: 'ignore', timeout: CHECK_TIMEOUT_MS });
+  const copied = spawnSync('python3', ['-I', '-S', '-c', FILE_SNAPSHOT, source, args.out, String(info.dev), String(info.ino), staged ? 'yes' : 'no'], { env: archiveEnv, stdio: 'ignore', timeout: CHECK_TIMEOUT_MS });
   if (failure('python3', copied)) die('source could not be snapshotted safely');
   const signature = Buffer.alloc(4);
   const fd = openSync(args.out, 'r');

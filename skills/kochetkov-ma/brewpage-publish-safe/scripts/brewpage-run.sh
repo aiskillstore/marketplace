@@ -2,8 +2,63 @@
 set +x
 set -euo pipefail
 umask 077
+unset CDPATH ENV BASH_ENV NODE_OPTIONS NODE_PATH
+unset LD_PRELOAD LD_LIBRARY_PATH DYLD_INSERT_LIBRARIES DYLD_LIBRARY_PATH DYLD_FRAMEWORK_PATH
 
-HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source_path=${BASH_SOURCE[0]}
+case "$source_path" in */*) source_path=${source_path%/*} ;; *) source_path=. ;; esac
+HERE="$(builtin cd "$source_path" && builtin pwd -P)"
+
+bp_workspace() {
+  local d fallback="" profile_home="" profile_config=""
+  if [ -n "${CLAUDE_PROJECT_DIR:-}" ] && [ -d "$CLAUDE_PROJECT_DIR" ]; then
+    (builtin cd "$CLAUDE_PROJECT_DIR" && builtin pwd -P)
+    return
+  fi
+  d=$(builtin pwd -P)
+  if [ -n "${HOME:-}" ]; then profile_home=$(builtin cd "$HOME" 2>/dev/null && builtin pwd -P) || true; fi
+  if [ -n "${CLAUDE_CONFIG_DIR:-}" ]; then profile_config=$(builtin cd "$CLAUDE_CONFIG_DIR" 2>/dev/null && builtin pwd -P) || true; fi
+  while [ "$d" != / ]; do
+    if [ -e "$d/.git" ]; then printf '%s\n' "$d"; return; fi
+    if [ -z "$fallback" ] && [ -d "$d/.claude" ] && [ "$d" != "$profile_home" ] && [ "$d/.claude" != "$profile_config" ]; then fallback="$d"; fi
+    d="${d%/*}"
+    d="${d:-/}"
+  done
+  if [ -n "$fallback" ]; then printf '%s\n' "$fallback"; else builtin pwd -P; fi
+}
+
+bp_external_launchers() {
+  local executable target depth parent
+  for executable in python3 node git jq curl zip unzip; do
+    target="$1/$executable"
+    [ -x "$target" ] || continue
+    depth=0
+    while [ -L "$target" ]; do
+      depth=$((depth + 1))
+      [ "$depth" -le 40 ] || return 1
+      parent="${target%/*}"
+      target=$(/usr/bin/readlink "$target") || return 1
+      case "$target" in /*) : ;; *) target="$parent/$target" ;; esac
+    done
+    parent=$(builtin cd "${target%/*}" && builtin pwd -P) || return 1
+    case "$parent" in "$BP_ROOT"|"$BP_ROOT/"*) return 1 ;; esac
+  done
+}
+
+# Resolve the same workspace before looking up any external launcher.
+BP_ROOT=$(bp_workspace)
+IFS=: read -r -a runtime_dirs <<< "${PATH:-/usr/bin:/bin}:/usr/bin:/bin"
+runtime_path=""
+for runtime_dir in "${runtime_dirs[@]}"; do
+  case "$runtime_dir" in /*) : ;; *) continue ;; esac
+  runtime_dir=$(builtin cd "$runtime_dir" 2>/dev/null && builtin pwd -P) || continue
+  case "$runtime_dir" in "$BP_ROOT"|"$BP_ROOT/"*) continue ;; esac
+  bp_external_launchers "$runtime_dir" || continue
+  runtime_path="${runtime_path:+$runtime_path:}$runtime_dir"
+done
+[ -n "$runtime_path" ] || { printf '%s\n' 'FAILED: trusted runtime launchers unavailable' >&2; exit 1; }
+export PATH="$runtime_path"
+
 # shellcheck source=SCRIPTDIR/brewpage-lib.sh
 . "$HERE/brewpage-lib.sh"
 
@@ -65,7 +120,7 @@ cmd_probe() {
       "$(du -sk "$abs" | cut -f1)" "${entry:-none}"
   elif [ -f "$p" ]; then
     abs="$(cd "$(dirname "$p")" && pwd -P)/$(basename "$p")"
-    node "$HERE/publish.mjs" file --path "$abs" --check-only yes --history-file "$HISTORY_FILE" || exit 1
+    command node "$HERE/publish.mjs" file --path "$abs" --check-only yes --history-file "$HISTORY_FILE" || exit 1
     local type=file
     case "$p" in *.zip) type=site-zip ;; esac
     if bp_is_markdown_path "$p"; then type=markdown; fi
@@ -82,7 +137,7 @@ cmd_limits() {
   [ "$#" -eq 0 ] || die "limits takes no arguments"
   command -v jq >/dev/null || die "jq required"
   local body
-  body=$(curl -q -s -A "$BP_UA" https://brewpage.app/api/limits) || die "limits request failed"
+  body=$(bp_curl -s -A "$BP_UA" https://brewpage.app/api/limits) || die "limits request failed"
   printf '%s' "$body" | jq -er '(.sites // empty) as $s | def mb: . / 1048576 * 10 | round / 10;
     "REQUEST_MAX_MB: \(.requestMaxBytes | mb)", "SITE_MAX_FILES: \($s.maxFiles)", "SITE_MAX_FILE_MB: \($s.maxFileBytes | mb)",
     "SITE_MAX_TOTAL_MB: \($s.maxTotalBytes | mb)", "SITE_MAX_ARCHIVE_EXPANSION_MB: \($s.maxArchiveExpansionBytes | mb)",
@@ -108,7 +163,7 @@ cmd_stage() {
   bp_run_dir "$run" || exit 1
   file="$BP_RUN_DIR/brewpage-content.md"
   local bytes
-  bytes=$(printf '%s' "$text" | python3 -I -S -c '
+  bytes=$(printf '%s' "$text" | bp_python -c '
 import fcntl, os, stat, sys
 fd = os.open(sys.argv[1], os.O_WRONLY | os.O_CREAT | os.O_APPEND | os.O_NOFOLLOW | os.O_NONBLOCK, 0o600)
 with os.fdopen(fd, "ab") as target:
@@ -143,7 +198,16 @@ lock_history() {
 
 cmd_owner_recover() {
   [ "$#" = 0 ] || die 'owner-recover takes no arguments'
+  local metadata reader owner_api
   lock_history || die 'cannot lock protected owner storage'
+  new_run
+  bp_run_dir "${BP_FRESH##*/}" || exit 1
+  trap bp_cleanup EXIT
+  local proof="$BP_RUN_DIR/recovery-owner-header.txt"
+  metadata=$(bp_history recover-target "$proof") || die 'no readable protected recovery receipt'
+  reader=$(printf '%s' "$metadata" | jq -er '.reader') || exit 1
+  owner_api=$(printf '%s' "$metadata" | jq -er '.ownerApi') || exit 1
+  bp_verify_reader "$reader" "$owner_api" "$proof" || die 'recovered reader host could not be verified'
   bp_history recover || die 'no readable protected recovery receipt'
   echo 'OWNER TOKEN RECOVERED'
 }
@@ -173,8 +237,8 @@ bp_selected_file() {
   local path="$1" output_dir="$2" zip_snapshot="${3:-}" staged="${4:-}"
   (umask 077; mkdir "$output_dir") || return 1
   CHECKED_PATH="$output_dir/${path##*/}"
-  node "$HERE/publish.mjs" file --path "$path" --out "$CHECKED_PATH" --history-file "$HISTORY_FILE" \
-    --password-file "$pwfile" --zip-snapshot "$zip_snapshot" --staged-content "$staged" \
+  command node "$HERE/publish.mjs" file --path "$path" --out "$CHECKED_PATH" --history-file "$HISTORY_FILE" \
+    --password-file "$pwfile" --password-identity "$password_identity" --zip-snapshot "$zip_snapshot" --staged-content "$staged" \
     ${exclusions[@]+"${exclusions[@]}"}
 }
 
@@ -182,15 +246,14 @@ bp_selected_site() {
   local kind="$1" path="$2" rc=0 manifest
   if [ "$kind" = site-dir ]; then
     CHECKED_PATH="$BP_RUN_DIR/site.zip"
-    manifest=$(umask 077; node "$HERE/publish.mjs" pack --dir "$path" --out "$CHECKED_PATH" ${ENTRY:+--entry "$ENTRY"} \
-      --history-file "$HISTORY_FILE" --password-file "$pwfile" \
+    manifest=$(command node "$HERE/publish.mjs" pack --dir "$path" --out "$CHECKED_PATH" ${ENTRY:+--entry "$ENTRY"} \
+      --history-file "$HISTORY_FILE" --password-file "$pwfile" --password-identity "$password_identity" \
       ${exclusions[@]+"${exclusions[@]}"}) || rc=$?
   else
     bp_selected_file "$path" "$BP_RUN_DIR/archive" yes || return 1
-    manifest=$(node "$HERE/publish.mjs" inspect --zip "$CHECKED_PATH" ${ENTRY:+--entry "$ENTRY"} \
-      --history-file "$HISTORY_FILE" --password-file "$pwfile" ${exclusions[@]+"${exclusions[@]}"}) || rc=$?
+    manifest=$(command node "$HERE/publish.mjs" inspect --zip "$CHECKED_PATH" ${ENTRY:+--entry "$ENTRY"} \
+      --history-file "$HISTORY_FILE" --password-file "$pwfile" --password-identity "$password_identity" ${exclusions[@]+"${exclusions[@]}"}) || rc=$?
   fi
-  printf '%s\n' "$manifest"
   bp_archive_gate "$rc" "$manifest" "$CHECKED_PATH"
 }
 
@@ -251,7 +314,6 @@ cmd_publish() {
   # Slot errors fail before the run is touched, so a staged run survives any bad flag or password file.
   if [ "$action" = update ]; then bp_validate "${ns:-target}" "$days" "$entry" || exit 1; else bp_validate "$ns" "$days" "$entry" || exit 1; fi
   case "$mode" in '' | path | subdomain) : ;; *) die "delivery mode must be path or subdomain" ;; esac
-  if [ -n "$pwfile" ]; then bp_password_check "$pwfile" || exit 1; fi
   # Page data config travels as one compact JSON object; JSON and plain files take none.
   if [ -n "$state" ]; then
     case "$type" in html | html-file | site-dir | site-zip) : ;; *) die "--state applies to UTF-8 HTML pages and sites only" ;; esac
@@ -259,7 +321,8 @@ cmd_publish() {
       die "--state must be one JSON object, e.g. {}"
   fi
 
-  local id pwmode=none
+  local id pwmode=none password_identity=""
+  BP_HEADER_FILE=""
   if [ -n "$run" ]; then
     id="$run"
   else
@@ -268,11 +331,12 @@ cmd_publish() {
   fi
   # An EXISTING run bp_run_dir rejects is left as is; only a fresh one is discarded.
   bp_run_dir "$id" || exit 1
-  trap bp_cleanup EXIT
   if [ -n "$pwfile" ]; then
     pwmode="file"
-    (umask 077; printf '%s\n' "$pwfile" > "$BP_RUN_DIR/brewpage-password-source.txt")
+    BP_HEADER_FILE="$BP_RUN_DIR/password-header.txt"
+    password_identity=$(bp_python "$HERE/inputs.py" password "$pwfile" "$BP_HEADER_FILE") || exit 1
   fi
+  trap bp_cleanup EXIT
   local content="$BP_RUN_DIR/brewpage-content.md" ENTRY="$entry" resolved_entry=""
   if [ "$have_text" = 1 ]; then
     (umask 077; printf '%s' "$text" > "$content")
@@ -299,6 +363,12 @@ cmd_publish() {
     esac
   fi
 
+  if [ -n "$state" ]; then printf '%s' "$state" | bp_scan_input - json || exit 1; fi
+  case "$type" in
+    site-dir | site-zip) : ;;
+    *) bp_scan_input "$content" "$type" || exit 1 ;;
+  esac
+
   lock_history || die 'cannot lock protected owner storage'
   local intent=create method=POST endpoint="" kind response
   if [ "$action" = update ]; then
@@ -312,6 +382,9 @@ cmd_publish() {
   bp_begin "${ns:-target}" "$days" "$entry" "$id" "$pwmode" "$mode" || exit 1
   ENTRY="$resolved_entry"
   bp_owner_begin "$intent" "$target" || exit 1
+  if [ -n "$target" ]; then
+    bp_verify_reader "$target" "$BP_OWNER_API" "$BP_OWNER_HEADER_FILE" || die 'saved reader host does not match the selected publication'
+  fi
   bp_history receipt-ready || die "cannot prepare protected owner recovery; run owner-recover if pending"
   case "$type" in html | html-file) kind=html ;; site-dir | site-zip) kind=sites ;; file) kind=files ;; *) kind="$type" ;; esac
   if [ "$action" = update ]; then
@@ -360,7 +433,7 @@ cmd_publish() {
           metadata=$(bp_request GET "$endpoint") || die "cannot verify existing site entry; no replacement sent"
           [ "$(bp_response_status)" = 200 ] || die "cannot verify existing site entry; no replacement sent"
           ENTRY=$(printf '%s' "$metadata" | jq -er '.entryFile | strings | select(length > 0)' 2>/dev/null) || die "existing site entry is unresolved; no replacement sent"
-          python3 -I -S -c 'import sys,zipfile; p=sys.argv[2]; safe=not p.startswith("/") and not any(s in ("",".","..") for s in p.split("/")) and not any(ord(c)<32 or ord(c)==127 for c in p); sys.exit(0 if safe and p in zipfile.ZipFile(sys.argv[1]).namelist() else 1)' "$CHECKED_PATH" "$ENTRY" || die "existing entry is absent or invalid in replacement; resolve the entry choice before publishing"
+          bp_python -c 'import sys,zipfile; p=sys.argv[2]; safe=not p.startswith("/") and not any(s in ("",".","..") for s in p.split("/")) and not any(ord(c)<32 or ord(c)==127 for c in p); sys.exit(0 if safe and p in zipfile.ZipFile(sys.argv[1]).namelist() else 1)' "$CHECKED_PATH" "$ENTRY" || die "existing entry is absent or invalid in replacement; resolve the entry choice before publishing"
         fi
       fi
       endpoint="$endpoint${separator}entry=$(jq -nr --arg e "$ENTRY" '$e | @uri')"

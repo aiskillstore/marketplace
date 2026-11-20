@@ -26,7 +26,12 @@ RESOLUTION = 'brewpage-reconciliation.json'
 OWNER_TOKEN = re.compile(r'[A-Za-z0-9]{32}')
 OWNER_ORIGIN = 'https://brewpage.app'
 OWNER_PATH = re.compile(r'/api/(html|json|kv|files|sites)/([a-z0-9-]{1,32})/([A-Za-z0-9_-]{1,128})')
+CONTROL_LABELS = frozenset('unlock www api admin assets static cdn status health metrics grafana prometheus monitoring autoconfig autodiscover fe-bounces account check'.split())
 ROW_KIND = {'html': 'html', 'json': 'json', 'kv': 'kv', 'file': 'files', 'files': 'files', 'site': 'sites', 'sites': 'sites'}
+
+
+class UnsupportedReaderHost(ValueError):
+    pass
 
 
 def regular(directory, name):
@@ -73,7 +78,8 @@ def read(directory, name, private=False):
 
 
 def git(root, arguments, allowed=(0, 1)):
-    result = subprocess.run(['git', '-C', root] + arguments, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env={**os.environ, 'LC_ALL': 'C'})
+    environment = {'PATH': os.environ['PATH'], 'LC_ALL': 'C', 'GIT_CONFIG_NOSYSTEM': '1', 'GIT_CONFIG_GLOBAL': os.devnull}
+    result = subprocess.run(['git', '-C', root] + arguments, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=environment)
     if result.returncode not in allowed:
         raise ValueError('Git safety check failed; repair repository configuration before publishing')
     return result
@@ -83,7 +89,7 @@ def repository(root):
     if shutil.which('git') is None:
         parent = root
         while True:
-            if os.path.lexists(os.path.join(parent, '.git')) or os.environ.get('GIT_DIR'):
+            if os.path.lexists(os.path.join(parent, '.git')):
                 raise ValueError('git required to protect history in a repository')
             ancestor = os.path.dirname(parent)
             if ancestor == parent:
@@ -161,7 +167,16 @@ def reader_url(value, target):
     if target is None or not isinstance(value, str) or not re.fullmatch(r'https://[A-Za-z0-9.-]+(?:[/?][^\s\x00-\x20\x7f#|`\[\]]*)?', value):
         raise ValueError('receipt needs an official target and valid reader URL')
     parsed = urlsplit(value)
-    if parsed.hostname.rstrip('.').lower() == 'brewpage.app' and (parsed.path != f'/{target[2]}/{target[3]}' or parsed.query):
+    hostname = parsed.hostname.rstrip('.').lower()
+    namespace, item = target[2], target[3]
+    if hostname == 'brewpage.app':
+        expected = f'/{namespace}/{item}'
+    else:
+        prefix = '' if namespace == 'public' else ('n' if namespace.startswith('-') else '') + namespace + '-'
+        if hostname.split('.', 1)[0] in CONTROL_LABELS or not re.fullmatch(re.escape(prefix) + r'[a-z0-9]{10}\.brewpage\.app', hostname):
+            raise UnsupportedReaderHost('reader URL needs a supported BrewPage publication host')
+        expected = '/'
+    if parsed.path != expected or parsed.query:
         raise ValueError('reader URL conflicts with the publication identity')
     return value
 
@@ -178,7 +193,10 @@ def rows(data):
         target = owner_api(api)
         if target is None:
             continue
-        link = reader_url(reader[1], target)
+        try:
+            link = reader_url(reader[1], target)
+        except UnsupportedReaderHost:
+            continue
         cells = json.loads(parts[6].strip('`')) if parts[6].strip('`') else {}
         validate_identity(cells, target)
         token = parts[2].strip('`')
@@ -198,11 +216,15 @@ def select(data, intent, target, out):
     token, = tokens
     if not OWNER_TOKEN.fullmatch(token):
         raise ValueError('stored owner proof is invalid')
-    if intent == 'update':
+    if intent == 'update' or target:
         endpoints = {api for api, _ in candidates}
         if len(endpoints) != 1:
             raise ValueError('update target is ambiguous')
         print(next(iter(endpoints)))
+    write_owner_header(out, token)
+
+
+def write_owner_header(out, token):
     fd = os.open(out, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
     with os.fdopen(fd, 'w', encoding='ascii') as header:
         header.write('X-Owner-Token: ' + token + '\n')
@@ -366,6 +388,12 @@ def main():
         pending_bytes = read(directory, PENDING, private=True)
         pending = pending_record(pending_bytes) if pending_bytes is not None else None
         operation = os.environ.get('BREWPAGE_OPERATION_ID', '')
+        if mode == 'recover-target':
+            receipt, target, _ = receipt_row(recovery)
+            check_create(pending, receipt.get('operationId'), target, receipt['ownerToken'])
+            write_owner_header(args[0], receipt['ownerToken'])
+            print(json.dumps({'reader': receipt['readerUrl'], 'ownerApi': receipt['ownerApi']}, separators=(',', ':')))
+            return
         if mode == 'pending-list':
             state = []
             if pending:
