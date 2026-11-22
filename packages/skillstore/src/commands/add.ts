@@ -82,7 +82,7 @@ export default defineCommand({
 		global: {
 			type: 'boolean',
 			alias: 'g',
-			description: 'Install to user-level (~/) instead of project-level',
+			description: 'Install to user-level (~/), the default; use --no-global for project-level',
 			default: true, // Default to global for skillstore
 		},
 		'skip-verify': {
