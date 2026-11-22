@@ -37,6 +37,20 @@ export function publicationRecoveryPlan(e){
   return {sendMerged:receiver.status==='in_review',publicationSha:run.head_sha,publisherId:publisher.id,submissionId,prNumber:pr.number};
 }
 
+// The previous provider push can be followed directly by publication, or by
+// exactly this submission's approval merge and then publication. General
+// ancestry is not sufficient: it could leave another publication unreconciled.
+export function verifyPostpushLineage(baselineSha, commit, pr, readCommit){
+  assert.ok(sha.test(baselineSha) && commit.parents?.length===1 && sha.test(commit.parents[0].sha), 'Invalid postpush lineage');
+  if(commit.parents[0].sha===baselineSha) return false;
+  const merge=pr.merge_commit_sha, head=pr.head?.sha;
+  assert.ok(sha.test(merge) && sha.test(head) && commit.parents[0].sha===merge && typeof readCommit==='function', 'Unverified approval merge lineage');
+  const approval=readCommit(merge);
+  assert.ok(approval?.sha===merge && approval.parents?.length===2
+    && approval.parents[0].sha===baselineSha && approval.parents[1].sha===head, 'Unverified approval merge lineage');
+  return true;
+}
+
 // A new proof is consumed separately. Never rewrite the failed publisher/push or
 // its old publication/attempt statuses, and never trust a green manual sync alone.
 export function verifiedPublicationRecovery(push,request){
@@ -69,13 +83,18 @@ export async function inspectPublication({receiverRead}={}){
   const owner=latestStatus(pr.merge_commit_sha,`agentcrew/publication/${digest}`,path=>api(path.slice(prefix.length+1)));
   assert.ok(owner?.state==='failure' && owner.target_url===`https://github.com/${repo}/actions/runs/${publisher.id}`,'Publisher does not own failed reservation');
   assert.equal(pr.head.sha,match[2]);assert.equal(pr.merge_commit_sha,match[3]);
-  assert.ok(commit.parents?.length===1 && sha.test(process.env.GITHUB_SHA));
-  assert.equal(runs[1]?.head_sha,commit.parents[0].sha,'Publication must immediately follow preceding complete provider push');
-  assert.equal(runs[1]?.conclusion,'success');
-  git(['fetch','--no-tags','origin',run.head_sha,pr.head.sha,commit.parents[0].sha]);
+  assert.ok(sha.test(process.env.GITHUB_SHA));
+  const baseline=runs[1];
+  assert.ok(baseline?.status==='completed' && baseline.conclusion==='success','No complete preceding provider push');
+  const bridgesApproval=verifyPostpushLineage(baseline.head_sha,commit,pr,merge=>api(`git/commits/${merge}`));
+  git(['fetch','--no-tags','origin',run.head_sha,pr.head.sha,commit.parents[0].sha,baseline.head_sha]);
   git(['merge-base','--is-ancestor',run.head_sha,process.env.GITHUB_SHA]);
-  const entries=git(['diff','--name-status','--no-renames','-z',commit.parents[0].sha,run.head_sha]).split('\0').filter(Boolean);
-  assert.equal(entries.length%2,0);const files=[];for(let i=0;i<entries.length;i+=2)files.push({status:entries[i],path:entries[i+1]});
+  const diffFiles=(from,to)=>{
+    const entries=git(['diff','--name-status','--no-renames','-z',from,to]).split('\0').filter(Boolean);
+    assert.equal(entries.length%2,0);const files=[];for(let i=0;i<entries.length;i+=2)files.push({status:entries[i],path:entries[i+1]});
+    return files;
+  };
+  const files=diffFiles(commit.parents[0].sha,run.head_sha);
   const roots=publicationRoots(files.filter(f=>f.path.startsWith('skills/'))),trees=[];
   assert.ok(files.length>0 && files.length<=10000);
   for(const f of files) assert.ok(roots.some(root=>(f.status==='A' && f.path.startsWith(`${root}/`)) || (f.status==='D' && f.path.startsWith(`${root.replace(/^skills\//,'pending/')}/`))),'Not a pure pending-to-published move');
@@ -89,6 +108,11 @@ export async function inspectPublication({receiverRead}={}){
     assert.ok(pendingFiles.includes(`${pending}/SKILL.md`) && pendingFiles.includes(`${pending}/skill-report.json`));
     assert.equal(files.filter(f=>f.status==='D' && f.path.startsWith(`${pending}/`)).length,pendingFiles.length,'Incomplete pending deletion');
     trees.push({root,approved,published,current});
+  }
+  if(bridgesApproval){
+    const added=diffFiles(baseline.head_sha,pr.merge_commit_sha).map(f=>`${f.status}\t${f.path}`).sort();
+    const moved=files.filter(f=>f.status==='D').map(f=>`A\t${f.path}`).sort();
+    assert.deepEqual(added,moved,'Approval merge must only add the exact published pending files');
   }
   const submissionId=submissionIdentity(pr,commit.message);
   const readReceiver=async()=>{const rows=receiverRead ? await receiverRead(submissionId) : await providerRead('submissions',['id',submissionId],'status,pr_number,workflow_run_id,approved_at,published_at,published_skill_slugs');assert.equal(rows.length,1,'Missing receiver');return rows[0];};
