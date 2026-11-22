@@ -1,0 +1,76 @@
+---
+name: set-up-shopify-chatgpt-ads-poas-bidding
+description: >-
+  POAS (profit on ad spend) bidding for Shopify in ChatGPT Ads. Use this skill when a Shopify
+  merchant wants ChatGPT Ads to bid on profit instead of revenue: switching from ROAS to POAS,
+  choosing a target ROAS on profit, or campaigns that hit their ROAS target and still lose money. It
+  sends profit to ChatGPT Ads through the OpenAI Conversions API, to optimise on its value. Also
+  covers ROAS (revenue) bidding. It works through Product Metrics, so use it even when Product
+  Metrics is never mentioned. Not for new customer, returning customer or LTV bidding: each has its
+  own skill, as do other store platforms and ad channels.
+license: MIT
+metadata:
+  author: Product Metrics
+  version: "1.2.0"
+  docs: https://www.productmetrics.io/docs/bidding/poas/shopify-openai
+---
+
+# Shopify POAS bidding: ChatGPT Ads tracking with profit
+
+Send profit from Shopify orders to ChatGPT Ads through the OpenAI Conversions API and bid on it (POAS). Bidding on profit matters because revenue hides what an order leaves after product costs, fees and shipping: a campaign can hit its ROAS target and still lose money.
+
+You run the Product Metrics steps through its CLI or MCP server; the person does the steps in Shopify and ChatGPT Ads. The rules below say how to work with both.
+
+## Rules
+
+- **All conversion actions by agents are secondary**, the status Product Metrics creates its actions with. Choosing what a campaign bids or optimises on (making an action primary, or picking the Meta or ChatGPT Ads conversion) is the person's step, by every route and also when they ask: give them the exact clicks, wait until they say it is done, then read it back.
+- **Pick the interface in this order:** the `productmetrics` CLI (check with `productmetrics status --json`, pass `--json` to every command, and run `productmetrics <group> <command> --help --json` before one you have not used); then the Product Metrics MCP server (`https://www.productmetrics.io/mcp`: `search` the API spec, then `execute`; never guess a path or body); otherwise the app steps in https://app.productmetrics.io.
+- **Read where setup stands first:** `productmetrics setup get-status --json` (MCP: `setup.get_status`). Read `journey_stage` and the `next_action` fields, read it again with `--company-id` and `--property-id` once you know them, skip every step that is done and tell the person which ones are.
+- **Discover ids, never invent them.** `company_id`, `property_id`, installation and scope ids come from earlier results.
+- **Writes:** pass `--auto-idempotency-key` (MCP: `idempotencyKey: crypto.randomUUID()`) where the command's `--help` lists it, and retry a failed write with the key the error hint names. Other writes take no key: read the state before you retry.
+- **Browser steps:** exit code 4 or `next_action: { "type": "browser", "url": … }` means the person opens the URL. Say what they will see, wait until they say they are done, then read the state again. A WooCommerce or Shopware 6 store returns `"type": "store_plugin"` instead: the person pastes the setup token into the Product Metrics plugin in their store admin before it expires.
+- **Steps in the store admin or ad platform are the person's:** give them the exact labels from the reference or docs page.
+- **Secrets:** never ask for, print or store passwords, tokens or API keys, except a credential the API needs from the person (the Lightspeed API key and secret, the Meta Conversions API access token, the OpenAI Conversions API key). Pass it straight to the command and never repeat it, log it or put it in a summary.
+- **Deletes** only when the person explicitly asks.
+- **"Ask your assistant" steps are yours.** Answer them with `productmetrics orders list --company-id <company_id> --storefront-scope-id <scope_id> --json` (MCP: `orders.list`, newest first) and `productmetrics orders get --company-id <company_id> --order-id <order_id> --storefront-scope-id <scope_id> --json` (MCP: `orders.get`), which shows an order's margin and whether its customer was new or returning.
+- **Talk to a store owner, not a developer:** short sentences, what you did, what they need to do, what comes next. ROAS is a plain number (4.2); a target ROAS is a percentage (420%). Recommend increasing or lowering priority, never "raise or cut bids".
+- The long form of these rules: https://www.productmetrics.io/docs/cli/for-agents.
+
+## Workflow
+
+1. **Read where setup stands** with `productmetrics setup get-status --json` (MCP: `setup.get_status`), and skip every step that is done.
+2. **Make sure server-side tracking to ChatGPT Ads is live.** If it isn't, set it up first with `set-up-shopify-chatgpt-ads-conversions-api` (or `references/connect-shopify.md` and `references/connect-chatgpt-ads.md`).
+3. **Follow `references/poas-bidding.md`** step by step and confirm each **You should see** line before you move on: later steps depend on earlier ones (the consent banner decides what is sent for each order, and checks only pass once a test order has arrived).
+4. **Hand the switch to the person.** They create the conversion on the Product Metrics custom event in ChatGPT Ads Manager and select it as the campaign's conversion, with the labels from the reference. This step is theirs. Wait until they say it is done.
+5. **Agree the target** with the facts below, and suggest one campaign first.
+6. **Report back** what is live now, what the person still has to do (with the exact labels from the reference), and how to check it again later.
+
+## Target ROAS facts
+
+- A target ROAS is a percentage of the value sent. On a profit value, 100% is break-even and 150% keeps €0.50 profit per €1 of ad spend.
+- An order with an unknown cost goes with revenue only; a loss-making order's profit is sent as 0.
+- Moving a campaign from revenue to profit means a lower target, because profit is smaller than revenue.
+- A starting target: the campaign's current POAS × 100, for example 150%. Say it is a starting point to adjust after a few weeks, not a rule.
+- In ChatGPT Ads, the person creates a conversion on the Product Metrics custom event (for profit: `pm_order_profit`) in Ads Manager, after a test order has sent one, and optimises the campaign on its value, which they select themselves.
+
+## References
+
+| Read | When | Docs page |
+| --- | --- | --- |
+| `references/poas-bidding.md` | POAS and ROAS bidding: prerequisites, the steps, how it works on Shopify, troubleshooting and FAQ | https://www.productmetrics.io/docs/bidding/poas/shopify-openai |
+| `references/connect-shopify.md` | The Shopify store isn't connected yet, or its connection is broken | https://www.productmetrics.io/docs/platforms/shopify |
+| `references/connect-chatgpt-ads.md` | ChatGPT Ads isn't connected yet, or you need the full list of what Product Metrics sends to it | https://www.productmetrics.io/docs/channels/openai |
+
+If there is no `references/` folder next to this file (the skill was installed from the docs site), fetch the docs page in the last column instead, with `.md` appended for Markdown: it has the same steps.
+
+## Related skills
+
+- `set-up-shopify-chatgpt-ads-conversions-api`: Server-side tracking for Shopify in ChatGPT Ads
+- `set-up-shopify-chatgpt-ads-customer-matching`: Customer data matching for Shopify in ChatGPT Ads
+- `set-up-shopify-chatgpt-ads-ltv-bidding`: LTV bidding for Shopify in ChatGPT Ads
+- `set-up-shopify-google-ads-poas-bidding`: POAS and ROAS bidding for Shopify in Google Ads
+- `set-up-shopify-meta-poas-bidding`: POAS and ROAS bidding for Shopify in Meta
+- `bid-on-profit`: check POAS or ROAS bidding on any store
+- `product-metrics`: picks the right skill for any store and channel
+
+Install: `npx skills add product-metrics/skills --skill set-up-shopify-chatgpt-ads-poas-bidding`. Every skill: https://www.productmetrics.io/docs/agent-skills/platform-skills.
