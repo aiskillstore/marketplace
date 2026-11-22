@@ -31,7 +31,6 @@ import {
 	detectDefaultInstallAgents,
 	getAgentsByIds,
 	isValidAgentId,
-	CANONICAL_SKILLS_DIR,
 	LOCK_FILE_PATH,
 	type AgentConfig,
 } from '../lib/agents.js';
@@ -42,7 +41,7 @@ import {
 	derivePackInstallOutcome,
 	readbackPackInstall,
 } from '../lib/pack-install-truth.js';
-import { extractSkillZip, installToAgents, getCanonicalSkillPath } from '../lib/installer.js';
+import { extractSkillZip, installToAgents, getCanonicalSkillPath, getCanonicalSkillsDir, getAgentSkillPath } from '../lib/installer.js';
 import {
 	buildPackOrchestration,
 	stagePackOrchestration,
@@ -247,7 +246,7 @@ async function addSkill(slug: string, options: AddOptions): Promise<void> {
 	const { targetAgents, isGlobal, skipVerify, dryRun, overwrite } = options;
 
 	const config = getPluginConfig({
-		installDir: CANONICAL_SKILLS_DIR, // Use canonical dir for extraction
+		installDir: getCanonicalSkillsDir({ global: isGlobal }), // Use canonical dir for extraction
 		skipVerify,
 		dryRun,
 	});
@@ -321,8 +320,11 @@ async function addSkill(slug: string, options: AddOptions): Promise<void> {
 		if (dryRun) {
 			logger.success('Dry run complete - no files were written');
 			console.log('');
-			console.log(`Would install to: ${getCanonicalSkillPath(slug)}`);
-			console.log(`Would symlink to: ${targetAgents.map((a) => a.name).join(', ')}`);
+			console.log(`Scope: ${isGlobal ? 'global (user-level)' : 'project-level'}`);
+			console.log(`Would install to: ${getCanonicalSkillPath(slug, { global: isGlobal })}`);
+			for (const agent of targetAgents) {
+				console.log(`Would symlink to: ${agent.name} -> ${getAgentSkillPath(slug, agent, { global: isGlobal })}`);
+			}
 			return;
 		}
 
@@ -344,7 +346,7 @@ async function addSkill(slug: string, options: AddOptions): Promise<void> {
 
 		// Step 7: Extract ZIP to canonical location
 		logger.startSpinner('Extracting files...');
-		const canonicalPath = getCanonicalSkillPath(slug);
+		const canonicalPath = getCanonicalSkillPath(slug, { global: isGlobal });
 		await extractSkillZip(zipBuffer, canonicalPath);
 		logger.spinnerSuccess('Extracted files');
 
@@ -422,8 +424,9 @@ async function addPlugin(slug: string, options: AddOptions): Promise<void> {
 
 	const installTargets = getPluginInstallTargets(targetAgents, isGlobal);
 
+	const canonicalSkillsDir = getCanonicalSkillsDir({ global: isGlobal });
 	const config = getPluginConfig({
-		installDir: CANONICAL_SKILLS_DIR,
+		installDir: canonicalSkillsDir,
 		skipVerify,
 		dryRun,
 	});
@@ -440,7 +443,7 @@ async function addPlugin(slug: string, options: AddOptions): Promise<void> {
 
 	logger.info(`Adding plugin: @${slug}`);
 	logger.info(`Target agents: ${targetAgents.map((a) => a.name).join(', ')}`);
-	logger.info(`Canonical directory: ${CANONICAL_SKILLS_DIR}`);
+	logger.info(`Canonical directory: ${canonicalSkillsDir}`);
 	for (const target of installTargets) {
 		logger.info(`Target directory (${target.agent.name}): ${target.installDir}`);
 	}
@@ -527,7 +530,10 @@ async function addPlugin(slug: string, options: AddOptions): Promise<void> {
 			}
 			const memberReadback = await readbackPackInstall(
 				manifest.skills,
-				installTargets.map((target) => target.installDir)
+				installTargets.map((target) => target.installDir),
+				undefined,
+				undefined,
+				{ global: isGlobal }
 			);
 			if (!memberReadback.readbackPassed) {
 				throw new Error(`Pack member readback failed for: ${memberReadback.failedSkillSlugs.join(', ') || 'unknown member state'}`);
@@ -557,7 +563,9 @@ async function addPlugin(slug: string, options: AddOptions): Promise<void> {
 			const readback = await readbackPackInstall(
 				manifest.skills,
 				installTargets.map((target) => target.installDir),
-				orchestration ?? undefined
+				orchestration ?? undefined,
+				undefined,
+				{ global: isGlobal }
 			);
 			installOutcome = derivePackInstallOutcome(
 				expectedSkillCount,

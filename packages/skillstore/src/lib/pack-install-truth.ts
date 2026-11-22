@@ -276,14 +276,15 @@ export async function readbackPackInstall(
 	members: ManifestSkill[],
 	targetDirectories: string[],
 	orchestration?: PackOrchestration,
-	dependencies: ReadbackDependencies = defaultReadbackDependencies
+	dependencies: ReadbackDependencies = defaultReadbackDependencies,
+	canonicalOptions: { global?: boolean; cwd?: string } = {}
 ): Promise<PackInstallReadback> {
 	const uniqueTargetDirectories = [...new Set(targetDirectories)];
 	const failedSkillSlugs: string[] = [];
 
 	for (const member of members) {
 		try {
-			const canonicalRoot = getCanonicalSkillPath(member.slug);
+			const canonicalRoot = getCanonicalSkillPath(member.slug, canonicalOptions);
 			await dependencies.verifyMember?.(canonicalRoot, member);
 			for (const artifactPath of getMemberArtifactPaths(member)) {
 				const canonicalBytes = await dependencies.readPath(resolveReadbackPath(canonicalRoot, artifactPath));
@@ -304,7 +305,7 @@ export async function readbackPackInstall(
 
 	const installedSkillCount = members.length - failedSkillSlugs.length;
 	const orchestrationReadback = orchestration
-		? await readbackPackOrchestration(orchestration, uniqueTargetDirectories, dependencies)
+		? await readbackPackOrchestration(orchestration, uniqueTargetDirectories, dependencies, canonicalOptions)
 		: undefined;
 	return {
 		installedSkillCount,
@@ -320,9 +321,10 @@ export async function readbackPackInstall(
 async function readbackPackOrchestration(
 	orchestration: PackOrchestration,
 	targetDirectories: string[],
-	dependencies: ReadbackDependencies
+	dependencies: ReadbackDependencies,
+	canonicalOptions: { global?: boolean; cwd?: string } = {}
 ): Promise<NonNullable<PackInstallReadback['orchestration']>> {
-	const canonicalRoot = getCanonicalSkillPath(orchestration.slug);
+	const canonicalRoot = getCanonicalSkillPath(orchestration.slug, canonicalOptions);
 	const agentPaths = targetDirectories.map((directory) => join(directory, sanitizeName(orchestration.slug)));
 	let readbackPassed = false;
 	try {

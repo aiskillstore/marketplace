@@ -124,6 +124,11 @@ describe('installer', () => {
 			const path = getCanonicalSkillPath('path/to/skill');
 			expect(path).toBe('/mock/home/.agents/skills/pathtoskill');
 		});
+
+		it('should use the project directory when not global', () => {
+			const path = getCanonicalSkillPath('my-skill', { global: false, cwd: '/work/proj' });
+			expect(path).toBe('/work/proj/.agents/skills/my-skill');
+		});
 	});
 
 	describe('getAgentSkillPath', () => {

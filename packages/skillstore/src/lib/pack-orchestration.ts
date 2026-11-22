@@ -520,7 +520,7 @@ export async function stagePackOrchestration(
 	isGlobal: boolean,
 	dependencies: PackOrchestrationInstallDependencies = {}
 ): Promise<PackOrchestrationTransaction> {
-	const canonicalPath = (dependencies.getCanonicalPath ?? getCanonicalSkillPath)(orchestration.slug);
+	const canonicalPath = (dependencies.getCanonicalPath ?? ((slug: string) => getCanonicalSkillPath(slug, { global: isGlobal })))(orchestration.slug);
 	const install = dependencies.install ?? installToAgents;
 	const parent = dirname(canonicalPath);
 	const suffix = randomUUID();

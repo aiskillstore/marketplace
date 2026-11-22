@@ -72,9 +72,17 @@ function isPathSafe(basePath: string, targetPath: string): boolean {
 /**
  * Get canonical skill directory path
  */
-export function getCanonicalSkillPath(slug: string): string {
+export function getCanonicalSkillsDir(options: { global?: boolean; cwd?: string } = {}): string {
+	if (options.global ?? true) return CANONICAL_SKILLS_DIR;
+	return join(options.cwd || process.cwd(), '.agents', 'skills');
+}
+
+export function getCanonicalSkillPath(
+	slug: string,
+	options: { global?: boolean; cwd?: string } = {}
+): string {
 	const sanitized = sanitizeName(slug);
-	return join(CANONICAL_SKILLS_DIR, sanitized);
+	return join(getCanonicalSkillsDir(options), sanitized);
 }
 
 function normalizeZipPath(path: string): string {
@@ -222,10 +230,13 @@ async function copySkillDirectory(target: string, linkPath: string): Promise<voi
  * Install skill to canonical location (for later symlinking)
  * This should be called AFTER extracting the ZIP to canonical path
  */
-export async function ensureCanonicalDir(slug: string): Promise<string> {
-	const canonicalPath = getCanonicalSkillPath(slug);
+export async function ensureCanonicalDir(
+	slug: string,
+	options: { global?: boolean; cwd?: string } = {}
+): Promise<string> {
+	const canonicalPath = getCanonicalSkillPath(slug, options);
 
-	if (!isPathSafe(CANONICAL_SKILLS_DIR, canonicalPath)) {
+	if (!isPathSafe(getCanonicalSkillsDir(options), canonicalPath)) {
 		throw new Error('Invalid skill name: potential path traversal detected');
 	}
 
@@ -241,7 +252,7 @@ export async function symlinkToAgent(
 	agent: AgentConfig,
 	options: { global?: boolean; cwd?: string } = {}
 ): Promise<InstallResult> {
-	const canonicalPath = getCanonicalSkillPath(slug);
+	const canonicalPath = getCanonicalSkillPath(slug, options);
 	const agentPath = getAgentSkillPath(slug, agent, options);
 
 	// Validate paths
@@ -257,7 +268,7 @@ export async function symlinkToAgent(
 		};
 	}
 
-	const result = await linkSkillToDirectory(slug, agentBase);
+	const result = await linkSkillToDirectory(slug, agentBase, options);
 	return {
 		...result,
 		agentId: agent.id as AgentId,
@@ -269,9 +280,10 @@ export async function symlinkToAgent(
  */
 export async function linkSkillToDirectory(
 	slug: string,
-	targetSkillsDir: string
+	targetSkillsDir: string,
+	options: { global?: boolean; cwd?: string } = {}
 ): Promise<DirectoryInstallResult> {
-	const canonicalPath = getCanonicalSkillPath(slug);
+	const canonicalPath = getCanonicalSkillPath(slug, options);
 	const agentPath = join(targetSkillsDir, sanitizeName(slug));
 
 	if (!isPathSafe(targetSkillsDir, agentPath)) {
@@ -331,7 +343,7 @@ export async function installToAgents(
 	agents: AgentConfig[],
 	options: { global?: boolean; cwd?: string } = {}
 ): Promise<MultiAgentInstallResult> {
-	const canonicalPath = getCanonicalSkillPath(slug);
+	const canonicalPath = getCanonicalSkillPath(slug, options);
 	const results: InstallResult[] = [];
 
 	for (const agent of agents) {
@@ -372,8 +384,11 @@ export async function isSkillInstalledForAgent(
 /**
  * Check if skill exists in canonical location
  */
-export async function isSkillInCanonical(slug: string): Promise<boolean> {
-	const canonicalPath = getCanonicalSkillPath(slug);
+export async function isSkillInCanonical(
+	slug: string,
+	options: { global?: boolean; cwd?: string } = {}
+): Promise<boolean> {
+	const canonicalPath = getCanonicalSkillPath(slug, options);
 
 	try {
 		await access(canonicalPath);
@@ -406,7 +421,7 @@ export async function removeSkill(
 	}
 
 	// Remove canonical directory
-	const canonicalPath = getCanonicalSkillPath(slug);
+	const canonicalPath = getCanonicalSkillPath(slug, options);
 	try {
 		await rm(canonicalPath, { recursive: true, force: true });
 	} catch {
