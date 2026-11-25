@@ -235,6 +235,7 @@ function lockMatchesMember(lock: SkillLockEntry | undefined, member: ManifestSki
 }
 
 interface ReadbackDependencies {
+	canonicalDir?: string;
 	readPath: (path: string) => Promise<Uint8Array>;
 	readLockEntry: (slug: string) => Promise<SkillLockEntry | undefined>;
 	verifyMember?: (path: string, member: ManifestSkill) => Promise<void>;
@@ -283,7 +284,7 @@ export async function readbackPackInstall(
 
 	for (const member of members) {
 		try {
-			const canonicalRoot = getCanonicalSkillPath(member.slug);
+			const canonicalRoot = getCanonicalSkillPath(member.slug, dependencies.canonicalDir);
 			await dependencies.verifyMember?.(canonicalRoot, member);
 			for (const artifactPath of getMemberArtifactPaths(member)) {
 				const canonicalBytes = await dependencies.readPath(resolveReadbackPath(canonicalRoot, artifactPath));
@@ -322,7 +323,7 @@ async function readbackPackOrchestration(
 	targetDirectories: string[],
 	dependencies: ReadbackDependencies
 ): Promise<NonNullable<PackInstallReadback['orchestration']>> {
-	const canonicalRoot = getCanonicalSkillPath(orchestration.slug);
+	const canonicalRoot = getCanonicalSkillPath(orchestration.slug, dependencies.canonicalDir);
 	const agentPaths = targetDirectories.map((directory) => join(directory, sanitizeName(orchestration.slug)));
 	let readbackPassed = false;
 	try {
