@@ -6,9 +6,10 @@ import { join } from 'node:path';
 import { parse } from 'yaml';
 import { trustedMerged, publicationIdentity, chooseAttempt, preflightContext, publicationFiles, main, reportContinuation } from '../continue-merged-publications.mjs';
 
-test('61-skill approvals fit the 64-skill bound; 65-skill approvals still fail closed', async () => {
+test('61-skill approvals fit the bound; unattempted oversized approvals cannot block independent work', async () => {
   const { main } = await import('../continue-merged-publications.mjs');
   const counts = [61, 3, 1], writes = [];
+  let oldestStatuses = [], oldestRefs = [];
   const prs = counts.map((_, i) => ({ number: i + 1, get changed_files() { return counts[i]; }, created_at: '2026-11-05T00:00:00Z', merged_at: `2026-09-01T00:00:0${i}Z`,
     base: { ref: 'main' }, user: { id: 254047988, login: 'ai-skill-store[bot]' },
     head: { repo: { full_name: 'aiskillstore/marketplace' }, ref: 'submission/test', sha: 'a'.repeat(40) },
@@ -26,7 +27,8 @@ test('61-skill approvals fit the 64-skill bound; 65-skill approvals still fail c
     const pr = endpoint.match(/\/pulls\/(\d+)$/);
     if (pr) return prs[Number(pr[1]) - 1];
     if (endpoint.includes('/actions/workflows/')) return { workflow_runs: [] };
-    if (endpoint.includes('/statuses?') || endpoint.includes('/git/matching-refs/')) return [];
+    if (endpoint.includes('/statuses?')) return endpoint.includes(prs[0].merge_commit_sha) ? oldestStatuses : [];
+    if (endpoint.includes('/git/matching-refs/')) return endpoint.includes(publicationIdentity(prs[0]).digest) ? oldestRefs : [];
     throw new Error(`Unexpected ${endpoint}`);
   };
   process.argv.push('--apply');
@@ -35,8 +37,21 @@ test('61-skill approvals fit the 64-skill bound; 65-skill approvals still fail c
     assert.equal(writes.length, 1);
     assert.equal(writes[0].inputs.pr_numbers, '1,2', '61 plus 3 fits; the next Skill must wait');
     counts[0] = 65; writes.length = 0;
-    assert.throws(() => main(request), /bounded batch capacity/);
-    assert.equal(writes.length, 0);
+    main(request);
+    assert.equal(writes.length, 1);
+    assert.equal(writes[0].inputs.pr_numbers, '2,3', 'never split or dispatch the oversized approval');
+    const { digest } = publicationIdentity(prs[0]);
+    for (const state of ['pending', 'failure', 'success']) {
+      writes.length = 0;
+      oldestStatuses = [{ context: `agentcrew/publication/${digest}`, state }];
+      assert.equal(main(request).outcome, 'blocked');
+      assert.equal(writes.length, 0, 'unknown effects of oversized approvals still block later work');
+    }
+    oldestStatuses = [];
+    oldestRefs = [{ ref: `refs/tags/agentcrew-dispatch-outbox/publication/${digest}/1700000000000-1`, object: { type: 'commit', sha: prs[0].merge_commit_sha } }];
+    assert.equal(main(request).outcome, 'blocked');
+    assert.equal(writes.length, 0, 'age alone cannot prove an outbox had no effects');
+    oldestRefs = [];
     counts.splice(0, 3, 1, 1, 1);
     prs[0].created_at = '2026-11-04T14:22:00Z';
     prs[1].created_at = '2026-11-04T14:23:00.928Z';

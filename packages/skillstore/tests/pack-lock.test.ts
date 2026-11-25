@@ -88,7 +88,7 @@ describe('pack-lock', () => {
 			skillstoreRevision: 7,
 			treeHash: 'a'.repeat(64),
 			zipHash: 'single-skill-zip-hash',
-		}));
+		}), undefined);
 	});
 
 	it('leaves a member unlocked when the signed identities differ', async () => {
