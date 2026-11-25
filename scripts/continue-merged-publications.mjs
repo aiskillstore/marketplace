@@ -167,8 +167,7 @@ export function main(request = api, readJobLog = readPublicationJobLog) {
   let skillCount = 0;
   for (const candidate of candidates) {
     const count = skillCounts.get(candidate.number);
-    if (!count || count > maxBatchSkills) throw new Error('Submission exceeds bounded batch capacity');
-    if (skillCount + count > maxBatchSkills || selected.length === 25) break;
+    if (!count) throw new Error('Submission has no publication skills');
     const pr = request(`repos/${repo}/pulls/${candidate.number}`);
     const { correlation, digest } = publicationIdentity(pr);
     const refs = request(`repos/${repo}/git/matching-refs/tags/agentcrew-dispatch-outbox/publication/${digest}/`);
@@ -189,6 +188,16 @@ export function main(request = api, readJobLog = readPublicationJobLog) {
       // blocks later publications until its exact correlation is reconciled.
       return reportContinuation(choice.outcome, `#${pr.number}: ${choice.wait}`, { prNumbers: [pr.number] });
     }
+    if (count > maxBatchSkills) {
+      // Never skip an approval with an unknown dispatch effect, including an
+      // old outbox that is no longer considered fresh by chooseAttempt.
+      if (refs.some(ref => !reconciled.prepushSafeRefs.includes(ref.ref))) {
+        return reportContinuation('blocked', `#${pr.number}: oversized submission has an unproved dispatch; reconcile before isolating`, { prNumbers: [pr.number] });
+      }
+      rejected.push(pr.number);
+      console.warn(`::warning::#${pr.number}: ${count} Skills exceed the ${maxBatchSkills}-Skill atomic batch limit; needs separate review. Independent approvals can continue.`);
+      continue;
+    }
     // Only validation that failed BEFORE any reservation/mutation may be
     // isolated. Unknown publication effects above still stop the entire queue.
     if (statuses.find(s => s.context === preflightContext(digest))?.state === 'failure') {
@@ -196,6 +205,7 @@ export function main(request = api, readJobLog = readPublicationJobLog) {
       console.warn(`::warning::#${pr.number}: frozen publication preflight rejected; inspect its status. Other independent approvals can continue.`);
       continue;
     }
+    if (skillCount + count > maxBatchSkills || selected.length === 25) break;
     selected.push({ number: pr.number, correlation });
     skillCount += count;
   }
