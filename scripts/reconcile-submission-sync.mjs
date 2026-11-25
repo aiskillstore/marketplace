@@ -260,6 +260,12 @@ export async function main() {
     .sort((a,b)=>b.created_at.localeCompare(a.created_at))[0];
   trustedRun(baseline,'push','success');
   const commit=api(`${prefix}/git/commits/${push.head_sha}`);
+  const parent=commit.parents?.length===1 ? api(`${prefix}/git/commits/${commit.parents[0].sha}`) : null;
+  if(parent?.message.includes('AgentCrew-Publication: submission-pr-')) {
+    assert.ok(!process.env.SCORE_RECOVERY_RUN_ID, 'Batch recovery cannot mix scoring modes');
+    const { reconcileBatch }=await import('./batch-provider-recovery.mjs');
+    return reconcileBatch(push.id,recovery);
+  }
   let comparison=api(`${prefix}/compare/${baseline.head_sha}...${push.head_sha}`);
   assert.equal(comparison.status,'ahead'); assert.ok(comparison.files.length<300,'Truncated comparison');
   const trailer=commit.message.match(/^AgentCrew-Publication: submission-pr-([1-9][0-9]*)-[a-f0-9]{40}-[a-f0-9]{40}$/m);

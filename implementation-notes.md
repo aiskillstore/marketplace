@@ -1,5 +1,12 @@
 # Implementation notes
 
+## 2026-11-25 — Partial multi-PR provider recovery
+
+- The legacy recovery path binds one PR, but the atomic publisher can move up to 25 approved PRs in a push. Recovery now proves the entire contiguous publication range, original approval trees, successful publisher attempts, batch digest and unchanged published trees.
+- Only a missing Skill with no source artifact receives an initial sync. Exact active Skill/current-artifact pairs are reused without repeating provider writes; every other projection blocks. The normal authenticated source distribution gate remains mandatory for new writes.
+- Full-batch provider readback precedes per-submission callbacks, scoring and cache work. A separate reconciliation verifies all results and preserves the original failed run. No production limits or suppression decisions change.
+- The existing source-authority JOIN was reviewed by database-performance, business-consistency and access-isolation roles. Production bindings were empty and skills had 7,261 rows; EXPLAIN used an empty bindings scan and skills primary-key lookup. No query or index changes were needed.
+
 ## 2026-11-25 — Backlog delivery: project installs and bounded publication (issues #4325–#4327)
 
 - `add --no-global` scopes canonical files, Pack workflow, verification readback, and lock rollback to the current project. Explicit canonical-directory options preserve existing SDK and other-command defaults. Repeating add can repair a missing selected-agent link.
@@ -13,12 +20,9 @@
 - The existing cache secret authenticates a five-minute scheduled worker. It advances at most five stages, fails visibly on incomplete processing, and never publishes applicant identity or reviewer evidence. Merge after the site endpoint and database migration are deployed.
 - Reimport is blocked by tombstones; restoration requires the site's reviewed lifecycle. Git history and external installed copies remain outside current-tree deletion. No historic Git rewrite.
 
-## 2026-10-11 — Publication dependency outcomes
-
-- Repeated wakeups behind one failed provider write report `blocked` with its original run link, not a new execution error. Waiting, blocked, idle and dispatch outcomes are written to job outputs and the run summary; none imply production acceptance.
-- Check active/failed dependencies before fetching all approval files. Reconciliation completion now wakes continuation directly. Exact recovery proof, no-replay, publication holds and source validation remain required; API/integrity failures and stalled runs still fail.
-
 ## Historical Notes Summary
+
+- 2026-10-11 — Publication dependency outcomes — Blocked dependency status remains distinct from execution failure; exact recovery proof wakes continuation without replay.
 
 - 2026-10-11 — General Actions recovery — Preserve existing publication checks and recovery boundaries; full decisions remain in Git history.
 

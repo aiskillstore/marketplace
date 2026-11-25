@@ -81,6 +81,7 @@ jobs:
           /scripts/guard-provider-rerun.mjs
           /scripts/recovered-push-sync.mjs
           /scripts/prepare-sync-recovery.mjs
+          /scripts/batch-provider-recovery.mjs
           /scripts/unstarted-provider-recovery.mjs
           /scripts/bounded-submission-recovery.mjs
           /scripts/reconcile-submission-sync.mjs
@@ -142,6 +143,7 @@ jobs:
             scripts/guard-provider-rerun.mjs \
             scripts/recovered-push-sync.mjs \
             scripts/prepare-sync-recovery.mjs \
+            scripts/batch-provider-recovery.mjs \
             scripts/unstarted-provider-recovery.mjs \
             scripts/bounded-submission-recovery.mjs \
             scripts/reconcile-submission-sync.mjs \
@@ -687,6 +689,10 @@ jobs:
           RESUME_FAILED_RUN: ${{ inputs.resume_failed_run }}
           PROVIDER_COMPLETE: ${{ steps.trusted-correlation.outputs.provider_complete }}
           PROVIDER_MODE: ${{ steps.trusted-correlation.outputs.provider_mode }}
+          BATCH_PENDING_PATHS: ${{ steps.trusted-correlation.outputs.batch_pending_paths }}
+          BATCH_REUSED_SLUGS: ${{ steps.trusted-correlation.outputs.batch_reused_slugs }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
           VERIFIED_RECOVERY_SLUGS: ${{ steps.trusted-correlation.outputs.recovery_slugs }}
           SYNC_MODE: ${{ steps.changes.outputs.mode }}
           SECURITY_PASSPORT_MODE: ${{ vars.SECURITY_PASSPORT_MODE || 'off' }}
@@ -700,7 +706,7 @@ jobs:
           if [ -n "$RESUME_FAILED_RUN" ]; then
             case "$PROVIDER_MODE" in
               ancillary-only) test "$PROVIDER_COMPLETE" = true || exit 1 ;;
-              initial-sync|resume-current) test "$PROVIDER_COMPLETE" != true || exit 1 ;;
+              initial-sync|resume-current|partial-batch) test "$PROVIDER_COMPLETE" != true || exit 1 ;;
               *) echo '::error::Missing or invalid verified provider mode'; exit 1 ;;
             esac
           else
@@ -718,6 +724,16 @@ jobs:
             echo "synced_count=$SYNCED_COUNT" >> "$GITHUB_OUTPUT"
             echo "::notice::Reused verified provider-complete artifact; provider writes skipped"
             exit 0
+          fi
+          if [ "$PROVIDER_MODE" = partial-batch ]; then
+            CHANGED_SKILLS="$BATCH_PENDING_PATHS"
+            test -z "$CHANGED_SKILLS" || test -n "$CACHE_INVALIDATE_SECRET" || { echo "::error::Source authority credential is required"; exit 1; }
+            if [ -z "$CHANGED_SKILLS" ]; then
+              node scripts/batch-provider-recovery.mjs verify
+              printf '%s\n' "$BATCH_REUSED_SLUGS" | tr ',' '\n' | LC_ALL=C sort > synced-slugs.txt
+              echo "synced_count=$(wc -l < synced-slugs.txt | tr -d ' ')" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
           fi
           echo "Sync mode: $SYNC_MODE"
           echo "Syncing skills: $CHANGED_SKILLS"
@@ -841,6 +857,11 @@ jobs:
             echo "::error::skillstore-cli reported a different synced slug set than requested"
             exit 1
           }
+          if [ "$PROVIDER_MODE" = partial-batch ]; then
+            node scripts/batch-provider-recovery.mjs verify
+            printf '%s\n' "$BATCH_REUSED_SLUGS" | tr ',' '\n' | sed '/^$/d' >> synced-slugs.txt
+            LC_ALL=C sort -u -o synced-slugs.txt synced-slugs.txt
+          fi
           SYNCED_COUNT=$(wc -l < synced-slugs.txt | tr -d ' ')
           echo "synced_count=$SYNCED_COUNT" >> "$GITHUB_OUTPUT"
           echo "::notice::Synced $SYNCED_COUNT skill(s); slug payload saved to artifact input"
@@ -1081,6 +1102,7 @@ jobs:
         env:
           RECOVERY_COMMIT: ${{ inputs.resume_failed_run != '' && steps.trusted-correlation.outputs.sync_commit_sha || '' }}
           RECOVERY_SUBMISSION_ID: ${{ steps.trusted-correlation.outputs.recovery_submission_id }}
+          BATCH_RECOVERY: ${{ steps.trusted-correlation.outputs.batch_recovery }}
           BASE_SHA: ${{ steps.last_sync.outputs.base_sha }}
           SYNC_MODE: ${{ steps.changes.outputs.mode }}
           CHANGED_SKILLS: ${{ steps.changes.outputs.changed_skills }}
@@ -1098,6 +1120,15 @@ jobs:
               .map((slug) => slug.trim())
               .filter(Boolean),
           );
+
+          if (process.env.BATCH_RECOVERY === 'true') {
+            const payload=JSON.parse(fs.readFileSync('batch-recovery-callbacks.json','utf8'));
+            const expected=payload.flatMap(c=>c.skill_slugs).sort();
+            if (new Set(expected).size !== expected.length || JSON.stringify(expected)!==JSON.stringify([...syncedSlugs].sort())) throw new Error('Batch callback coverage differs');
+            fs.writeFileSync('published-submissions.json',JSON.stringify(payload));
+            fs.appendFileSync(process.env.GITHUB_OUTPUT, `count=${payload.length}\n`);
+            process.exit(0);
+          }
 
           if (process.env.RECOVERY_SUBMISSION_ID) {
             const submission_id = process.env.RECOVERY_SUBMISSION_ID;

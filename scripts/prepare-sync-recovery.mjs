@@ -94,6 +94,11 @@ export async function main() {
   assert.ok(index === 0 && baseline?.status === 'completed' && baseline.conclusion === 'success' && sha.test(baseline.head_sha), 'No complete preceding push baseline');
   git(['fetch', '--no-tags', 'origin', run.head_sha, baseline.head_sha]);
   const commit = api(`git/commits/${run.head_sha}`);
+  const parent = commit.parents?.length === 1 ? api(`git/commits/${commit.parents[0].sha}`) : null;
+  if (parent?.message.includes('AgentCrew-Publication: submission-pr-')) {
+    const { prepareBatch } = await import('./batch-provider-recovery.mjs');
+    return prepareBatch(id);
+  }
   const trailers = [...commit.message.matchAll(/^AgentCrew-Publication: submission-pr-([1-9][0-9]*)-([a-f0-9]{40})-([a-f0-9]{40})$/gm)];
   assert.ok(trailers.length === 1, 'Recovery requires one publication correlation');
   const approvals = trailers.map(([,number,head,merge]) => {
