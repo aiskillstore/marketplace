@@ -72,9 +72,9 @@ function isPathSafe(basePath: string, targetPath: string): boolean {
 /**
  * Get canonical skill directory path
  */
-export function getCanonicalSkillPath(slug: string): string {
+export function getCanonicalSkillPath(slug: string, canonicalDir = CANONICAL_SKILLS_DIR): string {
 	const sanitized = sanitizeName(slug);
-	return join(CANONICAL_SKILLS_DIR, sanitized);
+	return join(canonicalDir, sanitized);
 }
 
 function normalizeZipPath(path: string): string {
@@ -239,9 +239,9 @@ export async function ensureCanonicalDir(slug: string): Promise<string> {
 export async function symlinkToAgent(
 	slug: string,
 	agent: AgentConfig,
-	options: { global?: boolean; cwd?: string } = {}
+	options: { global?: boolean; cwd?: string; canonicalDir?: string } = {}
 ): Promise<InstallResult> {
-	const canonicalPath = getCanonicalSkillPath(slug);
+	const canonicalPath = getCanonicalSkillPath(slug, options.canonicalDir);
 	const agentPath = getAgentSkillPath(slug, agent, options);
 
 	// Validate paths
@@ -257,7 +257,7 @@ export async function symlinkToAgent(
 		};
 	}
 
-	const result = await linkSkillToDirectory(slug, agentBase);
+	const result = await linkSkillToDirectory(slug, agentBase, options.canonicalDir);
 	return {
 		...result,
 		agentId: agent.id as AgentId,
@@ -269,9 +269,10 @@ export async function symlinkToAgent(
  */
 export async function linkSkillToDirectory(
 	slug: string,
-	targetSkillsDir: string
+	targetSkillsDir: string,
+	canonicalDir = CANONICAL_SKILLS_DIR
 ): Promise<DirectoryInstallResult> {
-	const canonicalPath = getCanonicalSkillPath(slug);
+	const canonicalPath = getCanonicalSkillPath(slug, canonicalDir);
 	const agentPath = join(targetSkillsDir, sanitizeName(slug));
 
 	if (!isPathSafe(targetSkillsDir, agentPath)) {
@@ -329,9 +330,9 @@ export async function linkSkillToDirectory(
 export async function installToAgents(
 	slug: string,
 	agents: AgentConfig[],
-	options: { global?: boolean; cwd?: string } = {}
+	options: { global?: boolean; cwd?: string; canonicalDir?: string } = {}
 ): Promise<MultiAgentInstallResult> {
-	const canonicalPath = getCanonicalSkillPath(slug);
+	const canonicalPath = getCanonicalSkillPath(slug, options.canonicalDir);
 	const results: InstallResult[] = [];
 
 	for (const agent of agents) {
