@@ -8,6 +8,9 @@ it, and the automated security audits published with each skill.
 > **This repo is a companion to the Skill Store platform, not the place to submit skills.**
 > Skills are added through [skillstore.io](https://skillstore.io) — its review pipeline writes to this repo automatically. Please **do not open a pull request here to add a skill**; PRs adding skills will be closed. See [Contributing a skill](#contributing-a-skill) below.
 
+For CLI and tooling changes, open an issue rather than a fork pull request.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the contribution policy and bug-report details.
+
 ## Installing a skill
 
 The recommended way to install any skill is the **`skillstore` CLI** — one command works for both **Claude Code** and **Codex**:
