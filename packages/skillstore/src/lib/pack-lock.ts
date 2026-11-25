@@ -35,7 +35,8 @@ function packMemberIdentity(skill: ManifestSkill) {
 export async function lockVerifiedPackMembers(
 	config: PluginConfig,
 	packSkills: ManifestSkill[],
-	download: DownloadSummary
+	download: DownloadSummary,
+	lockFilePath?: string
 ): Promise<{ locked: number; skipped: number }> {
 	let locked = 0;
 	let skipped = 0;
@@ -75,7 +76,7 @@ export async function lockVerifiedPackMembers(
 				zipHash,
 				source: 'skillstore',
 				installedAt: new Date().toISOString(),
-			});
+			}, lockFilePath);
 			locked++;
 		} catch (error) {
 			logger.warn(`Not locking ${result.slug}: ${error instanceof Error ? error.message : 'verification failed'}`);
