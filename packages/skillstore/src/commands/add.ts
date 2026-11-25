@@ -1,7 +1,8 @@
 import { defineCommand } from 'citty';
+import { getInstallScope, validateProjectInstallPaths } from '../lib/install-scope.js';
 import { randomUUID } from 'node:crypto';
-import { lstat, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
-import { basename, dirname, join } from 'node:path';
+import { lstat, mkdir, readFile, readdir, readlink, rename, rm, writeFile } from 'node:fs/promises';
+import { basename, dirname, join, resolve } from 'node:path';
 import { getPluginConfig } from '../lib/plugin-config.js';
 import {
 	fetchManifest,
@@ -22,6 +23,7 @@ import {
 	printDownloadSummary,
 	stagePackSkillDownloads,
 	stagePackTargetLinks,
+	verifyInstalledPackMember,
 	type PackSkillDownloadTransaction,
 	type PackTargetLinkTransaction,
 } from '../lib/plugin-download.js';
@@ -31,8 +33,6 @@ import {
 	detectDefaultInstallAgents,
 	getAgentsByIds,
 	isValidAgentId,
-	CANONICAL_SKILLS_DIR,
-	LOCK_FILE_PATH,
 	type AgentConfig,
 } from '../lib/agents.js';
 import { addToLock, getLockEntry } from '../lib/skill-lock.js';
@@ -42,7 +42,7 @@ import {
 	derivePackInstallOutcome,
 	readbackPackInstall,
 } from '../lib/pack-install-truth.js';
-import { extractSkillZip, installToAgents, getCanonicalSkillPath } from '../lib/installer.js';
+import { extractSkillZip, installToAgents, getCanonicalSkillPath, getAgentSkillPath } from '../lib/installer.js';
 import {
 	buildPackOrchestration,
 	stagePackOrchestration,
@@ -82,7 +82,7 @@ export default defineCommand({
 		global: {
 			type: 'boolean',
 			alias: 'g',
-			description: 'Install to user-level (~/) instead of project-level',
+			description: 'Install to user-level (~/), the default; use --no-global for project-level',
 			default: true, // Default to global for skillstore
 		},
 		'skip-verify': {
@@ -145,6 +145,8 @@ export default defineCommand({
 			}
 		}
 
+		if (!isGlobal && !dryRun) await validateProjectInstallPaths(targetAgents);
+
 		if (isPlugin) {
 			await addPlugin(slug, { targetAgents, reportTargetAgents, isGlobal, skipVerify, dryRun, overwrite });
 		} else {
@@ -176,38 +178,38 @@ function getPluginInstallTargets(targetAgents: AgentConfig[], isGlobal: boolean)
 
 type LockSnapshot = Uint8Array | undefined;
 
-async function snapshotLock(): Promise<LockSnapshot> {
+async function snapshotLock(lockFilePath: string): Promise<LockSnapshot> {
 	try {
-		const stat = await lstat(LOCK_FILE_PATH);
+		const stat = await lstat(lockFilePath);
 		if (!stat.isFile() || stat.isSymbolicLink()) {
-			throw new Error(`Refusing to replace unsafe lock path: ${LOCK_FILE_PATH}`);
+			throw new Error(`Refusing to replace unsafe lock path: ${lockFilePath}`);
 		}
-		return await readFile(LOCK_FILE_PATH);
+		return await readFile(lockFilePath);
 	} catch (error) {
 		if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined;
 		throw error;
 	}
 }
 
-async function restoreLock(snapshot: LockSnapshot): Promise<void> {
+async function restoreLock(snapshot: LockSnapshot, lockFilePath: string): Promise<void> {
 	try {
-		const stat = await lstat(LOCK_FILE_PATH);
+		const stat = await lstat(lockFilePath);
 		if (!stat.isFile() || stat.isSymbolicLink()) {
-			throw new Error(`Refusing to restore unsafe lock path: ${LOCK_FILE_PATH}`);
+			throw new Error(`Refusing to restore unsafe lock path: ${lockFilePath}`);
 		}
 	} catch (error) {
 		if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
 	}
 	if (!snapshot) {
-		await rm(LOCK_FILE_PATH, { force: true });
+		await rm(lockFilePath, { force: true });
 		return;
 	}
-	const lockDir = dirname(LOCK_FILE_PATH);
-	const stagePath = join(lockDir, `.${basename(LOCK_FILE_PATH)}.restore-${randomUUID()}`);
+	const lockDir = dirname(lockFilePath);
+	const stagePath = join(lockDir, `.${basename(lockFilePath)}.restore-${randomUUID()}`);
 	await mkdir(lockDir, { recursive: true });
 	try {
 		await writeFile(stagePath, snapshot, { mode: 0o600 });
-		await rename(stagePath, LOCK_FILE_PATH);
+		await rename(stagePath, lockFilePath);
 	} finally {
 		await rm(stagePath, { force: true });
 	}
@@ -216,13 +218,14 @@ async function restoreLock(snapshot: LockSnapshot): Promise<void> {
 async function linkDownloadedSkillsToAgents(
 	skillSlugs: string[],
 	targetAgents: AgentConfig[],
-	isGlobal: boolean
+	isGlobal: boolean,
+	canonicalDir: string
 ): Promise<{ successCount: number; failCount: number }> {
 	let successCount = 0;
 	let failCount = 0;
 
 	for (const skillSlug of skillSlugs) {
-		const installResult = await installToAgents(skillSlug, targetAgents, { global: isGlobal });
+		const installResult = await installToAgents(skillSlug, targetAgents, { global: isGlobal, canonicalDir });
 		successCount += installResult.successCount;
 		failCount += installResult.failCount;
 
@@ -240,14 +243,43 @@ async function linkDownloadedSkillsToAgents(
 	return { successCount, failCount };
 }
 
+async function hasCanonicalSkill(path: string): Promise<boolean> {
+	try {
+		const stat = await lstat(path);
+		return stat.isDirectory() && !stat.isSymbolicLink() && (await lstat(join(path, 'SKILL.md'))).isFile();
+	} catch (error) {
+		if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false;
+		throw error;
+	}
+}
+
+/** Recognize the existing copy fallback without replacing user-modified files. */
+async function sameSkillDirectory(left: string, right: string): Promise<boolean> {
+	const leftStat = await lstat(left), rightStat = await lstat(right);
+	if (!leftStat.isDirectory() || !rightStat.isDirectory()) return false;
+	const leftNames = (await readdir(left)).sort(), rightNames = (await readdir(right)).sort();
+	if (leftNames.length !== rightNames.length || leftNames.some((name, index) => name !== rightNames[index])) return false;
+	for (const name of leftNames) {
+		const a = join(left, name), b = join(right, name);
+		const aStat = await lstat(a), bStat = await lstat(b);
+		if (aStat.isDirectory() && bStat.isDirectory()) {
+			if (!await sameSkillDirectory(a, b)) return false;
+		} else if (aStat.isFile() && bStat.isFile()) {
+			if (!(await readFile(a)).equals(await readFile(b))) return false;
+		} else return false;
+	}
+	return true;
+}
+
 /**
  * Add a single skill
  */
 async function addSkill(slug: string, options: AddOptions): Promise<void> {
 	const { targetAgents, isGlobal, skipVerify, dryRun, overwrite } = options;
+	const { canonicalDir, lockFilePath } = getInstallScope(isGlobal);
 
 	const config = getPluginConfig({
-		installDir: CANONICAL_SKILLS_DIR, // Use canonical dir for extraction
+		installDir: canonicalDir, // Use canonical dir for extraction
 		skipVerify,
 		dryRun,
 	});
@@ -293,10 +325,46 @@ async function addSkill(slug: string, options: AddOptions): Promise<void> {
 			`Author: ${manifest.skill.author || 'Unknown'}`,
 		]);
 
+		if (dryRun) {
+			console.log(`Scope: ${isGlobal ? "user-level" : "project-level"}`);
+			const canonicalPath = getCanonicalSkillPath(slug, canonicalDir);
+			console.log(`Would install to: ${canonicalPath}`);
+			for (const agent of targetAgents) {
+				const path = getAgentSkillPath(slug, agent, { global: isGlobal });
+				console.log(`${path === canonicalPath ? "Canonical target" : "Would symlink to"}: ${agent.name} -> ${path}`);
+			}
+			logger.success('Dry run complete - no files were written');
+			return;
+		}
+
 		// Step 4: Check if already installed
-		const existingLock = await getLockEntry(slug);
+		const existingLock = await getLockEntry(slug, lockFilePath);
+		const retainedCopies = new Set<string>();
+		if (!isGlobal && !overwrite) {
+			const canonicalPath = getCanonicalSkillPath(slug, canonicalDir);
+			// A project can contain unrelated skills before this CLI is ever run.
+			// Check every destination before extraction or link creation can replace it.
+			const targets = new Set([canonicalPath, ...targetAgents.map((agent) =>
+				getAgentSkillPath(slug, agent, { global: false }))]);
+			for (const target of targets) {
+				try {
+					const stat = await lstat(target);
+					if (target === canonicalPath && existingLock && stat.isDirectory() && !stat.isSymbolicLink()) continue;
+					if (target !== canonicalPath && stat.isSymbolicLink()
+						&& resolve(dirname(target), await readlink(target)) === resolve(canonicalPath)) continue;
+					if (target !== canonicalPath && existingLock && stat.isDirectory()
+						&& await hasCanonicalSkill(canonicalPath) && await sameSkillDirectory(canonicalPath, target)) {
+						retainedCopies.add(target);
+						continue;
+					}
+					throw new Error(`Preserve the existing project skill path or use --overwrite to replace it: ${target}`);
+				} catch (error) {
+					if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+				}
+			}
+		}
 		if (existingLock && !overwrite) {
-			if (existingLock.zipHash === zipHash) {
+			if (existingLock.zipHash === zipHash && await hasCanonicalSkill(getCanonicalSkillPath(slug, canonicalDir))) {
 				const identityChanged = existingLock.version !== lockIdentity.version
 					|| existingLock.authorVersion !== lockIdentity.authorVersion
 					|| (existingLock.skillstoreRevision ?? null) !== lockIdentity.skillstoreRevision
@@ -307,23 +375,35 @@ async function addSkill(slug: string, options: AddOptions): Promise<void> {
 						...existingLock,
 						...lockIdentity,
 						zipHash,
-					});
+					}, lockFilePath);
 					logger.info(`Refreshed lock metadata: ${formatSkillVersionIdentity(lockIdentity)}`);
 				}
 				const installedIdentity = identityChanged ? lockIdentity : existingLock;
 				logger.warn(`Skill "${slug}" is already installed (${formatSkillVersionIdentity(installedIdentity)})`);
+				const canonicalPath = getCanonicalSkillPath(slug, canonicalDir);
+				for (const agent of targetAgents) {
+					const target = getAgentSkillPath(slug, agent, { global: isGlobal });
+					if (resolve(target) === resolve(canonicalPath)) continue;
+					try {
+						const stat = await lstat(target);
+						if (stat.isDirectory() && await sameSkillDirectory(canonicalPath, target)) {
+							retainedCopies.add(target);
+							continue;
+						}
+						if (!stat.isSymbolicLink() || resolve(dirname(target), await readlink(target)) !== resolve(canonicalPath)) {
+							throw new Error(`Preserve the existing agent path before reinstalling: ${target}`);
+						}
+					} catch (error) {
+						if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+					}
+				}
+				const links = await installToAgents(slug, targetAgents.filter((agent) =>
+					!retainedCopies.has(getAgentSkillPath(slug, agent, { global: isGlobal }))), { global: isGlobal, canonicalDir });
+				if (links.failCount > 0) throw new Error('Failed to link the installed skill to all requested agents');
 				logger.info('Use --overwrite to reinstall');
 				return;
 			}
 			logger.info(`Updating "${slug}" from ${formatSkillVersionIdentity(existingLock)} to ${formatSkillVersionIdentity(manifest.skill)}`);
-		}
-
-		if (dryRun) {
-			logger.success('Dry run complete - no files were written');
-			console.log('');
-			console.log(`Would install to: ${getCanonicalSkillPath(slug)}`);
-			console.log(`Would symlink to: ${targetAgents.map((a) => a.name).join(', ')}`);
-			return;
 		}
 
 		// Step 5: Download skill ZIP
@@ -344,13 +424,13 @@ async function addSkill(slug: string, options: AddOptions): Promise<void> {
 
 		// Step 7: Extract ZIP to canonical location
 		logger.startSpinner('Extracting files...');
-		const canonicalPath = getCanonicalSkillPath(slug);
+		const canonicalPath = getCanonicalSkillPath(slug, canonicalDir);
 		await extractSkillZip(zipBuffer, canonicalPath);
 		logger.spinnerSuccess('Extracted files');
 
 		// Step 8: Create symlinks to agents
 		logger.startSpinner('Creating symlinks to agents...');
-		const installResult = await installToAgents(slug, targetAgents, { global: isGlobal });
+		const installResult = await installToAgents(slug, targetAgents, { global: isGlobal, canonicalDir });
 		if (installResult.successCount > 0) {
 			logger.spinnerSuccess(
 				`Linked to ${installResult.successCount} agent${installResult.successCount > 1 ? 's' : ''}`
@@ -373,13 +453,14 @@ async function addSkill(slug: string, options: AddOptions): Promise<void> {
 		}
 
 		// Step 9: Update lock file
+		if (installResult.failCount > 0) throw new Error('Failed to link the skill to all requested agents');
 		await addToLock({
 			slug,
 			...lockIdentity,
 			zipHash,
 			source: 'skillstore',
 			installedAt: new Date().toISOString(),
-		});
+		}, lockFilePath);
 		logger.debug('Updated lock file');
 
 		// Step 10: Report installation (non-blocking telemetry)
@@ -419,11 +500,18 @@ async function addSkill(slug: string, options: AddOptions): Promise<void> {
  */
 async function addPlugin(slug: string, options: AddOptions): Promise<void> {
 	const { targetAgents, reportTargetAgents, isGlobal, skipVerify, dryRun, overwrite } = options;
+	const { canonicalDir, lockFilePath } = getInstallScope(isGlobal);
+	const readbackDependencies = {
+		canonicalDir,
+		readPath: readFile,
+		readLockEntry: (memberSlug: string) => getLockEntry(memberSlug, lockFilePath),
+		verifyMember: verifyInstalledPackMember,
+	};
 
 	const installTargets = getPluginInstallTargets(targetAgents, isGlobal);
 
 	const config = getPluginConfig({
-		installDir: CANONICAL_SKILLS_DIR,
+		installDir: canonicalDir,
 		skipVerify,
 		dryRun,
 	});
@@ -440,7 +528,8 @@ async function addPlugin(slug: string, options: AddOptions): Promise<void> {
 
 	logger.info(`Adding plugin: @${slug}`);
 	logger.info(`Target agents: ${targetAgents.map((a) => a.name).join(', ')}`);
-	logger.info(`Canonical directory: ${CANONICAL_SKILLS_DIR}`);
+	logger.info(`Scope: ${isGlobal ? "user-level" : "project-level"}`);
+	logger.info(`Canonical directory: ${canonicalDir}`);
 	for (const target of installTargets) {
 		logger.info(`Target directory (${target.agent.name}): ${target.installDir}`);
 	}
@@ -502,7 +591,7 @@ async function addPlugin(slug: string, options: AddOptions): Promise<void> {
 		// Step 5: Link canonical skills into each selected agent directory.
 		const successfulSkillSlugs = downloadResult.results.filter((r) => r.success).map((r) => r.slug);
 		if (!dryRun && downloadResult.failed === 0 && successfulSkillSlugs.length > 0) {
-			lockSnapshot = await snapshotLock();
+			lockSnapshot = await snapshotLock(lockFilePath);
 			hasLockSnapshot = true;
 			await memberTransaction.activate();
 			targetTransaction = await stagePackTargetLinks(
@@ -512,7 +601,7 @@ async function addPlugin(slug: string, options: AddOptions): Promise<void> {
 			);
 			await targetTransaction.activate();
 			logger.startSpinner('Linking skills to agents...');
-			const linkResult = await linkDownloadedSkillsToAgents(successfulSkillSlugs, targetAgents, isGlobal);
+			const linkResult = await linkDownloadedSkillsToAgents(successfulSkillSlugs, targetAgents, isGlobal, canonicalDir);
 			if (linkResult.failCount > 0) {
 				logger.spinnerError(`Linked with ${linkResult.failCount} failure${linkResult.failCount > 1 ? 's' : ''}`);
 				throw new Error('Pack member agent linking failed');
@@ -521,19 +610,24 @@ async function addPlugin(slug: string, options: AddOptions): Promise<void> {
 					`Linked ${successfulSkillSlugs.length} skill${successfulSkillSlugs.length > 1 ? 's' : ''} to ${targetAgents.length} agent${targetAgents.length > 1 ? 's' : ''}`
 				);
 			}
-			const lockResult = await lockVerifiedPackMembers(config, manifest.skills, downloadResult);
+			const lockResult = await lockVerifiedPackMembers(config, manifest.skills, downloadResult, lockFilePath);
 			if (lockResult.skipped > 0) {
 				throw new Error(`${lockResult.skipped} Pack member${lockResult.skipped > 1 ? 's were' : ' was'} left unlocked`);
 			}
 			const memberReadback = await readbackPackInstall(
 				manifest.skills,
-				installTargets.map((target) => target.installDir)
+				installTargets.map((target) => target.installDir),
+				undefined,
+				readbackDependencies
 			);
 			if (!memberReadback.readbackPassed) {
 				throw new Error(`Pack member readback failed for: ${memberReadback.failedSkillSlugs.join(', ') || 'unknown member state'}`);
 			} else if (orchestration) {
 				logger.startSpinner('Installing verified Pack workflow...');
-				orchestrationTransaction = await stagePackOrchestration(orchestration, targetAgents, isGlobal);
+				orchestrationTransaction = await stagePackOrchestration(orchestration, targetAgents, isGlobal, {
+					getCanonicalPath: (workflowSlug) => getCanonicalSkillPath(workflowSlug, canonicalDir),
+					install: (workflowSlug, agents, installOptions) => installToAgents(workflowSlug, agents, { ...installOptions, canonicalDir }),
+				});
 				logger.spinnerSuccess(`Installed workflow ${orchestration.slug}`);
 			}
 		}
@@ -557,7 +651,8 @@ async function addPlugin(slug: string, options: AddOptions): Promise<void> {
 			const readback = await readbackPackInstall(
 				manifest.skills,
 				installTargets.map((target) => target.installDir),
-				orchestration ?? undefined
+				orchestration ?? undefined,
+				readbackDependencies
 			);
 			installOutcome = derivePackInstallOutcome(
 				expectedSkillCount,
@@ -621,7 +716,7 @@ async function addPlugin(slug: string, options: AddOptions): Promise<void> {
 		}
 		if (hasLockSnapshot) {
 			try {
-				await restoreLock(lockSnapshot);
+				await restoreLock(lockSnapshot, lockFilePath);
 			} catch (error) {
 				rollbackErrors.push(error);
 			}
