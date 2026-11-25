@@ -204,3 +204,22 @@ Skills are installed to `.claude/skills/` by default:
 ## License
 
 MIT
+
+## Installation scope
+
+`skillstore add` installs to `~/.agents/skills` by default. Use
+`skillstore add --no-global <skill>` or `skillstore add --no-global @<pack>`
+to keep skill files, Pack workflows, and `.agents/.skill-lock.json` in the
+current project. Agent links also stay in that project. `--dry-run` shows the
+selected scope and target directories.
+
+Project installations have their own lock and do not change the global lock.
+To refresh a project installation, run `add --no-global` again from that
+project. `update`, `install`, and `plugin install` retain their existing scope.
+
+Older `add --no-global` installations may have project links pointing into the
+home directory. Existing home files are retained. Pack installation refuses
+conflicting links or unowned workflow directories: move the named project path
+to a backup first, then rerun the command. Do not delete the home installation.
+
+For bug reports and proposed changes, see [CONTRIBUTING.md](../../CONTRIBUTING.md).
