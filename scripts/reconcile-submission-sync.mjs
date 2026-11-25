@@ -369,4 +369,4 @@ export async function main() {
   const {appendFileSync}=await import('node:fs');
   appendFileSync(process.env.GITHUB_OUTPUT,`publication_sha=${push.head_sha}\n`);
 }
-if(import.meta.url===pathToFileURL(process.argv[1]??'').href) main().catch(()=>{console.error('Exact recovery reconciliation rejected; no provider writes or status closure performed.');process.exitCode=1;});
+if(import.meta.url===pathToFileURL(process.argv[1]??'').href) main().catch(error=>{console.error('Exact recovery reconciliation rejected; no provider writes or status closure performed.'); console.error('Evidence failure locations:', [...String(error?.stack ?? '').matchAll(/(?:scripts\/)?([a-z0-9-]+\.mjs):(\d+):(\d+)/g)].map(m=>`${m[1]}:${m[2]}:${m[3]}`).slice(0,8).join(', ')); if(Number.isInteger(error?.status)) console.error('Evidence subprocess exit:',error.status); process.exitCode=1;});
