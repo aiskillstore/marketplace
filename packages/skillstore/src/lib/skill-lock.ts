@@ -56,9 +56,9 @@ function createEmptyLock(): SkillLock {
  * Read skill lock file
  * Returns empty lock if file doesn't exist or is invalid
  */
-export async function readSkillLock(): Promise<SkillLock> {
+export async function readSkillLock(lockFilePath = LOCK_FILE_PATH): Promise<SkillLock> {
 	try {
-		const content = await readFile(LOCK_FILE_PATH, 'utf-8');
+		const content = await readFile(lockFilePath, 'utf-8');
 		const lock = JSON.parse(content) as SkillLock;
 
 		// Check version - wipe if outdated
@@ -76,19 +76,19 @@ export async function readSkillLock(): Promise<SkillLock> {
 /**
  * Write skill lock file
  */
-export async function writeSkillLock(lock: SkillLock): Promise<void> {
+export async function writeSkillLock(lock: SkillLock, lockFilePath = LOCK_FILE_PATH): Promise<void> {
 	// Ensure directory exists
-	await mkdir(dirname(LOCK_FILE_PATH), { recursive: true });
+	await mkdir(dirname(lockFilePath), { recursive: true });
 
 	// Write with pretty formatting
-	await writeFile(LOCK_FILE_PATH, JSON.stringify(lock, null, 2), 'utf-8');
+	await writeFile(lockFilePath, JSON.stringify(lock, null, 2), 'utf-8');
 }
 
 /**
  * Add or update a skill in the lock file
  */
-export async function addToLock(entry: Omit<SkillLockEntry, 'updatedAt'>): Promise<void> {
-	const lock = await readSkillLock();
+export async function addToLock(entry: Omit<SkillLockEntry, 'updatedAt'>, lockFilePath = LOCK_FILE_PATH): Promise<void> {
+	const lock = await readSkillLock(lockFilePath);
 	const now = new Date().toISOString();
 
 	const existing = lock.skills[entry.slug];
@@ -109,7 +109,7 @@ export async function addToLock(entry: Omit<SkillLockEntry, 'updatedAt'>): Promi
 		updatedAt: now,
 	};
 
-	await writeSkillLock(lock);
+	await writeSkillLock(lock, lockFilePath);
 }
 
 /**
@@ -130,8 +130,8 @@ export async function removeFromLock(slug: string): Promise<boolean> {
 /**
  * Get a single lock entry
  */
-export async function getLockEntry(slug: string): Promise<SkillLockEntry | undefined> {
-	const lock = await readSkillLock();
+export async function getLockEntry(slug: string, lockFilePath = LOCK_FILE_PATH): Promise<SkillLockEntry | undefined> {
+	const lock = await readSkillLock(lockFilePath);
 	return lock.skills[slug];
 }
 
