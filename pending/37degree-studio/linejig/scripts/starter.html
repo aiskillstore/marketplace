@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Linejig starter</title>
+<!-- A minimal figure on the Linejig kernel: a plinth, a block and a lid (the hero). Hover the lid and it lifts a
+     little; click it and it opens, holds, and closes, posting the 'compose' action as it reaches open.
+     Copy this into site/<id>/index.html and replace the model, the ASSEMBLY table and HERO. The kernel
+     (linejig.js; its header documents the whole API) does the camera, fit, palette and styles, the
+     tween and spring, both intros, orbit, zoom, hit testing, reduced motion, ?freeze capture, the embed contract,
+     the action event and ?mode=turntable.
+     Paths: it imports the published kernel from https://linejig.com/kernel/ (keep the import map: the
+     kernel imports 'three' and 'three/addons/'). Inside the Linejig source repo, a figure in site/<id>/ may import
+     ../kernel/linejig.js instead. Every other style loads its own file by itself. -->
+<script type="importmap">
+{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.min.js",
+               "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/" } }
+</script>
+<link rel="stylesheet" href="https://linejig.com/kernel/linejig.css">
+</head>
+<body>
+<main><div id="plate" role="img" aria-label="A placeholder figure: a block whose lid lifts"></div></main>
+<script type="module">
+import { createFigure } from 'https://linejig.com/kernel/linejig.js';
+
+// ASSEMBLY: the stack intro's plan, one row per layer, in arrival order (motion.md, "Planning the stack"). Name the
+// type, find the base, give every part the face it mounts on and that face's normal as from; the hero comes last and
+// its row says hero: true. Placeholder type: a stepped structure on a plinth, so everything comes from above.
+const UP = [0, 0, 1];
+const ASSEMBLY = [
+  { name: 'plinth', parts: 'the plinth',         mountsOn: null,     from: UP },
+  { name: 'block',  parts: 'the block',          mountsOn: 'plinth', from: UP },
+  { name: 'lid',    parts: 'the lid (the hero)', mountsOn: 'block',  from: UP, hero: true },
+];
+const LIFT = 14, HOVER = 0.2, OPEN = 1, HOLD = 600;      // lid travel in world units; its rest, hover and open levels
+
+let lid, openAt = -Infinity;
+createFigure({
+  id: 'starter', ASSEMBLY, stack: { travel: 22 },        // travel: about 18% of the plinth's width
+  center: [0, 0, 15], release: 1200, liveAt: 2600,
+  fit: { width: 0.7, points: () => [[-60, -45, -10], [60, 45, -10], [60, -45, 0], [-60, 45, 0], [0, 0, 36 + LIFT]] },   // the most extreme pose
+  model(K) {                                             // far parts first; K.layer files what follows under an ASSEMBLY row
+    K.layer('plinth'); K.solid(K.FZ, K.box(-60, -45, 60, 45, 12, 2.2), -10, 0);
+    K.layer('block');  K.solid(K.FZ, K.box(-36, -26, 36, 26, 8), 0, 30);
+    K.layer('lid', { bucket: 'lid' });                   // its own bucket, so it moves by offset with no rebuild
+    K.hit('lid', K.solid(K.FZ, K.box(-38, -28, 38, 28, 9), 30, 36, 'hi'));   // the one hi part; its silhouette is the hit area
+  },
+  state(K) {                                             // the pose this frame; step springs here
+    lid = lid || K.spring(0);
+    if (K.live) { if (K.t - openAt > HOLD && lid.t === OPEN) lid.t = 0; K.step(lid, K.dt); }
+    return { lift: K.live ? lid.x : K.REDUCED ? 0 : K.springAt(0.6, 0, K.ht - 1200) };    // intro: it drops shut
+  },
+  key: () => '',                                         // nothing in the model changes, so it never rebuilds for the pose
+  place: (K, bucket, st) => ({ off: [0, 0, LIFT * st.lift] }),
+  onReplay() { lid.x = lid.t = lid.v = 0; openAt = -Infinity; },
+  HERO: {
+    action: 'compose', opened: (st) => st.lift > 0.9 * OPEN,   // hands off to the host page as the lid reaches open
+    onHover() { if (lid.t !== OPEN) lid.t = HOVER; }, onLeave() { if (lid.t !== OPEN) lid.t = 0; },
+    onClick(id, p, K) { lid.t = OPEN; openAt = K.t; },
+  },
+});
+</script>
+</body>
+</html>
