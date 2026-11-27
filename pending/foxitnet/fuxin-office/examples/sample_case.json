@@ -1,0 +1,267 @@
+{
+  "description": "fuxin-office-suite 输入输出示例用例集，覆盖对外入口 fuxin-office 可路由的全部能力域（word / excel / ppt / doc-qa / batch-undo/ custom-tool/bridge 均为内部参考文档，此处作路由目标标识引用），供外部调试参考。每个用例均符合 schema/input_schema.json 定义。",
+  "schemaVersion": "1.0.0",
+  "cases": [
+    {
+      "id": "case-001",
+      "name": "单产品意图路由 — 写季度报告",
+      "scenario": "用户输入自然语言，路由层解析为单产品意图，路由到 fuxin-word。",
+      "skill": "fuxin-word",
+      "input": {
+        "type": "office.task",
+        "task": "请帮我写一份第三季度销售季度报告",
+        "target": {
+          "skill": "fuxin-word",
+          "tool": "write_report",
+          "product": "Word"
+        },
+        "preflight": true,
+        "confirm": true,
+        "batch": false
+      },
+      "expected": {
+        "valid": true,
+        "route": "fuxin-word",
+        "tool": "write_report",
+        "outline": [
+          "预检通过（网关/产品/技能/后端/活动文档就绪）",
+          "生成含标题、多级章节、表格的报告",
+          "输出执行结果与撤销说明"
+        ]
+      }
+    },
+    {
+      "id": "case-002",
+      "name": "单产品意图路由 — 条件高亮",
+      "scenario": "用户输入自然语言，路由层解析为 Excel 条件高亮意图。",
+      "skill": "fuxin-excel",
+      "input": {
+        "type": "office.task",
+        "task": "把销售表中销量低于 100 的单元格标红",
+        "target": {
+          "skill": "fuxin-excel",
+          "tool": "highlight_by_condition",
+          "product": "Excel"
+        },
+        "preflight": true,
+        "confirm": true,
+        "batch": false
+      },
+      "expected": {
+        "valid": true,
+        "route": "fuxin-excel",
+        "tool": "highlight_by_condition",
+        "outline": [
+          "预检通过",
+          "按条件定位并高亮命中单元格",
+          "输出高亮数量与撤销说明"
+        ]
+      }
+    },
+    {
+      "id": "case-003",
+      "name": "跨产品 E2E 分步编排 — Word → Excel → PPT",
+      "scenario": "跨应用多步骤任务，由 fuxin-office 汇总层按 E2E 分步编排执行，写操作归入同一批次便于整体撤销。",
+      "skill": "fuxin-office",
+      "input": {
+        "type": "office.e2e",
+        "task": "先写一份季度报告（Word），再抽取关键数据建表（Excel），最后生成汇报 Deck（PPT）",
+        "steps": [
+          {
+            "target": {
+              "skill": "fuxin-word",
+              "tool": "write_report",
+              "product": "Word"
+            },
+            "preflight": true,
+            "confirm": true
+          },
+          {
+            "target": {
+              "skill": "fuxin-excel",
+              "tool": "extract_data_to_new_sheet",
+              "product": "Excel"
+            },
+            "preflight": true,
+            "confirm": true
+          },
+          {
+            "target": {
+              "skill": "fuxin-ppt",
+              "tool": "generate_deck",
+              "product": "PowerPoint"
+            },
+            "preflight": true,
+            "confirm": true
+          }
+        ],
+        "batch": true
+      },
+      "expected": {
+        "valid": true,
+        "route": "fuxin-office (e2e)",
+        "outline": [
+          "预检通过",
+          "分步路由：Word → Excel → PPT，每步预检 + 调用场景工具 + 只读验证",
+          "多步骤写操作归入同一批次，一次 Ctrl+Z 整组撤销",
+          "汇总各步骤结果并输出"
+        ]
+      }
+    },
+    {
+      "id": "case-004",
+      "name": "文档只读问答",
+      "scenario": "对当前活动文档做只读问答，路由到 fuxin-doc-qa，绝不修改文档。",
+      "skill": "fuxin-doc-qa",
+      "input": {
+        "type": "office.qa",
+        "task": "总结这份文档的核心要点",
+        "target": {
+          "skill": "fuxin-doc-qa"
+        },
+        "readonly": true
+      },
+      "expected": {
+        "valid": true,
+        "route": "fuxin-doc-qa",
+        "outline": [
+          "读取当前活动文档全文/大纲/单元格/幻灯片文本",
+          "生成摘要或要点",
+          "不调用任何写工具"
+        ]
+      }
+    },
+    {
+      "id": "case-005",
+      "name": "连接与预检",
+      "scenario": "执行 5 层预检，路由到 fuxin-office-bridge。",
+      "skill": "fuxin-office-bridge",
+      "input": {
+        "type": "office.preflight",
+        "task": "检查福昕Office是否就绪",
+        "target": {
+          "skill": "fuxin-office-bridge"
+        }
+      },
+      "expected": {
+        "valid": true,
+        "route": "fuxin-office-bridge",
+        "outline": [
+          "第1层 网关可达性",
+          "第2层 产品注册",
+          "第3层 技能注册",
+          "第4层 后端可达性",
+          "第5层 活动文档",
+          "输出就绪状态或结构化诊断"
+        ]
+      }
+    },
+    {
+      "id": "case-006",
+      "name": "批次撤销管理",
+      "scenario": "多步骤写操作放入同一批次，便于一次撤销。",
+      "skill": "fuxin-batch-undo",
+      "input": {
+        "type": "office.batch",
+        "task": "把以下修改放入同一批次，执行后一次撤销",
+        "target": {
+          "skill": "fuxin-batch-undo"
+        },
+        "batch": true,
+        "confirm": true
+      },
+      "expected": {
+        "valid": true,
+        "route": "fuxin-batch-undo",
+        "outline": [
+          "begin_batch 开启批次",
+          "执行多个写操作",
+          "end_batch 结束批次",
+          "一次 Ctrl+Z 整组撤销"
+        ]
+      }
+    },
+    {
+      "id": "case-007",
+      "name": "企业自定义流程 — 合同评审",
+      "scenario": "组合 Word 场景工具封装企业专属操作流程，路由到 fuxin-custom-tool（示例）。",
+      "skill": "fuxin-custom-tool",
+      "input": {
+        "type": "office.task",
+        "task": "一键生成合同评审报告",
+        "target": {
+          "skill": "fuxin-custom-tool",
+          "tool": "contract_review",
+          "product": "Word"
+        },
+        "preflight": true,
+        "confirm": true,
+        "batch": true
+      },
+      "expected": {
+        "valid": true,
+        "route": "fuxin-custom-tool",
+        "outline": [
+          "预检通过",
+          "unify_terminology 术语统一",
+          "checklist_review 清单逐项加批注/汇总表",
+          "整组操作归入同一批次，一次撤销"
+        ]
+      }
+    },
+    {
+      "id": "case-008",
+      "name": "回归用例 — Office 未运行优先于连接失败（#21233）",
+      "scenario": "前提：福昕Office未运行；第 1 层 GET /api/skill/products 拒连/超时。预检必须输出「未运行」定稿文案，不得把网关拒连/连接失败诊断输出给用户。",
+      "skill": "fuxin-office-bridge",
+      "input": {
+        "type": "office.preflight",
+        "task": "检查福昕Office是否就绪",
+        "target": {
+          "skill": "fuxin-office-bridge"
+        },
+        "preflight": true
+      },
+      "expected": {
+        "valid": true,
+        "route": "fuxin-office-bridge",
+        "outline": [
+          "第 0 层 安装判定通过",
+          "第 1 层 GET /api/skill/products 拒连/超时 → 探测福昕Office应用进程：未运行",
+          "判「未就绪」（进程未运行）→ 输出「未运行」定稿文案",
+          "输出禁止出现「连接失败」「网关拒连」等诊断"
+        ],
+        "premise": "福昕Office应用进程未运行（Get-Process FuxinOffice* 无结果）",
+        "user_message": "福昕Office未运行。请先启动福昕Office，并打开 Word、Excel 或 PPT 中的任意文档，然后告诉我「已启动」，我再继续操作。",
+        "forbidden": ["连接失败", "网关拒连"]
+      }
+    },
+    {
+      "id": "case-009",
+      "name": "回归用例 — 网关拒连但 Office 已启动（#21233）",
+      "scenario": "前提：福昕Office进程在运行；第 1 层 GET /api/skill/products 拒连/无响应。预检输出「连接失败」定稿文案。",
+      "skill": "fuxin-office-bridge",
+      "input": {
+        "type": "office.preflight",
+        "task": "检查福昕Office是否就绪",
+        "target": {
+          "skill": "fuxin-office-bridge"
+        },
+        "preflight": true
+      },
+      "expected": {
+        "valid": true,
+        "route": "fuxin-office-bridge",
+        "outline": [
+          "第 0 层 安装判定通过",
+          "第 1 层 GET /api/skill/products 拒连/无响应 → 探测福昕Office应用进程：在运行",
+          "判「未就绪」（网关拒连但 Office 已启动）→ 输出「连接失败」定稿文案",
+          "引导检查插件加载与安全软件拦截"
+        ],
+        "premise": "福昕Office应用进程在运行（Get-Process FuxinOffice* 有结果）",
+        "user_message": "无法连接到 Agent Bridge（本地服务无响应）。请确认福昕Office正在运行且未被安全软件拦截，然后重试。",
+        "forbidden": ["未运行"]
+      }
+    }
+  ]
+}
