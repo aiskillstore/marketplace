@@ -1,0 +1,895 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Livestream POV — Multi-Platform Chrome &amp; FX Studio</title>
+  <style>
+    :root {
+      --bg-page: #090d16;
+      --panel-bg: #111827;
+      --panel-border: #1f2937;
+      --text-main: #f8fafc;
+      --text-muted: #94a3b8;
+      --accent: #fe2c55;
+      --accent-2: #25f4ee;
+      --chat-max-height: 196px;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Noto Sans CJK SC", "PingFang SC", "Microsoft YaHei UI", "Segoe UI", sans-serif;
+      background: radial-gradient(circle at 20% 10%, #172554 0%, #090d16 55%);
+      color: var(--text-main);
+      min-height: 100vh;
+      display: flex;
+      justify-content: center;
+      align-items: flex-start;
+      gap: 28px;
+      padding: 24px;
+    }
+
+    /* 9:16 Phone Viewport (390 x 844 logical CSS px = 1080x1920 proportional stage) */
+    .phone-stage-wrap {
+      position: relative;
+      width: 390px;
+      height: 844px;
+      border-radius: 38px;
+      overflow: hidden;
+      background: #0f172a;
+      box-shadow: 0 24px 64px rgba(0, 0, 0, 0.65), 0 0 0 3px #334155;
+      flex-shrink: 0;
+      user-select: none;
+    }
+
+    /* Clean-plate background modes */
+    .clean-plate-bg {
+      position: absolute;
+      inset: 0;
+      background:
+        radial-gradient(circle at 52% 34%, rgba(56, 189, 248, 0.28), transparent 48%),
+        radial-gradient(circle at 22% 28%, rgba(244, 63, 94, 0.25), transparent 42%),
+        linear-gradient(180deg, #1e293b 0%, #0f172a 55%, #172554 100%);
+      transition: background 0.25s ease;
+    }
+    .clean-plate-bg.chroma-green {
+      background: #00ff00 !important;
+    }
+    .clean-plate-bg.chroma-checker {
+      background-color: #1e293b !important;
+      background-image:
+        linear-gradient(45deg, #334155 25%, transparent 25%),
+        linear-gradient(-45deg, #334155 25%, transparent 25%),
+        linear-gradient(45deg, transparent 75%, #334155 75%),
+        linear-gradient(-45deg, transparent 75%, #334155 75%) !important;
+      background-size: 24px 24px !important;
+      background-position: 0 0, 0 12px, 12px -12px, -12px 0 !important;
+    }
+
+    #custom-video-plate {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: none;
+    }
+
+    #live-plate-canvas {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      display: block;
+      pointer-events: none;
+    }
+    #pip-canvas {
+      width: 100%;
+      height: 100%;
+      border-radius: 14px;
+      display: block;
+    }
+    .af-box {
+      position: absolute;
+      top: 230px;
+      left: 115px;
+      width: 160px;
+      height: 160px;
+      border: 2px dashed rgba(250, 204, 21, 0.85);
+      border-radius: 12px;
+      display: none;
+      pointer-events: none;
+    }
+    .af-box.visible { display: block; }
+    .af-box span {
+      position: absolute;
+      top: -20px;
+      left: 6px;
+      font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+      font-size: 10px;
+      font-weight: 700;
+      color: #facc15;
+      background: rgba(15, 23, 42, 0.78);
+      padding: 1px 6px;
+      border-radius: 4px;
+    }
+
+    /* 1v1 PK Split-Screen Stage & Progress Bar */
+    .pk-stage-overlay {
+      position: absolute;
+      top: 112px;
+      left: 0;
+      right: 0;
+      height: 300px;
+      display: none;
+      pointer-events: none;
+      z-index: 6;
+    }
+    .pk-stage-overlay.visible { display: block; }
+    .pk-split-panes {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      height: 274px;
+      border-top: 1.5px solid rgba(255, 255, 255, 0.22);
+      border-bottom: 1.5px solid rgba(255, 255, 255, 0.22);
+    }
+    .pk-pane-left {
+      background: linear-gradient(160deg, rgba(254, 44, 85, 0.26), rgba(15, 23, 42, 0.45));
+      border-right: 1px solid rgba(255, 255, 255, 0.35);
+      position: relative;
+    }
+    .pk-pane-right {
+      background: linear-gradient(200deg, rgba(37, 244, 238, 0.24), rgba(15, 23, 42, 0.45));
+      position: relative;
+    }
+    .pk-host-tag {
+      position: absolute;
+      bottom: 8px;
+      left: 10px;
+      font-size: 11px;
+      font-weight: 700;
+      padding: 2px 8px;
+      border-radius: 999px;
+      background: rgba(0, 0, 0, 0.52);
+    }
+    .pk-bar-track {
+      height: 24px;
+      width: 100%;
+      background: #25f4ee;
+      position: relative;
+      overflow: hidden;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 12px;
+      font-variant-numeric: tabular-nums;
+      font-size: 11.5px;
+      font-weight: 800;
+      color: #ffffff;
+      text-shadow: 0 1px 2px rgba(0, 0, 0, 0.65);
+    }
+    .pk-bar-fill-left {
+      position: absolute;
+      left: 0;
+      top: 0;
+      bottom: 0;
+      width: 54%;
+      background: linear-gradient(90deg, #ff1744, #fe2c55);
+      transition: width 0.42s cubic-bezier(0.22, 1, 0.36, 1);
+      z-index: 0;
+    }
+    .pk-bar-track > span { position: relative; z-index: 1; }
+    .pk-timer-pill {
+      position: absolute;
+      top: 6px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(15, 23, 42, 0.84);
+      border: 1px solid rgba(255, 255, 255, 0.25);
+      padding: 2px 10px;
+      border-radius: 999px;
+      font-size: 11px;
+      font-weight: 800;
+      font-variant-numeric: tabular-nums;
+      z-index: 8;
+    }
+
+    /* Corner PiP Facecam Box */
+    .pip-facecam-box {
+      position: absolute;
+      top: 112px;
+      right: 12px;
+      width: 104px;
+      height: 138px;
+      border-radius: 16px;
+      background: linear-gradient(160deg, #312e81, #0f172a);
+      border: 2.5px solid #38bdf8;
+      box-shadow: 0 10px 24px rgba(0, 0, 0, 0.5);
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      z-index: 9;
+    }
+    .pip-facecam-box.visible { display: flex; }
+    .pip-mini-head {
+      width: 42px;
+      height: 40px;
+      border-radius: 12px;
+      background: #facc15;
+      margin-bottom: 5px;
+    }
+    .pip-mini-body {
+      width: 58px;
+      height: 36px;
+      border-radius: 8px;
+      background: #0ea5e9;
+    }
+    .pip-caption {
+      margin-top: 6px;
+      font-size: 9.5px;
+      font-weight: 700;
+      color: #7dd3fc;
+      font-family: ui-monospace, monospace;
+    }
+
+    /* Top & Bottom Contrast Protection Scrims (pointer-events: none) */
+    .top-scrim {
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 128px;
+      background: linear-gradient(to bottom, rgba(0, 0, 0, 0.52), rgba(0, 0, 0, 0));
+      pointer-events: none;
+      z-index: 10;
+    }
+    .bottom-scrim {
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      height: 320px;
+      background: linear-gradient(to top, rgba(0, 0, 0, 0.66), rgba(0, 0, 0, 0));
+      pointer-events: none;
+      z-index: 10;
+    }
+
+    /* Safe-Zone Calibration Ruler Overlay (1080x1920 mapped to 390x844) */
+    .safe-zone-guides {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      z-index: 40;
+      display: none;
+    }
+    .safe-zone-guides.visible { display: block; }
+    .sz-line {
+      position: absolute;
+      left: 0;
+      right: 0;
+      border-top: 1.5px dashed rgba(56, 189, 248, 0.85);
+      font-size: 10px;
+      font-family: ui-monospace, monospace;
+      color: #7dd3fc;
+      padding: 2px 8px;
+      background: rgba(15, 23, 42, 0.6);
+    }
+
+    /* HUD Layer Container */
+    .hud-chrome-layer {
+      position: absolute;
+      inset: 0;
+      z-index: 20;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      padding: 40px 12px 18px;
+      pointer-events: none;
+    }
+    .hud-chrome-layer.clean-hidden { display: none; }
+
+    /* Top Header */
+    .hud-top-area { display: flex; flex-direction: column; gap: 8px; }
+    .hud-header-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+    .host-capsule {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      background: rgba(0, 0, 0, 0.38);
+      backdrop-filter: blur(8px);
+      padding: 3px 5px 3px 4px;
+      border-radius: 999px;
+      border: 1px solid rgba(255, 255, 255, 0.12);
+    }
+    .host-avatar {
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, #38bdf8, #a855f7);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 800;
+      font-size: 13px;
+      flex-shrink: 0;
+    }
+    .host-avatar.story-ring {
+      box-shadow: 0 0 0 2px #090d16, 0 0 0 4px #e1306c;
+    }
+    .host-meta { display: flex; flex-direction: column; line-height: 1.15; padding-right: 2px; }
+    .host-name { font-size: 12px; font-weight: 700; max-width: 96px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .host-sub { font-size: 9.5px; color: rgba(255, 255, 255, 0.78); font-variant-numeric: tabular-nums; }
+    .follow-pill {
+      background: var(--accent);
+      color: #fff;
+      font-size: 11px;
+      font-weight: 700;
+      padding: 5px 10px;
+      border-radius: 999px;
+    }
+
+    .header-right { display: flex; align-items: center; gap: 6px; }
+    .live-status-pill {
+      background: #e1306c;
+      color: #fff;
+      font-size: 10.5px;
+      font-weight: 800;
+      padding: 4px 8px;
+      border-radius: 6px;
+      letter-spacing: 0.4px;
+      display: none;
+    }
+    .top-gifters { display: flex; align-items: center; }
+    .gifter-dot {
+      width: 24px;
+      height: 24px;
+      border-radius: 50%;
+      margin-left: -5px;
+      border: 1.5px solid rgba(255, 255, 255, 0.7);
+      font-size: 9px;
+      font-weight: 800;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .viewer-count-pill {
+      background: rgba(0, 0, 0, 0.42);
+      padding: 4px 9px;
+      border-radius: 999px;
+      font-size: 11px;
+      font-weight: 700;
+      font-variant-numeric: tabular-nums;
+    }
+    .close-btn {
+      width: 26px;
+      height: 26px;
+      border-radius: 50%;
+      background: rgba(0, 0, 0, 0.34);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 13px;
+    }
+
+    /* Second Rank / Lucky-Bag Row */
+    .hud-subrank-row {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+    .subrank-chip {
+      background: rgba(0, 0, 0, 0.34);
+      padding: 3px 9px;
+      border-radius: 999px;
+      font-size: 10.5px;
+      color: rgba(255, 255, 255, 0.9);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+    }
+
+    /* Mid-Left 2-Slot Gift Combo Queue */
+    .gift-slots-stack {
+      position: absolute;
+      left: 12px;
+      bottom: 318px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      z-index: 25;
+      pointer-events: none;
+    }
+    .gift-banner {
+      height: 44px;
+      min-width: 214px;
+      background: linear-gradient(90deg, rgba(15, 23, 42, 0.86), rgba(254, 44, 85, 0.62));
+      border: 1px solid rgba(255, 255, 255, 0.24);
+      border-radius: 999px;
+      padding: 4px 14px 4px 6px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      backdrop-filter: blur(6px);
+      animation: slideGiftIn 0.28s cubic-bezier(0.22, 1, 0.36, 1);
+    }
+    @keyframes slideGiftIn {
+      from { opacity: 0; transform: translateX(-48px); }
+      to { opacity: 1; transform: translateX(0); }
+    }
+    .gift-avatar {
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, #facc15, #f97316);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 14px;
+    }
+    .gift-copy { flex: 1; line-height: 1.15; }
+    .gift-sender { font-size: 11px; font-weight: 700; color: #fde047; }
+    .gift-title { font-size: 10.5px; color: #ffffff; }
+    .gift-combo-num {
+      font-size: 19px;
+      font-weight: 900;
+      font-style: italic;
+      color: #fde047;
+      text-shadow: 0 2px 6px rgba(0, 0, 0, 0.65);
+      transition: transform 0.14s ease;
+    }
+    .gift-combo-num.pop { transform: scale(1.36); }
+
+    /* Interactive Popups: Live Shopping Card & Instagram Q&A Card */
+    .commerce-popup-card {
+      position: absolute;
+      right: 12px;
+      bottom: 76px;
+      width: 112px;
+      background: rgba(255, 255, 255, 0.96);
+      color: #0f172a;
+      border-radius: 12px;
+      padding: 7px;
+      box-shadow: 0 12px 28px rgba(0, 0, 0, 0.45);
+      z-index: 26;
+      display: none;
+      animation: popCardUp 0.26s cubic-bezier(0.22, 1, 0.36, 1);
+    }
+    .commerce-popup-card.visible { display: block; }
+    @keyframes popCardUp {
+      from { opacity: 0; transform: translateY(18px) scale(0.92); }
+      to { opacity: 1; transform: translateY(0) scale(1); }
+    }
+    .commerce-live-tag {
+      display: inline-block;
+      background: #fe2c55;
+      color: #fff;
+      font-size: 9px;
+      font-weight: 800;
+      padding: 2px 6px;
+      border-radius: 4px;
+      margin-bottom: 5px;
+    }
+    .commerce-thumb {
+      height: 54px;
+      border-radius: 8px;
+      background: linear-gradient(135deg, #fde68a, #fca5a5);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 22px;
+      margin-bottom: 5px;
+    }
+    .commerce-title { font-size: 10px; font-weight: 700; line-height: 1.2; margin-bottom: 4px; }
+    .commerce-bottom { display: flex; align-items: center; justify-content: space-between; }
+    .commerce-price { font-size: 12px; font-weight: 900; color: #e11d48; }
+    .commerce-cta {
+      background: #e11d48;
+      color: #fff;
+      font-size: 10px;
+      font-weight: 800;
+      padding: 2px 7px;
+      border-radius: 6px;
+    }
+
+    .ig-qa-popup-card {
+      position: absolute;
+      left: 16px;
+      right: 68px;
+      bottom: 268px;
+      background: rgba(255, 255, 255, 0.92);
+      backdrop-filter: blur(12px);
+      color: #0f172a;
+      border-radius: 16px;
+      padding: 10px 14px;
+      box-shadow: 0 12px 28px rgba(0, 0, 0, 0.38);
+      z-index: 26;
+      display: none;
+      animation: popCardUp 0.25s ease;
+    }
+    .ig-qa-popup-card.visible { display: block; }
+    .ig-qa-head { font-size: 10px; font-weight: 700; color: #64748b; margin-bottom: 3px; }
+    .ig-qa-body { font-size: 12.5px; font-weight: 700; line-height: 1.3; }
+
+    /* Bottom Area: Join Ribbon + Chat Feed Stack + Input Composer */
+    .hud-bottom-area {
+      display: flex;
+      flex-direction: column;
+      gap: 7px;
+    }
+    .join-ribbon {
+      align-self: flex-start;
+      max-width: 268px;
+      background: linear-gradient(90deg, rgba(59, 130, 246, 0.78), rgba(59, 130, 246, 0.18));
+      padding: 4px 11px;
+      border-radius: 999px;
+      font-size: 11px;
+      font-weight: 700;
+      color: #ffffff;
+      animation: slideGiftIn 0.24s ease;
+    }
+
+    /* Figma Live Design System Chat_Feed_Stack: width <= 272px, top fade mask 22% */
+    .chat-feed-stack {
+      width: 268px;
+      max-height: var(--chat-max-height);
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      justify-content: flex-end;
+      gap: 5px;
+      -webkit-mask-image: linear-gradient(to bottom, transparent 0%, #000 22%, #000 100%);
+      mask-image: linear-gradient(to bottom, transparent 0%, #000 22%, #000 100%);
+    }
+    .chat-row {
+      align-self: flex-start;
+      max-width: 100%;
+      background: rgba(0, 0, 0, 0.36);
+      border-radius: 12px;
+      padding: 4px 10px;
+      font-size: 11.5px;
+      line-height: 1.32;
+      word-break: break-word;
+    }
+    .chat-row.borderless-ig {
+      background: transparent !important;
+      padding: 2px 2px !important;
+      text-shadow: 0 1px 3px rgba(0, 0, 0, 0.85);
+    }
+    .chat-row.x-glass {
+      background: rgba(15, 20, 25, 0.80) !important;
+      border-radius: 14px;
+      border-left: 3px solid #35b1d1;
+    }
+    .fan-badge {
+      display: inline-block;
+      font-size: 9.5px;
+      font-weight: 800;
+      padding: 0.5px 5px;
+      border-radius: 4px;
+      margin-right: 4px;
+      background: #3b82f6;
+      color: #fff;
+      vertical-align: 1px;
+    }
+    .chat-user { font-weight: 700; color: #93c5fd; margin-right: 4px; }
+    .combo-pill {
+      display: inline-block;
+      margin-left: 5px;
+      background: #f97316;
+      color: #fff;
+      font-size: 9.5px;
+      font-weight: 800;
+      padding: 0 5px;
+      border-radius: 999px;
+    }
+
+    /* Bottom Action Bar */
+    .bottom-action-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      margin-top: 2px;
+    }
+    .composer-pill {
+      flex: 1;
+      height: 36px;
+      border-radius: 999px;
+      background: rgba(0, 0, 0, 0.38);
+      border: 1px solid rgba(255, 255, 255, 0.22);
+      display: flex;
+      align-items: center;
+      padding: 0 13px;
+      font-size: 12px;
+      color: rgba(255, 255, 255, 0.76);
+    }
+    .action-icons { display: flex; align-items: center; gap: 7px; }
+    .circle-icon {
+      width: 34px;
+      height: 34px;
+      border-radius: 50%;
+      background: rgba(0, 0, 0, 0.40);
+      border: 1px solid rgba(255, 255, 255, 0.16);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 15px;
+    }
+    .circle-icon.heart-cta {
+      background: var(--accent);
+      border-color: rgba(255, 255, 255, 0.35);
+    }
+
+    /* Right-Column Floating Heart Fountain (Periscope / Douyin / IG bezier flows — sits behind popups) */
+    .hearts-fountain {
+      position: absolute;
+      right: 10px;
+      bottom: 62px;
+      width: 78px;
+      height: 320px;
+      pointer-events: none;
+      z-index: 22;
+      overflow: hidden;
+    }
+    .floating-heart {
+      position: absolute;
+      bottom: 0;
+      font-size: 24px;
+      opacity: 0;
+      will-change: transform, opacity;
+    }
+    @keyframes flowOne {
+      0% { opacity: 0; transform: translate(8px, 0) scale(0.55); }
+      25% { opacity: 0.95; transform: translate(-10px, -68px) scale(1.05); }
+      60% { opacity: 0.85; transform: translate(12px, -172px) scale(0.98); }
+      100% { opacity: 0; transform: translate(-4px, -290px) scale(0.75); }
+    }
+    @keyframes flowTwo {
+      0% { opacity: 0; transform: translate(-4px, 0) scale(0.5); }
+      30% { opacity: 0.95; transform: translate(14px, -84px) scale(1.1); }
+      70% { opacity: 0.78; transform: translate(-12px, -196px) scale(0.95); }
+      100% { opacity: 0; transform: translate(6px, -285px) scale(0.7); }
+    }
+    @keyframes flowThree {
+      0% { opacity: 0; transform: translate(2px, 0) scale(0.6); }
+      35% { opacity: 0.92; transform: translate(-16px, -92px) scale(1.0); }
+      75% { opacity: 0.70; transform: translate(10px, -210px) scale(0.92); }
+      100% { opacity: 0; transform: translate(0, -295px) scale(0.68); }
+    }
+
+    /* Control Deck */
+    .control-deck {
+      width: 440px;
+      background: var(--panel-bg);
+      border: 1px solid var(--panel-border);
+      border-radius: 20px;
+      padding: 22px;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+    .deck-title { font-size: 18px; font-weight: 800; }
+    .deck-sub { font-size: 12.5px; color: var(--text-muted); line-height: 1.45; margin-top: 4px; }
+    .control-group { display: flex; flex-direction: column; gap: 8px; }
+    .group-label { font-size: 11.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: #94a3b8; }
+    .btn-grid { display: flex; flex-wrap: wrap; gap: 8px; }
+    button.ctrl-btn {
+      background: #1e293b;
+      color: #e2e8f0;
+      border: 1px solid #334155;
+      border-radius: 10px;
+      padding: 8px 12px;
+      font-size: 12.5px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+    button.ctrl-btn:hover { background: #334155; }
+    button.ctrl-btn.active {
+      background: #ef4444;
+      border-color: #fca5a5;
+      color: #ffffff;
+    }
+    .chat-input-row { display: flex; gap: 8px; }
+    .chat-input-row input {
+      flex: 1;
+      background: #0f172a;
+      border: 1px solid #334155;
+      border-radius: 10px;
+      padding: 8px 12px;
+      color: #f8fafc;
+      font-size: 12.5px;
+    }
+    .telemetry-box {
+      background: #090d16;
+      border: 1px solid #1e293b;
+      border-radius: 10px;
+      padding: 10px 12px;
+      font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+      font-size: 11px;
+      color: #7dd3fc;
+      line-height: 1.45;
+    }
+  </style>
+</head>
+<body>
+  <!-- 9:16 Live Viewport -->
+  <div class="phone-stage-wrap" id="phone-stage" data-platform="douyin">
+    <div class="clean-plate-bg" id="clean-plate-bg">
+      <canvas id="live-plate-canvas" width="390" height="844"></canvas>
+      <video id="custom-video-plate" loop muted playsinline></video>
+      <div class="af-box" id="af-box"><span>[ AF-C · MACRO LOCK ]</span></div>
+    </div>
+
+    <!-- 1v1 PK Split Stage -->
+    <div class="pk-stage-overlay" id="pk-stage">
+      <div class="pk-timer-pill" id="pk-timer">PK · 02:45</div>
+      <div class="pk-split-panes">
+        <div class="pk-pane-left"><span class="pk-host-tag" id="pk-left-name">主播 A</span></div>
+        <div class="pk-pane-right"><span class="pk-host-tag" id="pk-right-name">连麦对面 B</span></div>
+      </div>
+      <div class="pk-bar-track" id="pk-bar-track">
+        <div class="pk-bar-fill-left" id="pk-bar-fill"></div>
+        <span id="pk-score-left">84,210</span>
+        <span id="pk-score-right">79,530</span>
+      </div>
+    </div>
+
+    <!-- Corner PiP Facecam -->
+    <div class="pip-facecam-box" id="pip-box">
+      <canvas id="pip-canvas" width="104" height="138"></canvas>
+    </div>
+
+    <div class="top-scrim" id="top-scrim"></div>
+    <div class="bottom-scrim" id="bottom-scrim"></div>
+
+    <!-- Safe Zone Ruler -->
+    <div class="safe-zone-guides" id="safe-zone-guides">
+      <div class="sz-line" style="top: 149px;">TOP SAFE BOUND (340px / 1920px)</div>
+      <div class="sz-line" style="top: 571px;">BOTTOM COMMENT ZONE (1300px / 1920px)</div>
+    </div>
+
+    <!-- Gift Combo Slots -->
+    <div class="gift-slots-stack" id="gift-slots"></div>
+
+    <!-- Live Shopping Card -->
+    <div class="commerce-popup-card" id="commerce-card">
+      <div class="commerce-live-tag" id="commerce-badge">讲解中</div>
+      <div class="commerce-thumb">🎁</div>
+      <div class="commerce-title" id="commerce-title">1号链接 · 限量盲盒礼盒</div>
+      <div class="commerce-bottom">
+        <span class="commerce-price" id="commerce-price">¥39.9</span>
+        <span class="commerce-cta" id="commerce-cta">抢</span>
+      </div>
+    </div>
+
+    <!-- Instagram Live Q&A Card -->
+    <div class="ig-qa-popup-card" id="ig-qa-card">
+      <div class="ig-qa-head" id="ig-qa-head">Question from @mina.design</div>
+      <div class="ig-qa-body" id="ig-qa-body">这套直播视角是怎么做到完全零乱码弹幕的？</div>
+    </div>
+
+    <!-- Floating Hearts Fountain -->
+    <div class="hearts-fountain" id="hearts-fountain"></div>
+
+    <!-- Main Chrome Layer -->
+    <div class="hud-chrome-layer" id="hud-chrome">
+      <div class="hud-top-area">
+        <div class="hud-header-row">
+          <div class="host-capsule" id="host-capsule">
+            <div class="host-avatar" id="host-avatar">L</div>
+            <div class="host-meta">
+              <span class="host-name" id="host-name">阿泽 Live</span>
+              <span class="host-sub" id="host-likes">本场点赞 12.8万</span>
+            </div>
+            <span class="follow-pill" id="follow-pill">关注</span>
+          </div>
+
+          <div class="header-right">
+            <span class="live-status-pill" id="live-status-pill">LIVE</span>
+            <div class="top-gifters" id="top-gifters">
+              <div class="gifter-dot" style="background:#facc15;color:#0f172a;">1</div>
+              <div class="gifter-dot" style="background:#94a3b8;color:#0f172a;">2</div>
+              <div class="gifter-dot" style="background:#fb923c;color:#0f172a;">3</div>
+            </div>
+            <span class="viewer-count-pill" id="viewer-count-pill">24.8K</span>
+            <span class="close-btn">✕</span>
+          </div>
+        </div>
+
+        <div class="hud-subrank-row" id="subrank-row"></div>
+      </div>
+
+      <div class="hud-bottom-area">
+        <div class="join-ribbon" id="join-ribbon">✨ [钻粉 Lv.16] 星河舰长 来了</div>
+        <div class="chat-feed-stack" id="chat-feed-stack"></div>
+        <div class="bottom-action-bar">
+          <div class="composer-pill" id="composer-placeholder">说点什么…</div>
+          <div class="action-icons" id="action-icons">
+            <div class="circle-icon">🛒</div>
+            <div class="circle-icon">🎁</div>
+            <div class="circle-icon heart-cta">❤️</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Control Panel -->
+  <aside class="control-deck">
+    <div>
+      <h1 class="deck-title">Multi-Platform Livestream HUD Studio</h1>
+      <p class="deck-sub">
+        基于 REA 协议与样式逆向复刻（抖音 / 快手 / Instagram / X / TikTok）。底层放纯净无字 AI 视频，顶层无损叠加高清交互边框、飘屏连击与多色飘心。
+      </p>
+    </div>
+
+    <div class="control-group">
+      <div class="group-label">1. 直播间边框平台预设 (Platform Chrome)</div>
+      <div class="btn-grid" id="platform-buttons">
+        <button class="ctrl-btn active" data-set-platform="douyin">抖音直播间</button>
+        <button class="ctrl-btn" data-set-platform="kuaishou">快手直播间</button>
+        <button class="ctrl-btn" data-set-platform="instagram">Instagram Live</button>
+        <button class="ctrl-btn" data-set-platform="x">X / Periscope</button>
+        <button class="ctrl-btn" data-set-platform="tiktok">TikTok Live</button>
+        <button class="ctrl-btn" data-set-platform="clean">纯净底片 (Clean)</button>
+      </div>
+    </div>
+
+    <div class="control-group">
+      <div class="group-label">2. 交互弹窗与特效触发 (Popups &amp; FX Events)</div>
+      <div class="btn-grid">
+        <button class="ctrl-btn" id="btn-join">✨ 进场 / 点亮红心 / Wave</button>
+        <button class="ctrl-btn" id="btn-gift">🚀 礼物连击飘屏 (+Combo)</button>
+        <button class="ctrl-btn" id="btn-hearts">❤️ 飘心喷泉暴击</button>
+        <button class="ctrl-btn" id="btn-commerce">🛒 切换小黄车商品弹窗</button>
+        <button class="ctrl-btn" id="btn-qa">❓ 切换 Ins 提问置顶卡</button>
+      </div>
+    </div>
+
+    <div class="control-group">
+      <div class="group-label">3. 特殊机位层与安全区标尺 (Rig Overlays)</div>
+      <div class="btn-grid">
+        <button class="ctrl-btn" id="btn-pk">⚔️ 1v1 连麦 PK 分屏血条</button>
+        <button class="ctrl-btn" id="btn-pk-flip">🔥 PK 绝地反杀拉条</button>
+        <button class="ctrl-btn" id="btn-pip">🎮 右上主播画中画 (PiP)</button>
+        <button class="ctrl-btn" id="btn-af">🔍 微距对焦框 [AF-C]</button>
+        <button class="ctrl-btn" id="btn-safezone">📐 1080×1920 安全区线</button>
+      </div>
+    </div>
+
+    <div class="control-group">
+      <div class="group-label">4. 发送实时弹幕 / 连击评论</div>
+      <div class="chat-input-row">
+        <input id="custom-chat-input" type="text" placeholder="输入弹幕内容（例如：卧槽这机位绝了！）" />
+        <button class="ctrl-btn" id="btn-send-chat">发送弹幕</button>
+      </div>
+    </div>
+
+    <div class="control-group">
+      <div class="group-label">5. 纯净底片动态机位预演 / 本地 MP4 / 绿幕抠像</div>
+      <div class="btn-grid">
+        <button class="ctrl-btn active" data-set-scene="studio-irl" id="btn-bg-normal">🎙️ 写实直播台 (24mm)</button>
+        <button class="ctrl-btn" data-set-scene="wuxia-sword">⚔️ 仙侠御剑自拍 (18mm)</button>
+        <button class="ctrl-btn" data-set-scene="roblox-obby">🧱 Roblox 跑酷实况</button>
+        <label class="ctrl-btn" style="display:inline-block;">
+          📂 载入本地 MP4 底片
+          <input type="file" id="video-file-input" accept="video/*" style="display:none;" />
+        </label>
+        <button class="ctrl-btn" id="btn-bg-green">绿幕抠像 (#00FF00)</button>
+        <button class="ctrl-btn" id="btn-bg-checker">透明棋盘格</button>
+      </div>
+    </div>
+
+    <div class="telemetry-box" id="telemetry-box">
+      platform=douyin | safeTop=340px | safeBottom=620px | giftSlots=2 | hearts=bezier-3flow
+    </div>
+  </aside>
+
+  <script src="./live_hud_studio.js"></script>
+</body>
+</html>
