@@ -200,7 +200,7 @@ export function createGithubEvidenceReader(execute = execFileSync) {
       // Probe local help once, so older supported gh versions remain usable.
       if (allowsEscapes === undefined) {
         const help = execute('gh', ['api', '--help'], capture).toString('utf8');
-        allowsEscapes = /(?:^|\s)--allow-escape-sequences(?:\s|$)/.test(help);
+        allowsEscapes = /^[ \t]*--allow-escape-sequences(?:\[=true\|false\])?(?:\s|$)/m.test(help);
       }
       if (allowsEscapes) args.push('--allow-escape-sequences');
     }

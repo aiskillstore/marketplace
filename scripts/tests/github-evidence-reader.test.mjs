@@ -30,6 +30,13 @@ test('new gh captures exact ZIP/log bytes with its documented option, but leaves
   assert.equal(f.calls.filter(c => c.args.includes('--help')).length, 1, 'cache only the local CLI capability');
   assert.equal(f.calls.filter(c => c.args[1] === artifact).length, 1, 'never retry a partial response');
 });
+test('gh 2.104 help documents the boolean value inline', () => {
+  const f = fixture('      --allow-escape-sequences[=true|false]   Allow printing terminal escape sequences\n');
+  assert.deepEqual(f.read(log), bytes);
+  assert.deepEqual(f.read(artifact), bytes);
+  assert.deepEqual(f.read(json), Buffer.from('{"ok":true}'));
+  assert.equal(f.calls.filter(c => c.args.includes('--help')).length, 1);
+});
 test('old gh remains compatible without an unsupported output flag', () => {
   const f = fixture('USAGE\n gh api <endpoint>\nFLAGS\n --silent\n');
   assert.deepEqual(f.read(artifact), bytes);
